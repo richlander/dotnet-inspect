@@ -36,7 +36,7 @@ those House-backed query paths through generated TypeScript declarations.
 PlatformHouse's superseded subject-level documentation contracts are removed.
 The CLI now composes package, direct-Library, and platform reference-pack
 compiled documentation through the same House-backed Queries paths. The
-SourceHouse authored-documentation provider is implemented as a cold,
+SourceHouse authored-documentation operation is implemented as a cold,
 single-use adapter over one pre-authorized exact request. The authored channel,
 field settlement, and remaining legacy retirement remain staged.
 
@@ -217,7 +217,7 @@ The target dependency direction is:
 Library owner -------------------------> exact content and operation authority
 Metadata ------------------------------> exact documentation subject
 CSharpText ----------------------------> owner-issued XML and comment results
-SourceHouse ---------------------------> deferred AuthoredOnly provider
+SourceHouse ---------------------------> deferred AuthoredOnly operation
 
 Package documentation adapter --------> PackageHouse + DocumentationHouse
 Platform documentation adapter -------> PlatformHouse + DocumentationHouse
@@ -229,16 +229,16 @@ CLI / Browser -------------------------> Queries
 ```
 
 DocumentationHouse invokes only a source-neutral deferred authored-
-documentation provider after the operation reaches the source stage. The
-SourceHouse integration assembly implements that provider over one
-pre-authorized exact `AuthoredOnly` request and plan. DocumentationHouse never
-references SourceHouse types, chooses PDB policy, or widens source
-authorization. SourceHouse does not reference DocumentationHouse. PackageHouse
-and PlatformHouse likewise do not call DocumentationHouse; integration
-assemblies above both owners bind their resource-free evidence to exact shared
-Library content references in the source-neutral House contribution contract.
-Live content access comes only from the transferred Library operation lease.
-This keeps every dependency acyclic and avoids
+documentation operation after the operation reaches the source stage. The
+SourceHouse integration assembly implements the adapter that creates that
+operation over one pre-authorized exact `AuthoredOnly` request and plan.
+DocumentationHouse never references SourceHouse types, chooses PDB policy, or
+widens source authorization. SourceHouse does not reference DocumentationHouse.
+PackageHouse and PlatformHouse likewise do not call DocumentationHouse;
+integration assemblies above both owners bind their resource-free evidence to
+exact shared Library content references in the source-neutral House
+contribution contract. Live content access comes only from the transferred
+Library operation lease. This keeps every dependency acyclic and avoids
 `PackageHouse -> DocumentationHouse -> PackageHouse` and equivalent platform
 and source cycles.
 
@@ -250,13 +250,13 @@ owner's original receipt separately; the source-neutral contribution carries
 an opaque owner-issued evidence reference, not a concrete PackageHouse,
 PlatformHouse, SourceHouse, or Workspace type.
 
-The deferred provider is a source-neutral consuming operation, not a
+The deferred operation is a source-neutral consuming operation, not a
 SourceHouse result or evidence that authored documentation is available. It is
 cold: construction performs no SourceHouse, Library, filesystem, repository,
 content-store, or network work, starts no background task, and retains no
 Library operation lease. Invocation receives the lease by ownership transfer
-only when DocumentationHouse reaches the authored stage. The provider becomes
-the sole lease owner on acceptance. It settles every provider-local rejection,
+only when DocumentationHouse reaches the authored stage. The operation becomes
+the sole lease owner on acceptance. It settles every operation-local rejection,
 failure, cancellation, or incomplete path before SourceHouse accepts the
 lease, or transfers the lease onward once to SourceHouse as the final Library
 consumer.
@@ -382,7 +382,7 @@ Compiled XML is always the cheap first stage. Its content reference names
 already-realized local or in-memory content, and the attempt performs no
 acquisition or network work. For combined demand, DocumentationHouse completes
 the compiled-XML attempt and ends every Library borrow before invoking the
-deferred authored provider. It does not start both effects concurrently.
+deferred authored operation. It does not start both effects concurrently.
 
 The sequence does not short-circuit the explicitly requested authored attempt
 when XML is available. Consumers that need only the inexpensive result request
@@ -394,7 +394,7 @@ not a reinterpretation of the combined demand.
 The immutable plan contains only capabilities authorized for this operation:
 
 - resource-free compiled-XML selection and source evidence;
-- an optional source-neutral deferred authored-documentation provider bound by
+- an optional source-neutral deferred authored-documentation operation bound by
   its adapter to one exact pre-authorized SourceHouse `AuthoredOnly` request and
   operation plan;
 - XML, source-document, character, candidate, field, and deadline limits;
@@ -402,22 +402,22 @@ The immutable plan contains only capabilities authorized for this operation:
 - caller cancellation.
 
 The transferred Library lease is a separate consuming input, not a hidden plan
-capability. It does not prove an XML entry exists. A deferred provider does not
+capability. It does not prove an XML entry exists. A deferred operation does not
 prove SourceHouse will produce authored source or that documentation is
 attached to its mapped declaration. DocumentationHouse never turns
 availability of a desktop filesystem, HTTP client, SourceHouse service, PDB, or
 source path into authorization. The source integration adapter captures the
 caller-authorized SourceHouse request, PDB policy, acquisition capabilities,
-bounds, and policy generation before constructing the provider.
+bounds, and policy generation before constructing the operation.
 
-The provider is single-invocation. When the House reaches the authored stage,
+The operation is single-invocation. When the House reaches the authored stage,
 invocation passes the exact `LibraryReference`, selected implementation content
 reference, current DocumentationHouse operation identity, remaining
 source/document/character/deadline ledger, and caller cancellation, and
 transfers ownership of the matching Library operation lease. Acceptance is the
 linearized ownership boundary: DocumentationHouse no longer owns the lease, and
-the provider must settle it on every path unless SourceHouse accepts a single
-onward transfer. The provider cannot spend work before invocation, exceed the
+the operation must settle it on every path unless SourceHouse accepts a single
+onward transfer. The operation cannot spend work before invocation, exceed the
 remaining House limits, or publish a result for a different operation.
 SourceHouse settles the lease when it accepts ownership and returns
 resource-free settlement evidence before the adapter extracts documentation
@@ -430,12 +430,12 @@ Operation ordering is closed:
 2. for `CompiledXml` or combined demand, settle compiled XML through
    synchronous Library snapshots;
 3. for `AuthoredSourceDocumentation` alone, transfer the lease into the
-   deferred provider immediately after validation;
+   deferred operation immediately after validation;
 4. for combined demand, transfer the lease only after the compiled attempt
    reaches its terminal state and every Library borrow has ended;
-5. require the provider to settle every pre-SourceHouse terminal path or
+5. require the operation to settle every pre-SourceHouse terminal path or
    transfer the lease onward once to SourceHouse;
-6. perform no Library access in DocumentationHouse after provider acceptance;
+6. perform no Library access in DocumentationHouse after operation acceptance;
    and
 7. compose the retained channel attempts and field evidence from detached
    results.
@@ -449,9 +449,9 @@ Library inputs were accepted; the independent authored attempt still runs.
 A request-level rejection means the subject, exact Library, selected API
 content, operation lease, or required owner-issued correspondence is invalid.
 It prevents all channel work and settles the lease in DocumentationHouse.
-Provider unavailability before invocation becomes an authored
+Operation unavailability before invocation becomes an authored
 **Unavailable** attempt and also leaves DocumentationHouse responsible for
-settlement. After provider acceptance, the provider owns every pre-SourceHouse
+settlement. After operation acceptance, the operation owns every pre-SourceHouse
 terminal path and SourceHouse owns every path after its acceptance;
 DocumentationHouse cannot reuse or release the moved lease.
 
@@ -537,19 +537,19 @@ does not invoke LibraryMetadata or DocumentationHouse.
 ## Authored-source documentation contribution
 
 Authored-source documentation starts with one exact implementation target and
-content reference and one deferred source-neutral provider bound to the exact
+content reference and one deferred source-neutral operation bound to the exact
 `LibraryReference`, a matching SourceHouse `AuthoredOnly` request, and its
 operation plan. When invoked, DocumentationHouse transfers the Library
-operation lease into the provider. The provider requests that exact SourceHouse
-operation and returns a detached authored-documentation contribution,
+operation lease into the operation. The operation invokes that exact
+SourceHouse request and returns a detached authored-documentation contribution,
 resource-free lease-settlement evidence, or its typed non-success. Decompiled
 C# is never a documentation producer.
 
-Provider acceptance transfers ownership even when the later SourceHouse call
-cannot start. The provider settles the lease itself on binding rejection,
+Operation acceptance transfers ownership even when the later SourceHouse call
+cannot start. The operation settles the lease itself on binding rejection,
 failure, cancellation, or incomplete work before SourceHouse accepts it. Once
 SourceHouse accepts the lease, SourceHouse is the sole owner and final Library
-consumer; the provider performs only detached CSharpText work afterward.
+consumer; the operation performs only detached CSharpText work afterward.
 
 SourceHouse owns:
 
@@ -561,7 +561,7 @@ SourceHouse owns:
 - source-unit scope and partiality; and
 - the authored-source attempt and receipt.
 
-Before invocation, the provider binding is eligible only when its exact
+Before invocation, the operation binding is eligible only when its exact
 `LibraryReference`, implementation content reference, implementation target,
 SourceHouse policy generation, PDB-access policy, request identity, and
 operation-plan identity match the DocumentationHouse request and plan.
@@ -581,20 +581,21 @@ declaration mechanics, attached-comment grammar, limits, and uncertainty. This
 design neither requires a particular CSharpText implementation nor redefines
 its outcomes.
 
-`SourceHouseDocumentationProvider` implements this boundary in
-`DotnetInspector.DocumentationHouse.Source`. Its construction validates and
+`SourceHouseDocumentationHouseAdapter` implements this boundary in
+`DotnetInspector.DocumentationHouse.Source`. It creates one deferred
+source-neutral operation whose construction validates and
 retains only the stable DocumentationHouse binding and one pre-authorized
 SourceHouse request; it performs no source or Library work. Its single
 invocation validates the exact binding, Library operation lease, remaining
 source/document limits, and deadline before transferring the lease once to
-SourceHouse. Provider-local exits settle the lease locally. After transfer,
+SourceHouse. Operation-local exits settle the lease locally. After transfer,
 the adapter accepts only the exact SourceHouse request and receipt evidence,
 uses the complete decoded physical document plus the #6584 exact declaration
 span, and invokes `CSharpAuthoredDocumentation`. Its terminal outcomes retain
 the CSharpText result, bounded work, opaque source/declaration evidence
 references when available, and the final lease consumer without retaining
 SourceHouse types or live authority. DocumentationHouse core does not invoke
-this provider until slice 18 adds authored demand and channel settlement.
+this operation until slice 18 adds authored demand and channel settlement.
 
 DocumentationHouse consumes the returned owner-issued evidence and preserves
 it with the SourceHouse receipt. It does not upgrade filename inference,
@@ -697,7 +698,7 @@ The resource-free receipt binds:
 - every channel attempt and field provenance or conflict;
 - completion and charged work; and
 - the final Library-lease consumer and resource-free settlement evidence,
-  distinguishing DocumentationHouse, provider-local, and SourceHouse
+  distinguishing DocumentationHouse, operation-local, and SourceHouse
   settlement.
 
 The receipt carries no credentials, paths as identity, mutable buffers, live
@@ -720,11 +721,11 @@ DocumentationHouse follows
   callback returns;
 - compiled-only settlement and every pre-transfer terminal path settle the
   lease in DocumentationHouse;
-- authored settlement transfers the lease to the provider, which settles every
+- authored settlement transfers the lease to the operation, which settles every
   pre-SourceHouse terminal path or transfers it onward once to SourceHouse as
   the final consumer;
-- DocumentationHouse performs no Library access after provider acceptance, and
-  the provider performs no Library access after SourceHouse acceptance;
+- DocumentationHouse performs no Library access after operation acceptance, and
+  the operation performs no Library access after SourceHouse acceptance;
 - owner retirement after issuance does not invalidate the lease, while
   retirement before issuance prevents the operation from starting;
 - a completed resource-free receipt cannot reopen content; and
@@ -756,7 +757,7 @@ Metadata subject contracts / CSharpText result contracts
                |
                v
 DotnetInspector.DocumentationHouse.Contracts
-  - source-neutral request, deferred-provider, resource-free contribution,
+  - source-neutral request, deferred-operation, resource-free contribution,
     result, and receipt shapes
   - opaque source references; no PackageHouse, PlatformHouse, SourceHouse,
     direct-library, or Workspace types
@@ -774,7 +775,7 @@ DotnetInspector.DocumentationHouse.Platform
 DotnetInspector.DocumentationHouse.Source
   -> SourceHouse contracts + Library contracts + CSharpText operation
      + DocumentationHouse contracts
-  - implements the deferred provider without exposing SourceHouse types
+  - implements the deferred operation without exposing SourceHouse types
 
 DotnetInspector.DocumentationHouse.Direct
   -> direct Library composition + DocumentationHouse contracts
@@ -797,7 +798,7 @@ Workspace do not depend on DocumentationHouse contracts or implementation.
 Integration assemblies depend toward both the source owner and the
 source-neutral DocumentationHouse floor and cannot change either owner's
 evidence. The DocumentationHouse core does not reference an integration
-assembly; it invokes only the source-neutral deferred-provider contract and
+assembly; it invokes only the source-neutral deferred-operation contract and
 passes the Library lease to it solely by consuming invocation. Queries and
 hosts compose the applicable adapter above both owners, capture explicit
 authorization, obtain one exact Library operation lease, and transfer it before
@@ -883,7 +884,7 @@ not open a same-named XML entry or reacquire the requested package.
 Retirement before lease issuance prevents DocumentationHouse from starting.
 Retirement after issuance preserves the in-flight lease. The House completes
 its compiled XML snapshot and either settles the lease or transfers it to the
-provider. The provider then settles it or transfers it once to SourceHouse
+operation. The operation then settles it or transfers it once to SourceHouse
 while the Library owner drains.
 
 ### Reference XML and implementation source
@@ -899,8 +900,8 @@ distinct terminal reference and implementation suppliers.
 ### XML is absent and authored source is available
 
 The exact package companion is authoritatively absent. The caller separately
-authorized an `AuthoredOnly` SourceHouse plan through the deferred provider.
-DocumentationHouse records XML absence, then invokes the provider and retains
+authorized an `AuthoredOnly` SourceHouse plan through the deferred operation.
+DocumentationHouse records XML absence, then invokes the operation and retains
 the available authored documentation.
 
 ### Documentation fields disagree
@@ -1025,8 +1026,8 @@ Implementation and adoption slices own these Release gates:
 | --- | --- |
 | Library-scoped subject | Equal XML IDs in two assemblies cannot cross-satisfy one request. |
 | Library correspondence | A foreign Library reference, selected content reference, or operation lease rejects before parsing. |
-| Explicit authorization | No SourceHouse, source/PDB discovery or acquisition, repository, content-store, or network work occurs without authored demand and a pre-authorized deferred provider. Snapshots of already-realized XML require compiled demand and the transferred Library lease. |
-| Cheap-first ordering | Provider construction starts no source work; combined demand reaches a terminal detached compiled-XML attempt and ends every borrow before the provider receives the lease once, and XML availability does not suppress the requested source attempt. |
+| Explicit authorization | No SourceHouse, source/PDB discovery or acquisition, repository, content-store, or network work occurs without authored demand and a pre-authorized deferred operation. Snapshots of already-realized XML require compiled demand and the transferred Library lease. |
+| Cheap-first ordering | Operation construction starts no source work; combined demand reaches a terminal detached compiled-XML attempt and ends every borrow before the operation receives the lease once, and XML availability does not suppress the requested source attempt. |
 | Exact XML lookup | Compiled XML uses the Metadata-issued compiler ID and associated contribution. |
 | Bounded repeated lookup | A multi-subject request scans each selected compiled-XML companion once per matching read policy, retains only that policy's requested exact IDs under independent per-request retained-text budgets, rechecks the latest matching request deadline between snapshot and parse, and reports actual parsing work once. |
 | Authoritative absence | XML absence requires complete readable companion evidence for the exact subject. |
@@ -1035,7 +1036,7 @@ Implementation and adoption slices own these Release gates:
 | Declaration correspondence | The owner-issued CSharpText gate from #6583 returns attached documentation or visible uncertainty without name-based fallback; DocumentationHouse preserves that result. |
 | Field provenance | Filled, corroborated, and conflicting fields retain every contributing value and origin. |
 | Visible failure | Malformed or over-budget XML/comment content never becomes an empty or plain-text success. |
-| Resource lifetime | Success, rejection, failure, incompleteness, and cancellation name exactly one current lease owner; the provider settles pre-SourceHouse exits or transfers once to SourceHouse, and no prior owner accesses the Library after transfer. |
+| Resource lifetime | Success, rejection, failure, incompleteness, and cancellation name exactly one current lease owner; the operation settles pre-SourceHouse exits or transfers once to SourceHouse, and no prior owner accesses the Library after transfer. |
 | Owner retirement | Issuance after retirement fails visibly; retirement after issuance drains without invalidating DocumentationHouse or SourceHouse use. |
 | Browser portability | In-memory package and platform content requires no filesystem path. |
 | Host parity | Representative CLI and Browser requests produce equivalent House demand and settlement. |
@@ -1056,10 +1057,10 @@ later live matching request may authorize the shared parse and that the
 request performing it retains the sole parse and byte charge even when its own
 terminal attempt is deadline-incomplete.
 
-`AuthoredSourceDocumentationProviderTests` gates the SourceHouse integration
+`AuthoredSourceDocumentationAdapterTests` gates the SourceHouse integration
 over a real direct C# build of `CSharpText.MemberSlicing`. It demonstrates that
 the exact physical declaration for `MemberTextSlicer.ExtractMemberText`
-produces parsed authored documentation, provider construction starts no source
+produces parsed authored documentation, operation construction starts no source
 work, and SourceHouse is the sole final lease consumer after transfer.
 Neighboring gates prove that a foreign DocumentationHouse binding and an
 API-only content from a Library with distinct API and implementation
@@ -1069,7 +1070,7 @@ cancellation settles without source work; a second invocation performs no
 additional work and settles its newly supplied lease; and checksum-valid PDB
 source without the #6584 physical-input identity remains unavailable without
 reaching CSharpText. The existing public-outcome closure gate includes the
-authored provider contracts and proves that completed outcomes retain no lease,
+authored operation contracts and proves that completed outcomes retain no lease,
 content owner, stream, delegate, or disposable authority. Per the operator's
 issue #8017 evidence choice, this slice adds no repository-wide
 source-dependency absence rule; project references establish the intended
@@ -1177,7 +1178,7 @@ This design does not:
 - create a global XML-documentation-ID namespace;
 - infer package, platform, assembly, or source identity from a file name;
 - implement package, platform, assembly, PDB, source-document, or network
-  acquisition; a pre-authorized deferred provider may perform SourceHouse work
+  acquisition; a pre-authorized deferred operation may perform SourceHouse work
   under its owning policy;
 - redefine PackageHouse, PlatformHouse, SourceHouse, Metadata, SourceLink,
   CSharpText, artifact, or resource-owner internals;

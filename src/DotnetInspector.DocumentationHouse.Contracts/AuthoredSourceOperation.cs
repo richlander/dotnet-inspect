@@ -3,9 +3,9 @@ using DotnetInspector.Libraries;
 
 namespace DotnetInspector.DocumentationHouse;
 
-public sealed class DocumentationAuthoredProviderBinding
+public sealed class DocumentationAuthoredSourceOperationBinding
 {
-    public DocumentationAuthoredProviderBinding(
+    public DocumentationAuthoredSourceOperationBinding(
         DocumentationHouseRequestIdentity request,
         DocumentationHouseOperationPlanIdentity operationPlan,
         DocumentationHousePolicyGeneration policyGeneration,
@@ -41,9 +41,9 @@ public sealed class DocumentationAuthoredProviderBinding
     public LibraryContentReference ImplementationContent { get; }
 }
 
-public sealed class DocumentationAuthoredProviderLimits
+public sealed class DocumentationAuthoredSourceOperationLimits
 {
-    public DocumentationAuthoredProviderLimits(
+    public DocumentationAuthoredSourceOperationLimits(
         int maximumSourceDocuments,
         int maximumSourceBytes,
         CSharpAuthoredDocumentationLimits documentation)
@@ -90,11 +90,11 @@ public sealed class DocumentationAuthoredProviderLimits
     }
 }
 
-public sealed class DocumentationAuthoredProviderInvocation
+public sealed class DocumentationAuthoredSourceOperationInvocation
 {
-    public DocumentationAuthoredProviderInvocation(
-        DocumentationAuthoredProviderBinding binding,
-        DocumentationAuthoredProviderLimits remainingLimits,
+    public DocumentationAuthoredSourceOperationInvocation(
+        DocumentationAuthoredSourceOperationBinding binding,
+        DocumentationAuthoredSourceOperationLimits remainingLimits,
         DateTimeOffset deadline)
     {
         ArgumentNullException.ThrowIfNull(binding);
@@ -112,15 +112,15 @@ public sealed class DocumentationAuthoredProviderInvocation
         Deadline = deadline;
     }
 
-    public DocumentationAuthoredProviderBinding Binding { get; }
-    public DocumentationAuthoredProviderLimits RemainingLimits { get; }
+    public DocumentationAuthoredSourceOperationBinding Binding { get; }
+    public DocumentationAuthoredSourceOperationLimits RemainingLimits { get; }
     public DateTimeOffset Deadline { get; }
 }
 
-public interface IDocumentationAuthoredSourceProvider
+public interface IDocumentationAuthoredSourceOperation
 {
-    ValueTask<DocumentationAuthoredProviderOutcome> InvokeAsync(
-        DocumentationAuthoredProviderInvocation invocation,
+    ValueTask<DocumentationAuthoredSourceOperationOutcome> InvokeAsync(
+        DocumentationAuthoredSourceOperationInvocation invocation,
         LibraryOperationLease operationLease,
         CancellationToken cancellationToken = default);
 }
@@ -139,7 +139,7 @@ public abstract class DocumentationPhysicalDeclarationEvidenceReference
     }
 }
 
-public sealed record DocumentationAuthoredProviderEvidence(
+public sealed record DocumentationAuthoredSourceOperationEvidence(
     DocumentationSourceReference Source,
     DocumentationAuthoredSourceEvidenceReference AuthoredSource,
     DocumentationPhysicalDeclarationEvidenceReference PhysicalDeclaration);
@@ -147,8 +147,8 @@ public sealed record DocumentationAuthoredProviderEvidence(
 public sealed class DocumentationAuthoredSourceContribution
 {
     public DocumentationAuthoredSourceContribution(
-        DocumentationAuthoredProviderBinding binding,
-        DocumentationAuthoredProviderEvidence evidence,
+        DocumentationAuthoredSourceOperationBinding binding,
+        DocumentationAuthoredSourceOperationEvidence evidence,
         CSharpAuthoredDocumentationOutcome documentation)
     {
         ArgumentNullException.ThrowIfNull(binding);
@@ -168,12 +168,12 @@ public sealed class DocumentationAuthoredSourceContribution
         Documentation = documentation;
     }
 
-    public DocumentationAuthoredProviderBinding Binding { get; }
-    public DocumentationAuthoredProviderEvidence Evidence { get; }
+    public DocumentationAuthoredSourceOperationBinding Binding { get; }
+    public DocumentationAuthoredSourceOperationEvidence Evidence { get; }
     public CSharpAuthoredDocumentationOutcome Documentation { get; }
 }
 
-public enum DocumentationAuthoredProviderOutcomeKind
+public enum DocumentationAuthoredSourceOperationOutcomeKind
 {
     Produced,
     Unavailable,
@@ -220,11 +220,11 @@ public enum DocumentationAuthoredIncompleteBoundary
     Documentation,
 }
 
-public sealed record DocumentationAuthoredProviderObservation
+public sealed record DocumentationAuthoredSourceOperationObservation
 {
     public const int MaximumDetailCharacters = 4_096;
 
-    public DocumentationAuthoredProviderObservation(
+    public DocumentationAuthoredSourceOperationObservation(
         string code,
         string? detail = null)
     {
@@ -243,7 +243,7 @@ public sealed record DocumentationAuthoredProviderObservation
     public bool DetailWasTruncated { get; }
 }
 
-public sealed record DocumentationAuthoredProviderWorkCharge(
+public sealed record DocumentationAuthoredSourceOperationWorkCharge(
     long SourceBytesObserved,
     long SourceTextCharactersObserved,
     int SourceDocumentsObserved,
@@ -252,53 +252,53 @@ public sealed record DocumentationAuthoredProviderWorkCharge(
 
 public enum DocumentationAuthoredLeaseConsumer
 {
-    Provider,
+    Operation,
     SourceHouse,
 }
 
 public sealed record DocumentationAuthoredLeaseSettlement(
     DocumentationAuthoredLeaseConsumer Consumer);
 
-public sealed class DocumentationAuthoredProviderReceiptIdentity
+public sealed class DocumentationAuthoredSourceOperationReceiptIdentity
 {
-    internal DocumentationAuthoredProviderReceiptIdentity()
+    internal DocumentationAuthoredSourceOperationReceiptIdentity()
     {
     }
 
     public override string ToString() =>
-        nameof(DocumentationAuthoredProviderReceiptIdentity);
+        nameof(DocumentationAuthoredSourceOperationReceiptIdentity);
 }
 
-public sealed class DocumentationAuthoredProviderReceipt
+public sealed class DocumentationAuthoredSourceOperationReceipt
 {
-    internal DocumentationAuthoredProviderReceipt(
-        DocumentationAuthoredProviderInvocation invocation,
-        DocumentationAuthoredProviderWorkCharge work,
+    internal DocumentationAuthoredSourceOperationReceipt(
+        DocumentationAuthoredSourceOperationInvocation invocation,
+        DocumentationAuthoredSourceOperationWorkCharge work,
         DocumentationAuthoredLeaseSettlement leaseSettlement,
-        DocumentationAuthoredProviderEvidence? evidence)
+        DocumentationAuthoredSourceOperationEvidence? evidence)
     {
-        Identity = new DocumentationAuthoredProviderReceiptIdentity();
+        Identity = new DocumentationAuthoredSourceOperationReceiptIdentity();
         Invocation = invocation;
         Work = work;
         LeaseSettlement = leaseSettlement;
         Evidence = evidence;
     }
 
-    public DocumentationAuthoredProviderReceiptIdentity Identity { get; }
-    public DocumentationAuthoredProviderInvocation Invocation { get; }
-    public DocumentationAuthoredProviderWorkCharge Work { get; }
+    public DocumentationAuthoredSourceOperationReceiptIdentity Identity { get; }
+    public DocumentationAuthoredSourceOperationInvocation Invocation { get; }
+    public DocumentationAuthoredSourceOperationWorkCharge Work { get; }
     public DocumentationAuthoredLeaseSettlement LeaseSettlement { get; }
-    public DocumentationAuthoredProviderEvidence? Evidence { get; }
+    public DocumentationAuthoredSourceOperationEvidence? Evidence { get; }
 }
 
-public abstract class DocumentationAuthoredProviderOutcome
+public abstract class DocumentationAuthoredSourceOperationOutcome
 {
-    private protected DocumentationAuthoredProviderOutcome(
-        DocumentationAuthoredProviderOutcomeKind kind,
-        DocumentationAuthoredProviderInvocation invocation,
-        DocumentationAuthoredProviderWorkCharge work,
+    private protected DocumentationAuthoredSourceOperationOutcome(
+        DocumentationAuthoredSourceOperationOutcomeKind kind,
+        DocumentationAuthoredSourceOperationInvocation invocation,
+        DocumentationAuthoredSourceOperationWorkCharge work,
         DocumentationAuthoredLeaseSettlement leaseSettlement,
-        DocumentationAuthoredProviderEvidence? evidence)
+        DocumentationAuthoredSourceOperationEvidence? evidence)
     {
         Kind = kind;
         Invocation = invocation;
@@ -312,22 +312,22 @@ public abstract class DocumentationAuthoredProviderOutcome
             evidence);
     }
 
-    public DocumentationAuthoredProviderOutcomeKind Kind { get; }
-    public DocumentationAuthoredProviderInvocation Invocation { get; }
-    public DocumentationAuthoredProviderWorkCharge Work { get; }
+    public DocumentationAuthoredSourceOperationOutcomeKind Kind { get; }
+    public DocumentationAuthoredSourceOperationInvocation Invocation { get; }
+    public DocumentationAuthoredSourceOperationWorkCharge Work { get; }
     public DocumentationAuthoredLeaseSettlement LeaseSettlement { get; }
-    public DocumentationAuthoredProviderEvidence? Evidence { get; }
-    public DocumentationAuthoredProviderReceipt Receipt { get; }
+    public DocumentationAuthoredSourceOperationEvidence? Evidence { get; }
+    public DocumentationAuthoredSourceOperationReceipt Receipt { get; }
 
-    public sealed class Produced : DocumentationAuthoredProviderOutcome
+    public sealed class Produced : DocumentationAuthoredSourceOperationOutcome
     {
         public Produced(
-            DocumentationAuthoredProviderInvocation invocation,
+            DocumentationAuthoredSourceOperationInvocation invocation,
             DocumentationAuthoredSourceContribution contribution,
-            DocumentationAuthoredProviderWorkCharge work,
+            DocumentationAuthoredSourceOperationWorkCharge work,
             DocumentationAuthoredLeaseSettlement leaseSettlement)
             : base(
-                DocumentationAuthoredProviderOutcomeKind.Produced,
+                DocumentationAuthoredSourceOperationOutcomeKind.Produced,
                 invocation,
                 work,
                 leaseSettlement,
@@ -339,18 +339,18 @@ public abstract class DocumentationAuthoredProviderOutcome
         public DocumentationAuthoredSourceContribution Contribution { get; }
     }
 
-    public sealed class Unavailable : DocumentationAuthoredProviderOutcome
+    public sealed class Unavailable : DocumentationAuthoredSourceOperationOutcome
     {
         public Unavailable(
-            DocumentationAuthoredProviderInvocation invocation,
+            DocumentationAuthoredSourceOperationInvocation invocation,
             DocumentationAuthoredUnavailableKind unavailable,
-            DocumentationAuthoredProviderWorkCharge work,
+            DocumentationAuthoredSourceOperationWorkCharge work,
             DocumentationAuthoredLeaseSettlement leaseSettlement,
-            DocumentationAuthoredProviderObservation? observation = null,
-            DocumentationAuthoredProviderEvidence? evidence = null,
+            DocumentationAuthoredSourceOperationObservation? observation = null,
+            DocumentationAuthoredSourceOperationEvidence? evidence = null,
             CSharpAuthoredDocumentationOutcome? documentation = null)
             : base(
-                DocumentationAuthoredProviderOutcomeKind.Unavailable,
+                DocumentationAuthoredSourceOperationOutcomeKind.Unavailable,
                 invocation,
                 work,
                 leaseSettlement,
@@ -362,20 +362,20 @@ public abstract class DocumentationAuthoredProviderOutcome
         }
 
         public DocumentationAuthoredUnavailableKind UnavailableKind { get; }
-        public DocumentationAuthoredProviderObservation? Observation { get; }
+        public DocumentationAuthoredSourceOperationObservation? Observation { get; }
         public CSharpAuthoredDocumentationOutcome? Documentation { get; }
     }
 
-    public sealed class Rejected : DocumentationAuthoredProviderOutcome
+    public sealed class Rejected : DocumentationAuthoredSourceOperationOutcome
     {
         public Rejected(
-            DocumentationAuthoredProviderInvocation invocation,
+            DocumentationAuthoredSourceOperationInvocation invocation,
             DocumentationAuthoredRejectionKind rejection,
-            DocumentationAuthoredProviderWorkCharge work,
+            DocumentationAuthoredSourceOperationWorkCharge work,
             DocumentationAuthoredLeaseSettlement leaseSettlement,
-            DocumentationAuthoredProviderObservation? observation = null)
+            DocumentationAuthoredSourceOperationObservation? observation = null)
             : base(
-                DocumentationAuthoredProviderOutcomeKind.Rejected,
+                DocumentationAuthoredSourceOperationOutcomeKind.Rejected,
                 invocation,
                 work,
                 leaseSettlement,
@@ -386,21 +386,21 @@ public abstract class DocumentationAuthoredProviderOutcome
         }
 
         public DocumentationAuthoredRejectionKind Rejection { get; }
-        public DocumentationAuthoredProviderObservation? Observation { get; }
+        public DocumentationAuthoredSourceOperationObservation? Observation { get; }
     }
 
-    public sealed class Failed : DocumentationAuthoredProviderOutcome
+    public sealed class Failed : DocumentationAuthoredSourceOperationOutcome
     {
         public Failed(
-            DocumentationAuthoredProviderInvocation invocation,
+            DocumentationAuthoredSourceOperationInvocation invocation,
             DocumentationAuthoredFailureKind failure,
-            DocumentationAuthoredProviderWorkCharge work,
+            DocumentationAuthoredSourceOperationWorkCharge work,
             DocumentationAuthoredLeaseSettlement leaseSettlement,
-            DocumentationAuthoredProviderObservation? observation = null,
-            DocumentationAuthoredProviderEvidence? evidence = null,
+            DocumentationAuthoredSourceOperationObservation? observation = null,
+            DocumentationAuthoredSourceOperationEvidence? evidence = null,
             CSharpAuthoredDocumentationOutcome? documentation = null)
             : base(
-                DocumentationAuthoredProviderOutcomeKind.Failed,
+                DocumentationAuthoredSourceOperationOutcomeKind.Failed,
                 invocation,
                 work,
                 leaseSettlement,
@@ -412,22 +412,22 @@ public abstract class DocumentationAuthoredProviderOutcome
         }
 
         public DocumentationAuthoredFailureKind Failure { get; }
-        public DocumentationAuthoredProviderObservation? Observation { get; }
+        public DocumentationAuthoredSourceOperationObservation? Observation { get; }
         public CSharpAuthoredDocumentationOutcome? Documentation { get; }
     }
 
-    public sealed class Incomplete : DocumentationAuthoredProviderOutcome
+    public sealed class Incomplete : DocumentationAuthoredSourceOperationOutcome
     {
         public Incomplete(
-            DocumentationAuthoredProviderInvocation invocation,
+            DocumentationAuthoredSourceOperationInvocation invocation,
             DocumentationAuthoredIncompleteBoundary boundary,
-            DocumentationAuthoredProviderWorkCharge work,
+            DocumentationAuthoredSourceOperationWorkCharge work,
             DocumentationAuthoredLeaseSettlement leaseSettlement,
-            DocumentationAuthoredProviderObservation? observation = null,
-            DocumentationAuthoredProviderEvidence? evidence = null,
+            DocumentationAuthoredSourceOperationObservation? observation = null,
+            DocumentationAuthoredSourceOperationEvidence? evidence = null,
             CSharpAuthoredDocumentationOutcome? documentation = null)
             : base(
-                DocumentationAuthoredProviderOutcomeKind.Incomplete,
+                DocumentationAuthoredSourceOperationOutcomeKind.Incomplete,
                 invocation,
                 work,
                 leaseSettlement,
@@ -439,7 +439,7 @@ public abstract class DocumentationAuthoredProviderOutcome
         }
 
         public DocumentationAuthoredIncompleteBoundary Boundary { get; }
-        public DocumentationAuthoredProviderObservation? Observation { get; }
+        public DocumentationAuthoredSourceOperationObservation? Observation { get; }
         public CSharpAuthoredDocumentationOutcome? Documentation { get; }
     }
 }

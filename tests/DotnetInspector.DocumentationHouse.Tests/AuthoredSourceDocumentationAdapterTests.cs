@@ -27,17 +27,18 @@ public sealed partial class CompiledXmlDocumentationHouseTests
                 attestation.PortablePdbImage.ToArray());
         AuthoredScenario scenario =
             AuthoredScenario.Create(library, capability);
-        var provider = new SourceHouseDocumentationProvider(
-            scenario.Binding,
-            scenario.SourceRequest);
+        IDocumentationAuthoredSourceOperation authoredOperation =
+            SourceHouseDocumentationHouseAdapter.CreateOperation(
+                scenario.Binding,
+                scenario.SourceRequest);
 
         Assert.Equal(0, capability.SourceReads);
         Assert.Equal(0, capability.AttestationReads);
         LibraryOperationLease operation = library.IssueOperation();
-        DocumentationAuthoredProviderOutcome.Produced produced =
+        DocumentationAuthoredSourceOperationOutcome.Produced produced =
             Assert.IsType<
-                DocumentationAuthoredProviderOutcome.Produced>(
-                await provider.InvokeAsync(
+                DocumentationAuthoredSourceOperationOutcome.Produced>(
+                await authoredOperation.InvokeAsync(
                     scenario.Invocation,
                     operation,
                     TestContext.Current.CancellationToken));
@@ -73,10 +74,10 @@ public sealed partial class CompiledXmlDocumentationHouseTests
 
         LibraryOperationLease repeatedOperation =
             library.IssueOperation();
-        DocumentationAuthoredProviderOutcome.Rejected repeated =
+        DocumentationAuthoredSourceOperationOutcome.Rejected repeated =
             Assert.IsType<
-                DocumentationAuthoredProviderOutcome.Rejected>(
-                await provider.InvokeAsync(
+                DocumentationAuthoredSourceOperationOutcome.Rejected>(
+                await authoredOperation.InvokeAsync(
                     scenario.Invocation,
                     repeatedOperation,
                     TestContext.Current.CancellationToken));
@@ -84,7 +85,7 @@ public sealed partial class CompiledXmlDocumentationHouseTests
             DocumentationAuthoredRejectionKind.AlreadyInvoked,
             repeated.Rejection);
         Assert.Equal(
-            DocumentationAuthoredLeaseConsumer.Provider,
+            DocumentationAuthoredLeaseConsumer.Operation,
             repeated.LeaseSettlement.Consumer);
         Assert.Equal(1, capability.SourceReads);
         Assert.Equal(1, capability.AttestationReads);
@@ -105,10 +106,11 @@ public sealed partial class CompiledXmlDocumentationHouseTests
                 attestation.PortablePdbImage.ToArray());
         AuthoredScenario scenario =
             AuthoredScenario.Create(library, capability);
-        var provider = new SourceHouseDocumentationProvider(
-            scenario.Binding,
-            scenario.SourceRequest);
-        var foreignBinding = new DocumentationAuthoredProviderBinding(
+        IDocumentationAuthoredSourceOperation authoredOperation =
+            SourceHouseDocumentationHouseAdapter.CreateOperation(
+                scenario.Binding,
+                scenario.SourceRequest);
+        var foreignBinding = new DocumentationAuthoredSourceOperationBinding(
             DocumentationHouseRequestIdentity.Create(
                 "foreign-documentation-request"),
             scenario.Binding.OperationPlan,
@@ -116,16 +118,16 @@ public sealed partial class CompiledXmlDocumentationHouseTests
             scenario.Binding.Subject,
             scenario.Binding.ImplementationContent);
         var foreignInvocation =
-            new DocumentationAuthoredProviderInvocation(
+            new DocumentationAuthoredSourceOperationInvocation(
                 foreignBinding,
                 scenario.Invocation.RemainingLimits,
                 scenario.Invocation.Deadline);
         LibraryOperationLease operation = library.IssueOperation();
 
-        DocumentationAuthoredProviderOutcome.Rejected rejected =
+        DocumentationAuthoredSourceOperationOutcome.Rejected rejected =
             Assert.IsType<
-                DocumentationAuthoredProviderOutcome.Rejected>(
-                await provider.InvokeAsync(
+                DocumentationAuthoredSourceOperationOutcome.Rejected>(
+                await authoredOperation.InvokeAsync(
                     foreignInvocation,
                     operation,
                     TestContext.Current.CancellationToken));
@@ -134,7 +136,7 @@ public sealed partial class CompiledXmlDocumentationHouseTests
             DocumentationAuthoredRejectionKind.BindingMismatch,
             rejected.Rejection);
         Assert.Equal(
-            DocumentationAuthoredLeaseConsumer.Provider,
+            DocumentationAuthoredLeaseConsumer.Operation,
             rejected.LeaseSettlement.Consumer);
         Assert.Equal(0, capability.SourceReads);
         Assert.Equal(0, capability.AttestationReads);
@@ -155,10 +157,11 @@ public sealed partial class CompiledXmlDocumentationHouseTests
                 attestation.PortablePdbImage.ToArray());
         AuthoredScenario scenario =
             AuthoredScenario.Create(library, capability);
-        var provider = new SourceHouseDocumentationProvider(
-            scenario.Binding,
-            scenario.SourceRequest);
-        var exhausted = new DocumentationAuthoredProviderInvocation(
+        IDocumentationAuthoredSourceOperation authoredOperation =
+            SourceHouseDocumentationHouseAdapter.CreateOperation(
+                scenario.Binding,
+                scenario.SourceRequest);
+        var exhausted = new DocumentationAuthoredSourceOperationInvocation(
             scenario.Binding,
             new(
                 scenario.Invocation.RemainingLimits
@@ -168,10 +171,10 @@ public sealed partial class CompiledXmlDocumentationHouseTests
             scenario.Invocation.Deadline);
         LibraryOperationLease operation = library.IssueOperation();
 
-        DocumentationAuthoredProviderOutcome.Incomplete incomplete =
+        DocumentationAuthoredSourceOperationOutcome.Incomplete incomplete =
             Assert.IsType<
-                DocumentationAuthoredProviderOutcome.Incomplete>(
-                await provider.InvokeAsync(
+                DocumentationAuthoredSourceOperationOutcome.Incomplete>(
+                await authoredOperation.InvokeAsync(
                     exhausted,
                     operation,
                     TestContext.Current.CancellationToken));
@@ -180,7 +183,7 @@ public sealed partial class CompiledXmlDocumentationHouseTests
             DocumentationAuthoredIncompleteBoundary.SourceBytes,
             incomplete.Boundary);
         Assert.Equal(
-            DocumentationAuthoredLeaseConsumer.Provider,
+            DocumentationAuthoredLeaseConsumer.Operation,
             incomplete.LeaseSettlement.Consumer);
         Assert.Equal(0, capability.SourceReads);
         Assert.Equal(0, capability.AttestationReads);
@@ -202,15 +205,16 @@ public sealed partial class CompiledXmlDocumentationHouseTests
                 attestation.PortablePdbImage.ToArray());
         AuthoredScenario scenario =
             AuthoredScenario.Create(library, capability);
-        var provider = new SourceHouseDocumentationProvider(
-            scenario.Binding,
-            scenario.SourceRequest);
+        IDocumentationAuthoredSourceOperation authoredOperation =
+            SourceHouseDocumentationHouseAdapter.CreateOperation(
+                scenario.Binding,
+                scenario.SourceRequest);
         LibraryOperationLease operation = library.IssueOperation();
 
-        DocumentationAuthoredProviderOutcome.Unavailable unavailable =
+        DocumentationAuthoredSourceOperationOutcome.Unavailable unavailable =
             Assert.IsType<
-                DocumentationAuthoredProviderOutcome.Unavailable>(
-                await provider.InvokeAsync(
+                DocumentationAuthoredSourceOperationOutcome.Unavailable>(
+                await authoredOperation.InvokeAsync(
                     scenario.Invocation,
                     operation,
                     TestContext.Current.CancellationToken));
@@ -246,16 +250,17 @@ public sealed partial class CompiledXmlDocumentationHouseTests
                 attestation.PortablePdbImage.ToArray());
         AuthoredScenario scenario =
             AuthoredScenario.Create(library, capability);
-        var provider = new SourceHouseDocumentationProvider(
-            scenario.Binding,
-            scenario.SourceRequest);
+        IDocumentationAuthoredSourceOperation authoredOperation =
+            SourceHouseDocumentationHouseAdapter.CreateOperation(
+                scenario.Binding,
+                scenario.SourceRequest);
         LibraryOperationLease operation = library.IssueOperation();
         using var cancellation = new CancellationTokenSource();
         cancellation.Cancel();
 
         await Assert.ThrowsAnyAsync<OperationCanceledException>(
             async () =>
-                await provider.InvokeAsync(
+                await authoredOperation.InvokeAsync(
                     scenario.Invocation,
                     operation,
                     cancellation.Token));
@@ -284,7 +289,7 @@ public sealed partial class CompiledXmlDocumentationHouseTests
             library.Reference.ApiAssembly,
             library.Reference.ImplementationAssembly);
         ArgumentException exception = Assert.Throws<ArgumentException>(
-            () => new DocumentationAuthoredProviderBinding(
+            () => new DocumentationAuthoredSourceOperationBinding(
                 DocumentationHouseRequestIdentity.Create(
                     "api-content-documentation-request"),
                 scenario.Binding.OperationPlan,
@@ -302,7 +307,7 @@ public sealed partial class CompiledXmlDocumentationHouseTests
         CSharpBuildAttestationOutcome outcome =
             CSharpBuildAttestor.EmitAndAttest(
                 new(
-                    "DocumentationHouseAuthoredProviderFixture",
+                    "DocumentationHouseAuthoredOperationFixture",
                     AuthoredBuildSources(),
                     TrustedPlatformAssemblyPaths(),
                     SourceHouseCapabilityIdentity.Create(
@@ -312,7 +317,7 @@ public sealed partial class CompiledXmlDocumentationHouseTests
                     SourceHouseAttestationProfileIdentity.Create(
                         "direct-csharp-emit-v1"),
                     SourceHouseAttestationGeneration.Create(
-                        "documentation-house-source-provider")));
+                        "documentation-house-source-operation")));
         if (outcome is CSharpBuildAttestationOutcome.Failed failed)
         {
             Assert.Fail(
@@ -383,9 +388,9 @@ public sealed partial class CompiledXmlDocumentationHouseTests
     }
 
     private sealed record AuthoredScenario(
-        DocumentationAuthoredProviderBinding Binding,
+        DocumentationAuthoredSourceOperationBinding Binding,
         SourceHouseAuthoredRequest SourceRequest,
-        DocumentationAuthoredProviderInvocation Invocation)
+        DocumentationAuthoredSourceOperationInvocation Invocation)
     {
         internal static AuthoredScenario Create(
             LibraryFixture library,
@@ -428,7 +433,7 @@ public sealed partial class CompiledXmlDocumentationHouseTests
                     SourceLimits(),
                     deadline,
                     [capability]));
-            var binding = new DocumentationAuthoredProviderBinding(
+            var binding = new DocumentationAuthoredSourceOperationBinding(
                 DocumentationHouseRequestIdentity.Create(
                     "documentation-request"),
                 DocumentationHouseOperationPlanIdentity.Create(
@@ -438,7 +443,7 @@ public sealed partial class CompiledXmlDocumentationHouseTests
                 subject,
                 library.Reference.ImplementationAssembly!);
             var invocation =
-                new DocumentationAuthoredProviderInvocation(
+                new DocumentationAuthoredSourceOperationInvocation(
                     binding,
                     new(
                         maximumSourceDocuments: 1_000,

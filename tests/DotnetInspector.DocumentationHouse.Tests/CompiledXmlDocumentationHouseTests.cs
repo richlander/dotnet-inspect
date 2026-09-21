@@ -1000,10 +1000,10 @@ public sealed partial class CompiledXmlDocumentationHouseTests
             typeof(DocumentationCompiledXmlAttempt),
             typeof(DocumentationHouseReceipt),
             typeof(DocumentationHouseOutcome),
-            typeof(DocumentationAuthoredProviderBinding),
+            typeof(DocumentationAuthoredSourceOperationBinding),
             typeof(DocumentationAuthoredSourceContribution),
-            typeof(DocumentationAuthoredProviderReceipt),
-            typeof(DocumentationAuthoredProviderOutcome),
+            typeof(DocumentationAuthoredSourceOperationReceipt),
+            typeof(DocumentationAuthoredSourceOperationOutcome),
         })
         {
             Visit(root);

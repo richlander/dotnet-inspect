@@ -6,12 +6,23 @@ namespace DotnetInspector.DocumentationHouse.Source;
 
 /// <summary>
 /// Adapts one pre-authorized SourceHouse authored request into the
-/// source-neutral DocumentationHouse provider contract.
+/// source-neutral DocumentationHouse operation contract.
 /// </summary>
-public sealed class SourceHouseDocumentationProvider
-    : IDocumentationAuthoredSourceProvider
+public static class SourceHouseDocumentationHouseAdapter
 {
-    private static readonly DocumentationAuthoredProviderWorkCharge
+    /// <summary>
+    /// Creates one cold, single-use operation bound to the exact request.
+    /// </summary>
+    public static IDocumentationAuthoredSourceOperation CreateOperation(
+        DocumentationAuthoredSourceOperationBinding binding,
+        SourceHouseAuthoredRequest request) =>
+        new SourceHouseDocumentationOperation(binding, request);
+}
+
+internal sealed class SourceHouseDocumentationOperation
+    : IDocumentationAuthoredSourceOperation
+{
+    private static readonly DocumentationAuthoredSourceOperationWorkCharge
         s_emptyWork = new(
             SourceBytesObserved: 0,
             SourceTextCharactersObserved: 0,
@@ -19,12 +30,12 @@ public sealed class SourceHouseDocumentationProvider
             AttestationContributionsObserved: 0,
             DocumentationWork: null);
 
-    private readonly DocumentationAuthoredProviderBinding _binding;
+    private readonly DocumentationAuthoredSourceOperationBinding _binding;
     private readonly SourceHouseAuthoredRequest _request;
     private int _invoked;
 
-    public SourceHouseDocumentationProvider(
-        DocumentationAuthoredProviderBinding binding,
+    internal SourceHouseDocumentationOperation(
+        DocumentationAuthoredSourceOperationBinding binding,
         SourceHouseAuthoredRequest request)
     {
         ArgumentNullException.ThrowIfNull(binding);
@@ -40,8 +51,8 @@ public sealed class SourceHouseDocumentationProvider
         _request = request;
     }
 
-    public async ValueTask<DocumentationAuthoredProviderOutcome> InvokeAsync(
-        DocumentationAuthoredProviderInvocation invocation,
+    public async ValueTask<DocumentationAuthoredSourceOperationOutcome> InvokeAsync(
+        DocumentationAuthoredSourceOperationInvocation invocation,
         LibraryOperationLease operationLease,
         CancellationToken cancellationToken = default)
     {
@@ -52,22 +63,22 @@ public sealed class SourceHouseDocumentationProvider
         {
             return CompleteLocally(
                 operationLease,
-                new DocumentationAuthoredProviderOutcome.Rejected(
+                new DocumentationAuthoredSourceOperationOutcome.Rejected(
                     invocation,
                     DocumentationAuthoredRejectionKind.AlreadyInvoked,
                     s_emptyWork,
-                    ProviderSettlement()));
+                    OperationSettlement()));
         }
 
         if (!ReferenceEquals(invocation.Binding, _binding))
         {
             return CompleteLocally(
                 operationLease,
-                new DocumentationAuthoredProviderOutcome.Rejected(
+                new DocumentationAuthoredSourceOperationOutcome.Rejected(
                     invocation,
                     DocumentationAuthoredRejectionKind.BindingMismatch,
                     s_emptyWork,
-                    ProviderSettlement()));
+                    OperationSettlement()));
         }
         if (!ReferenceEquals(
                 operationLease.Reference,
@@ -75,12 +86,12 @@ public sealed class SourceHouseDocumentationProvider
         {
             return CompleteLocally(
                 operationLease,
-                new DocumentationAuthoredProviderOutcome.Rejected(
+                new DocumentationAuthoredSourceOperationOutcome.Rejected(
                     invocation,
                     DocumentationAuthoredRejectionKind
                         .LeaseReferenceMismatch,
                     s_emptyWork,
-                    ProviderSettlement()));
+                    OperationSettlement()));
         }
 
         cancellationToken.ThrowIfCancellationRequestedAfter(
@@ -92,11 +103,11 @@ public sealed class SourceHouseDocumentationProvider
         {
             return CompleteLocally(
                 operationLease,
-                new DocumentationAuthoredProviderOutcome.Incomplete(
+                new DocumentationAuthoredSourceOperationOutcome.Incomplete(
                     invocation,
                     boundary,
                     s_emptyWork,
-                    ProviderSettlement()));
+                    OperationSettlement()));
         }
 
         SourceHouseOutcome source =
@@ -107,13 +118,13 @@ public sealed class SourceHouseDocumentationProvider
                 .ConfigureAwait(false);
         cancellationToken.ThrowIfCancellationRequested();
 
-        DocumentationAuthoredProviderWorkCharge sourceWork =
+        DocumentationAuthoredSourceOperationWorkCharge sourceWork =
             Work(source.Work, documentation: null);
         DocumentationAuthoredLeaseSettlement sourceSettlement =
             SourceHouseSettlement();
         if (!ValidSourceReceipt(source))
         {
-            return new DocumentationAuthoredProviderOutcome.Rejected(
+            return new DocumentationAuthoredSourceOperationOutcome.Rejected(
                 invocation,
                 DocumentationAuthoredRejectionKind.SourceEvidenceMismatch,
                 sourceWork,
@@ -121,7 +132,7 @@ public sealed class SourceHouseDocumentationProvider
         }
         if (DateTimeOffset.UtcNow >= invocation.Deadline)
         {
-            return new DocumentationAuthoredProviderOutcome.Incomplete(
+            return new DocumentationAuthoredSourceOperationOutcome.Incomplete(
                 invocation,
                 DocumentationAuthoredIncompleteBoundary.Deadline,
                 sourceWork,
@@ -131,20 +142,20 @@ public sealed class SourceHouseDocumentationProvider
         return source switch
         {
             SourceHouseOutcome.Unavailable =>
-                new DocumentationAuthoredProviderOutcome.Unavailable(
+                new DocumentationAuthoredSourceOperationOutcome.Unavailable(
                     invocation,
                     DocumentationAuthoredUnavailableKind.SourceUnavailable,
                     sourceWork,
                     sourceSettlement),
             SourceHouseOutcome.Rejected rejected =>
-                new DocumentationAuthoredProviderOutcome.Rejected(
+                new DocumentationAuthoredSourceOperationOutcome.Rejected(
                     invocation,
                     DocumentationAuthoredRejectionKind.SourceRejected,
                     sourceWork,
                     sourceSettlement,
                     new(rejected.Rejection.Kind.ToString())),
             SourceHouseOutcome.Failed failed =>
-                new DocumentationAuthoredProviderOutcome.Failed(
+                new DocumentationAuthoredSourceOperationOutcome.Failed(
                     invocation,
                     DocumentationAuthoredFailureKind.SourceFailed,
                     sourceWork,
@@ -153,7 +164,7 @@ public sealed class SourceHouseDocumentationProvider
                         failed.Failure.Code,
                         failed.Failure.Detail)),
             SourceHouseOutcome.Incomplete incomplete =>
-                new DocumentationAuthoredProviderOutcome.Incomplete(
+                new DocumentationAuthoredSourceOperationOutcome.Incomplete(
                     invocation,
                     DocumentationAuthoredIncompleteBoundary.SourceHouse,
                     sourceWork,
@@ -171,10 +182,10 @@ public sealed class SourceHouseDocumentationProvider
         };
     }
 
-    private DocumentationAuthoredProviderOutcome CompleteAvailable(
-        DocumentationAuthoredProviderInvocation invocation,
+    private DocumentationAuthoredSourceOperationOutcome CompleteAvailable(
+        DocumentationAuthoredSourceOperationInvocation invocation,
         SourceHouseOutcome.Available available,
-        DocumentationAuthoredProviderWorkCharge sourceWork,
+        DocumentationAuthoredSourceOperationWorkCharge sourceWork,
         DocumentationAuthoredLeaseSettlement settlement,
         CancellationToken cancellationToken)
     {
@@ -183,7 +194,7 @@ public sealed class SourceHouseDocumentationProvider
         if (physical
             is SourceHousePhysicalDeclarationOutcome.Unavailable unavailable)
         {
-            return new DocumentationAuthoredProviderOutcome.Unavailable(
+            return new DocumentationAuthoredSourceOperationOutcome.Unavailable(
                 invocation,
                 DocumentationAuthoredUnavailableKind
                     .PhysicalDeclarationUnavailable,
@@ -194,7 +205,7 @@ public sealed class SourceHouseDocumentationProvider
         if (physical
             is SourceHousePhysicalDeclarationOutcome.Conflict conflict)
         {
-            return new DocumentationAuthoredProviderOutcome.Unavailable(
+            return new DocumentationAuthoredSourceOperationOutcome.Unavailable(
                 invocation,
                 DocumentationAuthoredUnavailableKind
                     .PhysicalDeclarationConflict,
@@ -205,7 +216,7 @@ public sealed class SourceHouseDocumentationProvider
         if (physical
             is SourceHousePhysicalDeclarationOutcome.Rejected rejected)
         {
-            return new DocumentationAuthoredProviderOutcome.Rejected(
+            return new DocumentationAuthoredSourceOperationOutcome.Rejected(
                 invocation,
                 DocumentationAuthoredRejectionKind
                     .PhysicalDeclarationRejected,
@@ -216,7 +227,7 @@ public sealed class SourceHouseDocumentationProvider
         if (physical
             is SourceHousePhysicalDeclarationOutcome.Failed failed)
         {
-            return new DocumentationAuthoredProviderOutcome.Failed(
+            return new DocumentationAuthoredSourceOperationOutcome.Failed(
                 invocation,
                 DocumentationAuthoredFailureKind
                     .PhysicalDeclarationFailed,
@@ -227,7 +238,7 @@ public sealed class SourceHouseDocumentationProvider
         if (physical
             is SourceHousePhysicalDeclarationOutcome.Incomplete incomplete)
         {
-            return new DocumentationAuthoredProviderOutcome.Incomplete(
+            return new DocumentationAuthoredSourceOperationOutcome.Incomplete(
                 invocation,
                 DocumentationAuthoredIncompleteBoundary
                     .PhysicalDeclaration,
@@ -243,14 +254,14 @@ public sealed class SourceHouseDocumentationProvider
                 exact,
                 out string? document))
         {
-            return new DocumentationAuthoredProviderOutcome.Rejected(
+            return new DocumentationAuthoredSourceOperationOutcome.Rejected(
                 invocation,
                 DocumentationAuthoredRejectionKind.SourceEvidenceMismatch,
                 sourceWork,
                 settlement);
         }
 
-        var evidence = new DocumentationAuthoredProviderEvidence(
+        var evidence = new DocumentationAuthoredSourceOperationEvidence(
             DocumentationSourceReference.Create(
                 DocumentationSourceKind.SourceHouse,
                 SourceReferenceName()),
@@ -265,14 +276,14 @@ public sealed class SourceHouseDocumentationProvider
                         exact.Span.Length),
                     limits:
                         invocation.RemainingLimits.Documentation));
-        DocumentationAuthoredProviderWorkCharge work =
+        DocumentationAuthoredSourceOperationWorkCharge work =
             Work(
                 available.Work,
                 documentation.Work);
         cancellationToken.ThrowIfCancellationRequested();
         if (DateTimeOffset.UtcNow >= invocation.Deadline)
         {
-            return new DocumentationAuthoredProviderOutcome.Incomplete(
+            return new DocumentationAuthoredSourceOperationOutcome.Incomplete(
                 invocation,
                 DocumentationAuthoredIncompleteBoundary.Deadline,
                 work,
@@ -284,7 +295,7 @@ public sealed class SourceHouseDocumentationProvider
         {
             CSharpAuthoredDocumentationOutcome.Available
                 or CSharpAuthoredDocumentationOutcome.Absent =>
-                new DocumentationAuthoredProviderOutcome.Produced(
+                new DocumentationAuthoredSourceOperationOutcome.Produced(
                     invocation,
                     new(
                         _binding,
@@ -305,7 +316,7 @@ public sealed class SourceHouseDocumentationProvider
                     DocumentationAuthoredUnavailableKind
                         .DeclarationUncertain),
             CSharpAuthoredDocumentationOutcome.Malformed =>
-                new DocumentationAuthoredProviderOutcome.Failed(
+                new DocumentationAuthoredSourceOperationOutcome.Failed(
                     invocation,
                     DocumentationAuthoredFailureKind
                         .MalformedDocumentation,
@@ -314,7 +325,7 @@ public sealed class SourceHouseDocumentationProvider
                     evidence: evidence,
                     documentation: documentation),
             CSharpAuthoredDocumentationOutcome.Incomplete =>
-                new DocumentationAuthoredProviderOutcome.Incomplete(
+                new DocumentationAuthoredSourceOperationOutcome.Incomplete(
                     invocation,
                     DocumentationAuthoredIncompleteBoundary.Documentation,
                     work,
@@ -325,9 +336,9 @@ public sealed class SourceHouseDocumentationProvider
                 "Unknown CSharpText authored-documentation outcome."),
         };
 
-        DocumentationAuthoredProviderOutcome Unavailable(
+        DocumentationAuthoredSourceOperationOutcome Unavailable(
             DocumentationAuthoredUnavailableKind kind) =>
-            new DocumentationAuthoredProviderOutcome.Unavailable(
+            new DocumentationAuthoredSourceOperationOutcome.Unavailable(
                 invocation,
                 kind,
                 work,
@@ -405,10 +416,10 @@ public sealed class SourceHouseDocumentationProvider
     }
 
     private DocumentationAuthoredIncompleteBoundary? ExhaustedBoundary(
-        DocumentationAuthoredProviderInvocation invocation)
+        DocumentationAuthoredSourceOperationInvocation invocation)
     {
         SourceHouseLimits source = _request.Plan.Limits;
-        DocumentationAuthoredProviderLimits remaining =
+        DocumentationAuthoredSourceOperationLimits remaining =
             invocation.RemainingLimits;
         if (DateTimeOffset.UtcNow >= invocation.Deadline
             || _request.Plan.Deadline > invocation.Deadline)
@@ -432,7 +443,7 @@ public sealed class SourceHouseDocumentationProvider
     }
 
     private static bool MatchesBinding(
-        DocumentationAuthoredProviderBinding binding,
+        DocumentationAuthoredSourceOperationBinding binding,
         SourceHouseAuthoredRequest request)
     {
         if (!ReferenceEquals(request.Library, binding.Library)
@@ -465,7 +476,7 @@ public sealed class SourceHouseDocumentationProvider
         return name.Length <= 256 ? name : "source-house";
     }
 
-    private static DocumentationAuthoredProviderObservation? Observation(
+    private static DocumentationAuthoredSourceOperationObservation? Observation(
         SourceHouseCapabilityObservation? observation) =>
         observation is null
             ? null
@@ -473,7 +484,7 @@ public sealed class SourceHouseDocumentationProvider
                 observation.Code,
                 observation.Detail);
 
-    private static DocumentationAuthoredProviderWorkCharge Work(
+    private static DocumentationAuthoredSourceOperationWorkCharge Work(
         SourceHouseWorkCharge source,
         CSharpAuthoredDocumentationWork? documentation) =>
         new(
@@ -483,8 +494,8 @@ public sealed class SourceHouseDocumentationProvider
             source.AttestationContributionsObserved,
             documentation);
 
-    private static DocumentationAuthoredLeaseSettlement ProviderSettlement() =>
-        new(DocumentationAuthoredLeaseConsumer.Provider);
+    private static DocumentationAuthoredLeaseSettlement OperationSettlement() =>
+        new(DocumentationAuthoredLeaseConsumer.Operation);
 
     private static DocumentationAuthoredLeaseSettlement SourceHouseSettlement() =>
         new(DocumentationAuthoredLeaseConsumer.SourceHouse);
