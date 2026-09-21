@@ -10,7 +10,7 @@ public sealed class EcosystemPopulationNavigationContribution
 {
     internal EcosystemPopulationNavigationContribution(
         EcosystemPopulationLibraryContributionWitness source,
-        NavigationEcosystemContributionOutcome outcome)
+        EcosystemPopulationNavigationOutcome outcome)
     {
         Source = source;
         Outcome = outcome;
@@ -18,7 +18,7 @@ public sealed class EcosystemPopulationNavigationContribution
 
     public EcosystemPopulationLibraryContributionWitness Source { get; }
 
-    public NavigationEcosystemContributionOutcome Outcome { get; }
+    public EcosystemPopulationNavigationOutcome Outcome { get; }
 }
 
 /// <summary>
@@ -59,7 +59,7 @@ public static class EcosystemPopulationNavigationProjection
                 .ToArray());
     }
 
-    static NavigationEcosystemContributionOutcome Evaluate(
+    static EcosystemPopulationNavigationOutcome Evaluate(
         WorkspaceRegistrationRevision currentRevision,
         WorkspaceRegistrationRevision historicalRevision,
         WorkspaceEcosystemRegistrationDeclaration registration,
@@ -69,40 +69,49 @@ public static class EcosystemPopulationNavigationProjection
                 currentRevision.Workspace,
                 historicalRevision.Workspace))
         {
-            return new NavigationEcosystemContributionOutcome.Rejected(
+            return new EcosystemPopulationNavigationOutcome.Rejected(
                 currentRevision,
-                NavigationEcosystemContributionRejection.ForeignWorkspace);
+                EcosystemPopulationNavigationRejection.ForeignWorkspace);
         }
 
-        if (!ContainsExactRegistration(
-                currentRevision,
-                registration))
+        WorkspaceEcosystemContributionRelation? historicalRelation =
+            FindExactContribution(
+                historicalRevision,
+                registration);
+        if (historicalRelation is null
+            || !currentRevision.EcosystemContributions.Contains(
+                historicalRelation))
         {
-            return new NavigationEcosystemContributionOutcome.Unavailable(
+            return new EcosystemPopulationNavigationOutcome.Unavailable(
                 currentRevision,
-                NavigationEcosystemContributionUnavailableReason
+                EcosystemPopulationNavigationUnavailableReason
                     .RegistrationNotCurrent);
         }
 
-        var ecosystem =
-            new NavigationEcosystemRegistrationReference(
-                currentRevision,
-                registration);
-        return new NavigationEcosystemContributionOutcome.Available(
-            new NavigationEcosystemLibraryContribution(
+        return new EcosystemPopulationNavigationOutcome.Available(
+            new EcosystemPopulationNavigationLibraryContribution(
                 historicalRevision,
-                ecosystem,
+                currentRevision,
+                historicalRelation,
                 correspondence.Admission,
                 correspondence.Occurrence));
     }
 
-    static bool ContainsExactRegistration(
+    static WorkspaceEcosystemContributionRelation? FindExactContribution(
         WorkspaceRegistrationRevision revision,
-        WorkspaceEcosystemRegistrationDeclaration registration) =>
-        revision.Registrations.Any(
-            candidate =>
-                candidate is WorkspaceRegistration.Ecosystem ecosystem
-                && ReferenceEquals(
-                    ecosystem.Declaration,
-                    registration));
+        WorkspaceEcosystemRegistrationDeclaration registration)
+    {
+        foreach (WorkspaceEcosystemContributionRelation contribution
+            in revision.EcosystemContributions)
+        {
+            if (ReferenceEquals(
+                    contribution.Ecosystem.Declaration,
+                    registration))
+            {
+                return contribution;
+            }
+        }
+
+        return null;
+    }
 }
