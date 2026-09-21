@@ -53,6 +53,19 @@ public readonly struct ConstructorGetterOptional(int value = 7)
     public int Value { get; } = value;
 }
 
+public readonly struct ConstructorGetterAnnotationName(int arg)
+{
+    public int Value { get => field + 1; } = arg;
+}
+
+public class ConstructorGetterContainer
+{
+    public readonly struct Nested(int value)
+    {
+        public int Value { get => field + 1; } = value;
+    }
+}
+
 public readonly struct ConstructorGetterPrivate
 {
     ConstructorGetterPrivate(int value) => Value = value;

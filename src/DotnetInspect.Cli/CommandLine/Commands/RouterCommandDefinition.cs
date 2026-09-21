@@ -496,7 +496,6 @@ public static class RouterCommandDefinition
         TypeCommand.Name,
         MemberCommand.Name,
         DiffCommand.Name,
-        TimelineCommand.Name,
         FindCommand.Name,
         "extensions",
         "implements",
