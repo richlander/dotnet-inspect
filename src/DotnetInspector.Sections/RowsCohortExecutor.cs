@@ -43,9 +43,9 @@ public static class RowsCohortExecutor
                     nameof(rowSets));
             }
 
-            if (!RowSelectionCountExecutor.TryApply(
+            if (!RowQueryExecutor.TryApplyCount(
                     rowSet.Count,
-                    plan.SelectionPlan,
+                    plan,
                     out RowSelectionCountResult selected))
             {
                 throw new InvalidOperationException(

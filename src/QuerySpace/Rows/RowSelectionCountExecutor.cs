@@ -2,15 +2,18 @@ namespace QuerySpace.Rows;
 
 public readonly struct RowSelectionCountResult
 {
+    private readonly bool _hasResult;
+
     private RowSelectionCountResult(
         int count,
         RowWindowFailure? failure)
     {
+        _hasResult = true;
         Count = count;
         Failure = failure;
     }
 
-    public bool IsSuccess => Failure is null;
+    public bool IsSuccess => _hasResult && Failure is null;
 
     public int Count { get; }
 
@@ -26,6 +29,26 @@ public readonly struct RowSelectionCountResult
 
 public static class RowSelectionCountExecutor
 {
+    internal static bool CanApply<TOrder>(
+        RowSelectionPlan<TOrder> plan)
+        where TOrder : notnull
+    {
+        ArgumentNullException.ThrowIfNull(plan);
+
+        for (int stageIndex = 0;
+             stageIndex < plan.Stages.Count;
+             stageIndex++)
+        {
+            if (plan.Stages[stageIndex].Kind
+                is RowSelectionStageKind.Top)
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
     public static bool TryApply<TOrder>(
         int sourceCount,
         RowSelectionPlan<TOrder> plan,
@@ -34,6 +57,12 @@ public static class RowSelectionCountExecutor
     {
         ArgumentOutOfRangeException.ThrowIfNegative(sourceCount);
         ArgumentNullException.ThrowIfNull(plan);
+
+        if (!CanApply(plan))
+        {
+            result = default;
+            return false;
+        }
 
         int count = sourceCount;
         for (int stageIndex = 0;
@@ -49,8 +78,8 @@ public static class RowSelectionCountExecutor
                     count = Math.Min(count, stage.Count);
                     break;
                 case RowSelectionStageKind.Top:
-                    result = default;
-                    return false;
+                    throw new InvalidOperationException(
+                        "A preflighted Count plan cannot contain Top.");
                 case RowSelectionStageKind.Window:
                 {
                     if (stage.Start is null

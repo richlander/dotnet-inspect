@@ -149,6 +149,51 @@ public sealed class GraphLibrariesSectionRowsTests
         Assert.Equal(2, rows.Rebind(projection).CallSites.Count);
     }
 
+    [Fact]
+    public void CountWindowUsesCardinalityWithoutReadingRows()
+    {
+        GraphLibrariesQueryPlan operation =
+            Assert.IsType<GraphLibrariesQueryPlanResult.Accepted>(
+                GraphLibrariesQuery.ResolveIntent(
+                    PortableQueryIntent.Empty,
+                    TestContext.Current.CancellationToken))
+                .Plan;
+        var pair = new AssemblyPairCallUseResult(
+            [],
+            [],
+            [],
+            [],
+            AssemblyPairCallUseDiagnostics.Empty);
+        var source =
+            new CardinalityOnlyRows<AssemblyPairCallUseOccurrence>(3);
+        var projection = new GraphLibrariesSectionRowProjection(
+            AssemblyPairCallUseProjection.Create(pair),
+            new AssemblyPairDirectUseClusterProjection(pair, []),
+            source);
+        RowSelectionIntent<string> selection =
+            RowSelectionIntent<string>.Create(
+                [
+                    RowSelectionIntentOperation<string>.Window(
+                        2,
+                        3),
+                ]);
+
+        QuerySpaceSectionRowResolutionResult<
+            GraphLibrariesSectionRowProjection> resolution =
+                GraphLibrariesSectionRows.CallSites.Resolve(
+                    operation,
+                    selection,
+                    QuerySpaceTerminalRequirement.Count,
+                    projection);
+
+        var count =
+            Assert.IsType<SectionCountOutcome<string, string>.Completed>(
+                QuerySpaceSectionRowExecutor.ApplyCount<
+                    GraphLibrariesSectionRowProjection,
+                    string>(resolution.Request!));
+        Assert.Equal(2, Assert.Single(count.Counts).Value);
+    }
+
     private sealed class CardinalityOnlyRows<T>(int count) :
         IReadOnlyList<T>
     {

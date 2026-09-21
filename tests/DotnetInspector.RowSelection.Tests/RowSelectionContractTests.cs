@@ -220,7 +220,35 @@ public sealed class RowSelectionContractTests
                     RowSelectionStage<string>.Top(
                         2,
                         "ascending")),
-                out _));
+                out RowSelectionCountResult declined));
+        Assert.False(declined.IsSuccess);
+        Assert.Null(declined.Failure);
+
+        RowSelectionPlan<string> windowThenTop =
+            Plan(
+                RowSelectionStage<string>.Window(1, 2),
+                RowSelectionStage<string>.Top(
+                    1,
+                    "ascending"));
+        Assert.False(
+            RowSelectionCountExecutor.TryApply(
+                0,
+                windowThenTop,
+                out RowSelectionCountResult emptyDeclined));
+        Assert.False(emptyDeclined.IsSuccess);
+        Assert.Null(emptyDeclined.Failure);
+        Assert.False(
+            RowSelectionCountExecutor.TryApply(
+                3,
+                windowThenTop,
+                out RowSelectionCountResult populatedDeclined));
+        Assert.False(populatedDeclined.IsSuccess);
+        Assert.Null(populatedDeclined.Failure);
+
+        RowSelectionCountResult uninitialized = default;
+        Assert.False(uninitialized.IsSuccess);
+        Assert.Null(uninitialized.Failure);
+
         Assert.Throws<ArgumentOutOfRangeException>(
             () => RowSelectionCountExecutor.TryApply(
                 -1,

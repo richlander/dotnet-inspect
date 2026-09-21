@@ -3,7 +3,7 @@ namespace QuerySpace.Rows;
 
 public static class RowQueryExecutor
 {
-    private static bool CanApplyCount<TRow>(
+    public static bool CanApplyCount<TRow>(
         ResolvedRowQueryPlan<TRow> plan)
     {
         ArgumentNullException.ThrowIfNull(plan);
@@ -13,7 +13,8 @@ public static class RowQueryExecutor
             return false;
         }
 
-        return true;
+        return RowSelectionCountExecutor.CanApply(
+            plan.SelectionPlan);
     }
 
     public static bool TryApplyCount<TRow>(

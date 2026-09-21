@@ -328,7 +328,44 @@ public sealed class RowQueryContractTests
             RowQueryExecutor.TryApplyCount(
                 5,
                 top,
-                out _));
+                out RowSelectionCountResult topDeclined));
+        Assert.False(topDeclined.IsSuccess);
+        Assert.Null(topDeclined.Failure);
+
+        ResolvedRowQueryPlan<QueryRow> windowThenTop =
+            AssertSuccess(
+                RowQueryResolver.Resolve(
+                    fixture.Vocabulary,
+                    Intent(
+                        selection:
+                        [
+                            RowSelectionIntentOperation<
+                                RowQueryOrderIntent>.Window(
+                                    1,
+                                    2),
+                            RowSelectionIntentOperation<
+                                RowQueryOrderIntent>.Top(
+                                    1,
+                                    RowQueryOrderIntent.Named(
+                                        "score-order",
+                                        RowQueryOrderDirection.Ascending))
+                        ])));
+        Assert.False(
+            RowQueryExecutor.CanApplyCount(windowThenTop));
+        Assert.False(
+            RowQueryExecutor.TryApplyCount(
+                0,
+                windowThenTop,
+                out RowSelectionCountResult emptyDeclined));
+        Assert.False(emptyDeclined.IsSuccess);
+        Assert.Null(emptyDeclined.Failure);
+        Assert.False(
+            RowQueryExecutor.TryApplyCount(
+                3,
+                windowThenTop,
+                out RowSelectionCountResult populatedDeclined));
+        Assert.False(populatedDeclined.IsSuccess);
+        Assert.Null(populatedDeclined.Failure);
     }
 
     [Fact]

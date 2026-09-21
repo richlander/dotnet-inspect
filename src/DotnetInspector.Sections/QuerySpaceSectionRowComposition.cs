@@ -52,10 +52,7 @@ public sealed class SectionQuerySpaceRowScopeBinding<TRow> :
 
         ResolvedRowQueryPlan<TRow> plan = resolution.Plan!;
         bool canApplyCount =
-            RowQueryExecutor.TryApplyCount(
-                0,
-                plan,
-                out _);
+            RowQueryExecutor.CanApplyCount(plan);
         var schemaBinding =
             new SectionRowSchemaBinding<string, TRow>(
                 TypedSchema,
