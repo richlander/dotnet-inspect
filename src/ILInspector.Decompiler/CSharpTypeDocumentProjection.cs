@@ -1,6 +1,7 @@
 using System.Collections.Immutable;
 using System.Text;
 using ILInspector.CSharp;
+using ILInspector.Metadata;
 using ILInspector.MetadataPrimitives;
 
 namespace ILInspector.Decompiler;
@@ -224,7 +225,7 @@ public static class CSharpTypeDocumentProjector
                 continue;
             }
 
-            text.Append(document.Frame.DeclarationSeparator);
+            AppendText(text, document.Frame.DeclarationSeparator);
             int declarationStart = text.Length;
             var regions = ImmutableArray.CreateBuilder<CSharpTypeProjectedRegion>();
             var bodies = ImmutableArray.CreateBuilder<CSharpTypeProjectedBody>();
@@ -258,7 +259,7 @@ public static class CSharpTypeDocumentProjector
                 contributions.ToImmutable()));
         }
 
-        text.Append(document.Frame.Suffix);
+        AppendText(text, document.Frame.Suffix);
         return new CSharpTypeProjectionOutcome.Projected(
             new CSharpTypeDocumentProjection(
                 document.Revision,
@@ -292,7 +293,7 @@ public static class CSharpTypeDocumentProjector
                 selectedOwnedBodies);
             string value = useFull ? part.FullText : part.SkeletonText;
             int start = text.Length;
-            text.Append(value);
+            AppendText(text, value);
             if (value.Length > 0)
             {
                 regions.Add(new(
@@ -344,7 +345,7 @@ public static class CSharpTypeDocumentProjector
             selectedOwnedBodies);
         string value = useFull ? part.FullText : part.SkeletonText;
         int partStart = text.Length;
-        text.Append(value);
+        AppendText(text, value);
         if (value.Length > 0)
         {
             regions.Add(new(
@@ -435,9 +436,14 @@ public static class CSharpTypeDocumentProjector
         ImmutableHashSet<int> selectedOwnedBodies,
         CSharpTypeProjectionRequest request)
     {
-        if (selected.Parts.Any(static part =>
-            part.Kind == CSharpTypeRenderPartKind.Implementation
-            && part.FullText != part.SkeletonText))
+        if (selected.Parts.Any(part =>
+            part.FullText != part.SkeletonText
+            && UseFullAlternative(
+                document,
+                part,
+                CSharpTypeBodyMode.SelectedBody,
+                selectedDeclaration: true,
+                selectedOwnedBodies)))
         {
             return true;
         }
@@ -446,10 +452,20 @@ public static class CSharpTypeDocumentProjector
             IsVisible(declaration, request)
             && declaration.Parts.Any(part =>
                 part.FullText != part.SkeletonText
-                && UsesSelectedBodyContribution(part, selectedOwnedBodies)))
+                && UseFullAlternative(
+                    document,
+                    part,
+                    CSharpTypeBodyMode.SelectedBody,
+                    selectedDeclaration: false,
+                    selectedOwnedBodies)))
             || document.Frame.PrefixParts.Any(part =>
                 part.FullText != part.SkeletonText
-                && UsesSelectedBodyContribution(part, selectedOwnedBodies));
+                && UseFullAlternative(
+                    document,
+                    part,
+                    CSharpTypeBodyMode.SelectedBody,
+                    selectedDeclaration: false,
+                    selectedOwnedBodies));
     }
 
     static bool IsVisible(
@@ -505,6 +521,18 @@ public static class CSharpTypeDocumentProjector
 
     static CSharpSourceRange Rebase(CSharpSourceRange range, int offset)
         => new(checked(offset + range.Start), range.Length);
+
+    static void AppendText(StringBuilder builder, string text)
+    {
+        if (text.Length
+            > MetadataSafetyPolicy.MaxStructuralSignatureWorkChars
+                - builder.Length)
+        {
+            throw new InvalidOperationException(
+                "C# Type projection exceeds the validated text budget.");
+        }
+        builder.Append(text);
+    }
 
     static CSharpTypeProjectionOutcome.Rejected Reject(
         CSharpTypeProjectionFailureKind kind,

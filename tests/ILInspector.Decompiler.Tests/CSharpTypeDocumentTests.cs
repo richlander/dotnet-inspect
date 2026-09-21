@@ -120,6 +120,22 @@ public class CSharpTypeDocumentTests
     }
 
     [Fact]
+    public void Create_ChargesDeclarationSeparatorForEveryProjectedDeclaration()
+    {
+        var input = Input() with
+        {
+            Frame = Input().Frame with
+            {
+                DeclarationSeparator = new string(
+                    ' ',
+                    MetadataSafetyPolicy.MaxStructuralSignatureWorkChars / 2),
+            },
+        };
+
+        Assert.Throws<ArgumentException>(() => Create(input));
+    }
+
+    [Fact]
     public void Create_RequiresBodiesToBelongToTheTypeDefModule()
     {
         var input = Input();
@@ -303,6 +319,30 @@ public class CSharpTypeDocumentTests
         Assert.Single(skeleton.Diagnostics);
         Assert.Equal(0, bodies.Diagnostics[0].BodyId);
         Assert.Equal(0, skeleton.Diagnostics[0].BodyId);
+    }
+
+    [Fact]
+    public void SelectedBody_RejectsFailedBodyWithoutObservableDifference()
+    {
+        var input = Input();
+        input.Bodies[0] = input.Bodies[0] with
+        {
+            Outcome = CSharpTypeBodyOutcome.Failed,
+            Fidelity = DecompilationFidelity.Failed,
+            Diagnostics = [new("D1000", "Body production failed.")],
+        };
+        CSharpTypeDocument document = Create(input);
+
+        var rejected = Assert.IsType<CSharpTypeProjectionOutcome.Rejected>(
+            CSharpTypeDocumentProjector.Project(
+                document,
+                new(
+                    CSharpTypeBodyMode.SelectedBody,
+                    document.Declarations[2].Anchor)));
+
+        Assert.Equal(
+            CSharpTypeProjectionFailureKind.SelectedMemberHasNoImplementationDifference,
+            rejected.Kind);
     }
 
     [Fact]

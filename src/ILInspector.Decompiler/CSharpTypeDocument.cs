@@ -436,6 +436,7 @@ static class CSharpTypeDocumentValidator
         ValidateDeclarations(data.Declarations, data.Artifacts, data.Bodies);
         ValidateArtifactCompleteness(data.Artifacts, data.Bodies, data.Declarations);
         ValidateTextBudget(data);
+        ValidateProjectionTextBudget(data);
     }
 
     static void ValidateTypeAddress(MetadataTypeDefinitionAddress address)
@@ -1047,6 +1048,51 @@ static class CSharpTypeDocumentValidator
             Add(anchor.Fingerprint);
             Add(anchor.TypeFullName);
             Add(anchor.MemberName);
+        }
+    }
+
+    static void ValidateProjectionTextBudget(CSharpTypeDocumentData data)
+    {
+        int total = 0;
+        void Add(int length)
+        {
+            try
+            {
+                total = checked(total + length);
+            }
+            catch (OverflowException ex)
+            {
+                throw new ArgumentException(
+                    "C# Type document projected text length overflows.",
+                    ex);
+            }
+        }
+
+        foreach (CSharpTypeRenderPart part in data.Frame.PrefixParts)
+            Add(Math.Max(part.FullText.Length, part.SkeletonText.Length));
+        try
+        {
+            Add(checked(
+                data.Frame.DeclarationSeparator.Length
+                * data.Declarations.Length));
+        }
+        catch (OverflowException ex)
+        {
+            throw new ArgumentException(
+                "C# Type document declaration separators overflow the projected text length.",
+                ex);
+        }
+        foreach (CSharpTypeDeclaration declaration in data.Declarations)
+        {
+            foreach (CSharpTypeRenderPart part in declaration.Parts)
+                Add(Math.Max(part.FullText.Length, part.SkeletonText.Length));
+        }
+        Add(data.Frame.Suffix.Length);
+
+        if (total > MetadataSafetyPolicy.MaxStructuralSignatureWorkChars)
+        {
+            throw new ArgumentException(
+                "C# Type document exceeds the projected text budget.");
         }
     }
 
