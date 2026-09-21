@@ -235,6 +235,9 @@ dnx dotnet-inspect -y -- package query Newtonsoft.Json \
 dnx dotnet-inspect -y -- package query 'Polly.*' \
   --where "depends=System.Threading.Tasks.Extensions" \
   --where "dependency-target=netstandard2.0"
+dnx dotnet-inspect -y -- package query Microsoft.Extensions.Http \
+  --where "depends-prefix=Microsoft.Extensions." \
+  --where "dependency-target=net10.0"
 dnx dotnet-inspect -y -- package query 'Azure.*' \
   --where "dependencies=cross-prefix"
 dnx dotnet-inspect -y -- package query 'Microsoft.Extensions.*' \
@@ -294,6 +297,9 @@ by default; use `dependency-target=<TFM>` to select one compatible group, or
 `all` remains distinct from a manifest's `any` group and does not request
 traversal. `dependencies=cross-prefix` matches a direct declaration whose first
 dot-delimited package-ID segment differs from the package's own segment.
+`depends-prefix=<literal-package-id-prefix>` matches direct dependencies using
+case-insensitive literal prefix semantics. Include a trailing `.` to require a
+dot-delimited family boundary; repeat the term to require every prefix.
 `depends-ecosystem=<ecosystem-id>` classifies direct dependencies against the
 registered exact packages and package prefixes for one canonical ecosystem;
 repeat it to require every named ecosystem.

@@ -155,7 +155,7 @@ public sealed record PackageQueryRequestFailure
         PackageQueryRequestFailureReason.IncompatibleTerms =>
             "The selected package-query terms cannot be combined.",
         PackageQueryRequestFailureReason.DependencyTargetRequiresDependencyPredicate =>
-            "dependency-target requires a depends, depends-transitive, depends-ecosystem, or dependencies term.",
+            "dependency-target requires a depends, depends-prefix, depends-transitive, depends-ecosystem, or dependencies term.",
         PackageQueryRequestFailureReason.UnknownEcosystem =>
             $"Unknown ecosystem '{EcosystemId}'.",
         PackageQueryRequestFailureReason.EcosystemPackagePopulationUnavailable =>
@@ -253,6 +253,7 @@ public sealed class PackageQueryPlan
             term.Predicate.Kind is PackageQueryPredicateKind.NoDependencies
                 or PackageQueryPredicateKind.CrossPrefixDependencies
                 or PackageQueryPredicateKind.Depends
+                or PackageQueryPredicateKind.DependsPrefix
                 or PackageQueryPredicateKind.DependsTransitive
                 or PackageQueryPredicateKind.DependsEcosystem);
     internal bool HasExplicitDependencyTarget =>
@@ -567,6 +568,7 @@ public static partial class PackageQuery
     public const string DependencyTargetTermKey = "dependency-target";
     public const string DependencyTargetAllValue = "all";
     public const string DependsTermKey = "depends";
+    public const string DependsPrefixTermKey = "depends-prefix";
     public const string DependsTransitiveTermKey = "depends-transitive";
     public const string DependencyDepthTermKey = "dependency-depth";
     public const string DependsEcosystemTermKey = "depends-ecosystem";
@@ -692,6 +694,18 @@ public static partial class PackageQuery
             EqualityOperator,
             "NuGet package ID",
             "Microsoft.Extensions.DependencyInjection",
+            PackageQueryTermRole.Inspection,
+            PackageQueryTermControlKind.Input),
+        new(
+            DependsPrefixTermKey,
+            "depends on package prefix",
+            "Matches a direct dependency whose package ID begins with one literal prefix.",
+            205,
+            PackageQueryAcquisitionTier.Nuspec,
+            PackageQueryExecutionClass.Nuspec,
+            EqualityOperator,
+            "NuGet package ID prefix",
+            "Microsoft.Extensions.",
             PackageQueryTermRole.Inspection,
             PackageQueryTermControlKind.Input),
         new(
@@ -898,6 +912,7 @@ public static partial class PackageQuery
         Key(DependenciesTermKey, BindDependencies),
         Key(DependencyTargetTermKey, BindDependencyTarget),
         Key(DependsTermKey, BindDepends),
+        Key(DependsPrefixTermKey, BindDependsPrefix),
         Key(DependsEcosystemTermKey, BindDependsEcosystem),
         Key(DependsTransitiveTermKey, BindDependsTransitive),
         Key(DependencyDepthTermKey, BindDependencyDepth),
@@ -1178,6 +1193,35 @@ public static partial class PackageQuery
             : PortableQueryBinding<PackageQueryPredicate>.Rejected;
 
     private static PortableQueryBinding<PackageQueryPredicate>
+        BindDependsPrefix(
+            PortableQueryOperator @operator,
+            string value)
+    {
+        if (@operator != PortableQueryOperator.Equal
+            || !InertString.IsPermitted(TextPolicy.Field, value))
+        {
+            return PortableQueryBinding<PackageQueryPredicate>.Rejected;
+        }
+
+        PackagePrefixDeclaration prefix;
+        try
+        {
+            prefix = new PackagePrefixDeclaration(value);
+        }
+        catch (ArgumentException)
+        {
+            return PortableQueryBinding<PackageQueryPredicate>.Rejected;
+        }
+
+        return PortableQueryBinding<PackageQueryPredicate>.Bound(
+            $"{DependsPrefixTermKey}:{Normalize(prefix.Prefix)}",
+            new(
+                PackageQueryPredicateKind.DependsPrefix,
+                prefix.Prefix,
+                PackagePrefix: prefix));
+    }
+
+    private static PortableQueryBinding<PackageQueryPredicate>
         BindDependsTransitive(
             PortableQueryOperator @operator,
             string value) =>
@@ -1365,6 +1409,8 @@ public static partial class PackageQuery
             PackageQueryPredicateKind.DependencyTarget =>
                 DependencyTargetTermKey,
             PackageQueryPredicateKind.Depends => DependsTermKey,
+            PackageQueryPredicateKind.DependsPrefix =>
+                DependsPrefixTermKey,
             PackageQueryPredicateKind.DependsTransitive =>
                 DependsTransitiveTermKey,
             PackageQueryPredicateKind.DependencyDepth =>
@@ -2194,6 +2240,13 @@ public static partial class PackageQuery
                     ?? throw new InvalidOperationException(
                         "Dependency matching requires one dependency selection."))
                     .Length > 0,
+            PackageQueryPredicateKind.DependsPrefix =>
+                MatchingPrefixDependencies(
+                    term,
+                    dependencySelection
+                    ?? throw new InvalidOperationException(
+                        "Dependency matching requires one dependency selection."))
+                    .Length > 0,
             PackageQueryPredicateKind.DependsTransitive => true,
             PackageQueryPredicateKind.DependencyDepth => true,
             PackageQueryPredicateKind.CrossPrefixDependencies =>
@@ -2321,6 +2374,28 @@ public static partial class PackageQuery
                             group,
                             dependency))),
         ];
+
+    static PackageQueryDependencyMatch[] MatchingPrefixDependencies(
+        BoundPackageQueryTerm term,
+        PackageQueryDependencySelection selection)
+    {
+        PackagePrefixDeclaration prefix =
+            term.Predicate.PackagePrefix
+            ?? throw new InvalidOperationException(
+                "depends-prefix requires a bound package prefix.");
+        return
+        [
+            .. SelectedDependencyGroups(selection)
+                .SelectMany(group => group.Dependencies
+                    .Where(dependency => dependency.Id.StartsWith(
+                        prefix.Prefix,
+                        StringComparison.OrdinalIgnoreCase))
+                    .Select(dependency =>
+                        new PackageQueryDependencyMatch(
+                            group,
+                            dependency))),
+        ];
+    }
 
     static PackageQueryDependencyMatch[] MatchingCrossPrefixDependencies(
         PackageQueryPackage package,
@@ -2506,6 +2581,10 @@ public static partial class PackageQuery
                         term.Predicate.Text
                         ?? throw new InvalidOperationException(
                             "Dependency answers require a bound package ID."),
+                    PackageQueryPredicateKind.DependsPrefix =>
+                        term.Predicate.Text
+                        ?? throw new InvalidOperationException(
+                            "Dependency-prefix answers require a bound package prefix."),
                     PackageQueryPredicateKind.DependsTransitive =>
                         term.Predicate.Text
                         ?? throw new InvalidOperationException(
@@ -2571,6 +2650,16 @@ public static partial class PackageQuery
                                 "Dependency evidence requires one dependency selection."))
                             .Select(DescribeDependencyMatch),
                         StringComparer.Ordinal),
+                },
+            PackageQueryPredicateKind.DependsPrefix =>
+                new PackageQueryEvidence(term.Descriptor.Key)
+                {
+                    Summary = SummarizeDependencyMatches(
+                        MatchingPrefixDependencies(
+                            term,
+                            dependencySelection
+                            ?? throw new InvalidOperationException(
+                                "Dependency evidence requires one dependency selection."))),
                 },
             PackageQueryPredicateKind.DependsTransitive
                 or PackageQueryPredicateKind.DependencyDepth =>
