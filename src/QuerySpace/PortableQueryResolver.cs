@@ -1,6 +1,6 @@
-using DotnetInspector.RowSelection;
+using QuerySpace.Rows;
 
-namespace DotnetInspector.PortableQueries;
+namespace QuerySpace;
 
 /// <summary>
 /// The outcome of resolving one intent: this owner's executable plan, or one

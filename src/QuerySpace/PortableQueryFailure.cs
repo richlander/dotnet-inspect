@@ -1,4 +1,4 @@
-namespace DotnetInspector.PortableQueries;
+namespace QuerySpace;
 
 /// <summary>
 /// Why an intent did not resolve.

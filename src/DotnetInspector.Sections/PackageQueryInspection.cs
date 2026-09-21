@@ -2,12 +2,12 @@ using System.Collections.Immutable;
 using System.Globalization;
 using DotnetInspector.PackageQueries;
 using DotnetInspector.Packages;
-using DotnetInspector.PortableQueries;
 using DotnetInspector.Queries;
 using DotnetInspector.SourceSelection;
 using ILInspector.Analysis;
 using InertText;
 using NuGetFetch;
+using QuerySpace;
 
 namespace DotnetInspector.Sections;
 

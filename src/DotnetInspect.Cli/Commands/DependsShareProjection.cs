@@ -3,7 +3,7 @@ using DotnetInspect.Cli.Output;
 using DotnetInspector.Sections;
 using DotnetInspector.Packages;
 using DotnetInspector.Queries.Definitions;
-using DotnetInspector.RowSelection;
+using QuerySpace.Rows;
 using NuGet.Frameworks;
 using NuGet.Versioning;
 using NuGetFetch;

@@ -1,6 +1,5 @@
-using DotnetInspector.RowSelection;
 
-namespace DotnetInspector.Sections;
+namespace QuerySpace.Rows;
 
 public static class RowQueryExecutor
 {

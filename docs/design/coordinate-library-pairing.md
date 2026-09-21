@@ -9,19 +9,20 @@ of [coordinate retention #7061](https://github.com/richlander/dotnet-inspect/iss
 
 The one claim is:
 
-> Given an exact source API Library and an explicitly designated pair of
-> Package occurrences in one Workspace, Queries selects the unique destination
-> API Library under the profile below, or preserves typed non-success for that
-> same request.
+> Given an exact source API Library and explicitly designated source and
+> destination Package occurrences in their owning Workspaces, Queries selects
+> the unique destination API Library under the profile below, or preserves
+> typed non-success for that same request.
 
 This is a directional, pair-scoped relation, not acquired-identity equality,
 runtime binding, package equivalence, or a whole-Package bijection.
 [Metadata declaration correspondence](api-declaration-correspondence.md)
 consumes the selected Library images; it does not discover their pairing.
-[Scope](workspace-scope-and-expansion.md) supplies exact occurrences and
-replacement results. [Navigation](inspection-subject-navigation.md) decides
-whether to retain a path, fall back, or reissue an inspector request.
-Those contracts are unchanged.
+[Scope](workspace-scope-and-expansion.md) supplies each exact occurrence;
+source and destination may belong to one Workspace or to separately realized
+Workspaces. [Navigation](inspection-subject-navigation.md) decides whether to
+retain a path, fall back, or reissue an inspector request. Those contracts are
+unchanged.
 
 ## Product question and demo
 
@@ -106,30 +107,35 @@ None is an alternative policy inside this query.
 Inputs must retain their associations, not just individually plausible values:
 
 - The source is an exact `StructuralSubjectIdentity.LibrarySubject` in the
-  designated source occurrence and Workspace.
+  designated source occurrence and its Workspace.
 - Each observation is associated with its exact Scope occurrence, the
   Acquisition-issued Root correspondence and generation, and the binding's
   exact frozen API-asset selection. The source Library's registration and
   decoded assembly identity must originate in that same source observation.
 - The destination observation belongs to the explicitly designated destination
-  occurrence in that same Workspace. Its candidate Library registrations and
-  decoded identities retain that observation's generation/selection association.
+  occurrence in its own Workspace. Its candidate Library registrations and
+  decoded identities retain that observation's Workspace,
+  generation/selection association. That Workspace may be the source Workspace
+  or a separately realized successor.
 
 The initial profile admits the same package ID under the Package owner's
 identity rules and the same complete Package Source-issued producer identity.
-Version and framework may differ; each endpoint preserves its own exact
-selection inputs. Equal portable producer tokens or legacy cache-key strings
-do not substitute for complete producer identity. Missing producer evidence,
-cross-producer or cross-package requests, and cross-Workspace requests are
-refused, not searched heuristically. This restriction is about the admitted
-comparison domain, not a claim that signing proves provenance or authorship.
+Version, framework, and Workspace may differ; each endpoint preserves its own
+exact selection inputs and occurrence identity. Equal portable producer tokens
+or legacy cache-key strings do not substitute for complete producer identity.
+Missing producer evidence, cross-producer or cross-package requests, and a
+source Library foreign to the source observation are refused, not searched
+heuristically. This restriction is about the admitted comparison domain, not a
+claim that signing proves provenance or authorship.
 
-For Navigation replacement, the destination must be the exact requested
-occurrence supplied through the accepted Scope result. Queries does not choose
-the successor from equal package IDs, Root correspondence, or inventory order.
-An ordinary CLI caller can instead explicitly designate two admitted
-occurrences in one Workspace; this producer does not require a Navigation
-session. CLI request formation remains [#7107](https://github.com/richlander/dotnet-inspect/issues/7107).
+For current Navigation replacement, the destination remains the exact requested
+occurrence supplied through the accepted Scope result. A later
+successor-realization consumer may instead designate an occurrence from a
+separate destination Workspace. Queries does not choose the successor from
+equal package IDs, Root correspondence, or inventory order. An ordinary CLI
+caller can explicitly designate two admitted occurrences in one or two
+Workspaces; this producer does not require a Navigation session. CLI request
+formation remains [#7107](https://github.com/richlander/dotnet-inspect/issues/7107).
 
 Historical source observations are allowed only as evidence for the exact
 source endpoint of this request. They do not become current acquisition
@@ -225,8 +231,12 @@ not turn that declaration-specific route into Library equivalence.
 ## Delivery and evidence
 
 This is the Library-pairing prerequisite inside #7061's existing six-step
-plan, not a seventh capability step. Implement it with the shared declaration
-producer and a production consumer, not as an unused chain ahead of that group.
+plan, not a seventh capability step. Issue
+[#8013](https://github.com/richlander/dotnet-inspect/issues/8013) extends the
+same owner-issued relation across separately realized Workspaces as the first
+focused prerequisite for #6751's replacement retirement. The following slices
+adapt declaration correspondence, then Navigation, then portable replacement;
+the existing Avalonia production gate moves with that adoption.
 [#7107](https://github.com/richlander/dotnet-inspect/issues/7107) supplies a
 direct CLI matching scenario; #7061 retains the protected Navigation and
 Browser Version/TFM adoption, including retirement of interim preferences.
@@ -294,7 +304,7 @@ The integrated evidence obligations are:
 | --- | --- |
 | `ApiCoordinateMatchInspectionTests` | Real System.Text.Json exact/strict-non-match and descending absence cases; Avalonia's defining-Library move; source ambiguity and missing source; completed envelopes through a non-friend consumer. |
 | `CoordinateLibraryPairingQueryTests` | Assembly-version changes, unsigned versus signed, changed paths, compile fallback versus implementation/other-TFM roles, duplicate candidates, and genuine empty groups. |
-| `CoordinateLibraryPairingQueryTests` | Foreign Workspaces, same-coordinate fresh bindings, retired Roots, different Packages/producers, and incomplete producer evidence do not receive relabeled or success-shaped results. |
+| `CoordinateLibraryPairingQueryTests` | Separately realized destination observations retain their own occurrence and registration; a source Library foreign to the source observation, same-coordinate fresh bindings, retired Roots, different Packages/producers, and incomplete producer evidence do not receive relabeled or success-shaped results. |
 | `ApiCoordinateSourceSelectionQueryTests` | Source-only selection over real packages without destination selector acquisition. |
 
 Host-level retention and `--match` outcomes remain gates of their respective

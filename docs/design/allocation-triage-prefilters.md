@@ -199,6 +199,51 @@ non-vacuity gates for those outcomes. The flattened projection gate
 JSON. `ApplyAcceptedSupportPrecedence_IsIndependentPerBuild` pins the
 multi-build grouping boundary.
 
+### Runtime confirmation of string production
+
+An exact `string-materialization` row has no static allocated type because its
+operation may reuse a string or return `string.Empty`. RunFaster nevertheless
+accepts that row at the same-build nearest-preceding IL coordinate when a GC
+allocation tick reports `System.String`. The trace, rather than static
+analysis, supplies the realized-allocation claim and sampled byte volume.
+Supplied allocation-type fields are ignored for this shape so they cannot
+enable raw-row projection or type-level confirmation. Method-name and other
+non-allocation observations may still establish generic method heat, but they
+do not place a row in the runtime-confirmed string table.
+Aggregate `SupportingCallSite` coordinates do not qualify: they project raw
+allocation evidence to a composite judgment without preserving the exact
+string-producing operation required by this contract.
+
+This compatibility is intentionally narrower than the construction strategy.
+`System.Char[]`, `System.Text.StringBuilder`, and other helper allocations do
+not confirm a string-materialization row. A row also receives no type-level
+confirmation when its IL coordinate is absent, such as after inlining, because
+the static side still publishes no predicted allocation type. A compatible
+exact triage row supersedes a raw string-allocation row at the same coordinate
+under the existing same-build precedence rules.
+
+RunFaster reports these observations in a dedicated runtime-confirmed string
+table, ordered by sampled bytes. It does not include them in the automatic
+optimization verdict or `Confirmed paydirt`: runtime frequency still does not
+show whether a string is required output, reused input, or removable
+intermediate text. Selecting a rewrite requires inspecting the result consumer
+and output contract.
+
+`AllocationTypeMatch_StringMaterializationAcceptsOnlyRuntimeString` pins the
+shape/type boundary,
+`Correlate_StringMaterializationMethodHeatIsNotAllocationConfirmation`
+separates method heat from allocation confirmation,
+`Correlate_StringMaterializationContradictoryTypeCannotClaimRawObjectAllocation`
+keeps the shape effectively type-empty, while
+`Correlate_StringMaterializationSupportCannotClaimRawObjectAllocation` rejects
+the aggregate-coordinate bypass and preserves the raw allocation row, and
+`OptimizationVerdict_StringMaterializationRequiresConsumerInspection` keeps
+runtime heat separate from profitability. The C# printer calibration workload
+provides the non-synthetic check: its pre-change trace must move exact string
+rows from `cold-for-this-workload` to observed runtime evidence without
+attributing character buffers to those rows or recommending its required final
+output string as the first fix.
+
 ## Opt-in allocation fanout
 
 Local rewrite shapes intentionally suppress ordinary once-per-call object

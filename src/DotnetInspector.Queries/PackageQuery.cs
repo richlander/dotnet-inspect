@@ -5,7 +5,7 @@ using System.Runtime.CompilerServices;
 using System.Text;
 using System.Xml;
 using DotnetInspector.Packages;
-using DotnetInspector.PortableQueries;
+using QuerySpace;
 using DotnetInspector.Queries.Definitions;
 using DotnetInspector.Sections;
 using DotnetInspector.Services;
@@ -15,6 +15,7 @@ using ILInspector.Metadata;
 using InertText;
 using NuGet.Frameworks;
 using NuGetFetch;
+using QuerySpace.Rows;
 
 namespace DotnetInspector.Queries;
 
