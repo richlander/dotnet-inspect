@@ -12,7 +12,23 @@ namespace DotnetInspect.Cli.Tests;
 public sealed class WorkspacePatCredentialResolverTests
 {
     [Fact]
-    public async Task EnvironmentBinding_ProducesEphemeralCredential()
+    public async Task CredentialInputsAndBoundaries_AreEnforced()
+    {
+        await EnvironmentBinding_ProducesEphemeralCredential();
+        await EnvironmentBinding_PreservesExactValue();
+        await FileBinding_RemovesOneLineEndingAndLeavesFileUntouched();
+        await RequiredPatWithoutBinding_FailsBeforeSourceConstruction();
+        await BindingForUnrequiredSource_IsRejected();
+        await InvalidUtf8File_IsRejectedWithoutEchoingPayload();
+        await RedirectedStandardInput_ProducesEphemeralCredential();
+        await TerminalStandardInput_IsRejectedWithoutOpeningIt();
+        await OversizedFile_IsRejectedWithoutEchoingPayload();
+        await MissingEnvironmentVariable_DoesNotEchoASecret();
+        await DuplicateBindings_AreRejectedBeforeReadingSecrets();
+        await CredentialProviderScope_DoesNotUpgradeAnonymousOrigin();
+    }
+
+    private static async Task EnvironmentBinding_ProducesEphemeralCredential()
     {
         string variable =
             "DOTNET_INSPECT_PAT_TEST_" + Guid.NewGuid().ToString("N");
@@ -43,8 +59,7 @@ public sealed class WorkspacePatCredentialResolverTests
         }
     }
 
-    [Fact]
-    public async Task EnvironmentBinding_PreservesExactValue()
+    private static async Task EnvironmentBinding_PreservesExactValue()
     {
         string variable =
             "DOTNET_INSPECT_PAT_TEST_" + Guid.NewGuid().ToString("N");
@@ -71,8 +86,7 @@ public sealed class WorkspacePatCredentialResolverTests
         }
     }
 
-    [Fact]
-    public async Task FileBinding_RemovesOneLineEndingAndLeavesFileUntouched()
+    private static async Task FileBinding_RemovesOneLineEndingAndLeavesFileUntouched()
     {
         string path = Path.Combine(
             Path.GetTempPath(),
@@ -110,8 +124,7 @@ public sealed class WorkspacePatCredentialResolverTests
         }
     }
 
-    [Fact]
-    public async Task RequiredPatWithoutBinding_FailsBeforeSourceConstruction()
+    private static async Task RequiredPatWithoutBinding_FailsBeforeSourceConstruction()
     {
         WorkspacePatBindingException exception =
             await Assert.ThrowsAsync<WorkspacePatBindingException>(
@@ -123,8 +136,7 @@ public sealed class WorkspacePatCredentialResolverTests
         Assert.Contains("requires a PAT", exception.Message);
     }
 
-    [Fact]
-    public async Task BindingForUnrequiredSource_IsRejected()
+    private static async Task BindingForUnrequiredSource_IsRejected()
     {
         WorkspacePatBindingException exception =
             await Assert.ThrowsAsync<WorkspacePatBindingException>(
@@ -145,8 +157,7 @@ public sealed class WorkspacePatCredentialResolverTests
         Assert.Contains("not a required PAT source", exception.Message);
     }
 
-    [Fact]
-    public async Task InvalidUtf8File_IsRejectedWithoutEchoingPayload()
+    private static async Task InvalidUtf8File_IsRejectedWithoutEchoingPayload()
     {
         string path = Path.Combine(
             Path.GetTempPath(),
@@ -178,8 +189,7 @@ public sealed class WorkspacePatCredentialResolverTests
         }
     }
 
-    [Fact]
-    public async Task RedirectedStandardInput_ProducesEphemeralCredential()
+    private static async Task RedirectedStandardInput_ProducesEphemeralCredential()
     {
         await using var input = new MemoryStream(
             Encoding.UTF8.GetBytes("stdin-pat\n"));
@@ -202,8 +212,7 @@ public sealed class WorkspacePatCredentialResolverTests
             Assert.Single(sources).Credential!.Password);
     }
 
-    [Fact]
-    public async Task TerminalStandardInput_IsRejectedWithoutOpeningIt()
+    private static async Task TerminalStandardInput_IsRejectedWithoutOpeningIt()
     {
         bool opened = false;
 
@@ -229,8 +238,7 @@ public sealed class WorkspacePatCredentialResolverTests
         Assert.False(opened);
     }
 
-    [Fact]
-    public async Task OversizedFile_IsRejectedWithoutEchoingPayload()
+    private static async Task OversizedFile_IsRejectedWithoutEchoingPayload()
     {
         string path = Path.Combine(
             Path.GetTempPath(),
@@ -268,8 +276,7 @@ public sealed class WorkspacePatCredentialResolverTests
         }
     }
 
-    [Fact]
-    public async Task MissingEnvironmentVariable_DoesNotEchoASecret()
+    private static async Task MissingEnvironmentVariable_DoesNotEchoASecret()
     {
         string variable =
             "DOTNET_INSPECT_MISSING_PAT_" + Guid.NewGuid().ToString("N");
@@ -290,8 +297,7 @@ public sealed class WorkspacePatCredentialResolverTests
         Assert.Contains("is not set", exception.Message);
     }
 
-    [Fact]
-    public async Task DuplicateBindings_AreRejectedBeforeReadingSecrets()
+    private static async Task DuplicateBindings_AreRejectedBeforeReadingSecrets()
     {
         bool opened = false;
 
@@ -321,8 +327,7 @@ public sealed class WorkspacePatCredentialResolverTests
         Assert.False(opened);
     }
 
-    [Fact]
-    public async Task CredentialProviderScope_DoesNotUpgradeAnonymousOrigin()
+    private static async Task CredentialProviderScope_DoesNotUpgradeAnonymousOrigin()
     {
         var inner = new RecordingCredentialSource();
         var scoped = new WorkspaceCredentialSource(
