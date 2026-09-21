@@ -417,11 +417,13 @@ public partial class CommandExecutionTests
     [InlineData("Microsoft.CSharp@4.7.0", "netcoreapp2.0")]
     [InlineData("System.Private.ServiceModel@4.10.3", "netstandard2.0")]
     public async Task
-        PackageCommand_LibraryFlag_SelectedEmptyCompileGroupDoesNotFallback(
+        PackageLibraryRoutes_SelectedEmptyCompileGroupDoNotFallback(
             string package,
             string selectedTfm)
     {
-        var (exit, output, error) = await RunAppAsync(
+        string library =
+            $"{package[..package.IndexOf('@')]}.dll";
+        var aggregate = await RunAppAsync(
             "package",
             package,
             "--library",
@@ -429,13 +431,35 @@ public partial class CommandExecutionTests
             "Library Info",
             "--tips",
             "q");
+        var packageExact = await RunAppAsync(
+            "package",
+            package,
+            "--library",
+            library,
+            "-S",
+            "Library Info",
+            "--tips",
+            "q");
+        var libraryExact = await RunAppAsync(
+            "library",
+            library,
+            "--package",
+            package,
+            "-S",
+            "Library Info",
+            "--tips",
+            "q");
 
-        Assert.Equal(1, exit);
-        Assert.Empty(output);
-        Assert.Contains(
-            $"selected compile group for TFM '{selectedTfm}'",
-            error,
-            StringComparison.Ordinal);
+        foreach (var (exit, output, error) in
+            new[] { aggregate, packageExact, libraryExact })
+        {
+            Assert.Equal(1, exit);
+            Assert.Empty(output);
+            Assert.Contains(
+                $"selected compile group for TFM '{selectedTfm}'",
+                error,
+                StringComparison.Ordinal);
+        }
     }
 
     [Fact]
@@ -664,6 +688,17 @@ public partial class CommandExecutionTests
                 "Library Info",
                 "--tips",
                 "q");
+            var exact = await RunAppAsync(
+                "library",
+                "Latest.One.dll",
+                "--package",
+                packagePath,
+                "--tfm",
+                "net11.0",
+                "-S",
+                "Library Info",
+                "--tips",
+                "q");
 
             Assert.True(
                 result.Exit == 0,
@@ -678,6 +713,14 @@ public partial class CommandExecutionTests
                 "## Library Info (lib/net10.0/Latest.Two.dll)",
                 result.Output);
             Assert.DoesNotContain("lib/net8.0/Older.dll", result.Output);
+            Assert.True(
+                exact.Exit == 0,
+                $"Expected success.{Environment.NewLine}"
+                    + $"Error: {exact.Error}{Environment.NewLine}"
+                    + $"Output: {exact.Output}");
+            Assert.Empty(exact.Error);
+            Assert.Contains("# Latest.One.dll", exact.Output);
+            Assert.DoesNotContain("lib/net8.0/Older.dll", exact.Output);
         }
         finally
         {

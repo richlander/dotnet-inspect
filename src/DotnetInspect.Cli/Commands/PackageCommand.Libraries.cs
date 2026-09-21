@@ -10,6 +10,7 @@ using DotnetInspect.Cli.Output;
 using DotnetInspector.Packages;
 using DotnetInspect.Cli.Planning;
 using DotnetInspector.Queries;
+using DotnetInspector.SourceSelection;
 using QuerySpace.Rows;
 using NuGetFetch;
 using PackageExtractor = DotnetInspector.Packages.PackageExtractor;
@@ -835,6 +836,12 @@ public partial class PackageCommand
             AssemblyName = assemblyName,
             IncludeMetadata = true,
             PackagePath = packageReference,
+            SourceIntent = options.DeclaredPackageTarget
+                is { IsLocalFile: true } target
+                    ? SourceIntent.Create(
+                        [new SourceSelector.PackageArchive(
+                            target.OriginalArgument)])
+                    : SourceIntent.Empty,
             ReferenceHierarchyDepth = options.ReferenceHierarchyDepth,
             IncludePrerelease = options.IncludePrerelease,
             Tfm = selectedTargetFramework ?? options.Tfm,

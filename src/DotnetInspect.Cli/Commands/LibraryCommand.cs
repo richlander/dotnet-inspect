@@ -146,7 +146,11 @@ public partial class LibraryCommand
         if (source.Selector is SourceSelector.PackageSource
             && (options.WorkspacePacket is not null
                 || options.NamesakeLibrary
-                || string.IsNullOrWhiteSpace(options.AssemblyName)))
+                || string.IsNullOrWhiteSpace(options.AssemblyName)
+                || !string.Equals(
+                    options.Tfm,
+                    "all",
+                    StringComparison.OrdinalIgnoreCase)))
         {
             return await ExecutePackageAsync(
                 options,
