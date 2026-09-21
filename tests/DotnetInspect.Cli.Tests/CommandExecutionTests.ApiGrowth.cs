@@ -124,6 +124,61 @@ public partial class CommandExecutionTests
         Assert.Equal("41", output.Trim());
     }
 
+    [Theory]
+    [InlineData("Member Index", 252)]
+    [InlineData("Called Types", 51)]
+    [InlineData("Unsafe Members", 192)]
+    [InlineData("Safety Facts", 75)]
+    [InlineData("Allocation Facts", 26)]
+    [InlineData("Cost Facts", 182)]
+    [InlineData("Performance Triage", 31)]
+    [InlineData("Top Leverage", 301)]
+    [InlineData("Implementation Profiles", 301)]
+    public async Task Type_PlatformMemberDomainSectionCountsMatchGrowthEvidence(
+        string section,
+        int expected)
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "type",
+            "System.String",
+            "--platform",
+            "System.Runtime",
+            "-S",
+            section,
+            "--count",
+            "--tips",
+            "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Equal(expected.ToString(), output.Trim());
+    }
+
+    [Fact]
+    public async Task
+        Member_PlatformExactMemberAnnotatedSourceExceedsInformativeRange()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member",
+            "System.Linq.Enumerable",
+            "ToArray:1",
+            "--platform",
+            "System.Linq",
+            "-S",
+            "Annotated Source",
+            "--tips",
+            "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        int renderedLines =
+            output.Split('\n', StringSplitOptions.RemoveEmptyEntries).Length;
+        Assert.True(
+            renderedLines > 24,
+            "Expected Annotated Source output to exceed 24 rendered lines; "
+            + $"observed {renderedLines}.");
+    }
+
     [Fact]
     public async Task Member_PlatformExactMemberIlExceedsInformativeRange()
     {
