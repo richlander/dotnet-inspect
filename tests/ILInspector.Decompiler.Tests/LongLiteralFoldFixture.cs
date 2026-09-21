@@ -50,6 +50,12 @@ public static class LongLiteralFoldFixture
     // the precedence case a bare Primary claim would get wrong.
     public static long NegativeBinaryOperand(long x) => x * -1L;
 
+    // Comparison operands do not flow through a typed value sink. The long marker
+    // remains necessary and the product spelling uses the selected L suffix.
+    public static bool ComparisonOperand(long x) => x == 3L;
+
+    public static bool NegativeComparisonOperand(long x) => x != -1L;
+
     // Boundary and sign coverage, all still `ldc.i4*; conv.i8`.
     public static long Zero() => 0L;
 
@@ -83,6 +89,10 @@ public static class LongLiteralFoldFixture
     // An `ldc.i8` in the same ternary-arm position the fold fires in, so the close
     // negative is pinned at the seam and not only at a return.
     public static long LargeTernaryArms(bool c, long tail) => (c ? 5_000_000_000L : 6_000_000_000L) + tail;
+
+    // A genuine `ldc.i8` in the newly covered comparison seam remains distinct
+    // from an int constant widened through `conv.i8`.
+    public static bool LargeComparisonOperand(long x) => x == 5_000_000_000L;
 
     public static long Consume(long value) => value;
 
