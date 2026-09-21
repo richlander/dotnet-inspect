@@ -209,9 +209,11 @@ copy a legacy command.
 `--details` is a temporary Library-only discovery projection, not inspection
 verbosity. Its first adoption adds only `Formats` and remains structural and
 target-free. It will not accumulate more implicit columns. The resource-oriented
-`explain` adoption tracked by #7814 will expose Formats and later owner-issued
-properties from the host-neutral Discovery Document, then remove `--details`.
-Formats do not receive a global `-F` discovery flag.
+[Resource Explanation](resource-explanation.md) adoption tracked by
+[#7964](https://github.com/richlander/dotnet-inspect/issues/7964) will expose
+Formats and later owner-issued properties from the host-neutral Discovery
+Document, then remove `--details`. Formats do not receive a global `-F`
+discovery flag.
 
 ## Query discovery
 
