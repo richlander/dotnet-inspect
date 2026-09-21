@@ -425,7 +425,9 @@ it through `MemberSourceInspection.ExecuteAsync`, with the existing
 CLI ordinary selected-member Decompiled Source consumes it through
 `MemberSourceInspection.DecompileAsync`. Browser ordinary Type Source consumes
 the type path through `TypeSourceInspection.ExecuteAsync`, retaining its
-existing wire shape, source-failure visibility, and viewer. CLI ordinary
+source-failure visibility and viewer. Its existing source value is wrapped in
+the code-view union used by [Type API Declaration Inspection](type-api-declarations.md);
+that separate declaration arm does not change SourceHouse settlement. CLI ordinary
 whole-type Decompiled Source consumes the decompiled-only path through
 `TypeSourceInspection.DecompileAsync`; it renders only an available native
 attempt, treats failed or incomplete settlement as a visible command failure,
@@ -433,10 +435,10 @@ and passes true absence to the selected renderer without fabricating text.
 The CLI's [native source default](rendering-model.md#native-type-and-source-defaults)
 does not change that shared settlement. This intentionally
 changes the earlier CLI behavior that omitted non-public members by default.
-An `API Declarations` view, planned as
-`type ... -S "API Declarations" [--all] [--markdown]`, is a separate future
-contract tracked by [#7984](https://github.com/richlander/dotnet-inspect/issues/7984)
-and is not introduced by this delivery. Implementation Diff's C# lane and
+The [Type API Declaration Inspection](type-api-declarations.md) view,
+`type ... -S "API Declarations" [--all] [--markdown]`, is a separate
+metadata declaration contract, not SourceHouse implementation-source settlement.
+Implementation Diff's C# lane and
 cross-version authored member pairs remain separate consumers.
 
 ## Authority and exact claim

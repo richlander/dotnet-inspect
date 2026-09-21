@@ -22,6 +22,7 @@
     <ProjectReference Include="../DotnetInspector.PackageQueries/DotnetInspector.PackageQueries.csproj" />
     <ProjectReference Include="../DotnetInspector.Queries/DotnetInspector.Queries.csproj" />
     <ProjectReference Include="../DotnetInspector.QueryEngine/DotnetInspector.QueryEngine.csproj" />
+    <ProjectReference Include="../ILInspector.CSharp/ILInspector.CSharp.csproj" />
     <ProjectReference Include="../QuerySpace/QuerySpace.csproj" />
   </ItemGroup>
 

@@ -1211,6 +1211,9 @@ public sealed record AppliedTasteRow(
 [MarkoutSerializable(AutoFields = false)]
 public class MemberCodeView
 {
+    [MarkoutSection(Name = SectionNames.ApiDeclarations)]
+    public CodeSection ApiDeclarationsCode { get; set; }
+
     [MarkoutSection(Name = "Decompiled Source")]
     public CodeSection DecompiledSourceCode { get; set; }
 

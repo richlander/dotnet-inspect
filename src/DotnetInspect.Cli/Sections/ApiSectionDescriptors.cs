@@ -170,6 +170,7 @@ public static class ApiMemberSectionDescriptors
             .Add<ApiMemberDetailSectionDescriptors.BodyShapes>()
             .Add<ApiMemberDetailSectionDescriptors.BodyShapeSummary>()
             .Add<SourceFiles>()
+            .Add<ApiDeclarations>()
             .Add<DecompiledSource>()
             .Add<PdbSource>()
             .Add<CloneCandidates>()
@@ -537,6 +538,16 @@ public static class ApiMemberSectionDescriptors
     }
 
     // ===== Expensive sections (decompiler output) =====
+
+    public sealed class ApiDeclarations : ISectionDescriptor<ApiType>
+    {
+        public static string Name => SectionNames.ApiDeclarations;
+        public static bool IsExpensive => false;
+        public static bool ExplicitOnly => true;
+        public static bool ProbeEffectiveness => false;
+        public static SectionSizeClass SizeClass => SectionSizeClass.Verbose;
+        public static bool CanRender(ApiType model) => true;
+    }
 
     public sealed class DecompiledSource : ISectionDescriptor<ApiType>
     {

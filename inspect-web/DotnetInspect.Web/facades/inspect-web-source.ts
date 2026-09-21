@@ -38,7 +38,13 @@ export type BrowserTypeSourceFailureKind = "Expected" | "Unexpected" | number;
 
 export type BrowserTypeSourceResultKind = "Succeeded" | "Failed" | "Canceled" | number;
 
-export type JsonValueKind = number;
+export type InspectionDiagnosticSeverity = number;
+
+export type TypeApiDeclarationFailureKind = "ProjectionTruncated" | "ParticipantRejected" | "ParticipantFailed" | "InspectionIncomplete" | "AccessorMetadataUnavailable" | "PrinterNotRendered" | number;
+
+export type TypeApiDeclarationOutcome = "Available" | "NotFound" | "Unavailable" | number;
+
+export type TypeApiDeclarationScope = "ApiVisible" | "All" | number;
 
 export interface BrowserAnnotatedSource {
   readonly document: unknown;
@@ -486,12 +492,73 @@ export interface BrowserTypeSourceCancellation {
 export interface BrowserTypeSourceResult {
   readonly version: number;
   readonly kind: BrowserTypeSourceResultKind;
-  readonly value: BrowserSource | null;
+  readonly value: BrowserTypeCodeView | null;
   readonly failureKind: BrowserTypeSourceFailureKind | null;
   readonly error: string | null;
   readonly diagnostic: string | null;
   readonly reason: string | null;
 }
+
+export interface ExactTypeDefinitionIdentity {
+  readonly namespace: string;
+  readonly segments: ReadonlyArray<string>;
+}
+
+export interface InspectionDiagnostic {
+  readonly code: string;
+  readonly severity: InspectionDiagnosticSeverity;
+  readonly summary: InertString;
+  readonly correspondence: InertString | null;
+}
+
+export interface InspectionEnvelope<T0> {
+  readonly content: T0;
+  readonly share: InspectionShare;
+  readonly diagnostics: ReadonlyArray<InspectionDiagnostic>;
+}
+
+export interface TypeApiDeclarationFailure {
+  readonly kind: TypeApiDeclarationFailureKind;
+  readonly detail: string;
+  readonly operation: string | null;
+  readonly subjectToken: number | null;
+}
+
+export interface TypeApiDeclarationResult {
+  readonly outcome: TypeApiDeclarationOutcome;
+  readonly typeIdentity: ExactTypeDefinitionIdentity;
+  readonly scope: TypeApiDeclarationScope;
+  readonly text: string | null;
+  readonly failures: ReadonlyArray<TypeApiDeclarationFailure>;
+}
+
+export interface ApiDeclarations {
+  readonly kind: "apiDeclarations";
+  readonly inspection: InspectionEnvelope<TypeApiDeclarationResult>;
+}
+
+export interface Source {
+  readonly kind: "source";
+  readonly value: BrowserSource;
+}
+
+export type BrowserTypeCodeView = Source | ApiDeclarations;
+
+export interface Available {
+  readonly kind: "available";
+  readonly fullUrl: string;
+  readonly packet: string;
+}
+
+export interface NonProjectable {
+  readonly kind: "nonProjectable";
+  readonly fullUrl: string | null;
+  readonly packet: string | null;
+  readonly path: string;
+  readonly reason: InertString;
+}
+
+export type InspectionShare = Available | NonProjectable;
 
 type $ManagedExports = {
   readonly "DotnetInspect": {
@@ -510,7 +577,7 @@ type $ManagedExports = {
             readonly "QueryMethodBodyComparison.451505237": (operationId: string, requestJson: string) => Promise<string>;
             readonly "QueryMethodBodyComparisonTargets.642387634": (operationId: string, packageId: string, version: string, targetFramework: string, assemblyName: string, typeIdentity: string, memberName: string, selectorKey: string, metadataToken: number) => Promise<string>;
             readonly "QueryTypeMemberSource.641907440": (packageId: string, version: string, targetFramework: string, assemblyName: string, typeIdentity: string, memberName: string, selectorKey: string, metadataToken: number, styleOptionsJson: string) => Promise<string>;
-            readonly "QueryTypeSource.1160082336": (operationId: string, packageId: string, version: string, targetFramework: string, assemblyName: string, typeIdentity: string, styleOptionsJson: string) => Promise<string>;
+            readonly "QueryTypeSource.335255791": (operationId: string, packageId: string, version: string, targetFramework: string, assemblyName: string, typeIdentity: string, styleOptionsJson: string, view: string) => Promise<string>;
           };
         };
       };
@@ -699,9 +766,9 @@ function $validateManagedExports(exports: unknown): asserts exports is $ManagedE
     value = $ownDataProperty(value, "Interop");
     value = $ownDataProperty(value, "Source");
     value = $ownDataProperty(value, "SourceExports");
-    value = $ownDataProperty(value, "QueryTypeSource.1160082336");
+    value = $ownDataProperty(value, "QueryTypeSource.335255791");
     if (typeof value !== "function") {
-      throw new Error("Managed export \u0027DotnetInspect.Web.Interop.Source.SourceExports.QueryTypeSource.1160082336\u0027 is not callable.");
+      throw new Error("Managed export \u0027DotnetInspect.Web.Interop.Source.SourceExports.QueryTypeSource.335255791\u0027 is not callable.");
     }
   }
 }
@@ -805,8 +872,8 @@ export async function queryTypeMemberSource(packageId: string, version: string, 
   return $parsed as BrowserSource;
 }
 
-export async function queryTypeSource(operationId: string, packageId: string, version: string, targetFramework: string, assemblyName: string, typeIdentity: string, styleOptionsJson: string): Promise<BrowserTypeSourceResult> {
-  const $result = await $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Source"]["SourceExports"]["QueryTypeSource.1160082336"](operationId, packageId, version, targetFramework, assemblyName, typeIdentity, styleOptionsJson);
+export async function queryTypeSource(operationId: string, packageId: string, version: string, targetFramework: string, assemblyName: string, typeIdentity: string, styleOptionsJson: string, view: string): Promise<BrowserTypeSourceResult> {
+  const $result = await $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Source"]["SourceExports"]["QueryTypeSource.335255791"](operationId, packageId, version, targetFramework, assemblyName, typeIdentity, styleOptionsJson, view);
   const $parsed: unknown = JSON.parse($result);
   return $parsed as BrowserTypeSourceResult;
 }

@@ -200,6 +200,7 @@ import {
   type GraphSourceRequest,
   type GraphSourceState,
   type SourceResultState,
+  type TypeSourceView,
 } from "./source-inspection.ts";
 import { renderMemberContractSections } from "./member-overview.ts";
 import {
@@ -390,6 +391,7 @@ import {
   type MemberNavEntry,
   typeMetadataSignature,
   typeSourceSignature,
+  typeCodeViewText,
 } from "./type-panel.ts";
 import {
   createPackageControls,
@@ -598,6 +600,7 @@ import type {
 } from "./facades/inspect-web-analysis.d.ts";
 import type {
   BrowserMemberSource,
+  BrowserTypeCodeView,
 } from "./facades/inspect-web-source.d.ts";
 import type {
   BrowserHomeDemoRunActivation,
@@ -1039,6 +1042,7 @@ const initialState = {
   memberFindingInteraction: null,
   memberFindingSelectionError: "",
   typeSource: { status: "idle" as const },
+  typeSourceView: "source" as const,
   typeMetadata: null,
   typeMetadataLoading: false,
   typeMetadataError: "",
@@ -1193,7 +1197,8 @@ interface StateOverrides {
   memberAnnotatedEmbedded: AnnotatedSourceSession | null;
   memberAnnotatedModal: AnnotatedSourceSession | null;
   memberFindingInteraction: MemberFindingInteraction | null;
-  typeSource: SourceResultState;
+  typeSource: SourceResultState<BrowserTypeCodeView>;
+  typeSourceView: TypeSourceView;
   typeMetadata: BrowserTypeMetadata | null;
   libraryApiInspections:
     Map<string, BrowserExactLibraryApiInspection>;
@@ -1998,7 +2003,8 @@ const sourceInspection = createSourceInspectionCoordinator({
     request.framework,
     request.assembly,
     request.type,
-    request.taste),
+    request.taste,
+    request.view),
   queryGraphSource: (request, taste) => inspectTypeMemberSource(
     request.packageId,
     request.version,
@@ -5283,7 +5289,8 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
         current,
         currentPackage(),
         state.taste,
-        memberRequestKey)
+        memberRequestKey,
+        state.typeSourceView)
     : "";
   const sourcePageMemberSource =
     sourcePageKind === "member"
@@ -5294,16 +5301,18 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
   const selectedSourcePart = memberSourcePartSelector.current(
     currentMemberSourceSignature,
     sourcePageMemberSource);
+  const typeCodeView = sourcePageKind === "type"
+    ? sourceResultForSignature(state.typeSource, currentTypeSourceSignature)
+    : null;
   const sourcePageSource =
     sourcePageKind === "member"
       ? sourcePageMemberSource?.source ?? null
-      : sourcePageKind === "type"
-        ? sourceResultForSignature(
-            state.typeSource,
-            currentTypeSourceSignature)
+      : typeCodeView?.kind === "source"
+        ? typeCodeView.value
         : null;
   const sourceWorkingSurface =
-    sourcePageKind !== null && sourcePageSource !== null;
+    sourcePageKind !== null
+    && (sourcePageSource !== null || typeCodeViewText(typeCodeView) !== null);
   const apiWorkingSurface =
     activeScope === "type" && state.lens === "api";
   const metadataWorkingSurface =
@@ -5399,6 +5408,8 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
               ${sourcePageKind
                 ? renderSourcePageActions({
                     source: sourcePageSource,
+                    typeCodeView,
+                    typeView: state.typeSourceView,
                     memberSource: sourcePageMemberSource,
                     selectedMemberPart: selectedSourcePart,
                     copyButtonId: sourcePageKind === "member"
@@ -5637,7 +5648,7 @@ function maybeAutoLoadVisibleSource() {
   if (!type) return;
   const pkg = currentPackage();
   if (kind === "type") {
-    const signature = typeSourceSignature(type, pkg, state.taste, memberRequestKey);
+    const signature = typeSourceSignature(type, pkg, state.taste, memberRequestKey, state.typeSourceView);
     if (sourceResultNeedsLoad(state.typeSource, signature)) {
       observeAsync(loadSelectedTypeSource(), "Loading type source");
     }
@@ -7593,11 +7604,13 @@ function renderTypeSourceHtml(item: AppTypeSurface) {
     item,
     currentPackage(),
     state.taste,
-    memberRequestKey);
+    memberRequestKey,
+    state.typeSourceView);
   return renderTypeSource({
     item,
     currentSignature,
     sourceState: state.typeSource,
+    view: state.typeSourceView,
     escapeHtml,
     highlightCSharp,
   });
@@ -8422,8 +8435,14 @@ function bindTypePanelEvents() {
       }
     },
     onCopyTypeSource: () => {
-      if (state.typeSource.status === "ready")
-        void copyText(state.typeSource.source.text, "source copied");
+      if (state.typeSource.status !== "ready") return;
+      const text = typeCodeViewText(state.typeSource.source);
+      if (text !== null) void copyText(text, "source copied");
+    },
+    onTypeSourceViewSelect: view => {
+      if (state.typeSourceView === view) return;
+      state.typeSourceView = view;
+      observeAsync(loadSelectedTypeSource(), "Loading type code view");
     },
     onExploreSource: () => openSettings("source"),
     onKindSelect: kind => {
@@ -13677,7 +13696,7 @@ async function loadSelectedTypeSource() {
   }
   const pkg = currentPackage();
   const signature =
-    typeSourceSignature(type, pkg, state.taste, memberRequestKey);
+    typeSourceSignature(type, pkg, state.taste, memberRequestKey, state.typeSourceView);
   return sourceInspection.loadTypeSource({
     signature,
     packageId: pkg.id,
@@ -13686,6 +13705,7 @@ async function loadSelectedTypeSource() {
     assembly: type.assembly,
     type: type.definitionId ?? type.id,
     taste: JSON.stringify(state.taste),
+    view: state.typeSourceView,
     isVisible: () =>
       currentSourceOperationKind() === "type"
       && !workbenchModalOwnsFocus(),

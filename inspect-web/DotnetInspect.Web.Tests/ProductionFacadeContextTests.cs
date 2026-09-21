@@ -284,10 +284,13 @@ public sealed class ProductionFacadeContextTests
             typeof(InspectionEnvelope<ExactTypeInspectionResult>),
             sharedContractTypes);
         Collect(typeof(InspectionEnvelope<TypeDependencySectionResult>), sharedContractTypes);
+        var sharedSourceContractTypes = new HashSet<Type>();
+        Collect(typeof(InspectionEnvelope<TypeApiDeclarationResult>), sharedSourceContractTypes);
         foreach (Type derived in typeof(InspectionShare).Assembly.GetTypes()
                      .Where(type => type.BaseType == typeof(InspectionShare)))
         {
             Collect(derived, sharedContractTypes);
+            Collect(derived, sharedSourceContractTypes);
         }
 
         foreach (Type root in RootTypes())
@@ -316,8 +319,8 @@ public sealed class ProductionFacadeContextTests
             foreach (Type type in closure)
             {
                 string declaring = AssemblyNameOf(type.Assembly);
-                if (owner == MetadataAssembly
-                    && sharedContractTypes.Contains(type))
+                if ((owner == MetadataAssembly && sharedContractTypes.Contains(type))
+                    || (owner == SourceAssembly && sharedSourceContractTypes.Contains(type)))
                 {
                     continue;
                 }
@@ -329,7 +332,7 @@ public sealed class ProductionFacadeContextTests
                     continue;
                 }
 
-                // No raw product object reaches TypeScript: each facade transports its own record.
+                // Other product models are projected into the facade's own transport records.
                 Assert.False(
                     declaring.StartsWith("ILInspector.", StringComparison.Ordinal)
                     || declaring.StartsWith("DotnetInspector.", StringComparison.Ordinal)

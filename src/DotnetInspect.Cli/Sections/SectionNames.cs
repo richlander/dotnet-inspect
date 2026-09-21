@@ -84,6 +84,9 @@ public static class SectionNames
     /// <summary>Section for the decompiled C# method body.</summary>
     public const string DecompiledSource = "Decompiled Source";
 
+    /// <summary>Section for bodyless C# API declarations of one exact type.</summary>
+    public const string ApiDeclarations = "API Declarations";
+
     /// <summary>Section for typed causes that prevent Full decompiler fidelity.</summary>
     public const string FidelityCauses = "Fidelity Causes";
 
