@@ -44,7 +44,20 @@
        <MemorySafetyRules>updated</MemorySafetyRules> (or "on"/"new"). -->
   <PropertyGroup Condition="'$(MemorySafetyRules)' == 'updated' or '$(MemorySafetyRules)' == 'on' or '$(MemorySafetyRules)' == 'new'">
     <Features>$(Features);updated-memory-safety-rules</Features>
+    <UsePatchedSystemTextJsonGenerator>true</UsePatchedSystemTextJsonGenerator>
   </PropertyGroup>
+
+  <!-- .NET 11 RC1's in-box System.Text.Json generator predates updated
+       memory-safety syntax. Consume the RC2 fix as analyzer/build assets in
+       each compilation that enables those rules; runtime JSON remains supplied
+       by the selected framework. -->
+  <ItemGroup Condition="'$(TargetFramework)' == 'net11.0' and '$(UsePatchedSystemTextJsonGenerator)' == 'true'">
+    <PackageReference Include="System.Text.Json">
+      <IncludeAssets>analyzers;build;buildTransitive</IncludeAssets>
+      <ExcludeAssets>compile;runtime</ExcludeAssets>
+      <PrivateAssets>all</PrivateAssets>
+    </PackageReference>
+  </ItemGroup>
 
   <!-- Only CommandError may reach stderr (issue #3319). The rule is enforced by
        the compiler's semantic model via BannedApiAnalyzers, not by a scan of the

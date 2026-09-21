@@ -16,9 +16,35 @@ public enum PackageAssemblyAssetSequence
     Implementation,
 }
 
+[JsonConverter(typeof(PackageAssemblyAssetOccurrenceJsonConverter))]
 public readonly record struct PackageAssemblyAssetOccurrence(
     PackageAssemblyAssetSequence Sequence,
     int Ordinal);
+
+sealed class PackageAssemblyAssetOccurrenceJsonConverter
+    : TwoPropertyJsonConverter<
+        PackageAssemblyAssetOccurrence,
+        PackageAssemblyAssetSequence,
+        int>
+{
+    protected override string FirstPropertyName =>
+        nameof(PackageAssemblyAssetOccurrence.Sequence);
+
+    protected override string SecondPropertyName =>
+        nameof(PackageAssemblyAssetOccurrence.Ordinal);
+
+    protected override PackageAssemblyAssetOccurrence Create(
+        PackageAssemblyAssetSequence first,
+        int second) =>
+        new(first, second);
+
+    protected override PackageAssemblyAssetSequence FirstValue(
+        PackageAssemblyAssetOccurrence value) =>
+        value.Sequence;
+
+    protected override int SecondValue(PackageAssemblyAssetOccurrence value) =>
+        value.Ordinal;
+}
 
 public sealed record PackageAssemblyAssetEvidence(
     PackageCompileAssetKind Kind,
@@ -193,9 +219,36 @@ public enum PackageAssemblyCandidateCleanupStage
     CloseOrchestration,
 }
 
+[JsonConverter(typeof(PackageAssemblyCandidateCleanupFailureJsonConverter))]
 public readonly record struct PackageAssemblyCandidateCleanupFailure(
     PackageAssemblyCandidateCleanupStage Stage,
     int Count);
+
+sealed class PackageAssemblyCandidateCleanupFailureJsonConverter
+    : TwoPropertyJsonConverter<
+        PackageAssemblyCandidateCleanupFailure,
+        PackageAssemblyCandidateCleanupStage,
+        int>
+{
+    protected override string FirstPropertyName =>
+        nameof(PackageAssemblyCandidateCleanupFailure.Stage);
+
+    protected override string SecondPropertyName =>
+        nameof(PackageAssemblyCandidateCleanupFailure.Count);
+
+    protected override PackageAssemblyCandidateCleanupFailure Create(
+        PackageAssemblyCandidateCleanupStage first,
+        int second) =>
+        new(first, second);
+
+    protected override PackageAssemblyCandidateCleanupStage FirstValue(
+        PackageAssemblyCandidateCleanupFailure value) =>
+        value.Stage;
+
+    protected override int SecondValue(
+        PackageAssemblyCandidateCleanupFailure value) =>
+        value.Count;
+}
 
 public sealed record PackageAssemblyEvaluationCleanupEvidence
 {

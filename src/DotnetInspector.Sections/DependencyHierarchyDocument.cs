@@ -1,10 +1,143 @@
 using System.Collections.Immutable;
+using System.Text.Json;
+using System.Text.Json.Serialization;
+using System.Text.Json.Serialization.Metadata;
 
 namespace DotnetInspector.Sections;
 
+[JsonConverter(typeof(DependencyHierarchyOccurrenceIdentityJsonConverter))]
 public readonly record struct DependencyHierarchyOccurrenceIdentity(
     DependencyRootOccurrenceIdentity RootOccurrence,
     int Value);
+
+sealed class DependencyHierarchyOccurrenceIdentityJsonConverter
+    : JsonConverter<DependencyHierarchyOccurrenceIdentity>
+{
+    public override DependencyHierarchyOccurrenceIdentity Read(
+        ref Utf8JsonReader reader,
+        Type typeToConvert,
+        JsonSerializerOptions options)
+    {
+        if (reader.TokenType != JsonTokenType.StartObject)
+        {
+            throw new JsonException(
+                $"{nameof(DependencyHierarchyOccurrenceIdentity)} must be an object.");
+        }
+
+        DependencyRootOccurrenceIdentity rootOccurrence = default;
+        int value = 0;
+        int seenProperties = 0;
+        string rootOccurrenceName = JsonName(
+            options,
+            nameof(DependencyHierarchyOccurrenceIdentity.RootOccurrence));
+        string valueName = JsonName(
+            options,
+            nameof(DependencyHierarchyOccurrenceIdentity.Value));
+
+        while (reader.Read() && reader.TokenType != JsonTokenType.EndObject)
+        {
+            if (reader.TokenType != JsonTokenType.PropertyName)
+            {
+                throw new JsonException(
+                    $"{nameof(DependencyHierarchyOccurrenceIdentity)} requires property names.");
+            }
+
+            string propertyName = reader.GetString()!;
+            if (!reader.Read())
+            {
+                throw new JsonException(
+                    $"{nameof(DependencyHierarchyOccurrenceIdentity)} is incomplete.");
+            }
+
+            if (PropertyMatches(propertyName, rootOccurrenceName, options))
+            {
+                ObserveProperty(ref seenProperties, 1 << 0, options);
+                var typeInfo =
+                    (JsonTypeInfo<DependencyRootOccurrenceIdentity>)
+                    options.GetTypeInfo(
+                        typeof(DependencyRootOccurrenceIdentity));
+                rootOccurrence =
+                    JsonSerializer.Deserialize(ref reader, typeInfo);
+            }
+            else if (PropertyMatches(propertyName, valueName, options))
+            {
+                ObserveProperty(ref seenProperties, 1 << 1, options);
+                value = reader.GetInt32();
+            }
+            else if (options.UnmappedMemberHandling
+                == JsonUnmappedMemberHandling.Disallow)
+            {
+                throw new JsonException(
+                    $"{nameof(DependencyHierarchyOccurrenceIdentity)} contains an unknown property.");
+            }
+            else
+            {
+                reader.Skip();
+            }
+        }
+
+        if (reader.TokenType != JsonTokenType.EndObject)
+        {
+            throw new JsonException(
+                $"{nameof(DependencyHierarchyOccurrenceIdentity)} is incomplete.");
+        }
+
+        return new(rootOccurrence, value);
+    }
+
+    public override void Write(
+        Utf8JsonWriter writer,
+        DependencyHierarchyOccurrenceIdentity value,
+        JsonSerializerOptions options)
+    {
+        writer.WriteStartObject();
+        writer.WritePropertyName(
+            JsonName(
+                options,
+                nameof(DependencyHierarchyOccurrenceIdentity.RootOccurrence)));
+        var typeInfo =
+            (JsonTypeInfo<DependencyRootOccurrenceIdentity>)
+            options.GetTypeInfo(typeof(DependencyRootOccurrenceIdentity));
+        JsonSerializer.Serialize(writer, value.RootOccurrence, typeInfo);
+        writer.WriteNumber(
+            JsonName(
+                options,
+                nameof(DependencyHierarchyOccurrenceIdentity.Value)),
+            value.Value);
+        writer.WriteEndObject();
+    }
+
+    static string JsonName(
+        JsonSerializerOptions options,
+        string name) =>
+        options.PropertyNamingPolicy?.ConvertName(name) ?? name;
+
+    static bool PropertyMatches(
+        string actual,
+        string expected,
+        JsonSerializerOptions options) =>
+        string.Equals(
+            actual,
+            expected,
+            options.PropertyNameCaseInsensitive
+                ? StringComparison.OrdinalIgnoreCase
+                : StringComparison.Ordinal);
+
+    static void ObserveProperty(
+        ref int seenProperties,
+        int property,
+        JsonSerializerOptions options)
+    {
+        if (!options.AllowDuplicateProperties
+            && (seenProperties & property) != 0)
+        {
+            throw new JsonException(
+                $"{nameof(DependencyHierarchyOccurrenceIdentity)} contains a duplicate property.");
+        }
+
+        seenProperties |= property;
+    }
+}
 
 public enum DependencyHierarchyOccurrenceDisposition
 {

@@ -324,9 +324,23 @@ That property is not yet the supported .NET 11 activation mechanism. A project
 reader must not interpret the presence of an otherwise unevaluated
 `MemorySafetyRules` property as proof that the compiler received or honored it.
 
-This repository has a fixture-only `Directory.Build.targets` alias that maps
-text values such as `updated` to the raw compiler feature. That alias is test
+This repository has a `Directory.Build.targets` alias that maps text values
+such as `updated` to the raw compiler feature. That alias is repository build
 infrastructure, not SDK behavior or user-facing configuration guidance.
+
+The .NET 11 RC1 `System.Text.Json` source generator predates the updated
+`safe extern` syntax. Repository compilations that explicitly enable the
+updated rules consume the RC2 backport of dotnet/runtime#133886 as
+analyzer/build-only assets, while compile and runtime JSON assemblies continue
+to come from the selected framework. The build-only feed is selected through
+`eng/NuGet.Config`, keeping it out of product NuGet source discovery.
+
+The RC2 generator can still emit unsafe boxed-struct setters for readonly
+values. Values that participate in deserialization or runtime
+property-metadata fallback therefore own typed safe converters instead of
+weakening an entire context to serialization-only generation. The converter
+gates preserve annotated-source strict duplicate and unknown-property handling,
+dependency identity round trips, property naming, and enum spelling.
 
 ### Unsafe-context permission is independent
 

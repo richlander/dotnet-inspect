@@ -77,6 +77,121 @@ public sealed class PackagingSurfaceTests
         AssertProperty(toolGroup, "IsPublishable", "true");
     }
 
+    [Fact]
+    public void UpdatedMemorySafetyBuildsUsePatchedJsonGenerator()
+    {
+        string root = FindRepositoryRoot();
+        var targets = XDocument.Load(
+            Path.Combine(root, "Directory.Build.targets"));
+        XElement updatedRulesGroup = Assert.Single(
+            targets.Descendants(),
+            static element =>
+                element.Name.LocalName == "PropertyGroup"
+                && string.Equals(
+                    element.Attribute("Condition")?.Value,
+                    "'$(MemorySafetyRules)' == 'updated' or '$(MemorySafetyRules)' == 'on' or '$(MemorySafetyRules)' == 'new'",
+                    StringComparison.Ordinal));
+
+        XElement features = Assert.Single(
+            updatedRulesGroup.Elements(),
+            static element => element.Name.LocalName == "Features");
+        Assert.Contains(
+            "updated-memory-safety-rules",
+            features.Value.Split(';', StringSplitOptions.RemoveEmptyEntries));
+        AssertProperty(
+            updatedRulesGroup,
+            "UsePatchedSystemTextJsonGenerator",
+            "true");
+    }
+
+    [Fact]
+    public void PatchedSystemTextJsonGeneratorIsAnalyzerOnly()
+    {
+        string root = FindRepositoryRoot();
+        var targets = XDocument.Load(
+            Path.Combine(root, "Directory.Build.targets"));
+        XElement itemGroup = Assert.Single(
+            targets.Descendants(),
+            static element =>
+                element.Name.LocalName == "ItemGroup"
+                && string.Equals(
+                    element.Attribute("Condition")?.Value,
+                    "'$(TargetFramework)' == 'net11.0' and '$(UsePatchedSystemTextJsonGenerator)' == 'true'",
+                    StringComparison.Ordinal)
+                && element.Elements().Any(
+                    static child =>
+                        child.Name.LocalName == "PackageReference"
+                        && string.Equals(
+                            child.Attribute("Include")?.Value,
+                            "System.Text.Json",
+                            StringComparison.Ordinal)));
+        XElement packageReference = Assert.Single(
+            itemGroup.Elements(),
+            static element =>
+                element.Name.LocalName == "PackageReference"
+                && string.Equals(
+                    element.Attribute("Include")?.Value,
+                    "System.Text.Json",
+                    StringComparison.Ordinal));
+
+        Assert.Equal(
+            "analyzers;build;buildTransitive",
+            packageReference.Element("IncludeAssets")?.Value);
+        Assert.Equal(
+            "compile;runtime",
+            packageReference.Element("ExcludeAssets")?.Value);
+        Assert.Equal(
+            "all",
+            packageReference.Element("PrivateAssets")?.Value);
+    }
+
+    [Theory]
+    [InlineData("System.IO.Pipelines")]
+    [InlineData("System.Text.Encodings.Web")]
+    [InlineData("System.Text.Json")]
+    public void JsonGeneratorPackagesRemainEligibleOnBothRestoreSources(
+        string packageId)
+    {
+        string root = FindRepositoryRoot();
+        var config = XDocument.Load(
+            Path.Combine(root, "eng", "NuGet.Config"));
+        string[] sources = config
+            .Descendants()
+            .Where(static element =>
+                element.Name.LocalName == "packageSource")
+            .Where(element => element
+                .Elements()
+                .Any(child =>
+                    child.Name.LocalName == "package"
+                    && string.Equals(
+                        child.Attribute("pattern")?.Value,
+                        packageId,
+                        StringComparison.Ordinal)))
+            .Select(static element => element.Attribute("key")?.Value)
+            .OfType<string>()
+            .OrderBy(static key => key, StringComparer.Ordinal)
+            .ToArray();
+
+        Assert.Equal(["dotnet11", "nuget.org"], sources);
+    }
+
+    [Fact]
+    public void PatchedJsonGeneratorUsesRepositoryRestoreConfiguration()
+    {
+        string root = FindRepositoryRoot();
+        var properties = XDocument.Load(
+            Path.Combine(root, "Directory.Build.props"));
+        XElement restoreConfig = Assert.Single(
+            properties.Descendants(),
+            static element =>
+                element.Name.LocalName == "RestoreConfigFile");
+
+        Assert.Null(restoreConfig.Attribute("Condition"));
+        Assert.Equal(
+            "$(MSBuildThisFileDirectory)eng/NuGet.Config",
+            restoreConfig.Value.Trim());
+    }
+
     /// <summary>
     /// The half that keeps the tool census above from passing vacuously in the way
     /// that actually matters. Deleting the default restores the SDK's

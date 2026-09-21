@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using System.Text.Json.Serialization;
 using InertText;
 
 namespace DotnetInspector.Queries;
@@ -75,9 +76,36 @@ public sealed record RestoredProjectTraversalNode(
 }
 
 /// <summary>Identifies one project-resolving relationship by its parent node and project dependency.</summary>
+[JsonConverter(typeof(RestoredProjectProjectRelationshipIdentityJsonConverter))]
 public readonly record struct RestoredProjectProjectRelationshipIdentity(
     RestoredProjectGraphParentIdentity Parent,
     RestoredProjectProjectNodeIdentity Dependency);
+
+sealed class RestoredProjectProjectRelationshipIdentityJsonConverter
+    : TwoPropertyJsonConverter<
+        RestoredProjectProjectRelationshipIdentity,
+        RestoredProjectGraphParentIdentity,
+        RestoredProjectProjectNodeIdentity>
+{
+    protected override string FirstPropertyName =>
+        nameof(RestoredProjectProjectRelationshipIdentity.Parent);
+
+    protected override string SecondPropertyName =>
+        nameof(RestoredProjectProjectRelationshipIdentity.Dependency);
+
+    protected override RestoredProjectProjectRelationshipIdentity Create(
+        RestoredProjectGraphParentIdentity first,
+        RestoredProjectProjectNodeIdentity second) =>
+        new(first, second);
+
+    protected override RestoredProjectGraphParentIdentity FirstValue(
+        RestoredProjectProjectRelationshipIdentity value) =>
+        value.Parent;
+
+    protected override RestoredProjectProjectNodeIdentity SecondValue(
+        RestoredProjectProjectRelationshipIdentity value) =>
+        value.Dependency;
+}
 
 /// <summary>
 /// One admitted project-resolving relationship: the root or a graph node depending on a resolved

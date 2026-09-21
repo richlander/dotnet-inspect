@@ -39,6 +39,9 @@ public partial class LibraryQueryJsonContext : JsonSerializerContext;
 [JsonSerializable(
     typeof(PackageAssemblyEvaluationOutcome.Failure),
     TypeInfoPropertyName = "PackageAssemblyEvaluationFailure")]
+[JsonSerializable(typeof(PackageAssemblyAssetSequence))]
+[JsonSerializable(typeof(PackageAssemblyCandidateCleanupStage))]
+[JsonSerializable(typeof(SparsePackageProjectionCleanupStage))]
 public partial class PackageAssemblySemanticQueryJsonContext
     : JsonSerializerContext;
 

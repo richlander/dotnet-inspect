@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using System.Text.Json.Serialization;
 
 using Inspector.Artifacts;
 using Inspector.Artifacts.Workspaces;
@@ -60,9 +61,36 @@ public enum SparsePackageProjectionCleanupStage
 }
 
 /// <summary>One incomplete cleanup stage and how many failures it observed.</summary>
+[JsonConverter(typeof(SparsePackageProjectionCleanupEvidenceJsonConverter))]
 public readonly record struct SparsePackageProjectionCleanupEvidence(
     SparsePackageProjectionCleanupStage Stage,
     int FailureCount);
+
+sealed class SparsePackageProjectionCleanupEvidenceJsonConverter
+    : TwoPropertyJsonConverter<
+        SparsePackageProjectionCleanupEvidence,
+        SparsePackageProjectionCleanupStage,
+        int>
+{
+    protected override string FirstPropertyName =>
+        nameof(SparsePackageProjectionCleanupEvidence.Stage);
+
+    protected override string SecondPropertyName =>
+        nameof(SparsePackageProjectionCleanupEvidence.FailureCount);
+
+    protected override SparsePackageProjectionCleanupEvidence Create(
+        SparsePackageProjectionCleanupStage first,
+        int second) =>
+        new(first, second);
+
+    protected override SparsePackageProjectionCleanupStage FirstValue(
+        SparsePackageProjectionCleanupEvidence value) =>
+        value.Stage;
+
+    protected override int SecondValue(
+        SparsePackageProjectionCleanupEvidence value) =>
+        value.FailureCount;
+}
 
 /// <summary>
 /// Bounded, resource-free evidence that owner-local cleanup before ownership
