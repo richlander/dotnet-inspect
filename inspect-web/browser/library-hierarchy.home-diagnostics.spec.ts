@@ -568,6 +568,25 @@ test("Diagnostics cache refresh does not reclaim relinquished heading focus", as
   await expect(page.locator(".diagnostics-inline-loading")).toHaveCount(0);
 });
 
+test("Diagnostics cache refresh returns product-menu focus to the replacement brand", async ({
+  page,
+}) => {
+  await installDiagnosticsFacades(page, { cachePending: true });
+  await page.goto("/diagnostics");
+
+  await expect(page.locator("html"))
+    .toHaveAttribute("data-package-cache-stats-pending", "true");
+  await page.locator("#diagnostics-product").click();
+  await expect(page.locator('[data-product-destination="home"]'))
+    .toBeFocused();
+
+  await releaseFacade(page, "finish-package-cache-stats");
+
+  await expect(page.locator(".diagnostics-inline-loading")).toHaveCount(0);
+  await expect(page.locator(".product-navigation-menu")).toBeHidden();
+  await expect(page.locator("#diagnostics-product")).toBeFocused();
+});
+
 test("Diagnostics treats a refreshed history entry as direct", async ({
   page,
 }) => {

@@ -12549,15 +12549,24 @@ function diagnosticsBuildState(): DiagnosticsBuildState {
 }
 
 function renderDiagnosticsPage() {
-  const activeId = document.activeElement?.id;
+  const activeElement = document.activeElement;
+  const activeId = activeElement?.id;
+  const productNavigationFocused = Boolean(
+    activeElement?.closest("[data-product-navigation-menu]"));
   const focusTargetId = diagnosticsHeadingFocusPending
     || activeId === "diagnostics-heading"
     ? "diagnostics-heading"
-    : activeId === "diagnostics-product"
+    : productNavigationFocused
+      ? "diagnostics-product"
+      : activeId === "diagnostics-product"
       || activeId === "diagnostics-commit"
       || activeId === "diagnostics-back"
       ? activeId
       : null;
+  if (productNavigationFocused) {
+    app.tabIndex = -1;
+    app.focus({ preventScroll: true });
+  }
   state.diagnosticsCapturedAtUtc ??= new Date().toISOString();
   document.title = "Diagnostics · dotnet-inspect";
   app.innerHTML = diagnosticsViewHtml({
@@ -12572,20 +12581,27 @@ function renderDiagnosticsPage() {
   if (focusTargetId) {
     const focusGeneration = documentFocusGeneration;
     requestAnimationFrame(() => {
+      const releaseFocusParking = () => {
+        if (productNavigationFocused) app.removeAttribute("tabindex");
+      };
       if (!isDiagnosticsPath(location.pathname)) {
         diagnosticsHeadingFocusPending = false;
+        releaseFocusParking();
         return;
       }
       if (focusGeneration !== documentFocusGeneration) {
         diagnosticsHeadingFocusPending = false;
+        releaseFocusParking();
         return;
       }
       if (focusTargetId === "diagnostics-heading") {
         diagnosticsHeadingFocusPending = false;
         focusLevelOneHeading();
+        releaseFocusParking();
         return;
       }
       document.getElementById(focusTargetId)?.focus({ preventScroll: true });
+      releaseFocusParking();
     });
   }
 }
