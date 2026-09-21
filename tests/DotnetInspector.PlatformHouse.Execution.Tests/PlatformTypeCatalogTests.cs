@@ -4,6 +4,7 @@ using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
 using DotnetInspector.LibraryMetadata;
 using DotnetInspector.Libraries;
+using DotnetInspector.PlatformQueries;
 using ILInspector.Metadata;
 
 namespace DotnetInspector.PlatformHouse.Tests;
@@ -108,6 +109,51 @@ public partial class PlatformLibraryRealizationTests
                 systemObject.Kind);
             Assert.Same(
                 jsonSerializer,
+                Assert.IsType<
+                        PlatformTypeCatalogQueryOutcome.Resolved>(
+                        PlatformTypeCatalogQuery.Execute(
+                            catalog,
+                            "System.Text.Json.JsonSerializer",
+                            cancellationToken))
+                    .Candidate);
+            Assert.Same(
+                systemObject,
+                Assert.IsType<
+                        PlatformTypeCatalogQueryOutcome.Resolved>(
+                        PlatformTypeCatalogQuery.Execute(
+                            catalog,
+                            "System.Object",
+                            cancellationToken))
+                    .Candidate);
+            Assert.IsType<PlatformTypeCatalogQueryOutcome.Missing>(
+                PlatformTypeCatalogQuery.Execute(
+                    catalog,
+                    "System.Text.Json.Serialization.Metadata.JsonTypeInfo<TFirst, TSecond>",
+                    cancellationToken));
+            Assert.Equal(
+                PlatformTypeCatalogQueryRejectionKind.EmptyPattern,
+                Assert.IsType<
+                        PlatformTypeCatalogQueryOutcome.Rejected>(
+                        PlatformTypeCatalogQuery.Execute(
+                            catalog,
+                            " ",
+                            cancellationToken))
+                    .Kind);
+            Assert.Equal(
+                PlatformTypeCatalogQueryRejectionKind.PatternTooLong,
+                Assert.IsType<
+                        PlatformTypeCatalogQueryOutcome.Rejected>(
+                        PlatformTypeCatalogQuery.Execute(
+                            catalog,
+                            new string(
+                                'T',
+                                MetadataSafetyPolicy
+                                    .MaxTypeNameCharacters
+                                    + 1),
+                            cancellationToken))
+                    .Kind);
+            Assert.Same(
+                jsonSerializer,
                 Assert.Single(
                     Assert.IsType<
                             PlatformTypeCatalogLookupOutcome.Found>(
@@ -122,6 +168,14 @@ public partial class PlatformLibraryRealizationTests
                 typeof(PlatformTypeCatalogDerivationOutcome.Completed));
             AssertResourceFree(
                 typeof(PlatformTypeCatalogLookupOutcome.Found));
+            AssertResourceFree(
+                typeof(PlatformTypeCatalogQueryOutcome.Resolved));
+            AssertResourceFree(
+                typeof(PlatformTypeCatalogQueryOutcome.Ambiguous));
+            AssertResourceFree(
+                typeof(PlatformTypeCatalogQueryOutcome.Missing));
+            AssertResourceFree(
+                typeof(PlatformTypeCatalogQueryOutcome.Rejected));
 
             await RetireCatalogPopulationAsync(
                 population,
@@ -135,6 +189,15 @@ public partial class PlatformLibraryRealizationTests
                             PlatformTypeCatalogLookupOutcome.Found>(
                             catalog.Lookup(jsonSerializer.Name))
                         .Candidates));
+            Assert.Same(
+                jsonSerializer,
+                Assert.IsType<
+                        PlatformTypeCatalogQueryOutcome.Resolved>(
+                        PlatformTypeCatalogQuery.Execute(
+                            catalog,
+                            "JsonSerializer",
+                            cancellationToken))
+                    .Candidate);
         }
         finally
         {
@@ -222,6 +285,15 @@ public partial class PlatformLibraryRealizationTests
             Assert.NotSame(
                 duplicates[0].ApiContent.Artifact,
                 duplicates[1].ApiContent.Artifact);
+            PlatformTypeCatalogQueryOutcome.Ambiguous ambiguity =
+                Assert.IsType<
+                    PlatformTypeCatalogQueryOutcome.Ambiguous>(
+                    PlatformTypeCatalogQuery.Execute(
+                        catalog,
+                        "Shared.Widget",
+                        cancellationToken));
+            Assert.Same(catalog, ambiguity.Catalog);
+            Assert.Equal(duplicates, ambiguity.Candidates);
 
             PlatformTypeCatalogEntry moduleExport = Assert.Single(
                 Assert.IsType<
@@ -233,8 +305,148 @@ public partial class PlatformLibraryRealizationTests
                 AssemblyTypeDeclarationKind.ModuleExport,
                 moduleExport.Kind);
             Assert.Same(
+                moduleExport,
+                Assert.IsType<
+                        PlatformTypeCatalogQueryOutcome.Resolved>(
+                        PlatformTypeCatalogQuery.Execute(
+                            catalog,
+                            "External.Exported",
+                            cancellationToken))
+                    .Candidate);
+            Assert.Same(
                 population.Value.Members[1],
                 moduleExport.Member);
+        }
+        finally
+        {
+            await RetireCatalogPopulationAsync(
+                population,
+                artifacts,
+                cancellationToken);
+        }
+    }
+
+    [Fact]
+    public async Task
+        TypeCatalogQuery_PrefersDefinitionsAndPreservesNestedGenericArity()
+    {
+        CancellationToken cancellationToken =
+            TestContext.Current.CancellationToken;
+        var request = PopulationRequest(cancellationToken);
+        PlatformSourceContribution.Realization contribution =
+            PopulationContribution(
+                request.Request,
+                request.Reference);
+        byte[] first = BuildCatalogImage(
+            "Definitions",
+            metadata =>
+            {
+                AddDefinition(
+                    metadata,
+                    TypeAttributes.Public,
+                    "External",
+                    "Exported");
+                AddDefinition(
+                    metadata,
+                    TypeAttributes.Public,
+                    "External",
+                    "ExportOnly`1");
+                TypeDefinitionHandle outer = AddDefinition(
+                    metadata,
+                    TypeAttributes.Public,
+                    "Nested",
+                    "Outer`1");
+                TypeDefinitionHandle inner = AddDefinition(
+                    metadata,
+                    TypeAttributes.NestedPublic,
+                    string.Empty,
+                    "Inner`2");
+                metadata.AddNestedType(inner, outer);
+            });
+        byte[] second = BuildCatalogImage(
+            "Exports",
+            metadata =>
+            {
+                AssemblyFileHandle module = metadata.AddAssemblyFile(
+                    metadata.GetOrAddString("Part.netmodule"),
+                    default,
+                    containsMetadata: true);
+                metadata.AddExportedType(
+                    TypeAttributes.Public,
+                    metadata.GetOrAddString("External"),
+                    metadata.GetOrAddString("Exported"),
+                    module,
+                    typeDefinitionId: 1);
+                metadata.AddExportedType(
+                    TypeAttributes.Public,
+                    metadata.GetOrAddString("External"),
+                    metadata.GetOrAddString("ExportOnly"),
+                    module,
+                    typeDefinitionId: 2);
+            });
+        await using ArtifactFixture artifacts =
+            await ArtifactFixture.CreatePopulationImagesAsync(
+                (contribution, first),
+                (contribution, second));
+        PlatformPopulationRealizationResult.Completed population =
+            await RealizeCatalogPopulationAsync(
+                request.Request,
+                artifacts,
+                count: 2);
+        try
+        {
+            PlatformTypeCatalog catalog = Assert.IsType<
+                    PlatformTypeCatalogDerivationOutcome.Completed>(
+                    PlatformTypeCatalogDerivation.Execute(
+                        population,
+                        s_catalogBounds,
+                        cancellationToken))
+                .Catalog;
+
+            PlatformTypeCatalogQueryOutcome.Resolved definition =
+                Assert.IsType<
+                    PlatformTypeCatalogQueryOutcome.Resolved>(
+                    PlatformTypeCatalogQuery.Execute(
+                        catalog,
+                        "External.Exported",
+                        cancellationToken));
+            Assert.Equal(
+                AssemblyTypeDeclarationKind.Definition,
+                definition.Candidate.Kind);
+            Assert.Same(catalog, definition.Catalog);
+
+            Assert.Equal(
+                AssemblyTypeDeclarationKind.ModuleExport,
+                Assert.IsType<
+                        PlatformTypeCatalogQueryOutcome.Resolved>(
+                        PlatformTypeCatalogQuery.Execute(
+                            catalog,
+                            "External.ExportOnly",
+                            cancellationToken))
+                    .Candidate.Kind);
+
+            Assert.Equal(
+                Name("Nested", "Outer`1", "Inner`2"),
+                Assert.IsType<
+                        PlatformTypeCatalogQueryOutcome.Resolved>(
+                        PlatformTypeCatalogQuery.Execute(
+                            catalog,
+                            "Nested.Outer<T>.Inner<TKey, TValue>",
+                            cancellationToken))
+                    .Candidate.Name);
+            Assert.IsType<PlatformTypeCatalogQueryOutcome.Missing>(
+                PlatformTypeCatalogQuery.Execute(
+                    catalog,
+                    "Nested.Outer<TFirst, TSecond>.Inner<TKey, TValue>",
+                    cancellationToken));
+
+            using var cancellation = new CancellationTokenSource();
+            cancellation.Cancel();
+            Assert.Throws<OperationCanceledException>(
+                () => PlatformTypeCatalogQuery.Execute(
+                    catalog,
+                    "Missing<T>",
+                    cancellation.Token));
         }
         finally
         {
