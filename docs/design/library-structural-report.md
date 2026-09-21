@@ -3,6 +3,8 @@
 ## Status and authority
 
 Focused Research design for [#7987](https://github.com/richlander/dotnet-inspect/issues/7987).
+Its required Analysis prerequisite is
+[#7989](https://github.com/richlander/dotnet-inspect/issues/7989).
 
 The **Library Structural Report** is the single normative owner for a
 descriptive structural population report over one exact compiled library.
@@ -50,27 +52,18 @@ with several physical evidence bodies, such as a method and a compiler-created
 companion body. The report must not merge those bodies, average them, or
 silently choose one.
 
-Analysis must publish the smallest additional profile-coverage receipt needed
-for Research to account for the population:
-
-| Receipt member | Meaning |
-| --- | --- |
-| Declared methods | Method definitions admitted to the execution's declaration census. |
-| Managed-body methods | Admitted physical methods with managed IL bodies. |
-| Profiled evidence bodies | Managed-body methods for which Analysis issued a profile. |
-| Unprofiled evidence bodies | Managed-body methods without an issued profile, retained by exact identity and cause where Analysis has one. |
-
-The first two members are Analysis-owned counts and identities; they are not
-deduced from a missing profile row. The latter two are checked against the
-profile collection. This lets Research state the difference between bodyless
-declarations, physical bodies, incomplete profile measurements, and bodies
-for which no profile was published.
+The report also consumes an Analysis-issued implementation-profile population
+coverage receipt. The [Analysis coverage prerequisite](https://github.com/richlander/dotnet-inspect/issues/7989)
+owns that receipt's construction, identity, scope, accounting, and failure
+semantics. Research carries it unchanged and never infers its categories from
+missing profiles or presentation rows.
 
 One report requires `ImplementationProfiles` to have been requested and
-`HasFullMethodEvidenceScope` to be true. A scoped execution may be useful for
-another feature, but it does not establish a whole-library population. Research
-returns a typed unavailable outcome for either condition, preserving the
-Analysis receipt and reason rather than returning an empty report.
+the Analysis coverage receipt to establish a full method-evidence scope. A
+scoped execution may be useful for another feature, but it does not establish
+a whole-library population. Research returns a typed unavailable outcome for
+either condition, preserving the Analysis-issued receipt and reason rather
+than returning an empty report.
 
 An unscoped execution that has no managed bodies is available and produces an
 empty report with a zero physical-body denominator. Failure to decode or
@@ -86,10 +79,10 @@ The available result is one resource-free
 host-neutral boundary. It contains:
 
 - the exact Analysis receipt and a report methodology version;
-- a `LibraryStructuralPopulationReceipt` with all four population counts,
-  exact counts of distinct physical evidence bodies and logical owners,
-  complete and incomplete profile counts, and deterministic incomplete-reason
-  counts;
+- a `LibraryStructuralPopulationReceipt` that preserves the Analysis coverage
+  receipt, exact counts of distinct physical evidence bodies and logical
+  owners, complete and incomplete profile counts, and deterministic
+  incomplete-reason counts;
 - one distribution for every selected numeric measure, with its own complete
   physical-body denominator;
 - bounded extreme-body evidence for each distribution; and
@@ -111,15 +104,13 @@ statistic.
 Every numeric distribution includes only profiles whose `IsComplete` is true.
 Its denominator is therefore the count of complete physical evidence bodies,
 not declared methods, logical owners, all profiles, or an unreported subset.
-The population receipt separately reports incomplete profiled bodies, bodies
-without profiles, and Analysis diagnostics so that a narrow denominator cannot
-masquerade as library-wide completeness.
+The population receipt preserves Analysis coverage and diagnostics so that a
+narrow denominator cannot masquerade as library-wide completeness.
 
 A physical evidence identity may occur once in the profile collection. A
-duplicate, a profile whose evidence method is outside the Analysis coverage
-receipt, or a coverage receipt whose accounting cannot reconcile is an invalid
-owner input and cannot issue a document. The Report implementation must fail
-visibly rather than coalescing identities or counting an arbitrary copy.
+duplicate is an invalid owner input and cannot issue a document. The Report
+implementation must fail visibly rather than coalescing identities or counting
+an arbitrary copy. Analysis owns validation of its separate coverage receipt.
 
 ### Measures
 
@@ -182,6 +173,28 @@ logical-owner/physical-body distinction that a consumer needs to interpret
 compiler-created companions. A later user-selected authored-method lens would
 need its own explicit Analysis/Metadata population owner.
 
+## Composition and rendering
+
+The report composes two owner-issued inputs: implementation profiles and the
+population coverage receipt from [#7989](https://github.com/richlander/dotnet-inspect/issues/7989).
+Analysis defines how both are constructed and qualified; Research defines how
+the report preserves them and derives report-local distributions. No host
+rebuilds coverage, completeness, or a statistic from display text.
+
+The resource-free Research document is the structured rendering input. The CLI
+adoption owns a `Markout` lowering that renders population receipt,
+distributions, maximum evidence, and diagnostics as separate sections.
+Markout's existing Markdown, table, TSV, JSONL, and projected-JSON lowerings
+remain format mechanics; numeric measures and coverage states stay typed until
+that boundary.
+
+Browser/Wasm deliberately bypasses Markout for its interactive Library-detail
+view. Its later host design serializes the same typed document through the
+existing managed boundary and renders the Library-level summary without
+recomputing any report fact. That host-specific path is necessary to preserve
+the settled Library-to-Type-to-Member journey; it does not add a Compare
+surface or a second report model.
+
 ## Real-library probe
 
 The motivating asset is
@@ -218,7 +231,7 @@ The implementation belongs in the Release
 | Gate | Required observation |
 | --- | --- |
 | `LibraryStructuralReport_RejectsScopedProfilePopulation` | A profile result from scoped method evidence is unavailable and retains its receipt. |
-| `LibraryStructuralReport_AccountsForBodyCoverage` | Declared, bodyful, profiled, unprofiled, complete, incomplete, physical, and logical-owner counts remain distinct and reconcile. |
+| `LibraryStructuralReport_PreservesIssuedBodyCoverage` | The Analysis-issued coverage receipt survives unchanged beside report-local complete, incomplete, physical, and logical-owner counts. |
 | `LibraryStructuralReport_ExcludesIncompleteProfilesFromStatistics` | Incomplete evidence remains visible in the receipt but contributes to no numeric denominator or percentile. |
 | `LibraryStructuralReport_PreservesMultipleEvidenceBodiesPerLogicalOwner` | One logical async source with multiple physical bodies retains both bodies and the correct denominators. |
 | `LibraryStructuralReport_UsesDeterministicNearestRankAndMaximumTies` | The fixed metric fixture proves percentile positions, exact maxima, deterministic ordering, and the additional-tie count. |
@@ -234,7 +247,7 @@ a PR-fast dependency.
 This is a five-slice plan from existing Analysis evidence to both production
 hosts:
 
-1. Analysis publishes the profile-coverage receipt described above.
+1. Analysis publishes the profile-coverage receipt tracked by #7989.
 2. Research publishes the document and typed unavailable outcome.
 3. A Research-backed L1 query carries that completed document without rendering
    it.
