@@ -418,8 +418,9 @@ Issue [#8024](https://github.com/richlander/dotnet-inspect/issues/8024) is step
 2 of #6751's five focused successor-realization slices. #8015 completed step 1
 by preserving separate Workspace identities through Library pairing. This step
 accesses correspondence content only through the caller-supplied source and
-destination Workspace arguments. Navigation then consumes the two realizations
-without Scope Replace; portable replacement adopts that operation and
+destination Workspace arguments.
+[Navigation coordinate successor preparation](navigation-coordinate-successor-preparation.md)
+is step 3 under #8084. Portable replacement then adopts that operation and
 exercises the existing Avalonia CLI gate; Scope finally retires Replace.
 Issues #5510 and #5511 continue to track Browser installation. This step adds
 no host path, rendering, transport, or lifecycle policy.

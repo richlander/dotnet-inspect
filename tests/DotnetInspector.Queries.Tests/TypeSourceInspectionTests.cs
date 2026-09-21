@@ -16,11 +16,11 @@ namespace DotnetInspector.Queries.Tests;
 
 public sealed partial class AssemblyContextSourceQueryTests
 {
-    // PR-fast: the completed desktop operation preserves immediate authored
-    // source when the PDB is ready inside the initial window.
+    // PR-fast: a prompt PDB preserves the complete serial authored-first path
+    // and does not start decompilation.
     [Fact]
     public async Task
-        TypeSourceLatencyHedge_ImmediateAuthoredSourceRemainsPreferred()
+        TypeSourcePdbLatencyHedge_PromptPdbPreservesAuthoredFirstPath()
     {
         TestAssembly assembly =
             TestAssembly.Create(
@@ -40,14 +40,13 @@ public sealed partial class AssemblyContextSourceQueryTests
         InspectionEnvelope<AssemblyTypeSourceEntry>
             inspection =
                 await TypeSourceInspection
-                    .ExecuteWithLatencyHedgeAsync(
+                    .ExecuteWithPdbLatencyHedgeAsync(
                         group,
                         assembly.Participant,
                         assembly.TypeRequest("Counter"),
                         host.Context,
-                        new TypeSourceLatencyHedge(
+                        new TypeSourcePdbLatencyHedge(
                             TimeSpan.FromSeconds(1),
-                            TimeSpan.FromMilliseconds(250),
                             time),
                         TestContext.Current.CancellationToken);
 
@@ -57,27 +56,23 @@ public sealed partial class AssemblyContextSourceQueryTests
                     inspection.Content);
         Assert.IsType<AssemblyTypeSource.Pdb>(
             available.Source);
-        TypeSourceLatencyHedgeEvidence evidence =
-            Assert.IsType<
-                TypeSourceLatencyHedgeEvidence>(
-                    available.LatencyHedgeEvidence);
-        Assert.True(
-            evidence
-                .PdbReadyBeforeDecompilation);
-        Assert.True(
-            evidence.Selection
-                is TypeSourceLatencyHedgeSelection
-                    .AuthoredBeforeDecompilation
-                or TypeSourceLatencyHedgeSelection
-                    .AuthoredAfterDecompilation);
+        Assert.Equal(
+            new TypeSourceLatencyHedgeEvidence(
+                PdbReadyBeforeDecompilation:
+                    true,
+                DecompilationStarted: false,
+                DecompilationUsedPdb: false,
+                TypeSourceLatencyHedgeSelection
+                    .AuthoredBeforeDecompilation),
+            available.LatencyHedgeEvidence);
         Assert.Single(host.SourceRequests);
     }
 
-    // PR-fast: a ready PDB contributes symbols to speculative decompilation,
-    // and an authored-source stall is bounded by the grace window.
+    // PR-fast: a prompt PDB keeps authored settlement serial even after the
+    // PDB preference window would have elapsed.
     [Fact]
     public async Task
-        TypeSourceLatencyHedge_SourceStallPublishesPdbAssistedDecompilation()
+        TypeSourcePdbLatencyHedge_PromptPdbDoesNotHedgeAuthoredSource()
     {
         TestAssembly assembly =
             TestAssembly.Create(
@@ -91,10 +86,6 @@ public sealed partial class AssemblyContextSourceQueryTests
             new TaskCompletionSource(
                 TaskCreationOptions
                     .RunContinuationsAsynchronously);
-        var sourceCancelled =
-            new TaskCompletionSource(
-                TaskCreationOptions
-                    .RunContinuationsAsynchronously);
         using var host = QueryHost.WithPdb(
             assembly.PdbPath,
             SourcePairBytes(
@@ -103,103 +94,7 @@ public sealed partial class AssemblyContextSourceQueryTests
                 async cancellationToken =>
                 {
                     sourceEntered.TrySetResult();
-                    try
-                    {
-                        await sourceRelease.Task
-                            .WaitAsync(cancellationToken);
-                    }
-                    catch (OperationCanceledException)
-                    {
-                        sourceCancelled.TrySetResult();
-                        throw;
-                    }
-                });
-        var time = new ObservedFakeTimeProvider();
-        await using var workspace =
-            new InspectionWorkspace();
-        using AssemblyContextGroup group =
-            workspace.CreateAssemblyContextGroup(
-                [assembly.Participant]);
-
-        Task<InspectionEnvelope<AssemblyTypeSourceEntry>>
-            operation =
-                TypeSourceInspection
-                    .ExecuteWithLatencyHedgeAsync(
-                        group,
-                        assembly.Participant,
-                        assembly.TypeRequest("Counter"),
-                        host.Context,
-                        new TypeSourceLatencyHedge(
-                            TimeSpan.FromSeconds(1),
-                            TimeSpan.FromMilliseconds(250),
-                            time),
-                        TestContext.Current.CancellationToken);
-        await sourceEntered.Task.WaitAsync(
-            TestContext.Current.CancellationToken);
-        await time.WaitForTimerAsync(
-            TimeSpan.FromMilliseconds(250),
-            TestContext.Current.CancellationToken);
-        time.Advance(
-            TimeSpan.FromMilliseconds(250));
-        await sourceCancelled.Task.WaitAsync(
-            TestContext.Current.CancellationToken);
-
-        InspectionEnvelope<AssemblyTypeSourceEntry>
-            inspection = await operation;
-
-        var available =
-            Assert.IsType<
-                AssemblyTypeSourceEntry.Available>(
-                    inspection.Content);
-        var source =
-            Assert.IsType<
-                AssemblyTypeSource.Decompiled>(
-                    available.Source);
-        Assert.True(
-            source.Decompilation.PdbSupplied);
-        Assert.Equal(
-            PdbTypeSourceOutcome
-                .AuthoredSourcePreferenceWindowElapsed,
-            source.PdbAttempt.Outcome);
-        Assert.Equal(
-            new TypeSourceLatencyHedgeEvidence(
-                PdbReadyBeforeDecompilation:
-                    true,
-                DecompilationStarted: true,
-                DecompilationUsedPdb: true,
-                TypeSourceLatencyHedgeSelection
-                    .DecompiledAfterPreferenceWindow),
-            available.LatencyHedgeEvidence);
-    }
-
-    // PR-fast: when the initial PDB window elapses, no-PDB decompilation
-    // begins while acquisition remains live; authored source may still win
-    // the post-decompilation preference window.
-    [Fact]
-    public async Task
-        TypeSourceLatencyHedge_LatePdbAuthoredSourceWinsGraceWindow()
-    {
-        TestAssembly assembly =
-            TestAssembly.Create(
-                fixture:
-                    FixtureCatalog.SourceDiffV1);
-        var symbolEntered =
-            new TaskCompletionSource(
-                TaskCreationOptions
-                    .RunContinuationsAsynchronously);
-        var symbolRelease =
-            new TaskCompletionSource(
-                TaskCreationOptions
-                    .RunContinuationsAsynchronously);
-        using var host = QueryHost.WithPdb(
-            assembly.PdbPath,
-            SourcePairBytes(
-                FixtureCatalog.SourceDiffV1),
-            beforeSymbolResponse:
-                async cancellationToken =>
-                {
-                    symbolEntered.TrySetResult();
-                    await symbolRelease.Task
+                    await sourceRelease.Task
                         .WaitAsync(cancellationToken);
                 });
         var time = new ObservedFakeTimeProvider();
@@ -212,27 +107,22 @@ public sealed partial class AssemblyContextSourceQueryTests
         Task<InspectionEnvelope<AssemblyTypeSourceEntry>>
             operation =
                 TypeSourceInspection
-                    .ExecuteWithLatencyHedgeAsync(
+                    .ExecuteWithPdbLatencyHedgeAsync(
                         group,
                         assembly.Participant,
                         assembly.TypeRequest("Counter"),
                         host.Context,
-                        new TypeSourceLatencyHedge(
+                        new TypeSourcePdbLatencyHedge(
                             TimeSpan.FromSeconds(1),
-                            TimeSpan.FromMilliseconds(250),
                             time),
                         TestContext.Current.CancellationToken);
-        await symbolEntered.Task.WaitAsync(
-            TestContext.Current.CancellationToken);
-        await time.WaitForTimerAsync(
-            TimeSpan.FromSeconds(1),
+        await sourceEntered.Task.WaitAsync(
             TestContext.Current.CancellationToken);
         time.Advance(
-            TimeSpan.FromSeconds(1));
-        await time.WaitForTimerAsync(
-            TimeSpan.FromMilliseconds(250),
-            TestContext.Current.CancellationToken);
-        symbolRelease.TrySetResult();
+            TimeSpan.FromSeconds(10));
+        await Task.Yield();
+        Assert.False(operation.IsCompleted);
+        sourceRelease.TrySetResult();
 
         InspectionEnvelope<AssemblyTypeSourceEntry>
             inspection = await operation;
@@ -243,27 +133,71 @@ public sealed partial class AssemblyContextSourceQueryTests
                     inspection.Content);
         Assert.IsType<AssemblyTypeSource.Pdb>(
             available.Source);
+        TypeSourceLatencyHedgeEvidence evidence =
+            Assert.IsType<TypeSourceLatencyHedgeEvidence>(
+                available.LatencyHedgeEvidence);
+        Assert.False(evidence.DecompilationStarted);
         Assert.Equal(
-            new TypeSourceLatencyHedgeEvidence(
-                PdbReadyBeforeDecompilation:
-                    false,
-                DecompilationStarted: true,
-                DecompilationUsedPdb: false,
-                TypeSourceLatencyHedgeSelection
-                    .AuthoredAfterDecompilation),
-            available.LatencyHedgeEvidence);
-        Assert.Single(host.SourceRequests);
+            TypeSourceLatencyHedgeSelection
+                .AuthoredBeforeDecompilation,
+            evidence.Selection);
     }
 
-    // PR-fast: an upstream PDB stall cannot hold an available decompilation
-    // beyond the initial and authored preference windows, but binding-policy
-    // invalidation retains terminal precedence before publication.
-    [Theory]
-    [InlineData(false)]
-    [InlineData(true)]
+    // PR-fast: prompt PDB unavailability starts the ordinary no-PDB
+    // decompiler fallback without waiting for the preference window.
+    [Fact]
     public async Task
-        TypeSourceLatencyHedge_PdbStallPublishesNoPdbDecompilation(
-            bool rotateBindingPolicy)
+        TypeSourcePdbLatencyHedge_PromptPdbUnavailableStartsDecompiler()
+    {
+        TestAssembly assembly =
+            TestAssembly.Create(
+                fixture:
+                    FixtureCatalog.SourceDiffV1);
+        using var host = QueryHost.WithoutPdb();
+        var time = new ObservedFakeTimeProvider();
+        await using var workspace =
+            new InspectionWorkspace();
+        using AssemblyContextGroup group =
+            workspace.CreateAssemblyContextGroup(
+                [assembly.Participant]);
+
+        InspectionEnvelope<AssemblyTypeSourceEntry>
+            inspection =
+                await TypeSourceInspection
+                    .ExecuteWithPdbLatencyHedgeAsync(
+                        group,
+                        assembly.Participant,
+                        assembly.TypeRequest("Counter"),
+                        host.Context,
+                        new TypeSourcePdbLatencyHedge(
+                            TimeSpan.FromSeconds(1),
+                            time),
+                        TestContext.Current.CancellationToken);
+
+        var available =
+            Assert.IsType<
+                AssemblyTypeSourceEntry.Available>(
+                    inspection.Content);
+        var source =
+            Assert.IsType<
+                AssemblyTypeSource.Decompiled>(
+                    available.Source);
+        Assert.Equal(
+            PdbTypeSourceOutcome
+                .PortablePdbUnavailable,
+            source.PdbAttempt.Outcome);
+        Assert.Equal(
+            TypeSourceLatencyHedgeSelection
+                .DecompiledAfterPdbUnavailable,
+            Assert.IsType<TypeSourceLatencyHedgeEvidence>(
+                available.LatencyHedgeEvidence).Selection);
+    }
+
+    // PR-fast: expiry of the PDB-only window publishes available no-PDB
+    // decompilation without adding an authored-source grace period.
+    [Fact]
+    public async Task
+        TypeSourcePdbLatencyHedge_PdbStallPublishesNoPdbDecompilation()
     {
         TestAssembly assembly =
             TestAssembly.Create(
@@ -310,14 +244,13 @@ public sealed partial class AssemblyContextSourceQueryTests
         Task<InspectionEnvelope<AssemblyTypeSourceEntry>>
             operation =
                 TypeSourceInspection
-                    .ExecuteWithLatencyHedgeAsync(
+                    .ExecuteWithPdbLatencyHedgeAsync(
                         group,
                         assembly.Participant,
                         assembly.TypeRequest("Counter"),
                         host.Context,
-                        new TypeSourceLatencyHedge(
+                        new TypeSourcePdbLatencyHedge(
                             TimeSpan.FromSeconds(1),
-                            TimeSpan.FromMilliseconds(250),
                             time),
                         TestContext.Current.CancellationToken);
         await symbolEntered.Task.WaitAsync(
@@ -327,35 +260,8 @@ public sealed partial class AssemblyContextSourceQueryTests
             TestContext.Current.CancellationToken);
         time.Advance(
             TimeSpan.FromSeconds(1));
-        await time.WaitForTimerAsync(
-            TimeSpan.FromMilliseconds(250),
-            TestContext.Current.CancellationToken);
-        if (rotateBindingPolicy)
-        {
-            assembly.Policy.ChangeVersion();
-        }
-        time.Advance(
-            TimeSpan.FromMilliseconds(250));
         await symbolCancelled.Task.WaitAsync(
             TestContext.Current.CancellationToken);
-
-        if (rotateBindingPolicy)
-        {
-            InspectionEnvelope<AssemblyTypeSourceEntry>
-                invalidated = await operation;
-            var unavailable =
-                Assert.IsType<
-                    AssemblyTypeSourceEntry.Unavailable>(
-                        invalidated.Content);
-            InvalidOperationException error =
-                Assert.IsType<InvalidOperationException>(
-                    unavailable.Failure.Error);
-            Assert.Contains(
-                "binding-policy snapshot changed",
-                error.Message);
-            Assert.Empty(host.SourceRequests);
-            return;
-        }
 
         InspectionEnvelope<AssemblyTypeSourceEntry>
             inspection = await operation;
@@ -372,7 +278,7 @@ public sealed partial class AssemblyContextSourceQueryTests
             source.Decompilation.PdbSupplied);
         Assert.Equal(
             PdbTypeSourceOutcome
-                .AuthoredSourcePreferenceWindowElapsed,
+                .PortablePdbPreferenceWindowElapsed,
             source.PdbAttempt.Outcome);
         Assert.Equal(
             new TypeSourceLatencyHedgeEvidence(
@@ -381,16 +287,97 @@ public sealed partial class AssemblyContextSourceQueryTests
                 DecompilationStarted: true,
                 DecompilationUsedPdb: false,
                 TypeSourceLatencyHedgeSelection
-                    .DecompiledAfterPreferenceWindow),
+                    .DecompiledAfterPdbPreferenceWindow),
             available.LatencyHedgeEvidence);
         Assert.Empty(host.SourceRequests);
     }
 
-    // PR-fast: independent authored and decompilation admissions retain both
+    // PR-fast: unavailable no-PDB decompilation cannot truncate the only
+    // remaining late-PDB authored path.
+    [Fact]
+    public async Task
+        TypeSourcePdbLatencyHedge_UnavailableDecompilationPreservesLateAuthored()
+    {
+        TestAssembly assembly =
+            TestAssembly.Create(
+                fixture:
+                    FixtureCatalog.SourceDiffV1);
+        var symbolEntered =
+            new TaskCompletionSource(
+                TaskCreationOptions
+                    .RunContinuationsAsynchronously);
+        var symbolRelease =
+            new TaskCompletionSource(
+                TaskCreationOptions
+                    .RunContinuationsAsynchronously);
+        using var host = QueryHost.WithPdb(
+            assembly.PdbPath,
+            SourcePairBytes(
+                FixtureCatalog.SourceDiffV1),
+            maxDecompilerBodyProjections: 0,
+            beforeSymbolResponse:
+                async cancellationToken =>
+                {
+                    symbolEntered.TrySetResult();
+                    await symbolRelease.Task
+                        .WaitAsync(cancellationToken);
+                });
+        var time = new ObservedFakeTimeProvider();
+        await using var workspace =
+            new InspectionWorkspace();
+        using AssemblyContextGroup group =
+            workspace.CreateAssemblyContextGroup(
+                [assembly.Participant]);
+
+        Task<InspectionEnvelope<AssemblyTypeSourceEntry>>
+            operation =
+                TypeSourceInspection
+                    .ExecuteWithPdbLatencyHedgeAsync(
+                        group,
+                        assembly.Participant,
+                        assembly.TypeRequest("Counter"),
+                        host.Context,
+                        new TypeSourcePdbLatencyHedge(
+                            TimeSpan.FromSeconds(1),
+                            time),
+                        TestContext.Current.CancellationToken);
+        await symbolEntered.Task.WaitAsync(
+            TestContext.Current.CancellationToken);
+        await time.WaitForTimerAsync(
+            TimeSpan.FromSeconds(1),
+            TestContext.Current.CancellationToken);
+        time.Advance(
+            TimeSpan.FromSeconds(1));
+        await Task.Yield();
+        Assert.False(operation.IsCompleted);
+        symbolRelease.TrySetResult();
+
+        InspectionEnvelope<AssemblyTypeSourceEntry>
+            inspection = await operation;
+
+        var available =
+            Assert.IsType<
+                AssemblyTypeSourceEntry.Available>(
+                    inspection.Content);
+        Assert.IsType<AssemblyTypeSource.Pdb>(
+            available.Source);
+        Assert.Equal(
+            new TypeSourceLatencyHedgeEvidence(
+                PdbReadyBeforeDecompilation:
+                    false,
+                DecompilationStarted: true,
+                DecompilationUsedPdb: false,
+                TypeSourceLatencyHedgeSelection
+                    .AuthoredAfterDecompilation),
+            available.LatencyHedgeEvidence);
+        Assert.Single(host.SourceRequests);
+    }
+
+    // PR-fast: sequential authored and decompilation admissions retain both
     // terminal results when their distinct Library limits reject the assembly.
     [Fact]
     public async Task
-        TypeSourceLatencyHedge_DualLibraryFailuresRemainDistinct()
+        TypeSourcePdbLatencyHedge_DualLibraryFailuresRemainDistinct()
     {
         TestAssembly assembly =
             TestAssembly.Create(
@@ -436,14 +423,13 @@ public sealed partial class AssemblyContextSourceQueryTests
         InspectionEnvelope<AssemblyTypeSourceEntry>
             inspection =
                 await TypeSourceInspection
-                    .ExecuteWithLatencyHedgeAsync(
+                    .ExecuteWithPdbLatencyHedgeAsync(
                         group,
                         assembly.Participant,
                         assembly.TypeRequest("Counter"),
                         context,
-                        new TypeSourceLatencyHedge(
-                            TimeSpan.FromSeconds(1),
-                            TimeSpan.FromMilliseconds(250)),
+                        new TypeSourcePdbLatencyHedge(
+                            TimeSpan.FromSeconds(1)),
                         TestContext.Current.CancellationToken);
 
         var unavailable =
@@ -474,84 +460,6 @@ public sealed partial class AssemblyContextSourceQueryTests
             decompilation,
             unavailable.LibraryFailure);
         Assert.Empty(host.SourceRequests);
-    }
-
-    // PR-fast: the authored path remains authoritative beyond the grace
-    // window when decompilation cannot produce publishable source.
-    [Fact]
-    public async Task
-        TypeSourceLatencyHedge_UnavailableDecompilationDoesNotTruncateAuthored()
-    {
-        TestAssembly assembly =
-            TestAssembly.Create(
-                fixture:
-                    FixtureCatalog.SourceDiffV1);
-        var sourceEntered =
-            new TaskCompletionSource(
-                TaskCreationOptions
-                    .RunContinuationsAsynchronously);
-        var sourceRelease =
-            new TaskCompletionSource(
-                TaskCreationOptions
-                    .RunContinuationsAsynchronously);
-        using var host = QueryHost.WithPdb(
-            assembly.PdbPath,
-            SourcePairBytes(
-                FixtureCatalog.SourceDiffV1),
-            maxDecompilerBodyProjections: 0,
-            beforeSourceResponse:
-                async cancellationToken =>
-                {
-                    sourceEntered.TrySetResult();
-                    await sourceRelease.Task
-                        .WaitAsync(cancellationToken);
-                });
-        var time = new ObservedFakeTimeProvider();
-        await using var workspace =
-            new InspectionWorkspace();
-        using AssemblyContextGroup group =
-            workspace.CreateAssemblyContextGroup(
-                [assembly.Participant]);
-
-        Task<InspectionEnvelope<AssemblyTypeSourceEntry>>
-            operation =
-                TypeSourceInspection
-                    .ExecuteWithLatencyHedgeAsync(
-                        group,
-                        assembly.Participant,
-                        assembly.TypeRequest("Counter"),
-                        host.Context,
-                        new TypeSourceLatencyHedge(
-                            TimeSpan.FromSeconds(1),
-                            TimeSpan.FromMilliseconds(250),
-                            time),
-                        TestContext.Current.CancellationToken);
-        await sourceEntered.Task.WaitAsync(
-            TestContext.Current.CancellationToken);
-        time.Advance(
-            TimeSpan.FromMilliseconds(250));
-        await Task.Yield();
-        Assert.False(operation.IsCompleted);
-        sourceRelease.TrySetResult();
-
-        InspectionEnvelope<AssemblyTypeSourceEntry>
-            inspection = await operation;
-
-        var available =
-            Assert.IsType<
-                AssemblyTypeSourceEntry.Available>(
-                    inspection.Content);
-        Assert.IsType<AssemblyTypeSource.Pdb>(
-            available.Source);
-        Assert.Equal(
-            new TypeSourceLatencyHedgeEvidence(
-                PdbReadyBeforeDecompilation:
-                    true,
-                DecompilationStarted: true,
-                DecompilationUsedPdb: true,
-                TypeSourceLatencyHedgeSelection
-                    .AuthoredAfterDecompilation),
-            available.LatencyHedgeEvidence);
     }
 
     sealed class ObservedFakeTimeProvider : TimeProvider

@@ -22,6 +22,14 @@ source-retiring Type/Member coordinate replacement and retention producer.
 CLI adoption and Browser/Wasm adoption remain **unverified** until their named
 Release gates land.
 
+The separate
+[Navigation coordinate successor preparation](navigation-coordinate-successor-preparation.md)
+contract reuses the retention policy to prepare a fresh Navigation lineage in
+an already-populated successor Workspace without a Scope Replace association.
+It does not change this protected same-Workspace transition. The portable
+consumer retires this replacement path only after it adopts successor
+construction in the next #6751 slice.
+
 The adjacent
 [Workspace Scope and Expansion](workspace-scope-and-expansion.md)
 owner already issues the request/result association, complete terminal
