@@ -402,6 +402,19 @@ public class ExtensionMethodCallTests
     }
 
     [Fact]
+    public void MethodGroupWithInheritedOuterSibling_KeepsDelegateCast()
+    {
+        string output = PrintRaised(
+            typeof(OutputInferenceMethodGroupSamples),
+            nameof(OutputInferenceMethodGroupSamples.CallInheritedOuterOverloadRisk));
+
+        Assert.Contains(
+            "values.Select((Func<string, int>)OutputInferenceParser.Parse)",
+            output);
+        Assert.DoesNotContain("Select<string, int>", output);
+    }
+
+    [Fact]
     public void MethodGroupWhoseInputWouldReselectOverload_KeepsGenericArguments()
     {
         string output = PrintRaised(
@@ -452,6 +465,7 @@ public class ExtensionMethodCallTests
             nameof(OutputInferenceMethodGroupSamples.Call),
             nameof(OutputInferenceMethodGroupSamples.CallSameAssembly),
             nameof(OutputInferenceMethodGroupSamples.CallOuterOverloadRisk),
+            nameof(OutputInferenceMethodGroupSamples.CallInheritedOuterOverloadRisk),
             nameof(OutputInferenceMethodGroupSamples.CallReselectionRisk),
             nameof(OutputInferenceMethodGroupSamples.CallPriorityRisk),
             nameof(OutputInferenceMethodGroupSamples.CallDynamicReturnRisk),

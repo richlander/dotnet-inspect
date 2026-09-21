@@ -995,7 +995,8 @@ public sealed partial class CSharpPrinter
         DelegateCreation creation,
         TypeRef delegateType)
     {
-        if (creation.Method.MethodGroupInferenceHasFlexibleArityCandidate
+        if (!creation.Method.MethodGroupInferenceCandidateAritiesAreComplete
+            || creation.Method.MethodGroupInferenceHasFlexibleArityCandidate
             || creation.Method.MethodGroupInferenceCandidateArities.IsEmpty
             || delegateType is not
             {

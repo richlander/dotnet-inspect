@@ -298,6 +298,10 @@ internal sealed class CrossAssemblyTypeResolver
             MethodGroupInferenceCandidateArities = needsMethodGroupInferenceSafety
                 ? resolved.MethodGroupInferenceCandidateArities
                 : callee.MethodGroupInferenceCandidateArities,
+            MethodGroupInferenceCandidateAritiesAreComplete =
+                needsMethodGroupInferenceSafety
+                    ? resolved.MethodGroupInferenceCandidateAritiesAreComplete
+                    : callee.MethodGroupInferenceCandidateAritiesAreComplete,
             MethodGroupInferenceHasFlexibleArityCandidate =
                 needsMethodGroupInferenceSafety
                     ? resolved.MethodGroupInferenceHasFlexibleArityCandidate
@@ -1571,7 +1575,7 @@ internal sealed class CrossAssemblyTypeResolver
                             reader,
                             typeDef,
                             methodHandle)
-                        : new(MetadataFactState.Unknown, [], false);
+                        : new(MetadataFactState.Unknown, [], false, false);
                 match = new ResolvedMethodFacts(
                     parameterRefKinds,
                     requiresUnsafe,
@@ -1599,7 +1603,8 @@ internal sealed class CrossAssemblyTypeResolver
                     overloadFacts.SameReceiverSiblingParameters,
                     methodGroupInferenceFacts.State,
                     methodGroupInferenceFacts.CandidateArities,
-                    methodGroupInferenceFacts.HasFlexibleArityCandidate);
+                    methodGroupInferenceFacts.HasFlexibleArityCandidate,
+                    methodGroupInferenceFacts.CandidateAritiesAreComplete);
             }
 
             return match;
@@ -2665,7 +2670,8 @@ internal sealed class CrossAssemblyTypeResolver
         ImmutableArray<ImmutableArray<TypeRef>> TypeArgumentElisionSiblingParameters,
         MetadataFactState MethodGroupInferenceTargetSafety,
         ImmutableArray<int> MethodGroupInferenceCandidateArities,
-        bool MethodGroupInferenceHasFlexibleArityCandidate);
+        bool MethodGroupInferenceHasFlexibleArityCandidate,
+        bool MethodGroupInferenceCandidateAritiesAreComplete);
 
     readonly record struct ResolvedFieldFacts(
         bool HasNormalizedMemorySafetyContract,

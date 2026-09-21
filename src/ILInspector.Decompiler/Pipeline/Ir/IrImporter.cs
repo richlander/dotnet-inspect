@@ -2579,7 +2579,7 @@ public static class IrImporter
                             reader,
                             declaringType,
                             (MethodDefinitionHandle)handle)
-                        : new(MetadataFactState.Unknown, [], false);
+                        : new(MetadataFactState.Unknown, [], false, false);
                 return new MethodRef(declaring, methodName, signature.ReturnType, signature.ParameterTypes, signature.Header.IsInstance)
                 {
                     ReturnIsDynamic = MethodDefinitionFacts.ReturnDynamicFact(
@@ -2617,6 +2617,8 @@ public static class IrImporter
                         methodGroupInferenceFacts.State,
                     MethodGroupInferenceCandidateArities =
                         methodGroupInferenceFacts.CandidateArities,
+                    MethodGroupInferenceCandidateAritiesAreComplete =
+                        methodGroupInferenceFacts.CandidateAritiesAreComplete,
                     MethodGroupInferenceHasFlexibleArityCandidate =
                         methodGroupInferenceFacts.HasFlexibleArityCandidate,
                     IsPInvoke = FactState(MethodDefinitionFacts.IsPInvoke(method)),

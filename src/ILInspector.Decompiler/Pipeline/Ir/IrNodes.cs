@@ -342,11 +342,17 @@ public sealed record MethodRef(
     internal MetadataFactState MethodGroupInferenceTargetSafety { get; init; }
 
     /// <summary>
-    /// Input arities of every same-name method-group candidate with the selected
-    /// target's staticness. The printer uses this complete metadata set to prove
-    /// that a bare method group cannot activate a competing outer delegate shape.
+    /// Input arities of same-name methods declared on the selected target type
+    /// with the target's staticness.
     /// </summary>
     internal ImmutableArray<int> MethodGroupInferenceCandidateArities { get; init; } = [];
+
+    /// <summary>
+    /// Whether the declared candidate arities are the complete C# member-lookup
+    /// set. This is proven for static classes, which cannot inherit custom
+    /// same-name static overloads.
+    /// </summary>
+    internal bool MethodGroupInferenceCandidateAritiesAreComplete { get; init; }
 
     /// <summary>
     /// Whether any same-name target candidate has optional, defaulted, or

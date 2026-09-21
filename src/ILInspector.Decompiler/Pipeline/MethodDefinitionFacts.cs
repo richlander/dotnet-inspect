@@ -24,7 +24,8 @@ internal readonly record struct TypeArgumentElisionOverloadResult(
 internal readonly record struct MethodGroupInferenceTargetResult(
     MetadataFactState State,
     ImmutableArray<int> CandidateArities,
-    bool HasFlexibleArityCandidate);
+    bool HasFlexibleArityCandidate,
+    bool CandidateAritiesAreComplete);
 
 internal static class MethodDefinitionFacts
 {
@@ -473,7 +474,7 @@ internal static class MethodDefinitionFacts
                 || target.GetGenericParameters().Count != 0
                 || HasOverloadResolutionPriorityAttribute(reader, target))
             {
-                return new(MetadataFactState.No, [], false);
+                return new(MetadataFactState.No, [], false, false);
             }
 
             var targetScope = new GenericScope(
@@ -484,7 +485,7 @@ internal static class MethodDefinitionFacts
                 target,
                 targetScope);
             if (HasUnsupportedType(targetSignature))
-                return new(MetadataFactState.Unknown, [], false);
+                return new(MetadataFactState.Unknown, [], false, false);
 
             string targetName = reader.GetString(target.Name);
             var candidateArities = ImmutableArray.CreateBuilder<int>();
@@ -500,7 +501,7 @@ internal static class MethodDefinitionFacts
                 if (reader.GetString(candidate.Name) != targetName)
                     continue;
                 if (HasOverloadResolutionPriorityAttribute(reader, candidate))
-                    return new(MetadataFactState.No, [], false);
+                    return new(MetadataFactState.No, [], false, false);
 
                 var candidateScope = new GenericScope(
                     GenericParameterNames(reader, declaringType.GetGenericParameters()),
@@ -510,7 +511,7 @@ internal static class MethodDefinitionFacts
                     candidate,
                     candidateScope);
                 if (HasUnsupportedType(candidateSignature))
-                    return new(MetadataFactState.Unknown, [], false);
+                    return new(MetadataFactState.Unknown, [], false, false);
 
                 if (candidateSignature.Header.IsInstance
                     != targetSignature.Header.IsInstance)
@@ -522,19 +523,24 @@ internal static class MethodDefinitionFacts
                 hasFlexibleArityCandidate |=
                     HasFlexibleArityParameter(reader, candidate);
                 if (candidate.GetGenericParameters().Count != 0)
-                    return new(MetadataFactState.No, [], false);
+                    return new(MetadataFactState.No, [], false, false);
 
                 if (candidateSignature.ParameterTypes.SequenceEqual(
                     targetSignature.ParameterTypes))
                 {
-                    return new(MetadataFactState.No, [], false);
+                    return new(MetadataFactState.No, [], false, false);
                 }
             }
 
+            const System.Reflection.TypeAttributes staticClassAttributes =
+                System.Reflection.TypeAttributes.Abstract
+                | System.Reflection.TypeAttributes.Sealed;
             return new(
                 MetadataFactState.Yes,
                 candidateArities.ToImmutable(),
-                hasFlexibleArityCandidate);
+                hasFlexibleArityCandidate,
+                (declaringType.Attributes & staticClassAttributes)
+                    == staticClassAttributes);
         }
         catch (Exception ex) when (ex is BadImageFormatException
             or InvalidOperationException
@@ -542,7 +548,7 @@ internal static class MethodDefinitionFacts
             or IndexOutOfRangeException
             or OverflowException)
         {
-            return new(MetadataFactState.Unknown, [], false);
+            return new(MetadataFactState.Unknown, [], false, false);
         }
     }
 

@@ -26,6 +26,11 @@ public static class OutputInferenceMethodGroupSamples
         => values.Select<string, int>(
             (Func<string, int>)Convert.ToInt32);
 
+    public static IEnumerable<int> CallInheritedOuterOverloadRisk(
+        IEnumerable<string> values)
+        => values.Select<string, int>(
+            (Func<string, int>)OutputInferenceParser.Parse);
+
     public static IEnumerable<int> CallReselectionRisk(
         IEnumerable<string> values)
         => values.Select<string, int>(ParseOverload);
@@ -61,6 +66,16 @@ public static class OutputInferenceMethodGroupSamples
     static int Consume(object value) => value.GetHashCode();
 
     static int Consume(string value) => value.Length;
+}
+
+public class OutputInferenceParserBase
+{
+    public static int Parse(string value, int index) => index;
+}
+
+public class OutputInferenceParser : OutputInferenceParserBase
+{
+    public static int Parse(string value) => value.Length;
 }
 
 public static class GenericOutputInferenceParser<T>
