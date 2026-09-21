@@ -15,6 +15,29 @@ namespace DotnetInspector.Presentation.Tests;
 public class MemberSourceDiffPresentationTests
 {
     [Fact]
+    public void ContainingContextUsesSeparateMemberDeclarationEndpoint()
+    {
+        const string member = "    public int Value { get => field + 1; } = value;";
+        var comparison = Comparison(member, member, "C");
+        var decompiled = Assert.IsType<AssemblyMemberDecompiledSourceAttempt.Available>(comparison.Decompiled);
+        comparison = comparison with
+        {
+            Decompiled = new AssemblyMemberDecompiledSourceAttempt.Available(decompiled.Result with
+            {
+                Projection = DecompilerResult.Success(
+                    $"namespace Example;\npublic readonly struct C(int value)\n{{\n{member}\n}}"),
+                MemberDeclarationText = member,
+            }),
+        };
+
+        var presentation = Assert.IsType<MemberSourceDiffPresentationResult.Available>(
+            MemberSourceDiffPresentationAdapter.Create(comparison)).Presentation;
+        Assert.Equal(member, presentation.AfterText);
+        Assert.False(presentation.Statistics.HasDifferences);
+        Assert.DoesNotContain("struct ", presentation.AfterText);
+    }
+
+    [Fact]
     public void CompleteEndpoints_ProjectOneCanonicalAnalysisAndMappedDiff()
     {
         const string before =
