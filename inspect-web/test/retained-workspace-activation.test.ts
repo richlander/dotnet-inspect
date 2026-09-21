@@ -167,6 +167,7 @@ function preparedPosting(
 }
 
 class ActivationClient implements RetainedWorkspaceActivationClient {
+  readonly packageSourceCredentialPayloads: string[] = [];
   readonly activations: Array<{
     promise: Promise<BrowserRetainedWorkspaceActivationResult>;
     resolve(value: BrowserRetainedWorkspaceActivationResult): void;
@@ -237,6 +238,7 @@ class ActivationClient implements RetainedWorkspaceActivationClient {
           if (result.posting === null) {
             throw new Error("Activated test result omitted its posting.");
           }
+
           this.activationResults.set(receipt, result);
           return {
             status: "prepared",
@@ -274,6 +276,19 @@ class ActivationClient implements RetainedWorkspaceActivationClient {
           throw new Error(`Unexpected activation status: ${result.status}`);
       }
     });
+  }
+
+  prepareRetainedWorkspaceDefinitionWithCredentials(
+    _retainedDefinitionId: string,
+    _label: string,
+    _canonicalLocation: string,
+    _canonicalPacket: string,
+    packageSourceCredentialsJson: string,
+  ): Promise<BrowserRetainedWorkspacePreparationResult> {
+    this.packageSourceCredentialPayloads.push(
+      packageSourceCredentialsJson,
+    );
+    return this.prepareRetainedWorkspaceDefinition();
   }
 
   commitRetainedWorkspaceActivation(
@@ -468,6 +483,48 @@ test("posting records and acknowledges exact authority in order", async () => {
     "complete:realization-1",
     "acknowledge:realization-1",
   ]);
+});
+
+test("activation passes endpoint credentials without retaining them in controller state", async () => {
+  const fixture = createFixture();
+  const definition = fixture.controller.retain({
+    label: "Private",
+    canonicalLocation: "/private",
+    canonicalPacket: "packet-private",
+  });
+  const secret = "session-only-secret";
+
+  const activation = fixture.controller.activate(
+    definition.id,
+    undefined,
+    undefined,
+    undefined,
+    {
+      "https://nuget.pkg.github.com/example/index.json": {
+        username: "example-user",
+        pat: secret,
+      },
+    },
+  );
+  fixture.client.activations[0]!.resolve({
+    status: "activated",
+    posting: posting(definition.id, "realization-1"),
+    failure: null,
+  });
+  await activation;
+
+  assert.deepEqual(
+    fixture.client.packageSourceCredentialPayloads,
+    [
+      JSON.stringify({
+        "https://nuget.pkg.github.com/example/index.json": {
+          username: "example-user",
+          pat: secret,
+        },
+      }),
+    ],
+  );
+  assert.doesNotMatch(JSON.stringify(fixture.controller.state), /session-only-secret/);
 });
 
 test("consumer rejection cancels before cutover", async () => {

@@ -67,14 +67,15 @@ if (result is NavigationCoordinateSuccessorPreparationResult.Prepared prepared)
 
 The destination state and every retained structural subject belong to
 `destinationWorkspace`. The detached retention evidence identifies the exact
-source and destination Package descriptors and correspondence outcomes. Neither
-Workspace contains both versions.
+source and destination Workspace identities, Package descriptors, and
+correspondence outcomes. Neither Workspace contains both versions.
 
 The neighboring one-Workspace protected replacement remains implemented by
-`NavigationScopeOperations.EvaluateCoordinateReplacementAsync` until the
-portable consumer moves to this producer. It continues to use the same
-retention policy but retains its Scope association, settlement, protection, and
-completion behavior.
+`NavigationScopeOperations.EvaluateCoordinateReplacementAsync` only until
+issue #6751 step 5 removes it. The portable production consumer moved to this
+producer under #8128. The protected path continues to use the same retention
+policy but retains its Scope association, settlement, protection, and completion
+behavior.
 
 ## Boundary and composition
 
@@ -138,15 +139,15 @@ This is step 3 of the five focused owner slices:
 
 1. Cross-Workspace Library pairing — implemented by #8015.
 2. Cross-Workspace API correspondence — implemented by #8037.
-3. Navigation successor preparation — this contract and #8084.
+3. Navigation successor preparation — this contract, #8084 and #8094.
 4. Portable coordinate replacement constructs and composes a successor
    realization, moves its Avalonia production route to this producer, and
-   retires the old portable `ReplaceScope` call path.
+   retires the old portable `ReplaceScope` call path — #8128.
 5. Workspace Scope removes Replace after its final production consumer is gone.
 
 The test harness is this substrate slice's production host. Step 4 is the
-production-consumer adoption slice. Browser installation remains tracked by
-issues #5510 and #5511.
+production-consumer adoption slice and is implemented. Browser installation
+remains tracked by issues #5510 and #5511.
 
 This contract adds no host state machine, Browser control, rendering path,
 serialization format, scheduler, cache policy, or Workspace lifecycle policy.
