@@ -6,6 +6,7 @@ import type {
   BrowserPackageChangesRequest,
   BrowserPackageChangesResult,
   BrowserPackageChangesRow,
+  DateTimeOffsetString,
 } from "./facades/inspect-web-package.d.ts";
 import type {
   WorkerRuntimeOperationRegistration,
@@ -35,8 +36,72 @@ const maximumDiagnosticCharacters = 64 * 1_024;
 // Covers the densest schema-valid shape beneath the terminal text ceiling,
 // including advisory references repeated in rows and the summary.
 const maximumItems = 1_250_000;
-const roundTripTimestamp =
-  /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,7})?(?:Z|[+-]\d{2}:\d{2})$/;
+const dateTimeOffsetJsonPattern =
+  /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.(\d{1,7}))?(Z|([+-])(\d{2}):(\d{2}))$/;
+
+function isLeapYear(year: number): boolean {
+  return year % 4 === 0 && (year % 100 !== 0 || year % 400 === 0);
+}
+
+function daysInMonth(year: number, month: number): number {
+  if (month === 2)
+    return isLeapYear(year) ? 29 : 28;
+  if (month === 4 || month === 6 || month === 9 || month === 11)
+    return 30;
+  return 31;
+}
+
+export function isDateTimeOffsetJsonString(
+  value: string,
+): value is DateTimeOffsetString {
+  const match = dateTimeOffsetJsonPattern.exec(value);
+  if (match === null)
+    return false;
+
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  const hour = Number(match[4]);
+  const minute = Number(match[5]);
+  const second = Number(match[6]);
+  if (year < 1
+    || month < 1
+    || month > 12
+    || day < 1
+    || day > daysInMonth(year, month)
+    || hour > 23
+    || minute > 59
+    || second > 59) {
+    return false;
+  }
+
+  if (match[8] === "Z")
+    return true;
+
+  const offsetSign = match[9];
+  const offsetHour = Number(match[10]);
+  const offsetMinute = Number(match[11]);
+  if (offsetHour > 14
+    || offsetMinute > 59
+    || (offsetHour === 14 && offsetMinute !== 0)) {
+    return false;
+  }
+
+  const offsetSeconds = (offsetHour * 60 + offsetMinute) * 60;
+  const localSeconds = hour * 60 * 60 + minute * 60 + second;
+  if (year === 1
+    && month === 1
+    && day === 1
+    && offsetSign === "+"
+    && localSeconds < offsetSeconds) {
+    return false;
+  }
+  return !(year === 9999
+    && month === 12
+    && day === 31
+    && offsetSign === "-"
+    && localSeconds + offsetSeconds >= 24 * 60 * 60);
+}
 
 type Schema =
   | { readonly kind: "string"; readonly maximum: number;
@@ -382,9 +447,7 @@ function decodeSchema(
     }
     if (schema.values !== undefined && !schema.values.includes(value))
       throw new PackageChangesPayloadError(`${path} has an unknown value.`);
-    if (schema.timestamp === true
-      && (!roundTripTimestamp.test(value)
-        || !Number.isFinite(Date.parse(value)))) {
+    if (schema.timestamp === true && !isDateTimeOffsetJsonString(value)) {
       throw new PackageChangesPayloadError(
         `${path} must be an ISO 8601 timestamp.`);
     }

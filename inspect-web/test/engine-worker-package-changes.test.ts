@@ -16,6 +16,7 @@ import {
   engineWorkerPackageChangesCancellationIsRunning,
   engineWorkerPackageChangesInput,
   engineWorkerPackageChangesInspection,
+  isDateTimeOffsetJsonString,
   mapEngineWorkerPackageChangesResult,
   registerEngineWorkerPackageChangesOperation,
   type EngineWorkerPackageChangesFacade,
@@ -224,23 +225,42 @@ test("Package Activity terminal envelope remains physically successful when part
     "rejected",
   );
 
-  const malformedTimestamp = {
-    ...inspection(),
-    content: {
-      ...inspection().content,
-      rows: [{
-        ...row,
-        catalogActivity: {
-          ...row.catalogActivity,
-          commitTimestamp: "2026-03-31T00:00:00.12345678+00:00",
-        },
-      }],
-    },
-  };
   assert.equal(
-    engineWorkerPackageChangesInspection.decode(malformedTimestamp).kind,
-    "rejected",
+    isDateTimeOffsetJsonString("2024-02-29T23:59:59.1234567-14:00"),
+    true,
   );
+  for (const malformedTimestamp of [
+    "2026-03-31T00:00:00.12345678+00:00",
+    "2026-02-29T00:00:00+00:00",
+    "2026-02-30T00:00:00+00:00",
+    "2026-03-31T24:00:00+00:00",
+    "2026-03-31T00:60:00+00:00",
+    "2026-03-31T00:00:60+00:00",
+    "2026-03-31T00:00:00+14:01",
+    "0001-01-01T13:59:59+14:00",
+    "9999-12-31T10:00:00-14:00",
+  ]) {
+    const malformedTimestampEnvelope = {
+      ...inspection(),
+      content: {
+        ...inspection().content,
+        rows: [{
+          ...row,
+          catalogActivity: {
+            ...row.catalogActivity,
+            commitTimestamp: malformedTimestamp,
+          },
+        }],
+      },
+    };
+    assert.equal(
+      engineWorkerPackageChangesInspection.decode(
+        malformedTimestampEnvelope,
+      ).kind,
+      "rejected",
+      malformedTimestamp,
+    );
+  }
 });
 
 test("Package Activity admits multiplicative advisory evidence at maximum rows", () => {
