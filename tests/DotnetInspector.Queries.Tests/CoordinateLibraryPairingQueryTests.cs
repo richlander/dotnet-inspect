@@ -197,13 +197,19 @@ public sealed class CoordinateLibraryPairingQueryTests
         Assert.Equal("coordinate.sample", evidence.Before.PackageId);
     }
 
-    [Fact]
-    public async Task FreshBindingForSameLogicalRequest_CannotRelabelRetainedGeneration()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task FreshBindingForSameLogicalRequest_CannotRelabelRetainedGeneration(
+        bool emptyCompileGroup)
     {
         await using var workspace = new InspectionWorkspace();
         string image = typeof(EmbeddedSourceFixture).Assembly.Location;
-        PackageRootBinding retained = Binding("1.0.0", ("lib/net11.0/Fixture.dll", image));
-        PackageRootBinding fresh = Binding("1.0.0", ("lib/net11.0/Fixture.dll", image));
+        string entry = emptyCompileGroup
+            ? "ref/net11.0/_._"
+            : "lib/net11.0/Fixture.dll";
+        PackageRootBinding retained = Binding("1.0.0", (entry, image));
+        PackageRootBinding fresh = Binding("1.0.0", (entry, image));
         WorkspaceScopeSnapshot scope = await Replace(workspace, retained);
 
         CoordinatePackageObservationResult result = await CoordinateLibraryPairingQuery.ObserveAsync(
