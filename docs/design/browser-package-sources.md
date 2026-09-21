@@ -1190,6 +1190,10 @@ retained host projection, and ordinary navigation preserves the incumbent
 source-bearing URL until its replacement commits. An identical active
 definition may reuse its posting only after that posting completed consumer
 delivery; an abandoned posting is deactivated and prepared again.
+Credential retry performs the same recovery while preserving its fresh
+incumbent rollback. Every awaited recovery or source preflight rechecks
+navigation ownership before it can install a prompt or switch a retained
+projection.
 The production coordinator reuses an identical retained definition and removes
 only settled inactive definitions before retaining a distinct URL, so canceled
 prompts and prior URLs do not consume the controller's bounded definition

@@ -102,8 +102,9 @@ export interface WorkspaceFeedActivationCoordinator {
 }
 
 interface PendingWorkspaceCredentialPrompt {
-  readonly retainedDefinitionId: string;
+  retainedDefinitionId: string;
   readonly canonicalLocation: string;
+  readonly canonicalPacket: string;
   readonly navigationSequence: number;
   readonly requirements: readonly BrowserWorkspacePackageSourceRequirement[];
   readonly hadVisibleWorkspace: boolean;
@@ -221,6 +222,7 @@ export function createWorkspaceFeedActivationCoordinator<TRollback>(
     const retainedDefinitionId = await retainDefinition(
       url.toString(),
       packet);
+    if (!dependencies.isCurrent(navigationSequence)) return false;
     pendingNavigationSequence = navigationSequence;
     releaseRollback();
     rollback = {
@@ -235,6 +237,7 @@ export function createWorkspaceFeedActivationCoordinator<TRollback>(
       prompt = {
         retainedDefinitionId,
         canonicalLocation: url.toString(),
+        canonicalPacket: packet,
         navigationSequence,
         requirements: required,
         hadVisibleWorkspace: dependencies.hasVisibleWorkspace(),
@@ -349,8 +352,22 @@ export function createWorkspaceFeedActivationCoordinator<TRollback>(
     current.error = "";
     mountPrompt();
     try {
+      const retainedDefinitionId = await retainDefinition(
+        current.canonicalLocation,
+        current.canonicalPacket);
+      if (!dependencies.isCurrent(current.navigationSequence)
+        || prompt !== current) {
+        return;
+      }
+      if (retainedDefinitionId !== current.retainedDefinitionId) {
+        retargetRollback(
+          current.retainedDefinitionId,
+          retainedDefinitionId,
+          current.navigationSequence);
+        current.retainedDefinitionId = retainedDefinitionId;
+      }
       const succeeded = await activate(
-        current.retainedDefinitionId,
+        retainedDefinitionId,
         current.canonicalLocation,
         current.navigationSequence,
         credentials,
@@ -514,6 +531,21 @@ export function createWorkspaceFeedActivationCoordinator<TRollback>(
     if (pendingNavigationSequence === navigationSequence) {
       pendingNavigationSequence = null;
     }
+  }
+
+  function retargetRollback(
+    priorRetainedDefinitionId: string,
+    retainedDefinitionId: string,
+    navigationSequence: number,
+  ): void {
+    if (rollback?.retainedDefinitionId !== priorRetainedDefinitionId
+      || rollback.navigationSequence !== navigationSequence) {
+      return;
+    }
+    rollback = {
+      ...rollback,
+      retainedDefinitionId,
+    };
   }
 
   function retry(canonicalLocation: string, commitHistory: boolean): void {

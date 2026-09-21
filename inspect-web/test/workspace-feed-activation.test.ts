@@ -193,6 +193,8 @@ interface WorkspaceTestClientOptions {
   readonly failSuccessfulCompletion?: boolean;
   readonly admitPackage?:
     WorkspaceTestClient["admitRetainedWorkspacePackage"];
+  readonly deactivate?:
+    WorkspaceTestClient["deactivateRetainedWorkspaceDefinition"];
 }
 
 function createWorkspaceTestClient(
@@ -312,8 +314,13 @@ function createWorkspaceTestClient(
         message: null,
       };
     },
-    async deactivateRetainedWorkspaceDefinition() {
+    async deactivateRetainedWorkspaceDefinition(retainedDefinitionId) {
       events.push("deactivate");
+      if (options.deactivate) {
+        const result = await options.deactivate(retainedDefinitionId);
+        if (result.status === "deactivated") activePosting = null;
+        return result;
+      }
       activePosting = null;
       return {
         status: "deactivated",
@@ -857,4 +864,40 @@ test("consumer-completion failure restores the incumbent workspace", async () =>
   assert.equal(events.includes("deactivate"), true);
   assert.equal(events.filter(event => event === "complete:true").length, 2);
   assert.equal(events.filter(event => event === "publish").length, 2);
+});
+
+test("superseded abandoned-definition recovery cannot restart activation", async () => {
+  const events: string[] = [];
+  const deactivation = deferred<
+    Awaited<ReturnType<
+      WorkspaceTestClient["deactivateRetainedWorkspaceDefinition"]>>>();
+  const deactivationStarted = deferred<void>();
+  const client = createWorkspaceTestClient(events, {
+    failSuccessfulCompletion: true,
+    deactivate() {
+      deactivationStarted.resolve();
+      return deactivation.promise;
+    },
+  });
+  const harness = createCoordinatorHarness(client, events);
+  const location = new URL("https://example.test/?w=packet");
+
+  assert.equal(
+    await harness.coordinator.tryOpen(location, harness.sequence, true),
+    true);
+  const reopening =
+    harness.coordinator.tryOpen(location, harness.sequence, true);
+  await deactivationStarted.promise;
+  harness.advance("successor-workspace");
+  deactivation.resolve({
+    status: "deactivated",
+    completionReceipt: "deactivation-receipt",
+    settlement: null,
+    message: null,
+  });
+
+  assert.equal(await reopening, false);
+  assert.equal(harness.visible, "successor-workspace");
+  assert.equal(events.filter(event => event === "commit").length, 1);
+  assert.equal(events.filter(event => event === "publish").length, 1);
 });

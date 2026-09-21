@@ -409,7 +409,11 @@ test("source-bearing Workspace URLs use page-session retained activation", () =>
     /tryOpenSourceBearingWorkspace\([\s\S]*new URL\(location\.href\)[\s\S]*return;[\s\S]*parseLocation\(\)/);
   assert.match(
     history,
-    /deferHistoryWorkspaceActivation =[\s\S]*searchParams\.has\("w"\)[\s\S]*tryOpenSourceBearingWorkspace\([\s\S]*return;[\s\S]*if \(deferHistoryWorkspaceActivation[\s\S]*activateRetainedWorkspaceProjection\(historyWorkspaceId, false\)[\s\S]*const loc = await parseLocation\(\)/);
+    /deferHistoryWorkspaceActivation =[\s\S]*searchParams\.has\("w"\)[\s\S]*tryOpenSourceBearingWorkspace\([\s\S]*return;[\s\S]*if \(!navigationSequence\.isCurrent\(navigationSeq\)\) return;[\s\S]*if \(deferHistoryWorkspaceActivation[\s\S]*activateRetainedWorkspaceProjection\(historyWorkspaceId, false\)[\s\S]*const loc = await parseLocation\(\)/);
+  assert.doesNotMatch(
+    history.match(/const loc = await parseLocation\(\);[\s\S]*?const bareHome/)?.[0]
+      ?? "",
+    /clearWorkspaceFeedIdentity/);
   assert.match(
     workspaceFeedActivationSource,
     /describeWorkspacePackageSources[\s\S]*AuthenticationRequired[\s\S]*workspaceCredentialPromptHtml/);
@@ -419,6 +423,12 @@ test("source-bearing Workspace URLs use page-session retained activation", () =>
   assert.match(
     workspaceFeedActivationSource,
     /dependencies\.publish\(posting, models\)[\s\S]*pushLocation\(canonicalLocation\)/s);
+  assert.match(
+    workspaceFeedActivationSource,
+    /async function submitCredentials[\s\S]*await retainDefinition\([\s\S]*retargetRollback\([\s\S]*await activate\(/);
+  assert.match(
+    workspaceFeedActivationSource,
+    /await retainDefinition\([\s\S]*if \(!dependencies\.isCurrent\(navigationSequence\)\) return false;[\s\S]*pendingNavigationSequence = navigationSequence/);
   assert.doesNotMatch(
     workspaceFeedActivationSource,
     /localStorage|sessionStorage|console\.(?:log|info|warn|error)/);
@@ -1287,7 +1297,7 @@ test("Package query and Activity are routed Spotlight actions", () => {
     /onApplicationScopeSelect: applicationScope => \{[\s\S]*applicationScope === "query"[\s\S]*applicationScope === "activity"[\s\S]*openPackageActivityRoute\("application-activity"\)[\s\S]*else if \(scope\(\) !== "workspace"\) \{\s*observeAsync\(\s*selectWorkspaceApplicationScope\(\),\s*"Opening the Workspace scope"\)/);
   assert.match(
     appSource,
-    /const focusWorkspaceAfterRoutedPage =\s*state\.packageQueryOpen \|\| state\.packageActivityOpen;\s*if \(focusWorkspaceAfterRoutedPage\) \{\s*discardPackageQueryTermEditors\(\);\s*state\.packageQueryOpen = false;\s*state\.packageActivityOpen = false;\s*packageQueryController\.cancel\(\);\s*packageChangesController\.cancel\("disposed"\);\s*state\.packageQueryNavigationError = "";\s*\}\s*const navigationSeq = navigationSequence\.begin\(\);\s*cancelWorkspaceCredentialPrompt\(false\);\s*if \(focusWorkspaceAfterRoutedPage\) \{\s*packageQueryWorkspaceFocusNavigationSeq = navigationSeq;\s*\}\s*if \(await tryOpenSourceBearingWorkspace\(url, navigationSeq, true\)\) return;\s*let loc: ParsedLocation;\s*try \{\s*loc = await parseWorkspaceHref\(url\.toString\(\)\);[\s\S]*if \(!navigationSequence\.isCurrent\(navigationSeq\)\) return;[\s\S]*if \(!sameWorkspace\) \{[\s\S]*openFreshWorkspaceLink\(loc, navigationSeq\)[\s\S]*\} else \{\s*workspaceFeedActivation\?\.clearActiveUrl\(\);\s*state\.workspaceFeedUrl = null;\s*workspaceLocation\.push/);
+    /const focusWorkspaceAfterRoutedPage =\s*state\.packageQueryOpen \|\| state\.packageActivityOpen;\s*if \(focusWorkspaceAfterRoutedPage\) \{\s*discardPackageQueryTermEditors\(\);\s*state\.packageQueryOpen = false;\s*state\.packageActivityOpen = false;\s*packageQueryController\.cancel\(\);\s*packageChangesController\.cancel\("disposed"\);\s*state\.packageQueryNavigationError = "";\s*\}\s*const navigationSeq = navigationSequence\.begin\(\);\s*cancelWorkspaceCredentialPrompt\(false\);\s*if \(focusWorkspaceAfterRoutedPage\) \{\s*packageQueryWorkspaceFocusNavigationSeq = navigationSeq;\s*\}\s*if \(await tryOpenSourceBearingWorkspace\(url, navigationSeq, true\)\) return;\s*let loc: ParsedLocation;\s*try \{\s*loc = await parseWorkspaceHref\(url\.toString\(\)\);[\s\S]*if \(!navigationSequence\.isCurrent\(navigationSeq\)\) return;[\s\S]*if \(!sameWorkspace\) \{[\s\S]*openFreshWorkspaceLink\(loc, navigationSeq\)[\s\S]*\} else \{\s*clearWorkspaceFeedIdentity\(\);\s*workspaceLocation\.push/);
   assert.match(
     appSource,
     /function restorePackageQueryWorkspaceFocus\(\) \{\s*const navigationSeq = packageQueryWorkspaceFocusNavigationSeq;[\s\S]*navigationSequence\.isCurrent\(navigationSeq\)[\s\S]*afterCurrentNavigationFrame\(\(\) => \{\s*if \(!focusLevelOneHeading\(\)\) \{\s*document\.querySelector<HTMLElement>\("#type-list"\)\?\.focus\(\)/);
@@ -1333,10 +1343,10 @@ test("browser history reuses available identities and publishes only unavailable
     /const target = loc\.package\s*\? state\.packages\.find\(candidate =>\s*packageCoordinateMatchesLocation\(candidate, loc\)\)\s*: null;\s*if \(loc\.tabs\?\.length && !target\) \{[\s\S]*restoreHistoryWorkspace\(\)[\s\S]*\}\s*if \(target\) \{\s*activatePackage\(target, \{ resetAccessibility: true \}\)/);
   assert.match(
     restore,
-    /captureWorkspaceConstructionSnapshots\(navigationSeq\)[\s\S]*prepareUnpublishedWorkspace\(\)[\s\S]*restoreWorkspaceFromLocation\([\s\S]*false,\s*fail,\s*false\)[\s\S]*const destination = \(await buildStateUrl\(\)\)\.toString\(\);\s*if \(!navigationSequence\.isCurrent\(navigationSeq\)\) return;\s*publishCurrentWorkspace\(construction\.retainedSnapshot\)[\s\S]*workspaceLocation\.replace\(destination, history\.state\)/);
+    /captureWorkspaceConstructionSnapshots\(navigationSeq\)[\s\S]*prepareUnpublishedWorkspace\(\)[\s\S]*restoreWorkspaceFromLocation\([\s\S]*false,\s*fail,\s*false\)[\s\S]*const destination = \(await buildStateUrl\(\)\)\.toString\(\);\s*if \(!navigationSequence\.isCurrent\(navigationSeq\)\) return;\s*clearWorkspaceFeedIdentity\(\);\s*publishCurrentWorkspace\(construction\.retainedSnapshot\)[\s\S]*workspaceLocation\.replace\(destination, history\.state\)/);
   assert.match(
     restoreRetained,
-    /captureWorkspaceMutationSnapshot\(navigationSeq\)[\s\S]*discardPendingWorkspaceConstruction\(\);\s*failCanonicalWorkspaceRestore\([\s\S]*rollbackSnapshot,[\s\S]*restoreWorkspaceFromLocation\([\s\S]*false,\s*fail,\s*false\)[\s\S]*const destination = \(await buildStateUrl\(\)\)\.toString\(\);\s*if \(!navigationSequence\.isCurrent\(navigationSeq\)\) return;\s*discardPendingWorkspaceConstruction\(\);\s*activeWorkspaceUrl = destination;\s*workspaceLocation\.replace\(destination, history\.state\)/);
+    /captureWorkspaceMutationSnapshot\(navigationSeq\)[\s\S]*discardPendingWorkspaceConstruction\(\);\s*failCanonicalWorkspaceRestore\([\s\S]*rollbackSnapshot,[\s\S]*restoreWorkspaceFromLocation\([\s\S]*false,\s*fail,\s*false\)[\s\S]*const destination = \(await buildStateUrl\(\)\)\.toString\(\);\s*if \(!navigationSequence\.isCurrent\(navigationSeq\)\) return;\s*clearWorkspaceFeedIdentity\(\);\s*discardPendingWorkspaceConstruction\(\);\s*activeWorkspaceUrl = destination;\s*workspaceLocation\.replace\(destination, history\.state\)/);
   assert.match(
     appSource,
     /hasWorkspace:\s*state\.package !== null\s*\|\| state\.platformSelection !== null\s*\|\| retainedWorkspaces\.activeWorkspaceId !== null/);
@@ -1394,18 +1404,18 @@ test("same-origin links retain different-coordinate Workspaces", () => {
     /if \(loc\.hasWorkspaceState && !loc\.shareState\) \{[\s\S]*Workspace restore failed:[\s\S]*render\(\{ synchronizeUrl: false \}\);\s*return;\s*\}[\s\S]*const tablessTarget = !loc\.tabs\.length && loc\.package\s*\? state\.packages\.find\(candidate =>\s*packageCoordinateMatchesLocation\(candidate, loc\)\)\s*: undefined;\s*const sameWorkspace = loc\.tabs\.length\s*\? workspaceCoordinatesMatch\(state\.packages, loc\.tabs\)\s*: tablessTarget !== undefined/);
   assert.match(
     navigate,
-    /if \(!sameWorkspace\) \{\s*observeAsync\(\s*openFreshWorkspaceLink\(loc, navigationSeq\),\s*"Opening workspace link"\);\s*\} else \{\s*workspaceFeedActivation\?\.clearActiveUrl\(\);\s*state\.workspaceFeedUrl = null;\s*workspaceLocation\.push\(url\.toString\(\)\);\s*observeAsync\(\s*navigateWithinCurrentWorkspace\(loc, navigationSeq\),\s*"Navigating"\)/);
+    /if \(!sameWorkspace\) \{\s*observeAsync\(\s*openFreshWorkspaceLink\(loc, navigationSeq\),\s*"Opening workspace link"\);\s*\} else \{\s*clearWorkspaceFeedIdentity\(\);\s*workspaceLocation\.push\(url\.toString\(\)\);\s*observeAsync\(\s*navigateWithinCurrentWorkspace\(loc, navigationSeq\),\s*"Navigating"\)/);
   assert.doesNotMatch(navigateCurrent, /clearWorkspacePackages|prepareUnpublishedWorkspace/);
   assert.match(
     navigateCurrent,
     /state\.packages\.find\(candidate =>\s*packageCoordinateMatchesLocation\(candidate, loc\)\)[\s\S]*activatePackage\(target, \{ resetAccessibility: true \}\)[\s\S]*applyDeepLink\(loc\)/);
   assert.match(
     openFresh,
-    /captureWorkspaceConstructionSnapshots\(navigationSeq\)[\s\S]*prepareUnpublishedWorkspace\(\)[\s\S]*restoreWorkspaceFromLocation\([\s\S]*false,\s*fail,\s*false\)[\s\S]*const destination = \(await buildStateUrl\(\)\)\.toString\(\);\s*if \(!navigationSequence\.isCurrent\(navigationSeq\)\) return;\s*workspaceFeedActivation\?\.clearActiveUrl\(\);\s*publishCurrentWorkspace\(construction\.retainedSnapshot\);\s*workspaceLocation\.push\(destination\)/);
+    /captureWorkspaceConstructionSnapshots\(navigationSeq\)[\s\S]*prepareUnpublishedWorkspace\(\)[\s\S]*restoreWorkspaceFromLocation\([\s\S]*false,\s*fail,\s*false\)[\s\S]*const destination = \(await buildStateUrl\(\)\)\.toString\(\);\s*if \(!navigationSequence\.isCurrent\(navigationSeq\)\) return;\s*clearWorkspaceFeedIdentity\(\);\s*publishCurrentWorkspace\(construction\.retainedSnapshot\);\s*workspaceLocation\.push\(destination\)/);
   assert.doesNotMatch(
     navigate.match(/if \(loc\.hasWorkspaceState[\s\S]*?if \(!sameWorkspace\)/)?.[0]
       ?? "",
-    /clearActiveUrl|workspaceFeedUrl = null/);
+    /clearWorkspaceFeedIdentity|clearActiveUrl|workspaceFeedUrl = null/);
   assert.doesNotMatch(
     navigate.match(/const loc = parseWorkspaceHref[\s\S]*?if \(!sameWorkspace\)/)?.[0] ?? "",
     /workspaceLocation\.push/);

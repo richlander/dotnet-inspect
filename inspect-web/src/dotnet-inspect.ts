@@ -12340,6 +12340,7 @@ async function restoreFreshWorkspaceFromHistory(
       && (state.package || state.platformSelection)) {
       const destination = (await buildStateUrl()).toString();
       if (!navigationSequence.isCurrent(navigationSeq)) return;
+      clearWorkspaceFeedIdentity();
       publishCurrentWorkspace(construction.retainedSnapshot);
       workspaceLocation.replace(destination, history.state);
       render({ synchronizeUrl: false });
@@ -12384,6 +12385,7 @@ async function restoreRetainedWorkspaceFromHistory(
     if (!failed && navigationSequence.isCurrent(navigationSeq)) {
       const destination = (await buildStateUrl()).toString();
       if (!navigationSequence.isCurrent(navigationSeq)) return;
+      clearWorkspaceFeedIdentity();
       discardPendingWorkspaceConstruction();
       activeWorkspaceUrl = destination;
       workspaceLocation.replace(destination, history.state);
@@ -17275,6 +17277,11 @@ function cancelWorkspaceCredentialPrompt(showFailure = true): void {
   workspaceFeedActivation?.cancelPrompt(showFailure);
 }
 
+function clearWorkspaceFeedIdentity(): void {
+  workspaceFeedActivation?.clearActiveUrl();
+  state.workspaceFeedUrl = null;
+}
+
 function publishSourceBearingWorkspace(
   posting: BrowserRetainedWorkspacePosting,
   models: RetainedWorkspaceModels,
@@ -17747,7 +17754,7 @@ async function openFreshWorkspaceLink(
       && (state.package || state.platformSelection)) {
       const destination = (await buildStateUrl()).toString();
       if (!navigationSequence.isCurrent(navigationSeq)) return;
-      workspaceFeedActivation?.clearActiveUrl();
+      clearWorkspaceFeedIdentity();
       publishCurrentWorkspace(construction.retainedSnapshot);
       workspaceLocation.push(destination);
       render({ synchronizeUrl: false });
@@ -17828,8 +17835,7 @@ async function navigateInAppUrl(url: URL) {
       openFreshWorkspaceLink(loc, navigationSeq),
       "Opening workspace link");
   } else {
-    workspaceFeedActivation?.clearActiveUrl();
-    state.workspaceFeedUrl = null;
+    clearWorkspaceFeedIdentity();
     workspaceLocation.push(url.toString());
     observeAsync(
       navigateWithinCurrentWorkspace(loc, navigationSeq),
@@ -18523,6 +18529,7 @@ window.addEventListener("popstate", () => {
     navigationSeq)) {
     return;
   }
+  if (!navigationSequence.isCurrent(navigationSeq)) return;
   if (deferHistoryWorkspaceActivation
     && historyWorkspaceAvailable
     && historyWorkspaceId !== retainedWorkspaces.activeWorkspaceId) {
@@ -18556,8 +18563,6 @@ window.addEventListener("popstate", () => {
       null);
     return;
   }
-  workspaceFeedActivation?.clearActiveUrl();
-  state.workspaceFeedUrl = null;
   const bareHome = !loc.package && !(loc.tabs && loc.tabs.length);
   if (bareHome) {
     if (historyWorkspaceReferenced && !historyWorkspaceAvailable) {
@@ -18569,6 +18574,7 @@ window.addEventListener("popstate", () => {
     state.credits = false;
     state.home = true;
     spotlight.reset();
+    clearWorkspaceFeedIdentity();
     render({
       synchronizeUrl: !unavailableWorkspaceAdmissionRejected,
     });
@@ -18632,7 +18638,8 @@ window.addEventListener("popstate", () => {
         restorePlatformScopeThenDeepLink(
           loc,
           navigationSeq,
-          canonicalSnapshot),
+          canonicalSnapshot,
+          true),
         "Restoring platform history");
     } else {
       const libraryFailure = applyLoadedPackageLibraryScope(
@@ -18658,6 +18665,7 @@ window.addEventListener("popstate", () => {
           canonicalSnapshot);
         return;
       }
+      clearWorkspaceFeedIdentity();
       commitWorkspaceShareBasis(loc.shareState);
       applyDeepLink(loc);
       render();
@@ -18684,6 +18692,7 @@ async function restorePlatformScopeThenDeepLink(
   loc: ParsedLocation,
   navigationSeq: number,
   canonicalSnapshot: CanonicalWorkspaceRestoreSnapshot | null = null,
+  retireWorkspaceFeed = false,
 ) {
   const scoped = await applyPlatformLibraryScope(
     loc.library,
@@ -18692,7 +18701,8 @@ async function restorePlatformScopeThenDeepLink(
     () => restorePlatformScopeThenDeepLink(
       loc,
       navigationSequence.current(),
-      canonicalSnapshot));
+      canonicalSnapshot,
+      retireWorkspaceFeed));
   if (!navigationSequence.isCurrent(navigationSeq)) return;
   if (!scoped) {
     if (loc.shareState) {
@@ -18723,6 +18733,7 @@ async function restorePlatformScopeThenDeepLink(
       canonicalSnapshot);
     return;
   }
+  if (retireWorkspaceFeed) clearWorkspaceFeedIdentity();
   commitWorkspaceShareBasis(loc.shareState);
   applyLocationView(loc);
   applyDeepLink(loc);
