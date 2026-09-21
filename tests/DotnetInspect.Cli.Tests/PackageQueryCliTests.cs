@@ -8,7 +8,7 @@ using DotnetInspect.Cli.Output;
 using DotnetInspect.Cli.Sections;
 using DotnetInspector.Packages;
 using DotnetInspector.PackageQueries;
-using DotnetInspector.PortableQueries;
+using QuerySpace;
 using DotnetInspector.Queries;
 using DotnetInspector.Sections;
 using InertText;

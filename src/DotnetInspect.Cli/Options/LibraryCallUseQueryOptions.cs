@@ -1,7 +1,7 @@
 using System.Collections.Immutable;
 
 using DotnetInspect.Cli.Sections;
-using DotnetInspector.PortableQueries;
+using QuerySpace;
 using DotnetInspector.Queries;
 using ILInspector.CSharp;
 

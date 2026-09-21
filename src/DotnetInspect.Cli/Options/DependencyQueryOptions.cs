@@ -6,9 +6,9 @@ using DotnetInspect.Cli.CommandLine;
 using DotnetInspect.Cli.Output;
 using DotnetInspect.Cli.Sections;
 using DotnetInspect.Cli.Services;
-using DotnetInspector.PortableQueries;
+using QuerySpace;
 using DotnetInspector.QueryOperations;
-using DotnetInspector.RowSelection;
+using QuerySpace.Rows;
 using DotnetInspector.Sections;
 using ILInspector.CSharp;
 

@@ -3,9 +3,9 @@ using DotnetInspect.Cli.Output;
 using DotnetInspect.Cli.CommandLine;
 using DotnetInspect.Cli.Sections;
 using DotnetInspector.Ecosystems;
-using DotnetInspector.PortableQueries;
+using QuerySpace;
 using DotnetInspector.Queries;
-using DotnetInspector.RowSelection;
+using QuerySpace.Rows;
 using DotnetInspector.Sections;
 
 namespace DotnetInspect.Cli.Options;

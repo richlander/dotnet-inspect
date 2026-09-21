@@ -1,4 +1,4 @@
-namespace DotnetInspector.Sections;
+namespace QuerySpace.Rows;
 
 public enum RowQueryOperator
 {
@@ -121,7 +121,7 @@ public sealed class RowQueryOrderIntent
             RowQueryOrderIntentKind.Named,
             namedOrderKey,
             direction,
-            QueryEngineSnapshot.Empty<RowQueryOrderTermIntent>());
+            QuerySpaceSnapshot.Empty<RowQueryOrderTermIntent>());
     }
 
     public static RowQueryOrderIntent Keys(
@@ -148,7 +148,7 @@ public sealed class RowQueryOrderIntent
             RowQueryOrderIntentKind.Keys,
             null,
             default,
-            QueryEngineSnapshot.Own(copy));
+            QuerySpaceSnapshot.Own(copy));
     }
 
     private InvalidOperationException WrongKind(string property) =>
@@ -170,7 +170,7 @@ public sealed class RowQueryIntent
 
     public static RowQueryIntent Empty { get; } =
         new(
-            QueryEngineSnapshot.Empty<RowQueryPredicateIntent>(),
+            QuerySpaceSnapshot.Empty<RowQueryPredicateIntent>(),
             null,
             RowSelectionIntent<RowQueryOrderIntent>.Empty);
 
@@ -202,7 +202,7 @@ public sealed class RowQueryIntent
             && selection.Operations.Count == 0
                 ? Empty
                 : new(
-                    QueryEngineSnapshot.Own(copy),
+                    QuerySpaceSnapshot.Own(copy),
                     baselineOrder,
                     selection);
     }
