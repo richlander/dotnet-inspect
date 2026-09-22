@@ -626,7 +626,7 @@ public sealed class CatalogCallGraphScope : IDisposable
                         CorrespondsTo(
                             edge.Callee,
                             definition,
-                            definition.Participant.Assembly.Identity)),
+                            definition.Participant.Assembly)),
                 ];
                 if (matches.Length != 1)
                     continue;
@@ -996,10 +996,15 @@ public sealed class CatalogCallGraphScope : IDisposable
                 foreach (PlanEntry plan in plans.Values)
                 {
                     plan.Projection = plan.Plan.Project(context);
+                    TypeResolutionOutcome.Resolved? resolution =
+                        plan.Plan.DeclaringTypeResolution(context);
                     plan.ResolutionAssemblyIdentity =
-                        plan.Plan
+                        resolution?.Definition.Assembly.Assembly.Identity
+                        ?? plan.Plan
                             .DeclaringTypeResolutionAssemblyIdentity(
                                 context);
+                    plan.ResolutionAssemblyRegistration =
+                        resolution?.Definition.Assembly.Assembly.Registration;
                 }
 
                 var storedDefinitions =
@@ -1040,7 +1045,8 @@ public sealed class CatalogCallGraphScope : IDisposable
                             callSite.Storage,
                             callSite.Plan.Projection!),
                         callSite.Plan.Plan,
-                        callSite.Plan.ResolutionAssemblyIdentity);
+                        callSite.Plan.ResolutionAssemblyIdentity,
+                        callSite.Plan.ResolutionAssemblyRegistration);
                     storedCallSites.Add(stored);
                     if (definitionLocations.TryGetValue(
                             (
@@ -1538,7 +1544,7 @@ public sealed class CatalogCallGraphScope : IDisposable
                         CorrespondsTo(
                             edge.Callee,
                             definition,
-                            target.Assembly.Identity)),
+                            target.Assembly)),
                 ];
                 if (matches.Length != 1)
                     continue;
@@ -1583,7 +1589,7 @@ public sealed class CatalogCallGraphScope : IDisposable
         static bool CorrespondsTo(
             StoredCallSite callSite,
             StoredDefinition definition,
-            AssemblyReferenceIdentity targetIdentity)
+            ResolvedAssemblyReference targetAssembly)
         {
             if (callSite.Evidence.Correspondence
                     is CatalogMemberJoinProjection.Issued
@@ -1592,10 +1598,21 @@ public sealed class CatalogCallGraphScope : IDisposable
                     is CatalogMemberJoinProjection.Issued
                         definitionProjection)
             {
-                return definition.Plan.CorrespondsTo(
-                    callSite.Plan,
-                    definitionProjection,
-                    callProjection);
+                if (definition.Plan.CorrespondsTo(
+                        callSite.Plan,
+                        definitionProjection,
+                        callProjection))
+                {
+                    return true;
+                }
+            }
+
+            if (callSite.ResolutionAssemblyRegistration is { } selected
+                && !ReferenceEquals(
+                    selected,
+                    targetAssembly.Registration))
+            {
+                return false;
             }
 
             TypeRef declaringType =
@@ -1603,7 +1620,8 @@ public sealed class CatalogCallGraphScope : IDisposable
                     callSite.Call.Callee.DeclaringType);
             return declaringType.Resolution?.Origin
                     is TypeReferenceOrigin.AssemblyReference reference
-                && reference.Assembly.IsEquivalentTo(targetIdentity)
+                && reference.Assembly.IsEquivalentTo(
+                    targetAssembly.Identity)
                 && GraphNodeIdentity.FromMember(callSite.Call.Callee)
                     == GraphNodeIdentity.FromMethod(definition.Method)
                 && ExactFallbackSignaturesMatch(
@@ -1903,6 +1921,8 @@ public sealed class CatalogCallGraphScope : IDisposable
             internal CatalogMemberJoinProjection? Projection { get; set; }
             internal AssemblyReferenceIdentity?
                 ResolutionAssemblyIdentity { get; set; }
+            internal AssemblyAcquisitionRegistration?
+                ResolutionAssemblyRegistration { get; set; }
         }
 
         readonly record struct PlanKey(
@@ -1970,8 +1990,9 @@ public sealed class CatalogCallGraphScope : IDisposable
             DirectCall Call,
             GraphNodeEvidence Evidence,
             CatalogMemberCorrespondencePlan Plan,
-            AssemblyReferenceIdentity?
-                ResolutionAssemblyIdentity);
+            AssemblyReferenceIdentity? ResolutionAssemblyIdentity,
+            AssemblyAcquisitionRegistration?
+                ResolutionAssemblyRegistration);
 
         sealed record StoredEdge(
             StoredDefinition Caller,
