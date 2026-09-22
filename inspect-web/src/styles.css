@@ -2011,31 +2011,7 @@ kbd {
 .assembly-grid .assembly-stats { font-size: 12px; color: var(--dim); }
 .assembly-grid .assembly-stats strong { font-family: var(--mono); color: var(--text); font-weight: 600; }
 
-/* Library navigation Query and Library surface summaries. */
-.library-query-nav { min-width: 0; border-bottom: 1px solid var(--line); background: var(--bg); }
-.library-query-heading-actions { display: grid; gap: 6px; min-width: 0; padding: 8px 10px; }
-.library-query-heading-actions > span { color: var(--dim); font: 10px var(--mono); }
-.library-query-form { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; align-items: center; gap: 6px; }
-.library-query-form label { grid-column: 1 / -1; color: var(--dim); font: 10px var(--mono); }
-.library-query-form input,
-.library-query-form button {
-  min-height: 28px;
-  border: 1px solid var(--line);
-  border-radius: 6px;
-  background: var(--panel);
-  color: var(--text);
-}
-.library-query-form input { width: 100%; min-width: 0; padding: 4px 8px; font: 12px var(--mono); }
-.library-query-form button { padding: 4px 10px; cursor: pointer; }
-.library-query-form button:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
-.library-query-form button:disabled,
-.library-query-form input:disabled { cursor: wait; opacity: .65; }
-.library-query-status { margin: 0; padding: 10px 12px; border-top: 1px solid var(--line); color: var(--muted); font-size: 12px; overflow-wrap: anywhere; }
-.library-query-status.error { color: var(--danger); }
-.library-query-status p { margin: 0; }
-.library-query-status code { color: var(--text); font: 11px var(--mono); }
-.library-query-failures { margin-top: 8px; color: var(--yellow); }
-.library-query-failures ul { margin: 6px 0 0; padding-left: 18px; color: var(--muted); }
+/* Library surface summaries. */
 .library-kinds { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 9px; }
 .lib-kind {
   display: inline-flex; align-items: baseline; gap: 4px;

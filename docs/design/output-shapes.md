@@ -138,13 +138,13 @@ row selection, discovery, section selection, and competing output formats are
 rejected with `--envelope`. Typed incomplete or failed Documents remain
 visible before the command returns a nonzero exit.
 
-Ordinary Package Query registers `package-query`, while `--library-literal`
-registers `package-assembly-semantic-query`, both at schema version `1`.
-Unprojected `--json` and `--envelope.content` share each owner's complete
-Document serializer. Query planning inputs remain admitted, while row
-selection, projection, section selection, Count, discovery, and competing
-output formats are rejected with `--envelope`. Typed incomplete or failed
-Documents remain visible before the command returns a nonzero exit.
+Package Query registers `package-query` at schema version `1`, including
+composable `library-literal` qualification. Unprojected `--json` and
+`--envelope.content` share the complete `PackageQueryDocument` serializer.
+Query planning inputs remain admitted, while row selection, projection,
+section selection, Count, discovery, and competing output formats are rejected
+with `--envelope`. Typed incomplete or failed Documents remain visible before
+the command returns a nonzero exit.
 
 Exact package-backed Type inspection registers `exact-type`, while exact
 package-backed Library API inspection registers `exact-library-api`, both at
@@ -359,7 +359,6 @@ The registered adopter identities are:
 | `asset-dependencies` | `DependencyInspectionContent` |
 | `ecosystem-change-report` | `EcosystemChangeReportDocument` |
 | `package-query` | `PackageQueryDocument` |
-| `package-assembly-semantic-query` | `PackageAssemblySemanticQueryDocument` |
 | `exact-type` | `ExactTypeInspectionResult` |
 | `exact-library-api` | `ExactLibraryApiInspectionResult` |
 

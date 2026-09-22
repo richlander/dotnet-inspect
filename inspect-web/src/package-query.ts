@@ -45,6 +45,7 @@ export interface QueryTermDescriptor {
   operators: readonly string[];
   valueKind: string;
   example: string;
+  multiline: boolean;
 }
 
 interface QueryTermEditor {
@@ -67,8 +68,8 @@ const DEFAULT_QUERY_CANDIDATE_LIMIT = 200;
 const DEFAULT_QUERY_MATCH_LIMIT = 100;
 const PACKAGE_CONTENT_QUERY_CANDIDATE_LIMIT = 20;
 const NUSPEC_EXPENSIVE_QUERY_CANDIDATE_LIMIT = 5;
+const METADATA_EXPENSIVE_QUERY_CANDIDATE_LIMIT = 5;
 export const PACKAGE_QUERY_INITIAL_MATCH_CREDIT = 20;
-export const PACKAGE_QUERY_LIBRARY_LITERAL_PREFIX_CANDIDATE_LIMIT = 5;
 const PACKAGE_QUERY_MATCH_CREDIT_BATCH = 10;
 const PACKAGE_QUERY_MATCH_CREDIT_THRESHOLD = 5;
 
@@ -76,17 +77,12 @@ export interface QuerySourceSelection {
   includePrerelease: boolean;
 }
 
-interface LibraryLiteralQuery {
-  operand: string;
-  targetFramework: string;
-}
-
 /** One rerunnable in-memory request. Never encodes a resolved outcome. */
 export interface QueryRequest extends QuerySourceSelection {
   scopeQuery: string;
   presets: readonly QueryPreset[];
   terms: readonly QueryTerm[];
-  libraryLiteral: LibraryLiteralQuery;
+  targetFramework: string;
   /** Declared cap communicated to the source. The bounded-complete footer
    * renders the source's own free-text `completion.reason` (see design doc
    * "States"), not this field directly — a real source is expected to keep
@@ -104,10 +100,7 @@ export function createQueryRequest(
     includePrerelease: false,
     presets: [],
     terms: [],
-    libraryLiteral: {
-      operand: "",
-      targetFramework: "net10.0",
-    },
+    targetFramework: "net10.0",
     requestedLimit: DEFAULT_QUERY_CANDIDATE_LIMIT,
     requestedMatchLimit: DEFAULT_QUERY_MATCH_LIMIT,
   };
@@ -135,30 +128,8 @@ export function withScopeQuery(
 }
 
 export function isLibraryLiteralQuery(request: QueryRequest): boolean {
-  return request.libraryLiteral.operand.length > 0;
-}
-
-export function withLibraryLiteralDraft(
-  request: QueryRequest,
-  operand: string,
-  targetFramework: string,
-): QueryRequest {
-  const wasActive = isLibraryLiteralQuery(request);
-  const active = operand.length > 0;
-  return queryRequest(request, {
-    presets: active ? [] : request.presets,
-    terms: active ? [] : request.terms,
-    libraryLiteral: {
-      operand,
-      targetFramework,
-    },
-    requestedLimit: !active && wasActive
-      ? queryCandidateLimit(request.presets, request.terms)
-      : request.requestedLimit,
-    requestedMatchLimit: !active && wasActive
-      ? DEFAULT_QUERY_MATCH_LIMIT
-      : request.requestedMatchLimit,
-  });
+  return request.terms.some(
+    term => term.descriptor.key === "library-literal");
 }
 
 export function withEditorDraft(
@@ -193,14 +164,7 @@ function withPresets(
 ): QueryRequest {
   return queryRequest(request, {
     presets,
-    libraryLiteral: {
-      ...request.libraryLiteral,
-      operand: "",
-    },
     requestedLimit: queryCandidateLimit(presets, request.terms),
-    requestedMatchLimit: isLibraryLiteralQuery(request)
-      ? DEFAULT_QUERY_MATCH_LIMIT
-      : request.requestedMatchLimit,
   });
 }
 
@@ -208,6 +172,10 @@ function queryCandidateLimit(
   presets: readonly QueryPreset[],
   terms: readonly QueryTerm[],
 ): number {
+  if (terms.some(term =>
+    term.descriptor.executionClass === "metadata-expensive")) {
+    return METADATA_EXPENSIVE_QUERY_CANDIDATE_LIMIT;
+  }
   if (presets.some(preset => preset.executionClass === "nuspec-expensive")
       || terms.some(term =>
         term.descriptor.executionClass === "nuspec-expensive")) {
@@ -228,23 +196,11 @@ function queryRequest(
     includePrerelease: request.includePrerelease,
     presets: request.presets,
     terms: request.terms,
-    libraryLiteral: request.libraryLiteral,
+    targetFramework: request.targetFramework,
     requestedLimit: request.requestedLimit,
     requestedMatchLimit: request.requestedMatchLimit,
     ...changes,
   };
-  if (isLibraryLiteralQuery(updated)) {
-    const requestedLimit = updated.scopeQuery.trim().endsWith("*")
-      ? PACKAGE_QUERY_LIBRARY_LITERAL_PREFIX_CANDIDATE_LIMIT
-      : 1;
-    return {
-      ...updated,
-      presets: [],
-      terms: [],
-      requestedLimit,
-      requestedMatchLimit: requestedLimit,
-    };
-  }
   return updated;
 }
 
@@ -283,14 +239,7 @@ export function withTerm(
   const terms = [...request.terms, { descriptor, operator, value }];
   return queryRequest(request, {
     terms,
-    libraryLiteral: {
-      ...request.libraryLiteral,
-      operand: "",
-    },
     requestedLimit: queryCandidateLimit(request.presets, terms),
-    requestedMatchLimit: isLibraryLiteralQuery(request)
-      ? DEFAULT_QUERY_MATCH_LIMIT
-      : request.requestedMatchLimit,
   });
 }
 
@@ -305,14 +254,7 @@ export function replaceTerm(
     termIndex === index ? { ...term, operator, value } : term);
   return queryRequest(request, {
     terms,
-    libraryLiteral: {
-      ...request.libraryLiteral,
-      operand: "",
-    },
     requestedLimit: queryCandidateLimit(request.presets, terms),
-    requestedMatchLimit: isLibraryLiteralQuery(request)
-      ? DEFAULT_QUERY_MATCH_LIMIT
-      : request.requestedMatchLimit,
   });
 }
 
@@ -324,14 +266,7 @@ export function withoutTerm(
   const terms = request.terms.filter((_term, termIndex) => termIndex !== index);
   return queryRequest(request, {
     terms,
-    libraryLiteral: {
-      ...request.libraryLiteral,
-      operand: "",
-    },
     requestedLimit: queryCandidateLimit(request.presets, terms),
-    requestedMatchLimit: isLibraryLiteralQuery(request)
-      ? DEFAULT_QUERY_MATCH_LIMIT
-      : request.requestedMatchLimit,
   });
 }
 
@@ -411,6 +346,7 @@ export type TerminalQueryCompletion =
       population:
         | "ExactPackageComplete"
         | "PrefixExhausted"
+        | "MatchLimitReached"
         | "CandidateLimitReached"
         | "SourcePageLimitReached"
         | "ClientPageLimitReached"

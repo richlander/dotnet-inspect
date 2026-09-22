@@ -899,18 +899,19 @@ test.describe("Package Query website over real Wasm", () => {
     const packageInput = page.locator("#package-query-prefix");
     await expect(packageInput).toBeVisible({ timeout: 120_000 });
     await packageInput.fill(literalCoordinate.packageId);
-    await page.locator(".query-library-literal summary").click();
-    const literal = page.locator("#package-query-library-literal");
-    await literal.fill("tail");
-    await literal.evaluate(element => {
+    await page.locator('[data-query-term-add="library-literal"]').click();
+    const literalDraft =
+      page.locator('[data-query-term-form="draft"] [data-query-term-value]');
+    await literalDraft.fill("tail");
+    await literalDraft.evaluate(element => {
       if (!(element instanceof HTMLTextAreaElement)) {
         throw new Error("Library literal editor is missing.");
       }
       element.setSelectionRange(0, 0);
     });
     await page.keyboard.type("head");
-    await expect(literal).toHaveValue("headtail");
-    await literal.evaluate(element => {
+    await expect(literalDraft).toHaveValue("headtail");
+    await literalDraft.evaluate(element => {
       if (!(element instanceof HTMLTextAreaElement)) {
         throw new Error("Library literal editor is missing.");
       }
@@ -940,6 +941,11 @@ test.describe("Package Query website over real Wasm", () => {
         data: "日本",
       }));
     });
+    await expect(literalDraft).toHaveValue("日本");
+    await page.locator(
+      '[data-query-term-form="draft"] button[type="submit"]').click();
+    const literalForm = page.getByRole("form", { name: /library literal/i });
+    const literal = literalForm.locator("[data-query-term-value]");
     await expect(literal).toHaveValue("日本");
     await page.locator("#package-query-run").click();
     await expect(literal).toBeVisible();
@@ -987,23 +993,20 @@ test.describe("Package Query website over real Wasm", () => {
     await firstDraft.fill("Original.Dependency");
     await page.locator(
       '[data-query-term-form="draft"] button[type="submit"]').click();
-    const firstTerm =
-      page.locator('[data-query-term-form="0"] [data-query-term-value]');
+    const dependsForm =
+      page.getByRole("form", { name: /depends on package/i });
+    const firstTerm = dependsForm.locator("[data-query-term-value]");
     await firstTerm.fill("Unapplied.Old.Dependency");
-    await page.locator(".query-library-literal summary").click();
     await literal.fill("marker");
     await literal.press("Control+A");
     await literal.press("Backspace");
-    await page.locator('[data-query-term-add="depends"]').click();
-    const replacementDraft = page.locator("[data-query-term-draft-value]");
-    await replacementDraft.fill("New.Dependency");
-    await page.locator(
-      '[data-query-term-form="draft"] button[type="submit"]').click();
-    await expect(
-      page.locator('[data-query-term-form="0"] [data-query-term-value]'))
-      .toHaveValue("New.Dependency");
-    await page.locator(".query-library-literal summary").click();
+    await firstTerm.fill("New.Dependency");
+    await dependsForm.getByRole("button", { name: "Apply" }).click();
+    await expect(firstTerm).toHaveValue("New.Dependency");
+    await dependsForm.getByRole("button", { name: "Remove" }).click();
+    await expect(dependsForm).toHaveCount(0);
     await literal.fill("shared-literal-use-marker");
+    await literalForm.getByRole("button", { name: "Apply" }).click();
 
     await targetFramework.fill("net10.0");
     await targetFramework.evaluate(element => {
@@ -1019,10 +1022,12 @@ test.describe("Package Query website over real Wasm", () => {
 
     await expect(page.locator(".query-row h2"))
       .toHaveText(
-        [literalCoordinate.packageId.toLowerCase()],
+        [literalCoordinate.packageId],
         { timeout: 30_000 });
-    await expect(page.locator(".query-evidence"))
-      .toContainText("Showing 2 of 2 occurrences.");
+    await expect(page.getByText(
+      "Showing 2 of 2 occurrences.",
+      { exact: true }))
+      .toBeVisible();
     await expect(page.locator(".query-footer"))
       .toContainText("1 matching package · 2 occurrences");
     const open = page.locator("[data-query-row-open]");

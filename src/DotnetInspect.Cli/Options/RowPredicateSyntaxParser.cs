@@ -16,7 +16,8 @@ internal enum RowPredicateOperator
 internal readonly record struct RowPredicateSyntax(
     string Field,
     RowPredicateOperator Operator,
-    string Value);
+    string Value,
+    string ExactValue);
 
 internal static class RowPredicateSyntaxParser
 {
@@ -67,8 +68,7 @@ internal static class RowPredicateSyntaxParser
         out OptionError error)
     {
         syntax = default;
-        expression = expression.Trim();
-        if (expression.Length == 0)
+        if (expression.Trim().Length == 0)
         {
             error = "Empty --where predicate.";
             return false;
@@ -85,9 +85,10 @@ internal static class RowPredicateSyntaxParser
         }
 
         var (index, operatorSyntax) = found;
-        string value =
-            expression[(index + operatorSyntax.Token.Length)..].Trim();
-        if (value.Length == 0)
+        string exactValue =
+            expression[(index + operatorSyntax.Token.Length)..];
+        string value = exactValue.Trim();
+        if (exactValue.Length == 0)
         {
             error = $"Missing value in --where predicate '{Contain(expression)}'.";
             return false;
@@ -96,7 +97,8 @@ internal static class RowPredicateSyntaxParser
         syntax = new RowPredicateSyntax(
             expression[..index].Trim(),
             operatorSyntax.PredicateOperator,
-            value);
+            value,
+            exactValue);
         error = "";
         return true;
     }

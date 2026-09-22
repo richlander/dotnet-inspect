@@ -249,7 +249,6 @@ interface PackageLoadingFixture {
   failVersionOnce?: string;
   versions?: readonly string[];
   activityCatalogFailure?: boolean;
-  libraryQuery?: "ready" | "empty" | "partial" | "deferred-error";
 }
 
 // Exercise the production composition root and bindings with deterministic facade
@@ -1370,25 +1369,6 @@ async function openPlatform(page: Page, options: PlatformFixture = {}) {
   await openInstalledPlatform(page);
 }
 
-async function installLibraryQueryFacades(
-  page: Page,
-  libraryQuery: NonNullable<PackageLoadingFixture["libraryQuery"]>,
-) {
-  await installFacades(
-    page,
-    surface,
-    [],
-    "ready",
-    "ready",
-    undefined,
-    "ready",
-    "ready",
-    undefined,
-    {},
-    { libraryQuery },
-  );
-}
-
 export {
   subjectTab,
   inspectorTab,
@@ -1409,7 +1389,6 @@ export {
   platformTarget,
   historicalPlatformTarget,
   installFacades,
-  installLibraryQueryFacades,
   releaseFacade,
   root,
   frameworkSurface,

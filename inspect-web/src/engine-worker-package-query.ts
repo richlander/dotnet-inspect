@@ -3,10 +3,7 @@ import type {
   BrowserInspectionContentKind,
   BrowserInspectionPortableProjection,
   BrowserPackageAssemblySemanticCandidateOutcome,
-  BrowserPackageAssemblySemanticDocument,
   BrowserPackageAssemblySemanticOccurrence,
-  BrowserPackageAssemblySemanticPopulation,
-  BrowserPackageAssemblySemanticPopulationFailure,
   BrowserPackageAssemblySemanticResult,
   BrowserPackageAssemblySemanticSelectedAsset,
   BrowserPackageAssemblyAssessment,
@@ -17,7 +14,6 @@ import type {
   BrowserPackageQueryManifest,
   BrowserPackageQueryProgress,
   BrowserPackageQueryDocument,
-  BrowserPackageQueryResult,
   BrowserPackageQueryRow,
 } from "./facades/inspect-web-package.d.ts";
 import type {
@@ -26,7 +22,6 @@ import type {
 import {
   isLibraryLiteralQuery,
   PACKAGE_QUERY_INITIAL_MATCH_CREDIT,
-  PACKAGE_QUERY_LIBRARY_LITERAL_PREFIX_CANDIDATE_LIMIT,
 } from "./package-query.ts";
 import type {
   WorkerRuntimeControlledOperationRegistration,
@@ -72,29 +67,6 @@ const maximumEventCollectionItems =
 // budget for each selected implementation library.
 const maximumSemanticCandidates = 5;
 const maximumSemanticOccurrencesPerCandidate = 10_000;
-const maximumSemanticDecodedCharactersPerCandidate = 4_000_000;
-// InertText can spell one decoded UTF-16 code unit as \uXXXX.
-const maximumInertCharactersPerDecodedCharacter = 6;
-const maximumSemanticModuleVersionIdCharacters = 36;
-const maximumSemanticPopulationFailures = maximumSemanticCandidates + 1;
-// Matched Results are serialized once in the Result population and once in
-// their typed candidate outcomes.
-const maximumSemanticCollectionItems =
-  maximumSemanticPopulationFailures
-  + maximumSemanticCandidates * 2
-  + maximumSemanticCandidates
-    * maximumSemanticOccurrencesPerCandidate
-    * 2;
-const maximumSemanticCharacters =
-  maximumEventCharacters
-  + maximumSemanticCandidates
-  * (
-    maximumSemanticDecodedCharactersPerCandidate
-      * maximumInertCharactersPerDecodedCharacter
-    + maximumSemanticOccurrencesPerCandidate
-      * maximumSemanticModuleVersionIdCharacters
-  )
-  * 2;
 // System.Text.Json can encode one UTF-16 code unit as six JSON characters.
 // Repeated contract structure is bounded separately by the maximum collection
 // shape, while fixed event structure fits within the final allowance.
@@ -216,12 +188,11 @@ interface EngineWorkerPackageQueryInspection {
 interface EngineWorkerPackageQueryDocument
   extends Omit<
     BrowserPackageQueryDocument,
-    "results" | "failures" | "completion" | "assemblySemantic"
+    "results" | "failures" | "completion"
   > {
   readonly results: readonly EngineWorkerPackageQueryRow[];
   readonly failures: readonly EngineWorkerPackageQueryFailure[];
   readonly completion: EngineWorkerPackageQueryCompletion;
-  readonly assemblySemantic: BrowserPackageAssemblySemanticDocument | null;
 }
 
 export interface EngineWorkerPackageQueryTerminal {
@@ -230,28 +201,20 @@ export interface EngineWorkerPackageQueryTerminal {
 }
 
 export type EngineWorkerPackageQueryInput =
-  | {
-      readonly kind: "query";
-      readonly searchText: string;
-      readonly terms: readonly {
-        readonly key: string;
-        readonly operator: string;
-        readonly value: string;
-      }[];
-      readonly maximumCandidates: number;
-      readonly maximumMatches: number;
-      readonly includePrerelease: boolean;
-      readonly initialMatchCredit: number;
-    }
-  | {
-      readonly kind: "library-literal";
-      readonly searchText: string;
-      readonly operand: string;
-      readonly targetFramework: string;
-      readonly maximumCandidates: number;
-      readonly includePrerelease: boolean;
-      readonly initialMatchCredit: number;
-    };
+  {
+    readonly kind: "query";
+    readonly searchText: string;
+    readonly terms: readonly {
+      readonly key: string;
+      readonly operator: string;
+      readonly value: string;
+    }[];
+    readonly targetFramework: string | null;
+    readonly maximumCandidates: number;
+    readonly maximumMatches: number;
+    readonly includePrerelease: boolean;
+    readonly initialMatchCredit: number;
+  };
 
 export interface EngineWorkerPackageQueryTerminalFailure {
   readonly failureKind: "Expected" | "Unexpected";
@@ -274,8 +237,7 @@ export type EngineWorkerPackageQueryFacade =
     "cancelPackageQuery"
     | "requestPackageQueryMatches"
     | "runPackageQuery"
-  >
-  & Partial<Pick<PackageFacade, "runPackageAssemblySemanticQuery">>;
+  >;
 
 class PackageQueryPayloadError extends Error {
   readonly reason: "invalid" | "oversized";
@@ -527,6 +489,7 @@ function decodeInput(value: unknown): EngineWorkerPackageQueryInput {
       "kind",
       "searchText",
       "terms",
+      "targetFramework",
       "maximumCandidates",
       "maximumMatches",
       "includePrerelease",
@@ -539,6 +502,10 @@ function decodeInput(value: unknown): EngineWorkerPackageQueryInput {
         "Package Query search",
         budget),
       terms: queryTerms(input.terms, budget),
+      targetFramework: nullableText(
+        input.targetFramework,
+        "Package Query target framework",
+        budget),
       maximumCandidates: integer(
         input.maximumCandidates,
         "Package Query candidate limit",
@@ -553,44 +520,6 @@ function decodeInput(value: unknown): EngineWorkerPackageQueryInput {
       initialMatchCredit: integer(
         input.initialMatchCredit,
         "Package Query initial match credit",
-        1),
-    };
-  }
-  if (kindProperty.value === "library-literal") {
-    const input = dataRecord(value, [
-      "kind",
-      "searchText",
-      "operand",
-      "targetFramework",
-      "maximumCandidates",
-      "includePrerelease",
-      "initialMatchCredit",
-    ], "Package Query library-literal request");
-    return {
-      kind: "library-literal",
-      searchText: text(
-        input.searchText,
-        "Package Query library-literal package input",
-        budget),
-      operand: text(
-        input.operand,
-        "Package Query library-literal operand",
-        budget),
-      targetFramework: text(
-        input.targetFramework,
-        "Package Query library-literal target framework",
-        budget),
-      maximumCandidates: integer(
-        input.maximumCandidates,
-        "Package Query library-literal candidate limit",
-        1,
-        PACKAGE_QUERY_LIBRARY_LITERAL_PREFIX_CANDIDATE_LIMIT),
-      includePrerelease: booleanValue(
-        input.includePrerelease,
-        "Package Query library-literal prerelease selection"),
-      initialMatchCredit: integer(
-        input.initialMatchCredit,
-        "Package Query library-literal initial match credit",
         1),
     };
   }
@@ -977,6 +906,7 @@ function parseFailure(
         "DependencyTraversal",
         "AssemblyAcquisition",
         "AssemblyEvaluation",
+        "AssemblyNotEvaluated",
       ] as const,
       "Package Query failure kind"),
     message: text(
@@ -1074,6 +1004,8 @@ function parseCompletion(
     "scope",
     "occurrences",
     "notEvaluated",
+    "evaluatedCandidates",
+    "semanticMatches",
   ], "Package Query completion");
   return {
     prefix: text(
@@ -1131,6 +1063,12 @@ function parseCompletion(
     notEvaluated: nullableInteger(
       completion.notEvaluated,
       "Package Query not-evaluated count"),
+    evaluatedCandidates: nullableInteger(
+      completion.evaluatedCandidates,
+      "Package Query evaluated candidate count"),
+    semanticMatches: nullableInteger(
+      completion.semanticMatches,
+      "Package Query semantic match count"),
   };
 }
 
@@ -1289,15 +1227,17 @@ function parseInspection(
     "Package Query inspection content kind");
   const documentRecord = dataRecord(
     inspection.content,
-    ["results", "failures", "completion", "hasPackages", "assemblySemantic"],
+    [
+      "results",
+      "failures",
+      "completion",
+      "hasPackages",
+      "libraryLiteralAssessments",
+    ],
     "Package Query Document");
   const documentBudget = {
     remainingCharacters: maximumEventCharacters,
     remainingItems: maximumInspectionItems,
-  };
-  const semanticBudget = {
-    remainingCharacters: maximumSemanticCharacters,
-    remainingItems: maximumSemanticCollectionItems,
   };
   const content: EngineWorkerPackageQueryDocument = {
     hasPackages: booleanValue(
@@ -1324,11 +1264,15 @@ function parseInspection(
     completion: parseCompletion(
       documentRecord.completion,
       documentBudget),
-    assemblySemantic: documentRecord.assemblySemantic === null
-      ? null
-      : parseAssemblySemanticDocument(
-          documentRecord.assemblySemantic,
-          semanticBudget),
+    libraryLiteralAssessments: arrayItems(
+      documentRecord.libraryLiteralAssessments,
+      "Package Query library-literal assessments",
+      documentBudget,
+      maximumSemanticCandidates).map(item =>
+        parseAssemblySemanticOutcome(item, {
+          remainingCharacters: maximumEventCharacters,
+          remainingItems: maximumEventCollectionItems,
+        })),
   };
   if (content.completion.matches !== content.results.length
       || content.completion.failures !== content.failures.length
@@ -1336,28 +1280,24 @@ function parseInspection(
     throw new PackageQueryPayloadError(
       "Package Query Document does not match its terminal accounting.");
   }
-  if (content.assemblySemantic === null) {
+  if (content.completion.semanticMatches === null) {
     if (content.completion.occurrences !== null
-        || content.completion.notEvaluated !== null) {
+        || content.completion.notEvaluated !== null
+        || content.libraryLiteralAssessments.length !== 0) {
       throw new PackageQueryPayloadError(
         "An ordinary Package Query Document carried semantic accounting.");
     }
   } else {
-    const semantic = content.assemblySemantic;
-    if (content.completion.candidateLimit
-          !== semantic.population.requestedCandidates
-        || content.completion.matchLimit
-          !== semantic.population.requestedCandidates
-        || content.completion.candidates !== semantic.candidateCount
-        || content.completion.matches !== semantic.matchedPackageCount
-        || content.completion.sourceCandidates
-          !== semantic.population.candidates
-        || content.completion.semanticMisses !== semantic.semanticMissCount
-        || content.completion.notApplicable !== semantic.notApplicableCount
-        || content.completion.occurrences !== semantic.occurrenceCount
-        || content.completion.notEvaluated !== semantic.notEvaluatedCount) {
+    if (content.completion.evaluatedCandidates === null
+        || content.completion.semanticMisses === null
+        || content.completion.notApplicable === null
+        || content.completion.occurrences === null
+        || content.completion.notEvaluated === null
+        || content.completion.evaluatedCandidates
+          + content.completion.notEvaluated
+          !== content.libraryLiteralAssessments.length) {
       throw new PackageQueryPayloadError(
-        "Package Query semantic presentation does not match its authoritative Document.");
+        "Package Query semantic accounting does not match its candidate assessments.");
     }
   }
 
@@ -1586,248 +1526,6 @@ function parseInspection(
     if (kind !== "Matched" && result !== null) {
       throw new PackageQueryPayloadError(
         "A non-match assembly-semantic candidate carried a Result.");
-    }
-    return projected;
-  }
-
-  function parseAssemblySemanticPopulationFailure(
-    value: unknown,
-    budget: PayloadBudget,
-  ): BrowserPackageAssemblySemanticPopulationFailure {
-    const failure = dataRecord(value, [
-      "candidateOrdinal",
-      "packageId",
-      "version",
-      "authority",
-      "kind",
-      "message",
-      "timeoutKind",
-      "timeoutSeconds",
-    ], "Package Query assembly-semantic population failure");
-    return {
-      candidateOrdinal: nullableInteger(
-        failure.candidateOrdinal,
-        "population failure candidate ordinal"),
-      packageId: failure.packageId === null
-        ? null
-        : text(failure.packageId, "population failure package ID", budget),
-      version: failure.version === null
-        ? null
-        : text(failure.version, "population failure version", budget),
-      authority: text(
-        failure.authority,
-        "population failure authority",
-        budget),
-      kind: text(failure.kind, "population failure kind", budget),
-      message: text(failure.message, "population failure message", budget),
-      timeoutKind: failure.timeoutKind === null
-        ? null
-        : text(failure.timeoutKind, "population failure timeout kind", budget),
-      timeoutSeconds: nullableFiniteNonnegative(
-        failure.timeoutSeconds,
-        "population failure timeout seconds"),
-    };
-  }
-
-  function populationCompletion(
-    value: unknown,
-  ): BrowserPackageAssemblySemanticPopulation["completion"] {
-    return literal(
-      value,
-      [
-        "ExactPackageComplete",
-        "PrefixExhausted",
-        "CandidateLimitReached",
-        "SourcePageLimitReached",
-        "ClientPageLimitReached",
-        "SourceFailed",
-      ] as const,
-      "assembly-semantic population completion");
-  }
-
-  function parseAssemblySemanticDocument(
-    value: unknown,
-    budget: PayloadBudget,
-  ): BrowserPackageAssemblySemanticDocument {
-    const document = dataRecord(value, [
-      "population",
-      "results",
-      "candidateOutcomes",
-      "candidateCount",
-      "evaluatedCandidateCount",
-      "notEvaluatedCount",
-      "matchedPackageCount",
-      "occurrenceCount",
-      "semanticMissCount",
-      "notApplicableCount",
-      "failureCount",
-      "completion",
-    ], "Package Query assembly-semantic Document");
-    const populationValue = dataRecord(document.population, [
-      "requestedCandidates",
-      "candidates",
-      "completion",
-      "isRequestedPopulationComplete",
-      "failures",
-    ], "Package Query assembly-semantic population");
-    const population: BrowserPackageAssemblySemanticPopulation = {
-      requestedCandidates: integer(
-        populationValue.requestedCandidates,
-        "assembly-semantic requested candidate count",
-        1),
-      candidates: integer(
-        populationValue.candidates,
-        "assembly-semantic population candidate count"),
-      completion: populationCompletion(populationValue.completion),
-      isRequestedPopulationComplete: booleanValue(
-        populationValue.isRequestedPopulationComplete,
-        "assembly-semantic population completeness"),
-      failures: arrayItems(
-        populationValue.failures,
-        "assembly-semantic population failures",
-        budget,
-        maximumSemanticPopulationFailures).map(item =>
-          parseAssemblySemanticPopulationFailure(item, budget)),
-    };
-    const completionValue = dataRecord(document.completion, [
-      "population",
-      "isRequestedPopulationComplete",
-      "allCandidatesHaveTerminalOutcomes",
-      "hasFailures",
-      "isSemanticEvaluationComplete",
-      "isOperationDeadlineExpired",
-    ], "Package Query assembly-semantic completion");
-    const results = arrayItems(
-      document.results,
-      "assembly-semantic Results",
-      budget,
-      maximumSemanticCandidates)
-      .map(item => parseAssemblySemanticResult(item, budget));
-    const candidateOutcomes = arrayItems(
-      document.candidateOutcomes,
-      "assembly-semantic candidate outcomes",
-      budget,
-      maximumSemanticCandidates)
-      .map(item => parseAssemblySemanticOutcome(item, budget));
-    const projected: BrowserPackageAssemblySemanticDocument = {
-      population,
-      results,
-      candidateOutcomes,
-      candidateCount: integer(
-        document.candidateCount,
-        "assembly-semantic candidate count"),
-      evaluatedCandidateCount: integer(
-        document.evaluatedCandidateCount,
-        "assembly-semantic evaluated candidate count"),
-      notEvaluatedCount: integer(
-        document.notEvaluatedCount,
-        "assembly-semantic not-evaluated count"),
-      matchedPackageCount: integer(
-        document.matchedPackageCount,
-        "assembly-semantic matched package count"),
-      occurrenceCount: integer(
-        document.occurrenceCount,
-        "assembly-semantic occurrence count"),
-      semanticMissCount: integer(
-        document.semanticMissCount,
-        "assembly-semantic miss count"),
-      notApplicableCount: integer(
-        document.notApplicableCount,
-        "assembly-semantic not-applicable count"),
-      failureCount: integer(
-        document.failureCount,
-        "assembly-semantic failure count"),
-      completion: {
-        population: populationCompletion(completionValue.population),
-        isRequestedPopulationComplete: booleanValue(
-          completionValue.isRequestedPopulationComplete,
-          "assembly-semantic completion population completeness"),
-        allCandidatesHaveTerminalOutcomes: booleanValue(
-          completionValue.allCandidatesHaveTerminalOutcomes,
-          "assembly-semantic terminal outcome completeness"),
-        hasFailures: booleanValue(
-          completionValue.hasFailures,
-          "assembly-semantic failure state"),
-        isSemanticEvaluationComplete: booleanValue(
-          completionValue.isSemanticEvaluationComplete,
-          "assembly-semantic evaluation completeness"),
-        isOperationDeadlineExpired: booleanValue(
-          completionValue.isOperationDeadlineExpired,
-          "assembly-semantic operation deadline state"),
-      },
-    };
-    if (projected.candidateCount !== candidateOutcomes.length
-      || projected.matchedPackageCount !== results.length
-      || projected.population.candidates !== projected.candidateCount
-      || projected.evaluatedCandidateCount + projected.notEvaluatedCount
-        !== projected.candidateCount
-      || projected.population.candidates
-        > projected.population.requestedCandidates) {
-      throw new PackageQueryPayloadError(
-        "Package Query assembly-semantic Document accounting is inconsistent.");
-    }
-    const outcomeCounts = {
-      Matched: 0,
-      NoMatch: 0,
-      NotApplicable: 0,
-      Failure: 0,
-      NotEvaluated: 0,
-    };
-    for (let index = 0; index < candidateOutcomes.length; index++) {
-      const outcome = candidateOutcomes[index]!;
-      if (outcome.candidateOrdinal !== index + 1) {
-        throw new PackageQueryPayloadError(
-          "Package Query assembly-semantic candidate ordinals are not contiguous.");
-      }
-      switch (outcome.kind) {
-        case "Matched":
-          outcomeCounts.Matched++;
-          break;
-        case "NoMatch":
-          outcomeCounts.NoMatch++;
-          break;
-        case "NotApplicable":
-          outcomeCounts.NotApplicable++;
-          break;
-        case "Failure":
-          outcomeCounts.Failure++;
-          break;
-        case "NotEvaluated":
-          outcomeCounts.NotEvaluated++;
-          break;
-        default:
-          throw new PackageQueryPayloadError(
-            "Package Query assembly-semantic candidate kind was not closed.");
-      }
-    }
-    const occurrenceCount = results.reduce(
-      (total, result) => total + result.occurrences.length,
-      0);
-    const operationDeadlineExpired = population.failures.some(failure =>
-      failure.kind === "Timeout" && failure.timeoutKind === "Operation");
-    const semanticEvaluationComplete =
-      projected.notEvaluatedCount === 0
-      && projected.failureCount === 0
-      && !operationDeadlineExpired;
-    if (outcomeCounts.Matched !== projected.matchedPackageCount
-      || outcomeCounts.NoMatch !== projected.semanticMissCount
-      || outcomeCounts.NotApplicable !== projected.notApplicableCount
-      || outcomeCounts.Failure !== projected.failureCount
-      || outcomeCounts.NotEvaluated !== projected.notEvaluatedCount
-      || occurrenceCount !== projected.occurrenceCount
-      || projected.completion.population !== projected.population.completion
-      || projected.completion.isRequestedPopulationComplete
-        !== projected.population.isRequestedPopulationComplete
-      || !projected.completion.allCandidatesHaveTerminalOutcomes
-      || projected.completion.hasFailures
-        !== (projected.failureCount > 0
-          || projected.population.failures.length > 0)
-      || projected.completion.isSemanticEvaluationComplete
-        !== semanticEvaluationComplete
-      || projected.completion.isOperationDeadlineExpired
-        !== operationDeadlineExpired) {
-      throw new PackageQueryPayloadError(
-        "Package Query assembly-semantic outcome accounting is inconsistent.");
     }
     return projected;
   }
@@ -2243,17 +1941,7 @@ function encodeQueryRequest(
   request: QueryRequest,
 ): BoundedPayloadDecodeResult<unknown> {
   const payload: EngineWorkerPackageQueryInput =
-    isLibraryLiteralQuery(request)
-      ? {
-          kind: "library-literal",
-          searchText: request.scopeQuery,
-          operand: request.libraryLiteral.operand,
-          targetFramework: request.libraryLiteral.targetFramework,
-          maximumCandidates: request.requestedLimit,
-          includePrerelease: request.includePrerelease,
-          initialMatchCredit: PACKAGE_QUERY_INITIAL_MATCH_CREDIT,
-        }
-      : {
+    {
           kind: "query",
           searchText: request.scopeQuery,
           terms: [
@@ -2268,6 +1956,9 @@ function encodeQueryRequest(
               value: term.value,
             })),
           ],
+          targetFramework: isLibraryLiteralQuery(request)
+            ? request.targetFramework
+            : null,
           maximumCandidates: request.requestedLimit,
           maximumMatches: request.requestedMatchLimit,
           includePrerelease: request.includePrerelease,
@@ -2410,34 +2101,16 @@ export function registerEngineWorkerPackageQueryOperation(
     invoke: async (input, context) => {
       const packageFacade = facade();
       const eventSink = createManagedEventSink(context);
-      let result: BrowserPackageQueryResult;
-      if (input.kind === "library-literal") {
-        const runAssemblySemantic =
-          packageFacade.runPackageAssemblySemanticQuery;
-        if (runAssemblySemantic === undefined) {
-          throw new Error(
-            "The Package facade does not expose library-literal qualification.");
-        }
-        result = await runAssemblySemantic(
-          context.operation.operationId,
-          input.searchText,
-          input.operand,
-          input.targetFramework,
-          input.maximumCandidates,
-          input.includePrerelease,
-          input.initialMatchCredit,
-          eventSink);
-      } else {
-        result = await packageFacade.runPackageQuery(
+      const result = await packageFacade.runPackageQuery(
           context.operation.operationId,
           input.searchText,
           JSON.stringify(input.terms),
+          input.targetFramework,
           input.maximumCandidates,
           input.maximumMatches,
           input.includePrerelease,
           input.initialMatchCredit,
           eventSink);
-      }
       return mapEngineWorkerPackageQueryResult(result);
     },
     cancel: (operation, reason) =>

@@ -16,6 +16,13 @@ public abstract class SectionRowSetDeclaration<TIdentity, TProjection>
     public TIdentity Identity { get; }
 
     public SectionRowSchemaIdentity Schema { get; }
+
+    internal abstract int SourceCount { get; }
+
+    internal abstract bool HasRows { get; }
+
+    internal abstract SectionRowSetDeclaration<TIdentity, TProjection>
+        ResolveSnapshot(bool countOnly);
 }
 
 public sealed class SectionRowSetDeclaration<
@@ -25,10 +32,13 @@ public sealed class SectionRowSetDeclaration<
     SectionRowSetDeclaration<TIdentity, TProjection>
     where TIdentity : notnull
 {
+    private readonly IReadOnlyList<TRow>? _rows;
+    private readonly IReadOnlyList<TRow>? _sourceRows;
     private readonly Func<
         TProjection,
         IReadOnlyList<TRow>,
-        TProjection> _resultBinder;
+        TProjection>? _resultBinder;
+    private readonly int? _sourceCount;
 
     public SectionRowSetDeclaration(
         TIdentity identity,
@@ -43,13 +53,93 @@ public sealed class SectionRowSetDeclaration<
         ArgumentNullException.ThrowIfNull(rows);
         ArgumentNullException.ThrowIfNull(resultBinder);
         TypedSchema = schema;
-        Rows = SectionContractSnapshot.Copy(rows);
+        _rows = SectionContractSnapshot.Copy(rows);
+        _sourceCount = _rows.Count;
         _resultBinder = resultBinder;
+    }
+
+    private SectionRowSetDeclaration(
+        TIdentity identity,
+        SectionRowSchemaIdentity<TRow> schema,
+        Func<
+            TProjection,
+            IReadOnlyList<TRow>,
+            TProjection> resultBinder,
+        IReadOnlyList<TRow> sourceRows)
+        : base(identity, schema)
+    {
+        ArgumentNullException.ThrowIfNull(sourceRows);
+        ArgumentNullException.ThrowIfNull(resultBinder);
+        TypedSchema = schema;
+        _sourceRows = sourceRows;
+        _resultBinder = resultBinder;
+    }
+
+    private SectionRowSetDeclaration(
+        TIdentity identity,
+        SectionRowSchemaIdentity<TRow> schema,
+        int sourceCount)
+        : base(identity, schema)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegative(sourceCount);
+        TypedSchema = schema;
+        _sourceCount = sourceCount;
     }
 
     public SectionRowSchemaIdentity<TRow> TypedSchema { get; }
 
-    public IReadOnlyList<TRow> Rows { get; }
+    public IReadOnlyList<TRow> Rows =>
+        _rows
+        ?? throw new InvalidOperationException(
+            "A cardinality-only row-set declaration has no row snapshot.");
+
+    internal override int SourceCount =>
+        _sourceCount
+        ?? throw new InvalidOperationException(
+            "A deferred row-set declaration has not captured its source.");
+
+    internal override bool HasRows => _rows is not null;
+
+    internal static SectionRowSetDeclaration<
+        TIdentity,
+        TProjection,
+        TRow> CreateDeferred(
+            TIdentity identity,
+            SectionRowSchemaIdentity<TRow> schema,
+            IReadOnlyList<TRow> sourceRows,
+            Func<
+                TProjection,
+                IReadOnlyList<TRow>,
+                TProjection> resultBinder) =>
+        new(
+            identity,
+            schema,
+            resultBinder,
+            sourceRows);
+
+    internal override SectionRowSetDeclaration<TIdentity, TProjection>
+        ResolveSnapshot(bool countOnly)
+    {
+        if (_sourceRows is null)
+            return this;
+
+        return countOnly
+            ? new SectionRowSetDeclaration<
+                TIdentity,
+                TProjection,
+                TRow>(
+                    Identity,
+                    TypedSchema,
+                    _sourceRows.Count)
+            : new SectionRowSetDeclaration<
+                TIdentity,
+                TProjection,
+                TRow>(
+                    Identity,
+                    TypedSchema,
+                    _sourceRows,
+                    _resultBinder!);
+    }
 
     internal SectionRowSetResult<
         TIdentity,
@@ -59,7 +149,10 @@ public sealed class SectionRowSetDeclaration<
         new(
             Identity,
             rows,
-            _resultBinder);
+            _resultBinder
+                ?? throw new InvalidOperationException(
+                    "A cardinality-only row-set declaration cannot bind "
+                    + "Rows."));
 }
 
 public abstract class SectionRowSchemaBinding<TIdentity>
@@ -81,6 +174,8 @@ public abstract class SectionRowSchemaBinding<TIdentity>
             IReadOnlyList<
                 SectionRowSetDeclaration<TIdentity, TProjection>> rowSets,
             IReadOnlyDictionary<TIdentity, RowSequenceKey> keys);
+
+    internal abstract bool CanExecuteCountWithoutRows { get; }
 }
 
 public sealed class SectionRowSchemaBinding<TIdentity, TRow> :
@@ -90,20 +185,42 @@ public sealed class SectionRowSchemaBinding<TIdentity, TRow> :
     private readonly Func<
         IReadOnlyList<RowsCohortSequence<TIdentity, TRow>>,
         RowsCohortResult<TIdentity, TRow>> _executor;
+    private readonly Func<
+        IReadOnlyList<RowsCohortCardinality<TIdentity>>,
+        RowsCohortCountResult<TIdentity>>? _countExecutor;
 
     public SectionRowSchemaBinding(
         SectionRowSchemaIdentity<TRow> schema,
         Func<
             IReadOnlyList<RowsCohortSequence<TIdentity, TRow>>,
             RowsCohortResult<TIdentity, TRow>> executor)
+        : this(
+            schema,
+            executor,
+            null)
+    {
+    }
+
+    internal SectionRowSchemaBinding(
+        SectionRowSchemaIdentity<TRow> schema,
+        Func<
+            IReadOnlyList<RowsCohortSequence<TIdentity, TRow>>,
+            RowsCohortResult<TIdentity, TRow>> executor,
+        Func<
+            IReadOnlyList<RowsCohortCardinality<TIdentity>>,
+            RowsCohortCountResult<TIdentity>>? countExecutor)
         : base(schema)
     {
         ArgumentNullException.ThrowIfNull(executor);
         TypedSchema = schema;
         _executor = executor;
+        _countExecutor = countExecutor;
     }
 
     public SectionRowSchemaIdentity<TRow> TypedSchema { get; }
+
+    internal override bool CanExecuteCountWithoutRows =>
+        _countExecutor is not null;
 
     internal override SectionRowCohort<TIdentity, TProjection>
         CreateCohort<TProjection>(
@@ -144,7 +261,8 @@ public sealed class SectionRowSchemaBinding<TIdentity, TRow> :
                 TypedSchema,
                 typed,
                 keys,
-                _executor);
+                _executor,
+                _countExecutor);
     }
 }
 

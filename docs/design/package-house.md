@@ -686,15 +686,22 @@ Dependency graph construction remains query-owned. A traversal consumer can
 issue `Settle` or `Realize` operations for admitted edges; PackageHouse does
 not own graph scheduling, cycle termination, depth, or traversal work budgets.
 
-The current `PackageHouse.ExecuteAsync` floor supports `Settle`, `Acquire`, and
+The current PackageHouse execution floor supports `Settle`, `Acquire`, and
 target-aware `Realize`.
 One `PackageHouse` instance retains the host's package-source authorization and
-an optional `PackagePayloadAcquisitionPlan`. Each invocation accepts the
-request and consumes one request-deadline-matched
-`PackageSourceOperationLease` by ordinary resource-parameter ownership
-transfer. A candidate-bound dependency invocation may additionally carry the
-exact PackageHouse-issued pruning receipt for that request. Caller cancellation
-and the operation ceiling are carried only by the lease's Package Source-owned
+an optional `PackagePayloadAcquisitionPlan`.
+
+`PackageHouse.ExecuteAsync` accepts one request and consumes one
+request-deadline-matched `PackageSourceOperationLease` by ordinary
+resource-parameter ownership transfer. `PackageHouse.ExecuteStepAsync` instead
+settles one awaited request without consuming the lease, so a caller-owned
+source-operation composition can validate all candidates first and execute
+several requests serially. The lease still permits only one active source step;
+parallel House calls through one lease are invalid.
+
+A candidate-bound dependency invocation may additionally carry the exact
+PackageHouse-issued pruning receipt for that request. Caller cancellation and
+the operation ceiling are carried only by the lease's Package Source-owned
 context. House operation declarations accept only deadlines representable by
 that lower-owner context.
 
@@ -1456,6 +1463,7 @@ them.
 | Source completeness | Partial authority evidence cannot settle latest, wildcard, range, or authoritative absence, and cannot reach package-store or payload work. |
 | Version listing | Raw listing preserves authoritative or partial source evidence, publishes usable partial rows with failures disclosed, requires authoritative evidence for package absence, and never acquires payloads. |
 | Version population | One complete metadata-only discovery serves multiple exact population cells without rediscovery; cells preserve reporting authorities, require their exact vector address, use fresh operations, and reject another Package Source root generation. |
+| Source-operation stepping | `DependencyMemberCallGraphExecutesEdgesInTraversalOrder` proves that one caller-owned lease executes several House requests serially, while `DependencyMemberCallGraphRejectsForeignCandidatesBeforeSourceWork` proves complete candidate-generation validation before the first source step. Existing single-request gates continue to prove that `ExecuteAsync` consumes its lease. |
 | Pruning order | `KnownPlatformPackageAcquireDelegatesBeforePayloadCapability` and `CandidateRealizeDelegatesBeforePayloadCapability` prove that `Subsumed` skips payload acquisition for either upper work profile; neighboring pruning states cannot issue platform delegation. |
 | Pruning correspondence | Platform delegation consumes the policy-issued inventory/coordinate/supply receipt, compares the coordinate through the package owner's normalization, and matches the actual supplier family and exact target version. |
 | Payload authority | Discovered payload comes only from a reporting authority; pinned payload follows the Package Source Model's eligible-authority rule; the acquisition receipt and live payload match source, producer, origin, and generation. |

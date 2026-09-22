@@ -378,7 +378,8 @@ public sealed record BrowserPackageQueryTermDescriptor(
     BrowserPackageQueryExecutionClass ExecutionClass,
     string[] Operators,
     string ValueKind,
-    string Example);
+    string Example,
+    bool Multiline);
 
 public sealed record BrowserPackageQueryTerm(
     string Key,
@@ -478,6 +479,7 @@ public enum BrowserPackageQueryFailureKind
     DependencyTraversal,
     AssemblyAcquisition,
     AssemblyEvaluation,
+    AssemblyNotEvaluated,
 }
 
 [JsonConverter(typeof(JsonStringEnumConverter<BrowserPackageQueryManifestFailureReason>))]
@@ -550,6 +552,10 @@ public sealed record BrowserPackageQueryCompletion(
     public int? Occurrences { get; init; }
 
     public int? NotEvaluated { get; init; }
+
+    public int? EvaluatedCandidates { get; init; }
+
+    public int? SemanticMatches { get; init; }
 }
 
 [JsonConverter(typeof(JsonStringEnumConverter<BrowserPackageAssemblySemanticCandidateOutcomeKind>))]
@@ -582,17 +588,6 @@ public enum BrowserPackageAssemblyNotApplicableReason
     NoMatchingTargetFramework,
     EmptyCompileGroup,
     NoImplementationCounterpart,
-}
-
-[JsonConverter(typeof(JsonStringEnumConverter<BrowserPackageAssemblySemanticPopulationCompletionKind>))]
-public enum BrowserPackageAssemblySemanticPopulationCompletionKind
-{
-    ExactPackageComplete,
-    PrefixExhausted,
-    CandidateLimitReached,
-    SourcePageLimitReached,
-    ClientPageLimitReached,
-    SourceFailed,
 }
 
 public sealed record BrowserPackageAssemblySemanticOccurrence(
@@ -636,45 +631,6 @@ public sealed record BrowserPackageAssemblySemanticCandidateOutcome(
     string? TimeoutKind,
     double? TimeoutSeconds,
     string? Message);
-
-public sealed record BrowserPackageAssemblySemanticPopulationFailure(
-    int? CandidateOrdinal,
-    string? PackageId,
-    string? Version,
-    string Authority,
-    string Kind,
-    string Message,
-    string? TimeoutKind,
-    double? TimeoutSeconds);
-
-public sealed record BrowserPackageAssemblySemanticPopulation(
-    int RequestedCandidates,
-    int Candidates,
-    BrowserPackageAssemblySemanticPopulationCompletionKind Completion,
-    bool IsRequestedPopulationComplete,
-    BrowserPackageAssemblySemanticPopulationFailure[] Failures);
-
-public sealed record BrowserPackageAssemblySemanticCompletion(
-    BrowserPackageAssemblySemanticPopulationCompletionKind Population,
-    bool IsRequestedPopulationComplete,
-    bool AllCandidatesHaveTerminalOutcomes,
-    bool HasFailures,
-    bool IsSemanticEvaluationComplete,
-    bool IsOperationDeadlineExpired);
-
-public sealed record BrowserPackageAssemblySemanticDocument(
-    BrowserPackageAssemblySemanticPopulation Population,
-    BrowserPackageAssemblySemanticResult[] Results,
-    BrowserPackageAssemblySemanticCandidateOutcome[] CandidateOutcomes,
-    int CandidateCount,
-    int EvaluatedCandidateCount,
-    int NotEvaluatedCount,
-    int MatchedPackageCount,
-    int OccurrenceCount,
-    int SemanticMissCount,
-    int NotApplicableCount,
-    int FailureCount,
-    BrowserPackageAssemblySemanticCompletion Completion);
 
 [JsonConverter(typeof(JsonStringEnumConverter<BrowserPackageAssemblyAssessmentKind>))]
 public enum BrowserPackageAssemblyAssessmentKind
@@ -924,7 +880,8 @@ public sealed record BrowserPackageQueryDocument(
     BrowserPackageQueryFailure[] Failures,
     BrowserPackageQueryCompletion Completion)
 {
-    public BrowserPackageAssemblySemanticDocument? AssemblySemantic { get; init; }
+    public BrowserPackageAssemblySemanticCandidateOutcome[]
+        LibraryLiteralAssessments { get; init; } = [];
 }
 
 public sealed record BrowserPackageQueryInspection(

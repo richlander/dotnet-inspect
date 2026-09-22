@@ -145,6 +145,48 @@ public sealed class PackageAssemblySemanticFindQueryTests
     }
 
     [Fact]
+    public async Task MatchLimitStopsAfterNthMatchedCandidate()
+    {
+        await using var fixture = new SemanticFindSourceFixture();
+        string[] packageIds =
+        [
+            "Contoso.Match.First",
+            "Contoso.Match.Later",
+        ];
+        foreach (string packageId in packageIds)
+            await fixture.CacheAssemblyAsync(packageId, MatchImage);
+
+        PackageSourceOperationLease operation =
+            fixture.IssueOperation(
+                TestContext.Current.CancellationToken);
+        PackageAcquisitionPopulation population =
+            await fixture.ResolvePopulationAsync(
+                operation,
+                packageIds);
+        var sink = new RecordingQuerySink();
+
+        PackageAssemblySemanticQueryDocument document =
+            (await PackageAssemblySemanticQueryInspection.ExecuteAsync(
+                Request(population, maximumMatches: 1),
+                operation,
+                fixture.PayloadAcquisition,
+                sink,
+                TestContext.Current.CancellationToken)).Content;
+
+        Assert.Equal(1, document.CandidateCount);
+        Assert.Equal(1, document.EvaluatedCandidateCount);
+        Assert.Equal(1, document.MatchedPackageCount);
+        Assert.Single(document.Results);
+        Assert.Single(document.CandidateOutcomes);
+        Assert.Single(sink.Outcomes);
+        Assert.False(
+            document.Completion.AllCandidatesHaveTerminalOutcomes);
+        Assert.True(document.Completion.IsSemanticEvaluationComplete);
+        Assert.Equal(1, document.Completion.MatchLimit);
+        Assert.True(document.Completion.IsMatchLimitReached);
+    }
+
+    [Fact]
     [Trait("Speed", "Slow")]
     public async Task PinnedProductionFingerprintMatchesAuthorityBearingQuery()
     {
@@ -1064,14 +1106,16 @@ public sealed class PackageAssemblySemanticFindQueryTests
 
     private static PackageAssemblySemanticFindRequest Request(
         PackageAcquisitionPopulation population,
-        PackageAssemblySemanticFindBudget? budget = null) =>
+        PackageAssemblySemanticFindBudget? budget = null,
+        int? maximumMatches = null) =>
         new(
             population,
             PackageHouseTargetContext.Exact(Framework),
             PackageAssemblyPatterns.CreateRequest(
                 PackageAssemblyPatterns.StringLiteralContains,
                 Marker),
-            budget);
+            budget,
+            maximumMatches);
 
     private static PackageAcquisitionPopulation OperationDeadlinePopulation(
         ImmutableArray<PackageAcquisitionCandidate> candidates) =>
