@@ -76,6 +76,30 @@ public class GenericContext
         return new GenericContext(typeParameters.Names, [], typeParameters.ValueTypeConstraints, []);
     }
 
+    internal static GenericContext ForTypeWithRelationshipObserver(
+        MetadataReader reader,
+        TypeDefinition typeDef,
+        Action<int>? beforeMaterialize,
+        Action<EntityHandle> beforeRelationshipFollow)
+    {
+        ArgumentNullException.ThrowIfNull(beforeRelationshipFollow);
+        ValidateDeclaringTypeParameterCounts(
+            reader,
+            typeDef,
+            beforeRelationshipFollow,
+            preserveRelationshipRejection: true);
+        var typeParameters = ReadParameters(
+            reader,
+            typeDef.GetGenericParameters(),
+            beforeMaterialize,
+            preserveBudgetRejection: true);
+        return new GenericContext(
+            typeParameters.Names,
+            [],
+            typeParameters.ValueTypeConstraints,
+            []);
+    }
+
     /// <summary>
     /// Creates a context for a method definition (type + method parameters).
     /// </summary>

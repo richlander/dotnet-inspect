@@ -59,6 +59,10 @@ public static class FixtureIds
     public const string MetadataApiCorrespondenceV2 =
         "metadata.api-correspondence.v2";
     public const string MetadataMemorySafety = "metadata.memory-safety";
+    public const string MetadataInterfaceImplContracts =
+        "metadata.interfaceimpl.contracts";
+    public const string MetadataInterfaceImplFixtures =
+        "metadata.interfaceimpl.fixtures";
     public const string MetadataMethodImplContracts =
         "metadata.methodimpl.contracts";
     public const string MetadataMethodImplFixtures =
@@ -314,6 +318,24 @@ public static class FixtureCatalog
         "ILInspector.Metadata.MemorySafetyFixtures.dll",
         Boundaries(FixtureBoundary.ModuleAttribute),
         "metadata", "memory-safety", "layout");
+
+    public static readonly FixtureDefinition MetadataInterfaceImplContracts =
+        Fixture(
+            FixtureIds.MetadataInterfaceImplContracts,
+            "ILInspector.Metadata.InterfaceImplContracts",
+            "ILInspector.Metadata.InterfaceImplContracts.dll",
+            Boundaries(FixtureBoundary.CrossAssemblyBoundary),
+            "metadata", "interfaceimpl", "contract");
+
+    public static readonly FixtureDefinition MetadataInterfaceImplFixtures =
+        Fixture(
+            FixtureIds.MetadataInterfaceImplFixtures,
+            "ILInspector.Metadata.InterfaceImplFixtures",
+            "ILInspector.Metadata.InterfaceImplFixtures.dll",
+            Boundaries(
+                FixtureBoundary.CompilerLowering,
+                FixtureBoundary.CrossAssemblyBoundary),
+            "metadata", "interfaceimpl", "implementation");
 
     public static readonly FixtureDefinition MetadataMethodImplContracts =
         Fixture(
@@ -1032,6 +1054,8 @@ public static class FixtureCatalog
         MetadataApiCorrespondenceV1,
         MetadataApiCorrespondenceV2,
         MetadataMemorySafety,
+        MetadataInterfaceImplContracts,
+        MetadataInterfaceImplFixtures,
         MetadataMethodImplContracts,
         MetadataMethodImplFixtures,
         MetadataPublicMethodRoots,
@@ -1451,6 +1475,10 @@ public static class FixtureCatalog
                 "fixtures/metadata/ILInspector.Metadata.ApiDeclarationCorrespondence.V2",
             "ILInspector.Metadata.MemorySafetyFixtures" =>
                 "fixtures/metadata/ILInspector.Metadata.MemorySafetyFixtures",
+            "ILInspector.Metadata.InterfaceImplContracts" =>
+                "fixtures/metadata/ILInspector.Metadata.InterfaceImplContracts",
+            "ILInspector.Metadata.InterfaceImplFixtures" =>
+                "fixtures/metadata/ILInspector.Metadata.InterfaceImplFixtures",
             "ILInspector.Metadata.MethodImplContracts" =>
                 "fixtures/metadata/ILInspector.Metadata.MethodImplContracts",
             "ILInspector.Metadata.MethodImplFixtures" =>

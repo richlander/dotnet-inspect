@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>$(DefaultTargetFramework)</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <IsPackable>false</IsPackable>
+    <IsAotCompatible>false</IsAotCompatible>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../ILInspector.Metadata.InterfaceImplContracts/ILInspector.Metadata.InterfaceImplContracts.csproj">
+      <Aliases>contracts</Aliases>
+    </ProjectReference>
+  </ItemGroup>
+
+</Project>

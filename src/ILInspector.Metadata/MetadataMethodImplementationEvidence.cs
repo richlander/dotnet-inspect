@@ -175,201 +175,6 @@ public sealed record MetadataMethodImplementationCertificate(
     MetadataDeclarationDefinitionDisposition Definition,
     MetadataSpecialNameEvidence SpecialName);
 
-public sealed record MetadataAssemblyIdentity(
-    InertString Name,
-    Version? Version,
-    InertString? Culture,
-    InertString? PublicKeyToken);
-
-public sealed record MetadataTypeScopeIdentity(
-    MetadataTypeScopeKind Kind,
-    Guid ModuleVersionId,
-    InertString? ModuleName,
-    MetadataAssemblyIdentity? Assembly);
-
-public sealed record MetadataNamedTypeIdentity(
-    MetadataTypeScopeIdentity Scope,
-    InertString Namespace,
-    ImmutableArray<InertString> Segments,
-    ImmutableArray<int> IntroducedGenericParameterCounts)
-{
-    public bool Equals(MetadataNamedTypeIdentity? other) =>
-        other is not null
-        && Equals(Scope, other.Scope)
-        && Equals(Namespace, other.Namespace)
-        && MetadataIdentitySequence.Equal(
-            Segments,
-            other.Segments)
-        && MetadataIdentitySequence.Equal(
-            IntroducedGenericParameterCounts,
-            other.IntroducedGenericParameterCounts);
-
-    public override int GetHashCode() =>
-        MetadataIdentitySequence.Hash(
-            Scope,
-            Namespace,
-            MetadataIdentitySequence.Hash(Segments),
-            MetadataIdentitySequence.Hash(
-                IntroducedGenericParameterCounts));
-}
-
-public abstract record MetadataTypeIdentity
-{
-    private protected MetadataTypeIdentity()
-    {
-    }
-
-    public sealed record Primitive(InertString Name)
-        : MetadataTypeIdentity;
-
-    public sealed record Named(
-        MetadataNamedTypeIdentity Definition,
-        bool IsValueType)
-        : MetadataTypeIdentity;
-
-    public sealed record GenericInstance(
-        MetadataNamedTypeIdentity Definition,
-        bool IsValueType,
-        ImmutableArray<MetadataTypeIdentity> Arguments)
-        : MetadataTypeIdentity
-    {
-        public bool Equals(GenericInstance? other) =>
-            other is not null
-            && Equals(Definition, other.Definition)
-            && IsValueType == other.IsValueType
-            && MetadataIdentitySequence.Equal(
-                Arguments,
-                other.Arguments);
-
-        public override int GetHashCode() =>
-            MetadataIdentitySequence.Hash(
-                Definition,
-                IsValueType,
-                MetadataIdentitySequence.Hash(Arguments));
-    }
-
-    public sealed record GenericParameter(
-        bool IsMethodParameter,
-        int Index)
-        : MetadataTypeIdentity;
-
-    public sealed record SzArray(MetadataTypeIdentity Element)
-        : MetadataTypeIdentity;
-
-    public sealed record Array(
-        MetadataTypeIdentity Element,
-        int Rank,
-        ImmutableArray<int> Sizes,
-        ImmutableArray<int> LowerBounds)
-        : MetadataTypeIdentity
-    {
-        public bool Equals(Array? other) =>
-            other is not null
-            && Equals(Element, other.Element)
-            && Rank == other.Rank
-            && MetadataIdentitySequence.Equal(Sizes, other.Sizes)
-            && MetadataIdentitySequence.Equal(
-                LowerBounds,
-                other.LowerBounds);
-
-        public override int GetHashCode() =>
-            MetadataIdentitySequence.Hash(
-                Element,
-                Rank,
-                MetadataIdentitySequence.Hash(Sizes),
-                MetadataIdentitySequence.Hash(LowerBounds));
-    }
-
-    public sealed record Pointer(MetadataTypeIdentity Element)
-        : MetadataTypeIdentity;
-
-    public sealed record ByReference(MetadataTypeIdentity Element)
-        : MetadataTypeIdentity;
-
-    public sealed record FunctionPointer(
-        MetadataMethodSignatureIdentity Signature)
-        : MetadataTypeIdentity;
-
-    public sealed record Modified(
-        MetadataTypeIdentity Modifier,
-        MetadataTypeIdentity Type,
-        bool IsRequired)
-        : MetadataTypeIdentity;
-
-    public sealed record Pinned(MetadataTypeIdentity Type)
-        : MetadataTypeIdentity;
-}
-
-public sealed record MetadataMethodSignatureIdentity(
-    byte Header,
-    int GenericParameterCount,
-    int RequiredParameterCount,
-    MetadataTypeIdentity ReturnType,
-    ImmutableArray<MetadataTypeIdentity> ParameterTypes)
-{
-    public bool Equals(MetadataMethodSignatureIdentity? other) =>
-        other is not null
-        && Header == other.Header
-        && GenericParameterCount == other.GenericParameterCount
-        && RequiredParameterCount == other.RequiredParameterCount
-        && Equals(ReturnType, other.ReturnType)
-        && MetadataIdentitySequence.Equal(
-            ParameterTypes,
-            other.ParameterTypes);
-
-    public override int GetHashCode() =>
-        MetadataIdentitySequence.Hash(
-            Header,
-            GenericParameterCount,
-            RequiredParameterCount,
-            ReturnType,
-            MetadataIdentitySequence.Hash(ParameterTypes));
-}
-
-internal static class MetadataIdentitySequence
-{
-    internal static bool Equal<T>(
-        ImmutableArray<T> left,
-        ImmutableArray<T> right)
-    {
-        if (left.IsDefault || right.IsDefault)
-            return left.IsDefault == right.IsDefault;
-        return left.AsSpan().SequenceEqual(right.AsSpan());
-    }
-
-    internal static int Hash<T>(ImmutableArray<T> values)
-    {
-        if (values.IsDefault)
-            return 0;
-
-        var hash = new HashCode();
-        foreach (T value in values)
-            hash.Add(value);
-        return hash.ToHashCode();
-    }
-
-    internal static int Hash<T1, T2, T3>(
-        T1 first,
-        T2 second,
-        T3 third) =>
-        HashCode.Combine(first, second, third);
-
-    internal static int Hash<T1, T2, T3, T4>(
-        T1 first,
-        T2 second,
-        T3 third,
-        T4 fourth) =>
-        HashCode.Combine(first, second, third, fourth);
-
-    internal static int Hash<T1, T2, T3, T4, T5>(
-        T1 first,
-        T2 second,
-        T3 third,
-        T4 fourth,
-        T5 fifth) =>
-        HashCode.Combine(first, second, third, fourth, fifth);
-}
-
 internal sealed class MetadataMethodImplementationEvidenceOperation
 {
     readonly MetadataReader _reader;
@@ -2126,150 +1931,30 @@ internal sealed class MetadataMethodImplementationEvidenceOperation
 
     MetadataTypeIdentity ProjectType(
         TypeNode node,
-        MetadataMethodImplementationFailureSite site)
-    {
-        Charge(
-            site,
-            MetadataOperationDimension.StructuredNodes);
-        return node switch
-        {
-            PrimitiveTypeNode primitive =>
-                new MetadataTypeIdentity.Primitive(
-                    Retain(primitive.Name, site)),
-            NamedTypeNode named =>
-                new MetadataTypeIdentity.Named(
-                    ProjectNamed(named, site),
-                    IsValueType: !named.IsReferenceType),
-            GenericTypeNode generic =>
-                new MetadataTypeIdentity.GenericInstance(
-                    ProjectNamed(generic, site),
-                    IsValueType: !generic.IsReferenceType,
-                    generic.Arguments
-                        .Select(argument =>
-                            ProjectType(argument, site))
-                        .ToImmutableArray()),
-            GenericParameterNode parameter =>
-                new MetadataTypeIdentity.GenericParameter(
-                    parameter.IsMethodParameter,
-                    parameter.Index),
-            SZArrayTypeNode array =>
-                new MetadataTypeIdentity.SzArray(
-                    ProjectType(array.ElementType, site)),
-            MDArrayTypeNode array =>
-                new MetadataTypeIdentity.Array(
-                    ProjectType(array.ElementType, site),
-                    array.Rank,
-                    array.ArraySizes,
-                    array.ArrayLowerBounds),
-            PointerTypeNode pointer =>
-                new MetadataTypeIdentity.Pointer(
-                    ProjectType(pointer.ElementType, site)),
-            ByRefTypeNode byReference =>
-                new MetadataTypeIdentity.ByReference(
-                    ProjectType(byReference.ElementType, site)),
-            FunctionPointerTypeNode functionPointer =>
-                new MetadataTypeIdentity.FunctionPointer(
-                    ProjectSignature(
-                        functionPointer.Signature,
-                        site)),
-            ModifiedTypeNode modified =>
-                new MetadataTypeIdentity.Modified(
-                    ProjectType(modified.Modifier, site),
-                    ProjectType(modified.Inner, site),
-                    modified.IsRequired),
-            PinnedTypeNode pinned =>
-                new MetadataTypeIdentity.Pinned(
-                    ProjectType(pinned.Inner, site)),
-            _ => throw Rejection(
-                site,
-                MetadataMethodImplementationFailureReason
-                    .MalformedMetadata,
-                "A decoded type tree cannot be detached completely."),
-        };
-    }
-
-    MetadataNamedTypeIdentity ProjectNamed(
-        TypeNode node,
-        MetadataMethodImplementationFailureSite site)
-    {
-        Charge(
-            site,
-            MetadataOperationDimension.StructuredNodes);
-        MetadataTypeNameParts parts = node switch
-        {
-            NamedTypeNode { MetadataName: { } name } => name,
-            GenericTypeNode { MetadataName: { } name } => name,
-            _ => throw Rejection(
-                site,
-                MetadataMethodImplementationFailureReason
-                    .MalformedMetadata,
-                "A named type lacks a complete structured metadata name."),
-        };
-        MetadataTypeScopeDescriptor scope =
-            node.ExactScope
-            ?? throw Rejection(
-                site,
-                MetadataMethodImplementationFailureReason
-                    .MalformedMetadata,
-                "A named type lacks an exact metadata scope.");
-        var segments =
-            ImmutableArray.CreateBuilder<InertString>(
-                parts.Segments.Count);
-        var introducedCounts =
-            ImmutableArray.CreateBuilder<int>(
-                parts.Segments.Count);
-        foreach (string segment in parts.Segments)
-            segments.Add(Retain(segment, site));
-        for (int index = 0; index < parts.Segments.Count; index++)
-        {
-            introducedCounts.Add(
-                parts.IntroducedTypeParameterCounts is { } trusted
-                    && trusted.Count == parts.Segments.Count
-                    ? trusted[index]
-                    : MetadataNameArity.OfSegment(
-                        parts.Segments[index]));
-        }
-        return new(
-            ProjectScope(site, scope),
-            Retain(parts.Namespace, site),
-            segments.MoveToImmutable(),
-            introducedCounts.MoveToImmutable());
-    }
+        MetadataMethodImplementationFailureSite site) =>
+        CreateTypeIdentityProjector(site)
+            .Project(node);
 
     MetadataTypeScopeIdentity ProjectScope(
         MetadataMethodImplementationFailureSite site,
-        MetadataTypeScopeDescriptor scope)
-    {
-        Charge(
-            site,
-            MetadataOperationDimension.StructuredNodes);
-        MetadataAssemblyIdentity? assembly = null;
-        if (scope.Assembly is not null)
-        {
-            Charge(
-                site,
-                MetadataOperationDimension.StructuredNodes);
-            assembly = new MetadataAssemblyIdentity(
-                Retain(scope.Assembly.Name, site),
-                scope.Assembly.Version,
-                scope.Assembly.Culture is null
-                    ? null
-                    : Retain(scope.Assembly.Culture, site),
-                scope.Assembly.PublicKeyToken is null
-                    ? null
-                    : Retain(
-                        scope.Assembly.PublicKeyToken,
-                        site));
-        }
+        MetadataTypeScopeDescriptor scope) =>
+        CreateTypeIdentityProjector(site)
+            .ProjectScope(scope);
 
-        return new(
-            scope.Kind,
-            scope.ModuleVersionId,
-            scope.ModuleName is null
-                ? null
-                : Retain(scope.ModuleName, site),
-            assembly);
-    }
+    MetadataTypeIdentityProjector CreateTypeIdentityProjector(
+        MetadataMethodImplementationFailureSite site) =>
+        new(
+            beforeCreateNode: () =>
+                Charge(
+                    site,
+                    MetadataOperationDimension.StructuredNodes),
+            retain: value => Retain(value, site),
+            reject: detail =>
+                Rejection(
+                    site,
+                    MetadataMethodImplementationFailureReason
+                        .MalformedMetadata,
+                    detail));
 
     InertString Retain(
         string value,
