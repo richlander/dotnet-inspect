@@ -160,6 +160,21 @@ public class MethodClassificationScannerTests
     }
 
     [Fact]
+    public void Scan_RealTestAssemblyWithMtpSurfaceStaysWithinBudget()
+    {
+        using var stream = File.OpenRead(
+            typeof(MethodClassificationScannerTests).Assembly.Location);
+
+        var results = MethodClassificationScanner.Scan(stream);
+
+        Assert.Contains(
+            results,
+            method => method.MethodName == nameof(SampleAsyncClass.RealAsyncMethod)
+                && method.DeclaringType
+                    == "DotnetInspect.Cli.Tests.SampleAsyncClass");
+    }
+
+    [Fact]
     public void Scan_DoesNotClassifyNonAsyncTaskMethods()
     {
         string assemblyPath = FixtureCatalog.DecompilerUnsafeNew.AssemblyPath();

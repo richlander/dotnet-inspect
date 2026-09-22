@@ -143,11 +143,14 @@ public static class MetadataSafetyPolicy
     /// Maximum cumulative anchor-signature work charged across one classified-
     /// method scan. Prevents many near-limit successful identities from
     /// multiplying per-anchor cost when none individually trips the failure
-    /// counter. Gated by
-    /// <c>Scan_NearLimitMultiMethodIdentitiesFailClosedBeforeLargeAllocation</c>.
+    /// counter. The scan gets two per-anchor ceilings so a large ordinary
+    /// assembly can project many small identities without granting an
+    /// unbounded multiplier to hostile near-limit identities. Gated by
+    /// <c>Scan_NearLimitMultiMethodIdentitiesFailClosedBeforeLargeAllocation</c>
+    /// and <c>Scan_RealTestAssemblyWithMtpSurfaceStaysWithinBudget</c>.
     /// </summary>
     public const int MaxClassificationScanWorkChars =
-        MaxAnchorSignatureWorkChars;
+        2 * MaxAnchorSignatureWorkChars;
 
     /// <summary>
     /// Maximum unique handles in one TypeDef, TypeRef, or ExportedType
