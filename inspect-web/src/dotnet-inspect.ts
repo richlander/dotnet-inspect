@@ -95,7 +95,6 @@ import {
 import {
   bindWorkspaceLinkNavigation,
   bindWorkspaceRetryToUrl,
-  browserCreatedCallGraphTabIds,
   buildPackageRootStateUrl,
   callGraphCaptureTopology,
   createAsyncWorkspaceLocationPersistence,
@@ -105,7 +104,6 @@ import {
   recoverWorkspaceRouteFailure,
   retainedMissingPlatformTarget,
   resolvedPlatformTargetVersion,
-  selectedBrowserCallGraphPackageTabIds,
   retainWorkspaceUrlPreservation,
   workspaceShareTabsMatchResolved,
   workspaceShareCaptureTopology,
@@ -1126,6 +1124,7 @@ const initialState = {
   memberCallGraphError: "",
   graphMemberNavigationError: "",
   memberCallGraphKey: "",
+  callGraphTraversalFramework: "net12.0",
   memberCallGraphExpanding: false,
   memberCallGraphSeq: 0,
   graphMemberNavigationSeq: 0,
@@ -2297,7 +2296,7 @@ const memberDetailInspection = createMemberDetailInspectionCoordinator({
 });
 const callGraphInspection = createCallGraphInspectionCoordinator({
   state,
-  queryWorkspace: (request, workspace) => inspectMemberCallGraph(
+  queryPackage: request => inspectMemberCallGraph(
     request.packageId,
     request.version,
     request.framework,
@@ -2308,7 +2307,7 @@ const callGraphInspection = createCallGraphInspectionCoordinator({
     request.memberSignature,
     request.selectorKey,
     request.metadataToken,
-    JSON.stringify(workspace)),
+    request.traversalFramework),
   queryPlatform: request =>
     queryPlatformCallGraph(inspectExpandPlatformCallGraph, request),
   describeError: errorMessage,
@@ -2317,9 +2316,6 @@ const callGraphInspection = createCallGraphInspectionCoordinator({
   renderCallGraph: async () => {
     await renderMermaidCallGraph();
   },
-  nextPaint,
-  refreshPackageStats,
-  patchCallGraphSection,
 });
 const documentInspection = createDocumentInspectionCoordinator({
   state,
@@ -8247,41 +8243,47 @@ function renderMember(type: AppTypeSurface, member: AppMemberGroup) {
     // from every platform assembly loaded into that binding-consistent group.
     const platformView = drilled || Boolean(state.package?.isRuntimePack);
     const graphScope = active?.scope;
-    const otherWorkspaceLibraries = Math.max(
-      0,
-      state.packages.filter(packageItem => !packageItem.isRuntimePack).length - 1);
     const breadcrumb = drilled
       ? `<div class="graph-breadcrumb">
           <button type="button" data-graph-back title="Back one level">‹ Back</button>
           <span class="graph-crumbs">${escapeHtml(platformCrumbTrail())}</span>
         </div>`
       : "";
+    const traversalControl = platformView
+      ? ""
+      : `<label class="graph-traversal-framework">
+          <span>Dependency TFM</span>
+          <select data-call-graph-traversal-framework>
+            ${["net12.0", "net11.0", "net10.0", "net9.0", "net8.0"]
+              .map(framework =>
+                `<option value="${framework}"${state.callGraphTraversalFramework === framework ? " selected" : ""}>${framework}</option>`)
+              .join("")}
+          </select>
+        </label>`;
     const scopeLine = !graphScope
       ? ""
       : platformView
       ? `<div class="graph-scope"><strong>Platform${drilled ? " descent" : " workspace"}</strong><span>${graphScope.callerAssemblies} resident assemblies · ${graphScope.assemblies} participants</span><strong>Callees</strong><span>${escapeHtml(graphScope.calleeScope)} · depth 2</span></div>`
-      : `<div class="graph-scope"><strong>Workspace callers</strong><span>${graphScope.packages} loaded packages · ${graphScope.callerAssemblies} scanned assemblies</span><strong>Callees</strong><span>${escapeHtml(graphScope.calleeScope)} · depth 2</span></div>`;
+      : `<div class="graph-scope"><strong>Dependency scope</strong><span>${graphScope.packages} packages · ${graphScope.assemblies} assemblies</span><strong>Callees</strong><span>${escapeHtml(graphScope.calleeScope)} · depth 3</span></div>`;
     const diagnostics = active?.diagnostics;
     const diagnosticsMessage = callGraphDiagnosticsMessage(diagnostics);
     const incompleteGraph = diagnosticsMessage
       ? `<div class="graph-drill-error graph-diagnostics">${escapeHtml(diagnosticsMessage)}</div>`
       : "";
     content = state.memberCallGraphLoading
-      ? `<section class="document-section source-progress"><span class="loader"></span><h2>Building workspace call graph…</h2><p>Scanning implementation IL across ${state.packages.length} loaded package${state.packages.length === 1 ? "" : "s"}.</p></section>`
+      ? `<section class="document-section source-progress"><span class="loader"></span><h2>Building dependency-aware call graph…</h2><p>Resolving package dependencies under ${escapeHtml(state.callGraphTraversalFramework)} and scanning implementation IL.</p></section>`
       : active && active.noBody
         ? `<section class="document-section empty-member-section"><h2>No call graph</h2><p>${escapeHtml(active.callees?.memberName || "This member")} is an abstract or interface method — it declares no IL body, so it has no in-assembly callers or callees to graph.</p></section>`
         : active
         ? `<section class="document-section call-graph-section">
             <div class="section-title"><h2>Call graph</h2><span>${callGraphSummary(active)}</span></div>
             ${breadcrumb}
+            ${traversalControl}
             ${state.platformDrillLoading
               ? `<div class="graph-expanding"><span class="loader"></span> Range-fetching the implementation assembly from the runtime pack…</div>`
               : ""}
             ${state.platformDrillError
               ? `<div id="platform-drill-error" class="graph-drill-error" role="alert" tabindex="-1">${escapeHtml(state.platformDrillError)}</div>`
-              : ""}
-            ${state.memberCallGraphExpanding
-              ? `<div class="graph-expanding"><span class="loader"></span> Scanning ${otherWorkspaceLibraries} other librar${otherWorkspaceLibraries === 1 ? "y" : "ies"} for callers…</div>`
               : ""}
             ${state.graphMemberNavigationTitle
               ? `<div class="graph-expanding"><span class="loader"></span> Opening ${escapeHtml(state.graphMemberNavigationTitle)}…</div>`
@@ -9517,9 +9519,29 @@ function bindEvents() {
     bindWorkbenchShell(document, workbenchShellActions);
   bindGraphBack(document, graphBackActions);
   bindGraphExplore(document, openGraphExplorer);
+  bindCallGraphTraversalFramework();
   bindContentFrameEvents();
   observeAsync(ensurePackageVersions(state.package), "Loading package versions");
   if (state.spotlightOpen) spotlight.bind(document, "modal");
+}
+
+function bindCallGraphTraversalFramework() {
+  const selector = document.querySelector<HTMLSelectElement>(
+    "[data-call-graph-traversal-framework]");
+  selector?.addEventListener("change", () => {
+    const framework = selector.value.trim();
+    if (!framework
+      || framework === state.callGraphTraversalFramework) return;
+    state.callGraphTraversalFramework = framework;
+    invalidateMemberCallGraphWork(state);
+    state.memberCallGraph = null;
+    state.memberCallGraphError = "";
+    state.graphMemberNavigationError = "";
+    render();
+    observeAsync(
+      loadSelectedMemberCallGraph(),
+      "Changing call-graph dependency target framework");
+  });
 }
 
 function toggleTheme() {
@@ -11289,46 +11311,6 @@ function commitWorkspaceShareBasis(
 ) {
   state.workspaceShareBasis = basis;
   sourceInspection.clearGraphSource();
-}
-
-function selectedCallGraphWorkspacePackages(): AppPackage[] {
-  if (state.package?.isRuntimePack) return [];
-  const basis = state.workspaceShareBasis;
-  const { tabs, resolvedTabs, preservesBasis } = capturedShareTabs();
-  const activeIndex = activeShareTabIndex(tabs, resolvedTabs);
-  const activeTab = tabs[activeIndex];
-  if (!activeTab) {
-    throw new Error(
-      "The active package is no longer part of the Browser workspace.");
-  }
-  const packageForTabId = (id: string) => {
-    const index = tabs.findIndex(candidate => candidate.id === id);
-    const resolved = resolvedTabs[index];
-    return resolved?.kind === "package" ? state.packages.find(pkg =>
-      pkg.id === resolved.source
-      && pkg.version === resolved.version
-      && pkg.activeFramework === resolved.framework) ?? null : null;
-  };
-  if (!preservesBasis || !basis) {
-    return browserCreatedCallGraphTabIds(tabs, activeIndex)
-      .map(packageForTabId)
-      .filter((pkg): pkg is AppPackage =>
-        pkg !== null && !pkg.isRuntimePack);
-  }
-
-  const packageTabIds = selectedBrowserCallGraphPackageTabIds(basis);
-  if (!packageTabIds.includes(activeTab.id)) {
-    throw new Error(
-      "The active package is not part of the selected Call Graph context.");
-  }
-  return packageTabIds.map(id => {
-    const packageModel = packageForTabId(id);
-    if (!packageModel || packageModel.isRuntimePack) {
-      throw new Error(
-        "The selected Call Graph context could not be realized by this browser.");
-    }
-    return packageModel;
-  });
 }
 
 function selectedTypeMetadataWorkspacePackages(): AppPackage[] {
@@ -14574,12 +14556,6 @@ async function openDependencyPackage(
   }
 }
 
-function nextPaint() {
-  // Resolve after the browser has had a chance to lay out and paint the current DOM.
-  return new Promise(resolve =>
-    requestAnimationFrame(() => requestAnimationFrame(() => setTimeout(resolve, 0))));
-}
-
 async function loadSelectedMemberCallGraph() {
   const type = selectedType();
   const member = selectedMember(type);
@@ -14594,18 +14570,13 @@ async function loadSelectedMemberCallGraph() {
     render();
     return;
   }
-  const signature = memberRequestSignature(type, overload, true);
+  const traversalFramework = state.callGraphTraversalFramework;
+  const memberSignature =
+    memberRequestSignature(type, overload, true);
+  const signature =
+    `${memberSignature}|traversal:${traversalFramework}`;
   const pkg = currentPackage();
   const platformAssembly = assemblyDescriptorForType(pkg.assemblies, type);
-  let workspacePackages: AppPackage[];
-  try {
-    workspacePackages = selectedCallGraphWorkspacePackages();
-  } catch (error) {
-    state.memberCallGraphError = errorMessage(error);
-    render();
-    return;
-  }
-  const hasOtherLibraries = workspacePackages.length > 1;
   return callGraphInspection.load({
     signature,
     isRuntimePack: Boolean(state.package?.isRuntimePack),
@@ -14630,46 +14601,11 @@ async function loadSelectedMemberCallGraph() {
       state.selectedBodyTarget?.selectorKey ?? overload.graphSelectorKey,
     metadataToken:
       state.selectedBodyTarget?.metadataToken ?? overload.metadataToken ?? 0,
-    workspacePackages: workspacePackages.map(packageItem => ({
-      package: packageItem.id,
-      version: packageItem.version,
-      framework: packageItem.activeFramework,
-    })),
-    hasOtherLibraries,
-    isCurrent: () => memberRequestIsCurrent(signature, true),
+    traversalFramework,
+    isCurrent: () =>
+      memberRequestIsCurrent(memberSignature, true)
+      && state.callGraphTraversalFramework === traversalFramework,
   });
-}
-
-// Update just the call-graph section in place so the stage-2 result doesn't flash
-// the whole page. Leaves the stage-1 diagram untouched unless the graph changed.
-function patchCallGraphSection(previousMermaid: string | undefined) {
-  const section = document.querySelector(".call-graph-section");
-  if (!section) return; // not on the call-graph view; state is cached for re-entry.
-  const graph = state.memberCallGraph;
-  const callers = graph?.callers?.children ?? [];
-  const callees = graph?.callees?.children ?? [];
-  const graphScope = graph?.scope;
-  const countSpan = section.querySelector(".section-title span");
-  if (countSpan) {
-    countSpan.textContent =
-      `${callers.length} caller${callers.length === 1 ? "" : "s"} · ${callees.length} callee${callees.length === 1 ? "" : "s"}`;
-  }
-  section.querySelector(".graph-expanding")?.remove();
-  section.querySelector(".graph-diagnostics")?.remove();
-  const scopeEl = section.querySelector(".graph-scope");
-  const diagnosticsMessage = callGraphDiagnosticsMessage(graph?.diagnostics);
-  if (diagnosticsMessage) {
-    const warning = document.createElement("div");
-    warning.className = "graph-drill-error graph-diagnostics";
-    warning.textContent = diagnosticsMessage;
-    scopeEl?.before(warning);
-  }
-  if (scopeEl && graphScope) {
-    scopeEl.innerHTML =
-      `<strong>Workspace callers</strong><span>${graphScope.packages} loaded packages · ${graphScope.callerAssemblies} scanned assemblies</span><strong>Callees</strong><span>${escapeHtml(graphScope.calleeScope)} · depth 2</span>`;
-  }
-  if (graph?.mermaid && graph.mermaid !== previousMermaid)
-    observeAsync(renderMermaidCallGraph(), "Rendering the member call graph");
 }
 
 function renderMermaidCallGraph(): Promise<CallGraphRenderResult> {

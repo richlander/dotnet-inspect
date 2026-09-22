@@ -16,6 +16,7 @@ export interface BrowserCallGraphDiagnostics {
   readonly bindingIdentityConflicts: number;
   readonly hasUnexploredTraversalBoundary: boolean;
   readonly hasAnalysisFailureBoundary: boolean;
+  readonly unavailableDependencyRoutes: number;
   readonly isIncomplete: boolean;
 }
 
@@ -64,7 +65,7 @@ type $ManagedExports = {
         readonly "CallGraph": {
           readonly "CallGraphExports": {
             readonly "ExpandPlatformCallGraph.232153955": (targetFramework: string, platformVersion: string, assembly: string, pack: string, assemblyVersion: string, assemblyCulture: string | null, assemblyPublicKeyToken: string | null, typeFullName: string, memberName: string, selectorKey: string, metadataToken: number, contextId: string | null) => Promise<string>;
-            readonly "QueryMemberCallGraph.1135530322": (packageId: string, version: string, targetFramework: string, assemblyName: string, typeIdentity: string, typeQueryId: string, memberName: string, memberSignature: string, selectorKey: string, metadataToken: number, workspaceJson: string) => Promise<string>;
+            readonly "QueryMemberCallGraph.1135530322": (packageId: string, version: string, targetFramework: string, assemblyName: string, typeIdentity: string, typeQueryId: string, memberName: string, memberSignature: string, selectorKey: string, metadataToken: number, traversalTargetFramework: string) => Promise<string>;
           };
         };
       };
@@ -181,8 +182,8 @@ export async function expandPlatformCallGraph(targetFramework: string, platformV
   return $parsed as BrowserCallGraph;
 }
 
-export async function queryMemberCallGraph(packageId: string, version: string, targetFramework: string, assemblyName: string, typeIdentity: string, typeQueryId: string, memberName: string, memberSignature: string, selectorKey: string, metadataToken: number, workspaceJson: string): Promise<BrowserCallGraph> {
-  const $result = await $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["CallGraph"]["CallGraphExports"]["QueryMemberCallGraph.1135530322"](packageId, version, targetFramework, assemblyName, typeIdentity, typeQueryId, memberName, memberSignature, selectorKey, metadataToken, workspaceJson);
+export async function queryMemberCallGraph(packageId: string, version: string, targetFramework: string, assemblyName: string, typeIdentity: string, typeQueryId: string, memberName: string, memberSignature: string, selectorKey: string, metadataToken: number, traversalTargetFramework: string): Promise<BrowserCallGraph> {
+  const $result = await $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["CallGraph"]["CallGraphExports"]["QueryMemberCallGraph.1135530322"](packageId, version, targetFramework, assemblyName, typeIdentity, typeQueryId, memberName, memberSignature, selectorKey, metadataToken, traversalTargetFramework);
   const $parsed: unknown = JSON.parse($result);
   return $parsed as BrowserCallGraph;
 }

@@ -1223,6 +1223,7 @@ test("Platform graph transport preserves retained context selection and ordinary
           diagnostics: {
             incompleteNodes: 0, incompleteEdges: 0, bindingIdentityConflicts: 0,
             hasUnexploredTraversalBoundary: false, hasAnalysisFailureBoundary: false,
+            unavailableDependencyRoutes: 0,
             isIncomplete: false,
           },
           noBody: true,

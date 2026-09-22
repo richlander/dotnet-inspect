@@ -4,6 +4,7 @@ using System.Text.Json;
 using DotnetInspect.Cli.Commands;
 using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Output;
+using DotnetInspector.Cache;
 using DotnetInspector.Fixtures;
 using DotnetInspector.Packages;
 using DotnetInspector.Queries;
@@ -28,8 +29,11 @@ public sealed class ExternalCallGraphCommandTests
     static readonly PackageSource Source =
         new("fixture", "https://fixture.invalid/v3/index.json");
 
+    public ExternalCallGraphCommandTests() =>
+        PersistentCache.Initialize("dotnet-inspect-test");
+
     [Fact]
-    public void Command_ExposesExplicitRootAndParticipants()
+    public void Command_ExposesExactRootAndAutomaticTraversal()
     {
         var result = CommandLineBuilder.CreateRootCommand().Parse(
             [
@@ -39,8 +43,8 @@ public sealed class ExternalCallGraphCommandTests
                 "RunOuter",
                 "--root-package",
                 $"{RootPackageId}@{Version}",
-                "--package",
-                $"{TargetPackageId}@{Version}",
+                "--root-tfm",
+                Framework,
                 "--tfm",
                 Framework,
             ]);
@@ -50,6 +54,12 @@ public sealed class ExternalCallGraphCommandTests
             result.CommandResult.Command.Options,
             option => option.Name == "--root-package");
         Assert.Contains(
+            result.CommandResult.Command.Options,
+            option => option.Name == "--root-tfm");
+        Assert.Contains(
+            result.CommandResult.Command.Options,
+            option => option.Name == "--tfm");
+        Assert.DoesNotContain(
             result.CommandResult.Command.Options,
             option => option.Name == "--package");
         Assert.Contains(
@@ -71,7 +81,9 @@ public sealed class ExternalCallGraphCommandTests
                 .Parse(["graph", "calls", "--help"])
                 .InvokeAsync());
 
-        Assert.Equal(0, captured.ExitCode);
+        Assert.True(
+            captured.ExitCode == 0,
+            captured.Error);
         Assert.Contains(
             "Show external package calls",
             captured.Output);
@@ -96,7 +108,7 @@ public sealed class ExternalCallGraphCommandTests
                         "RunOuter",
                         "--root-package",
                         $"{RootPackageId}@{Version}",
-                        "--tfm",
+                        "--root-tfm",
                         Framework,
                         option,
                         value,
@@ -116,7 +128,7 @@ public sealed class ExternalCallGraphCommandTests
             "calls",
             "Shared.Entry",
             "RunOuter",
-            "--tfm",
+            "--root-tfm",
             Framework,
         },
         "--root-package is required.")]
@@ -130,8 +142,8 @@ public sealed class ExternalCallGraphCommandTests
             "--root-package",
             RootPackageId,
         },
-        "A shared --tfm is required.")]
-    public async Task Command_RequiresRootPackageAndFramework(
+        "--root-tfm is required.")]
+    public async Task Command_RequiresRootPackageAndRootFramework(
         string[] arguments,
         string expected)
     {
@@ -146,16 +158,16 @@ public sealed class ExternalCallGraphCommandTests
 
     [Fact]
     public async Task
-        RunOuter_RendersConnectorUnclassifiedBoundaryAndPhysicalReceipts()
+        RunOuter_RendersConnectorBoundaryAndPhysicalReceipts()
     {
         Execution execution = await ExecuteAsync(
             "RunOuter",
             OutputFormat.Jsonl);
 
-        Assert.Equal(0, execution.ExitCode);
-        Assert.Contains(
-            "call.traversal-incomplete",
+        Assert.True(
+            execution.ExitCode == 0,
             execution.Error);
+        Assert.Equal("", execution.Error);
         string[] lines = execution.Output.Split(
             '\n',
             StringSplitOptions.RemoveEmptyEntries);
@@ -181,7 +193,7 @@ public sealed class ExternalCallGraphCommandTests
             rows,
             row =>
                 row.GetProperty("role").GetString()
-                    == "unclassified-boundary");
+                    == "boundary");
         Assert.Equal(
             "Shared.Entry::Run",
             boundary.GetProperty("source").GetString());
@@ -200,9 +212,6 @@ public sealed class ExternalCallGraphCommandTests
         Assert.Contains("call=Call", evidence);
         Assert.Contains("dispatch=", evidence);
         Assert.Contains("loop=false", evidence);
-        Assert.Contains(
-            "external-boundary-classification-incomplete",
-            execution.Error);
     }
 
     [Fact]
@@ -269,11 +278,14 @@ public sealed class ExternalCallGraphCommandTests
                         TypeName = "Shared.Entry",
                         Member = "RunOuter",
                         RootPackage = RootPackageId,
+                        RootTfm = Framework,
                         Tfm = Framework,
                         Format = OutputFormat.Jsonl,
                     })));
 
-        Assert.Equal(0, captured.ExitCode);
+        Assert.True(
+            captured.ExitCode == 0,
+            captured.Error);
         Assert.Contains(
             "\"role\":\"boundary\"",
             captured.Output);
@@ -383,7 +395,7 @@ public sealed class ExternalCallGraphCommandTests
         Assert.Equal(0, execution.ExitCode);
         Assert.Contains(expected, execution.Output);
         Assert.Contains("connector", execution.Output);
-        Assert.Contains("unclassified-boundary", execution.Output);
+        Assert.Contains("boundary", execution.Output);
     }
 
     [Fact]
@@ -414,8 +426,8 @@ public sealed class ExternalCallGraphCommandTests
             "AddOpenTelemetrySharedProviderBuilderServices~4d95928639",
             "--root-package",
             "OpenTelemetry@1.18.0",
-            "--package",
-            "OpenTelemetry.Api@1.18.0",
+            "--root-tfm",
+            Framework,
             "--tfm",
             Framework,
             "--all",
@@ -435,7 +447,9 @@ public sealed class ExternalCallGraphCommandTests
                     arguments);
             });
 
-        Assert.Equal(0, captured.ExitCode);
+        Assert.True(
+            captured.ExitCode == 0,
+            captured.Error);
         Assert.Equal($"1{Environment.NewLine}", captured.Output);
         Assert.DoesNotContain(
             "unprojected output",
@@ -443,19 +457,20 @@ public sealed class ExternalCallGraphCommandTests
     }
 
     [Fact]
-    public async Task MissingExternalParticipant_FailsExplicitly()
+    public async Task MissingDependencyParticipant_RemainsUnclassified()
     {
         Execution execution = await ExecuteAsync(
             "RunOuter",
             OutputFormat.Jsonl,
             includeTarget: false);
 
-        Assert.Equal(1, execution.ExitCode);
-        Assert.Equal("", execution.Output);
+        Assert.Equal(0, execution.ExitCode);
         Assert.Contains(
-            "requires at least one additional assembly participant",
+            "\"role\":\"unclassified-boundary\"",
+            execution.Output);
+        Assert.Contains(
+            "external-boundary-classification-incomplete",
             execution.Error);
-        Assert.Contains("--package", execution.Error);
     }
 
     [Fact]
@@ -469,7 +484,7 @@ public sealed class ExternalCallGraphCommandTests
             Member =
                 "AddOpenTelemetrySharedProviderBuilderServices~4d95928639",
             RootPackage = "OpenTelemetry@1.18.0",
-            Packages = ["OpenTelemetry.Api@1.18.0"],
+            RootTfm = Framework,
             Tfm = Framework,
             IncludeAll = true,
             Format = OutputFormat.Jsonl,
@@ -480,7 +495,9 @@ public sealed class ExternalCallGraphCommandTests
                 options,
                 TestContext.Current.CancellationToken));
 
-        Assert.Equal(0, captured.ExitCode);
+        Assert.True(
+            captured.ExitCode == 0,
+            captured.Error);
         string[] edges = captured.Output.Split(
             '\n',
             StringSplitOptions.RemoveEmptyEntries);
@@ -514,7 +531,7 @@ public sealed class ExternalCallGraphCommandTests
             Member =
                 "AddOpenTelemetrySharedProviderBuilderServices~4d95928639",
             RootPackage = "OpenTelemetry@1.18.0",
-            Packages = ["OpenTelemetry.Api@1.18.0"],
+            RootTfm = Framework,
             Tfm = Framework,
             IncludeAll = true,
             Format = OutputFormat.Mermaid,
@@ -535,6 +552,40 @@ public sealed class ExternalCallGraphCommandTests
 
     [Fact]
     [Trait("Speed", "Slow")]
+    public async Task Polly_AutomaticallyLoadsDependencyBoundary()
+    {
+        var options = new ExternalCallGraphOptions
+        {
+            TypeName =
+                "Microsoft.Extensions.DependencyInjection.PollyHttpClientBuilderExtensions",
+            Member = "AddTransientHttpErrorPolicy",
+            RootPackage =
+                "Microsoft.Extensions.Http.Polly@11.0.0-rc.1.26425.128",
+            RootTfm = "netstandard2.0",
+            IncludeAll = true,
+            Depth = 3,
+            MaxNodes = 50,
+            Format = OutputFormat.Jsonl,
+        };
+
+        var captured = await ConsoleCapture.RunAsync(
+            () => ExternalCallGraphCommand.ExecuteAsync(
+                options,
+                TestContext.Current.CancellationToken));
+
+        Assert.True(
+            captured.ExitCode == 0,
+            captured.Error);
+        Assert.Contains(
+            "\"target_assembly\":\"Polly.Extensions.Http\"",
+            captured.Output);
+        Assert.DoesNotContain(
+            "same assembly identity",
+            captured.Error);
+    }
+
+    [Fact]
+    [Trait("Speed", "Slow")]
     public async Task OpenTelemetry_AbstractFocusFailsAsMissingBody()
     {
         var options = new ExternalCallGraphOptions
@@ -543,7 +594,7 @@ public sealed class ExternalCallGraphCommandTests
                 "OpenTelemetry.Context.RuntimeContextSlot`1",
             Member = "Get",
             RootPackage = "OpenTelemetry.Api@1.18.0",
-            Packages = ["OpenTelemetry@1.18.0"],
+            RootTfm = Framework,
             Tfm = Framework,
             IncludeAll = true,
             Format = OutputFormat.Json,
@@ -597,15 +648,14 @@ public sealed class ExternalCallGraphCommandTests
             SourceAuthorization =
                 new UniformPackageSourceAuthorization([Source]),
             PackageStore = store,
+            IncludePackageRootBindings = true,
         };
         var options = new ExternalCallGraphOptions
         {
             TypeName = "Shared.Entry",
             Member = member,
             RootPackage = $"{RootPackageId}@{Version}",
-            Packages = includeTarget
-                ? [$"{TargetPackageId}@{Version}"]
-                : [],
+            RootTfm = Framework,
             Tfm = Framework,
             Depth = depth,
             MaxNodes = 25,
@@ -618,11 +668,105 @@ public sealed class ExternalCallGraphCommandTests
             () => ExternalCallGraphCommand.ExecuteAsync(
                 options,
                 loadOptions,
-                TestContext.Current.CancellationToken));
+                TestContext.Current.CancellationToken,
+                (request, _) =>
+                    CreateFixtureEnvelopeAsync(
+                        member,
+                        request.Graph.MaxDepth,
+                        request.Graph.MaxNodes,
+                        includeTarget)));
         return new Execution(
             captured.ExitCode,
             captured.Output,
             captured.Error);
+    }
+
+    static async ValueTask<
+        InspectionEnvelope<
+            PackageDependencyMemberCallGraphInspectionOutcome>>
+        CreateFixtureEnvelopeAsync(
+            string member,
+            int depth,
+            int maxNodes,
+            bool includeTarget)
+    {
+        string callerPath =
+            FixtureCatalog.AnalysisCallerGraphCaller.AssemblyPath();
+        string targetPath =
+            FixtureCatalog.AnalysisCallerGraphTarget.AssemblyPath();
+        ResolvedAssemblyReference[] assemblies =
+            includeTarget
+                ?
+                [
+                    ResolvedAssemblyReference.CreateFromPath(
+                        callerPath,
+                        AssemblyResolutionProvenance.Local(
+                            "external call graph CLI test")),
+                    ResolvedAssemblyReference.CreateFromPath(
+                        targetPath,
+                        AssemblyResolutionProvenance.Local(
+                            "external call graph CLI test")),
+                ]
+                :
+                [
+                    ResolvedAssemblyReference.CreateFromPath(
+                        callerPath,
+                        AssemblyResolutionProvenance.Local(
+                            "external call graph CLI test")),
+                ];
+        var policy =
+            new SourceRelativeAssemblyGroupBindingPolicy(
+                assemblies.Select(assembly => (
+                    assembly,
+                    Policy: (IAssemblyBindingPolicy)
+                        new DotnetInspector.Services
+                            .AssemblyDependencyResolver(
+                                new(
+                                    assembly.Path!)
+                                {
+                                    PreferImplementationAssemblies = true,
+                                    AllowPlatformAssemblyVersionRollForward =
+                                        true,
+                                }))));
+        await using var workspace = new InspectionWorkspace();
+        using AssemblyContextGroup group =
+            workspace.CreateAssemblyContextGroup(
+                assemblies.Select(assembly =>
+                    new AssemblyContextParticipant(
+                        assembly,
+                        policy)));
+        int methodToken =
+            Analysis.LibraryBodyIndex.Open(callerPath)
+                .Methods.Single(methodInfo =>
+                    methodInfo.DeclaringType.Name == "Entry"
+                    && methodInfo.Name == member)
+                .MetadataToken;
+        using var session = new MemberCallGraphSession(
+            group,
+            assemblies[0],
+            methodToken);
+        InspectionGraphDocument graph =
+            session.CrossLibraryCalleeNeighborhood(
+                new MemberCallGraphCalleeNeighborhoodRequest(
+                    depth,
+                    maxNodes));
+        var content =
+            new PackageDependencyMemberCallGraphInspectionOutcome.Available(
+                new PackageDependencyMemberCallGraphDocument(
+                    TraversalTargetFrameworkPolicy.ProductDefault,
+                    new PackageDependencyTraversalSummary(
+                        CompleteRoots: 1,
+                        DepthBoundedRoots: 0,
+                        SourceBoundedRoots: 0,
+                        PartialRoots: 0),
+                    [],
+                    graph));
+        return new InspectionEnvelope<
+                PackageDependencyMemberCallGraphInspectionOutcome>(
+                content,
+                new InspectionShare.NonProjectable(
+                    "package-dependency-member-call-graph/share",
+                    "Test projection."));
     }
 
     static async Task CommitPackageAsync(

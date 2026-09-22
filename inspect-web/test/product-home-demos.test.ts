@@ -262,6 +262,7 @@ test("actual app activation, member reload, drill and workspace reset preserve c
     package: pkg,
     packages: [pkg],
     platformDemoContextId: null as string | null,
+    callGraphTraversalFramework: "net12.0",
     selectedOverloadIndex: 0,
     selectedBodyTarget: null,
   };
@@ -288,7 +289,6 @@ test("actual app activation, member reload, drill and workspace reset preserve c
     selectedConcreteOverload: () => overload,
     currentPackage: () => pkg,
     assemblyDescriptorForType: () => pkg.assemblies[0],
-    selectedCallGraphWorkspacePackages: () => [],
     platformPackForAssembly: () => "netcore.app",
     callGraphInspection: {
       load: async (request: MemberCallGraphRequest) => { loads.push(request); },
@@ -321,6 +321,8 @@ test("actual app activation, member reload, drill and workspace reset preserve c
   await Promise.resolve<unknown>(runInNewContext("drillPlatformNode(drillTarget)", context));
   assert.deepEqual(loads.map(request => request.platformContextId),
     ["demo-context", "demo-context", "demo-context"]);
+  assert.deepEqual(loads.map(request => request.traversalFramework),
+    ["net12.0", "net12.0", "net12.0"]);
   assert.equal(drills[0]!.contextId, "demo-context");
   assert.equal(loads[0]!.signature, loads[2]!.signature);
   const retained = { ...state };
