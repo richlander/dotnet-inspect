@@ -500,13 +500,15 @@ internal static partial class WorkflowContract
                 "steps",
                 $"jobs.{jobName}");
             var identities = new HashSet<string>(StringComparer.Ordinal);
-            bool hasRunStep = false;
+            bool hasRunStepWithoutShell = false;
             foreach (YamlNode stepNode in steps.Children)
             {
                 YamlMappingNode step = RequireMapping(
                     stepNode,
                     $"jobs.{jobName} step");
-                hasRunStep |= TryGetNode(step, "run", out _);
+                hasRunStepWithoutShell |=
+                    TryGetNode(step, "run", out _)
+                    && !TryGetNode(step, "shell", out _);
                 string? identity = GetOptionalScalar(step, "name") ??
                     GetOptionalScalar(step, "uses");
                 if (identity is null || !identities.Add(identity))
@@ -565,7 +567,7 @@ internal static partial class WorkflowContract
                     seenContinueOnError.Add(key);
                 }
             }
-            if (hasRunStep)
+            if (hasRunStepWithoutShell)
             {
                 RequireAbsentFromRunDefaults(
                     job,
