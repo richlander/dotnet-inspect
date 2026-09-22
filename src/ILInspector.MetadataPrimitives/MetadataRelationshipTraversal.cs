@@ -305,6 +305,19 @@ public static class MetadataRelationshipTraversal
             reader,
             handle);
 
+    internal static RelationshipTraversalResult<RelationshipChain<TypeReferenceHandle>>
+        WalkTypeReferenceResolutionScope(
+            MetadataReader reader,
+            TypeReferenceHandle handle,
+            Action<EntityHandle> beforeRelationshipFollow)
+    {
+        ArgumentNullException.ThrowIfNull(beforeRelationshipFollow);
+        return Walk<TypeReferenceHandle, TypeReferenceRelationship>(
+            reader,
+            handle,
+            beforeRelationshipFollow);
+    }
+
     /// <summary>
     /// Walks a TypeRef resolution-scope chain into caller-owned storage without allocating
     /// on a completed traversal.

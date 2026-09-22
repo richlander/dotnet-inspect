@@ -260,6 +260,41 @@ public sealed class MetadataInterfaceImplementationEvidenceTests
     }
 
     [Fact]
+    public void TypeReferenceEdgeBudgetRejectsBeforeAncestorNameRead()
+    {
+        using AuthoredFixture fixture =
+            AuthoredFixture.CreateNestedTypeReference(
+                depth: 8,
+                corruptRootName: true);
+
+        MetadataInterfaceImplementationResult.Rejected malformed =
+            Assert.IsType<
+                MetadataInterfaceImplementationResult.Rejected>(
+                    Run(fixture, fixture.InterfaceIdentity));
+        Assert.Equal(
+            MetadataInterfaceImplementationFailureReason
+                .MalformedMetadata,
+            malformed.Failure.Reason);
+
+        MetadataInterfaceImplementationResult.Rejected limited =
+            Assert.IsType<
+                MetadataInterfaceImplementationResult.Rejected>(
+                    Run(
+                        fixture,
+                        fixture.InterfaceIdentity,
+                        Policy(
+                            MetadataOperationDimension.RelationshipEdges,
+                            2)));
+        Assert.Equal(
+            MetadataInterfaceImplementationFailureReason.BudgetExceeded,
+            limited.Failure.Reason);
+        Assert.Equal(
+            MetadataOperationDimension.RelationshipEdges,
+            limited.Failure.BudgetDimension);
+        Assert.Equal(2, limited.Counters.RelationshipEdges);
+    }
+
+    [Fact]
     public void InvalidIdentityAndForeignTypeRejectBeforeScan()
     {
         string path =
@@ -1248,6 +1283,110 @@ public sealed class MetadataInterfaceImplementationEvidenceTests
                             Text("nested-interface.dll"),
                             new MetadataAssemblyIdentity(
                                 Text("NestedInterfaceFixture"),
+                                new Version(1, 0, 0, 0),
+                                Culture: null,
+                                PublicKeyToken: null)),
+                        Text("Contracts"),
+                        [.. segments.Select(Text)],
+                        [.. segments.Select(_ => 0)]),
+                    IsValueType: false);
+            return new(
+                path,
+                MetadataTypeDefinitionAddress.FromHandle(
+                    reader,
+                    target),
+                identity);
+        }
+
+        internal static AuthoredFixture CreateNestedTypeReference(
+            int depth,
+            bool corruptRootName)
+        {
+            ArgumentOutOfRangeException.ThrowIfLessThan(depth, 2);
+            Guid mvid = Guid.NewGuid();
+            var metadata = new MetadataBuilder();
+            metadata.AddModule(
+                generation: 0,
+                metadata.GetOrAddString("nested-reference.dll"),
+                metadata.GetOrAddGuid(mvid),
+                default,
+                default);
+            metadata.AddAssembly(
+                metadata.GetOrAddString("NestedReferenceFixture"),
+                new Version(1, 0, 0, 0),
+                default,
+                default,
+                (AssemblyFlags)0,
+                AssemblyHashAlgorithm.None);
+            metadata.AddTypeDefinition(
+                TypeAttributes.NotPublic,
+                default,
+                metadata.GetOrAddString("<Module>"),
+                default,
+                MetadataTokens.FieldDefinitionHandle(1),
+                MetadataTokens.MethodDefinitionHandle(1));
+            TypeDefinitionHandle target =
+                metadata.AddTypeDefinition(
+                    TypeAttributes.Public,
+                    metadata.GetOrAddString("Samples"),
+                    metadata.GetOrAddString("Target"),
+                    default,
+                    MetadataTokens.FieldDefinitionHandle(1),
+                    MetadataTokens.MethodDefinitionHandle(1));
+            EntityHandle scope =
+                metadata.AddAssemblyReference(
+                    metadata.GetOrAddString("External"),
+                    new Version(1, 0, 0, 0),
+                    default,
+                    default,
+                    (AssemblyFlags)0,
+                    default);
+            var segments = new string[depth];
+            for (int index = 0; index < depth; index++)
+            {
+                segments[index] = $"Part{index}";
+                scope = metadata.AddTypeReference(
+                    scope,
+                    index == 0
+                        ? metadata.GetOrAddString("Contracts")
+                        : default,
+                    metadata.GetOrAddString(segments[index]));
+            }
+            metadata.AddInterfaceImplementation(
+                target,
+                scope);
+
+            byte[] image = Serialize(metadata);
+            if (corruptRootName)
+            {
+                using var probe =
+                    new PEReader(new MemoryStream(image));
+                MetadataReader probeReader =
+                    probe.GetMetadataReader();
+                int rowOffset =
+                    probe.PEHeaders.MetadataStartOffset
+                    + probeReader.GetTableMetadataOffset(
+                        TableIndex.TypeRef);
+                image[rowOffset + 2] = 0xfe;
+                image[rowOffset + 3] = 0x7f;
+            }
+
+            string path = System.IO.Path.Combine(
+                System.IO.Path.GetTempPath(),
+                $"interfaceimpl-reference-{Guid.NewGuid():N}.dll");
+            File.WriteAllBytes(path, image);
+            using var stream = File.OpenRead(path);
+            using var pe = new PEReader(stream);
+            MetadataReader reader = pe.GetMetadataReader();
+            var identity =
+                new MetadataTypeIdentity.Named(
+                    new MetadataNamedTypeIdentity(
+                        new MetadataTypeScopeIdentity(
+                            MetadataTypeScopeKind.AssemblyReference,
+                            Guid.Empty,
+                            ModuleName: null,
+                            Assembly: new MetadataAssemblyIdentity(
+                                Text("External"),
                                 new Version(1, 0, 0, 0),
                                 Culture: null,
                                 PublicKeyToken: null)),

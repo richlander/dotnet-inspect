@@ -262,12 +262,17 @@ internal sealed class TypeNodeProvider : ISignatureTypeProvider<TypeNode, Generi
             handle,
             observeName,
             out string? name,
-            out RelationshipTraversalRejection? rejection);
+            out RelationshipTraversalRejection? rejection,
+            beforeRelationshipFollow:
+                _beforeRelationshipFollow);
         MetadataTypeNameParts? metadataName = resolved
             ? WithTrustedLocalReferenceArity(
                 reader,
                 handle,
-                TypeResolver.GetTypeNamePartsFromReference(reader, handle))
+                TypeResolver.GetTypeNamePartsFromReference(
+                    reader,
+                    handle,
+                    _beforeRelationshipFollow))
             : null;
         ApiAssemblyIdentity? assemblyIdentity =
             ReferencedAssemblyIdentity(
