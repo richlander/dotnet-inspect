@@ -71,7 +71,18 @@ public partial class DependsAssetCommandTests
             "asset-dependencies",
             root.GetProperty("result_kind").GetString());
         Assert.True(root.TryGetProperty("content", out _));
-        Assert.True(root.TryGetProperty("portable_projection", out _));
+        JsonElement portableProjection =
+            root.GetProperty("portable_projection");
+        Assert.Equal(
+            "nonProjectable",
+            portableProjection.GetProperty("kind").GetString());
+        Assert.Equal(
+            "notSupported",
+            portableProjection.GetProperty("reason").GetString());
+        Assert.Contains(
+            "requires exactly one package root",
+            portableProjection.GetProperty("explanation").GetString(),
+            StringComparison.Ordinal);
         Assert.True(root.TryGetProperty("diagnostics", out _));
         Assert.True(root.TryGetProperty("evidence", out _));
         Assert.False(root.TryGetProperty("inspection", out _));

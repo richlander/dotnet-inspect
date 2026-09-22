@@ -97,7 +97,18 @@ internal static class DependsShareProjection
         VerboseLogger logger,
         CancellationToken cancellationToken = default)
     {
-        string packageReference = options.PackageName!;
+        if (options.PackagePrefix is not null
+            || options.AssetRoots.Length != 1
+            || options.AssetRoots[0].Kind
+                is not DependencyInspectionRootKind.Package)
+        {
+            return NonProjectableAssetPreparation(
+                "The package dependency portable projection requires exactly "
+                + "one package root; other asset roots are not replayable by "
+                + "the published Browser.");
+        }
+
+        string packageReference = options.AssetRoots[0].Value;
         if (packageReference.EndsWith(
                 ".nupkg",
                 StringComparison.OrdinalIgnoreCase))

@@ -720,15 +720,7 @@ public static class SearchCommandDefinitions
 #else
             const bool evidenceEnvelope = false;
 #endif
-            if (result.GetValue(opts.Envelope)
-                && !typeMode
-                && !evidenceEnvelope)
-            {
-                result.AddError(
-                    "--envelope currently requires a positional type in depends.");
-            }
-            if (evidenceEnvelope
-                && !typeMode
+            if (!typeMode
                 && result.GetValue(opts.Envelope))
             {
                 RejectAssetEnvelopeRowOption(opts.Rows, "--rows");
