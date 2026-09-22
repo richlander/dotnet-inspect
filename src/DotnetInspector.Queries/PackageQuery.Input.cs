@@ -27,7 +27,8 @@ public static partial class PackageQuery
         int maximumCandidates = DefaultMaximumCandidates,
         int? maximumMatches = DefaultMaximumMatches,
         bool includePrerelease = false,
-        RowSelectionIntent<string>? rowSelection = null)
+        RowSelectionIntent<string>? rowSelection = null,
+        string? targetFramework = null)
         => PlanInputCore(
             text,
             terms,
@@ -35,6 +36,7 @@ public static partial class PackageQuery
             maximumMatches,
             includePrerelease,
             rowSelection,
+            targetFramework,
             ecosystemMemberships: null);
 
     public static PackageQueryPlanResult PlanInput(
@@ -44,7 +46,8 @@ public static partial class PackageQuery
         int maximumCandidates = DefaultMaximumCandidates,
         int? maximumMatches = DefaultMaximumMatches,
         bool includePrerelease = false,
-        RowSelectionIntent<string>? rowSelection = null)
+        RowSelectionIntent<string>? rowSelection = null,
+        string? targetFramework = null)
     {
         ArgumentNullException.ThrowIfNull(ecosystemMemberships);
         return PlanInputCore(
@@ -54,6 +57,7 @@ public static partial class PackageQuery
             maximumMatches,
             includePrerelease,
             rowSelection,
+            targetFramework,
             ecosystemMemberships);
     }
 
@@ -64,6 +68,7 @@ public static partial class PackageQuery
         int? maximumMatches,
         bool includePrerelease,
         RowSelectionIntent<string>? rowSelection,
+        string? targetFramework,
         PackageQueryEcosystemMembershipCatalog? ecosystemMemberships)
     {
         ArgumentNullException.ThrowIfNull(text);
@@ -105,11 +110,28 @@ public static partial class PackageQuery
             return Rejected(PackageQueryRequestFailureReason.InvalidCandidateLimit);
         if (maximumMatches is <= 0 or > MaximumCandidates)
             return Rejected(PackageQueryRequestFailureReason.InvalidMatchLimit);
-        if (terms is { Count: > MaximumInspectionTerms })
+        bool hasLibraryLiteral = terms?.Any(term =>
+            term.Key == LibraryLiteralTermKey) == true;
+        int contextualTermCount = hasLibraryLiteral ? 1 : 0;
+        if (terms is { } suppliedTerms
+            && suppliedTerms.Count + contextualTermCount
+                > MaximumInspectionTerms)
         {
             return Rejected(
                 PackageQueryRequestFailureReason.TooManyTerms,
-                value: terms.Count);
+                value: suppliedTerms.Count);
+        }
+        if (hasLibraryLiteral && string.IsNullOrWhiteSpace(targetFramework))
+        {
+            return Rejected(
+                PackageQueryRequestFailureReason.LibraryLiteralRequiresTarget,
+                [LibraryLiteralTermKey, LibraryTargetTermKey]);
+        }
+        if (!hasLibraryLiteral && targetFramework is not null)
+        {
+            return Rejected(
+                PackageQueryRequestFailureReason.LibraryTargetRequiresLiteral,
+                [LibraryTargetTermKey, LibraryLiteralTermKey]);
         }
         if (populationKey == PackageTermKey)
             maximumCandidates = 1;
@@ -127,6 +149,24 @@ public static partial class PackageQuery
         };
         if (terms is not null)
             intentTerms.AddRange(terms);
+        if (hasLibraryLiteral)
+        {
+            try
+            {
+                PackageHouseTargetContext target =
+                    PackageHouseTargetContext.Exact(targetFramework!);
+                intentTerms.Add(new(
+                    LibraryTargetTermKey,
+                    PortableQueryOperator.Equal,
+                    target.RequestedFramework!));
+            }
+            catch (ArgumentException)
+            {
+                return Rejected(
+                    PackageQueryRequestFailureReason.InvalidTermValue,
+                    [LibraryTargetTermKey]);
+            }
+        }
 
         var bounds = new List<PortableQueryBound>
         {

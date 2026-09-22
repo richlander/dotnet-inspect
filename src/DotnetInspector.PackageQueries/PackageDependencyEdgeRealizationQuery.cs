@@ -169,6 +169,28 @@ public sealed class PackageDependencyEdgeRealizationExecution
             this,
             settlement);
     }
+
+    /// <summary>
+    /// Executes one sequential edge step without consuming the caller-owned
+    /// Package Source operation.
+    /// </summary>
+    public async Task<PackageDependencyEdgeRealizationEvidence>
+        ExecuteStepAsync(
+            PackageHouse house,
+            PackageSourceOperationLease sourceOperation)
+    {
+        ArgumentNullException.ThrowIfNull(house);
+        ArgumentNullException.ThrowIfNull(sourceOperation);
+        PackageHouseSettlement settlement =
+            await house.ExecuteStepAsync(
+                    Request,
+                    sourceOperation,
+                    Pruning)
+                .ConfigureAwait(false);
+        return new PackageDependencyEdgeRealizationEvidence(
+            this,
+            settlement);
+    }
 }
 
 /// <summary>
