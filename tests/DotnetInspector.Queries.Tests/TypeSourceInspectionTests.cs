@@ -252,6 +252,60 @@ public sealed partial class AssemblyContextSourceQueryTests
             InspectionDiagnosticSeverity.Information);
     }
 
+    [Fact]
+    public async Task
+        TypeSourcePdbLatencyHedge_FailedProviderReportsAcquisitionFailure()
+    {
+        TestAssembly assembly =
+            TestAssembly.Create(
+                fixture:
+                    FixtureCatalog.SourceDiffV1);
+        using var host =
+            QueryHost.WithFailedPdbProvider();
+        await using var workspace =
+            new InspectionWorkspace();
+        using AssemblyContextGroup group =
+            workspace.CreateAssemblyContextGroup(
+                [assembly.Participant]);
+
+        EvidenceInspectionEnvelope<
+            AssemblyTypeSourceEntry,
+            TypeSourcePdbAcquisitionEvidence> enriched =
+                await TypeSourceInspection
+                    .ExecuteWithPdbLatencyHedgeAndEvidenceAsync(
+                        group,
+                        assembly.Participant,
+                        assembly.TypeRequest("Counter"),
+                        host.Context,
+                        new TypeSourcePdbLatencyHedge(
+                            TimeSpan.FromSeconds(1)),
+                        TestContext.Current.CancellationToken);
+
+        var available =
+            Assert.IsType<
+                AssemblyTypeSourceEntry.Available>(
+                    enriched.Inspection.Content);
+        var source =
+            Assert.IsType<
+                AssemblyTypeSource.Decompiled>(
+                    available.Source);
+        Assert.Equal(
+            PdbTypeSourceOutcome
+                .PortablePdbAcquisitionFailed,
+            source.PdbAttempt.Outcome);
+        Assert.Equal(
+            TypeSourcePortablePdbDisposition
+                .AcquisitionFailed,
+            enriched.Evidence.Disposition);
+        Assert.Equal(
+            PortablePdbExternalAcquisitionOutcome.Failed,
+            enriched.Evidence.ExternalAcquisition.Outcome);
+        AssertDiagnostic(
+            enriched.Inspection,
+            "type-source.portable-pdb.acquisition-failed",
+            InspectionDiagnosticSeverity.Warning);
+    }
+
     // PR-fast: expiry of the PDB-only window publishes available no-PDB
     // decompilation without adding an authored-source grace period.
     [Fact]

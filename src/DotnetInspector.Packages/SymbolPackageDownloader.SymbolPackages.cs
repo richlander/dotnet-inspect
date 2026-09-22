@@ -53,6 +53,7 @@ public partial class SymbolPackageDownloader
         var normalizedName = packageName.ToLowerInvariant();
         var normalizedVersion = packageVersion.ToLowerInvariant();
         bool windowsPdbDetected = false;
+        PortablePdbAcquisitionFailureKind? acquisitionFailure = null;
 
         // Check cache first
         var cacheKey =
@@ -129,6 +130,9 @@ public partial class SymbolPackageDownloader
             }
             catch (Exception ex)
             {
+                acquisitionFailure ??=
+                    PortablePdbAcquisitionFailureKind
+                        .ExternalProviderFailed;
                 FeedFailureRecorder.Record(snupkgUrl, status: null);
                 log?.Invoke(
                     "Error downloading symbol package: "
@@ -138,6 +142,8 @@ public partial class SymbolPackageDownloader
 
             if (httpResult.Bytes is not { } symbolPackageBytes)
             {
+                acquisitionFailure ??=
+                    ClassifyProviderFailure(httpResult);
                 CacheMissIfDefinitive(
                     snupkgUrl,
                     new HttpRetryHelper.HttpRetryResult(
@@ -181,6 +187,9 @@ public partial class SymbolPackageDownloader
             }
             catch (Exception ex)
             {
+                acquisitionFailure ??=
+                    PortablePdbAcquisitionFailureKind
+                        .ExternalProviderFailed;
                 FeedFailureRecorder.Record(
                     snupkgUrl,
                     HttpStatusCode.OK);
@@ -200,8 +209,13 @@ public partial class SymbolPackageDownloader
 
             if (extracted.PdbBytes == null)
             {
+                PortablePdbAcquisitionFailureKind?
+                    inventoryFailure = null;
                 if (extracted.InvalidPdbDetected)
                 {
+                    inventoryFailure =
+                        PortablePdbAcquisitionFailureKind
+                            .ExternalProviderFailed;
                     FeedFailureRecorder.Record(
                         snupkgUrl,
                         HttpStatusCode.OK);
@@ -211,7 +225,8 @@ public partial class SymbolPackageDownloader
                 return new PdbProbeResult(
                     null,
                     windowsPdbDetected,
-                    storeFailure);
+                    storeFailure,
+                    inventoryFailure);
             }
 
             using (var pdbStream =
@@ -273,11 +288,14 @@ public partial class SymbolPackageDownloader
                 windowsPdbDetected);
         }
 
-        log?.Invoke("Symbol package not found on NuGet");
+        log?.Invoke(acquisitionFailure is null
+            ? "Symbol package not found on NuGet"
+            : "Symbol package providers did not produce a usable response");
         return new PdbProbeResult(
             null,
             windowsPdbDetected,
-            storeFailure);
+            storeFailure,
+            acquisitionFailure);
     }
 
     private static string GetCachedPdbKey(

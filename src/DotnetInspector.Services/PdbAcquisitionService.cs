@@ -17,6 +17,18 @@ public sealed class PdbStoreAcquisitionException : IOException
     public PortablePdbStoreFailureKind StoreFailure { get; }
 }
 
+/// <summary>A typed failure reported by an external PDB provider.</summary>
+public sealed class PdbExternalAcquisitionException : IOException
+{
+    internal PdbExternalAcquisitionException(
+        PortablePdbAcquisitionFailureKind acquisitionFailure)
+        : base(
+            "External PDB providers could not produce usable Portable PDB content.")
+        => AcquisitionFailure = acquisitionFailure;
+
+    public PortablePdbAcquisitionFailureKind AcquisitionFailure { get; }
+}
+
 /// <summary>
 /// Acquires a matching portable PDB for an already-open metadata context.
 /// </summary>
@@ -148,6 +160,11 @@ public static class PdbAcquisitionService
         {
             evidence?.RecordStoreFailure(storeFailure);
             throw new PdbStoreAcquisitionException(storeFailure);
+        }
+        else if (result.AcquisitionFailure is { } acquisitionFailure)
+        {
+            throw new PdbExternalAcquisitionException(
+                acquisitionFailure);
         }
         else if (result.WindowsPdbDetected)
         {

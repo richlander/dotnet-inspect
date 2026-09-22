@@ -109,7 +109,9 @@ public sealed class PortablePdbAcquisitionEvidenceCollector
             else
             {
                 _outcome =
-                    PortablePdbExternalAcquisitionOutcome.Unavailable;
+                    result.AcquisitionFailure is null
+                        ? PortablePdbExternalAcquisitionOutcome.Unavailable
+                        : PortablePdbExternalAcquisitionOutcome.Failed;
             }
         }
     }
@@ -186,6 +188,16 @@ public enum PortablePdbStoreFailureKind
     PublicationNotRetained,
 }
 
+/// <summary>Why an external PDB provider could not produce usable content.</summary>
+public enum PortablePdbAcquisitionFailureKind
+{
+    /// <summary>
+    /// A provider request or exact-identity response failed rather than
+    /// establishing definitive absence.
+    /// </summary>
+    ExternalProviderFailed,
+}
+
 /// <summary>
 /// Repeatable access to one acquired Portable PDB payload.
 /// </summary>
@@ -246,21 +258,27 @@ public abstract record PortablePdbAcquisitionResult
 {
     private protected PortablePdbAcquisitionResult(
         bool windowsPdbDetected,
-        PortablePdbStoreFailureKind? storeFailure)
+        PortablePdbStoreFailureKind? storeFailure,
+        PortablePdbAcquisitionFailureKind? acquisitionFailure)
     {
         WindowsPdbDetected = windowsPdbDetected;
         StoreFailure = storeFailure;
+        AcquisitionFailure = acquisitionFailure;
     }
 
     public bool WindowsPdbDetected { get; }
     public PortablePdbStoreFailureKind? StoreFailure { get; }
+    public PortablePdbAcquisitionFailureKind? AcquisitionFailure { get; }
 
     public sealed record Acquired : PortablePdbAcquisitionResult
     {
         internal Acquired(
             AcquiredPortablePdb pdb,
             bool windowsPdbDetected)
-            : base(windowsPdbDetected, storeFailure: null)
+            : base(
+                windowsPdbDetected,
+                storeFailure: null,
+                acquisitionFailure: null)
             => Pdb = pdb;
 
         public AcquiredPortablePdb Pdb { get; }
@@ -270,8 +288,12 @@ public abstract record PortablePdbAcquisitionResult
     {
         internal Unavailable(
             bool windowsPdbDetected,
-            PortablePdbStoreFailureKind? storeFailure = null)
-            : base(windowsPdbDetected, storeFailure)
+            PortablePdbStoreFailureKind? storeFailure = null,
+            PortablePdbAcquisitionFailureKind? acquisitionFailure = null)
+            : base(
+                windowsPdbDetected,
+                storeFailure,
+                acquisitionFailure)
         {
         }
     }
@@ -457,6 +479,7 @@ public partial class SymbolPackageDownloader
         cancellationToken.ThrowIfCancellationRequested();
         bool windowsPdbDetected = false;
         PortablePdbStoreFailureKind? storeFailure = null;
+        PortablePdbAcquisitionFailureKind? acquisitionFailure = null;
 
         pdbFileName = GetSymbolFileName(pdbFileName);
         // The PDB file name comes from untrusted PE debug metadata. Only the
@@ -504,6 +527,7 @@ public partial class SymbolPackageDownloader
             if (msdlResult.WindowsPdbDetected)
                 windowsPdbDetected = true;
             storeFailure ??= msdlResult.StoreFailure;
+            acquisitionFailure ??= msdlResult.AcquisitionFailure;
         }
 
         // Try downloading symbol package (.snupkg)
@@ -529,6 +553,7 @@ public partial class SymbolPackageDownloader
             if (snupkgResult.WindowsPdbDetected)
                 windowsPdbDetected = true;
             storeFailure ??= snupkgResult.StoreFailure;
+            acquisitionFailure ??= snupkgResult.AcquisitionFailure;
         }
 
         // Try NuGet symbol server, then MSDL as fallback (for non-Microsoft packages)
@@ -549,13 +574,25 @@ public partial class SymbolPackageDownloader
             if (symbolResult.WindowsPdbDetected)
                 windowsPdbDetected = true;
             storeFailure ??= symbolResult.StoreFailure;
+            acquisitionFailure ??= symbolResult.AcquisitionFailure;
         }
 
         log?.Invoke(cacheOnly ? "No cached Portable PDB available" : "No Portable PDB available");
         return new PortablePdbAcquisitionResult.Unavailable(
             windowsPdbDetected,
-            storeFailure);
+            storeFailure,
+            acquisitionFailure);
     }
+
+    private static PortablePdbAcquisitionFailureKind?
+        ClassifyProviderFailure(
+            HttpRetryHelper.HttpBodyFetchResult result)
+        => result.Status
+                == HttpRetryHelper.HttpBodyFetchStatus.Unavailable
+            && result.StatusCode == HttpStatusCode.NotFound
+                ? null
+                : PortablePdbAcquisitionFailureKind
+                    .ExternalProviderFailed;
 
     /// <summary>
     /// Downloads a PDB file and returns its path on disk. This compatibility

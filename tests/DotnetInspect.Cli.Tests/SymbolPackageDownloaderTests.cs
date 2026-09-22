@@ -315,10 +315,51 @@ public class SymbolPackageDownloaderTests : IDisposable
                 cancellationToken:
                     TestContext.Current.CancellationToken);
 
-        Assert.IsType<PortablePdbAcquisitionResult.Unavailable>(result);
+        var unavailable =
+            Assert.IsType<
+                PortablePdbAcquisitionResult.Unavailable>(
+                    result);
+        Assert.Equal(
+            PortablePdbAcquisitionFailureKind.ExternalProviderFailed,
+            unavailable.AcquisitionFailure);
         Assert.Contains(
             failures.Failures,
             failure => failure.Status == HttpStatusCode.OK);
+    }
+
+    [Fact]
+    public async Task AcquirePdbAsync_OperationalProviderFailureIsTyped()
+    {
+        var handler =
+            new CountingHandler(
+                _ => new HttpResponseMessage(
+                    HttpStatusCode.Forbidden));
+        using var client = new HttpClient(handler);
+        var downloader =
+            new SymbolPackageDownloader(
+                client,
+                new InMemoryPdbStore());
+
+        PortablePdbAcquisitionResult result =
+            await downloader.AcquirePdbAsync(
+                Guid.NewGuid(),
+                pdbAge: 1,
+                pdbFileName: "Example.pdb",
+                isPortable: true,
+                assemblyName: "Example",
+                packageName: "Example.Package",
+                packageVersion: "1.0.0",
+                cancellationToken:
+                    TestContext.Current.CancellationToken);
+
+        var unavailable =
+            Assert.IsType<
+                PortablePdbAcquisitionResult.Unavailable>(
+                    result);
+        Assert.Equal(
+            PortablePdbAcquisitionFailureKind
+                .ExternalProviderFailed,
+            unavailable.AcquisitionFailure);
     }
 
     [Theory]
@@ -368,7 +409,13 @@ public class SymbolPackageDownloaderTests : IDisposable
                 cancellationToken:
                     TestContext.Current.CancellationToken);
 
-        Assert.IsType<PortablePdbAcquisitionResult.Unavailable>(result);
+        var unavailable =
+            Assert.IsType<
+                PortablePdbAcquisitionResult.Unavailable>(
+                    result);
+        Assert.Equal(
+            PortablePdbAcquisitionFailureKind.ExternalProviderFailed,
+            unavailable.AcquisitionFailure);
         Assert.Contains(
             failures.Failures,
             failure => failure.Status == HttpStatusCode.OK);
@@ -413,7 +460,11 @@ public class SymbolPackageDownloaderTests : IDisposable
                 cancellationToken:
                     TestContext.Current.CancellationToken);
 
-        Assert.IsType<PortablePdbAcquisitionResult.Unavailable>(result);
+        var unavailable =
+            Assert.IsType<
+                PortablePdbAcquisitionResult.Unavailable>(
+                    result);
+        Assert.Null(unavailable.AcquisitionFailure);
         Assert.Empty(failures.Failures);
     }
 
@@ -455,7 +506,13 @@ public class SymbolPackageDownloaderTests : IDisposable
                 cancellationToken:
                     TestContext.Current.CancellationToken);
 
-        Assert.IsType<PortablePdbAcquisitionResult.Unavailable>(result);
+        var unavailable =
+            Assert.IsType<
+                PortablePdbAcquisitionResult.Unavailable>(
+                    result);
+        Assert.Equal(
+            PortablePdbAcquisitionFailureKind.ExternalProviderFailed,
+            unavailable.AcquisitionFailure);
         Assert.Contains(
             failures.Failures,
             failure => failure.Status == HttpStatusCode.OK);

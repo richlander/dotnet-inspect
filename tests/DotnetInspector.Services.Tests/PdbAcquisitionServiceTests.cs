@@ -339,6 +339,59 @@ public class PdbAcquisitionServiceTests
     }
 
     [Fact]
+    public async Task PathlessParticipant_ProviderFailureIsVisible()
+    {
+        var (assembly, _) = CreateTestAssembly(
+            AssemblyResolutionProvenance.Package(
+                "Example.Symbols",
+                "1.0.0",
+                "net10.0",
+                rid: null));
+        using var source = SourceLinkService.Open(assembly);
+        using var client =
+            new HttpClient(
+                new SymbolPackageHandler(
+                    new byte[65]));
+        var evidence =
+            new PortablePdbAcquisitionEvidenceCollector();
+
+        PdbExternalAcquisitionException exception =
+            await Assert.ThrowsAsync<
+                PdbExternalAcquisitionException>(
+            () => PdbAcquisitionService.AcquireAsync(
+                source.Context,
+                assembly,
+                client,
+                new InMemoryPdbStore(),
+                new UniformPackageSourceAuthorization(
+                    [NuGetFetch.PackageSource.NuGetOrg]),
+                log: null,
+                cancellationToken:
+                    TestContext.Current.CancellationToken,
+                limits:
+                    new SymbolAcquisitionLimits(
+                        maxSymbolPackageBytes: 64,
+                        maxPortablePdbBytes: 64,
+                        maxSymbolPackageEntries: 8),
+                evidence: evidence));
+
+        Assert.Equal(
+            PortablePdbAcquisitionFailureKind
+                .ExternalProviderFailed,
+            exception.AcquisitionFailure);
+        PortablePdbAcquisitionEvidenceDocument document =
+            evidence.ToDocument();
+        Assert.Equal(
+            PortablePdbExternalAcquisitionOutcome.Failed,
+            document.Outcome);
+        Assert.Contains(
+            document.NetworkAttempts,
+            attempt =>
+                attempt.Outcome
+                == PortablePdbNetworkAttemptOutcome.TooLarge);
+    }
+
+    [Fact]
     public async Task PathlessParticipant_StoreWriteFailureIsVisible()
     {
         string assemblyPath =

@@ -20,6 +20,7 @@ public partial class SymbolPackageDownloader
         using var trafficScope = NetworkTelemetry.Scope(NetworkTrafficKind.SymbolDownload);
         const string ServerHost = "msdl.microsoft.com";
         bool windowsPdbDetected = false;
+        PortablePdbAcquisitionFailureKind? acquisitionFailure = null;
 
         var cacheKey =
             GetSymbolServerCacheKey(
@@ -84,6 +85,8 @@ public partial class SymbolPackageDownloader
                     cancellationToken).ConfigureAwait(false);
             if (httpResult.Bytes is not { } pdbBytes)
             {
+                acquisitionFailure ??=
+                    ClassifyProviderFailure(httpResult);
                 CacheMissIfDefinitive(
                     url,
                     new HttpRetryHelper.HttpRetryResult(
@@ -98,11 +101,14 @@ public partial class SymbolPackageDownloader
                     log?.Invoke(
                         "MSDL PDB response exceeds the configured download limit.");
                 }
-                log?.Invoke("MSDL: symbol not found");
+                log?.Invoke(acquisitionFailure is null
+                    ? "MSDL: symbol not found"
+                    : "MSDL did not produce a usable PDB response");
                 return new PdbProbeResult(
                     null,
                     windowsPdbDetected,
-                    storeFailure);
+                    storeFailure,
+                    acquisitionFailure);
             }
 
             using var content =
@@ -181,6 +187,9 @@ public partial class SymbolPackageDownloader
             }
             else
             {
+                acquisitionFailure ??=
+                    PortablePdbAcquisitionFailureKind
+                        .ExternalProviderFailed;
                 FeedFailureRecorder.Record(url, HttpStatusCode.OK);
                 log?.Invoke("MSDL returned an invalid or mismatched Portable PDB");
             }
@@ -191,6 +200,9 @@ public partial class SymbolPackageDownloader
         }
         catch (Exception ex) when (!storeOperation)
         {
+            acquisitionFailure ??=
+                PortablePdbAcquisitionFailureKind
+                    .ExternalProviderFailed;
             FeedFailureRecorder.Record(url, status: null);
             log?.Invoke($"MSDL error: {ex.Message}");
         }
@@ -198,7 +210,8 @@ public partial class SymbolPackageDownloader
         return new PdbProbeResult(
             null,
             windowsPdbDetected,
-            storeFailure);
+            storeFailure,
+            acquisitionFailure);
     }
 
     private async Task<PdbProbeResult> TryLocateFromSymbolServerAsync(
@@ -216,6 +229,7 @@ public partial class SymbolPackageDownloader
         using var trafficScope = NetworkTelemetry.Scope(NetworkTrafficKind.SymbolDownload);
         bool windowsPdbDetected = false;
         PortablePdbStoreFailureKind? storeFailure = null;
+        PortablePdbAcquisitionFailureKind? acquisitionFailure = null;
 
         var symbolServers = new[]
         {
@@ -290,6 +304,8 @@ public partial class SymbolPackageDownloader
                         cancellationToken).ConfigureAwait(false);
                 if (httpResult.Bytes is not { } pdbBytes)
                 {
+                    acquisitionFailure ??=
+                        ClassifyProviderFailure(httpResult);
                     CacheMissIfDefinitive(
                         url,
                         new HttpRetryHelper.HttpRetryResult(
@@ -379,6 +395,9 @@ public partial class SymbolPackageDownloader
                 }
                 else
                 {
+                    acquisitionFailure ??=
+                        PortablePdbAcquisitionFailureKind
+                            .ExternalProviderFailed;
                     FeedFailureRecorder.Record(url, HttpStatusCode.OK);
                     log?.Invoke(
                         "Symbol server returned an invalid or mismatched Portable PDB");
@@ -390,6 +409,9 @@ public partial class SymbolPackageDownloader
             }
             catch (Exception ex) when (!storeOperation)
             {
+                acquisitionFailure ??=
+                    PortablePdbAcquisitionFailureKind
+                        .ExternalProviderFailed;
                 FeedFailureRecorder.Record(url, status: null);
                 log?.Invoke($"Symbol server error: {ex.Message}");
             }
@@ -398,7 +420,8 @@ public partial class SymbolPackageDownloader
         return new PdbProbeResult(
             null,
             windowsPdbDetected,
-            storeFailure);
+            storeFailure,
+            acquisitionFailure);
     }
 
     private static string GetSymbolServerCacheKey(
