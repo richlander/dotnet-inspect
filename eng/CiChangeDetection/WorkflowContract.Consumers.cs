@@ -305,6 +305,10 @@ internal static partial class WorkflowContract
             "run",
             "dotnet build dotnet-inspect.slnx -c Release",
             "jobs.dependency-policy Build step");
+        RequireRepositoryRootWorkingDirectory(
+            job,
+            build,
+            "jobs.dependency-policy Build step");
 
         YamlMappingNode validate = RequireMapping(
             steps.Children[4],
@@ -318,6 +322,10 @@ internal static partial class WorkflowContract
             validate,
             "run",
             "dotnet run --project eng/DependencyPolicy -c Release --no-build",
+            "jobs.dependency-policy Validate dependency policy step");
+        RequireRepositoryRootWorkingDirectory(
+            job,
+            validate,
             "jobs.dependency-policy Validate dependency policy step");
     }
 
@@ -408,6 +416,10 @@ internal static partial class WorkflowContract
         {
             return true;
         }
+        if (value.StartsWith('/', StringComparison.Ordinal))
+        {
+            return false;
+        }
 
         string[] segments = value.Split(
             '/',
@@ -479,16 +491,22 @@ internal static partial class WorkflowContract
 
         foreach (string jobName in jobNames)
         {
+            YamlMappingNode job = GetRequiredMapping(
+                jobs,
+                jobName,
+                "jobs");
             YamlSequenceNode steps = GetRequiredSequence(
-                GetRequiredMapping(jobs, jobName, "jobs"),
+                job,
                 "steps",
                 $"jobs.{jobName}");
             var identities = new HashSet<string>(StringComparer.Ordinal);
+            bool hasRunStep = false;
             foreach (YamlNode stepNode in steps.Children)
             {
                 YamlMappingNode step = RequireMapping(
                     stepNode,
                     $"jobs.{jobName} step");
+                hasRunStep |= TryGetNode(step, "run", out _);
                 string? identity = GetOptionalScalar(step, "name") ??
                     GetOptionalScalar(step, "uses");
                 if (identity is null || !identities.Add(identity))
@@ -547,6 +565,13 @@ internal static partial class WorkflowContract
                     seenContinueOnError.Add(key);
                 }
             }
+            if (hasRunStep)
+            {
+                RequireAbsentFromRunDefaults(
+                    job,
+                    "shell",
+                    $"jobs.{jobName}");
+            }
         }
 
         RequireSeenExactly(
@@ -573,6 +598,30 @@ internal static partial class WorkflowContract
             seenTestShards,
             TestShards,
             "test shard step guards");
+    }
+
+    private static void RequireAbsentFromRunDefaults(
+        YamlMappingNode job,
+        string property,
+        string context)
+    {
+        if (!TryGetNode(job, "defaults", out YamlNode defaultsNode))
+        {
+            return;
+        }
+
+        YamlMappingNode defaults = RequireMapping(
+            defaultsNode,
+            $"{context}.defaults");
+        if (!TryGetNode(defaults, "run", out YamlNode runNode))
+        {
+            return;
+        }
+
+        RequireAbsent(
+            RequireMapping(runNode, $"{context}.defaults.run"),
+            property,
+            $"{context}.defaults.run");
     }
 
     private static void ValidateTestStepGuard(
