@@ -71,7 +71,7 @@ public partial class PackageCommand
             || string.Equals(requestedVersion, "latest", StringComparison.OrdinalIgnoreCase));
         bool pinned = !isRange && !latest
             && !string.IsNullOrEmpty(requestedVersion)
-            && HasSemanticSingleVersionLimit(options.VersionRowSelection);
+            && (options.Limit == 1 || HasSemanticSingleVersionLimit(options.VersionRowSelection));
         bool ordinaryListing = !pinned && !options.SingleVersionQuery;
         NuGet.Versioning.NuGetVersion? pinnedVersion = null;
         if (pinned && !NuGet.Versioning.NuGetVersion.TryParse(requestedVersion, out pinnedVersion))
