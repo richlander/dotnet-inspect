@@ -408,6 +408,9 @@ test("source-bearing Workspace URLs use page-session retained activation", () =>
     /restoreRollback: restoreWorkspaceFeedRollback[\s\S]*async function restoreWorkspaceFeedRollback\([\s\S]*isCurrent: \(\) => boolean[\s\S]*reactivateRetainedDefinition\([\s\S]*isCurrent,[\s\S]*if \(!isCurrent\(\)\)[\s\S]*snapshot\.activeRetainedWorkspacePosting = posting;[\s\S]*snapshot\.retainedWorkspaceInitialDetailAuthority = null;[\s\S]*restoreCanonicalWorkspaceRestoreSnapshot\(snapshot\)/);
   assert.match(
     appSource,
+    /reportBlockingFailure\(message, retry\) \{[\s\S]*clearWorkspacePackages\(\);[\s\S]*activeRetainedWorkspacePosting = null;[\s\S]*state\.workspaceFeedUrl = null;[\s\S]*state\.errorTitle = "Workspace recovery failed";[\s\S]*state\.retryAction = retry;[\s\S]*render\(\{ synchronizeUrl: false \}\)/);
+  assert.match(
+    appSource,
     /function clearWorkspaceFeedIdentity\(\): void \{[\s\S]*workspaceFeedActivation\?\.ownsRetainedDefinition\([\s\S]*activeRetainedWorkspacePosting = null;[\s\S]*retainedWorkspacePresentation = null;[\s\S]*workspaceFeedActivation\?\.clearActiveUrl\(\)/);
   assert.match(
     appSource,
@@ -415,6 +418,9 @@ test("source-bearing Workspace URLs use page-session retained activation", () =>
   assert.match(
     appSource,
     /function captureWorkspaceNavigationRollback\(\):[\s\S]*workspaceFeedActivation\?\.transferCommittedRollback\(\)[\s\S]*workspaceFeedRollbackTransfers\.set\(transfer\.snapshot, transfer\);[\s\S]*return transfer\.snapshot;[\s\S]*async function restoreWorkspaceNavigationRollback\([\s\S]*await transfer\.restore\(\)/);
+  assert.match(
+    appSource,
+    /function cancelPendingWorkspaceConstruction\(\): void \{[\s\S]*workspaceFeedRollbackTransfers\.get\([\s\S]*pending\.supersessionSnapshot[\s\S]*const successor = transfer\.transfer\(\);[\s\S]*workspaceFeedRollbackTransfer = successor;[\s\S]*return;/);
   assert.match(
     appSource,
     /function activateRetainedWorkspaceProjection\([\s\S]*workspaceFeedActivation\?\.transferCommittedRollback\(\)[\s\S]*cloneCanonicalWorkspaceSnapshotForRetention\([\s\S]*sourceRollbackTransfer\.snapshot[\s\S]*restoreRetainedWorkspaceSnapshot\([\s\S]*retainedWorkspaces = transition\.collection;[\s\S]*workspaceFeedActivation\?\.clearActiveUrl\(\)/);
@@ -1188,7 +1194,7 @@ test("Package query and Activity are routed Spotlight actions", () => {
     /@media \(max-width: 860px\) \{\s*body\.package-query-route,\s*body\.package-activity-route \{ min-width: 0; \}/);
   assert.match(
     handoff,
-    /if \(!canPublishRetainedWorkspace\(\)\)[\s\S]*packageQueryController\.cancel\(\);\s*packageChangesController\.cancel\("disposed"\);\s*discardPackageQueryTermEditors\(\);\s*state\.packageQueryOpen = false;\s*const navigationSeq = navigationSequence\.begin\(\);\s*const \{ rollbackSnapshot, retainedSnapshot \} =\s*captureWorkspaceConstructionSnapshots\(navigationSeq\);\s*prepareUnpublishedWorkspace\(\);[\s\S]*await loadPackage\([\s\S]*deferWorkspacePublication: true,[\s\S]*if \(!navigationSequence\.isCurrent\(navigationSeq\)\) \{[\s\S]*return;\s*\}[\s\S]*packageQueryHandoffNavigationSeq = null;[\s\S]*destination = \(await buildStateUrl\(\)\)\.toString\(\);[\s\S]*await restoreWorkspaceNavigationRollback\(rollbackSnapshot\);[\s\S]*discardPendingWorkspaceConstruction\(\);[\s\S]*state\.packageQueryOpen = true;[\s\S]*return;[\s\S]*publishCurrentWorkspace\(retainedSnapshot\);\s*workspaceLocation\.push\(destination\)/);
+    /if \(!canPublishRetainedWorkspace\(\)\)[\s\S]*packageQueryController\.cancel\(\);\s*packageChangesController\.cancel\("disposed"\);\s*discardPackageQueryTermEditors\(\);\s*state\.packageQueryOpen = false;\s*const navigationSeq = navigationSequence\.begin\(\);\s*const \{ rollbackSnapshot, retainedSnapshot \} =\s*captureWorkspaceConstructionSnapshots\(navigationSeq\);\s*prepareUnpublishedWorkspace\(\);[\s\S]*await loadPackage\([\s\S]*deferWorkspacePublication: true,[\s\S]*if \(!navigationSequence\.isCurrent\(navigationSeq\)\) \{[\s\S]*return;\s*\}[\s\S]*packageQueryHandoffNavigationSeq = null;[\s\S]*destination = \(await buildStateUrl\(\)\)\.toString\(\);[\s\S]*if \(!await restoreWorkspaceNavigationRollback\(rollbackSnapshot\)\) return;[\s\S]*discardPendingWorkspaceConstruction\(\);[\s\S]*state\.packageQueryOpen = true;[\s\S]*return;[\s\S]*publishCurrentWorkspace\(retainedSnapshot\);\s*workspaceLocation\.push\(destination\)/);
   assert.match(
     syncUrl,
     /function syncUrl\(\) \{\s*if \(activeRetainedWorkspacePosting !== null\) return;\s*if \(currentPackageQueryHandoff\(\)\) return;\s*if \(pendingDemoNavigation[\s\S]*navigationSequence\.isCurrent\(pendingDemoNavigation\.navigationSeq\)\) return;\s*if \(pendingWorkspaceConstruction[\s\S]*pendingWorkspaceConstruction\.navigationSeq\)\) return;\s*if \(workspaceFeedActivation\?\.blocksUrlSynchronization\) return;\s*if \(retainFailedWorkspaceUrl\(\)\) return;/);

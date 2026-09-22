@@ -1204,7 +1204,10 @@ responsibility from the source coordinator before successor work can yield; the
 coordinator then cannot apply a late rollback to shared application state.
 Successor failure uses that responsibility to reactivate managed authority and
 install its fresh posting before exposing the restored incumbent, while
-successful commit retires the prior source identity.
+successful commit retires the prior source identity. A later successor claims
+the same responsibility before cancelling an earlier construction or recovery;
+the revoked owner settles without changing presentation, pending state, or the
+committed successor.
 URL synchronization remains blocked while the tentative projection owns
 visible state even after another navigation becomes current. An identical active
 definition may reuse its posting only after that posting completed consumer
@@ -1237,7 +1240,10 @@ cannot dismiss the blocking rollback merely by changing navigation identity.
 If incumbent reactivation fails, the credential prompt remains non-dismissible
 and the tentative Workspace remains inert until credential retry or a
 superseding navigation claims the rollback. Dismissing an error therefore
-cannot expose a Workspace that failed consumer completion.
+cannot expose a Workspace that failed consumer completion. Anonymous
+activation has no credential prompt, so the host replaces the tentative
+projection with a blocking recovery error and explicit retry rather than
+leaving failed Package or Platform rows interactive.
 
 Browser/Wasm supports anonymous sources and explicit page-session credentials.
 It cannot launch a NuGet credential-provider plugin, so an

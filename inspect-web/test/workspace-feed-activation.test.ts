@@ -533,6 +533,9 @@ function createCoordinatorHarness(
     reportFailure(message) {
       failure = message;
     },
+    reportBlockingFailure(message) {
+      failure = message;
+    },
     reportPredecessorFailure(error) {
       assert.fail(String(error));
     },
@@ -915,6 +918,59 @@ test("failed rollback recovery remains blocking through a source successor", asy
   }
 });
 
+test("anonymous recovery failure uses the blocking host failure path", async () => {
+  const events: string[] = [];
+  const client = createWorkspaceTestClient(events);
+  const controller = createRetainedWorkspaceActivationController(client, {
+    post() {},
+    clear() {},
+    predecessorSettled() {},
+    predecessorObservationFailed() {},
+  });
+  const incumbent = controller.retain({
+    label: "Incumbent",
+    canonicalLocation: "https://example.test/?w=incumbent",
+    canonicalPacket: "incumbent",
+  });
+  await controller.activate(incumbent.id);
+  const completeActivation =
+    client.completeRetainedWorkspaceActivation.bind(client);
+  let failNextSuccessfulCompletion = true;
+  client.completeRetainedWorkspaceActivation = async (
+    receipt,
+    succeeded,
+    failure,
+  ) => {
+    if (succeeded && failNextSuccessfulCompletion) {
+      failNextSuccessfulCompletion = false;
+      throw new Error("Consumer completion delivery failed.");
+    }
+    return completeActivation(receipt, succeeded, failure);
+  };
+  const harness = createCoordinatorHarness(
+    client,
+    events,
+    "incumbent",
+    controller,
+    () => {
+      throw new Error("The incumbent source is unavailable.");
+    });
+
+  assert.equal(
+    await harness.coordinator.tryOpen(
+      new URL("https://example.test/?w=anonymous"),
+      harness.sequence,
+      true),
+    true);
+  assert.match(
+    harness.failure ?? "",
+    /prior Workspace could not be restored.*incumbent source is unavailable/i);
+  assert.equal(harness.coordinator.blocksUrlSynchronization, true);
+  assert.equal(
+    harness.coordinator.captureCommittedRollback(),
+    "incumbent");
+});
+
 test("credential prompt names endpoints without retaining credential fields", () => {
   const html = workspaceCredentialPromptHtml({
     requirements: [{
@@ -1175,6 +1231,9 @@ test("anonymous source activation publishes before committing browser history", 
       events.push("push");
     },
     reportFailure(message) {
+      assert.fail(message);
+    },
+    reportBlockingFailure(message) {
       assert.fail(message);
     },
     reportPredecessorFailure(error) {

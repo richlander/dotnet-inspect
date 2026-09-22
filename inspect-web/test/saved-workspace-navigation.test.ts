@@ -127,6 +127,7 @@ const hostNames = new Set([
   "commitDemoNavigation", "cancelDemoNavigation", "commitRestoredWorkspaceNavigation",
   "captureCanonicalWorkspaceRestoreSnapshot", "restoreCanonicalWorkspaceRestoreSnapshot",
   "captureWorkspaceNavigationRollback", "restoreWorkspaceNavigationRollback",
+  "recoverWorkspaceNavigationRollback",
   "openFreshWorkspaceLink",
   "captureCanonicalWorkspaceUrl", "projectCurrentWorkspaceUrl",
   "normalizeWorkspaceAsyncSnapshotState", "settleInterruptedPlatformStatus",
@@ -544,6 +545,7 @@ function harness() {
     activeWorkspaceUrl: null as string | null,
     workspaceFeedActivation: null,
     workspaceFeedRollbackTransfers: new WeakMap(),
+    workspaceFeedRollbackTransfer: null,
     failedWorkspaceUrlState: null, spotlightCache: null as object | null,
     platformLibraryRetry: null, platformCatalogRetry: null,
     spotlightMemberCache: null as object | null,
@@ -1456,6 +1458,9 @@ test("failed ordinary navigation restores the committed source incumbent", async
       captureCommittedRollback: () => committed,
       transferCommittedRollback: () => ({
         snapshot: committed,
+        transfer() {
+          return this;
+        },
         async restore() {
           managedDefinition = "source-A";
           runInNewContext(
@@ -1489,6 +1494,194 @@ test("failed ordinary navigation restores the committed source incumbent", async
   assert.equal(managedDefinition, "source-A");
 });
 
+test("a committed ordinary successor revokes inherited recovery without mutation", async () => {
+  const h = harness();
+  const committed: unknown = runInNewContext(
+    "captureCanonicalWorkspaceRestoreSnapshot()",
+    h.context);
+  const recoveryEntered = deferred<void>();
+  const releaseRecovery = deferred<void>();
+  let owner = 0;
+  let retired = false;
+  let latest: {
+    readonly snapshot: unknown;
+    transfer(): typeof latest | null;
+    restore(): Promise<boolean>;
+    release(): void;
+  };
+
+  function issue() {
+    const issuedOwner = ++owner;
+    latest = {
+      snapshot: committed,
+      transfer() {
+        if (retired || owner !== issuedOwner) return null;
+        return issue();
+      },
+      async restore() {
+        recoveryEntered.resolve();
+        await releaseRecovery.promise;
+        if (retired || owner !== issuedOwner) return false;
+        runInNewContext(
+          "restoreCanonicalWorkspaceRestoreSnapshot(snapshot)",
+          { ...h.context, snapshot: committed });
+        return true;
+      },
+      release() {
+        if (owner !== issuedOwner) return;
+        retired = true;
+      },
+    };
+    return latest;
+  }
+
+  let initial = true;
+  const loadPackage = h.context.loadPackage;
+  Object.assign(h.context, {
+    workspaceFeedActivation: {
+      transferCommittedRollback() {
+        if (!initial) return null;
+        initial = false;
+        return issue();
+      },
+      clearActiveUrl() {
+        latest.release();
+      },
+    },
+    focusWorkbenchSearchOrHeading: () => true,
+  });
+  h.context.loadPackage = async () => null;
+  const failedLoc = parseWorkspaceLocation(
+    new URL(
+      "https://inspect.test/?package=Missing.C"
+      + "&version=1.0.0&framework=net10.0#pkg"),
+    () => assert.fail("An ordinary URL must not decode a Workspace packet."));
+  const failedSeq = h.navigationSequence.begin();
+  Object.assign(h.context, {
+    loc: failedLoc,
+    navigationSeq: failedSeq,
+  });
+  await runInNewContext(
+    "openFreshWorkspaceLink(loc, navigationSeq)",
+    h.context);
+  await recoveryEntered.promise;
+
+  h.controls.acquisition = async () => true;
+  h.context.loadPackage = loadPackage;
+  const committedLoc = parseWorkspaceLocation(
+    new URL(
+      "https://inspect.test/?package=Committed.D"
+      + "&version=1.0.0&framework=net10.0#pkg"),
+    () => assert.fail("An ordinary URL must not decode a Workspace packet."));
+  const committedSeq = h.navigationSequence.begin();
+  Object.assign(h.context, {
+    loc: committedLoc,
+    navigationSeq: committedSeq,
+  });
+  await runInNewContext(
+    "openFreshWorkspaceLink(loc, navigationSeq)",
+    h.context);
+  assert.equal(h.state.package?.id, "Committed.D");
+
+  releaseRecovery.resolve();
+  await h.settle();
+  assert.equal(h.state.package?.id, "Committed.D");
+  assert.equal(h.state.error, "");
+  assert.notEqual(h.state.errorTitle, "Workspace recovery failed");
+});
+
+test("ordinary successors inherit pending managed recovery until one restores it", async () => {
+  const h = harness();
+  const committed: unknown = runInNewContext(
+    "captureCanonicalWorkspaceRestoreSnapshot()",
+    h.context);
+  const entered = [deferred<void>(), deferred<void>()];
+  const releases = [deferred<void>(), deferred<void>()];
+  let restoreAttempt = 0;
+  let owner = 0;
+
+  function issue(): {
+    readonly snapshot: unknown;
+    transfer(): ReturnType<typeof issue> | null;
+    restore(): Promise<boolean>;
+    release(): void;
+  } {
+    const issuedOwner = ++owner;
+    return {
+      snapshot: committed,
+      transfer() {
+        if (owner !== issuedOwner) return null;
+        return issue();
+      },
+      async restore() {
+        const attempt = restoreAttempt++;
+        entered[attempt]!.resolve();
+        await releases[attempt]!.promise;
+        if (owner !== issuedOwner) return false;
+        runInNewContext(
+          "restoreCanonicalWorkspaceRestoreSnapshot(snapshot)",
+          { ...h.context, snapshot: committed });
+        return true;
+      },
+      release() {},
+    };
+  }
+
+  let initial = true;
+  Object.assign(h.context, {
+    workspaceFeedActivation: {
+      transferCommittedRollback() {
+        if (!initial) return null;
+        initial = false;
+        return issue();
+      },
+      clearActiveUrl() {},
+    },
+    focusWorkbenchSearchOrHeading: () => true,
+    loadPackage: async () => null,
+  });
+  const loc = (id: string) => parseWorkspaceLocation(
+    new URL(
+      `https://inspect.test/?package=${id}`
+      + "&version=1.0.0&framework=net10.0#pkg"),
+    () => assert.fail("An ordinary URL must not decode a Workspace packet."));
+
+  const firstSeq = h.navigationSequence.begin();
+  Object.assign(h.context, {
+    loc: loc("Missing.C"),
+    navigationSeq: firstSeq,
+  });
+  await runInNewContext(
+    "openFreshWorkspaceLink(loc, navigationSeq)",
+    h.context);
+  await entered[0]!.promise;
+
+  const secondSeq = h.navigationSequence.begin();
+  Object.assign(h.context, {
+    loc: loc("Missing.D"),
+    navigationSeq: secondSeq,
+  });
+  await runInNewContext(
+    "openFreshWorkspaceLink(loc, navigationSeq)",
+    h.context);
+  await entered[1]!.promise;
+  assert.equal(h.context.app.inert, true);
+  assert.equal(restoreAttempt, 2);
+
+  releases[1]!.resolve();
+  for (let index = 0; index < 5; index++) {
+    await new Promise<void>(resolve => setImmediate(resolve));
+  }
+  assert.equal(h.state.package?.id, sourcePackage.id);
+  assert.equal(h.context.app.inert, false);
+  assert.match(h.state.queryNotice, /Couldn’t load Missing.D/);
+
+  releases[0]!.resolve();
+  await h.settle();
+  assert.equal(h.state.package?.id, sourcePackage.id);
+  assert.notEqual(h.state.errorTitle, "Workspace recovery failed");
+});
+
 test("retained selection commits over a tentative source publication", () => {
   let collection = publishRetainedWorkspace(
     createRetainedWorkspaceCollection<string>(),
@@ -1519,6 +1712,9 @@ test("retained selection commits over a tentative source publication", () => {
         transferred = true;
         return {
           snapshot: "C",
+          transfer() {
+            return this;
+          },
           async restore() {
             visible = "C";
             return true;
@@ -1600,6 +1796,9 @@ test("successful ordinary navigation excludes a late source rollback", async () 
         transferred = true;
         return {
           snapshot: committed,
+          transfer() {
+            return this;
+          },
           async restore() {
             return true;
           },

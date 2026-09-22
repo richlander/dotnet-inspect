@@ -89,6 +89,7 @@ export interface WorkspaceFeedActivationDependencies<TRollback> {
   setLoading(): void;
   pushLocation(location: string): void;
   reportFailure(message: string, retry: () => void): void;
+  reportBlockingFailure(message: string, retry: () => void): void;
   reportPredecessorFailure(error: unknown): void;
   observe(promise: Promise<unknown>, label: string): void;
   errorMessage(error: unknown): string;
@@ -124,6 +125,7 @@ export interface WorkspaceFeedActivationCoordinator<TRollback = never> {
 
 export interface WorkspaceFeedRollbackTransfer<TRollback> {
   readonly snapshot: TRollback;
+  transfer(): WorkspaceFeedRollbackTransfer<TRollback> | null;
   restore(): Promise<boolean>;
   release(): void;
 }
@@ -621,15 +623,28 @@ export function createWorkspaceFeedActivationCoordinator<TRollback>(
       return false;
     } catch (error) {
       lastFailure = dependencies.errorMessage(error);
-      if (rollbackRestoration !== null) {
-        posted = null;
-        await restoreStagedRollback();
-      } else if (publicationAttempted
+      if (rollbackRestoration === null
+        && publicationAttempted
         && posted?.value.retainedDefinitionId === retainedDefinitionId
         && posted.navigationSequence === navigationSequence) {
         stageRollbackRestoration(retainedDefinitionId, navigationSequence);
+      }
+      if (rollbackRestoration !== null) {
         posted = null;
-        await restoreStagedRollback();
+        try {
+          await restoreStagedRollback();
+        } catch (recoveryError) {
+          if (!dependencies.isCurrent(navigationSequence)
+            || prompt !== null) {
+            return false;
+          }
+          dependencies.reportBlockingFailure(
+            `The prior Workspace could not be restored: ${
+              dependencies.errorMessage(recoveryError)
+            }`,
+            () => retry(canonicalLocation, commitHistory));
+          return false;
+        }
       } else if (!dependencies.isCurrent(navigationSequence)
         || prompt === null) {
         releaseRollback(retainedDefinitionId, navigationSequence);
@@ -815,27 +830,49 @@ export function createWorkspaceFeedActivationCoordinator<TRollback>(
     ownedRollback: RollbackState,
   ): WorkspaceFeedRollbackTransfer<TRollback> {
     const snapshot = dependencies.cloneRollback(ownedRollback.state);
-    let active = true;
-    const transfer: WorkspaceFeedRollbackTransfer<TRollback> = {
-      snapshot,
-      async restore() {
-        if (!active) return false;
-        await dependencies.restoreRollback(snapshot, () => active);
-        if (!active) return false;
-        active = false;
-        rollbackTransfers.delete(transfer);
-        activeUrl = ownedRollback.sourceUrl;
-        return true;
-      },
-      release() {
-        if (!active) return;
-        active = false;
-        rollbackTransfers.delete(transfer);
-        dependencies.releaseRollback(snapshot);
-      },
-    };
-    rollbackTransfers.add(transfer);
-    return transfer;
+    let owner: symbol | null = null;
+    let retired = false;
+
+    function issue(): WorkspaceFeedRollbackTransfer<TRollback> {
+      const issuedOwner = Symbol("Workspace feed rollback owner");
+      owner = issuedOwner;
+      const transfer: WorkspaceFeedRollbackTransfer<TRollback> = {
+        snapshot,
+        transfer() {
+          if (retired || owner !== issuedOwner) return null;
+          rollbackTransfers.delete(transfer);
+          return issue();
+        },
+        async restore() {
+          if (retired || owner !== issuedOwner) return false;
+          try {
+            await dependencies.restoreRollback(
+              snapshot,
+              () => !retired && owner === issuedOwner);
+          } catch (error) {
+            if (retired || owner !== issuedOwner) return false;
+            throw error;
+          }
+          if (retired || owner !== issuedOwner) return false;
+          retired = true;
+          owner = null;
+          rollbackTransfers.delete(transfer);
+          activeUrl = ownedRollback.sourceUrl;
+          return true;
+        },
+        release() {
+          if (retired || owner !== issuedOwner) return;
+          retired = true;
+          owner = null;
+          rollbackTransfers.delete(transfer);
+          dependencies.releaseRollback(snapshot);
+        },
+      };
+      rollbackTransfers.add(transfer);
+      return transfer;
+    }
+
+    return issue();
   }
 
   return {
