@@ -136,6 +136,67 @@ public class ApiSurfaceRelationshipFailureTests
     }
 
     [Fact]
+    public void CountSummaryTypes_CyclicTypeDeclinesWithoutPartialCount()
+    {
+        using var stream = new MemoryStream(BuildImage(
+            cyclicTypeName: "Rejected",
+            validTypeNames: ["Sibling"]));
+        using var peReader = new PEReader(stream);
+
+        Assert.IsType<ApiTypeInventoryCountResult.Declined>(
+            ApiSurfaceExtractor.CountSummaryTypes(peReader));
+    }
+
+    [Fact]
+    public void SummaryAndCount_InvalidGenericParameterOrderReject()
+    {
+        byte[] image = BuildImage(
+            cyclicTypeName: null,
+            validTypeNames: ["Generic"],
+            genericParameterIndex: 1);
+        using var summaryStream = new MemoryStream(image);
+        using var summaryReader = new PEReader(summaryStream);
+
+        ApiSurface summary =
+            ApiSurfaceExtractor.ExtractSummary(summaryReader);
+
+        Assert.Empty(summary.Types);
+        ApiSurfaceInspectionFailure failure =
+            Assert.Single(summary.InspectionFailures);
+        Assert.Equal("type summary row", failure.Operation);
+
+        using var countStream = new MemoryStream(image);
+        using var countReader = new PEReader(countStream);
+
+        var declined = Assert.IsType<
+            ApiTypeInventoryCountResult.Declined>(
+                ApiSurfaceExtractor.CountSummaryTypes(countReader));
+
+        Assert.Equal(
+            ApiTypeInventoryCountDeclineReason.MalformedTypeRow,
+            declined.Reason);
+    }
+
+    [Fact]
+    public void CountSummaryTypes_MissingMvidDeclines()
+    {
+        using var stream = new MemoryStream(BuildImage(
+            cyclicTypeName: null,
+            validTypeNames: ["Type"],
+            omitMvid: true));
+        using var peReader = new PEReader(stream);
+
+        var declined = Assert.IsType<
+            ApiTypeInventoryCountResult.Declined>(
+                ApiSurfaceExtractor.CountSummaryTypes(peReader));
+
+        Assert.Equal(
+            ApiTypeInventoryCountDeclineReason
+                .MissingModuleVersionId,
+            declined.Reason);
+    }
+
+    [Fact]
     public void BoundedApiSurface_RejectedIdentityDoesNotSpendTheTypeBudget()
     {
         using var stream = new MemoryStream(BuildImage(
@@ -290,13 +351,17 @@ public class ApiSurfaceRelationshipFailureTests
     static byte[] BuildImage(
         string? cyclicTypeName,
         IReadOnlyList<string> validTypeNames,
-        int cyclicTypeCount = 1)
+        int cyclicTypeCount = 1,
+        int? genericParameterIndex = null,
+        bool omitMvid = false)
     {
         var metadata = new MetadataBuilder();
         metadata.AddModule(
             generation: 0,
             moduleName: metadata.GetOrAddString("Synthetic.dll"),
-            mvid: metadata.GetOrAddGuid(Guid.NewGuid()),
+            mvid: omitMvid
+                ? default
+                : metadata.GetOrAddGuid(Guid.NewGuid()),
             encId: default,
             encBaseId: default);
         metadata.AddAssembly(
@@ -332,15 +397,27 @@ public class ApiSurfaceRelationshipFailureTests
             }
         }
 
+        TypeDefinitionHandle firstValidType = default;
         foreach (string name in validTypeNames)
         {
-            metadata.AddTypeDefinition(
+            TypeDefinitionHandle type =
+                metadata.AddTypeDefinition(
                 TypeAttributes.Public,
                 default,
                 metadata.GetOrAddString(name),
                 baseType: default,
                 fieldList: MetadataTokens.FieldDefinitionHandle(1),
                 methodList: MetadataTokens.MethodDefinitionHandle(1));
+            if (firstValidType.IsNil)
+                firstValidType = type;
+        }
+        if (genericParameterIndex is int genericIndex)
+        {
+            metadata.AddGenericParameter(
+                firstValidType,
+                GenericParameterAttributes.None,
+                metadata.GetOrAddString("T"),
+                genericIndex);
         }
 
         var pe = new ManagedPEBuilder(
