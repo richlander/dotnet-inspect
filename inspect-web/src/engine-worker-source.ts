@@ -275,11 +275,13 @@ export const engineWorkerTypeSourceValue: BoundedPayloadDecoder<BrowserTypeCodeV
       const inspection = dataRecord(ownData(candidate, "inspection"));
       if (inspection === null
         || !hasExactData(inspection, [
+          "resourcePath",
           "contentKind",
           "content",
           "portableProjection",
           "diagnostics",
         ])
+        || ownData(inspection, "resourcePath") !== "type-api-declarations"
         || ownData(inspection, "contentKind") !== "result") {
         return rejected("Expected a completed API Declarations inspection.");
       }

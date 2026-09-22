@@ -932,7 +932,7 @@ public sealed class ExactPackageWorkspaceRouteTests
             result.Output,
             StringComparison.Ordinal);
         Assert.Contains(
-            "--share is not projectable at package/lens",
+            "--share is not projectable at lens",
             result.Error,
             StringComparison.Ordinal);
     }

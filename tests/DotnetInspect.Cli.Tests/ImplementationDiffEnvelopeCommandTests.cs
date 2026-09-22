@@ -97,10 +97,17 @@ public sealed class ImplementationDiffEnvelopeCommandTests
                 && change.GetProperty("delta").GetInt32() == 1);
         Assert.Equal(
             "nonProjectable",
-            root.GetProperty("share").GetProperty("kind").GetString());
+            root.GetProperty("portable_projection")
+                .GetProperty("kind")
+                .GetString());
         Assert.Equal(
-            "comparison/endpoints",
-            root.GetProperty("share").GetProperty("path").GetString());
+            "endpoints",
+            root.GetProperty("portable_projection")
+                .GetProperty("location")
+                .GetString());
+        Assert.Equal(
+            "implementation-diff",
+            root.GetProperty("resource_path").GetString());
         Assert.Empty(root.GetProperty("diagnostics").EnumerateArray());
         Assert.DoesNotContain(
             FixtureCatalog.DiffPair.OldAssemblyPath(),

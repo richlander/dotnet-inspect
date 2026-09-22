@@ -362,7 +362,7 @@ public sealed class ExactTypeWorkspaceRouteTests
         Assert.Equal(1, exitCode);
         Assert.NotEmpty(output);
         Assert.Contains(
-            "--share is not projectable at type/query",
+            "--share is not projectable at query",
             error,
             StringComparison.Ordinal);
     }
@@ -516,7 +516,7 @@ public sealed class ExactTypeWorkspaceRouteTests
             output,
             StringComparison.Ordinal);
         Assert.Contains(
-            "--share is not projectable at type/query",
+            "--share is not projectable at query",
             error,
             StringComparison.Ordinal);
         Assert.DoesNotContain(
@@ -713,8 +713,7 @@ public sealed class ExactTypeWorkspaceRouteTests
         Assert.Equal(1, exitCode);
         Assert.Contains("Exact.Type.Good", output, StringComparison.Ordinal);
         Assert.Contains(
-            "--share is not projectable at "
-                + "selected-context-exact-type/incomplete",
+            "--share is not projectable at inspection",
             error,
             StringComparison.Ordinal);
         Assert.DoesNotContain(
