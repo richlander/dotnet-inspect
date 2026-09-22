@@ -3117,6 +3117,77 @@ kbd {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
 }
+.workspace-credential-dialog {
+  grid-template-rows: auto minmax(0, 1fr);
+}
+.workspace-credential-form {
+  display: grid;
+  gap: 14px;
+  padding: 16px;
+  overflow-y: auto;
+}
+.workspace-credential-form > p {
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.55;
+}
+.workspace-credential-source {
+  display: grid;
+  grid-template-columns: minmax(110px, auto) minmax(0, 1fr);
+  gap: 9px 12px;
+  margin: 0;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+}
+.workspace-credential-source legend {
+  max-width: 100%;
+  padding: 0 6px;
+  color: var(--text);
+  font: 11px/1.5 var(--mono);
+  overflow-wrap: anywhere;
+}
+.workspace-credential-source label {
+  align-self: center;
+  color: var(--muted);
+  font-size: 12px;
+}
+.workspace-credential-source input {
+  min-width: 0;
+  padding: 7px 9px;
+  border: 1px solid var(--line-strong);
+  border-radius: 4px;
+  background: var(--panel-raised);
+  color: var(--text);
+}
+.workspace-credential-source input:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.workspace-credential-error {
+  color: var(--red);
+}
+.workspace-credential-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+.workspace-credential-actions button {
+  padding: 7px 12px;
+  border: 1px solid var(--line-strong);
+  border-radius: 4px;
+  background: var(--panel-raised);
+  color: var(--text);
+  cursor: pointer;
+}
+.workspace-credential-actions button[type="submit"] {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+.workspace-credential-actions button:disabled {
+  cursor: progress;
+  opacity: 0.65;
+}
 .library-open-dialog { width: min(540px, 100%); }
 .library-open-body {
   min-height: 0;

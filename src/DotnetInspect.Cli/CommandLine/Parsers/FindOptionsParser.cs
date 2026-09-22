@@ -231,13 +231,26 @@ public static class FindOptionsParser
     /// <summary>
     /// Builds tips for successful find execution.
     /// </summary>
-    public static List<Tip> BuildTips(FindOptions options, string? pattern)
+    public static List<Tip> BuildTips(
+        FindOptions options,
+        string? pattern,
+        int? rowCount = null)
     {
         // In member mode, canonicalize the displayed pattern (strip the leading '.' sentinel per
         // segment, preserving .ctor/.cctor) and append --members so following a tip stays in the
         // member lens and the explicit-flag and leading-dot forms yield identical tips.
         var tipPattern = options.Members ? MemberTipPattern(pattern) : pattern;
         var memberFlag = options.Members ? " --members" : "";
+        List<Tip> packageDiscoveryTips =
+            rowCount == 0
+                && !options.Members
+                && (options.SourceSelection?.UsesImplicitPlatform
+                    ?? !options.HasAnyScope)
+                ? [new(
+                    "package query",
+                    pattern ?? "<ID-or-prefix*>",
+                    "discover package IDs; find searches API symbols")]
+                : [];
 
         var pkg = options.Packages.Length > 0 ? options.Packages[0] : null;
         if (pkg != null)
@@ -249,6 +262,7 @@ public static class FindOptionsParser
 
             return
             [
+                .. packageDiscoveryTips,
                 new(MemberCommand.Name, $"<TypeName> {pinnedSourceFlag} --library <LibraryName>", "inspect the type you found"),
                 new(FindCommand.Name, $"{tipPattern} {sourceFlag}{memberFlag} --table", "compact output"),
                 new(FindCommand.Name, $"{tipPattern} {sourceFlag}{memberFlag} -v:d", "detailed results")
@@ -257,6 +271,7 @@ public static class FindOptionsParser
 
         return
         [
+            .. packageDiscoveryTips,
             new(MemberCommand.Name, "<TypeName> --platform <LibraryName>", "inspect the type you found"),
             new(FindCommand.Name, $"{tipPattern} --platform{memberFlag} --table", "compact output"),
             new(FindCommand.Name, $"{tipPattern} --platform{memberFlag} -v:d", "detailed results")

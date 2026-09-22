@@ -174,6 +174,10 @@
   failed Content is emitted before a nonzero exit where available.
   Assembly-resolution provenance now serializes its actual typed kind rather
   than `{}` (#6719, #7117, #7126, #7474, #7537, #7575, #7644, #7667).
+- Adds `library <path> --envelope` for one exact direct-file Library overview
+  as a scalar `InspectionEnvelope<LibraryOverviewOutcome>`, with compact or
+  file JSON publication and pre-acquisition rejection of incompatible
+  section, row, and query controls (#8225).
 - **Breaking:** Positional `depends <type> --json` now emits shared camel-case
   `TypeDependencySectionResult` Content rather than the former presentation
   graph. Unprojected single-Library `diff --json` emits complete
