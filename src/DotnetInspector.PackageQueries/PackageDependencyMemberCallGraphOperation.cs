@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using System.Runtime.ExceptionServices;
 
 using DotnetInspector.Packages;
 using DotnetInspector.Platforms;
@@ -270,6 +271,7 @@ public static class PackageDependencyMemberCallGraphOperation
                 .ConfigureAwait(false);
 
         PackageRoleMemberCallGraphOutcome? graphOutcome = null;
+        ExceptionDispatchInfo? graphFailure = null;
         PackageRoleCleanupReport cleanup;
         PackageAssemblyContextProjection? projection = null;
         try
@@ -289,26 +291,37 @@ public static class PackageDependencyMemberCallGraphOperation
                 request.Graph,
                 cancellationToken);
         }
+        catch (Exception exception)
+        {
+            graphFailure = ExceptionDispatchInfo.Capture(exception);
+        }
         finally
         {
-            if (projection is not null)
+            try
             {
-                await projection.ReturnAsync()
+                if (projection is not null)
+                {
+                    await projection.ReturnAsync()
+                        .ConfigureAwait(false);
+                }
+            }
+            catch (Exception exception)
+            {
+                graphFailure ??=
+                    ExceptionDispatchInfo.Capture(exception);
+            }
+            finally
+            {
+                cleanup = await completion.CloseAsync()
                     .ConfigureAwait(false);
             }
-            cleanup = await completion.CloseAsync()
-                .ConfigureAwait(false);
         }
 
-        if (cleanup.Groups.Any(
-                static group =>
-                    group is PackageRoleGroupCleanupRecord.Failed))
+        PackageDependencyMemberCallGraphOutcome.Failed? cleanupFailure =
+            SettleGraphPhase(cleanup, graphFailure);
+        if (cleanupFailure is not null)
         {
-            return new PackageDependencyMemberCallGraphOutcome.Failed(
-                PackageDependencyMemberCallGraphFailureReason
-                    .PackageContextCleanupFailed,
-                "The package implementation context could not be released completely.",
-                Cleanup: cleanup);
+            return cleanupFailure;
         }
 
         cancellationToken.ThrowIfCancellationRequested();
@@ -332,6 +345,27 @@ public static class PackageDependencyMemberCallGraphOperation
             completedRoutes.Scope.Revision.Identity,
             DetachRoutes(completedRoutes),
             graph);
+    }
+
+    internal static PackageDependencyMemberCallGraphOutcome.Failed?
+        SettleGraphPhase(
+            PackageRoleCleanupReport cleanup,
+            ExceptionDispatchInfo? graphFailure)
+    {
+        ArgumentNullException.ThrowIfNull(cleanup);
+        if (cleanup.Groups.Any(
+                static group =>
+                    group is PackageRoleGroupCleanupRecord.Failed))
+        {
+            return new PackageDependencyMemberCallGraphOutcome.Failed(
+                PackageDependencyMemberCallGraphFailureReason
+                    .PackageContextCleanupFailed,
+                "The package implementation context could not be released completely.",
+                Cleanup: cleanup);
+        }
+
+        graphFailure?.Throw();
+        return null;
     }
 
     private static async ValueTask YieldAndObserveCancellationAsync(

@@ -227,7 +227,9 @@ or settlement objects.
 The operation returns success only after the projection has returned and the
 package-role completion reports successful release of every owned group.
 Cleanup failure is a visible operation failure, not a successful graph with a
-discarded diagnostic.
+discarded diagnostic. It remains authoritative when graph analysis also
+throws, including caller cancellation; the graph-phase exception is rethrown
+only after successful package-role cleanup.
 
 ## Failure algebra
 
@@ -282,7 +284,8 @@ Release gates cover:
    retaining dependency-internal continuation;
 11. route and graph evidence remain usable after source-operation and
    package-role cleanup;
-12. cleanup failure cannot return a success-shaped graph; and
+12. cleanup failure cannot return a success-shaped graph and remains
+    authoritative over simultaneous graph-phase cancellation; and
 13. existing edge realization, Workspace route, package-role, and ordinary
     call-graph behavior remain unchanged.
 
