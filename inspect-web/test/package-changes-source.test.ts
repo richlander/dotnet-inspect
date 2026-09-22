@@ -43,11 +43,12 @@ test("packageChangesPackageSets preserves product order and rejects reconstructe
 
 test("source drains nonterminal events in callback order before terminal success", async () => {
   const row = changeRow("Example.Package");
-  let requestJson = "";
+  let receivedRequest:
+    ReturnType<typeof createPackageChangesRequest> | null = null;
   const engine: BrowserPackageChangesEngine = {
     cancel() {},
-    async run(_operationId, json, sink) {
-      requestJson = json;
+    async run(_operationId, request, sink) {
+      receivedRequest = request;
       publish(sink, {
         kind: "Progress", progress, row: null, failure: null,
       });
@@ -85,7 +86,7 @@ test("source drains nonterminal events in callback order before terminal success
     "row:Example.Package",
     "failure:Advisory",
   ]);
-  assert.deepEqual(JSON.parse(requestJson), request);
+  assert.deepEqual(receivedRequest, request);
   assert.equal(result.kind, "succeeded");
 });
 

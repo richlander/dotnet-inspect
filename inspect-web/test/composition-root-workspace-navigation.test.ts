@@ -908,9 +908,9 @@ test("catalog rollback reacquires Workspace occurrences with current authority",
     ?? "";
   assert.match(
     ensureOccurrence,
-    /const signature = JSON\.stringify\(workspaceOccurrenceRequest\(\)\);\s*if \(state\.workspaceOccurrenceLoading\) return;\s*if \(signature === state\.workspaceOccurrenceSignature\) return;/);
+    /const request = workspaceOccurrenceRequest\(\);\s*const signature = JSON\.stringify\(request\);\s*if \(state\.workspaceOccurrenceLoading\) return;\s*if \(signature === state\.workspaceOccurrenceSignature\) return;[\s\S]*queryWorkspaceOccurrenceView\(request, signature\)/);
   const occurrenceQuery =
-    appSource.match(/async function queryWorkspaceOccurrenceView\(\)[\s\S]*?\n}/)?.[0]
+    appSource.match(/async function queryWorkspaceOccurrenceView\([\s\S]*?\n}/)?.[0]
     ?? "";
   assert.match(
     occurrenceQuery,
@@ -941,7 +941,7 @@ test("Workspace occurrence rerenders preserve catalog failure focus", () => {
     )?.length,
     2);
   const occurrenceQuery =
-    appSource.match(/async function queryWorkspaceOccurrenceView\(\)[\s\S]*?\n}/)?.[0]
+    appSource.match(/async function queryWorkspaceOccurrenceView\([\s\S]*?\n}/)?.[0]
     ?? "";
   assert.match(occurrenceQuery, /finally \{[\s\S]*render\(\);\s*}/);
 });
