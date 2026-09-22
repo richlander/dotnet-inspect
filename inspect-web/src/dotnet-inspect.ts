@@ -1382,6 +1382,7 @@ let retainedWorkspacePresentation: NavigationDescriptorPresentation | null =
 let retainedWorkspaceInitialDetailAuthority: {
   realizationId: string;
   navigationSeq: number;
+  presentationCurrent: boolean;
 } | null = null;
 const retainedWorkspacePostings =
   new Map<string, BrowserRetainedWorkspacePosting>();
@@ -1839,22 +1840,29 @@ function parkActiveCompatibilityWorkspace(): void {
   };
 }
 
-function postRetainedWorkspace(posting: BrowserRetainedWorkspacePosting): void {
-  const focusedElement = document.activeElement instanceof HTMLElement
-    ? document.activeElement
-    : null;
-  if (captureWorkspaceFocus(focusedElement) !== null) {
-    focusApplicationMenuButton(document);
+function postRetainedWorkspace(
+  posting: BrowserRetainedWorkspacePosting,
+  presentationCurrent = true,
+): void {
+  if (presentationCurrent) {
+    const focusedElement = document.activeElement instanceof HTMLElement
+      ? document.activeElement
+      : null;
+    if (captureWorkspaceFocus(focusedElement) !== null) {
+      focusApplicationMenuButton(document);
+    }
   }
   parkActiveCompatibilityWorkspace();
   activeRetainedWorkspacePosting = posting;
   retainedWorkspaceInitialDetailAuthority = {
     realizationId: posting.realizationId,
     navigationSeq: navigationSequence.current(),
+    presentationCurrent,
   };
   retainedWorkspacePostings.set(posting.retainedDefinitionId, posting);
   retainedWorkspacePresentation =
     createNavigationDescriptorPresentation(posting);
+  if (!presentationCurrent) return;
   prepareUnpublishedWorkspace();
   state.home = false;
   state.loading = true;
@@ -1863,11 +1871,12 @@ function postRetainedWorkspace(posting: BrowserRetainedWorkspacePosting): void {
   render({ synchronizeUrl: false });
 }
 
-function clearRetainedWorkspacePosting(): void {
+function clearRetainedWorkspacePosting(presentationCurrent = true): void {
   activeRetainedWorkspacePosting = null;
   retainedWorkspacePresentation = null;
   retainedWorkspaceInitialDetailAuthority = null;
   installedRetainedLocation = null;
+  if (!presentationCurrent) return;
   prepareUnpublishedWorkspace();
   state.loading = false;
   state.error = "The retained Workspace is unavailable.";
@@ -2012,6 +2021,16 @@ function realignRetainedLocationIntent(
   }
 }
 
+function retainedLocationPresentationCurrent(
+  intent: LocationIntentDeclaration,
+  canonicalLocation: string,
+): boolean {
+  return retainedLocationIntents.currentIntentId === intent.id
+    || (retainedLocationIntents.currentIntentId === null
+      && installedRetainedLocation?.canonicalLocation === canonicalLocation
+      && location.href === canonicalLocation);
+}
+
 function supersedeRetainedLocationIntentForRoutedNavigation(): void {
   if (retainedLocationIntents.currentIntentId === null) return;
   const routeIntent = retainedLocationIntents.admitNonBrowser(
@@ -2073,7 +2092,8 @@ async function installRetainedWorkspacePosting(
     throw new Error("A newer retained Workspace replaced this installation.");
   }
 
-  if (navigationSequence.isCurrent(detailNavigationSeq)) {
+  if (detailAuthority.presentationCurrent
+    && navigationSequence.isCurrent(detailNavigationSeq)) {
     let packageModel: AppPackage | null = null;
     let platformModel: AppPackage | null = null;
     try {
@@ -2574,6 +2594,12 @@ async function activateManagedRetainedWorkspace(
         retainedDefinitionId,
         () => retainedLocationIntents.currentIntentId === locationIntent.id,
         posting => installRetainedWorkspacePosting(posting, locationIntent),
+        undefined,
+        undefined,
+        posting => retainedLocationPresentationCurrent(
+          locationIntent,
+          posting.canonicalLocation,
+        ),
       );
       render({ synchronizeUrl: false });
       result = await activation;
@@ -2734,6 +2760,11 @@ async function deleteManagedRetainedWorkspace(
         retainedLocationIntents.currentIntentId === locationIntent.id,
       completeSuccessor: posting =>
         installRetainedWorkspacePosting(posting, locationIntent),
+      isSuccessorPresentationCurrent: posting =>
+        retainedLocationPresentationCurrent(
+          locationIntent,
+          posting.canonicalLocation,
+        ),
     }
     : compatibilitySuccessor && locationIntent
       ? {
@@ -13505,6 +13536,12 @@ async function openSavedWorkspaceEntry(entry: SavedWorkspace): Promise<void> {
       definition.id,
       () => retainedLocationIntents.currentIntentId === locationIntent.id,
       posting => installRetainedWorkspacePosting(posting, locationIntent),
+      undefined,
+      undefined,
+      posting => retainedLocationPresentationCurrent(
+        locationIntent,
+        posting.canonicalLocation,
+      ),
     );
     render({ synchronizeUrl: false });
     result = await activation;
@@ -19601,6 +19638,12 @@ window.addEventListener("popstate", () => {
             posting,
             locationIntent,
             posting.canonicalLocation === location.href ? "exact" : "changed",
+          ),
+          undefined,
+          undefined,
+          posting => retainedLocationPresentationCurrent(
+            locationIntent,
+            posting.canonicalLocation,
           ),
         );
         if (result.status === "failed") {

@@ -94,13 +94,16 @@ function retainedWorkspaceInstallationHarness(options: {
   let renders = 0;
   const historyWrites: string[] = [];
   const routedLocations: string[] = [];
+  const location = { href: "/incumbent" };
   const history = {
     state: {},
     pushState(_data: unknown, _unused: string, url?: string | URL | null) {
       historyWrites.push(String(url));
+      location.href = String(url);
     },
     replaceState(_data: unknown, _unused: string, url?: string | URL | null) {
       historyWrites.push(String(url));
+      location.href = String(url);
     },
   };
   const retainedLocationIntents = createNavigationLocationIntentArbiter();
@@ -134,6 +137,7 @@ function retainedWorkspaceInstallationHarness(options: {
     retainedWorkspaceInitialDetailAuthority: null as {
       realizationId: string;
       navigationSeq: number;
+      presentationCurrent: boolean;
     } | null,
     retainedWorkspacePostings: new Map<string, typeof posting>(),
     state,
@@ -183,6 +187,7 @@ function retainedWorkspaceInstallationHarness(options: {
       historyState: {},
     }),
     history,
+    location,
     invalidateGraphMemberNavigation: () => {},
     clearNavigationError: () => {},
     clearWorkspaceRouteFailure: () => true,
@@ -193,6 +198,7 @@ function retainedWorkspaceInstallationHarness(options: {
     workspaceLocation: {
       push: (url: string) => {
         routedLocations.push(url);
+        location.href = url;
         return true;
       },
     },
@@ -205,6 +211,7 @@ function retainedWorkspaceInstallationHarness(options: {
   };
   const declarations = [
     "postRetainedWorkspace",
+    "retainedLocationPresentationCurrent",
     "supersedeRetainedLocationIntentForRoutedNavigation",
     "installRetainedWorkspacePosting",
     "activateRetainedPackageAction",
@@ -226,8 +233,15 @@ function retainedWorkspaceInstallationHarness(options: {
     historyWrites: () => historyWrites,
     routedLocations: () => routedLocations,
     renders: () => renders,
-    post: () => {
-      runInNewContext("postRetainedWorkspace(posting)", context);
+    presentationCurrent: () => Boolean(runInNewContext(
+      "retainedLocationPresentationCurrent(locationIntent, posting.canonicalLocation)",
+      context,
+    )),
+    post: (presentationCurrent = true) => {
+      runInNewContext(
+        `postRetainedWorkspace(posting, ${presentationCurrent})`,
+        context,
+      );
     },
     install: () => Promise.resolve(runInNewContext(
       "installRetainedWorkspacePosting(posting, locationIntent)",
@@ -282,6 +296,7 @@ test("stale initial Package detail cannot replace a newer row selection", async 
   assert.equal(harness.state.loading, false);
   assert.equal(harness.context.activeWorkspaceUrl, "/workspace");
   assert.deepEqual(harness.historyWrites(), ["/workspace"]);
+  assert.equal(harness.presentationCurrent(), true);
 });
 
 test("stale initial Platform detail preserves a newer row failure", async () => {
@@ -362,6 +377,43 @@ test("posting captures initial detail authority before rows become interactive",
 });
 
 for (const route of ["home", "credits"] as const) {
+  test(`pre-post ${route} remains visible after committed installation`, async () => {
+    const initial = deferred<{ surface: TestPackage }>();
+    const harness = retainedWorkspaceInstallationHarness({
+      activeKind: "package",
+      initial,
+      newer: () => Promise.reject(new Error("unused")),
+    });
+
+    if (route === "home") harness.goHome();
+    else harness.openCredits();
+    harness.post(false);
+    const installation = harness.install();
+    initial.resolve({
+      surface: {
+        id: "stale-package",
+        isRuntimePack: false,
+        source: { kind: "package" },
+      },
+    });
+    await installation;
+
+    assert.equal(harness.context.activeWorkspaceUrl, "/workspace");
+    assert.ok(harness.context.activeRetainedWorkspacePosting);
+    assert.ok(harness.context.installedRetainedLocation);
+    assert.equal(harness.state.package, null);
+    assert.deepEqual(harness.state.packages, []);
+    assert.equal(harness.state.home, true);
+    assert.equal(harness.state.credits, route === "credits");
+    assert.deepEqual(
+      harness.routedLocations(),
+      [route === "home" ? "/" : "/credits"],
+    );
+    assert.deepEqual(harness.historyWrites(), []);
+    assert.equal(harness.presentationCurrent(), false);
+    assert.equal(harness.renders(), 1);
+  });
+
   test(`delayed installation yields its location to newer ${route}`, async () => {
     const initial = deferred<{ surface: TestPackage }>();
     const postingRecord = deferred<void>();
@@ -397,5 +449,6 @@ for (const route of ["home", "credits"] as const) {
       [route === "home" ? "/" : "/credits"],
     );
     assert.deepEqual(harness.historyWrites(), []);
+    assert.equal(harness.presentationCurrent(), false);
   });
 }
