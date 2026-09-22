@@ -560,6 +560,32 @@ public class CSharpPrinterTests
     }
 
     [Fact]
+    public void StoreElement_KeepsCompilerProducedMutableStructCopy()
+    {
+        Assert.Equal(
+            0,
+            StoreElementReceiverInliningSamples.CopyMutation(
+                [""],
+                default));
+        using var source = MetadataSource.OpenWithoutSymbols(
+            typeof(StoreElementReceiverInliningSamples).Assembly.Location);
+        var function = IrImporter.Import(
+            source,
+            typeof(StoreElementReceiverInliningSamples).FullName!,
+            nameof(StoreElementReceiverInliningSamples.CopyMutation));
+        Assert.NotNull(function);
+
+        IrPasses.Run(function);
+        string output = CSharpPrinter.Print(function).Output!;
+
+        Assert.Contains(
+            "StoreElementMutableReceiver V_0 = value;",
+            output);
+        Assert.Contains("items[0] = V_0.ToString();", output);
+        Assert.Contains("return value.Count;", output);
+    }
+
+    [Fact]
     public void StoreElement_KeepsAddressReceiverTempWithAdditionalUse()
     {
         var stringType = TypeRef.CoreLib("System", "String");
@@ -680,7 +706,7 @@ public class CSharpPrinterTests
     }
 
     [Fact]
-    public void StoreElement_InlinedUnsafeReceiverTempCarriesUnsafeContext()
+    public void StoreElement_KeepsUnsafeReceiverTempLoadedFromStorage()
     {
         var stringType = TypeRef.CoreLib("System", "String");
         var stringArray = TypeRef.SzArray(stringType);
@@ -714,9 +740,8 @@ public class CSharpPrinterTests
         RunStoreElementReceiverInlining(function);
         string output = CSharpPrinter.Print(function).Output!.ReplaceLineEndings("\n");
 
-        Assert.Contains("unsafe", output);
-        Assert.Contains("items[i] = (*p).ToString();", output);
-        Assert.DoesNotContain("int V_0", output);
+        Assert.Contains("int V_0 = unsafe(*p);", output);
+        Assert.Contains("items[i] = V_0.ToString();", output);
     }
 
     [Fact]

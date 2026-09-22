@@ -170,7 +170,10 @@ The final pre-presentation
 `StoreElementReceiverInliningPass` owns the #1911 single-use address-receiver
 elimination. It removes the store and address use from finalized IR before
 planning rather than asking a renderer to rediscover the pattern and exclude
-the local.
+the local. The fold admits only a direct call result. Loads from arguments,
+locals, fields, array elements, and indirect locations retain the temporary:
+replacing that copied value with its source place could redirect a mutable
+value-type receiver operation into pre-existing storage.
 
 ## Invariants
 
@@ -263,8 +266,11 @@ The final ownership closure moves the #1911 address-receiver temporary
 elimination into `StoreElementReceiverInliningPass`, after structural and
 storage settling and before PDB scope and binding planning. The pass preserves
 the established exact-name, branch-target, additional-use, nested-capture,
-target-order, and target-dependency declines. `LocalDeclarationPlan` therefore
-derives retention from finalized IR without a renderer-issued exclusion set.
+target-order, and target-dependency declines. It admits only direct call-result
+initializers and declines loads from pre-existing storage, preserving the
+receiver storage identity of mutable value-type copies. `LocalDeclarationPlan`
+therefore derives retention from finalized IR without a renderer-issued
+exclusion set.
 `CSharpPrinter.LocalName` fails explicitly if a retained reference has no
 complete plan entry; it cannot synthesize an unplanned `V_index` fallback.
 Expression-bodied lambdas with local bindings render through the same isolated

@@ -3,8 +3,8 @@ namespace ILInspector.Decompiler.Pipeline;
 /// <summary>
 /// Folds the compiler's single-use address-receiver temporary for an array
 /// element <c>ToString()</c> store before declaration planning:
-/// <c>V = value; array[index] = V.ToString()</c> becomes
-/// <c>array[index] = value.ToString()</c>.
+/// <c>V = Call(); array[index] = V.ToString()</c> becomes
+/// <c>array[index] = Call().ToString()</c>.
 /// </summary>
 public sealed class StoreElementReceiverInliningPass : IIrPass
 {
@@ -69,6 +69,7 @@ public sealed class StoreElementReceiverInliningPass : IIrPass
     {
         receiver = null!;
         if (store.Type.Kind == TypeRefKind.ByRef
+            || store.Value is not Call
             || store.Index < function.LocalNames.Length
                 && function.LocalNames[store.Index] is not null
             || store.OwnsSourceLabel
