@@ -27,7 +27,6 @@ import {
   emptyOutcome,
   initialQueryState,
   withCompletion,
-  withLibraryLiteralDraft,
   withPreset,
   withTerm,
   type PackageQueryState,
@@ -117,7 +116,7 @@ const FACETS: readonly QueryPreset[] = [
   DOWNLOAD_FACET,
   SKILL_FACET,
 ];
-const TERMS: readonly QueryTermDescriptor[] = [{
+const DEPENDS_TERM: QueryTermDescriptor = {
   key: "depends",
   label: "Direct dependency",
   summary: "Matches a direct dependency in any group.",
@@ -127,7 +126,24 @@ const TERMS: readonly QueryTermDescriptor[] = [{
   operators: ["eq"],
   valueKind: "package-id",
   example: "Microsoft.Extensions.Hosting",
-}];
+  multiline: false,
+};
+const LIBRARY_LITERAL_TERM: QueryTermDescriptor = {
+  key: "library-literal",
+  label: "Library literal",
+  summary: "Matches decoded string-literal uses.",
+  weight: 650,
+  tier: "package-content",
+  executionClass: "metadata-expensive",
+  operators: ["eq"],
+  valueKind: "decoded UTF-16 text",
+  example: "Microsoft.Extensions.",
+  multiline: true,
+};
+const TERMS: readonly QueryTermDescriptor[] = [
+  DEPENDS_TERM,
+  LIBRARY_LITERAL_TERM,
+];
 
 function row(packageId: string): QueryResultRow {
   return {
@@ -209,11 +225,12 @@ test("package options retain prerelease without Gallery controls", () => {
   assert.ok(html.indexOf('aria-label="Package query options"') < html.indexOf("<h2>Inspection facts</h2>"));
 });
 
-test("library-literal mode renders exclusive controls and bounded occurrence evidence", () => {
-  const request = withLibraryLiteralDraft(
-    createQueryRequest("Contoso.Package"),
-    "shared-literal-use-marker",
-    "net10.0");
+test("library-literal renders as a composable multiline term with target selection", () => {
+  const request = withTerm(
+    withPreset(createQueryRequest("Contoso.Package"), NUSPEC_FACET),
+    LIBRARY_LITERAL_TERM,
+    "eq",
+    "shared-literal-use-marker");
   const result: QueryResultRow = {
     ...row("Contoso.Package"),
     tier: "assembly",
@@ -255,26 +272,25 @@ test("library-literal mode renders exclusive controls and bounded occurrence evi
     escapeHtml,
   });
 
-  assert.match(html, /<summary>Library literal<\/summary>/);
-  assert.match(
-    html,
-    /data-query-library-literal-value="&quot;shared-literal-use-marker&quot;"/);
+  assert.match(html, /<h2>Library selection<\/h2>/);
+  assert.match(html, /<textarea[\s\S]*shared-literal-use-marker<\/textarea>/);
   assert.match(html, /value="net10\.0"/);
   assert.match(html, /Showing 3 of 5 occurrences/);
   assert.match(html, /1 matching package · 5 occurrences/);
   assert.match(html, /exact package population complete/);
   assert.match(html, /data-query-root-request="opaque-root"/);
-  assert.match(html, /Presets are unavailable while Library literal qualification is active/);
-  assert.match(html, /Terms are unavailable while Library literal qualification is active/);
-  assert.doesNotMatch(html, /data-query-preset=/);
-  assert.doesNotMatch(html, /data-query-term-add=/);
+  assert.match(html, /data-query-preset="readme:eq:true"/);
+  assert.match(html, /data-query-term-add="depends"/);
+  assert.match(html, /data-query-term-add="library-literal"/);
 });
 
 test("whitespace-only library literals remain active and unchanged", () => {
-  const request = withLibraryLiteralDraft(
+  const request = withTerm(
     createQueryRequest("Contoso.Package"),
+    LIBRARY_LITERAL_TERM,
+    "eq",
     " ",
-    "net10.0");
+  );
   const html = renderPackageQueryView({
     state: {
       request,
@@ -285,16 +301,9 @@ test("whitespace-only library literals remain active and unchanged", () => {
     escapeHtml,
   });
 
-  assert.match(html, /<details class="query-library-literal" open>/);
-  assert.match(
-    html,
-    /data-query-library-literal-value="&quot; &quot;"/);
-  assert.match(
-    html,
-    /Presets are unavailable while Library literal qualification is active/);
-  assert.match(
-    html,
-    /Terms are unavailable while Library literal qualification is active/);
+  assert.match(html, /<textarea[\s\S]*> <\/textarea>/);
+  assert.match(html, /data-query-term-add="depends"/);
+  assert.match(html, /value="net10\.0"/);
 });
 
 test("library-literal editor spelling round-trips exact UTF-16 text", () => {
@@ -321,12 +330,17 @@ test("library-literal editor spelling round-trips exact UTF-16 text", () => {
 });
 
 test("library-literal completion distinguishes exhausted and bounded populations", () => {
-  const request = withLibraryLiteralDraft(
+  const request = withTerm(
     createQueryRequest("Contoso.*"),
+    LIBRARY_LITERAL_TERM,
+    "eq",
     "shared-literal-use-marker",
-    "net10.0");
+  );
   const render = (
-    population: "PrefixExhausted" | "SourcePageLimitReached",
+    population:
+      | "PrefixExhausted"
+      | "MatchLimitReached"
+      | "SourcePageLimitReached",
     complete: boolean,
   ) => renderPackageQueryView({
     state: {
@@ -351,11 +365,14 @@ test("library-literal completion distinguishes exhausted and bounded populations
   });
 
   const exhausted = render("PrefixExhausted", true);
+  const head = render("MatchLimitReached", true);
   const bounded = render("SourcePageLimitReached", false);
 
   assert.match(exhausted, /No matching package libraries/);
   assert.match(exhausted, /prefix population exhausted/);
   assert.doesNotMatch(exhausted, /not a confirmed empty result/);
+  assert.match(head, /match limit reached/);
+  assert.doesNotMatch(head, /operation incomplete/);
   assert.match(
     bounded,
     /No matching package libraries in the completed work/);
@@ -365,10 +382,12 @@ test("library-literal completion distinguishes exhausted and bounded populations
 });
 
 test("library-literal result footer discloses an incomplete population", () => {
-  const request = withLibraryLiteralDraft(
+  const request = withTerm(
     createQueryRequest("Contoso.*"),
+    LIBRARY_LITERAL_TERM,
+    "eq",
     "shared-literal-use-marker",
-    "net10.0");
+  );
   const html = renderPackageQueryView({
     state: {
       request,
@@ -1239,6 +1258,13 @@ class FakeElement {
   }
 }
 
+if (!("HTMLTextAreaElement" in globalThis)) {
+  Object.defineProperty(globalThis, "HTMLTextAreaElement", {
+    configurable: true,
+    value: FakeElement,
+  });
+}
+
 class FakeRoot {
   private readonly elements = new Map<string, FakeElement[]>();
   readonly activeElement: FakeElement | null;
@@ -1479,7 +1505,6 @@ test("an unfocused query render does not move focus into the prefix", () => {
 test("query text controls preserve selection across a full render", () => {
   for (const id of [
     "package-query-prefix",
-    "package-query-library-literal",
     "package-query-library-tfm",
   ]) {
     const active = new FakeElement({}, id);
@@ -1547,17 +1572,21 @@ test("term editors preserve live values and backward selections across a full re
   }
 });
 
-test("library-literal editor spelling survives a full render", () => {
-  const active = new FakeElement({}, "package-query-library-literal");
+test("multiline term editor spelling survives a full render", () => {
+  const active = new FakeElement({
+    queryTermIndex: "0",
+    queryTermControl: "value",
+  });
   active.value = String.raw`\r\\tail`;
   active.selectionStart = 2;
   active.selectionEnd = 4;
-  const replacement = new FakeElement(
-    {},
-    "package-query-library-literal");
+  const replacement = new FakeElement({
+    queryTermIndex: "0",
+    queryTermControl: "value",
+  });
   replacement.value = "canonicalized";
   const root = new FakeRoot(active);
-  root.add("#package-query-library-literal", replacement);
+  root.add("[data-query-term-control]", replacement);
   // Test fake implements the Document and ParentNode subset consumed by the helpers.
   // oxlint-disable-next-line typescript/no-unsafe-type-assertion
   const documentRoot = root as unknown as Document;
@@ -1569,50 +1598,38 @@ test("library-literal editor spelling survives a full render", () => {
   assert.deepEqual(replacement.selectionRange, [2, 4]);
 });
 
-test("semantic editors reopen their disclosure instead of using fallback", () => {
-  for (const id of [
-    "package-query-library-literal",
-    "package-query-library-tfm",
-  ]) {
-    const active = new FakeElement({}, id);
-    active.selectionStart = 1;
-    active.selectionEnd = 2;
-    const disclosure = new FakeElement();
-    const replacement = new FakeElement({}, id);
-    replacement.parentDisclosure = disclosure;
-    const prefix = new FakeElement({}, "package-query-prefix");
-    prefix.value = "Contoso.Package";
-    const root = new FakeRoot(active);
-    root.add(`#${id}`, replacement);
-    root.add("#package-query-prefix", prefix);
-    // Test fake implements the Document and ParentNode subset consumed by the helpers.
-    // oxlint-disable-next-line typescript/no-unsafe-type-assertion
-    const documentRoot = root as unknown as Document;
+test("library target editor restores focus without using fallback", () => {
+  const active = new FakeElement({}, "package-query-library-tfm");
+  active.selectionStart = 1;
+  active.selectionEnd = 2;
+  const replacement = new FakeElement({}, "package-query-library-tfm");
+  const prefix = new FakeElement({}, "package-query-prefix");
+  prefix.value = "Contoso.Package";
+  const root = new FakeRoot(active);
+  root.add("#package-query-library-tfm", replacement);
+  root.add("#package-query-prefix", prefix);
+  const documentRoot = fakeDom.document(root);
 
-    const snapshot = capturePackageQueryFocus(documentRoot);
-    const restoration = restorePackageQueryFocus(documentRoot, snapshot);
+  const snapshot = capturePackageQueryFocus(documentRoot);
+  const restoration = restorePackageQueryFocus(documentRoot, snapshot);
 
-    assert.equal(restoration, "restored");
-    assert.equal(disclosure.open, true);
-    assert.equal(replacement.focusCount, 1);
-    assert.equal(prefix.focusCount, 0);
-    assert.equal(prefix.value, "Contoso.Package");
-  }
+  assert.equal(restoration, "restored");
+  assert.equal(replacement.focusCount, 1);
+  assert.equal(prefix.focusCount, 0);
+  assert.equal(prefix.value, "Contoso.Package");
 });
 
-test("semantic editor snapshots never modify a fallback control", () => {
-  const active = new FakeElement({}, "package-query-library-literal");
+test("removed library target snapshots never modify a fallback control", () => {
+  const active = new FakeElement({}, "package-query-library-tfm");
   active.value = "";
   active.selectionStart = 0;
   active.selectionEnd = 0;
-  const replacement = new FakeElement(
-    {},
-    "package-query-library-literal");
+  const replacement = new FakeElement({}, "package-query-library-tfm");
   replacement.rendered = false;
   const prefix = new FakeElement({}, "package-query-prefix");
   prefix.value = "Contoso.Package";
   const root = new FakeRoot(active);
-  root.add("#package-query-library-literal", replacement);
+  root.add("#package-query-library-tfm", replacement);
   root.add("#package-query-prefix", prefix);
   // Test fake implements the Document and ParentNode subset consumed by the helpers.
   // oxlint-disable-next-line typescript/no-unsafe-type-assertion
@@ -1660,7 +1677,7 @@ test("bindPackageQueryView wires back, row-open, preset, and cancel", () => {
     onBack: () => calls.push("back"),
     onCancel: () => calls.push("cancel"),
     onPresetToggle: key => calls.push(`preset:${key}`),
-    onLibraryLiteralInput: () => {},
+    onLibraryTargetInput: () => {},
     onPrefixInput: () => {},
     onResultPressure: () => calls.push("pressure"),
     onResultViewportChange: () => calls.push("viewport"),
@@ -1684,23 +1701,18 @@ test("bindPackageQueryView wires back, row-open, preset, and cancel", () => {
   ]);
 });
 
-test("bindPackageQueryView forwards library-literal and target-framework edits", () => {
+test("bindPackageQueryView forwards library target edits independently", () => {
   const root = new FakeRoot();
-  const literal = new FakeElement({
-    queryLibraryLiteralValue: JSON.stringify(
-      encodeLibraryLiteralEditorValue("first\r\n\\second")),
-  }, "package-query-library-literal");
   const targetFramework =
     new FakeElement({}, "package-query-library-tfm");
-  root.add("#package-query-library-literal", literal);
   root.add("#package-query-library-tfm", targetFramework);
-  const calls: string[][] = [];
+  const calls: string[] = [];
 
   bindPackageQueryView(fakeDom.parentNode(root), {
     onBack: () => {},
     onCancel: () => {},
     onPresetToggle: () => {},
-    onLibraryLiteralInput: (...args) => calls.push(args),
+    onLibraryTargetInput: value => calls.push(value),
     onPrefixInput: () => {},
     onResultPressure: () => {},
     onResultViewportChange: () => {},
@@ -1709,56 +1721,10 @@ test("bindPackageQueryView forwards library-literal and target-framework edits",
     onSourceChange: () => {},
   });
 
-  assert.equal(literal.value, String.raw`first\r` + "\n" + String.raw`\\second`);
-  literal.value = String.raw`marker\r\\tail`;
-  targetFramework.value = "net9.0";
-  literal.dispatch("input");
   targetFramework.value = "net10.0";
   targetFramework.dispatch("input");
 
-  assert.deepEqual(calls, [
-    ["marker\r\\tail", "net9.0"],
-    ["marker\r\\tail", "net10.0"],
-  ]);
-});
-
-test("bindPackageQueryView defers library-literal updates during composition", () => {
-  const root = new FakeRoot();
-  const literal = new FakeElement({
-    queryLibraryLiteralValue: JSON.stringify(""),
-  }, "package-query-library-literal");
-  const targetFramework =
-    new FakeElement({}, "package-query-library-tfm");
-  targetFramework.value = "net10.0";
-  root.add("#package-query-library-literal", literal);
-  root.add("#package-query-library-tfm", targetFramework);
-  const calls: string[][] = [];
-
-  bindPackageQueryView(fakeDom.parentNode(root), {
-    onBack: () => {},
-    onCancel: () => {},
-    onPresetToggle: () => {},
-    onLibraryLiteralInput: (...args) => calls.push(args),
-    onPrefixInput: () => {},
-    onResultPressure: () => {},
-    onResultViewportChange: () => {},
-    onRowOpen: () => {},
-    onRun: () => {},
-    onSourceChange: () => {},
-  });
-
-  literal.value = "n";
-  literal.dispatch("input", fakeDom.event({ isComposing: true }));
-  literal.value = "に";
-  literal.dispatch("input", fakeDom.event({ isComposing: true }));
-  assert.deepEqual(calls, []);
-
-  literal.value = "日本";
-  literal.dispatch("input", fakeDom.event({ isComposing: true }));
-  assert.deepEqual(calls, []);
-
-  literal.dispatch("compositionend");
-  assert.deepEqual(calls, [["日本", "net10.0"]]);
+  assert.deepEqual(calls, ["net10.0"]);
 });
 
 test("bindPackageQueryView defers term updates and render resumption during composition", () => {
@@ -1776,7 +1742,7 @@ test("bindPackageQueryView defers term updates and render resumption during comp
     onBack: () => {},
     onCancel: () => {},
     onPresetToggle: () => {},
-    onLibraryLiteralInput: () => {},
+    onLibraryTargetInput: () => {},
     onPrefixInput: () => {},
     onResultPressure: () => {},
     onResultViewportChange: () => {},
@@ -1819,7 +1785,7 @@ test("bindPackageQueryView ignores an unpaired term compositionend", () => {
     onBack: () => {},
     onCancel: () => {},
     onPresetToggle: () => {},
-    onLibraryLiteralInput: () => {},
+    onLibraryTargetInput: () => {},
     onPrefixInput: () => {},
     onResultPressure: () => {},
     onResultViewportChange: () => {},
@@ -1987,7 +1953,7 @@ test("bindPackageQueryView applies exact term values and keeps empty drafts idle
     onBack: () => {},
     onCancel: () => {},
     onPresetToggle: () => {},
-    onLibraryLiteralInput: () => {},
+    onLibraryTargetInput: () => {},
     onPrefixInput: () => {},
     onResultPressure: () => {},
     onResultViewportChange: () => {},
@@ -2038,7 +2004,7 @@ test("assembly row binding forwards the exact opaque Root request", () => {
     onBack: () => {},
     onCancel: () => {},
     onPresetToggle: () => {},
-    onLibraryLiteralInput: () => {},
+    onLibraryTargetInput: () => {},
     onPrefixInput: () => {},
     onResultPressure: () => {},
     onResultViewportChange: () => {},
@@ -2069,7 +2035,7 @@ test("prerelease changes forward the selection and current unmodified package te
     onBack: () => {},
     onCancel: () => {},
     onPresetToggle: () => assert.fail("source controls are not inspection presets"),
-    onLibraryLiteralInput: () => {},
+    onLibraryTargetInput: () => {},
     onPrefixInput: () => {},
     onResultPressure: () => {},
     onResultViewportChange: () => {},
@@ -2112,7 +2078,7 @@ test("query form submits package text without a Gallery action", () => {
     onBack: () => {},
     onCancel: () => {},
     onPresetToggle: () => {},
-    onLibraryLiteralInput: () => {},
+    onLibraryTargetInput: () => {},
     onPrefixInput: () => {},
     onResultPressure: () => {},
     onResultViewportChange: () => {},
@@ -2159,7 +2125,7 @@ test("bindPackageQueryView reports near-end scroll pressure and disconnects it",
     onBack: () => {},
     onCancel: () => {},
     onPresetToggle: () => {},
-    onLibraryLiteralInput: () => {},
+    onLibraryTargetInput: () => {},
     onPrefixInput: () => {},
     onResultPressure: () => { pressure++; },
     onResultViewportChange: () => { viewportChanges++; },
@@ -2205,7 +2171,7 @@ test("patchPackageQueryStream updates only dynamic query regions", () => {
       onBack: () => {},
       onCancel: () => {},
       onPresetToggle: () => {},
-      onLibraryLiteralInput: () => {},
+      onLibraryTargetInput: () => {},
       onPrefixInput: () => {},
       onResultPressure: () => { pressure++; },
       onResultViewportChange: () => {},
