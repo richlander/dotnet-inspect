@@ -160,6 +160,12 @@ by its [Browser owner](inspect-web-library-api-diff.md#managed-composition).
 [#7703](https://github.com/richlander/dotnet-inspect/issues/7703) owns the
 remaining Diff command-family adoption.
 
+Target-bound Platform catalog routing separately materializes its query and
+route correspondence as primary Content in an internal host-neutral
+inspection envelope. The CLI consumes that envelope silently before entering
+the existing rich Type or member compatibility path. This does not adopt
+those downstream Type routes for public `--envelope` output.
+
 The adoption also closes two shared Content-serialization prerequisites.
 `AssemblyResolutionProvenance` serializes its six existing cases with owner
 `kind` discriminators `package`, `platform`, `project`, `local`, `embedded`,
