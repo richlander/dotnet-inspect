@@ -440,6 +440,9 @@ public static class CSharpStructuredTypePlanProducer
                 }
                 bool canUseAuto =
                     member.SignatureModel?.MemberName != "this[]"
+                    && member.SignatureModel?.ReturnType?.StartsWith(
+                        "ref ",
+                        StringComparison.Ordinal) != true
                     && member.SignatureModel?.Accessors.Any(
                         static value =>
                             value.IsExplicitInterfaceImplementation == true)
@@ -462,10 +465,15 @@ public static class CSharpStructuredTypePlanProducer
                     : CSharpStructuredImplementationKind.Body,
                 [new(binding, binding.HasBodyEvidence ? range : new(0, 0))]));
         }
-        parts.Add(Fixed("\n" + pad + "}"
-            + (body?.Initializer is { } initializer
-                ? $" = {initializer};"
-                : "")));
+        parts.Add(Fixed("\n" + pad + "}"));
+        if (body?.Initializer is { } initializer)
+        {
+            parts.Add(Implementation(
+                $" = {initializer};",
+                "",
+                CSharpStructuredImplementationKind.Initializer,
+                []));
+        }
     }
 
     static void RenderEvent(
@@ -476,6 +484,21 @@ public static class CSharpStructuredTypePlanProducer
         ImmutableArray<CSharpStructuredPart>.Builder parts)
     {
         ApiMember member = request.Member;
+        if (request.Body is CSharpFieldInitializer initializer)
+        {
+            string declaration = formatter.FormatMember(type, member);
+            if (declaration.EndsWith(';'))
+                declaration = declaration[..^1];
+            parts.Add(Fixed(PadDeclaration(declaration, pad)));
+            parts.Add(Implementation(
+                $" = {initializer.Source}",
+                "",
+                CSharpStructuredImplementationKind.Initializer,
+                []));
+            parts.Add(Fixed(";"));
+            AddInvisibleBodyParts(parts, request.Bodies);
+            return;
+        }
         if (request.Body is not CSharpEventBody body)
         {
             string declaration = formatter.FormatMember(type, member);

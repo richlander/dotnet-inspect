@@ -222,6 +222,144 @@ public sealed class CSharpDecompilerTypeDocumentTests
     }
 
     [Fact]
+    public void ProduceTypeDocument_PreservesBackingStorageInitializers()
+    {
+        CSharpTypeDocument document = Available(
+            Produce(Type<BackingStorageInitializers>()));
+        CSharpTypeDocumentProjection bodies = Project(
+            document,
+            new(CSharpTypeBodyMode.Bodies));
+        CSharpTypeDocumentProjection skeleton = Project(
+            document,
+            new(CSharpTypeBodyMode.Skeleton));
+
+        Assert.Contains("Value", bodies.Text);
+        Assert.Contains("= 7;", bodies.Text);
+        Assert.Contains("Number", bodies.Text);
+        Assert.Contains("= 9;", bodies.Text);
+        Assert.Contains("Changed =", bodies.Text);
+        Assert.DoesNotContain("= 7;", skeleton.Text);
+        Assert.DoesNotContain("= 9;", skeleton.Text);
+        Assert.DoesNotContain("Changed =", skeleton.Text);
+
+        CSharpTypeDeclaration[] initialized = document.Declarations
+            .Where(declaration => declaration.Parts.Any(part =>
+                part.ImplementationKind
+                    == CSharpTypeImplementationKind.Initializer))
+            .ToArray();
+        CSharpTypeDeclaration[] instanceInitialized = initialized
+            .Where(declaration => declaration.Parts
+                .SelectMany(part => part.Contributions)
+                .Select(contribution => contribution.BodyId)
+                .Distinct()
+                .Count() == 2)
+            .ToArray();
+        Assert.Equal(3, instanceInitialized.Length);
+        foreach (var declaration in instanceInitialized)
+        {
+            Assert.All(
+                declaration.Parts.SelectMany(part => part.Contributions),
+                contribution => Assert.Equal(
+                    declaration.Kind == CSharpTypeDeclarationKind.Property
+                        ? CSharpTypeBodyContributionRole.PropertyInitializer
+                        : CSharpTypeBodyContributionRole.FieldInitializer,
+                    contribution.Role));
+            var selected = Project(document, new(
+                CSharpTypeBodyMode.SelectedBody, declaration.Anchor));
+            AssertCompiles(selected.Text);
+            Assert.All(
+                selected.Declarations.Where(value =>
+                    value.Kind == CSharpTypeDeclarationKind.Constructor),
+                constructor => Assert.Contains(
+                    "throw null;",
+                    selected.Text.Substring(constructor.Range.Start, constructor.Range.Length)));
+        }
+        Assert.All(
+            instanceInitialized,
+            declaration => Assert.Equal(
+                2,
+                declaration.Parts
+                    .SelectMany(part => part.Contributions)
+                    .Select(contribution => contribution.BodyId)
+                    .Distinct()
+                    .Count()));
+
+        foreach (CSharpTypeDeclaration constructor in document.Declarations.Where(
+            declaration =>
+                declaration.Kind == CSharpTypeDeclarationKind.Constructor
+                && declaration.Placement
+                    == CSharpTypeDeclarationPlacement.Instance))
+        {
+            CSharpTypeDocumentProjection selected = Project(
+                document,
+                new(CSharpTypeBodyMode.SelectedBody, constructor.Anchor));
+            Assert.Contains("= 7;", selected.Text);
+            Assert.Contains("= 9;", selected.Text);
+            Assert.Contains("Changed =", selected.Text);
+            AssertCompiles(selected.Text);
+        }
+        AssertCompiles(bodies.Text);
+        AssertCompiles(skeleton.Text);
+    }
+
+    [Fact]
+    public void ProduceTypeDocument_UsesThrowingRefPropertySkeletons()
+    {
+        CSharpTypeDocument document = Available(
+            Produce(Type<RefReturnProperties>()));
+        CSharpTypeDocumentProjection skeleton = Project(
+            document,
+            new(CSharpTypeBodyMode.Skeleton));
+
+        Assert.Contains("ref int Value", skeleton.Text);
+        Assert.Contains("ref readonly int ReadOnlyValue", skeleton.Text);
+        Assert.Contains("throw null;", skeleton.Text);
+        AssertCompiles(skeleton.Text);
+        AssertCompiles(Project(document, new(CSharpTypeBodyMode.Bodies)).Text);
+    }
+
+    [Fact]
+    public void ProduceTypeDocument_PreservesUnsafeAccessorContext()
+    {
+        CSharpTypeDocument document = Available(
+            Produce(Type<UnsafeAccessorContexts>()));
+        CSharpTypeDocumentProjection bodies = Project(
+            document,
+            new(CSharpTypeBodyMode.Bodies));
+
+        Assert.Contains("public unsafe int Value", bodies.Text);
+        Assert.Contains("public unsafe event", bodies.Text);
+        AssertCompiles(bodies.Text);
+    }
+
+    [Fact]
+    public void ProduceTypeDocument_DerivedConstructorBudgetRequiresProvenInitializer()
+    {
+        CSharpTypeDocumentOutcome.Unavailable unavailable =
+            Assert.IsType<CSharpTypeDocumentOutcome.Unavailable>(
+                Produce(
+                    Type<DerivedConstructorChain>(),
+                    maxBodyProjections: 0));
+        Assert.Contains("constructor initializer", unavailable.Reason);
+
+        CSharpTypeDocumentOutcome.Incomplete incomplete =
+            Assert.IsType<CSharpTypeDocumentOutcome.Incomplete>(
+                Produce(
+                    Type<DerivedConstructorChain>(),
+                    maxBodyProjections: 1));
+        CSharpTypeDocumentProjection bodies = Project(
+            incomplete.Document,
+            new(CSharpTypeBodyMode.Bodies));
+        CSharpTypeDocumentProjection skeleton = Project(
+            incomplete.Document,
+            new(CSharpTypeBodyMode.Skeleton));
+        Assert.Contains(": base(7)", bodies.Text);
+        Assert.Contains(": base(7)", skeleton.Text);
+        AssertCompiles(bodies.Text);
+        AssertCompiles(skeleton.Text);
+    }
+
+    [Fact]
     public void ProduceTypeDocument_FiltersTypeAttributesAndAppliesBodyOptions()
     {
         CSharpTypeDocument document = Available(Produce(Type<MultipleConstructors>()));
@@ -409,6 +547,7 @@ public sealed class CSharpDecompilerTypeDocumentTests
             new CSharpCompilationOptions(
                 OutputKind.DynamicallyLinkedLibrary,
                 optimizationLevel: OptimizationLevel.Release,
+                allowUnsafe: true,
                 nullableContextOptions: NullableContextOptions.Enable));
         using var output = new MemoryStream();
         var result = compilation.Emit(

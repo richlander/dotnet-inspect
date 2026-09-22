@@ -93,3 +93,65 @@ public sealed class LocalHelper
         static int Twice(int input) => input * 2;
     }
 }
+
+public sealed class BackingStorageInitializers
+{
+    private static readonly EventHandler? InitialHandler = null;
+
+    public BackingStorageInitializers() { }
+
+    public BackingStorageInitializers(int ignored) { }
+
+    public int Value { get; } = 7;
+
+    public int Number { get; init; } = 9;
+
+    public event EventHandler? Changed = InitialHandler;
+}
+
+public sealed class RefReturnProperties
+{
+    private int _value;
+
+    public ref int Value => ref _value;
+
+    public ref readonly int ReadOnlyValue => ref _value;
+}
+
+public sealed class UnsafeAccessorContexts
+{
+    private EventHandler? _handlers;
+
+    public unsafe int Value
+    {
+        get
+        {
+            int value = 7;
+            return *(int*)(&value);
+        }
+    }
+
+    public unsafe event EventHandler Changed
+    {
+        add
+        {
+            int local = 7;
+            _ = *(int*)(&local);
+            _handlers += value;
+        }
+        remove => _handlers -= value;
+    }
+}
+
+public class RequiredBase
+{
+    public RequiredBase(int value) { }
+}
+
+public sealed class DerivedConstructorChain : RequiredBase
+{
+    public DerivedConstructorChain()
+        : base(7) { }
+
+    public int Read() => 7;
+}

@@ -663,7 +663,7 @@ Planned Release gates:
 | `CSharpTypeDocumentTests` | Constructor rejects broken Type/Member/body identity, missing or duplicate physical artifacts or body rows, invalid primary representation or body-contribution references, duplicate or non-contiguous declaration rows, malformed UTF-16, invalid fingerprints, inconsistent render-plan alternatives, and overflowing or out-of-bounds ranges. |
 | `CSharpTypeDocumentProjectionTests` | Bodies, Skeleton, and Selected body use owner-issued render-plan alternatives; the selected declaration's owned-body contribution closure remains visible; structural filters preserve order, identities, valid C#, and projection-local absolute declaration, body, and contribution ranges without parsing source. |
 | `CSharpTypeDocumentRevisionTests` | Canonical replay is stable; changing identity, physical-artifact association, classification, source, render policy, body address, physical fingerprint, ownership, or contribution provenance changes the revision; short-anchor collisions cannot merge artifacts or declarations. |
-| `CSharpDecompilerTypeDocumentTests` | Complete same-reader physical artifact, body, and C# declaration populations; non-public and generated members; absorbed backing/enum/delegate artifacts; properties/events with multiple accessors; constructor-to-field initializer contributions; bodyless and empty Types; visible body failures; and one-load exact body association. |
+| `CSharpDecompilerTypeDocumentTests` | Complete same-reader physical artifact, body, and C# declaration populations; non-public and generated members; absorbed backing/enum/delegate artifacts; backing-storage initializer contributions; valid ref-return skeletons; accessor body context; constructor-chain validity under exhausted budgets; properties/events with multiple accessors; bodyless and empty Types; visible body failures; and one-load exact body association. |
 | `TypeDocumentInspectionTests` | Exact-Type SourceHouse settlement preserves provenance, typed outcomes, bounds, diagnostics, detached serialization, and `InspectionEnvelope` content across supplied and absent PDB paths. |
 | CLI whole-Type Decompiled Source tests | The existing command text, diagnostics, and failure behavior come from the shared Bodies projection for the real System.Text.Json witnesses and focused fixtures. |
 | Browser Type Explorer production test | Type Source Explore opens the routed viewer; Bodies/Skeleton/Selected body and structural filters consume product projections and exact identities without Browser C# parsing. |
@@ -701,10 +701,16 @@ The implementation must demonstrate:
   which gains a fabricated MethodDef destination;
 - selecting that constructor expands its own body and those exact field
   initializer slots without expanding unrelated declaration implementation;
+- auto-property and field-like-event backing-storage initializers retain every
+  contributing constructor and remain independently selectable;
+- ref and ref-readonly property skeletons use valid throwing accessors;
+- property and custom-event bodies retain required unsafe declaration context;
 - an empty class, bodyless interface, enum, and delegate produce valid
   documents;
 - a body budget exhaustion retains a complete skeleton and identifies every
   unavailable body without publishing a complete Bodies outcome;
+- a derived constructor whose required chain cannot be proven within the body
+  budget produces no invalid incomplete document;
 - a malicious range whose `Start + Length` overflows is rejected before any
   slice; and
 - two values with the same MVID and metadata tokens but different physical

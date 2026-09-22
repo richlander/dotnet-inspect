@@ -275,6 +275,18 @@ public static partial class MemberBodyProducer
         var bodyIdByToken = bodyBuilds
             .Select((body, id) => (body.Token, id))
             .ToDictionary(static entry => entry.Token, static entry => entry.id);
+        if (!CanOmitUnavailableConstructorInitializer(type, reader, definition)
+            && logicalMembers.Any(member =>
+                member.Kind == "constructor"
+                && !member.IsStatic
+                && member.MetadataToken is { } token
+                && bodyBuilds.Single(body => body.Token == token) is
+                    { Outcome: not CSharpTypeBodyOutcome.Available } body
+                && body.Result?.Body?.ConstructorInitializer is null))
+        {
+            return new CSharpTypeDocumentOutcome.Unavailable(
+                "A constructor body is unavailable and its required constructor initializer cannot be proven.");
+        }
         var loweredOwners = new Dictionary<int, int>();
         foreach (BodyBuild body in bodyBuilds)
         {
@@ -334,11 +346,13 @@ public static partial class MemberBodyProducer
         var initializerByField = CollectInitializers(
             logicalMembers,
             bodyBuilds,
-            bodyIdByToken);
+            bodyIdByToken,
+            out string? initializerFailure);
         if (initializerByField is null)
         {
             return new CSharpTypeDocumentOutcome.Unavailable(
-                "Constructor initializers do not have one unambiguous declaration value.");
+                initializerFailure
+                    ?? "Constructor initializers do not have one unambiguous declaration value.");
         }
         var memberRequests = BuildMemberRequests(
             source,
@@ -635,21 +649,37 @@ public static partial class MemberBodyProducer
                 })];
             if (IsPropertyMember(member))
             {
+                FieldInitializerBuild? initializer =
+                    DeclarationToken(member) is { } token
+                    && initializers.TryGetValue(
+                        token,
+                        out FieldInitializerBuild? value)
+                        ? value
+                        : null;
                 requests.Add(PropertyRequest(
                     source,
                     reader,
                     typeHandle,
                     member,
                     bindings,
-                    bodyByToken));
+                    bodyByToken,
+                    initializer));
                 continue;
             }
             if (IsEventMember(member))
             {
+                FieldInitializerBuild? initializer =
+                    DeclarationToken(member) is { } token
+                    && initializers.TryGetValue(
+                        token,
+                        out FieldInitializerBuild? value)
+                        ? value
+                        : null;
                 requests.Add(EventRequest(
                     member,
                     bindings,
-                    bodyByToken));
+                    bodyByToken,
+                    initializer));
                 continue;
             }
 
@@ -677,7 +707,8 @@ public static partial class MemberBodyProducer
         TypeDefinitionHandle typeHandle,
         ApiMember member,
         ImmutableArray<CSharpStructuredBodyBinding> bindings,
-        IReadOnlyDictionary<int, BodyBuild> bodies)
+        IReadOnlyDictionary<int, BodyBuild> bodies,
+        FieldInitializerBuild? initializer)
     {
         MethodDefinitionHandle? getter = ResolveMethodHandle(
             reader,
@@ -703,7 +734,9 @@ public static partial class MemberBodyProducer
             member.SetterToken,
             automatic,
             bodies);
-        bool anyFull = getterBody is not null || setterBody is not null;
+        bool anyFull = getterBody is not null
+            || setterBody is not null
+            || initializer is not null;
         return new(
             member,
             anyFull
@@ -711,6 +744,12 @@ public static partial class MemberBodyProducer
                 : CSharpBodyPolicy.Skeleton,
             anyFull
                 ? new CSharpPropertyBody(getterBody, setterBody)
+                {
+                    Initializer = initializer?.Text,
+                    RequiresUnsafeModifier =
+                        RequiresUnsafeModifier(member.GetterToken, bodies)
+                        || RequiresUnsafeModifier(member.SetterToken, bodies),
+                }
                 : null,
             bindings);
     }
@@ -718,7 +757,8 @@ public static partial class MemberBodyProducer
     static CSharpStructuredMemberRequest EventRequest(
         ApiMember member,
         ImmutableArray<CSharpStructuredBodyBinding> bindings,
-        IReadOnlyDictionary<int, BodyBuild> bodies)
+        IReadOnlyDictionary<int, BodyBuild> bodies,
+        FieldInitializerBuild? initializer)
     {
         bool fieldLike = member.BackingStorage is
         {
@@ -727,11 +767,17 @@ public static partial class MemberBodyProducer
         };
         if (fieldLike)
         {
-            return new(
-                member,
-                CSharpBodyPolicy.Skeleton,
-                Body: null,
-                bindings);
+            return initializer is null
+                ? new(
+                    member,
+                    CSharpBodyPolicy.Skeleton,
+                    Body: null,
+                    bindings)
+                : new(
+                    member,
+                    CSharpBodyPolicy.Full,
+                    new CSharpFieldInitializer(initializer.Text),
+                    bindings);
         }
         CSharpAccessorBody? adder = Accessor(
             member.AdderToken,
@@ -750,9 +796,20 @@ public static partial class MemberBodyProducer
             : new(
                 member,
                 CSharpBodyPolicy.Full,
-                new CSharpEventBody(adder, remover),
+                new CSharpEventBody(adder, remover)
+                {
+                    RequiresUnsafeModifier =
+                        RequiresUnsafeModifier(member.AdderToken, bodies)
+                        || RequiresUnsafeModifier(member.RemoverToken, bodies),
+                },
                 bindings);
     }
+
+    static bool RequiresUnsafeModifier(
+        int? token,
+        IReadOnlyDictionary<int, BodyBuild> bodies)
+        => token is { } value
+            && bodies[value].Result?.Body?.RequiresUnsafeModifier == true;
 
     static CSharpAccessorBody? Accessor(
         int? token,
@@ -805,15 +862,37 @@ public static partial class MemberBodyProducer
     static Dictionary<int, FieldInitializerBuild>? CollectInitializers(
         IReadOnlyList<ApiMember> members,
         IReadOnlyList<BodyBuild> bodies,
-        IReadOnlyDictionary<int, int> bodyIdByToken)
+        IReadOnlyDictionary<int, int> bodyIdByToken,
+        out string? failure)
     {
-        var fieldsByName = members
-            .Where(static member => member.Kind == "field")
-            .Where(static member => DeclarationToken(member) is not null)
-            .ToDictionary(
-                static member => member.Name,
-                static member => DeclarationToken(member)!.Value,
-                StringComparer.Ordinal);
+        failure = null;
+        string? localFailure = null;
+        var declarationsByStorageName =
+            new Dictionary<string, int>(StringComparer.Ordinal);
+        var propertyTokens = members.Where(IsPropertyMember)
+            .Select(DeclarationToken).OfType<int>().ToHashSet();
+        foreach (ApiMember member in members)
+        {
+            if (DeclarationToken(member) is not { } declarationToken)
+                continue;
+            if (member.Kind == "field"
+                && !AddStorage(member.Name, declarationToken))
+            {
+                failure = localFailure;
+                return null;
+            }
+            if (member.BackingStorage is
+                {
+                    State: ApiBackingStorageState.Associated,
+                    Candidates: [var backing],
+                }
+                && !AddStorage(backing.MatchedName, declarationToken))
+            {
+                failure = localFailure;
+                return null;
+            }
+        }
+
         var result = new Dictionary<int, FieldInitializerBuild>();
         foreach (BodyBuild body in bodies)
         {
@@ -824,26 +903,56 @@ public static partial class MemberBodyProducer
             }
             foreach ((string name, string text) in initializers)
             {
-                if (fieldsByName.TryGetValue(name, out int fieldToken))
+                if (!declarationsByStorageName.TryGetValue(
+                        name,
+                        out int declarationToken))
                 {
-                    int bodyId = bodyIdByToken[body.Token];
-                    if (result.TryGetValue(fieldToken, out var previous))
+                    failure =
+                        $"Lifted initializer storage '{name}' has no exact logical declaration.";
+                    return null;
+                }
+                int bodyId = bodyIdByToken[body.Token];
+                if (result.TryGetValue(declarationToken, out var previous))
+                {
+                    if (previous.Text != text)
                     {
-                        if (previous.Text != text)
-                            return null;
-                        result[fieldToken] = previous with
-                        {
-                            BodyIds = previous.BodyIds.Add(bodyId),
-                        };
+                        failure =
+                            $"Declaration 0x{declarationToken:X8} has conflicting lifted initializer values.";
+                        return null;
                     }
-                    else
+                    result[declarationToken] = previous with
                     {
-                        result.Add(fieldToken, new(text, [bodyId]));
-                    }
+                        BodyIds = previous.BodyIds.Add(bodyId),
+                    };
+                }
+                else
+                {
+                    result.Add(declarationToken, new(
+                        text,
+                        [bodyId],
+                        propertyTokens.Contains(declarationToken)
+                            ? CSharpTypeBodyContributionRole.PropertyInitializer
+                            : CSharpTypeBodyContributionRole.FieldInitializer));
                 }
             }
         }
         return result;
+
+        bool AddStorage(string name, int declarationToken)
+        {
+            if (!declarationsByStorageName.TryGetValue(
+                    name,
+                    out int existing))
+            {
+                declarationsByStorageName.Add(name, declarationToken);
+                return true;
+            }
+            if (existing == declarationToken)
+                return true;
+            localFailure =
+                $"Lifted initializer storage '{name}' maps to more than one logical declaration.";
+            return false;
+        }
     }
 
     static ImmutableArray<CSharpTypeDeclaration> BuildDeclarations(
@@ -960,7 +1069,7 @@ public static partial class MemberBodyProducer
                     ? [
                         .. initializer.BodyIds.Select(bodyId => new CSharpTypeBodyContribution(
                             bodyId,
-                            CSharpTypeBodyContributionRole.FieldInitializer,
+                            initializer.Role,
                             new(
                                 3,
                                 initializer.Text.Length))),
@@ -1135,6 +1244,34 @@ public static partial class MemberBodyProducer
                 && accessors.All(static accessor =>
                     accessor.Kind is "add" or "remove");
 
+    static bool CanOmitUnavailableConstructorInitializer(
+        ApiType type,
+        MetadataReader reader,
+        TypeDefinition definition)
+    {
+        if (type.Kind != "class" || definition.BaseType.IsNil)
+            return true;
+        TypeRef baseType = definition.BaseType.Kind switch
+        {
+            HandleKind.TypeDefinition =>
+                TypeRefDecoder.Instance.GetTypeFromDefinition(
+                    reader,
+                    (TypeDefinitionHandle)definition.BaseType,
+                    0),
+            HandleKind.TypeReference =>
+                TypeRefDecoder.Instance.GetTypeFromReference(
+                    reader,
+                    (TypeReferenceHandle)definition.BaseType,
+                    0),
+            _ => TypeRef.Unsupported(
+                $"base type handle kind {definition.BaseType.Kind}"),
+        };
+        return MemberIdentity.IsCoreLibraryType(
+            baseType,
+            "System",
+            "Object");
+    }
+
     static CSharpTypeAccessibility Accessibility(string? value)
         => value switch
         {
@@ -1173,5 +1310,6 @@ public static partial class MemberBodyProducer
 
     sealed record FieldInitializerBuild(
         string Text,
-        ImmutableArray<int> BodyIds);
+        ImmutableArray<int> BodyIds,
+        CSharpTypeBodyContributionRole Role);
 }
