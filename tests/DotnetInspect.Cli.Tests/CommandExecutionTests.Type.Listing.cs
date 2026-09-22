@@ -6,11 +6,40 @@ using DotnetInspect.Cli.Commands;
 using DotnetInspect.Cli.Options;
 using DotnetInspector.Services;
 using ILInspector.Metadata;
+using System.Reflection.PortableExecutable;
 
 namespace DotnetInspect.Cli.Tests;
 
 public partial class CommandExecutionTests
 {
+    [Fact]
+    public async Task Type_ListingKindCount_MatchesMetadataInventory()
+    {
+        string path = typeof(object).Assembly.Location;
+        using var stream = File.OpenRead(path);
+        using var reader = new PEReader(stream);
+        var counted = Assert.IsType<
+            ApiTypeInventoryCountResult.Counted>(
+                ApiSurfaceExtractor.CountSummaryTypes(reader));
+
+        var (exit, output, error) = await RunAppAsync(
+            "type",
+            "--platform",
+            "System.Private.CoreLib",
+            "-S",
+            SectionNames.Classes,
+            "--count",
+            "--tips",
+            "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Equal(
+            counted.Count.Classes.ToString(
+                CultureInfo.InvariantCulture),
+            output.Trim());
+    }
+
     /// <summary>
     /// The compact fields list is the whole of the <c>-v:q</c> view and appears nowhere else. Every
     /// other view can reach the same facts through the bounded API Info section, so carrying them

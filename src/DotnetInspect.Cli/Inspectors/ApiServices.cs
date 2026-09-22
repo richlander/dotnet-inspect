@@ -96,6 +96,18 @@ internal static class ApiServices
                 useTypedSelection: true,
                 platformFramework: source.PlatformFramework);
 
+    internal static ApiTypeInventoryCountResult? CountTypeListing(
+        ApiSourceResult source)
+    {
+        ArgumentNullException.ThrowIfNull(source);
+
+        string? apiDllPath =
+            FindApiDll(source.SearchPath, source.Context.Logger);
+        return apiDllPath is null
+            ? null
+            : AssemblyReader.CountApiTypeInventory(apiDllPath);
+    }
+
     internal static LoadedApiSurface? LoadFullApi(
         string searchPath,
         string? runtimeAssemblyPath,
