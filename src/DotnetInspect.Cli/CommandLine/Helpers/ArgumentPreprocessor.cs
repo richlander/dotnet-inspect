@@ -107,15 +107,6 @@ public static class ArgumentPreprocessor
     /// </summary>
     public static string? GetRemovedPackageOptionError(string option)
     {
-        if (option.Equals("--latest-version", StringComparison.Ordinal)
-            || option.StartsWith("--latest-version=", StringComparison.Ordinal)
-            || option.StartsWith("--latest-version:", StringComparison.Ordinal))
-        {
-            return "'--latest-version' is no longer valid. Use "
-                + "'Package@latest --version' to query the latest published version, "
-                + "or omit the version to inspect the latest eligible package.";
-        }
-
         // --readme was a boolean option, so the parser also accepted --readme=true. Both spellings
         // named the removed flag and both deserve the replacement.
         if (!option.Equals("--readme", StringComparison.Ordinal)

@@ -27,6 +27,7 @@ interface NavigationDescriptorPresentationItem {
 
 export interface NavigationPackagePresentationItem {
   readonly order: number;
+  readonly navigationId: string;
   readonly subject: NavigationDescriptorPresentationItem;
   readonly package: string;
   readonly version: string;
@@ -34,6 +35,19 @@ export interface NavigationPackagePresentationItem {
   readonly runtimeIdentifier: string | null;
   readonly realization: string;
   readonly realizationFailure: string | null;
+  readonly detailFailure: string | null;
+  readonly summary: BrowserRetainedWorkspaceSurfaceSummary;
+}
+
+export interface NavigationPlatformPresentationItem {
+  readonly order: number;
+  readonly navigationId: string;
+  readonly family: string;
+  readonly version: string;
+  readonly framework: string;
+  readonly runtimeIdentifier: string | null;
+  readonly current: boolean;
+  readonly detailFailure: string | null;
   readonly summary: BrowserRetainedWorkspaceSurfaceSummary;
 }
 
@@ -49,6 +63,7 @@ export interface NavigationDescriptorPresentation {
   readonly inspectors: readonly NavigationDescriptorPresentationItem[];
   readonly lensOutcome: NavigationLensOutcomePresentation | null;
   readonly packages: readonly NavigationPackagePresentationItem[];
+  readonly platforms: readonly NavigationPlatformPresentationItem[];
   readonly actions: ReadonlyMap<string, BrowserRetainedNavigationAction>;
 }
 
@@ -74,6 +89,7 @@ export function createNavigationDescriptorPresentation(
     inspectors: snapshot.lenses.map(lensPresentation),
     lensOutcome: lensOutcomePresentation(snapshot.lensOutcome),
     packages: packagePresentation(snapshot.packages, posting.packages),
+    platforms: platformPresentation(posting),
     actions,
   };
 }
@@ -218,6 +234,7 @@ function packagePresentation(
       inventoriesBySubject.delete(descriptor.subject.id);
       return {
         order: descriptor.order,
+        navigationId: inventory.navigationId,
         subject: {
           key: descriptor.subject.id,
           identity: descriptor.subject.id,
@@ -237,6 +254,7 @@ function packagePresentation(
         runtimeIdentifier: descriptor.runtimeIdentifier,
         realization: descriptor.realization,
         realizationFailure: descriptor.realizationFailure,
+        detailFailure: null,
         summary: inventory.summary,
       };
     });
@@ -247,6 +265,63 @@ function packagePresentation(
     );
   }
   return projected;
+}
+
+export function withNavigationPackageDetailFailure(
+  presentation: NavigationDescriptorPresentation,
+  subjectIdentity: string,
+  detailFailure: string | null,
+): NavigationDescriptorPresentation {
+  return {
+    ...presentation,
+    packages: presentation.packages.map(item =>
+      item.subject.identity === subjectIdentity
+        ? { ...item, detailFailure }
+        : item),
+  };
+}
+
+export function withNavigationPlatformDetailFailure(
+  presentation: NavigationDescriptorPresentation,
+  navigationId: string,
+  detailFailure: string | null,
+): NavigationDescriptorPresentation {
+  return {
+    ...presentation,
+    platforms: presentation.platforms.map(item =>
+      item.navigationId === navigationId
+        ? { ...item, detailFailure }
+        : item),
+  };
+}
+
+function platformPresentation(
+  posting: BrowserRetainedWorkspacePosting,
+): readonly NavigationPlatformPresentationItem[] {
+  const tabs = new Map(
+    posting.definition.tabs.map((tab, order) => [tab.id, { tab, order }]),
+  );
+  return posting.platforms.map(inventory => {
+    const entry = tabs.get(inventory.navigationId);
+    if (entry === undefined) {
+      throw new Error(
+        `Platform inventory '${inventory.navigationId}' has no definition tab.`,
+      );
+    }
+    return {
+      order: entry.order,
+      navigationId: inventory.navigationId,
+      family: inventory.family,
+      version: entry.tab.version ?? "",
+      framework: entry.tab.framework
+        ?? inventory.summary.selectedCompileFramework
+        ?? "",
+      runtimeIdentifier: inventory.runtimeIdentifier,
+      current: posting.definition.activeTabId === inventory.navigationId,
+      detailFailure: null,
+      summary: inventory.summary,
+    };
+  }).sort((left, right) => left.order - right.order);
 }
 
 function collectActions(

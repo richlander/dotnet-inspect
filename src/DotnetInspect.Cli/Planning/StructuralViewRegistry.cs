@@ -558,8 +558,7 @@ public static class StructuralViewRegistry
             return true;
         }
 
-        if (ContainsOption(tokens, "--version")
-            || ContainsOption(tokens, "--versions")
+        if (ContainsOption(tokens, "--versions")
             || ContainsOption(tokens, "--versions-with-feed")
             || target.Contains('@'))
         {

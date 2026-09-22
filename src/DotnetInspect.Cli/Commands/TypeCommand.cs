@@ -325,6 +325,15 @@ public static class TypeCommand
                         options.TypeName))
             {
                 // No type specified - list all types
+                if (loadedSurface is null
+                    && TryExecuteMetadataTypeCount(
+                        source,
+                        options)
+                    is int countExitCode)
+                {
+                    return countExitCode;
+                }
+
                 var loaded = loadedSurface
                     ?? ApiServices.LoadTypeApi(
                         source,
@@ -596,6 +605,21 @@ public static class TypeCommand
                                 apiType,
                                 effectiveOptions,
                                 loaded,
+                                cancellationToken);
+                    }
+
+                    if (AuthorizesTypeSource(
+                            apiType,
+                            effectiveOptions))
+                    {
+                        effectiveOptions =
+                            await AttachTypeSourceInspectionAsync(
+                                apiType,
+                                effectiveOptions,
+                                loaded,
+                                packageName,
+                                packageVersion,
+                                context.HttpClient,
                                 cancellationToken);
                     }
 
@@ -1764,6 +1788,60 @@ public static class TypeCommand
         }
     }
 
+    private static int? TryExecuteMetadataTypeCount(
+        ApiSourceResult source,
+        TypeOptions options)
+    {
+        if (!options.Count
+            || !string.Equals(
+                source.ApiSource,
+                SourceKind.Platform,
+                StringComparison.Ordinal)
+            || source.RuntimeAssemblyPath is null
+            || options.IncludeAll
+            || options.TypeFilter is not null
+            || options.KindFilter.Count > 0
+            || options.UnsafeOnly
+            || options.TypeListingRowSelection is not null
+            || options.Limit.HasValue
+            || options.Rows is not null
+            || options.Columns is { Length: > 0 }
+            || options.Fields is { Length: > 0 }
+            || options.EffectiveDiscovery
+            || options.EnvelopeOutput
+            || options.PerformanceTriage.HasFilters
+            || options.BodyKindQuery.HasFilter
+            || options.CloneCandidateQuery.HasPredicates
+            || options.IncludeSections
+                is not { Count: 1 } sections)
+        {
+            return null;
+        }
+
+        ApiTypeInventoryKind? kind = sections.Single() switch
+        {
+            SectionNames.Classes => ApiTypeInventoryKind.Class,
+            SectionNames.Structs => ApiTypeInventoryKind.Struct,
+            SectionNames.Interfaces =>
+                ApiTypeInventoryKind.Interface,
+            SectionNames.Enums => ApiTypeInventoryKind.Enum,
+            SectionNames.Delegates =>
+                ApiTypeInventoryKind.Delegate,
+            _ => null,
+        };
+        if (kind is null)
+            return null;
+
+        if (ApiServices.CountTypeListing(source)
+            is not ApiTypeInventoryCountResult.Counted counted)
+        {
+            return null;
+        }
+
+        CountOutput.WriteCount(counted.Count.Count(kind.Value));
+        return 0;
+    }
+
     private static bool CanUsePlatformSummary(
         TypeOptions options,
         string searchPath,
@@ -1852,6 +1930,12 @@ public static class TypeCommand
            && ApiCommand.GetRequestedMemberSections(apiType, options)
                .Contains(SectionNames.DecompiledSource);
 
+    private static bool AuthorizesTypeSource(
+        ApiType apiType,
+        TypeOptions options)
+        => options.IncludeSections is { Count: > 0 }
+           && options.IncludeSections.Contains(SectionNames.Source);
+
     private static bool AuthorizesTypeApiDeclarations(
         ApiType apiType,
         TypeOptions options)
@@ -1926,6 +2010,63 @@ public static class TypeCommand
         return options with
         {
             TypeApiDeclarationInspection = inspection,
+        };
+    }
+
+    private static async Task<TypeOptions>
+        AttachTypeSourceInspectionAsync(
+        ApiType apiType,
+        TypeOptions options,
+        ApiServices.LoadedApiSurface loaded,
+        string? packageName,
+        string? packageVersion,
+        HttpClient httpClient,
+        CancellationToken cancellationToken)
+    {
+        string assemblyPath =
+            apiType.SourceAssemblyPath
+            ?? loaded.ApiDllPath;
+        ResolvedAssemblyReference definingAssembly =
+            loaded.TryGetSourceAssembly(apiType)
+            ?? ResolvedAssemblyReference.CreateFromPath(
+                assemblyPath,
+                AssemblyResolutionProvenance.Local(
+                    "type Source"));
+        SelectedTypeBindingContext? bindingContext =
+            loaded.TryGetBindingContext(apiType)
+            ?? loaded.RootBindingContext;
+        var (participant, queryContext) =
+            AuthoredSourceDocumentPrinter.CreateContext(
+                assemblyPath,
+                options,
+                definingAssembly,
+                packageName,
+                packageVersion,
+                httpClient,
+                bindingContext?.Policy);
+
+        InspectionEnvelope<AssemblyTypeSourceEntry> inspection;
+        await using (var workspace = new InspectionWorkspace())
+        {
+            using AssemblyContextGroup group =
+                workspace.CreateAssemblyContextGroup([participant]);
+            inspection =
+                await TypeSourceInspection.ExecuteAsync(
+                        group,
+                        participant,
+                        AssemblyTypeSourceRequest.From(
+                            apiType,
+                            options.RenderOptions),
+                        queryContext,
+                        cancellationToken)
+                    .ConfigureAwait(false);
+        }
+
+        ApiCommand.WriteSourceInspectionDiagnostics(
+            inspection.Diagnostics);
+        return options with
+        {
+            TypeSourceInspection = inspection,
         };
     }
 

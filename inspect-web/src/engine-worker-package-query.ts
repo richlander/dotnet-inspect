@@ -2077,7 +2077,7 @@ export function registerEngineWorkerPackageQueryOperation(
       const result = await packageFacade.runPackageQuery(
           context.operation.operationId,
           input.searchText,
-          JSON.stringify(input.terms),
+        input.terms,
           input.targetFramework,
           input.maximumCandidates,
           input.maximumMatches,

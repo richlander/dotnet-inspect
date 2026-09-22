@@ -17,6 +17,11 @@ public record InspectionOptions : IProjectionOptions
     /// </summary>
     public string[] PackageArgs { get; init; } = [];
 
+    /// <summary>
+    /// Exact Package version selected by the explicit Package command.
+    /// </summary>
+    public string? ExplicitVersion { get; init; }
+
     internal PackageReferenceTarget? DeclaredPackageTarget { get; init; }
 
     /// <summary>
@@ -160,7 +165,7 @@ public record InspectionOptions : IProjectionOptions
     public bool ListVersions { get; init; }
 
     /// <summary>
-    /// Select one version with bare --version, rather than limit a raw listing.
+    /// Select one resolved version from an ordinary listing.
     /// </summary>
     public bool SingleVersionQuery { get; init; }
 

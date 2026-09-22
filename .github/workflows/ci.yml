@@ -1112,7 +1112,8 @@ jobs:
             --filter-method '*Package_Manifest_RendersToolManifestRows*' \
             --report-xunit-xml \
             --report-xunit-xml-filename "$results_name" \
-            --results-directory "$results_dir"
+            --results-directory "$results_dir" \
+            --minimum-expected-tests 1
           if ! grep -Eq '<assembly[^>]+skipped="0"' "$results"; then
             echo "::error::Package fixture test skipped authenticated execution." >&2
             exit 1

@@ -953,6 +953,12 @@ test("typed graph interactions own graph controls and Mermaid node bindings", ()
     workspaceBinding,
     /bindGraphBack\(document, graphBackActions\)/);
   assert.match(
+    workspaceBinding,
+    /bindCallGraphTraversalFramework\(\)/);
+  assert.match(
+    appSource,
+    /function bindCallGraphTraversalFramework\(\)[\s\S]*\[data-call-graph-traversal-framework\][\s\S]*addEventListener\("change"[\s\S]*invalidateMemberCallGraphWork\(state\)[\s\S]*loadSelectedMemberCallGraph\(\)/);
+  assert.match(
     typeGraph,
     /bindGraphPanZoom\(container, viewport, \{[\s\S]*resolveTypeGraphNode: nodeId => \{[\s\S]*graphNodeOf\.get\(nodeId\)[\s\S]*closeGraphExplorerForNavigation\(\);[\s\S]*navigateToWorkspaceType\(candidate\.pkg, candidate\.type\)/);
   assert.match(
@@ -1026,7 +1032,7 @@ test("typed graph interactions own graph controls and Mermaid node bindings", ()
   assert.match(
     appSource,
     /document\.addEventListener\("pointerdown", trackContentFramePointer\)/);
-  assert.equal(appSource.match(/\.addEventListener\(/g)?.length, 5);
+  assert.equal(appSource.match(/\.addEventListener\(/g)?.length, 6);
 });
 
 test("Call graph presentation keeps renderer source internal", () => {

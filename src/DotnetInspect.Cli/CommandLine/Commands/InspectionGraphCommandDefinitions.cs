@@ -50,16 +50,15 @@ public static class InspectionGraphCommandDefinitions
             Description =
                 "Root package containing the selected member (name or name@version)",
         };
-        var packageOption = new Option<string[]>("--package")
+        var rootTfmOption = new Option<string>("--root-tfm")
         {
             Description =
-                "External participant package (name or name@version). Repeat for each package.",
-            AllowMultipleArgumentsPerToken = false,
+                "Target framework selecting the exact root package asset",
         };
         var tfmOption = new Option<string?>("--tfm")
         {
             Description =
-                "Shared target framework for the package set (for example net10.0)",
+                "Dependency traversal target framework (default: net12.0)",
         };
         var allOption = new Option<bool>("--all")
         {
@@ -80,7 +79,7 @@ public static class InspectionGraphCommandDefinitions
         command.Arguments.Add(typeArgument);
         command.Arguments.Add(memberArgument);
         command.Options.Add(rootPackageOption);
-        command.Options.Add(packageOption);
+        command.Options.Add(rootTfmOption);
         command.Options.Add(tfmOption);
         command.Options.Add(allOption);
         command.Options.Add(depthOption);
@@ -144,6 +143,8 @@ public static class InspectionGraphCommandDefinitions
 
             string? rootPackage =
                 parseResult.GetValue(rootPackageOption);
+            string? rootTfm =
+                parseResult.GetValue(rootTfmOption);
             string? tfm = parseResult.GetValue(tfmOption);
             string? type = parseResult.GetValue(typeArgument);
             string? member = parseResult.GetValue(memberArgument);
@@ -168,9 +169,9 @@ public static class InspectionGraphCommandDefinitions
                     "Run 'dotnet-inspect graph calls --help' for usage.");
                 return 1;
             }
-            if (string.IsNullOrWhiteSpace(tfm))
+            if (string.IsNullOrWhiteSpace(rootTfm))
             {
-                CommandError.Write("A shared --tfm is required.");
+                CommandError.Write("--root-tfm is required.");
                 CommandError.WriteLine(
                     "Run 'dotnet-inspect graph calls --help' for usage.");
                 return 1;
@@ -182,8 +183,7 @@ public static class InspectionGraphCommandDefinitions
                     TypeName = type,
                     Member = member,
                     RootPackage = rootPackage,
-                    Packages =
-                        parseResult.GetValue(packageOption) ?? [],
+                    RootTfm = rootTfm,
                     Tfm = tfm,
                     IncludeAll = parseResult.GetValue(allOption),
                     Depth = parseResult.GetValue(depthOption),
