@@ -477,11 +477,13 @@ configured store. `Unavailable` means no route produced retained matching
 content; `AcquisitionFailure` distinguishes a failed external provider from
 definitive absence, while `WindowsPdbDetected` and `StoreFailure` preserve the
 corresponding validation and persistence distinctions. The acquisition service
-projects a remaining external-provider failure as a typed failure, and the
-evidence document settles as `Failed`. A retained PDB that cannot be reopened
-by the acquisition service likewise settles as `Failed` with
-`StoreFailure = ReadFailed` while preserving its route and cache origin. A
-cache hit records `FromCache` and does not fabricate a network attempt.
+returns that distinction from its explicit-capability descriptor overload, and
+the evidence document settles as `Failed`. Callers that use PDBs as optional
+enrichment may ignore the returned provider failure; Type Source projects it
+through its existing typed acquisition-failure path. A retained PDB that cannot
+be reopened by the acquisition service likewise settles as `Failed` with
+`StoreFailure = ReadFailed` while preserving its route and cache origin. A cache
+hit records `FromCache` and does not fabricate a network attempt.
 
 This operation-scoped evidence is captured directly in the downloader rather
 than reconstructed from process-global `NetworkTelemetry` subscriptions.
