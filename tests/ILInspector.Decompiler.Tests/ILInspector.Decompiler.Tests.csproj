@@ -38,6 +38,10 @@
 
   <ItemGroup>
     <PackageDownload Include="docopt.net" Version="[0.8.3]" />
+    <PackageDownload Include="System.Text.Json" Version="[11.0.0-preview.7.26381.103]" />
+    <None Include="$(NuGetPackageRoot)system.text.json/11.0.0-preview.7.26381.103/lib/netstandard2.0/System.Text.Json.dll"
+          Link="RealAssets/StructuredTypes/System.Text.Json.dll"
+          CopyToOutputDirectory="PreserveNewest" />
     <None Include="$(NuGetPackageRoot)docopt.net/0.8.3/lib/netstandard2.1/DocoptNet.dll"
           Link="RealAssets/FieldGetter/DocoptNet.dll"
           CopyToOutputDirectory="PreserveNewest" />
@@ -86,6 +90,7 @@
     <ProjectReference Include="..\..\fixtures\decompiler\ILInspector.Decompiler.Fixtures.Ladder\ILInspector.Decompiler.Fixtures.Ladder.csproj" />
     <ProjectReference Include="..\..\fixtures\decompiler\ILInspector.Decompiler.Fixtures.AuthoredRebuild\ILInspector.Decompiler.Fixtures.AuthoredRebuild.csproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="..\..\fixtures\decompiler\ILInspector.Decompiler.Fixtures.TypeIdentity\ILInspector.Decompiler.Fixtures.TypeIdentity.csproj" ReferenceOutputAssembly="false" />
+    <ProjectReference Include="..\..\fixtures\decompiler\ILInspector.Decompiler.Fixtures.StructuredTypes\ILInspector.Decompiler.Fixtures.StructuredTypes.csproj" />
     <ProjectReference Include="..\..\fixtures\metadata\ILInspector.Metadata.StateMachineFixtures\ILInspector.Metadata.StateMachineFixtures.csproj" />
     <ProjectReference Include="..\..\fixtures\services\DotnetInspector.Services.RouteLearning.Middle\DotnetInspector.Services.RouteLearning.Middle.csproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="..\..\fixtures\diff\DiffFixtures.V1\DiffFixtures.V1.csproj" ReferenceOutputAssembly="false" />

@@ -787,6 +787,14 @@ static class CSharpTypeDocumentValidator
         {
             foreach (CSharpTypeRenderPart part in parts)
             {
+                if (part.OwnedBodies.IsEmpty
+                    && part.Contributions.Length > 1
+                    && part.Contributions.All(contribution =>
+                        contribution.Role == part.Contributions[0].Role
+                        && contribution.FullRange == part.Contributions[0].FullRange))
+                {
+                    continue;
+                }
                 int? activationOwner = null;
                 bool hasContribution = false;
                 foreach (int bodyId in part.OwnedBodies

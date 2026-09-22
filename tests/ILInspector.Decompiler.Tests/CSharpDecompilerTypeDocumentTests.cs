@@ -1,0 +1,438 @@
+using System.Collections.Immutable;
+using System.Reflection.Metadata;
+using System.Reflection.Metadata.Ecma335;
+using System.Reflection.PortableExecutable;
+using ILInspector.Decompiler.Fixtures.StructuredTypes;
+using ILInspector.Decompiler.Pipeline;
+using ILInspector.Metadata;
+using Microsoft.CodeAnalysis;
+using Microsoft.CodeAnalysis.CSharp;
+
+namespace ILInspector.Decompiler.Tests;
+
+public sealed class CSharpDecompilerTypeDocumentTests
+{
+    static string AssemblyPath =>
+        typeof(StructuredSample).Assembly.Location;
+
+    [Fact]
+    public void ProduceTypeDocument_UsesCompleteSameReaderInventoryAndExactRanges()
+    {
+        ApiType filtered = Type<StructuredSample>();
+        filtered.Members =
+        [
+            filtered.Members.Single(member =>
+                member.Name == nameof(StructuredSample.Raise)),
+        ];
+
+        CSharpTypeDocument document = Available(Produce(filtered));
+        using var pe = new PEReader(File.OpenRead(AssemblyPath));
+        MetadataReader reader = pe.GetMetadataReader();
+        TypeDefinition definition = reader.GetTypeDefinition(
+            MetadataTokens.TypeDefinitionHandle(
+                filtered.MetadataToken!.Value & 0x00FFFFFF));
+
+        Assert.Equal(
+            definition.GetFields().Count
+                + definition.GetMethods().Count
+                + definition.GetProperties().Count
+                + definition.GetEvents().Count,
+            document.Artifacts.Length);
+        Assert.Equal(definition.GetMethods().Count, document.Bodies.Length);
+        Assert.Contains(
+            document.Artifacts,
+            artifact =>
+                artifact.Representation.Role
+                    == CSharpTypeArtifactRole.BackingStorage);
+        Assert.Contains(
+            document.Declarations,
+            declaration =>
+                declaration.Kind == CSharpTypeDeclarationKind.Property
+                && declaration.Parts.SelectMany(static part => part.OwnedBodies)
+                    .Count() == 2);
+        Assert.Contains(
+            document.Declarations,
+            declaration =>
+                declaration.Kind == CSharpTypeDeclarationKind.Event
+                && declaration.Parts.SelectMany(static part => part.OwnedBodies)
+                    .Count() == 2);
+
+        CSharpTypeDocumentProjection bodies = Project(
+            document,
+            new(CSharpTypeBodyMode.Bodies));
+        CSharpTypeDocumentProjection skeleton = Project(
+            document,
+            new(CSharpTypeBodyMode.Skeleton));
+
+        Assert.Contains("class StructuredSample", bodies.Text);
+        Assert.Contains("Overload(int value)", bodies.Text);
+        Assert.Contains("this[int index]", bodies.Text);
+        Assert.Contains("IExplicitValue.Value", bodies.Text);
+        Assert.NotEqual(bodies.Text, skeleton.Text);
+        Assert.All(
+            bodies.Declarations.SelectMany(static declaration => declaration.Bodies),
+            body => Assert.InRange(
+                body.Range.End,
+                body.Range.Start,
+                bodies.Text.Length));
+
+        CSharpTypeBodyContribution initializer = Assert.Single(
+            document.Declarations
+                .SelectMany(static declaration => declaration.Parts)
+                .SelectMany(static part => part.Contributions),
+            contribution =>
+                contribution.Role
+                    == CSharpTypeBodyContributionRole.FieldInitializer);
+        CSharpTypeDeclaration constructor = Assert.Single(
+            document.Declarations,
+            declaration =>
+                declaration.Kind == CSharpTypeDeclarationKind.Constructor
+                && declaration.Parts
+                    .SelectMany(static part => part.OwnedBodies)
+                    .Any(body => body.BodyId == initializer.BodyId));
+        CSharpTypeDocumentProjection selected = Project(
+            document,
+            new(
+                CSharpTypeBodyMode.SelectedBody,
+                constructor.Anchor));
+        Assert.Contains("_seed = 7", selected.Text);
+        Assert.DoesNotContain("return Value + value", selected.Text);
+
+        AssertCompiles(bodies.Text);
+        AssertCompiles(skeleton.Text);
+    }
+
+    [Theory]
+    [InlineData(typeof(EmptyType))]
+    [InlineData(typeof(IBodylessType))]
+    [InlineData(typeof(Choice))]
+    [InlineData(typeof(Converter))]
+    public void ProduceTypeDocument_AcceptsBodylessAndLanguageFrameTypes(
+        Type runtimeType)
+    {
+        CSharpTypeDocument document = Available(Produce(Type(runtimeType)));
+        CSharpTypeDocumentProjection projection = Project(
+            document,
+            new(CSharpTypeBodyMode.Bodies));
+
+        Assert.NotEmpty(projection.Text);
+        Assert.Equal(
+            runtimeType == typeof(Converter),
+            document.Declarations.IsEmpty);
+        if (runtimeType == typeof(Converter))
+        {
+            Assert.All(
+                document.Artifacts,
+                artifact => Assert.Equal(
+                    CSharpTypeArtifactRole.DelegateSignature,
+                    artifact.Representation.Role));
+        }
+        else if (runtimeType == typeof(Choice))
+        {
+            Assert.Contains(
+                document.Artifacts,
+                artifact =>
+                    artifact.Representation.Role
+                        == CSharpTypeArtifactRole.EnumStorage);
+        }
+        else if (runtimeType == typeof(IBodylessType))
+        {
+            Assert.All(
+                document.Bodies,
+                body => Assert.Equal(
+                    CSharpTypeBodyOutcome.NoBody,
+                    body.Outcome));
+        }
+    }
+
+    [Fact]
+    public void ProduceTypeDocument_PreservesExactNestedGenericIdentity()
+    {
+        ApiType type = Type(typeof(Outer<>.Inner<>));
+
+        CSharpTypeDocument document = Available(Produce(type));
+        CSharpTypeDocumentProjection projection = Project(
+            document,
+            new(CSharpTypeBodyMode.Skeleton));
+
+        Assert.Equal(type.DefinitionName, document.TypeName);
+        Assert.Contains("class Outer<T>", projection.Text);
+        Assert.True(
+            projection.Text.Contains(
+                "struct Inner<U>",
+                StringComparison.Ordinal),
+            projection.Text);
+    }
+
+    [Fact]
+    public void ProduceTypeDocument_BudgetExhaustionRetainsCompleteSkeleton()
+    {
+        CSharpTypeDocumentOutcome.Incomplete incomplete =
+            Assert.IsType<CSharpTypeDocumentOutcome.Incomplete>(
+                Produce(Type<StructuredSample>(), maxBodyProjections: 0));
+
+        Assert.NotEmpty(incomplete.Document.Artifacts);
+        Assert.NotEmpty(incomplete.Document.Declarations);
+        Assert.Equal(
+            incomplete.Document.Bodies.Count(static body =>
+                body.HasManagedBody),
+            incomplete.FailedBodyIds.Length);
+        CSharpTypeDocumentProjection skeleton = Project(
+            incomplete.Document,
+            new(CSharpTypeBodyMode.Skeleton));
+        Assert.Contains("class StructuredSample", skeleton.Text);
+        AssertCompiles(skeleton.Text);
+    }
+
+    [Fact]
+    public void ProduceTypeDocument_PreservesEveryInitializerContributor()
+    {
+        CSharpTypeDocument document = Available(Produce(Type<MultipleConstructors>()));
+        var contributions = document.Declarations
+            .SelectMany(declaration => declaration.Parts)
+            .SelectMany(part => part.Contributions).ToArray();
+        Assert.Equal(2, contributions.Length);
+        Assert.Equal(2, contributions.Select(value => value.BodyId).Distinct().Count());
+        foreach (var constructor in document.Declarations.Where(
+            declaration => declaration.Kind == CSharpTypeDeclarationKind.Constructor))
+        {
+            var selected = Project(document, new(
+                CSharpTypeBodyMode.SelectedBody, constructor.Anchor,
+                includeAttributes: false));
+            Assert.Contains("_value = 7", selected.Text);
+            AssertCompiles(selected.Text);
+        }
+    }
+
+    [Fact]
+    public void ProduceTypeDocument_FiltersTypeAttributesAndAppliesBodyOptions()
+    {
+        CSharpTypeDocument document = Available(Produce(Type<MultipleConstructors>()));
+        Assert.Contains("structured-frame", Project(document, new()).Text);
+        Assert.DoesNotContain("structured-frame",
+            Project(document, new(includeAttributes: false)).Text);
+        var qualified = Available(CSharpDecompilerService.ProduceTypeDocument(
+            Type<MultipleConstructors>(),
+            ResolvedAssemblyReference.CreateFromPath(AssemblyPath,
+                AssemblyResolutionProvenance.Local(nameof(CSharpDecompilerTypeDocumentTests))),
+            new AssemblyReferenceBindingPolicy(
+                MetadataSource.DefaultAssemblyReferenceResolver(AssemblyPath)),
+            printerOptions: new PrinterOptions { QualifyFieldAccess = true },
+            cancellationToken: TestContext.Current.CancellationToken));
+        Assert.Contains("this._value", Project(qualified, new()).Text);
+        Assert.NotEqual(document.Revision, qualified.Revision);
+    }
+
+    [Fact]
+    public void ProduceTypeDocument_RetainsCustomEventBodies()
+    {
+        CSharpTypeDocument document = Available(Produce(Type<CustomEvent>()));
+        Assert.Equal(2, document.Declarations.Single(declaration =>
+            declaration.Kind == CSharpTypeDeclarationKind.Event)
+            .Parts.SelectMany(part => part.OwnedBodies).Count());
+        string source = Project(document, new()).Text;
+        Assert.Contains("Changes", source);
+        Assert.Contains("_handlers", source);
+        AssertCompiles(source);
+    }
+
+    [Fact]
+    public void ProduceTypeDocument_AssociatesLoweredHelperWithExactBody()
+    {
+        var document = Available(Produce(Type<LocalHelper>()));
+        Assert.Contains(document.Artifacts, artifact =>
+            artifact.Representation.Role == CSharpTypeArtifactRole.LoweredImplementationHelper);
+        string source = Project(document, new()).Text;
+        Assert.DoesNotContain("g__Twice", source);
+        AssertCompiles(source);
+    }
+
+    [Fact]
+    public void ProduceTypeDocument_PreCancelledOperationRemainsCancelled()
+    {
+        using var cancellation = new CancellationTokenSource();
+        cancellation.Cancel();
+        Assert.Throws<OperationCanceledException>(() =>
+            CSharpDecompilerService.ProduceTypeDocument(
+                Type<StructuredSample>(),
+                ResolvedAssemblyReference.CreateFromPath(AssemblyPath,
+                    AssemblyResolutionProvenance.Local(nameof(CSharpDecompilerTypeDocumentTests))),
+                new AssemblyReferenceBindingPolicy(
+                    MetadataSource.DefaultAssemblyReferenceResolver(AssemblyPath)),
+                cancellationToken: cancellation.Token));
+    }
+
+    [Fact]
+    public void ProduceTypeDocument_PreservesPdbPolicyAndRepeatedRevision()
+    {
+        ApiType type = Type<StructuredSample>();
+        CSharpTypeDocument withoutPdb = Available(Produce(type));
+        CSharpTypeDocument repeated = Available(Produce(type));
+        CSharpTypeDocument withPdb = Available(Produce(
+            type,
+            [.. File.ReadAllBytes(Path.ChangeExtension(AssemblyPath, ".pdb"))]));
+
+        Assert.False(withoutPdb.Source.PdbSupplied);
+        Assert.True(withPdb.Source.PdbSupplied);
+        Assert.Equal(withoutPdb.Revision, repeated.Revision);
+        Assert.IsType<CSharpTypeDocumentOutcome.Rejected>(
+            Produce(type, []));
+    }
+
+    [Theory]
+    [Trait("Speed", "Slow")]
+    [InlineData("System.Text.Json.JsonSerializerOptions", false)]
+    [InlineData(
+        "System.Collections.Generic.OrderedDictionary`2+Enumerator", true)]
+    public void ProduceTypeDocument_ProjectsRequiredRealPackageTypes(
+        string metadataName,
+        bool representable)
+    {
+        string assemblyPath = Path.Combine(
+            AppContext.BaseDirectory,
+            "RealAssets",
+            "StructuredTypes",
+            "System.Text.Json.dll");
+        Assert.True(File.Exists(assemblyPath), assemblyPath);
+        ApiType type = Type(assemblyPath, metadataName);
+
+        CSharpTypeDocumentOutcome outcome = Produce(
+            type,
+            assemblyPath);
+        if (!representable)
+        {
+            var unavailable = Assert.IsType<CSharpTypeDocumentOutcome.Unavailable>(outcome);
+            Assert.Contains("<get_CacheContext>g__GetOrCreate|1_0", unavailable.Reason);
+            return;
+        }
+        CSharpTypeDocument document = outcome switch
+        {
+            CSharpTypeDocumentOutcome.Available available =>
+                available.Document,
+            CSharpTypeDocumentOutcome.Incomplete incomplete =>
+                incomplete.Document,
+            _ => throw new Xunit.Sdk.XunitException(
+                $"Expected a structurally complete real-asset document, received {outcome}."),
+        };
+        CSharpTypeDocumentProjection skeleton = Project(
+            document,
+            new(CSharpTypeBodyMode.Skeleton));
+
+        using var pe = new PEReader(File.OpenRead(assemblyPath));
+        TypeDefinition definition = pe.GetMetadataReader().GetTypeDefinition(
+            MetadataTokens.TypeDefinitionHandle(
+                type.MetadataToken!.Value & 0x00FFFFFF));
+        Assert.Equal(definition.GetMethods().Count, document.Bodies.Length);
+        Assert.NotEmpty(document.Artifacts);
+        Assert.NotEmpty(document.Revision.Sha256);
+        Assert.Contains(
+            type.DefinitionName!.Segments[^1].Split('`')[0],
+            skeleton.Text);
+    }
+
+    static CSharpTypeDocumentOutcome Produce(
+        ApiType type,
+        ImmutableArray<byte>? pdb = null,
+        int maxBodyProjections =
+            CSharpDecompilerService.DefaultMaxBodyProjections)
+        => Produce(type, AssemblyPath, pdb, maxBodyProjections);
+
+    static CSharpTypeDocumentOutcome Produce(
+        ApiType type,
+        string assemblyPath,
+        ImmutableArray<byte>? pdb = null,
+        int maxBodyProjections =
+            CSharpDecompilerService.DefaultMaxBodyProjections)
+        => CSharpDecompilerService.ProduceTypeDocument(
+            type,
+            ResolvedAssemblyReference.CreateFromPath(
+                assemblyPath,
+                AssemblyResolutionProvenance.Local(
+                    nameof(CSharpDecompilerTypeDocumentTests))),
+            new AssemblyReferenceBindingPolicy(
+                MetadataSource.DefaultAssemblyReferenceResolver(
+                    assemblyPath)),
+            pdb,
+            maxBodyProjections: maxBodyProjections,
+            cancellationToken:
+                TestContext.Current.CancellationToken);
+
+    static CSharpTypeDocument Available(CSharpTypeDocumentOutcome outcome)
+        => outcome switch
+        {
+            CSharpTypeDocumentOutcome.Available available =>
+                available.Document,
+            _ => throw new Xunit.Sdk.XunitException(
+                $"Expected Available, received {outcome}."),
+        };
+
+    static CSharpTypeDocumentProjection Project(
+        CSharpTypeDocument document,
+        CSharpTypeProjectionRequest request)
+        => Assert.IsType<CSharpTypeProjectionOutcome.Projected>(
+            CSharpTypeDocumentProjector.Project(
+                document,
+                request)).Projection;
+
+    static void AssertCompiles(string source)
+    {
+        CSharpCompilation compilation = CSharpCompilation.Create(
+            "StructuredTypeProjection",
+            [
+                CSharpSyntaxTree.ParseText(
+                    source,
+                    new CSharpParseOptions(LanguageVersion.Preview),
+                    cancellationToken:
+                        TestContext.Current.CancellationToken),
+            ],
+            RoslynTestReferences.TrustedPlatform.Append(
+                MetadataReference.CreateFromFile(AssemblyPath)),
+            new CSharpCompilationOptions(
+                OutputKind.DynamicallyLinkedLibrary,
+                optimizationLevel: OptimizationLevel.Release,
+                nullableContextOptions: NullableContextOptions.Enable));
+        using var output = new MemoryStream();
+        var result = compilation.Emit(
+            output,
+            cancellationToken:
+                TestContext.Current.CancellationToken);
+        Assert.True(
+            result.Success,
+            $"{source}\n{string.Join("\n", result.Diagnostics)}");
+    }
+
+    static ApiType Type<T>() => Type(typeof(T));
+
+    static ApiType Type(Type runtimeType)
+        => Type(AssemblyPath, runtimeType.MetadataToken);
+
+    static ApiType Type(string assemblyPath, string metadataName)
+    {
+        using var pe = new PEReader(File.OpenRead(assemblyPath));
+        return Assert.Single(
+            ApiSurfaceExtractor.Extract(
+                pe,
+                includeAll: true,
+                includeCompilerGenerated: true).Types,
+            type => type.DefinitionName is { } definition
+                && string.Equals(
+                    string.IsNullOrEmpty(definition.Namespace)
+                        ? string.Join("+", definition.Segments)
+                        : definition.Namespace
+                            + "."
+                            + string.Join("+", definition.Segments),
+                    metadataName,
+                    StringComparison.Ordinal));
+    }
+
+    static ApiType Type(string assemblyPath, int metadataToken)
+    {
+        using var pe = new PEReader(File.OpenRead(assemblyPath));
+        return Assert.Single(
+            ApiSurfaceExtractor.Extract(
+                pe,
+                includeAll: true,
+                includeCompilerGenerated: true).Types,
+            type => type.MetadataToken == metadataToken);
+    }
+}

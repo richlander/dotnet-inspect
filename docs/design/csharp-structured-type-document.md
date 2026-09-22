@@ -25,6 +25,26 @@ analysis, or render a host experience.
 SourceHouse, Queries/Sections, CLI, and Browser adoptions follow as
 independently reviewable slices.
 
+The immutable document core and the exact-Type decompiled producer are
+implemented. `CSharpDecompilerService.ProduceTypeDocument` opens one
+caller-selected assembly/PDB source, inventories the selected Type's complete
+direct metadata surface, produces exact physical body evidence, and composes
+the CSharp-owned full/skeleton render plan into the existing typed document
+outcomes. Scalar whole-Type production remains unchanged until the independent
+SourceHouse and host adoption slices.
+
+The first producer retains the existing Decompiler's raising boundary.
+Successfully raised local functions carry their exact physical method address
+into document accounting; their generated MethodDefs remain physical-body
+artifacts rather than invalid standalone C# declarations. A helper that the
+Decompiler cannot raise and CSharp cannot represent makes the document
+`Unavailable`, not a falsely complete C# listing. In the pinned
+`System.Text.Json` package, `OrderedDictionary<TKey,TValue>.Enumerator`
+produces an available document, while `JsonSerializerOptions` reports the
+unrepresented instance local helper
+`<get_CacheContext>g__GetOrCreate|1_0`. Supporting that helper requires a
+separate raising change, not a name-based absorption exception in this producer.
+
 ## Purpose
 
 Current whole-Type source is a scalar string. It answers "show the Type" but
@@ -361,6 +381,15 @@ projection combinations remain valid C#.
 An implementation slot is the smallest independently selectable contribution
 that preserves valid C#. A slot that combines sources requiring different
 Selected-body activation is invalid and must be split by the producing owner.
+Coincident evidence is distinct from combined syntax: several constructor
+bodies may independently reconstruct the same field initializer. Such a slot
+may retain contributions from different owners only when it has no owned-body
+reference and every contribution has the same role and exact full-alternative
+range. Selecting any contributing constructor activates that one initializer;
+it neither duplicates the syntax nor expands another constructor's body.
+`CSharpDecompilerTypeDocumentTests.ProduceTypeDocument_PreservesEveryInitializerContributor`
+gates this production case, while the document validator continues to reject
+distinct ranges with different activation owners.
 
 A host does not create a skeleton by deleting characters between braces, attach
 a decompiled string to a signature, or splice a contribution into another
@@ -589,11 +618,11 @@ The end-to-end tracker remains
 [#8083](https://github.com/richlander/dotnet-inspect/issues/8083). Adoption is
 split by owner:
 
-1. **Structured document owner** - add the document, validator, serializer,
-   revision, and projector; refactor whole-Type composition through
-   CSharp-owned declaration render plans; and retain exact physical artifact
-   associations, logical declarations, document-owned body rows, and
-   many-to-many body contribution provenance.
+1. **Structured document owner** - implemented: the document, validator,
+   serializer, revision, projector, exact-Type decompiled producer, CSharp-owned
+   declaration render plans, exact physical artifact associations, logical
+   declarations, document-owned body rows, and many-to-many body contribution
+   provenance.
 2. **SourceHouse and Queries/Sections** - preserve the document and native
    outcome through exact-Type decompiled settlement, then expose one completed
    `InspectionEnvelope<CSharpTypeDocumentOutcome>`.
@@ -629,8 +658,12 @@ Planned Release gates:
 
 The Type document tests use independently compiled fixtures under the owning
 fixture directory. The real `System.Text.Json` Types remain production-path
-canaries. Documentation-only design changes require Markdown validation; these
-gates become binding as their implementation slices land.
+canaries. The bounded fixture producer cases are PR-fast. The complete
+`JsonSerializerOptions` and
+`OrderedDictionary<TKey,TValue>.Enumerator` package cases carry
+`Speed=Slow` and remain owned by focused pre-merge or daily Deep Inspect runs.
+Documentation-only design changes require Markdown validation; these gates
+become binding as their implementation slices land.
 
 ## Pathological cases
 
