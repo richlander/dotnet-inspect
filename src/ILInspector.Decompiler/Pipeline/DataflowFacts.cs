@@ -37,7 +37,11 @@ public sealed class DataflowFacts
     /// <summary>Each container the analysis solved as a control-flow graph, in walk order.</summary>
     public IReadOnlyList<ContainerFacts> Containers => _containers;
 
-    /// <summary>Display names for each local slot, index-aligned (a source name or <c>V_N</c>).</summary>
+    /// <summary>
+    /// Diagnostic labels for each local slot, index-aligned. Retained locals
+    /// use their planned identifier; eliminated slots use an explicit ordinal
+    /// label that is not a presentation binding.
+    /// </summary>
     public IReadOnlyList<string> LocalNames { get; set; } = [];
 
     /// <summary>
