@@ -102,134 +102,20 @@ internal sealed class MetadataMethodStructuralSignature
         string subject,
         MetadataMethodImplementationFailureSite site)
     {
-        if (node is GenericParameterNode parameter)
+        string? failure =
+            MetadataStructuralTypeValidator.Validate(
+                node,
+                typeParameterCount,
+                methodParameterCount,
+                subject);
+        if (failure is not null)
         {
-            int count = parameter.IsMethodParameter
-                ? methodParameterCount
-                : typeParameterCount;
-            if ((uint)parameter.Index >= (uint)count)
-            {
-                throw _reject(
-                    site,
-                    MetadataMethodImplementationFailureReason
-                        .MalformedMetadata,
-                    $"{subject} references "
-                        + $"{(parameter.IsMethodParameter ? "MVAR" : "VAR")} "
-                        + $"{parameter.Index} outside its authenticated context of {count} parameters.");
-            }
-            return;
+            throw _reject(
+                site,
+                MetadataMethodImplementationFailureReason
+                    .MalformedMetadata,
+                failure);
         }
-
-        switch (node)
-        {
-            case GenericTypeNode generic:
-                int declaredArity =
-                    DeclaredGenericArity(generic);
-                if (declaredArity != generic.Arguments.Length)
-                {
-                    throw _reject(
-                        site,
-                        MetadataMethodImplementationFailureReason
-                            .MalformedMetadata,
-                        $"{subject} constructs a type with "
-                            + $"{generic.Arguments.Length} arguments for "
-                            + $"{declaredArity} authenticated generic parameters.");
-                }
-                foreach (TypeNode argument in generic.Arguments)
-                {
-                    ValidateType(
-                        argument,
-                        typeParameterCount,
-                        methodParameterCount,
-                        subject,
-                        site);
-                }
-                break;
-            case SZArrayTypeNode array:
-                ValidateType(
-                    array.ElementType,
-                    typeParameterCount,
-                    methodParameterCount,
-                    subject,
-                    site);
-                break;
-            case MDArrayTypeNode array:
-                ValidateType(
-                    array.ElementType,
-                    typeParameterCount,
-                    methodParameterCount,
-                    subject,
-                    site);
-                break;
-            case PointerTypeNode pointer:
-                ValidateType(
-                    pointer.ElementType,
-                    typeParameterCount,
-                    methodParameterCount,
-                    subject,
-                    site);
-                break;
-            case ByRefTypeNode byReference:
-                ValidateType(
-                    byReference.ElementType,
-                    typeParameterCount,
-                    methodParameterCount,
-                    subject,
-                    site);
-                break;
-            case FunctionPointerTypeNode functionPointer:
-                Validate(
-                    functionPointer.Signature,
-                    typeParameterCount,
-                    methodParameterCount,
-                    subject,
-                    site);
-                break;
-            case ModifiedTypeNode modified:
-                ValidateType(
-                    modified.Modifier,
-                    typeParameterCount,
-                    methodParameterCount,
-                    subject,
-                    site);
-                ValidateType(
-                    modified.Inner,
-                    typeParameterCount,
-                    methodParameterCount,
-                    subject,
-                    site);
-                break;
-            case PinnedTypeNode pinned:
-                ValidateType(
-                    pinned.Inner,
-                    typeParameterCount,
-                    methodParameterCount,
-                    subject,
-                    site);
-                break;
-        }
-    }
-
-    static int DeclaredGenericArity(GenericTypeNode generic)
-    {
-        MetadataTypeNameParts? parts = generic.MetadataName;
-        if (parts is null)
-            return generic.Arguments.Length;
-
-        int arity = 0;
-        bool hasAuthenticatedCounts =
-            parts.IntroducedTypeParameterCounts is { } counts
-            && counts.Count == parts.Segments.Count;
-        for (int index = 0; index < parts.Segments.Count; index++)
-        {
-            arity = checked(
-                arity
-                    + (hasAuthenticatedCounts
-                        ? parts.IntroducedTypeParameterCounts![index]
-                        : MetadataNameArity.OfSegment(
-                            parts.Segments[index])));
-        }
-        return arity;
     }
 
     bool TypesMatch(
