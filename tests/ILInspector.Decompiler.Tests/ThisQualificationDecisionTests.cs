@@ -378,19 +378,14 @@ public sealed class ThisQualificationDecisionTests
         Assert.Single(result.Decisions, d => d.RuleId == "qualify-method-access");
     }
 
-    // A method GROUP over a generic instance method (this.Make<int>) drops the type
-    // argument in the emitted spelling (a pre-existing MethodGroupText gap). The
-    // emitted this.Make fails delegate return-type inference (CS0411), so it is not
-    // byte-preserving; recording is suppressed for generic method groups.
     [Fact]
-    public void GenericMethodGroup_WithKnobEnabled_RecordsNoDecision()
+    public void GenericMethodGroup_WithKnobEnabled_RecordsDecision()
     {
         var result = Decompile(
             typeof(ThisQualificationGenericGroup).FullName!,
             nameof(ThisQualificationGenericGroup.Build),
             new PrinterOptions { QualifyMethodAccess = true });
 
-        Assert.DoesNotContain(result.Decisions, d => d.RuleId == "qualify-method-access");
+        Assert.Single(result.Decisions, d => d.RuleId == "qualify-method-access");
     }
 }
-
