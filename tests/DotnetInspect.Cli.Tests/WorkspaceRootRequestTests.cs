@@ -41,7 +41,7 @@ public sealed class WorkspaceRootRequestTests
             workspace.Options,
             option => option.Name == "--root-request");
         Assert.Contains(
-            "package query ... --library-literal",
+            "library-literal=TEXT",
             option.Description,
             StringComparison.Ordinal);
     }
@@ -87,7 +87,7 @@ public sealed class WorkspaceRootRequestTests
             captured.Error,
             StringComparison.Ordinal);
         Assert.Contains(
-            "package query ... --library-literal",
+            "library-literal=TEXT",
             captured.Error,
             StringComparison.Ordinal);
     }

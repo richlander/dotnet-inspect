@@ -131,7 +131,11 @@ public sealed class PackageHouse
         PackageSourceOperationLease sourceOperation)
     {
         ArgumentNullException.ThrowIfNull(sourceOperation);
-        return ExecuteCoreAsync(request, sourceOperation, pruning: null);
+        return ExecuteCoreAsync(
+            request,
+            sourceOperation,
+            pruning: null,
+            disposeSourceOperation: true);
     }
 
     /// <summary>
@@ -174,7 +178,32 @@ public sealed class PackageHouse
         PackageHousePruningReceipt pruning)
     {
         ArgumentNullException.ThrowIfNull(sourceOperation);
-        return ExecuteCoreAsync(request, sourceOperation, pruning);
+        return ExecuteCoreAsync(
+            request,
+            sourceOperation,
+            pruning,
+            disposeSourceOperation: true);
+    }
+
+    /// <summary>
+    /// Settles one sequential step without consuming the caller-owned Package
+    /// Source operation lease.
+    /// </summary>
+    /// <remarks>
+    /// The caller must await this step before starting another and remains
+    /// responsible for disposing <paramref name="sourceOperation"/>.
+    /// </remarks>
+    public Task<PackageHouseSettlement> ExecuteStepAsync(
+        PackageHouseRequest request,
+        PackageSourceOperationLease sourceOperation,
+        PackageHousePruningReceipt? pruning = null)
+    {
+        ArgumentNullException.ThrowIfNull(sourceOperation);
+        return ExecuteCoreAsync(
+            request,
+            sourceOperation,
+            pruning,
+            disposeSourceOperation: false);
     }
 
     /// <summary>
@@ -215,9 +244,10 @@ public sealed class PackageHouse
     private async Task<PackageHouseSettlement> ExecuteCoreAsync(
         PackageHouseRequest request,
         PackageSourceOperationLease sourceOperation,
-        PackageHousePruningReceipt? pruning)
+        PackageHousePruningReceipt? pruning,
+        bool disposeSourceOperation)
     {
-        using (sourceOperation)
+        try
         {
             ArgumentNullException.ThrowIfNull(request);
             if (pruning is not null)
@@ -636,6 +666,13 @@ public sealed class PackageHouse
                 }
 
                 throw;
+            }
+        }
+        finally
+        {
+            if (disposeSourceOperation)
+            {
+                sourceOperation.Dispose();
             }
         }
     }

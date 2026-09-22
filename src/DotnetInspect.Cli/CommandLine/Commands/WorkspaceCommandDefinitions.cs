@@ -80,7 +80,7 @@ public static class WorkspaceCommandDefinitions
         var rootRequestOption = new Option<string?>("--root-request")
         {
             Description =
-                "Reopen the exact package Root named by a reopening token from the Root column of 'package query ... --library-literal'",
+                "Reopen the exact package Root named by a reopening token from the Root column of 'package query ... --where \"library-literal=TEXT\" --tfm TFM'",
             Arity = ArgumentArity.ExactlyOne,
         };
         var activePackageOption = new Option<int?>("--active-package")

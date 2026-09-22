@@ -1,3 +1,5 @@
+using System.Collections.Immutable;
+
 using Inspector.Resources;
 using NuGetFetch;
 
@@ -60,6 +62,29 @@ public sealed class PackageSourceOperationLease : IDisposable
         _generation.OwnsCandidate(candidate);
 
     /// <summary>
+    /// Validates that every candidate belongs to this operation's Package
+    /// Source root generation.
+    /// </summary>
+    public void ValidateCandidateOwnership(
+        ImmutableArray<PackageAcquisitionCandidate> candidates)
+    {
+        if (candidates.IsDefault
+            || candidates.Any(static candidate => candidate is null))
+        {
+            throw new ArgumentException(
+                "A candidate ownership check requires a non-default collection without null candidates.",
+                nameof(candidates));
+        }
+        using ActiveWorkRegistration work = StartWork();
+        if (candidates.Any(
+                candidate => !work.Generation.OwnsCandidate(candidate)))
+        {
+            throw new InvalidOperationException(
+                "One or more package acquisition candidates belong to another Package Source root generation.");
+        }
+    }
+
+    /// <summary>
     /// Validates that every candidate in a frozen population belongs to this
     /// operation's package-source generation.
     /// </summary>
@@ -67,13 +92,7 @@ public sealed class PackageSourceOperationLease : IDisposable
         PackageAcquisitionPopulation population)
     {
         ArgumentNullException.ThrowIfNull(population);
-        using ActiveWorkRegistration work = StartWork();
-        if (population.Candidates.Any(
-                candidate => !work.Generation.OwnsCandidate(candidate)))
-        {
-            throw new InvalidOperationException(
-                "The package acquisition population belongs to another Package Source root generation.");
-        }
+        ValidateCandidateOwnership(population.Candidates);
     }
 
     public ValueTask<PackageAcquisitionCandidateResult> ResolvePinnedCandidateAsync(

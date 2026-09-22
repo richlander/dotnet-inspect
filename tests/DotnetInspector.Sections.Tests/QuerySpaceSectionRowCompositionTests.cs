@@ -591,6 +591,80 @@ public sealed class QuerySpaceSectionRowCompositionTests
     }
 
     [Fact]
+    public void CountFallsBackToRowsWhenTopFollowsStrictWindow()
+    {
+        QuerySpaceRowScopeBinding<ScoreRow> queryScope =
+            CreateQueryScope(
+                CreateRowVocabulary(
+                    includeTopRanking: true),
+                [
+                    RowSelectionStageKind.Window,
+                    RowSelectionStageKind.Top,
+                ],
+                includeTopRanking: true);
+        QuerySpaceBinding querySpace =
+            CreateQuerySpace(queryScope);
+        PortableQueryIntent rowIntent =
+            PortableQueryIntent.Create(
+                [],
+                [],
+                [
+                    PortableQueryStage.Window(1, 2),
+                    PortableQueryStage.Top(1),
+                ],
+                []);
+        SectionRowSchemaIdentity<ScoreRow> schema =
+            SectionRowSchemaIdentity<ScoreRow>.Create();
+        var source = new List<ScoreRow>
+        {
+            new(1),
+            new(3),
+        };
+        SectionRowSetDeclaration<
+            string,
+            Projection,
+            ScoreRow> declaration =
+                Declaration(
+                    "left",
+                    schema,
+                    source,
+                    static (projection, rows) =>
+                        projection with
+                        {
+                            Left =
+                                rows.Select(
+                                    static row => row.Score)
+                                    .ToArray(),
+                        });
+
+        QuerySpaceSectionRowResolutionResult<Projection> resolution =
+            QuerySpaceSectionRowResolver.Resolve(
+                querySpace,
+                CreateRequest(
+                    querySpace,
+                    queryScope,
+                    rowIntent,
+                    QuerySpaceTerminalRequirement.Count,
+                    ["left"]),
+                [declaration],
+                new SectionQuerySpaceRowScopeBinding<ScoreRow>(
+                    queryScope,
+                    schema));
+
+        Assert.True(resolution.IsSuccess);
+
+        var completed =
+            Assert.IsType<
+                SectionCountOutcome<
+                    string,
+                    string>.Completed>(
+                        QuerySpaceSectionRowExecutor.ApplyCount<
+                            Projection,
+                            string>(resolution.Request!));
+        Assert.Equal(1, Assert.Single(completed.Counts).Value);
+    }
+
+    [Fact]
     public void SourceFilteringPreservesDeclaredCohortFailureOrder()
     {
         var calls = new List<string>();
@@ -968,19 +1042,31 @@ public sealed class QuerySpaceSectionRowCompositionTests
 
     private static QuerySpaceRowScopeBinding<ScoreRow>
         CreateQueryScope(
-            RowQueryVocabulary<ScoreRow> vocabulary) =>
+            RowQueryVocabulary<ScoreRow> vocabulary,
+            IReadOnlyList<RowSelectionStageKind>? stages = null,
+            bool includeTopRanking = false) =>
         new(
             CreateRowDescriptor(
                 [
                     PortableQueryOperator.AtLeast,
-                ]),
+                ],
+                stages,
+                includeTopRanking),
             vocabulary);
 
     private static QuerySpaceRowScopeDescriptor
         CreateRowDescriptor(
             IReadOnlyList<PortableQueryOperator> operators,
-            IReadOnlyList<RowSelectionStageKind>? stages = null) =>
-        new(
+            IReadOnlyList<RowSelectionStageKind>? stages = null,
+            bool includeTopRanking = false)
+    {
+        IReadOnlyList<RowSelectionStageKind> effectiveStages =
+            stages ?? [RowSelectionStageKind.Head];
+        IReadOnlyList<QuerySpaceRowOrderDescriptor> orders =
+            includeTopRanking
+                ? [new("score-ranking", ranking: true)]
+                : [];
+        return new(
             "rows.score",
             "rows.score.v1",
             ["left", "right"],
@@ -996,12 +1082,14 @@ public sealed class QuerySpaceSectionRowCompositionTests
                     "Filter and order score rows.",
                     supportsOrdering: true),
             ],
-            [],
-            stages ?? [RowSelectionStageKind.Head]);
+            orders,
+            effectiveStages);
+    }
 
     private static RowQueryVocabulary<ScoreRow>
         CreateRowVocabulary(
-            Action? baselineResolved = null)
+            Action? baselineResolved = null,
+            bool includeTopRanking = false)
     {
         RowQueryKey<ScoreRow> score =
             RowQueryKey<ScoreRow>.Create(
@@ -1033,10 +1121,40 @@ public sealed class QuerySpaceSectionRowCompositionTests
                         direction,
                         missingLast: true);
                 });
+        if (!includeTopRanking)
+        {
+            return RowQueryVocabulary<ScoreRow>.Create(
+                RowQueryVocabularyIdentity.Create(),
+                [score],
+                []);
+        }
+
+        var scoreRanking =
+            new RowQueryNamedOrder<ScoreRow>(
+                RowQueryNamedOrderIdentity.Create(),
+                "score-ranking",
+                RowQueryOrderPurpose.Ranking,
+                direction =>
+                {
+                    IComparer<ScoreRow> comparer =
+                        Comparer<ScoreRow>.Create(
+                            static (left, right) =>
+                                left.Score.CompareTo(right.Score));
+                    return direction
+                        is RowQueryOrderDirection.Ascending
+                            ? comparer
+                            : Comparer<ScoreRow>.Create(
+                                (left, right) =>
+                                    comparer.Compare(right, left));
+                });
         return RowQueryVocabulary<ScoreRow>.Create(
             RowQueryVocabularyIdentity.Create(),
             [score],
-            []);
+            [scoreRanking],
+            defaultTopRanking:
+                new(
+                    scoreRanking,
+                    RowQueryOrderDirection.Descending));
     }
 
     private static QuerySpaceBinding CreateQuerySpace(

@@ -69,6 +69,59 @@ public sealed class PackageQueryInputTests
             ]));
     }
 
+    [Fact]
+    public void LibraryLiteralAuthorsTargetContextAndComposesWithOrdinaryTerms()
+    {
+        const string literal = " \r\nmarker ";
+        PackageQueryPlan plan = Accepted(PackageQuery.PlanInput(
+            "Contoso.*",
+            [
+                Term(PackageQuery.LibraryLiteralTermKey, literal),
+                Term(PackageQuery.LicenseTermKey, "MIT"),
+            ],
+            maximumCandidates: 5,
+            targetFramework: "net8.0"));
+
+        Assert.True(plan.RequiresLibraryLiteralEvaluation);
+        Assert.Equal(literal, plan.LibraryLiteral);
+        Assert.Equal("net8.0", plan.LibraryTargetFramework);
+        Assert.Contains(
+            plan.Terms,
+            term => term.Key == PackageQuery.LibraryTargetTermKey
+                && term.Value == "net8.0");
+        Assert.Contains(
+            plan.Terms,
+            term => term.Key == PackageQuery.LicenseTermKey);
+        Assert.DoesNotContain(
+            plan.CreatePrequalificationPlan().Terms,
+            term => term.Key is PackageQuery.LibraryLiteralTermKey
+                or PackageQuery.LibraryTargetTermKey);
+    }
+
+    [Fact]
+    public void LibraryLiteralRequiresTargetAndFiveCandidateBound()
+    {
+        var missingTarget = Assert.IsType<PackageQueryPlanResult.Rejected>(
+            PackageQuery.PlanInput(
+                "Contoso.*",
+                [Term(PackageQuery.LibraryLiteralTermKey, "marker")],
+                maximumCandidates: 5));
+        Assert.Equal(
+            PackageQueryRequestFailureReason.LibraryLiteralRequiresTarget,
+            missingTarget.Failure.Reason);
+
+        var excessivePopulation =
+            Assert.IsType<PackageQueryPlanResult.Rejected>(
+                PackageQuery.PlanInput(
+                    "Contoso.*",
+                    [Term(PackageQuery.LibraryLiteralTermKey, "marker")],
+                    maximumCandidates: 6,
+                    targetFramework: "net8.0"));
+        Assert.Equal(
+            PackageQueryRequestFailureReason.InvalidCandidateLimit,
+            excessivePopulation.Failure.Reason);
+    }
+
     [Theory]
     [InlineData(false, "1.0.0")]
     [InlineData(true, "3.0.0-preview.1")]

@@ -44,6 +44,8 @@
     <ProjectReference Include="..\..\src\ILInspector.SourceLink\ILInspector.SourceLink.csproj" />
     <ProjectReference Include="..\..\fixtures\services\DotnetInspector.Services.RouteLearning.Consumer\DotnetInspector.Services.RouteLearning.Consumer.csproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="..\..\fixtures\services\DotnetInspector.Services.RouteLearning.Unrelated\DotnetInspector.Services.RouteLearning.Unrelated.csproj" ReferenceOutputAssembly="false" />
+    <ProjectReference Include="..\..\fixtures\analysis\ILInspector.Analysis.CallerGraphCaller\ILInspector.Analysis.CallerGraphCaller.csproj" ReferenceOutputAssembly="false" />
+    <ProjectReference Include="..\..\fixtures\analysis\ILInspector.Analysis.CallerGraphTarget\ILInspector.Analysis.CallerGraphTarget.csproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="..\DotnetInspector.FixtureInfrastructure\DotnetInspector.FixtureInfrastructure.csproj" />
   </ItemGroup>
 

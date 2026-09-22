@@ -110,6 +110,7 @@ public static class TypeCommand
             ShowSamples = options.ShowSamples,
             PreferRenderedUrls = options.PreferRenderedUrls,
             Verbosity = options.Verbosity,
+            VerbosityExplicitlySet = options.VerbosityExplicitlySet,
             JsonOutput = options.JsonOutput,
             CompactJson = options.CompactJson,
             Tabular = options.Tabular,

@@ -514,7 +514,9 @@ public static class PackageCommandDefinitions
                 "Maximum package candidates to inspect "
                 + $"(otherwise default {PackageQuery.DefaultMaximumCandidates}; "
                 + $"{PackageQuery.MaximumPackageContentCandidates} for "
-                + "package-content queries; 5 for --library-literal; maximum "
+                + "package-content queries; "
+                + $"{PackageQuery.MaximumMetadataExpensiveCandidates} for "
+                + "metadata-expensive queries; maximum "
                 + $"{PackageQueryOptions.MaximumCandidates})",
             Arity = ArgumentArity.OneOrMore,
             AllowMultipleArgumentsPerToken = false
@@ -529,19 +531,11 @@ public static class PackageCommandDefinitions
             Description =
                 "Reject queries that require package archive content"
         };
-        var libraryLiteralOption = new Option<string?>("--library-literal")
-        {
-            Description =
-                "Match packages whose selected primary implementation library "
-                + "contains this exact ordinal decoded IL string substring; "
-                + "requires --tfm",
-            Arity = ArgumentArity.ExactlyOne
-        };
         var queryTfmOption = new Option<string?>("--tfm")
         {
             Description =
                 "Select the primary implementation library by TFM "
-                + "(required with --library-literal)"
+                + "(required with --where library-literal=...)"
         };
         var compactOption = new Option<bool>("--compact")
         {
@@ -551,7 +545,6 @@ public static class PackageCommandDefinitions
         queryCommand.Options.Add(takeOption);
         queryCommand.Options.Add(prereleaseOption);
         queryCommand.Options.Add(nuspecOnlyOption);
-        queryCommand.Options.Add(libraryLiteralOption);
         queryCommand.Options.Add(queryTfmOption);
         queryCommand.Options.Add(opts.RowWhere);
         queryCommand.Options.Add(opts.Json);
@@ -680,8 +673,6 @@ public static class PackageCommandDefinitions
                     "--tree with package query --json requires schema discovery.");
                 return 1;
             }
-            string? libraryLiteral =
-                parseResult.GetValue(libraryLiteralOption);
             string? inheritedTfm =
                 parseResult.GetValue(inheritedTfmOption);
             string? queryTfm =
@@ -707,13 +698,6 @@ public static class PackageCommandDefinitions
             }
             if (discover is not null)
             {
-                if (libraryLiteral is not null)
-                {
-                    CommandError.Write(
-                        "--library-literal is not available with schema discovery.");
-                    return 1;
-                }
-
                 var discoveryOptions = new PackageQueryOptions
                 {
                     Plan = ((PackageQueryPlanResult.Accepted)PackageQuery.PlanInput(
@@ -781,7 +765,6 @@ public static class PackageCommandDefinitions
                     rowSelection,
                     parseResult.GetValue(inheritedPrereleaseOption)
                         || parseResult.GetValue(prereleaseOption),
-                    libraryLiteral,
                     queryTfm ?? inheritedTfm,
                     out PackageQueryOptions? options,
                     out OptionError error))
@@ -806,14 +789,6 @@ public static class PackageCommandDefinitions
                 IncludeSections = includeSections,
                 SelectDefault = opts.ParseSelectDefault(parseResult),
             };
-            if (options.LibraryLiteralPlan is not null
-                && includeSections?.Contains(
-                    PackageQuerySections.QuerySummaryName) == true)
-            {
-                CommandError.Write(
-                    "Query Summary is not available with --library-literal.");
-                return 1;
-            }
             return await PackageQueryCommand.ExecuteAsync(
                 options,
                 new CommandContext(verbose: false),
@@ -842,9 +817,7 @@ public static class PackageCommandDefinitions
         CliExecutionBoundCommandRegistry.Register(
             queryCommand,
             takeOption,
-            result => result.GetValue(libraryLiteralOption) is null
-                ? PackageQueryOptions.MaximumCandidates
-                : PackageAcquisitionPopulation.MaximumCandidates,
+            static _ => PackageQueryOptions.MaximumCandidates,
             isActive: static _ => true);
 
         return queryCommand;

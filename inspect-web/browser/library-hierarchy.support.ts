@@ -249,7 +249,6 @@ interface PackageLoadingFixture {
   failVersionOnce?: string;
   versions?: readonly string[];
   activityCatalogFailure?: boolean;
-  libraryQuery?: "ready" | "empty" | "partial" | "deferred-error";
 }
 
 type LibraryUploadFixture = "available" | "rejected" | "deferred";
@@ -686,67 +685,6 @@ async function installFacades(
           versions,
           currentVersionInsertionIndex: 0,
           ...(versions[1] === undefined ? {} : { previousVersion: versions[1] }),
-        };
-      }
-      export async function queryLibraries(id, version, framework, admittedAssetIdsJson, requiredReferencesJson) {
-        const queryMode = packageLoading.libraryQuery ?? "ready";
-        document.documentElement.dataset.libraryQueryRequest =
-          JSON.stringify([id, version, framework, admittedAssetIdsJson, requiredReferencesJson]);
-        if (queryMode === "deferred-error") {
-          await new Promise(resolve => document.addEventListener(
-            "finish-library-query", resolve, { once: true }));
-          throw new Error("Library Query offline");
-        }
-        const surface = surfaceFor(id, version, framework);
-        const admittedAssetIds = JSON.parse(admittedAssetIdsJson);
-        const admitted = surface.assemblies.filter(assembly =>
-          admittedAssetIds.includes(assembly.id));
-        const selected = admitted[0];
-        const failed = admitted[2];
-        const results = queryMode === "empty" || !selected
-          ? []
-          : [{
-              assetId: selected.id,
-              library: selected.name,
-              path: selected.asset,
-              source: surface.package,
-              version: selected.version,
-              sourceKind: "Package",
-              targetFramework: surface.activeFramework,
-              matchedReferences: JSON.parse(requiredReferencesJson),
-            }];
-        const failures = queryMode === "partial" && failed
-          ? [{
-              assetId: failed.id,
-              library: failed.name,
-              path: failed.asset,
-              source: surface.package,
-              kind: "InvalidMetadata",
-              message: "Invalid metadata image.",
-            }]
-          : [];
-        return {
-          content: {
-            results,
-            failures,
-            summary: {
-              populationCandidates: admittedAssetIds.length,
-              candidateLimit: 256,
-              candidates: admittedAssetIds.length,
-              matches: results.length,
-              failures: failures.length,
-              incompleteReasons: failures.length ? "EvaluationFailures" : "None",
-              isComplete: failures.length === 0,
-            },
-          },
-          share: {
-            kind: "Unavailable",
-            fullUrl: null,
-            packet: null,
-            path: null,
-            reason: "Library Query results are not shareable.",
-          },
-          diagnostics: [],
         };
       }
       export async function loadRuntimePack(framework, version) {
@@ -1479,25 +1417,6 @@ async function openPlatform(page: Page, options: PlatformFixture = {}) {
   await openInstalledPlatform(page);
 }
 
-async function installLibraryQueryFacades(
-  page: Page,
-  libraryQuery: NonNullable<PackageLoadingFixture["libraryQuery"]>,
-) {
-  await installFacades(
-    page,
-    surface,
-    [],
-    "ready",
-    "ready",
-    undefined,
-    "ready",
-    "ready",
-    undefined,
-    {},
-    { libraryQuery },
-  );
-}
-
 async function installLibraryUploadFacades(
   page: Page,
   libraryUpload: LibraryUploadFixture,
@@ -1539,7 +1458,6 @@ export {
   platformTarget,
   historicalPlatformTarget,
   installFacades,
-  installLibraryQueryFacades,
   installLibraryUploadFacades,
   releaseFacade,
   root,

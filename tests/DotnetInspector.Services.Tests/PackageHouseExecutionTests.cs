@@ -3204,6 +3204,8 @@ public sealed partial class PackageHouseExecutionTests
 
         public int PayloadRequests { get; private set; }
 
+        public List<string> PayloadPackageIds { get; } = [];
+
         public Task<PackageSourceOperationResult<PackageVersionResult>>
             GetVersionsAsync(
             string packageId,
@@ -3260,6 +3262,7 @@ public sealed partial class PackageHouseExecutionTests
             NuGetOperationContext? operationContext = null)
         {
             PayloadRequests++;
+            PayloadPackageIds.Add(packageId);
             PackageSourceCoordinate coordinate =
                 PackageSourceCoordinate.Create(packageId, version);
             if (behavior.PayloadNotFound

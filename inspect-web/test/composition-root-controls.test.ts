@@ -662,7 +662,7 @@ test("typed library controls own library and Platform picker bindings", () => {
     ?? "";
   assert.match(
     libraryControlsSource,
-    /export function bindLibraryControls\([\s\S]*\[data-library-chip\][\s\S]*\[data-access-chip\][\s\S]*\[data-library-query-form\][\s\S]*\[data-library-query-reference\][\s\S]*#library-jump[\s\S]*\[data-platform-library-select\]/);
+    /export function bindLibraryControls\([\s\S]*\[data-library-chip\][\s\S]*\[data-access-chip\][\s\S]*#library-jump[\s\S]*\[data-platform-library-select\]/);
   for (const lens of [
     "integrations",
     "analysis",
@@ -690,12 +690,6 @@ test("typed library controls own library and Platform picker bindings", () => {
   assert.match(
     binding,
     /onLibraryJump: library => \{\s*if \(library && selectLibrarySubject\(library\)\) render\(\);/);
-  assert.match(
-    binding,
-    /onLibraryQueryClear: \(\) => \{\s*clearLibraryQuery\(\);[\s\S]*renderPreservingContentFrameFocus\(\)/);
-  assert.match(
-    binding,
-    /onLibraryQuerySubmit: reference =>\s*observeAsync\(\s*runLibraryQuery\(reference\),\s*"Qualifying package libraries"\)/);
   assert.match(
     binding,
     /onPlatformLibrarySelect: \(name, pack\) =>\s*observeAsync\(\s*openPlatformLibrary\(name, pack, \{ inPlace: true \}\),\s*"Opening a platform library"\)/);

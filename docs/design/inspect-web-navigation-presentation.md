@@ -718,19 +718,9 @@ The active library subject remains visible while the library list is filtered
 or collapsed. A lens heading distinguishes aggregate results from a
 single-library result.
 
-The package-backed Library navigation may compose the Direct reference filter
-owned by [Library Query](library-query.md#browserwasm-adoption). A settled
-result narrows only the rendered exact-Library candidates by owner-issued asset
-ID; `All libraries` and the active exact Library remain visible even when they
-are not matches. Duplicate-name qualification is computed from the complete
-admitted inventory before filtering. The query submits those same exact asset
-IDs as its population roster, so a Library omitted by surface extraction or
-transport bounds cannot create an invisible positive match; the surface's
-typed inspection notice continues to disclose the omission. Loading or
-top-level failure leaves the candidate list unfiltered, while zero matches is
-represented by a settled empty match set. The filter does not alter the
-committed Library subject, aggregate composition, breadcrumbs, scopes,
-history, or restoration.
+Library navigation carries no query control of its own. It renders the complete
+admitted inventory, and narrowing a population belongs to the Query experience
+rather than to a navigation pane.
 
 Package and Type navigation render producer-owned Type and Member inventory
 rows with the activation descriptors returned in the snapshot. They submit the

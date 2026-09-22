@@ -40,7 +40,8 @@ import {
 } from "../src/operation-authority.ts";
 import {
   createQueryRequest,
-  withLibraryLiteralDraft,
+  withTerm,
+  type QueryTermDescriptor,
   type QueryRequest,
 } from "../src/package-query.ts";
 import {
@@ -72,6 +73,19 @@ function deferred<T>(): Deferred<T> {
     },
   };
 }
+
+const LIBRARY_LITERAL_TERM: QueryTermDescriptor = {
+  key: "library-literal",
+  label: "Library literal",
+  summary: "Matches decoded string-literal uses.",
+  weight: 650,
+  tier: "package-content",
+  executionClass: "metadata-expensive",
+  operators: ["eq"],
+  valueKind: "decoded UTF-16 text",
+  example: "Microsoft.Extensions.",
+  multiline: true,
+};
 
 const progressEvent: EngineWorkerPackageQueryDurableEvent = {
   kind: "Progress",
@@ -208,6 +222,8 @@ const completionEvent: EngineWorkerPackageQueryCompletionEvent = {
     scope: "prefix",
     occurrences: null,
     notEvaluated: null,
+    evaluatedCandidates: null,
+    semanticMatches: null,
   },
   progress: null,
   assessment: null,
@@ -261,7 +277,7 @@ function inspected(
           matches: results.length,
           failures: failures.length,
         },
-        assemblySemantic: null,
+        libraryLiteralAssessments: [],
       },
       share: {
         kind: "NonProjectable",
@@ -310,48 +326,22 @@ function semanticInspected(): BrowserPackageQueryResult {
     selectedAsset,
     occurrences: [occurrence],
   };
-  const semanticDocument = {
-    population: {
-      requestedCandidates: 1,
-      candidates: 1,
-      completion: "ExactPackageComplete" as const,
-      isRequestedPopulationComplete: true,
-      failures: [],
-    },
-    results: [semanticResult],
-    candidateOutcomes: [{
-      kind: "Matched" as const,
-      candidateOrdinal: 1,
-      packageId: "contoso.library",
-      version: "1.2.3",
-      producer: "nuget-gallery",
-      result: semanticResult,
-      selectedAsset,
-      rootRequest: "opaque-semantic-root",
-      notApplicableReason: null,
-      failureKind: null,
-      failureStage: null,
-      nonEvaluationKind: null,
-      timeoutKind: null,
-      timeoutSeconds: null,
-      message: null,
-    }],
-    candidateCount: 1,
-    evaluatedCandidateCount: 1,
-    notEvaluatedCount: 0,
-    matchedPackageCount: 1,
-    occurrenceCount: 1,
-    semanticMissCount: 0,
-    notApplicableCount: 0,
-    failureCount: 0,
-    completion: {
-      population: "ExactPackageComplete" as const,
-      isRequestedPopulationComplete: true,
-      allCandidatesHaveTerminalOutcomes: true,
-      hasFailures: false,
-      isSemanticEvaluationComplete: true,
-      isOperationDeadlineExpired: false,
-    },
+  const libraryLiteralAssessment = {
+    kind: "Matched" as const,
+    candidateOrdinal: 1,
+    packageId: "contoso.library",
+    version: "1.2.3",
+    producer: "nuget-gallery",
+    result: semanticResult,
+    selectedAsset,
+    rootRequest: "opaque-semantic-root",
+    notApplicableReason: null,
+    failureKind: null,
+    failureStage: null,
+    nonEvaluationKind: null,
+    timeoutKind: null,
+    timeoutSeconds: null,
+    message: null,
   };
   return {
     version: 3,
@@ -399,8 +389,10 @@ function semanticInspected(): BrowserPackageQueryResult {
           scope: "Selected primary implementation libraries only.",
           occurrences: 1,
           notEvaluated: 0,
+          evaluatedCandidates: 1,
+          semanticMatches: 1,
         },
-        assemblySemantic: semanticDocument,
+        libraryLiteralAssessments: [libraryLiteralAssessment],
       },
       share: {
         kind: "NonProjectable",
@@ -425,11 +417,7 @@ function semanticCandidateFailureInspected(): BrowserPackageQueryResult {
     throw new Error("Expected semantic Package Query inspection.");
   }
   const content = inspection.content;
-  const semantic = content.assemblySemantic;
-  if (semantic === null) {
-    throw new Error("Expected semantic Package Query Document.");
-  }
-  const matched = semantic.candidateOutcomes[0]!;
+  const matched = content.libraryLiteralAssessments[0]!;
   return {
     ...valid,
     inspection: {
@@ -451,27 +439,67 @@ function semanticCandidateFailureInspected(): BrowserPackageQueryResult {
           matches: 0,
           failures: 1,
           occurrences: 0,
+          semanticMatches: 0,
         },
-        assemblySemantic: {
-          ...semantic,
-          results: [],
-          candidateOutcomes: [{
-            ...matched,
-            kind: "Failure",
-            result: null,
-            failureKind: "Evaluation",
-            failureStage: "Assembly",
-            message: "Semantic evaluation failed.",
-          }],
-          matchedPackageCount: 0,
-          occurrenceCount: 0,
-          failureCount: 1,
-          completion: {
-            ...semantic.completion,
-            hasFailures: true,
-            isSemanticEvaluationComplete: false,
-          },
+        libraryLiteralAssessments: [{
+          ...matched,
+          kind: "Failure",
+          result: null,
+          failureKind: "Evaluation",
+          failureStage: "Assembly",
+          message: "Semantic evaluation failed.",
+        }],
+      },
+    },
+  };
+}
+
+function semanticCandidateDeadlineInspected(): BrowserPackageQueryResult {
+  const valid = semanticInspected();
+  const inspection = valid.inspection;
+  if (inspection === null) {
+    throw new Error("Expected semantic Package Query inspection.");
+  }
+  const content = inspection.content;
+  const candidate = content.libraryLiteralAssessments[0]!;
+  const message =
+    "The operation deadline expired before semantic evaluation.";
+  return {
+    ...valid,
+    inspection: {
+      ...inspection,
+      content: {
+        ...content,
+        hasPackages: false,
+        results: [],
+        failures: [{
+          packageId: candidate.packageId,
+          version: candidate.version,
+          producer: candidate.producer,
+          kind: "AssemblyNotEvaluated",
+          message,
+          manifestFailureReason: null,
+        }],
+        completion: {
+          ...content.completion,
+          matches: 0,
+          failures: 1,
+          occurrences: 0,
+          notEvaluated: 1,
+          evaluatedCandidates: 0,
+          semanticMatches: 0,
         },
+        libraryLiteralAssessments: [{
+          ...candidate,
+          kind: "NotEvaluated",
+          result: null,
+          selectedAsset: null,
+          rootRequest: null,
+          nonEvaluationKind: "OperationDeadline",
+          timeoutKind: "Operation",
+          timeoutSeconds: 25,
+          message,
+        }],
       },
     },
   };
@@ -484,10 +512,6 @@ function semanticZeroCandidateDeadlineInspected(): BrowserPackageQueryResult {
     throw new Error("Expected semantic Package Query inspection.");
   }
   const content = inspection.content;
-  const semantic = content.assemblySemantic;
-  if (semantic === null) {
-    throw new Error("Expected semantic Package Query Document.");
-  }
   const failure = {
     candidateOrdinal: null,
     packageId: null,
@@ -522,31 +546,11 @@ function semanticZeroCandidateDeadlineInspected(): BrowserPackageQueryResult {
           kind: "Failed",
           sourceCandidates: 0,
           occurrences: 0,
+          notEvaluated: 0,
+          evaluatedCandidates: 0,
+          semanticMatches: 0,
         },
-        assemblySemantic: {
-          ...semantic,
-          population: {
-            requestedCandidates: 1,
-            candidates: 0,
-            completion: "SourceFailed",
-            isRequestedPopulationComplete: false,
-            failures: [failure],
-          },
-          results: [],
-          candidateOutcomes: [],
-          candidateCount: 0,
-          evaluatedCandidateCount: 0,
-          matchedPackageCount: 0,
-          occurrenceCount: 0,
-          completion: {
-            population: "SourceFailed",
-            isRequestedPopulationComplete: false,
-            allCandidatesHaveTerminalOutcomes: true,
-            hasFailures: true,
-            isSemanticEvaluationComplete: false,
-            isOperationDeadlineExpired: true,
-          },
-        },
+        libraryLiteralAssessments: [],
       },
     },
   };
@@ -564,11 +568,8 @@ function semanticInspectedWithOccurrences(
     throw new Error("Expected semantic Package Query inspection.");
   }
   const content = inspection.content;
-  const semantic = content.assemblySemantic;
-  if (semantic === null) {
-    throw new Error("Expected semantic Package Query Document.");
-  }
-  const result = semantic.results[0]!;
+  const semantic = content.libraryLiteralAssessments[0]!;
+  const result = semantic.result!;
   const occurrence = {
     ...result.occurrences[0]!,
     literalCharacterCount,
@@ -577,9 +578,6 @@ function semanticInspectedWithOccurrences(
   const occurrences = Array.from({ length: count }, () => occurrence);
   const row = content.results[0]!;
   const evidence = row.evidence[0]!;
-  const populationCompletion = candidateCount === 1
-    ? "ExactPackageComplete"
-    : "PrefixExhausted";
   const expandedResults = Array.from(
     { length: candidateCount },
     (_value, index) => ({
@@ -617,31 +615,15 @@ function semanticInspectedWithOccurrences(
             : "Exhausted",
           sourceCandidates: candidateCount,
           occurrences: occurrenceCount,
+          evaluatedCandidates: candidateCount,
+          semanticMatches: candidateCount,
         },
-        assemblySemantic: {
+        libraryLiteralAssessments: expandedResults.map(expandedResult => ({
           ...semantic,
-          population: {
-            ...semantic.population,
-            requestedCandidates: candidateCount,
-            candidates: candidateCount,
-            completion: populationCompletion,
-          },
-          results: expandedResults,
-          candidateOutcomes: expandedResults.map(expandedResult => ({
-            ...semantic.candidateOutcomes[0]!,
-            candidateOrdinal: expandedResult.candidateOrdinal,
-            packageId: expandedResult.packageId,
-            result: expandedResult,
-          })),
-          candidateCount,
-          evaluatedCandidateCount: candidateCount,
-          matchedPackageCount: candidateCount,
-          occurrenceCount,
-          completion: {
-            ...semantic.completion,
-            population: populationCompletion,
-          },
-        },
+          candidateOrdinal: expandedResult.candidateOrdinal,
+          packageId: expandedResult.packageId,
+          result: expandedResult,
+        })),
       },
     },
   };
@@ -928,10 +910,10 @@ test("Package Query Worker adapter preserves request, durable events, credit, an
     },
     runPackageQuery: (...args) => {
       runs.push(args);
-      emit(args[7], progressEvent);
-      emit(args[7], matchEvent);
-      emit(args[7], failureEvent);
-      emit(args[7], assessmentEvent);
+      emit(args[8], progressEvent);
+      emit(args[8], matchEvent);
+      emit(args[8], failureEvent);
+      emit(args[8], assessmentEvent);
       return terminal.promise;
     },
   };
@@ -960,6 +942,7 @@ test("Package Query Worker adapter preserves request, durable events, credit, an
         operators: ["eq"],
         valueKind: "package-id",
         example: "Microsoft.Extensions.Hosting",
+        multiline: false,
       },
       operator: "eq",
       value: "Microsoft.Extensions.Hosting",
@@ -1001,7 +984,7 @@ test("Package Query Worker adapter preserves request, durable events, credit, an
           results: [matchEvent.row],
           failures: [failureEvent.failure],
           completion: completionEvent.completion,
-          assemblySemantic: null,
+          libraryLiteralAssessments: [],
         },
         share: {
           kind: "NonProjectable",
@@ -1026,16 +1009,17 @@ test("Package Query Worker adapter preserves request, durable events, credit, an
       .map(event => event.durable.value),
     [progressEvent, matchEvent, failureEvent, assessmentEvent],
   );
-  assert.deepEqual(runs[0]?.slice(0, 7), [
+  assert.deepEqual(runs[0]?.slice(0, 8), [
     "package-query-operation",
     "Contoso.*",
     '[{"key":"readme","operator":"eq","value":"true"},{"key":"depends","operator":"eq","value":"Microsoft.Extensions.Hosting"}]',
+    null,
     200,
     100,
     true,
     20,
   ]);
-  assert.equal(runs[0]?.length, 8);
+  assert.equal(runs[0]?.length, 9);
 
   const start = harness.worker.receivedMessages.find(message =>
     typeof message === "object"
@@ -1062,6 +1046,7 @@ test("Package Query Worker adapter preserves request, durable events, credit, an
         value: "Microsoft.Extensions.Hosting",
       },
     ],
+    targetFramework: null,
     maximumCandidates: 200,
     maximumMatches: 100,
     includePrerelease: true,
@@ -1071,7 +1056,7 @@ test("Package Query Worker adapter preserves request, durable events, credit, an
   harness.host.dispose();
 });
 
-test("Package Query Worker routes whitespace-only library literals unchanged", async () => {
+test("Package Query Worker routes whitespace-only library literals as ordinary terms", async () => {
   const runs: unknown[][] = [];
   const assemblyProgress: EngineWorkerPackageQueryDurableEvent = {
     ...progressEvent,
@@ -1087,22 +1072,24 @@ test("Package Query Worker routes whitespace-only library literals unchanged", a
       kind: "NotActive",
       additionalMatchCredit: null,
     }),
-    async runPackageQuery() {
-      assert.fail("Library-literal requests must use the shared semantic operation.");
-    },
-    async runPackageAssemblySemanticQuery(...args) {
+    async runPackageQuery(...args) {
       runs.push(args);
-      emit(args[7], assemblyProgress);
+      emit(args[8], assemblyProgress);
       return semanticInspected();
     },
   };
   const harness = createHarness(facade);
   await startReady(harness);
   const request = {
-    ...withLibraryLiteralDraft(
-      createQueryRequest("Contoso.Library"),
+    ...withTerm(
+      {
+        ...createQueryRequest("Contoso.Library"),
+        targetFramework: "net10.0",
+      },
+      LIBRARY_LITERAL_TERM,
+      "eq",
       " ",
-      "net10.0"),
+    ),
     includePrerelease: true,
   };
 
@@ -1114,7 +1101,7 @@ test("Package Query Worker routes whitespace-only library literals unchanged", a
   if (outcome.kind !== "succeeded")
     throw new Error("Expected semantic Package Query success.");
   assert.equal(
-    outcome.value.inspection?.content.assemblySemantic?.occurrenceCount,
+    outcome.value.inspection?.content.libraryLiteralAssessments.length,
     1);
   assert.deepEqual(
     events
@@ -1122,16 +1109,17 @@ test("Package Query Worker routes whitespace-only library literals unchanged", a
       .map(event => event.durable.value),
     [assemblyProgress],
   );
-  assert.deepEqual(runs[0]?.slice(0, 7), [
+  assert.deepEqual(runs[0]?.slice(0, 8), [
     "package-query-operation",
     "Contoso.Library",
-    " ",
+    '[{"key":"library-literal","operator":"eq","value":" "}]',
     "net10.0",
-    1,
+    5,
+    100,
     true,
     20,
   ]);
-  assert.equal(runs[0]?.length, 8);
+  assert.equal(runs[0]?.length, 9);
 
   const start = harness.worker.receivedMessages.find(message =>
     typeof message === "object"
@@ -1142,11 +1130,16 @@ test("Package Query Worker routes whitespace-only library literals unchanged", a
     : Object.getOwnPropertyDescriptor(start, "payload");
   const payload: unknown = payloadDescriptor?.value;
   assert.deepEqual(payload, {
-    kind: "library-literal",
+    kind: "query",
     searchText: "Contoso.Library",
-    operand: " ",
+    terms: [{
+      key: "library-literal",
+      operator: "eq",
+      value: " ",
+    }],
     targetFramework: "net10.0",
-    maximumCandidates: 1,
+    maximumCandidates: 5,
+    maximumMatches: 100,
     includePrerelease: true,
     initialMatchCredit: 20,
   });
@@ -1176,7 +1169,7 @@ test("Package Query Worker accepts escaped owner-valid manifest callbacks", asyn
       additionalMatchCredit: null,
     }),
     runPackageQuery(...args) {
-      emitSerialized(args[7], serialized);
+      emitSerialized(args[8], serialized);
       return Promise.resolve(inspected([
         expandedMatch,
         failureEvent,
@@ -1216,7 +1209,7 @@ test("Package Query Worker rejects callbacks above the encoded wire bound", asyn
       additionalMatchCredit: null,
     }),
     runPackageQuery(...args) {
-      emitSerialized(args[7], " ".repeat(8 * 1_024 * 1_024));
+      emitSerialized(args[8], " ".repeat(8 * 1_024 * 1_024));
       return Promise.resolve(succeeded());
     },
   };
@@ -1268,6 +1261,7 @@ test("Package Query binding preserves caller identity and expected diagnostics",
     "caller-package-query",
     "Contoso.",
     "[]",
+    null,
     20,
     10,
     false,
@@ -1306,6 +1300,7 @@ test("Package Query binding preserves the inspection envelope", async () => {
     "envelope-package-query",
     "Contoso.",
     "[]",
+    null,
     20,
     10,
     false,
@@ -1397,7 +1392,7 @@ test("Package Query terminal callback rejection fails the Worker epoch", async (
       additionalMatchCredit: null,
     }),
     async runPackageQuery(...args) {
-      emit(args[7], completionEvent);
+      emit(args[8], completionEvent);
       return succeeded();
     },
   };
@@ -1438,27 +1433,10 @@ test("Package Query codecs reject terminal callbacks, malformed descriptors, and
     targetFramework: "net10.0",
     initialMatchCredit: 20,
   }).kind, "rejected");
-  assert.equal(engineWorkerPackageQueryInput.decode({
-    kind: "library-literal",
-    searchText: "Contoso.*",
-    operand: "shared-literal-use-marker",
-    targetFramework: "net10.0",
-    maximumCandidates: 5,
-    includePrerelease: false,
-    initialMatchCredit: 20,
-  }).kind, "decoded");
-  assert.equal(engineWorkerPackageQueryInput.decode({
-    kind: "library-literal",
-    searchText: "Contoso.*",
-    operand: "shared-literal-use-marker",
-    targetFramework: "net10.0",
-    maximumCandidates: 6,
-    includePrerelease: false,
-    initialMatchCredit: 20,
-  }).kind, "rejected");
   const queryInput = {
     kind: "query",
     searchText: "Contoso.*",
+    targetFramework: null,
     maximumCandidates: 200,
     maximumMatches: 100,
     includePrerelease: false,
@@ -1472,6 +1450,16 @@ test("Package Query codecs reject terminal callbacks, malformed descriptors, and
   assert.equal(engineWorkerPackageQueryInput.decode({
     ...queryInput,
     terms,
+  }).kind, "decoded");
+  assert.equal(engineWorkerPackageQueryInput.decode({
+    ...queryInput,
+    terms: [{
+      key: "library-literal",
+      operator: "eq",
+      value: "shared-literal-use-marker",
+    }],
+    targetFramework: "net10.0",
+    maximumCandidates: 5,
   }).kind, "decoded");
   assert.equal(engineWorkerPackageQueryInput.decode({
     ...queryInput,
@@ -1535,8 +1523,7 @@ test("Package Query codecs reject terminal callbacks, malformed descriptors, and
 
 test("Package Query Worker rejects inconsistent semantic Document accounting", () => {
   const valid = semanticInspected();
-  if (valid.inspection === null
-      || valid.inspection.content.assemblySemantic === null) {
+  if (valid.inspection === null) {
     throw new Error("Expected semantic Package Query inspection.");
   }
   const malformed: BrowserPackageQueryResult = {
@@ -1545,9 +1532,9 @@ test("Package Query Worker rejects inconsistent semantic Document accounting", (
       ...valid.inspection,
       content: {
         ...valid.inspection.content,
-        assemblySemantic: {
-          ...valid.inspection.content.assemblySemantic,
-          occurrenceCount: 2,
+        completion: {
+          ...valid.inspection.content.completion,
+          evaluatedCandidates: 2,
         },
       },
     },
@@ -1559,13 +1546,21 @@ test("Package Query Worker rejects inconsistent semantic Document accounting", (
     throw new Error("Expected malformed semantic settlement failure.");
   assert.match(
     settlement.diagnostic,
-    /assembly-semantic outcome accounting is inconsistent/);
+    /semantic accounting does not match its candidate assessments/);
 });
 
 test("Package Query Worker accepts producer-valid semantic failure completion", () => {
   assert.equal(
     mapEngineWorkerPackageQueryResult(
       semanticCandidateFailureInspected()).kind,
+    "succeeded",
+  );
+});
+
+test("Package Query Worker accepts a candidate assembly deadline", () => {
+  assert.equal(
+    mapEngineWorkerPackageQueryResult(
+      semanticCandidateDeadlineInspected()).kind,
     "succeeded",
   );
 });
@@ -1578,11 +1573,11 @@ test("Package Query Worker accepts an operation deadline before candidate admiss
   );
 });
 
-test("Package Query Worker accepts full semantic occurrence, text, and inert expansion limits", () => {
+test("Package Query Worker accepts expanded occurrences across unified assessments", () => {
   assert.equal(
     mapEngineWorkerPackageQueryResult(
       semanticInspectedWithOccurrences(
-        10_000,
+        400,
         5,
         400,
         "\\u202E".repeat(400))).kind,

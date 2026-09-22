@@ -162,7 +162,7 @@ stderr rather than mixed into structured output.
 | Decompiler *(experimental)* | `member -S @Source`, `member -S "Fidelity Causes"`, `member`/`type`/`library --where "Kind=<ID>"` | Decompiled C#, annotated source, IL, body-shape queries, and typed `DEC####` fidelity causes. |
 | Raw metadata | `library -S @Metadata`, `library coordinate "#Strings:0x1a4"` | Decoded ECMA-335 metadata tables and heap addressing. |
 | Workspace definition, inventory, and navigation | `workspace --package X --tfm TFM --share packet` | Author a durable format-3 Workspace definition without acquisition, or omit `--share` to realize and render typed top-level inventory. Repeat `--package` to compose Package Scope; add `--register-library`, `--register-package-prefix`, or `--register-ecosystem` for registration intent. `--packet` accepts a canonical Base64URL packet string. Add `--active-package N` on the direct inventory route for structural Library, Type, Member, and lens descriptors. |
-| Package Queries | `package query ID --library-literal TEXT --tfm TFM`, `workspace --root-request TOKEN` | Qualify exact package IDs or bounded package-ID prefixes by an ordinal decoded-`ldstr` substring in each selected primary implementation library. Results remain package-grain and carry typed occurrence evidence plus exact Root reopening tokens. |
+| Package Queries | `package query ID --where "library-literal=TEXT" --tfm TFM`, `workspace --root-request TOKEN` | AND-compose ordinary Package Query terms with an ordinal decoded-`ldstr` substring over each prequalified package's selected primary implementation library. Results remain package-grain and carry typed selected-library context, complete occurrences, and exact Root reopening tokens. |
 | Workspace sharing | `workspace-state encode` / `decode` | Convert the canonical browser/CLI base64url workspace packet to or from its bounded JSON shape without acquisition or execution. |
 | Agent-friendly output | global flags | Markdown by default, compact `--table`, normalized `--tsv`, `--jsonl`, `--json`, Mermaid diagrams, section/field projection, `--count`, and row limiting. |
 
@@ -190,7 +190,7 @@ stderr rather than mixed into structured output.
 | `match A --similar` | Rank structural candidates for one seed method, within a single assembly. Ranks candidates only; it establishes no relation. |
 | `vocabulary` | Discover product-owned query vocabularies such as `Accessibility`, `C# Style Choices`, and `C# Body Kinds`. |
 | `ecosystem [name]` | Inspect the ecosystem knowledge configured into this product build. Omit the name to list packs; use `-S Integrations` for configured Integration concepts, distinct from observations in a library. |
-| `workspace` | Render the typed top-level inventory of one ephemeral Workspace: committed ordered Package occurrences first, then inert Exact Library, Package Prefix, and Ecosystem registrations. Repeat `--package ID@VERSION` coordinates and supply `--tfm`; add `--register-library PACKAGE@VERSION/ASSEMBLY@ASSEMBLY_VERSION`, `--register-package-prefix PREFIX`, or `--register-ecosystem ID`; filter with repeatable `--kind`. Restore a current-format canonical Workspace packet with `--packet PACKET`, or use `--root-request TOKEN` to reopen the exact Package Root a `package query --library-literal` result names. Add `--active-package N` on direct construction to evaluate the exact occurrence and expose its Navigation hierarchy, Library asset IDs, Type and Member inventories, lenses, and diagnostics. |
+| `workspace` | Render the typed top-level inventory of one ephemeral Workspace: committed ordered Package occurrences first, then inert Exact Library, Package Prefix, and Ecosystem registrations. Repeat `--package ID@VERSION` coordinates and supply `--tfm`; add `--register-library PACKAGE@VERSION/ASSEMBLY@ASSEMBLY_VERSION`, `--register-package-prefix PREFIX`, or `--register-ecosystem ID`; filter with repeatable `--kind`. Restore a current-format canonical Workspace packet with `--packet PACKET`, or use `--root-request TOKEN` to reopen the exact Package Root a `package query --where "library-literal=..."` result names. Add `--active-package N` on direct construction to evaluate the exact occurrence and expose its Navigation hierarchy, Library asset IDs, Type and Member inventories, lenses, and diagnostics. |
 | `workspace-state encode` / `decode` | Convert validated workspace-state JSON and canonical base64url packets; pass `-` for stdin or use `--file`. |
 | `skill` | Print the base LLM skill and route to focused built-in guidance (`skill list`, `skill query`, `skill decompiler`, `skill relationships`, and more). |
 | `demo [id]` | List or run product-home inspection demos backed by real section output. |
@@ -395,9 +395,9 @@ machine-friendly rows use `--tsv` or `--jsonl`; for structured graphs use
 Use `-T q` to suppress tips in script-oriented commands.
 
 Positional `depends <type>`, ordinary single-Library API `diff`, `package
-activity`, ordinary and `--library-literal` Package Query, and online package
-range-version population, and exact package-backed Type or Library API
-inspection support the presence-only `--envelope` service-output selector. It
+activity`, Package Query, online package range-version population, and exact
+package-backed Type or Library API inspection support the presence-only
+`--envelope` service-output selector. It
 implies JSON. For `depends`, API Diff, Package Activity, Package Query, and
 exact Type or Library API inspection, unprojected `--json` emits the same
 Content without the service frame. Package version `--json` remains an explicit
@@ -755,36 +755,44 @@ to the search.
 
 ### Package Query over selected implementation libraries
 
-`package query ... --library-literal TEXT` qualifies package Results using an
-assembly-semantic query. An exact package ID selects its latest eligible listed
-version. A terminal-star package-ID prefix evaluates at most five candidates by
-default; use `--take 1..5` to choose the candidate bound. The query selects the
-primary implementation library of each candidate for an explicit `--tfm`.
+`package query ... --where "library-literal=TEXT" --tfm TFM` adds decoded
+string-literal qualification to the ordinary Package Query term plan. An exact
+package ID selects its latest eligible listed version. A terminal-star
+package-ID prefix evaluates at most five candidates; use `--take 1..5` to
+choose the candidate bound. Ordinary terms AND-compose and prequalify before
+the query evaluates each survivor's selected primary implementation library
+for the exact target framework.
 
 ```bash
 dotnet-inspect package query Newtonsoft.Json \
-  --library-literal "Unexpected end when reading JSON" --tfm net6.0
+  --where "library-literal=Unexpected end when reading JSON" --tfm net6.0
 
 dotnet-inspect package query 'Azure.Identity*' \
-  --library-literal "DefaultAzureCredential" --tfm net8.0 --take 5
+  --where "downloads=1m" \
+  --where "library-literal=DefaultAzureCredential" \
+  --tfm net8.0 --take 5
 ```
 
 `TEXT` is a raw ordinal substring, not a type pattern: it is case-sensitive,
-matches no wildcards, and preserves whitespace and Unicode spelling exactly.
-The query covers selected primary implementation assemblies only, not every
-assembly in a package. One output row is one matching package; occurrence count
-and method-token/IL-offset previews are evidence on that package Result.
-`-n` and `--rows` select package rows, while `--take` bounds package candidates.
-Candidate failures remain visible and prevent an unqualified Count. Candidate
-packages are disposable: they are never added to the package cache.
+matches no wildcards, and preserves 1 through 1,024 decoded UTF-16 code units,
+including leading/trailing whitespace and newlines. The Product planner records
+CLI `--tfm` as non-user-selectable `library-target=<canonical-tfm>` intent. The
+query covers selected primary implementation assemblies only, not every
+assembly in a package. One output row is one final matching package; typed
+selected-library context, the complete occurrence array, and bounded
+method-token/IL-offset previews remain evidence on that package Result.
+`-n` and `--rows` select final package rows, while `--take` bounds package
+candidates. Candidate failures remain visible and prevent an unqualified
+Count. Candidate packages are disposable: they are never added to the package
+cache.
 
-For both ordinary Package Query and `--library-literal`, unprojected `--json`
-emits the complete owner-issued Content. `--envelope` emits that same Content
-with Share and diagnostics, using result kind `package-query` or
-`package-assembly-semantic-query`. Query controls such as `--where`, `--take`,
-`--tfm`, and `--library-literal` remain admitted; row selection, Count,
-projection, discovery, section selection, and competing formats are rejected.
-Typed incomplete or failed Content is still emitted before a nonzero exit.
+Unprojected Package Query `--json` emits the complete owner-issued
+`PackageQueryDocument`. `--envelope` emits that same Content with Share and
+diagnostics using result kind `package-query`. Query controls such as
+`--where`, `--take`, and required semantic `--tfm` remain admitted; row
+selection, Count, projection, discovery, section selection, and competing
+formats are rejected. Typed incomplete or failed Content is still emitted
+before a nonzero exit.
 
 Each evaluated candidate carries a `Root` reopening token. Hand that token back
 to reopen exactly the Root the result came from:
