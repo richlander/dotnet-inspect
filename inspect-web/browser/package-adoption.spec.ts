@@ -2446,7 +2446,8 @@ test.describe("bounded network-backed two-host demo", () => {
     await expect(page.locator(".inspected-target"))
       .toContainText("System.Text.Json", { timeout: 180_000 });
 
-    await page.locator('[data-application-scope="workspace"]').click();
+    await page.locator("[data-product-navigation-button]").click();
+    await page.locator('[data-product-destination="workspace"]').click();
     await page.getByRole(
       "button",
       { name: "Save Workspace", exact: true },
@@ -2556,7 +2557,8 @@ test.describe("bounded network-backed two-host demo", () => {
     expect(managedUrl).not.toBe(compatibilityUrl);
     await expect(page.locator("[data-workspace-add-package]")).toHaveCount(0);
 
-    await page.locator('[data-application-scope="query"]').click();
+    await page.locator("[data-product-navigation-button]").click();
+    await page.locator('[data-product-destination="query"]').click();
     await expect(page).toHaveURL(/\/query$/);
     await expect(page.locator("#package-query-heading"))
       .toHaveText("Package query");
@@ -2576,7 +2578,8 @@ test.describe("bounded network-backed two-host demo", () => {
     await expect(page.locator(".workspace-list .workspace-row"))
       .toHaveCount(2);
 
-    await page.locator('[data-application-scope="activity"]').click();
+    await page.locator("[data-product-navigation-button]").click();
+    await page.locator('[data-product-destination="activity"]').click();
     await expect(page).toHaveURL(/\/activity$/);
     await expect(page.locator("#package-changes-heading"))
       .toHaveText("Package Activity");
@@ -2596,10 +2599,8 @@ test.describe("bounded network-backed two-host demo", () => {
     await expect(page.locator(".workspace-list .workspace-row"))
       .toHaveCount(2);
 
-    await page.getByRole(
-      "link",
-      { name: "dotnet inspect home", exact: true },
-    ).click();
+    await page.locator("[data-product-navigation-button]").click();
+    await page.locator('[data-product-destination="home"]').click();
     await expect(page).toHaveURL(/\/$/);
     await expect(page.locator("#spotlight-input")).toBeVisible();
     await page.evaluate(() => history.back());
