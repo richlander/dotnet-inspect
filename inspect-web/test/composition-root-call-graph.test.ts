@@ -1154,6 +1154,18 @@ test("library metadata uses compact coordinates in a full-area working surface",
     /\.package-metadata-scroll \{[^}]*overflow: auto;/s);
 });
 
+test("library Metrics uses the full-area analysis working surface", () => {
+  assert.match(
+    appSource,
+    /const libraryMetricsWorkingSurface =\s*activeScope === "library" && state\.libraryLens === "metrics"/);
+  assert.match(
+    appSource,
+    /libraryAnalysisWorkingSurface \|\| libraryMetricsWorkingSurface \? " library-analysis-working-surface" : ""/);
+  assert.match(
+    appSource,
+    /contentNavigationIntegrated =[\s\S]*\|\| libraryMetricsWorkingSurface[\s\S]*?;/);
+});
+
 test("package dependencies use compact coordinates in a full-area working surface", () => {
   const renderPackage =
     appSource.match(/function renderPackageView\([\s\S]*?\n}\n\nfunction renderWorkspaceView/)?.[0]
