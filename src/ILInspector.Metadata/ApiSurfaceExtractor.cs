@@ -192,6 +192,7 @@ public sealed record ApiTypeInventoryCount(
 /// <summary>Why compact Type-inventory Count could not accept an image.</summary>
 public enum ApiTypeInventoryCountDeclineReason
 {
+    MissingModuleVersionId,
     TypeForwarders,
     MalformedExportedType,
     MalformedTypeIdentity,
@@ -380,6 +381,13 @@ public static partial class ApiSurfaceExtractor
             MetadataFormatAdmission.GetMetadataReader(peReader);
         Guid moduleVersionId = reader.GetGuid(
             reader.GetModuleDefinition().Mvid);
+        if (moduleVersionId == Guid.Empty)
+        {
+            return new ApiTypeInventoryCountResult.Declined(
+                ApiTypeInventoryCountDeclineReason
+                    .MissingModuleVersionId,
+                "The module has no MVID to bind the Count witness.");
+        }
         foreach (ExportedTypeHandle exportedTypeHandle
             in reader.ExportedTypes)
         {
@@ -447,6 +455,10 @@ public static partial class ApiSurfaceExtractor
                         $"Type identity was rejected: {rejected.Failure.Detail}");
                 }
 
+                _ = MetadataDeclarationQuery
+                    .GetIntroducedTypeParameterCounts(
+                        reader,
+                        typeDefHandle);
                 ApiTypeInventoryKind kind =
                     GetSummaryTypeKind(reader, typeDef);
                 bool isExtensionClass =

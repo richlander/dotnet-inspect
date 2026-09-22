@@ -1585,10 +1585,11 @@ bound to the inspected image rather than becoming an independently minted
 integer.
 
 The capability returns `Declined`, never zero or a partial Count, when
-image-local metadata is insufficient. Type forwarders require assembly
-resolution; malformed Type identity, kind, or compact member evidence requires
-the existing evidence-bearing extraction path. Decline permits a caller to
-fall back before accepting execution and does not change the population.
+image-local metadata is insufficient. A missing MVID cannot bind the witness;
+Type forwarders require assembly resolution; malformed Type identity, generic
+parameter ordering, kind, or compact member evidence requires the existing
+evidence-bearing extraction path. Decline permits a caller to fall back before
+accepting execution and does not change the population.
 
 The first production adopter is deliberately narrower than the Metadata API:
 the `type` command accepts this Count only for an installed Platform image, one
@@ -1601,6 +1602,8 @@ inventories demonstrate the same lower-layer cursor boundary.
 `CountSummaryTypes_MatchesCompactInventory`,
 `CountSummaryTypes_MatchesCoreLibraryFullSurface`,
 `CountSummaryTypes_CyclicTypeDeclinesWithoutPartialCount`,
+`SummaryAndCount_InvalidGenericParameterOrderReject`,
+`CountSummaryTypes_MissingMvidDeclines`,
 `CountSummaryTypes_DeclinesTypeForwarders`, and
 `Type_ListingKindCount_MatchesMetadataInventory` gate the accepted population,
 snapshot binding, pathological decline, and CLI adoption.
