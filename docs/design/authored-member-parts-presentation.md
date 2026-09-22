@@ -46,10 +46,11 @@ Authored parts require Source Locations as the sole resolved section. An
 incompatible section selection is rejected, never substituted with another
 command's result.
 
-The CLI uses Markout for human-readable part catalogs and typed JSON for the
-focused nested document. This is a deliberate JSON lowering rather than
-flattening document/part structure into a table cell. Existing metadata-only
-tables and their projections remain unchanged.
+The CLI uses Markout for human-readable part catalogs and explicit Markdown
+part printing under the [CLI rendering policy](rendering-model.md#native-type-and-source-defaults).
+It uses typed JSON for the focused nested document. This is a deliberate JSON
+lowering rather than flattening document/part structure into a table cell.
+Existing metadata-only tables and their projections remain unchanged.
 
 Discovery accepts Markdown, plaintext, or complete JSON; incompatible table,
 scalar, graph, and row-window projections fail visibly. Part printing also

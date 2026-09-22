@@ -108,8 +108,8 @@ discovery-to-execution receipt.
 ## Convention and dependencies
 
 xUnit v3 conventionally supports MTP as a built-in command-line host. With the
-pinned xUnit v3.2.2 package, MTP v1 is already present; selecting it does not
-require a new direct package reference or repository test-host library.
+pinned `xunit.v3` 4.0.1 package, MTP 2.4.0 is already present; selecting it does
+not require a new direct package reference or repository test-host library.
 `dotnet run` remains the canonical repository command because the test project
 is still an executable.
 
@@ -121,7 +121,7 @@ minimum-count and visible-failure contract before adoption.
 ## Evidence
 
 The pathological fixture is an ordinary test executable invoked through MTP
-with a method filter that names no test. With the pinned xUnit v3.2.2 package,
+with a method filter that names no test. With the pinned `xunit.v3` 4.0.1 package,
 it reports `Zero tests ran` and exits `8`. A neighboring valid fully qualified
 method filter runs one test and exits `0`.
 

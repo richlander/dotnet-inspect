@@ -42,6 +42,9 @@ static class TsTypeMapper
 {
     const int MaximumDelegateParameterCount = 3;
     internal const string InertStringFullName = "InertText.InertString";
+    internal const string DateTimeOffsetFullName = "System.DateTimeOffset";
+    internal const string DateTimeOffsetJsonStringName =
+        "DateTimeOffsetString";
 
     public static bool IsAsyncReturnType(string csharpType)
     {
@@ -567,6 +570,30 @@ static class TsTypeMapper
             && MapPrimitive(exactPrimitive) is { } exactPrimitiveName)
         {
             return exactPrimitiveName;
+        }
+
+        if (typeShape is
+                {
+                    Kind: ApiTypeShapeKind.Named,
+                    Definition: { } dateTimeOffsetIdentity,
+                }
+            && IsAuthenticFrameworkShape(
+                dateTimeOffsetIdentity,
+                DateTimeOffsetFullName))
+        {
+            if (mappingContext == TsTypeMappingContext.JsonWire)
+            {
+                return identityNames?.TryGetValue(
+                    dateTimeOffsetIdentity,
+                    out string? allocatedName) == true
+                        ? allocatedName
+                        : DateTimeOffsetJsonStringName;
+            }
+
+            diagnostics?.ReportUnmappedType(
+                location ?? trimmed,
+                trimmed);
+            return "unknown";
         }
 
         if (typeShape is

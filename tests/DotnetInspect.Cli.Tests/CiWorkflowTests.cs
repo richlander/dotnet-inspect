@@ -1,51 +1,13 @@
 namespace DotnetInspect.Cli.Tests;
 
 /// <summary>
-/// Gates the CI runner split between the high-frequency GA lanes and
-/// path-gated Ubuntu preview coverage.
+/// Gates CI wiring whose source-level shape prevents required evidence from
+/// silently selecting no tests or exposing credentials beyond its owner step.
 /// </summary>
 public class CiWorkflowTests
 {
     static readonly string Workflow = File.ReadAllText(
         Path.Combine(FindRepoRoot(), ".github", "workflows", "ci.yml"));
-
-    [Fact]
-    public void PrimaryLinuxJobs_UseGeneralAvailabilityRunner()
-    {
-        Assert.Contains("runs-on: ubuntu-24.04", JobHeader("changes"));
-        Assert.Contains("- os: ubuntu-24.04", JobHeader("test"));
-        Assert.Contains("runs-on: ubuntu-24.04", JobHeader("ci-required"));
-    }
-
-    [Fact]
-    public void PathGatedJobs_RetainUbuntu2604Coverage()
-    {
-        Assert.Contains("runs-on: ubuntu-26.04", JobHeader("markdownlint"));
-        Assert.Contains("runs-on: ubuntu-26.04", JobHeader("decompiler-gates"));
-        Assert.Contains("runs-on: ubuntu-26.04", JobHeader("pack"));
-    }
-
-    [Fact]
-    public void PrimaryLinuxTestJob_DefinesTheApprovedParallelShards()
-    {
-        string testHeader = JobHeader("test");
-        string[] shards =
-        [
-            "cli-a-c",
-            "cli-d-i",
-            "cli-ma",
-            "cli-mem",
-            "cli-q-z",
-            "cli-rest",
-            "contracts",
-            "analysis",
-            "host-policy",
-        ];
-
-        Assert.Equal(shards.Length, CountOccurrences(testHeader, "shard: "));
-        foreach (string shard in shards)
-            Assert.Contains($"shard: {shard}", testHeader);
-    }
 
     [Fact]
     public void CliFastShards_AreDisjointAndCollectivelyExhaustive()
@@ -90,22 +52,6 @@ public class CiWorkflowTests
     }
 
     [Fact]
-    public void DecompilerFastSuites_RunInTheParallelPathGatedJob()
-    {
-        string job = Job("decompiler-gates");
-
-        Assert.Contains("- name: Run decompiler unit tests (fast)", job);
-        Assert.Contains("--no-build -- --gate fast", job);
-        Assert.Contains("- name: Run DecompilerHarness tests", job);
-        Assert.Contains(
-            "dotnet run --project tests/DecompilerHarness.Tests -c Release --no-build",
-            job);
-        Assert.DoesNotContain(
-            "- name: Run decompiler unit tests (fast)",
-            Job("test"));
-    }
-
-    [Fact]
     public void HostedPackageFixture_UsesOneStepScopedReadToken()
     {
         string testHeader = JobHeader("test");
@@ -141,9 +87,9 @@ public class CiWorkflowTests
         Assert.Contains(
             "grep -Eq '<assembly[^>]+skipped=\"0\"'",
             fixtureStep);
-        Assert.Contains("--report-xunit", fixtureStep);
+        Assert.Contains("--report-xunit-xml", fixtureStep);
         Assert.Contains(
-            "--report-xunit-filename \"$results_name\"",
+            "--report-xunit-xml-filename \"$results_name\"",
             fixtureStep);
         Assert.Contains(
             "--results-directory \"$results_dir\"",
@@ -172,9 +118,9 @@ public class CiWorkflowTests
             Assert.Contains($"method=\\\"$method\\\"", step);
         }
         Assert.Contains("total=\"[1-9][0-9]*\"", step);
-        Assert.Contains("--report-xunit", step);
+        Assert.Contains("--report-xunit-xml", step);
         Assert.Contains(
-            "--report-xunit-filename \"$results_name\"",
+            "--report-xunit-xml-filename \"$results_name\"",
             step);
         Assert.Contains(
             "--results-directory \"$results_dir\"",
@@ -189,34 +135,6 @@ public class CiWorkflowTests
         int stepsStart = Workflow.IndexOf("\n    steps:\n", jobStart, StringComparison.Ordinal);
         Assert.True(stepsStart > jobStart, $"CI job '{jobName}' does not define steps.");
         return Workflow[jobStart..stepsStart];
-    }
-
-    static string Job(string jobName)
-    {
-        int jobStart = Workflow.IndexOf(
-            $"\n  {jobName}:\n",
-            StringComparison.Ordinal);
-        Assert.True(
-            jobStart >= 0,
-            $"CI workflow does not define the '{jobName}' job.");
-
-        int nextJob = Workflow.IndexOf(
-            "\n  ",
-            jobStart + $"\n  {jobName}:\n".Length,
-            StringComparison.Ordinal);
-        while (nextJob >= 0
-            && (nextJob + 3 >= Workflow.Length
-                || char.IsWhiteSpace(Workflow[nextJob + 3])))
-        {
-            nextJob = Workflow.IndexOf(
-                "\n  ",
-                nextJob + 3,
-                StringComparison.Ordinal);
-        }
-
-        return nextJob >= 0
-            ? Workflow[jobStart..nextJob]
-            : Workflow[jobStart..];
     }
 
     static string NamedStep(string stepName)

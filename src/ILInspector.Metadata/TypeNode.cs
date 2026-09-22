@@ -4,6 +4,19 @@ using System.Text;
 
 namespace ILInspector.Metadata;
 
+public enum MetadataTypeScopeKind
+{
+    CurrentModule,
+    AssemblyReference,
+    ModuleReference,
+}
+
+internal sealed record MetadataTypeScopeDescriptor(
+    MetadataTypeScopeKind Kind,
+    Guid ModuleVersionId,
+    string? ModuleName,
+    AssemblyReferenceIdentity? Assembly);
+
 /// <summary>
 /// Represents a type as a tree structure for applying nullability annotations.
 /// Built by <see cref="TypeNodeProvider"/> during signature decoding, then
@@ -45,6 +58,8 @@ internal abstract class TypeNode
     /// array, custom modifier, pinned wrapper, or function-pointer header.
     /// </summary>
     internal virtual bool HasStructuralPayload => false;
+
+    internal virtual MetadataTypeScopeDescriptor? ExactScope => null;
 
     /// <summary>
     /// Opaque structural identity for call-graph selectors. Equals
@@ -521,11 +536,13 @@ internal sealed class NamedTypeNode(
     string name,
     bool isReferenceType,
     MetadataTypeNameParts? metadataName = null,
-    ApiAssemblyIdentity? assemblyIdentity = null) : TypeNode
+    ApiAssemblyIdentity? assemblyIdentity = null,
+    MetadataTypeScopeDescriptor? exactScope = null) : TypeNode
 {
     public string Name => name;
     public ApiAssemblyIdentity? AssemblyIdentity => assemblyIdentity;
     public MetadataTypeNameParts? MetadataName => metadataName;
+    internal override MetadataTypeScopeDescriptor? ExactScope => exactScope;
     public override bool IsReferenceType => isReferenceType;
     public override long EstimatedRenderedLength => name.Length + 1L;
 
@@ -570,7 +587,8 @@ internal sealed class GenericTypeNode(
     bool degradedGenericType = false,
     MetadataTypeNameParts? metadataName = null,
     string? structuralMetadataName = null,
-    ApiAssemblyIdentity? definitionAssemblyIdentity = null) : TypeNode
+    ApiAssemblyIdentity? definitionAssemblyIdentity = null,
+    MetadataTypeScopeDescriptor? exactScope = null) : TypeNode
 {
     readonly long estimatedRenderedLength =
         EstimateRenderedLength(baseName, arguments, nestedSuffix);
@@ -583,6 +601,7 @@ internal sealed class GenericTypeNode(
     public ApiAssemblyIdentity? DefinitionAssemblyIdentity =>
         definitionAssemblyIdentity;
     public MetadataTypeNameParts? MetadataName => metadataName;
+    internal override MetadataTypeScopeDescriptor? ExactScope => exactScope;
     public ImmutableArray<TypeNode> Arguments => arguments;
     public override bool IsReferenceType => isReferenceType;
     public override bool IsDegraded => degradedGenericType || arguments.Any(argument => argument.IsDegraded);

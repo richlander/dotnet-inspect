@@ -890,8 +890,10 @@ operation or Library lifetime ends. The discriminator and case-specific
 properties are also the semantic C#-to-TypeScript contract. Inspect Web exposes
 separate package and platform operations so each five-string input contract is
 semantic and ordinary package calls do not acquire a platform-only coordinate.
-Both return the same generated nine-case union as one JSON string; no UTF-8
-byte-array transport or host-local duplicate shape is introduced.
+The platform operation returns the generated nine-case compiled-only union; the
+package operation returns the generated unified compiled-and-authored outcome.
+Both cross the boundary as one JSON string; no UTF-8 byte-array transport or
+host-local duplicate shape is introduced.
 
 This L1 operation returns the bare Queries result. A completed L2 or host
 handoff wraps the portable outcome in `InspectionEnvelope<TContent>`; it does
@@ -1040,7 +1042,9 @@ assembly and XML companion in the .NET 11 reference pack.
     [#8130](https://github.com/richlander/dotnet-inspect/issues/8130).**
     Extend Queries with authored-source documentation evidence through a
     QuerySpace-backed operation;
-20. adopt authored-source documentation in Inspect Web;
+20. **In progress under
+    [#8155](https://github.com/richlander/dotnet-inspect/issues/8155).**
+    Adopt authored-source documentation in Inspect Web;
 21. adopt authored-source documentation in the CLI and remove the remaining
     `SourceEnricher` composition; and
 22. delete `DocCommentParser` from CSharpText after all consumers are gone and
@@ -1057,6 +1061,60 @@ Workspace publication and consumption of reusable documentation artifacts are
 not initial scope; adding them requires a separately counted production-
 consumer slice.
 
+### Inspect Web combined-documentation transport adoption
+
+Inspect Web package member documentation requests the unified QuerySpace
+`compiled-xml-and-authored-source` demand and returns the Queries-owned
+`DocumentationQueryOutcome` through the generated package facade. The browser
+host authorizes its existing bounded source-acquisition capabilities but does
+not currently issue a SourceHouse physical-declaration capability. The public
+browser path therefore retains authored unavailability as typed evidence and
+does not infer physical correspondence from PDB, Source Link, paths, names, or
+source text.
+
+This slice adopts combined demand, transport, and presentation and proves the
+capability-aware lower composition through a build-attested test host. That
+harness is not evidence that the shipped browser can provision the capability.
+Issue #8155 remains open for a separately designed production authorization
+path before the overall Inspect Web authored-documentation slice is complete.
+
+The Metadata-issued subject and token identify the selected API assembly.
+Before creating an authored-source operation, Queries locates that subject's
+exact compiler XML identity on the Library's implementation assembly and emits
+the implementation-issued type identity, member anchor, and MethodDef token.
+The source-neutral operation binding retains that implementation subject
+separately from the API documentation subject, so SourceHouse validates the
+implementation target without requiring its anchor to equal the API anchor.
+The browser never transfers an API token or anchor onto distinct
+implementation content.
+This correspondence is motivated by the split reference and implementation
+assets in `Microsoft.Build.Framework`, where the same public compiler XML
+identity has different MethodDef tokens.
+
+Implementation correspondence is a closed bounded outcome. No exact match
+becomes authored declaration unavailability, multiple exact compiler XML
+matches become authored ambiguity, and implementation-surface bound exhaustion
+becomes authored incompleteness. Each terminal outcome settles the transferred
+Library lease locally inside the authored operation so valid compiled XML
+remains independently available.
+
+The package member-detail consumer selects display values from the deterministic
+field settlement, preferring the first contribution in requested-channel order
+while retaining the complete compiled attempt, authored attempt, contribution
+order, and conflict kind in the transported result. A field conflict therefore
+has a stable display value without becoming agreement or erasing either
+channel. Top-level rejection, failure, and incompleteness remain visible and
+retryable. When no field contribution exists, authored ambiguity, rejection,
+failure, or incompleteness also remains visible and retryable; compiled
+availability or authoritative absence can still settle cleanly with typed
+authored unavailability.
+
+The platform member-documentation export remains compiled-only in this slice.
+Its reference-pack Library has no authorized implementation-source or
+physical-declaration capability, so requesting authored source would advertise
+work the host cannot perform. Adding that authority is separately scoped work,
+not a name- or path-based inference in this consumer adoption.
+
 ## Evidence and required gates
 
 This design introduces no independent distributed state machine. Artifact and
@@ -1070,9 +1128,11 @@ Implementation and adoption slices own these Release gates:
 | --- | --- |
 | Library-scoped subject | Equal XML IDs in two assemblies cannot cross-satisfy one request. |
 | Library correspondence | A foreign Library reference, selected content reference, or operation lease rejects before parsing. |
-| Explicit authorization | No SourceHouse, source/PDB discovery or acquisition, repository, content-store, or network work occurs without authored demand and a pre-authorized deferred operation. Snapshots of already-realized XML require compiled demand and the transferred Library lease. |
+| Explicit authorization | No SourceHouse, source/PDB discovery or acquisition, repository, content-store, or network work occurs without authored demand and a pre-authorized deferred operation. Snapshots of already-realized XML require compiled demand and the transferred Library lease. A PDB-bearing package with an over-budget PDB still settles compiled-only documentation without discovering, budgeting, or acquiring that PDB. |
 | Cheap-first ordering | Operation construction starts no source work; combined demand reaches a terminal detached compiled-XML attempt and ends every borrow before the operation receives the lease once, and XML availability does not suppress the requested source attempt. |
 | Exact XML lookup | Compiled XML uses the Metadata-issued compiler ID and associated contribution. |
+| Split implementation targeting | A build-attested package with distinct `ref` and `lib` assemblies assigns different MethodDef tokens and member anchors to the same compiler XML identity; the authored channel resolves and uses the implementation-issued target. |
+| Implementation resolution settlement | Missing, duplicate, or over-bound implementation correspondence becomes typed authored unavailability, ambiguity, or incompleteness while compiled XML remains available and the operation settles its Library lease. |
 | Bounded repeated lookup | A multi-subject request scans each selected compiled-XML companion once per matching read policy, retains only that policy's requested exact IDs under independent per-request retained-text budgets, rechecks the latest matching request deadline between snapshot and parse, and reports actual parsing work once. |
 | Authoritative absence | XML absence requires complete readable companion evidence for the exact subject. |
 | Independent channels | Success, absence, failure, or incompleteness in one channel does not rewrite the other. |
@@ -1212,8 +1272,26 @@ package evidence as direct-Library evidence.
 
 `BrowserEngineBoundaryTests.QueryMemberDocumentation_UsesSharedPackageDocumentationContract`
 executes the production package export over the real `System.Text.Json` 10.0.0
-package and requires the Queries-owned `available` case and expected member
-summary.
+package and requires compiled availability, independently typed authored
+unavailability without physical-declaration authority, and deterministic
+compiled field selection.
+`BrowserEngineBoundaryTests.QueryMemberDocumentation_CapabilityHarnessPublishesConflict`
+packages a real build-attested assembly, matching portable PDB, source bytes,
+and deliberately differing compiled summary. It executes the capability-aware
+test host over the same package composition and serialization core and requires
+both channels to be available plus the ordered compiled-then-authored summary
+conflict. It does not claim production capability provisioning.
+`BrowserEngineBoundaryTests.QueryMemberDocumentation_SplitAssembliesUseImplementationTarget`
+uses distinct build-attested `ref` and `lib` assemblies whose matching member
+has different MethodDef tokens and nullability-sensitive anchors. It requires
+the implementation-issued target to reach authored availability rather than
+being rejected against the API anchor.
+`DocumentationQueryTests.ImplementationSubjectResolver_ReportsAmbiguousAndBounded`
+gates duplicate exact compiler XML matches and bounded implementation-surface
+extraction as closed resolution outcomes.
+`DocumentationQueryTests.ImplementationResolutionTerminal_PreservesCompiledChannel`
+requires both terminal outcomes to retain compiled availability while
+publishing typed authored ambiguity or implementation-surface incompleteness.
 `BrowserEngineBoundaryTests.QueryMemberDocumentation_MissingCompanionIsAuthoritativeAbsence`
 gates the neighboring package-without-companion case as typed authoritative
 `absent` evidence rather than empty browser documentation.

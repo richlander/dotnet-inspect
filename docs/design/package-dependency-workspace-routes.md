@@ -173,9 +173,10 @@ Release gates prove:
 ## Production adoption
 
 This is the second destination-composition slice after single-edge
-realization. The next slice provides an owner-issued source-operation context
-that executes all admitted resolved edges, invokes this composition operation,
-and exposes detached dependency destinations to one shared call-graph service.
+realization. The
+[package dependency call-graph operation](package-dependency-call-graph-operation.md)
+executes all admitted resolved edges, invokes this composition operation, and
+exposes detached route and graph evidence.
 The CLI and Browser/Wasm hosts then consume that same service. External-focus
 policy and website controls remain presentation and call-graph concerns, not
 Workspace route concerns.
