@@ -228,6 +228,16 @@ printer callback and its duplicate materialized-local collection path have
 been removed; residual `StoreStackSlot` declaration handling remains in the
 printer for the #2095 adoption.
 
+The scope-entry projection owner supplies declaration provenance with each
+logical local it has already proved from a compiler carrier. The declaration
+plan consumes that owner-issued projection while retaining responsibility for
+safe emitted declaration placement, and it preserves the projected body's
+finalized local identity through method, raised-lambda, and raised-local-
+function planning. It does not repeat the projection's reaching assignment,
+address-use, scope-entry, storage, or collision proof. Those admission and
+refusal boundaries remain owned by
+[Decompiler name and symbol preservation](decompiler-symbol-preservation.md).
+
 ## Pathological case
 
 The pinned real witness is `dotnet-inspect.any` 0.14.0
