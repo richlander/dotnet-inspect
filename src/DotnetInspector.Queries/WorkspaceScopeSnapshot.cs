@@ -332,8 +332,7 @@ public sealed class WorkspaceScopeSnapshot
     public WorkspaceScopePreparationDescriptor? Preparing { get; }
 
     /// <summary>
-    /// Finds the exact Scope-issued occurrence corresponding to one acquired
-    /// Package binding.
+    /// Finds the Scope-issued occurrence with the same logical Package request.
     /// </summary>
     public WorkspacePackageOccurrenceDescriptor? FindPackageOccurrence(
         PackageRootBinding binding)
@@ -363,6 +362,22 @@ public sealed class WorkspaceScopeSnapshot
         }
 
         return match;
+    }
+
+    /// <summary>
+    /// Finds the Scope-issued occurrence retaining the exact acquired Package
+    /// generation and selection.
+    /// </summary>
+    public WorkspacePackageOccurrenceDescriptor? FindExactPackageOccurrence(
+        PackageRootBinding binding)
+    {
+        WorkspacePackageOccurrenceDescriptor? occurrence =
+            FindPackageOccurrence(binding);
+        return occurrence is not null
+            && occurrence.Occurrence.Package.Matches(binding)
+            && binding.ReferencesRetainedContent()
+                ? occurrence
+                : null;
     }
 }
 

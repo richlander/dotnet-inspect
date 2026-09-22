@@ -24,14 +24,6 @@ public static partial class SourceExports
     internal static TypeSourcePdbLatencyHedge BrowserTypeSourcePdbLatencyHedge { get; } =
         new(
             portablePdbPreferenceWindow: TimeSpan.FromSeconds(1));
-    const long MiB = 1024L * 1024;
-    static readonly SymbolAcquisitionLimits SourceSymbolLimits =
-        new(
-            maxSymbolPackageBytes: 24 * MiB,
-            maxPortablePdbBytes: 8 * MiB,
-            maxSymbolPackageEntries: 2048,
-            maxExpandedPdbBytes: 24 * MiB);
-
     [JSExport]
     public static void CancelSourceQuery() =>
         BrowserSourceOperationCoordinator.CancelCurrent();
@@ -163,7 +155,7 @@ public static partial class SourceExports
                     group,
                     member,
                     request,
-                    CreateSourceContext(),
+                    BrowserSourceQueryContext.Create(),
                     BrowserTypeSourcePdbLatencyHedge,
                     cancellationToken));
 
@@ -285,7 +277,7 @@ public static partial class SourceExports
                     group,
                     member,
                     request,
-                    CreateSourceContext(),
+                    BrowserSourceQueryContext.Create(),
                     operation.CancellationToken));
 
         return AdaptMember(inspection.Content, participant, includeParts);
@@ -363,21 +355,8 @@ public static partial class SourceExports
         }
     }
 
-    internal static AssemblyContextSourceQueryContext CreateSourceContext()
-    {
-        var sourceStore = new InMemorySourceContentStore();
-        return new AssemblyContextSourceQueryContext(
-            BrowserPackageWorkspace.NetworkClient,
-            new InMemoryPdbStore(maxRetainedBytes: 24 * MiB),
-            BrowserPackageWorkspace.PackageSourceAuthorization,
-            new SourceFetch(
-                BrowserPackageWorkspace.NetworkClient,
-                sourceStore,
-                BrowserSourceFetchPolicy.Instance))
-        {
-            SymbolAcquisitionLimits = SourceSymbolLimits,
-        };
-    }
+    internal static AssemblyContextSourceQueryContext CreateSourceContext() =>
+        BrowserSourceQueryContext.Create();
 
     internal static BrowserSource Adapt(
         AssemblyMemberSourceEntry result,

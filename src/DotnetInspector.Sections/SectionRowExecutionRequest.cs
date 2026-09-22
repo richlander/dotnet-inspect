@@ -189,11 +189,24 @@ public sealed class SectionRowExecutionRequest<TIdentity, TProjection>
         foreach (SectionRowSetDeclaration<TIdentity, TProjection>
             rowSet in rowSetCopy)
         {
-            if (!bindingsBySchema.ContainsKey(rowSet.Schema))
+            if (!bindingsBySchema.TryGetValue(
+                    rowSet.Schema,
+                    out SectionRowSchemaBinding<TIdentity>? binding))
             {
                 throw new ArgumentException(
                     "A participating row schema has no execution binding.",
                     nameof(association));
+            }
+            if (!rowSet.HasRows)
+            {
+                _ = rowSet.SourceCount;
+                if (!binding.CanExecuteCountWithoutRows)
+                {
+                    throw new ArgumentException(
+                        "A cardinality-only row-set declaration requires a "
+                        + "Count execution binding.",
+                        nameof(rowSets));
+                }
             }
 
             if (!declarationsBySchema.TryGetValue(

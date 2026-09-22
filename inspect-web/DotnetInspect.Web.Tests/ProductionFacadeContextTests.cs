@@ -86,7 +86,6 @@ public sealed class ProductionFacadeContextTests
             "RequestPackageQueryMatches",
             "ResolvePackageDependencyVersion",
             "RunPackageActivity",
-            "RunPackageAssemblySemanticQuery",
             "RunPackageQuery",
             "SearchTypes",
         ],
@@ -207,10 +206,10 @@ public sealed class ProductionFacadeContextTests
                 actual[assembly]);
         }
 
-        // 97 operations, and no operation name in two modules: a move that forgot to delete its
+        // 96 operations, and no operation name in two modules: a move that forgot to delete its
         // origin, or a name published twice, fails here rather than in the browser.
         string[] everyExport = [.. actual.Values.SelectMany(names => names)];
-        Assert.Equal(97, everyExport.Length);
+        Assert.Equal(96, everyExport.Length);
         Assert.Equal(
             everyExport.Length,
             everyExport.Distinct(StringComparer.Ordinal).Count());
@@ -394,6 +393,23 @@ public sealed class ProductionFacadeContextTests
             + "memberName: string, selectorKey: string, metadataToken: number, "
             + "styleOptionsJson: string): Promise<BrowserSource>;",
             declarations,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ProductionPackageFacade_PublishesUnifiedDocumentationOutcome()
+    {
+        string facade = File.ReadAllText(Path.Combine(
+            InspectWebRoot(),
+            "DotnetInspect.Web",
+            "facades",
+            "inspect-web-package.ts"));
+
+        Assert.Contains(
+            "queryMemberDocumentation(packageId: string, version: string, "
+            + "framework: string, assemblyName: string, documentationId: string): "
+            + "Promise<DocumentationQueryOutcome>",
+            facade,
             StringComparison.Ordinal);
     }
 

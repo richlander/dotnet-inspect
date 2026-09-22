@@ -240,11 +240,22 @@ public sealed class MemberCallGraphSession : IDisposable
     /// participant in this session's assembly context group.
     /// </summary>
     public InspectionGraphDocument CrossLibraryCalleeNeighborhood(
-        MemberCallGraphCalleeNeighborhoodRequest request)
+        MemberCallGraphCalleeNeighborhoodRequest request) =>
+        CrossLibraryCalleeNeighborhoodWithCancellation(
+            request,
+            CancellationToken.None);
+
+    internal InspectionGraphDocument
+        CrossLibraryCalleeNeighborhoodWithCancellation(
+        MemberCallGraphCalleeNeighborhoodRequest request,
+        CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(request);
+        cancellationToken.ThrowIfCancellationRequested();
         return Execute(() =>
-            CrossLibraryCalleeNeighborhoodCore(request));
+            CrossLibraryCalleeNeighborhoodCore(
+                request,
+                cancellationToken));
     }
 
     /// <summary>Lazily yields each cumulative graph tier in order.</summary>
@@ -369,10 +380,14 @@ public sealed class MemberCallGraphSession : IDisposable
     }
 
     InspectionGraphDocument CrossLibraryCalleeNeighborhoodCore(
-        MemberCallGraphCalleeNeighborhoodRequest request)
+        MemberCallGraphCalleeNeighborhoodRequest request,
+        CancellationToken cancellationToken)
     {
+        cancellationToken.ThrowIfCancellationRequested();
         AnalysisBuildResult.Available root = Require(GetFullRoot());
+        cancellationToken.ThrowIfCancellationRequested();
         EnsureCrossLibraryScope();
+        cancellationToken.ThrowIfCancellationRequested();
         ThrowIfCrossLibraryFailed();
         Analysis.CallTreeNode calleeRoot =
             root.CallGraph.BuildCallTree(
@@ -380,10 +395,12 @@ public sealed class MemberCallGraphSession : IDisposable
                 _catalogScope!,
                 request.MaxDepth,
                 request.MaxNodes);
+        cancellationToken.ThrowIfCancellationRequested();
         CallGraphProjection source =
             CallGraphProjection.FromCallees(calleeRoot);
         ExternalFocusedCallGraphProjection externalFocused =
             CreateExternalFocusedProjection(source, root.ImageIdentity);
+        cancellationToken.ThrowIfCancellationRequested();
         return CallGraphInspectionGraphAdapter
             .CreateExternalFocusedOutgoingNeighborhood(
                 externalFocused,

@@ -10,7 +10,9 @@ public sealed class DocumentationAuthoredSourceOperationBinding
         DocumentationHouseOperationPlanIdentity operationPlan,
         DocumentationHousePolicyGeneration policyGeneration,
         DocumentationSubjectReference subject,
-        LibraryContentReference implementationContent)
+        LibraryContentReference implementationContent,
+        DocumentationImplementationSubjectReference?
+            implementationSubject)
     {
         ArgumentNullException.ThrowIfNull(request);
         ArgumentNullException.ThrowIfNull(operationPlan);
@@ -25,12 +27,22 @@ public sealed class DocumentationAuthoredSourceOperationBinding
                 "The implementation content must be the subject Library's exact implementation assembly.",
                 nameof(implementationContent));
         }
+        if (implementationSubject is not null
+            && (implementationSubject.CompiledXmlIdentity
+                    != subject.CompiledXmlIdentity
+                || implementationSubject.IsMember != subject.IsMember))
+        {
+            throw new ArgumentException(
+                "The implementation subject must describe the API subject's exact compiler XML identity and subject kind.",
+                nameof(implementationSubject));
+        }
 
         Request = request;
         OperationPlan = operationPlan;
         PolicyGeneration = policyGeneration;
         Subject = subject;
         ImplementationContent = implementationContent;
+        ImplementationSubject = implementationSubject;
     }
 
     public DocumentationHouseRequestIdentity Request { get; }
@@ -39,6 +51,8 @@ public sealed class DocumentationAuthoredSourceOperationBinding
     public DocumentationSubjectReference Subject { get; }
     public LibraryReference Library => Subject.Library;
     public LibraryContentReference ImplementationContent { get; }
+    public DocumentationImplementationSubjectReference?
+        ImplementationSubject { get; }
 }
 
 public sealed class DocumentationAuthoredSourceOperationLimits
@@ -211,6 +225,7 @@ public enum DocumentationAuthoredFailureKind
 
 public enum DocumentationAuthoredIncompleteBoundary
 {
+    ImplementationSurface,
     Deadline,
     SourceDocuments,
     SourceBytes,
