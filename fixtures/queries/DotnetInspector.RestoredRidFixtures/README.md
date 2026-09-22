@@ -58,7 +58,7 @@ done
 dotnet run --project tests/DotnetInspector.Queries.Tests -c Release -- \
   --filter-method \
   'DotnetInspector.Queries.Tests.CompleteRestorationExecutionTests.RestoredAssets_*' \
-  --report-xunit --report-xunit-filename restored-rid.xml \
+  --report-xunit-xml --report-xunit-xml-filename restored-rid.xml \
   --results-directory artifacts/test-results
 ```
 
