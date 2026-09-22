@@ -109,6 +109,7 @@ public enum CSharpTypeImplementationKind
 {
     Body,
     Initializer,
+    ImplicitAccessors,
 }
 
 public enum CSharpTypeBodyContributionRole
@@ -787,6 +788,14 @@ static class CSharpTypeDocumentValidator
         {
             foreach (CSharpTypeRenderPart part in parts)
             {
+                if (part.OwnedBodies.IsEmpty
+                    && part.Contributions.Length > 1
+                    && part.Contributions.All(contribution =>
+                        contribution.Role == part.Contributions[0].Role
+                        && contribution.FullRange == part.Contributions[0].FullRange))
+                {
+                    continue;
+                }
                 int? activationOwner = null;
                 bool hasContribution = false;
                 foreach (int bodyId in part.OwnedBodies
@@ -1265,14 +1274,7 @@ static class CSharpTypeDocumentValidator
                     $"Declaration {declaration.Id} owned body {reference.BodyId}",
                     allowEmpty: true);
                 if (reference.FullRange.Length == 0
-                    && (body.Outcome != CSharpTypeBodyOutcome.Available
-                        || !body.HasManagedBody
-                        || part.ImplementationKind
-                            != CSharpTypeImplementationKind.Body
-                        || part.FullText != part.SkeletonText
-                        || !IsEmptyBodyAlternative(
-                            part.FullText,
-                            reference.FullRange.Start)))
+                    && !AllowsEmptyEvidence(declaration, part, reference, body))
                 {
                     throw new ArgumentException(
                         $"Declaration {declaration.Id} owned body {reference.BodyId} requires non-empty evidence unless it is an available empty body with identical alternatives.");
@@ -1402,6 +1404,33 @@ static class CSharpTypeDocumentValidator
         return index == text.Length
             && bodyPosition >= contentStart
             && bodyPosition <= contentEnd;
+    }
+
+    static bool AllowsEmptyEvidence(
+        CSharpTypeDeclaration declaration,
+        CSharpTypeRenderPart part,
+        CSharpTypeOwnedBodyReference reference,
+        CSharpTypePhysicalBody body)
+    {
+        if (!body.HasManagedBody || part.FullText != part.SkeletonText)
+            return false;
+        if (body.Outcome == CSharpTypeBodyOutcome.Available
+            && part.ImplementationKind == CSharpTypeImplementationKind.Body
+            && IsEmptyBodyAlternative(part.FullText, reference.FullRange.Start))
+        {
+            return true;
+        }
+        if (reference.HasDrillDownDestination)
+            return false;
+        if (body.Outcome is CSharpTypeBodyOutcome.Unavailable or CSharpTypeBodyOutcome.Failed)
+            return part.ImplementationKind is CSharpTypeImplementationKind.Body
+                or CSharpTypeImplementationKind.ImplicitAccessors;
+        return part.ImplementationKind == CSharpTypeImplementationKind.ImplicitAccessors
+            && body.Outcome == CSharpTypeBodyOutcome.Available
+            && ((declaration.Kind == CSharpTypeDeclarationKind.Property
+                    && body.Role is CSharpTypeBodyRole.Getter or CSharpTypeBodyRole.Setter or CSharpTypeBodyRole.Init)
+                || (declaration.Kind == CSharpTypeDeclarationKind.Event
+                    && body.Role is CSharpTypeBodyRole.Adder or CSharpTypeBodyRole.Remover));
     }
 
     static void ValidateFingerprint(string fingerprint, string owner)
