@@ -72,7 +72,7 @@ public abstract class PlatformTypeCatalogQueryOutcome
 /// Adapts user type text to exact declarations in one completed Platform
 /// catalog.
 /// </summary>
-public static class PlatformTypeCatalogQuery
+public static partial class PlatformTypeCatalogQuery
 {
     public static PlatformTypeCatalogQueryOutcome Execute(
         PlatformTypeCatalog catalog,
@@ -81,30 +81,43 @@ public static class PlatformTypeCatalogQuery
     {
         ArgumentNullException.ThrowIfNull(catalog);
         ArgumentNullException.ThrowIfNull(pattern);
+        return Execute(
+            catalog,
+            ResolvePattern(pattern, cancellationToken),
+            cancellationToken);
+    }
+
+    public static PlatformTypeCatalogQueryOutcome Execute(
+        PlatformTypeCatalog catalog,
+        PlatformTypeCatalogQueryPlanResult resolution,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(catalog);
+        ArgumentNullException.ThrowIfNull(resolution);
+        return resolution switch
+        {
+            PlatformTypeCatalogQueryPlanResult.Accepted accepted =>
+                Execute(catalog, accepted.Plan, cancellationToken),
+            PlatformTypeCatalogQueryPlanResult.Rejected rejected =>
+                Publish(
+                    new PlatformTypeCatalogQueryOutcome.Rejected(
+                        catalog,
+                        rejected.Kind),
+                    cancellationToken),
+            _ => throw new InvalidOperationException(
+                "Unknown Platform type catalog query plan result."),
+        };
+    }
+
+    public static PlatformTypeCatalogQueryOutcome Execute(
+        PlatformTypeCatalog catalog,
+        PlatformTypeCatalogQueryPlan plan,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(catalog);
+        ArgumentNullException.ThrowIfNull(plan);
         cancellationToken.ThrowIfCancellationRequested();
 
-        if (string.IsNullOrWhiteSpace(pattern))
-        {
-            return Publish(
-                new PlatformTypeCatalogQueryOutcome.Rejected(
-                    catalog,
-                    PlatformTypeCatalogQueryRejectionKind.EmptyPattern),
-                cancellationToken);
-        }
-        if (pattern.Length > MetadataSafetyPolicy.MaxTypeNameCharacters)
-        {
-            return Publish(
-                new PlatformTypeCatalogQueryOutcome.Rejected(
-                    catalog,
-                    PlatformTypeCatalogQueryRejectionKind.PatternTooLong),
-                cancellationToken);
-        }
-
-        string normalizedPattern =
-            FqnParser.NormalizeTypeName(pattern.Trim()).Replace('+', '.');
-        cancellationToken.ThrowIfCancellationRequested();
-        bool explicitGenericNotation =
-            TypeMatcher.HasExplicitGenericNotation(pattern);
         var matches =
             ImmutableArray.CreateBuilder<PlatformTypeCatalogEntry>();
 
@@ -114,7 +127,7 @@ public static class PlatformTypeCatalogQuery
             string normalizedCandidate = Normalize(entry.Name);
             if (TypeMatcher.MatchesNormalized(
                     normalizedCandidate,
-                    normalizedPattern))
+                    plan.NormalizedPattern))
             {
                 matches.Add(entry);
             }
@@ -125,13 +138,13 @@ public static class PlatformTypeCatalogQuery
         ImmutableArray<PlatformTypeCatalogEntry> exact =
             PreferExactMatches(
                 preferred,
-                normalizedPattern,
+                plan.NormalizedPattern,
                 cancellationToken);
         if (!exact.IsDefaultOrEmpty)
         {
             preferred = exact;
         }
-        else if (explicitGenericNotation)
+        else if (plan.HasExplicitGenericNotation)
         {
             preferred = [];
         }

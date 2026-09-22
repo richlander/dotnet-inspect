@@ -35,6 +35,39 @@ settlement: it preserves the target, population value and receipt, members,
 source settlements, generations, MVIDs, and structured declarations already
 issued by the catalog owner.
 
+## QuerySpace composition
+
+This owner exposes one resource-free QuerySpace binding:
+
+- operation `platform-type-catalog-query`;
+- subject role `exact-platform-type-catalog`;
+- result grain `platform-type-declaration`;
+- required exclusive operation term `type-pattern`;
+- row set `platform-type-declarations`;
+- terminal `Rows`; and
+- result contract `platform-type-catalog-query/outcome/v1`.
+
+The resolved operation plan preserves the exact request, canonical intent,
+supplied pattern, normalized pattern, and explicit-generic-notation fact. It
+contains no catalog or live owner. Execution binds that plan to one exact
+completed catalog and returns the existing typed outcome.
+
+The declaration row set names the declarations contributing to `Resolved`,
+`Ambiguous`, or `Missing`; it does not turn declaration preference into a
+generic row pipeline. The binding exposes one empty row scope only because
+QuerySpace requires every terminal row set to have an explicit scope. It
+admits no row terms, order, semantic selection, Count, continuation, or source
+delegation. Pattern matching, ranking, and ambiguity remain this owner's
+operation semantics.
+
+`CreateRequest` constructs the owner-issued structural request.
+`ResolveRequest` validates restored requests before a catalog scan and returns
+typed structural or portable-intent rejection. `ResolvePattern` is the
+in-process lowering path: invalid user text retains the existing typed
+`EmptyPattern` or `PatternTooLong` rejection, while accepted text resolves
+through the same QuerySpace operation route and plan used by restored
+requests.
+
 ## Text and candidate policy
 
 The query uses the shared CSharpText and Metadata lookup conventions:
@@ -90,6 +123,10 @@ not emulate binding with presentation text.
 
 Release tests exercise:
 
+- exact descriptor, request, operation-plan, row-set, terminal, and result-
+  contract correspondence;
+- typed pre-scan rejection of foreign, malformed, or unsupported structural
+  requests;
 - a real `System.Text.Json.JsonSerializer` definition;
 - a real `System.Object` forwarding declaration;
 - duplicate exact definitions that remain ambiguous;
@@ -116,6 +153,11 @@ a catalog selected by the Platform family-default policy under
 Browser/Wasm and explicit `runtime@version` routing remain later adoptions; an
 exact-demand catalog can serve the latter without changing this query
 contract.
+
+Issue [#8200](https://github.com/richlander/dotnet-inspect/issues/8200) adopts
+the QuerySpace binding and migrates the CLI consumer through it. Issue
+[#8202](https://github.com/richlander/dotnet-inspect/issues/8202) owns the
+separate Browser/Wasm production adoption.
 
 The Services-era resolver and catalog remain compatibility surfaces until
 those consumers adopt the shared path. No compatibility adapter converts the
