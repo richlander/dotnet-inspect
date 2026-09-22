@@ -698,6 +698,42 @@ validator selects the same highest-offset end record as `ZipArchive` and scans
 its central directory without allocating entry objects before `ZipArchive` can
 materialize them, then applies its path, directory, compression, CRC, and
 observed-expansion checks.
+Immutable in-memory package admission reuses one successful archive-validation
+result across cache views of the same owned byte snapshot. Reuse requires that
+every current payload bound (archive bytes, expanded bytes, entry count, and
+unique directories) is equal to or looser than the validated policy. A stricter
+bound runs full validation again; a failed or canceled attempt never becomes
+success evidence. Cancellation is checked even when evidence is reusable.
+The evidence is process-local, bounded to one successful policy per retained
+archive, and retires with that archive. Equal package coordinates or producer
+labels cannot substitute for the shared immutable bytes. Source authorization
+and filesystem admission retain their existing gates.
+
+This is conventional memoization of a pure check over owned immutable input,
+not a persistent validation cache. It avoids expanding the entire runtime
+archive on each cached Library acquisition. The motivating real assets are
+`Microsoft.NETCore.App.Runtime.linux-x64@11.0.0-rc.1.26425.128` (the Browser
+`System.Text.Json` selection) and `System.Text.Json@10.0.0` (the pinned PR-fast
+regression archive). `InMemoryPackageAdmissionTests` in the Release Services
+suite gates reuse through public payload acquisition, complete policy checking,
+immutable cache-view sharing, independent generations, corrupt input, and
+cancellation. Shared `PackagePayloadAcquisition` adopts the optimization in one
+step for desktop in-memory consumers and Browser/Wasm; filesystem-backed CLI
+consumers continue through ordinary revalidation.
+
+The non-CI real-runtime probe is reproducible with:
+
+```bash
+dotnet run eng/measure-in-memory-package-admission.cs -c Release -- \
+  /path/to/microsoft.netcore.app.runtime.linux-x64.11.0.0-rc.1.26425.128.nupkg \
+  Microsoft.NETCore.App.Runtime.linux-x64 11.0.0-rc.1.26425.128
+```
+
+It exercises public acquisition with network forbidden and reports first and
+repeated cached admission separately. The runtime archive is supplied locally
+rather than added to PR CI; the pinned smaller archive above enforces the reuse
+contract. Timings are environment-specific evidence, not a Browser latency gate.
+
 `InMemoryPackageContent` rejects an entry whose declared expanded length exceeds
 the caller's limit before allocating that length, then verifies the observed
 expansion against the declaration. `InMemoryPackageContentTests` gates the

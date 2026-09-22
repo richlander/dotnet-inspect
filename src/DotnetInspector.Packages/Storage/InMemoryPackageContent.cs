@@ -21,6 +21,7 @@ public sealed class InMemoryPackageContent :
     private readonly byte[] _nupkgBytes;
     private readonly Lazy<IReadOnlyList<PackageContentEntry>> _entries;
     private readonly PackageContentGenerationIdentity _generationIdentity;
+    private readonly ArchiveAdmission _admission;
 
     public InMemoryPackageContent(
         byte[] nupkgBytes,
@@ -51,7 +52,8 @@ public sealed class InMemoryPackageContent :
         byte[] nupkgBytes,
         bool fromCache,
         string producerKey,
-        PackageContentGenerationIdentity generationIdentity)
+        PackageContentGenerationIdentity generationIdentity,
+        ArchiveAdmission? admission = null)
     {
         ArgumentNullException.ThrowIfNull(nupkgBytes);
         ArgumentException.ThrowIfNullOrEmpty(producerKey);
@@ -59,6 +61,7 @@ public sealed class InMemoryPackageContent :
         _nupkgBytes = nupkgBytes;
         _entries = new(ReadEntries);
         _generationIdentity = generationIdentity;
+        _admission = admission ?? new ArchiveAdmission();
         FromCache = fromCache;
         ProducerKey = producerKey;
     }
@@ -68,8 +71,6 @@ public sealed class InMemoryPackageContent :
 
     internal bool ReferencesArchive(ReadOnlyMemory<byte> nupkgBytes) =>
         new ReadOnlyMemory<byte>(_nupkgBytes).Equals(nupkgBytes);
-
-    internal byte[] RetainedArchive => _nupkgBytes;
 
     /// <inheritdoc />
     public string? RootPath => null;
@@ -97,7 +98,8 @@ public sealed class InMemoryPackageContent :
                 _nupkgBytes,
                 fromCache: true,
                 ProducerKey,
-                _generationIdentity);
+                _generationIdentity,
+                _admission);
 
     internal InMemoryPackageContent AsCacheHitForProducer(
         string producerKey)
@@ -110,7 +112,52 @@ public sealed class InMemoryPackageContent :
                     _nupkgBytes,
                     fromCache: true,
                     producerKey,
-                    _generationIdentity);
+                    _generationIdentity,
+                    _admission);
+    }
+
+    // Cache views share this evidence only because they retain the same owned,
+    // immutable archive. Source authorization is still checked by acquisition.
+    internal PackageArchiveValidation ValidateArchive(
+        PackagePayloadLimits limits,
+        CancellationToken cancellationToken) =>
+        _admission.Validate(_nupkgBytes, limits, cancellationToken);
+
+    private sealed class ArchiveAdmission
+    {
+        private readonly object _gate = new();
+        private PackagePayloadLimits? _limits;
+        private PackageArchiveValidation.Valid? _validated;
+
+        internal PackageArchiveValidation Validate(
+            byte[] archive,
+            PackagePayloadLimits limits,
+            CancellationToken cancellationToken)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            lock (_gate)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                if (_validated is not null && _limits is not null
+                    && limits.MaxArchiveBytes >= _limits.MaxArchiveBytes
+                    && limits.MaxExpandedBytes >= _limits.MaxExpandedBytes
+                    && limits.MaxEntryCount >= _limits.MaxEntryCount
+                    && limits.MaxUniqueDirectories >= _limits.MaxUniqueDirectories)
+                {
+                    return _validated;
+                }
+
+                PackageArchiveValidation result = PackageArchiveValidator.Validate(
+                    archive, limits, cancellationToken);
+                cancellationToken.ThrowIfCancellationRequested();
+                if (result is PackageArchiveValidation.Valid valid)
+                {
+                    _limits = limits;
+                    _validated = valid;
+                }
+                return result;
+            }
+        }
     }
 
     static byte[] Copy(byte[] nupkgBytes)
