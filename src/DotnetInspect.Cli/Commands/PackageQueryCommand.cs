@@ -5,7 +5,6 @@ using DotnetInspector.PackageQueries;
 using DotnetInspector.Packages;
 using DotnetInspector.Queries;
 using DotnetInspector.Sections;
-using DotnetInspector.SourceSelection;
 using DotnetInspect.Cli.Sections;
 using DotnetInspect.Cli.Views;
 using Markout;
@@ -22,15 +21,6 @@ internal static class PackageQueryCommand
                 "package-query",
                 1,
                 PackageQueryJsonContext.Default.PackageQueryDocument);
-
-    private static readonly InspectionEnvelopeJsonContract<
-        PackageAssemblySemanticQueryDocument>
-        PackageAssemblySemanticQueryJsonContract =
-            new(
-                "package-assembly-semantic-query",
-                1,
-                PackageAssemblySemanticQueryJsonContext.Default
-                    .PackageAssemblySemanticQueryDocument);
 
     internal static async Task<int> ExecuteAsync(
         PackageQueryOptions options,
@@ -64,25 +54,28 @@ internal static class PackageQueryCommand
                 semanticSelectionName: "Package Query");
         }
 
-        if (options.LibraryLiteralPlan is not null)
-        {
-            return await ExecuteLibraryLiteralAsync(
-                options,
-                context,
-                cancellationToken).ConfigureAwait(false);
-        }
-
         NuGetFetchOptions fetchOptions =
             NuGetFetchOptions.FromRequestTimeout(context.HttpClient.Timeout);
+        var sourceAuthorization =
+            new UniformPackageSourceAuthorization([PackageSource.NuGetOrg]);
+        PackageSourceAuthorization authorization =
+            sourceAuthorization.AuthorizeSourcesFor("package-query");
+        ConfiguredPackageAuthority galleryAuthority =
+            authorization.Authorities[0];
         using IPackageSourceClient source = PackageSourceClientFactory.CreateGallery(
-            PackageSourceAssociation.Create(),
+            galleryAuthority.Association,
             DotnetInspector.Networking.HttpClientFactory.CreateCredentialFreeHandler(),
             fetchOptions);
         using var deadline = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         deadline.CancelAfter(fetchOptions.OperationTimeout);
         using var operation = new NuGetOperationContext(
             fetchOptions.RequestTimeout, fetchOptions.OperationTimeout, deadline.Token);
-        await using ContentProvider? provider = options.Plan.RequiresPackageContent
+        PackageQueryPlan prequalificationPlan =
+            options.Plan.RequiresLibraryLiteralEvaluation
+                ? options.Plan.CreatePrequalificationPlan()
+                : options.Plan;
+        await using ContentProvider? provider =
+            prequalificationPlan.RequiresPackageContent
             ? new ContentProvider(new DesktopPackageSourceComposition(fetchOptions.RequestTimeout), operation)
             : null;
         await using DesktopPackageSourceComposition? traversalComposition =
@@ -102,6 +95,41 @@ internal static class PackageQueryCommand
                             })),
                     new DesktopPackageDependencyTraversalManifestSource(
                         traversalComposition));
+        await using PackageSourceSettlementLease? semanticSettlement =
+            options.Plan.RequiresLibraryLiteralEvaluation
+                ? PackageSourceSettlementService.IssueLease(
+                    authority =>
+                        ReferenceEquals(
+                            authority.Association,
+                            galleryAuthority.Association)
+                            ? source
+                            : throw new InvalidOperationException(
+                                "Library-literal Package Query requested an unauthorized package source."))
+                : null;
+        using AssemblySemanticQueryStores? semanticStores =
+            options.Plan.RequiresLibraryLiteralEvaluation
+                ? new AssemblySemanticQueryStores()
+                : null;
+        PackageAssemblySemanticFindBudget? semanticBudget =
+            options.Plan.RequiresLibraryLiteralEvaluation
+                ? PackageAssemblySemanticFindBudget.Default
+                : null;
+        PackageQueryAssemblySemanticExecution? semanticExecution =
+            semanticSettlement is null
+                ? null
+                : new(
+                    sourceAuthorization,
+                    token => semanticSettlement.IssueOperationLease(
+                        token,
+                        fetchOptions.RequestTimeout,
+                        semanticBudget!.MaximumDuration),
+                    new PackagePayloadAcquisitionPlan(
+                        semanticStores!.GetStore,
+                        log: context.Logger.Log),
+                    semanticBudget!,
+                    new AssemblySemanticQueryProgressSink(
+                        context.Logger,
+                        options.Plan.MaximumCandidates));
         try
         {
             return await ExecuteAsync(
@@ -109,6 +137,7 @@ internal static class PackageQueryCommand
                 source,
                 provider,
                 traversalServices,
+                semanticExecution,
                 deadline.Token).ConfigureAwait(false);
         }
         catch (OperationCanceledException) when (
@@ -117,183 +146,6 @@ internal static class PackageQueryCommand
             CommandError.Write("Package Query exceeded its operation deadline; results are incomplete.");
             return 1;
         }
-    }
-
-    private static async Task<int> ExecuteLibraryLiteralAsync(
-        PackageQueryOptions options,
-        CommandContext context,
-        CancellationToken cancellationToken)
-    {
-        PackageAssemblySemanticQueryCliPlan plan =
-            options.LibraryLiteralPlan
-            ?? throw new InvalidOperationException(
-                "A library-literal query requires its semantic plan.");
-        PackageAssemblySemanticFindBudget budget =
-            PackageAssemblySemanticFindBudget.Default;
-        NuGetFetchOptions fetchOptions =
-            NuGetFetchOptions.FromRequestTimeout(
-                context.HttpClient.Timeout);
-        PackageSourceAuthorization authorization =
-            PackageSourceAuthorization.Authorize(
-                [PackageSource.NuGetOrg]);
-        ConfiguredPackageAuthority galleryAuthority =
-            authorization.Authorities[0];
-        using IPackageSourceClient source =
-            PackageSourceClientFactory.CreateGallery(
-                galleryAuthority.Association,
-                DotnetInspector.Networking.HttpClientFactory
-                    .CreateCredentialFreeHandler(),
-                fetchOptions);
-        await using PackageSourceSettlementLease settlement =
-            PackageSourceSettlementService.IssueLease(
-                authority =>
-                    ReferenceEquals(authority, galleryAuthority)
-                        ? source
-                        : throw new InvalidOperationException(
-                            "Library-literal Package Query requested an unauthorized package source."));
-        using var stores = new AssemblySemanticQueryStores();
-        PackageSourceOperationLease? operation =
-            settlement.IssueOperationLease(
-                cancellationToken,
-                fetchOptions.RequestTimeout,
-                budget.MaximumDuration);
-
-        InspectionEnvelope<PackageAssemblySemanticQueryDocument> envelope;
-        try
-        {
-            PackageAcquisitionPopulation population =
-                plan.Population switch
-                {
-                    PackageAssemblySemanticQueryPopulationPlan.Exact exact =>
-                        await PackageAcquisitionPopulationResolver
-                            .ResolveGalleryExactAsync(
-                                operation,
-                                exact.PackageId,
-                                authorization,
-                                plan.IncludePrerelease).ConfigureAwait(false),
-                    PackageAssemblySemanticQueryPopulationPlan.Prefix prefix =>
-                        await PackageAcquisitionPopulationResolver
-                            .ResolveGalleryPrefixAsync(
-                                operation,
-                                prefix.Declaration,
-                                prefix.MaximumCandidates,
-                                authorization,
-                                plan.IncludePrerelease).ConfigureAwait(false),
-                    _ => throw new InvalidOperationException(
-                        "Unknown library-literal Package Query population plan."),
-                };
-            var request = new PackageAssemblySemanticFindRequest(
-                population,
-                plan.Target,
-                plan.Pattern,
-                budget);
-            PackageSourceOperationLease transferredOperation =
-                operation;
-            operation = null;
-            envelope =
-                await PackageAssemblySemanticQueryInspection.ExecuteAsync(
-                    request,
-                    transferredOperation,
-                    new PackagePayloadAcquisitionPlan(
-                        stores.GetStore,
-                        log: context.Logger.Log),
-                    new AssemblySemanticQueryProgressSink(
-                        context.Logger,
-                        population.Candidates.Length),
-                    cancellationToken).ConfigureAwait(false);
-        }
-        finally
-        {
-            operation?.Dispose();
-        }
-
-        return CompleteLibraryLiteralExecution(
-            options,
-            plan,
-            envelope);
-    }
-
-    internal static int CompleteLibraryLiteralExecution(
-        PackageQueryOptions options,
-        PackageAssemblySemanticQueryCliPlan plan,
-        InspectionEnvelope<PackageAssemblySemanticQueryDocument> envelope)
-    {
-        PackageAssemblySemanticQueryDocument document = envelope.Content;
-        bool complete =
-            document.Completion.IsRequestedPopulationComplete
-            && document.Completion.IsSemanticEvaluationComplete;
-        if (options.EnvelopeOutput || options.IsContentJson)
-        {
-            bool wrote = InspectionEnvelopeOutput.TryWrite(
-                envelope,
-                PackageAssemblySemanticQueryJsonContract,
-                options.EnvelopeOutput,
-                options.CompactJson);
-            WriteLibraryLiteralDiagnostics(document);
-            return wrote && complete ? 0 : 1;
-        }
-
-        return CompleteLibraryLiteralExecution(
-            options,
-            plan,
-            document);
-    }
-
-    internal static int CompleteLibraryLiteralExecution(
-        PackageQueryOptions options,
-        PackageAssemblySemanticQueryCliPlan plan,
-        PackageAssemblySemanticQueryDocument document)
-    {
-        if (document.Completion.IsOperationDeadlineExpired)
-        {
-            WriteLibraryLiteralDiagnostics(document);
-            return 1;
-        }
-
-        if (!CliSemanticRowSelection.TrySelect(
-                options.RowSelection,
-                document.Results,
-                "package",
-                failure =>
-                    $"Package Query row selection stage "
-                    + $"{failure.Failure.StageNumber} requires package row "
-                    + $"{failure.Failure.RequiredPosition}, but only "
-                    + $"{failure.Failure.AvailableCount} package rows are available.",
-                out IReadOnlyList<PackageAssemblySemanticQueryResult>
-                    displayResults))
-        {
-            WriteLibraryLiteralDiagnostics(document);
-            return 1;
-        }
-
-        bool complete =
-            document.Completion.IsRequestedPopulationComplete
-            && document.Completion.IsSemanticEvaluationComplete;
-        bool countIsExact =
-            !options.Count
-            || CliSemanticRowSelection.ProvidesExactCount(
-                options.RowSelection,
-                document.Results.Length,
-                sourceComplete: complete);
-        if (!countIsExact)
-        {
-            WriteLibraryLiteralDiagnostics(document);
-            CommandError.Write(
-                "Cannot count Package Query rows because package population "
-                + "formation or candidate evaluation is incomplete; omit "
-                + "--count to inspect package outcomes.");
-            return 1;
-        }
-
-        PackageAssemblySemanticQueryView view =
-            PackageAssemblySemanticQuerySections.CreateDocument(
-                plan.Pattern.Operand.DisplayText.ToString(),
-                plan.Target.RequestedFramework!,
-                displayResults,
-                document);
-        WriteLibraryLiteralOutput(view, options);
-        WriteLibraryLiteralDiagnostics(document);
-        return complete || options.Count ? 0 : 1;
     }
 
     internal static async Task<int> ExecuteAsync(
@@ -306,6 +158,7 @@ internal static class PackageQueryCommand
             source,
             contentProvider,
             dependencyTraversalServices: null,
+            assemblySemanticExecution: null,
             cancellationToken).ConfigureAwait(false);
 
     internal static async Task<int> ExecuteAsync(
@@ -314,6 +167,23 @@ internal static class PackageQueryCommand
         IPackageQueryContentProvider? contentProvider,
         PackageQueryDependencyTraversalServices?
             dependencyTraversalServices,
+        CancellationToken cancellationToken = default) =>
+        await ExecuteAsync(
+            options,
+            source,
+            contentProvider,
+            dependencyTraversalServices,
+            assemblySemanticExecution: null,
+            cancellationToken).ConfigureAwait(false);
+
+    internal static async Task<int> ExecuteAsync(
+        PackageQueryOptions options,
+        IPackageSourceClient source,
+        IPackageQueryContentProvider? contentProvider,
+        PackageQueryDependencyTraversalServices?
+            dependencyTraversalServices,
+        PackageQueryAssemblySemanticExecution?
+            assemblySemanticExecution,
         CancellationToken cancellationToken = default)
     {
         PackageQueryPlan plan = options.Plan;
@@ -323,6 +193,7 @@ internal static class PackageQueryCommand
                 plan,
                 contentProvider,
                 dependencyTraversalServices,
+                assemblySemanticExecution,
                 nonterminalSink: null,
                 cancellationToken: cancellationToken).ConfigureAwait(false);
         PackageQueryDocument document = envelope.Content;
@@ -378,10 +249,6 @@ internal static class PackageQueryCommand
                 + "use -n or a closed --rows range that is satisfied by the observed rows.");
             return 1;
         }
-        var view = PackageQuerySections.CreateDocument(
-            plan.Prefix.ToString(),
-            displayResults,
-            summary);
         HashSet<string> includeSections = options.IncludeSections
             ?? (options.SelectDefault
                 ? [.. PackageQuerySections.BareSelectSectionNames]
@@ -390,7 +257,22 @@ internal static class PackageQueryCommand
                         ? PackageProfileSections.Packages
                         : PackageQuerySections.QuerySummaryName,
                 ]);
-        WriteOutput(view, options, includeSections);
+        if (plan.RequiresLibraryLiteralEvaluation)
+        {
+            var semanticView = PackageQuerySections.CreateSemanticDocument(
+                plan.Prefix.ToString(),
+                displayResults,
+                summary);
+            WriteOutput(semanticView, options, includeSections);
+        }
+        else
+        {
+            var view = PackageQuerySections.CreateDocument(
+                plan.Prefix.ToString(),
+                displayResults,
+                summary);
+            WriteOutput(view, options, includeSections);
+        }
         WriteDiagnostics(
             document.Failures,
             summary,
@@ -438,6 +320,39 @@ internal static class PackageQueryCommand
             && includeSections.Contains(PackageProfileSections.Packages)
                 ? EmptyPackageQueryView.From(view)
                 : null;
+        WriteOutputCore(
+            view,
+            view.Results.Count,
+            emptyView,
+            options,
+            includeSections);
+    }
+
+    private static void WriteOutput(
+        PackageQuerySemanticView view,
+        PackageQueryOptions options,
+        HashSet<string> includeSections)
+    {
+        EmptyPackageQueryView? emptyView =
+            view.Results.Count == 0
+            && includeSections.Contains(PackageProfileSections.Packages)
+                ? EmptyPackageQueryView.From(view)
+                : null;
+        WriteOutputCore(
+            view,
+            view.Results.Count,
+            emptyView,
+            options,
+            includeSections);
+    }
+
+    private static void WriteOutputCore<TView>(
+        TView view,
+        int resultCount,
+        EmptyPackageQueryView? emptyView,
+        PackageQueryOptions options,
+        HashSet<string> includeSections)
+    {
 
         void Serialize(
             TextWriter writer,
@@ -469,7 +384,7 @@ internal static class PackageQueryCommand
 
         if (options.Count)
         {
-            CountOutput.WriteCount(view.Results.Count);
+            CountOutput.WriteCount(resultCount);
         }
         else if (options.JsonOutput)
         {
@@ -515,151 +430,6 @@ internal static class PackageQueryCommand
                 },
                 options.Columns,
                 options.Fields);
-        }
-    }
-
-    internal static void WriteLibraryLiteralOutput(
-        PackageAssemblySemanticQueryView view,
-        PackageQueryOptions options)
-    {
-        HashSet<string> includeSections =
-            PackageAssemblySemanticQuerySections.Catalog.Pipeline
-                .GetCandidateSections(
-                    Verbosity.Normal,
-                    [PackageProfileSections.Packages]);
-
-        if (options.Count)
-        {
-            CountOutput.WriteCount(view.Results.Count);
-        }
-        else if (options.JsonOutput)
-        {
-            OutputFormatter.WriteProjectedJson(
-                Console.Out,
-                options.Columns,
-                options.Fields,
-                (writer, formatter, writerOptions) =>
-                {
-                    writerOptions.IncludeSections = includeSections;
-                    MarkoutSerializer.Serialize(
-                        view,
-                        writer,
-                        formatter,
-                        SearchViewContext.Default,
-                        writerOptions);
-                },
-                !options.CompactJson,
-                maxRows: null);
-        }
-        else if (options.Tabular)
-        {
-            OutputFormatter.WriteProjectedTable(
-                Console.Out,
-                !options.NoHeader,
-                options.Tsv,
-                options.Jsonl,
-                options.Columns,
-                options.Fields,
-                (writer, formatter, writerOptions) =>
-                {
-                    writerOptions.IncludeSections = includeSections;
-                    MarkoutSerializer.Serialize(
-                        view,
-                        writer,
-                        formatter,
-                        SearchViewContext.Default,
-                        writerOptions);
-                },
-                maxRows: null);
-        }
-        else
-        {
-            OutputFormatter.WriteWindowedMarkdown(
-                Console.Out,
-                rows: null,
-                writerOptions =>
-                {
-                    writerOptions.IncludeSections = includeSections;
-                    return MarkoutSerializer.Serialize(
-                        view,
-                        SearchViewContext.Default,
-                        writerOptions);
-                },
-                options.Columns,
-                options.Fields);
-        }
-    }
-
-    private static void WriteLibraryLiteralDiagnostics(
-        PackageAssemblySemanticQueryDocument document)
-    {
-        WriteLibraryLiteralPopulationDiagnostics(
-            document.Population,
-            document.EvaluatedCandidateCount);
-
-        foreach (PackageAssemblySemanticQueryCandidateOutcome.Failure failure
-            in document.CandidateOutcomes
-                .OfType<
-                    PackageAssemblySemanticQueryCandidateOutcome.Failure>())
-        {
-            string subject =
-                $"{failure.Coordinate.PackageId}@{failure.Coordinate.Version}";
-            switch (failure.Reason)
-            {
-                case PackageAssemblySemanticQueryFailureReason.Acquisition
-                    acquisition:
-                    foreach (PackageAuthorityFailure item
-                        in acquisition.Evidence.Failures)
-                    {
-                        CommandError.WriteWarning(
-                            $"{subject}: {item.Authority} ({item.Kind}): "
-                            + item.Message);
-                    }
-                    foreach (var authority
-                        in acquisition.Evidence.NotFoundAuthorities)
-                    {
-                        CommandError.WriteWarning(
-                            $"{subject}: package payload was not found at "
-                            + authority.ToString());
-                    }
-                    break;
-                case PackageAssemblySemanticQueryFailureReason.Evaluation
-                    evaluation:
-                    CommandError.WriteWarning(
-                        $"{subject}: "
-                        + PackageAssemblySemanticQuerySections.Describe(
-                            evaluation.Evidence));
-                    break;
-            }
-        }
-    }
-
-    private static void WriteLibraryLiteralPopulationDiagnostics(
-        PackageAcquisitionPopulation population,
-        int evaluatedCandidateCount)
-    {
-        foreach (PackageAcquisitionPopulationFailure failure
-            in population.Failures)
-        {
-            string subject = failure.Coordinate is { } coordinate
-                ? $"{coordinate.PackageId}@{coordinate.Version}"
-                : failure.PackageId ?? "Package population";
-            CommandError.WriteWarning(
-                $"{subject}: {failure.Failure.Authority} "
-                + $"({failure.Failure.Kind}): "
-                + failure.Failure.Message);
-        }
-
-        if (population.Completion is not (
-                PackageAcquisitionPopulationCompletionKind.ExactPackageComplete
-                or PackageAcquisitionPopulationCompletionKind.PrefixExhausted))
-        {
-            CommandError.WriteWarning(
-                $"Package Query population completion: "
-                + $"{population.Completion}; evaluated "
-                + $"{evaluatedCandidateCount}/"
-                + $"{population.RequestedCandidates} candidates. "
-                + "These results do not exhaust the requested package-ID scope.");
         }
     }
 
@@ -759,15 +529,15 @@ internal static class PackageQueryCommand
     private sealed class AssemblySemanticQueryProgressSink(
         VerboseLogger logger,
         int candidateCount)
-        : IPackageAssemblySemanticQueryNonterminalSink
+        : IPackageQueryLibraryLiteralAssessmentSink
     {
         public ValueTask ReportAsync(
-            PackageAssemblySemanticQueryCandidateOutcome outcome,
+            PackageQueryLibraryLiteralAssessment assessment,
             CancellationToken cancellationToken)
         {
             cancellationToken.ThrowIfCancellationRequested();
             logger.Log(
-                $"Evaluated {outcome.CandidateOrdinal} of "
+                $"Evaluated {assessment.CandidateOrdinal} of "
                 + $"{candidateCount} package candidates");
             return ValueTask.CompletedTask;
         }

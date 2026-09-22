@@ -536,6 +536,8 @@ public static class TypeOptionsParser
             Schema = opts.ParseSchema(parseResult),
             Verbose = parseResult.GetValue(opts.Verbose),
             Verbosity = opts.ParseVerbosity(parseResult),
+            VerbosityExplicitlySet =
+                parseResult.GetResult(opts.Verbosity) is { Implicit: false },
             SourceOptions = sourceOptions
         });
 

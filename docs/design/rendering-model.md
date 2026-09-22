@@ -170,7 +170,10 @@ existing owner; missing or failed content is not fabricated or replaced by
 another source.
 
 An explicit format, including an environment format default, overrides this
-native default. `--markdown` requests Markdown presentation. JSON, row-oriented
+native default. `--markdown` and the existing `-v:*` Markdown selection request
+Markdown presentation. Explicit plaintext or JSON still takes precedence over
+verbosity according to the shared format resolver. A `--tree` request is not
+a Markdown request for a selected source payload. JSON, row-oriented
 formats, Count, field/column projection, and discovery retain their existing
 contracts rather than falling through to text output. Normalized section
 selection decides whether the result is a single payload; matching a category
@@ -182,6 +185,18 @@ selection prints one acquired source document, while `--urls` selects links.
 Printing a source payload also honors explicit Markdown. Multiple candidate
 documents still require the existing explicit row selection; this policy does
 not introduce concatenation or a multi-document framing contract.
+
+Authored `member --print --part` follows the same native/Markdown choice.
+Markdown frames only the selected part in a C# code block and identifies the
+member and part in its title. It preserves the display indentation supplied by
+the [authored-parts projection](authored-member-parts-presentation.md);
+`--row` still selects the member before part selection. The existing part-record
+JSON shapes remain separate from generic printable-document JSON.
+`LocalRepoSourceProjectionTests.MemberParts_*` gates this behavior in Release
+against this repository's compiled, XML-documented `MemberTextSlicer` source.
+Its `TypeSourcePrint_TreeDoesNotRequestMarkdown` cases gate tree/format
+provenance with the real `JsonNamingPolicy` type. These measured slow cases
+run in daily Deep Inspect and the focused pre-merge gate.
 
 API Declarations, Decompiled Source, Annotated Source, PDB Source, Source Diff,
 IL, Cost Overlay, and Semantics Overlay support unary `--print` through the same

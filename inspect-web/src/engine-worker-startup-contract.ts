@@ -192,6 +192,7 @@ export const engineStartupOperations = {
             operators: array(term.operators, text),
             valueKind: text(term.valueKind),
             example: text(term.example),
+            multiline: boolean(term.multiline),
           };
         }),
       };

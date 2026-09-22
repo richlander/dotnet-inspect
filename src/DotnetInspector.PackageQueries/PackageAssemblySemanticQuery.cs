@@ -269,7 +269,11 @@ public sealed record PackageAssemblySemanticQueryCompletion(
             completion.AllCandidatesCompleted,
             completion.HasFailures || !population.Failures.IsEmpty,
             completion.IsSemanticEvaluationComplete,
-            OperationDeadline(population) is not null);
+            OperationDeadline(population) is not null)
+        {
+            MatchLimit = completion.MatchLimit,
+            IsMatchLimitReached = completion.MatchLimitReached,
+        };
 
     internal static PackageSourceTimeout? OperationDeadline(
         PackageAcquisitionPopulation population) =>
@@ -281,6 +285,10 @@ public sealed record PackageAssemblySemanticQueryCompletion(
                     == PackageSourceTimeoutKind.Operation)
             .Select(failure => failure.Timeout)
             .FirstOrDefault();
+
+    public int? MatchLimit { get; init; }
+
+    public bool IsMatchLimitReached { get; init; }
 }
 
 /// <summary>

@@ -4,6 +4,70 @@ namespace DotnetInspector.Sections;
 
 public static class RowsCohortExecutor
 {
+    internal static RowsCohortCountResult<TIdentity>
+        ApplyResolvedCount<TIdentity, T>(
+            IReadOnlyList<RowsCohortCardinality<TIdentity>> rowSets,
+            ResolvedRowQueryPlan<T> plan)
+        where TIdentity : notnull
+    {
+        ArgumentNullException.ThrowIfNull(rowSets);
+        ArgumentNullException.ThrowIfNull(plan);
+        if (rowSets.Count == 0)
+        {
+            throw new ArgumentException(
+                "A rows cohort must contain at least one row set.",
+                nameof(rowSets));
+        }
+
+        var counts =
+            new CountedRowSet<TIdentity>[rowSets.Count];
+        var identities = new HashSet<TIdentity>();
+        var keys = new HashSet<RowSequenceKey>();
+        for (int index = 0; index < rowSets.Count; index++)
+        {
+            RowsCohortCardinality<TIdentity> rowSet =
+                rowSets[index]
+                ?? throw new ArgumentNullException(
+                    nameof(rowSets),
+                    $"Row set {index + 1} is null.");
+            if (!identities.Add(rowSet.Identity))
+            {
+                throw new ArgumentException(
+                    "A row-set identity is duplicated.",
+                    nameof(rowSets));
+            }
+            if (!keys.Add(rowSet.Key))
+            {
+                throw new ArgumentException(
+                    "A row-sequence key is duplicated.",
+                    nameof(rowSets));
+            }
+
+            if (!RowQueryExecutor.TryApplyCount(
+                    rowSet.Count,
+                    plan,
+                    out RowSelectionCountResult selected))
+            {
+                throw new InvalidOperationException(
+                    "An admitted row-query Count plan declined during "
+                    + "execution.");
+            }
+            if (!selected.IsSuccess)
+            {
+                return RowsCohortCountResult<TIdentity>.Failed(
+                    new RowsCohortSemanticFailure<TIdentity>(
+                        rowSet.Identity,
+                        selected.Failure!));
+            }
+            counts[index] =
+                new(
+                    rowSet.Identity,
+                    selected.Count);
+        }
+
+        return RowsCohortCountResult<TIdentity>.Success(counts);
+    }
+
     public static RowsCohortResult<TIdentity, T> ApplyResolved<
         TIdentity,
         T>(
