@@ -323,16 +323,11 @@ The complete initial operation adoption has six owner-scoped steps:
    `DotnetInspector.Sections`.
 3. Adopt the operation for one direct-file CLI scalar Library-overview
    envelope through direct-Library realization and an ephemeral Workspace.
-   Reject Count and semantic row selection before acquisition whenever a
-   single-Library effective selection contains scalar `Library Info`, including
-   implicit default, mixed, and fixed-overview selections, while preserving
-   `-n` rendered-line clipping. Reject
-   package, Platform, Workspace, and NuGet-source controls that cannot affect
-   this direct-file-only envelope path rather than silently ignoring them.
-   Package-backed aggregate operations retain their independently declared
-   cardinality, including all compile Libraries for one TFM and one exact
-   Package Library across all TFMs. Raw `--tfm all` text does not reclassify an
-   exact direct or Platform Library.
+   Reject section selection, Count, semantic row selection, predicates,
+   package, Platform, Workspace, trace, and NuGet-source controls that cannot
+   affect this direct-file-only envelope path rather than silently ignoring
+   them. Ordinary `library` section cardinality and rendered-line behavior
+   remain with #8228; structural cardinality declaration remains with #8227.
 4. Adopt the same operation for the PackageHouse CLI route.
 5. Adopt the same operation for the PlatformHouse CLI route.
 6. Consume the same envelope in Inspect Web's Library overview, then retire
@@ -388,14 +383,10 @@ provides Release gates for:
 - cancellation and validation failure settle transferred authority before
   propagating.
 
-`DotnetInspect.Cli.Tests.CommandExecutionTests` provides the production-host
-gate `Library_SingleLibraryInfoHasNoRowsOrCount`: single-Library `Library Info`
-Count and semantic row selection fail before source acquisition for implicit
-default, exact, mixed, fixed-overview, and exact-Package gestures, while an
-accepted `--trace` request still reports its trace. Package-backed aggregate
-gestures retain their separately declared inventory cardinality. The adjacent
-`Library_SingleLibraryInfoSupportsRenderedLineSelection` gate preserves `-n`
-as scalar presentation clipping rather than semantic Rows.
+`DotnetInspect.Cli.Tests.CommandExecutionTests` provides production-host gates
+for the direct-file envelope, publication after cleanup, and parser admission.
+Unsupported section, Count, row, predicate, source, package, Platform,
+Workspace, and trace controls fail before direct-file acquisition.
 
 The production-adoption claims remain **unverified** until their later Release
 gates prove:

@@ -155,12 +155,6 @@ public partial class LibraryCommand
         }
 
         options = source!.ApplyTo(options);
-        if (RejectSingleLibraryInfoCardinalityBeforeAcquisition(
-                options,
-                source))
-        {
-            return 1;
-        }
         if (DirectLibraryOverviewCommand.ShouldExecute(options))
         {
             return await DirectLibraryOverviewCommand.ExecuteAsync(
@@ -212,12 +206,6 @@ public partial class LibraryCommand
                     + "source selector.");
             return 1;
         }
-        if (RejectSingleLibraryInfoCardinalityBeforeAcquisition(
-                options,
-                source))
-        {
-            return 1;
-        }
 
         return await ExecuteBoundAsync(
             options,
@@ -241,26 +229,7 @@ public partial class LibraryCommand
 
         // Rendered in a finally so a failed run still reports the work it did before failing —
         // which is exactly when "what did this actually scan?" is worth knowing.
-        InspectionTrace trace = CreateTrace(options, source);
-
-        try
-        {
-            return await ExecuteCoreAsync(
-                options,
-                source,
-                trace,
-                preResolvedPackage).ConfigureAwait(false);
-        }
-        finally
-        {
-            WriteTrace(trace);
-        }
-    }
-
-    private static InspectionTrace CreateTrace(
-        LibraryOptions options,
-        LibrarySourceBinding source) =>
-        new()
+        var trace = new InspectionTrace
         {
             Command = new InertString(
                 TextPolicy.Field,
@@ -272,15 +241,24 @@ public partial class LibraryCommand
                 source.Target),
         };
 
-    private static void WriteTrace(InspectionTrace trace)
-    {
-        // The trace interpolates untrusted text -- Target is argv, and resource details
-        // name paths and package entries -- so it goes to the stream the way every other
-        // stderr line does. Contained per line rather than per field: deciding which trace
-        // fields are untrusted is the enumeration issue #3319 abandoned, and a field added
-        // later would silently miss it.
-        foreach (var line in trace.RenderLines())
-            CommandError.WriteLine(line);
+        try
+        {
+            return await ExecuteCoreAsync(
+                options,
+                source,
+                trace,
+                preResolvedPackage).ConfigureAwait(false);
+        }
+        finally
+        {
+            // The trace interpolates untrusted text -- Target is argv, and resource details
+            // name paths and package entries -- so it goes to the stream the way every other
+            // stderr line does. Contained per line rather than per field: deciding which trace
+            // fields are untrusted is the enumeration issue #3319 abandoned, and a field added
+            // later would silently miss it.
+            foreach (var line in trace.RenderLines())
+                CommandError.WriteLine(line);
+        }
     }
 
     /// <summary>
@@ -530,8 +508,6 @@ public partial class LibraryCommand
             IncludeSections =
                 libraryMetricsSelection.Sections,
         };
-        if (RejectSingleLibraryInfoCardinality(options))
-            return 1;
 
         if (MetadataRootSelectionError(options) is { } metadataRootError)
         {
@@ -1813,92 +1789,6 @@ public partial class LibraryCommand
         CommandError.Write(
             "--count cannot report an exact 'Reference Hierarchy' count because the requested reference evidence is incomplete.");
         return true;
-    }
-
-    private static bool RejectSingleLibraryInfoCardinality(
-        LibraryOptions options)
-    {
-        if (IsAllTfmPackageSelection(options)
-            || options.IncludeSections is { } sections
-                && !options.FixedOverview
-                && !sections.Contains(SectionNames.LibraryInfo))
-        {
-            return false;
-        }
-
-        return WriteSingleLibraryInfoCardinalityError(options);
-    }
-
-    private static bool
-        RejectSingleLibraryInfoCardinalityBeforeAcquisition(
-            LibraryOptions options,
-            LibrarySourceBinding source)
-    {
-        if (!IsExactLibrarySelection(options, source)
-            || IsAllTfmPackageSelection(options)
-            || !options.Count && options.Rows is null
-            || !RawSelectionContainsLibraryInfo(options))
-        {
-            return false;
-        }
-
-        WriteSingleLibraryInfoCardinalityError(options);
-        if (options.Trace)
-            WriteTrace(CreateTrace(options, source));
-        return true;
-    }
-
-    private static bool RawSelectionContainsLibraryInfo(
-        LibraryOptions options)
-    {
-        if (options.IncludeSections?.Contains(
-                SectionNames.LibraryInfo) == true)
-        {
-            return true;
-        }
-        if (options.Select is not { Length: > 0 })
-            return true;
-
-        var sections = LibrarySections.CreateCatalog().Sections;
-        var selection = SelectResolver.ResolveSelectAsSections(
-            options.Select,
-            sections.SelectableSectionNames,
-            sections.InfoSectionNames,
-            sections.SelectionCategoryMap,
-            selectDefault: false);
-        return !selection.HasError
-            && selection.Sections?.Contains(
-                SectionNames.LibraryInfo) == true;
-    }
-
-    private static bool IsExactLibrarySelection(
-        LibraryOptions options,
-        LibrarySourceBinding source) =>
-        source.Selector is not SourceSelector.PackageSource
-        || options.NamesakeLibrary
-        || !string.IsNullOrWhiteSpace(options.AssemblyName);
-
-    private static bool WriteSingleLibraryInfoCardinalityError(
-        LibraryOptions options)
-    {
-        if (options.Count)
-        {
-            CommandError.Write(
-                $"Section '{SectionNames.LibraryInfo}' is scalar and "
-                    + "does not support --count.");
-            return true;
-        }
-
-        if (options.Rows is not null)
-        {
-            CommandError.Write(
-                $"Section '{SectionNames.LibraryInfo}' is scalar and "
-                    + "does not support --rows; use -n N to limit "
-                    + "rendered lines.");
-            return true;
-        }
-
-        return false;
     }
 
     internal static int SelectedInspectionFailureExitCode(

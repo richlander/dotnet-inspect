@@ -331,7 +331,6 @@ public sealed class LibraryOverviewInspectionOperationTests
                 invalid.IssueOperation(),
                 TestContext.Current.CancellationToken));
         await invalid.RetireAsync();
-
     }
 
     [Fact]

@@ -399,6 +399,7 @@ public static class InspectionCommandDefinitions
             opts.Verbosity,
             opts.Rows,
             opts.Row,
+            opts.RowWhere,
             opts.Limit,
             opts.Head,
             opts.Tail,
