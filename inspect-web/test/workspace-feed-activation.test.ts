@@ -866,6 +866,85 @@ test("consumer-completion failure restores the incumbent workspace", async () =>
   assert.equal(events.filter(event => event === "publish").length, 2);
 });
 
+test("superseding a published activation preserves its committed incumbent", async () => {
+  const events: string[] = [];
+  const completion = deferred<boolean>();
+  const completionStarted = deferred<boolean>();
+  const client = createWorkspaceTestClient(events);
+  const complete = client.completeRetainedWorkspaceActivation.bind(client);
+  client.completeRetainedWorkspaceActivation =
+    async (receipt, succeeded, failure) => {
+      if (succeeded) {
+        completionStarted.resolve(true);
+        await completion.promise;
+        throw new Error("Consumer completion could not be delivered.");
+      }
+      return complete(receipt, succeeded, failure);
+    };
+  const harness = createCoordinatorHarness(client, events);
+
+  const opening = harness.coordinator.tryOpen(
+    new URL("https://example.test/?w=first"),
+    harness.sequence,
+    true);
+  await completionStarted.promise;
+  assert.equal(harness.visible, "https://example.test/?w=first");
+
+  harness.advance(harness.visible);
+  assert.equal(
+    await harness.coordinator.tryOpen(
+      new URL("https://example.test/?w=second"),
+      harness.sequence,
+      true),
+    true);
+  completion.resolve(true);
+  assert.equal(await opening, true);
+
+  assert.equal(harness.visible, "incumbent");
+  assert.equal(events.includes("restore"), true);
+  assert.equal(events.includes("push"), false);
+  assert.equal(events.includes("complete:false"), true);
+  assert.match(
+    harness.failure ?? "",
+    /awaiting consumer completion/);
+  assert.equal(harness.coordinator.activeUrl, null);
+});
+
+test("a committed successor retires a published activation rollback", async () => {
+  const events: string[] = [];
+  const completion = deferred<boolean>();
+  const completionStarted = deferred<boolean>();
+  const client = createWorkspaceTestClient(events);
+  const complete = client.completeRetainedWorkspaceActivation.bind(client);
+  client.completeRetainedWorkspaceActivation =
+    async (receipt, succeeded, failure) => {
+      if (succeeded) {
+        completionStarted.resolve(true);
+        await completion.promise;
+        throw new Error("Consumer completion could not be delivered.");
+      }
+      return complete(receipt, succeeded, failure);
+    };
+  const harness = createCoordinatorHarness(client, events);
+
+  const opening = harness.coordinator.tryOpen(
+    new URL("https://example.test/?w=first"),
+    harness.sequence,
+    true);
+  await completionStarted.promise;
+  harness.advance("committed-successor");
+  harness.coordinator.clearActiveUrl();
+  completion.resolve(true);
+  assert.equal(await opening, true);
+
+  assert.equal(harness.visible, "committed-successor");
+  assert.equal(events.includes("restore"), false);
+  assert.equal(events.includes("release"), true);
+  assert.equal(events.includes("push"), false);
+  assert.equal(events.includes("complete:false"), true);
+  assert.equal(harness.coordinator.activeUrl, null);
+});
+
 test("superseded abandoned-definition recovery cannot restart activation", async () => {
   const events: string[] = [];
   const deactivation = deferred<

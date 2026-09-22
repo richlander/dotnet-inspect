@@ -121,6 +121,7 @@ export function createWorkspaceFeedActivationCoordinator<TRollback>(
   let posted: {
     readonly value: BrowserRetainedWorkspacePosting;
     readonly navigationSequence: number;
+    readonly published: boolean;
   } | null = null;
   let rollback: {
     readonly retainedDefinitionId: string;
@@ -145,7 +146,11 @@ export function createWorkspaceFeedActivationCoordinator<TRollback>(
             throw new Error(
               "The retained Workspace posting has no activation owner.");
           }
-          posted = { value: posting, navigationSequence };
+          posted = {
+            value: posting,
+            navigationSequence,
+            published: false,
+          };
         },
         clear() {
           if (posted !== null) {
@@ -224,13 +229,21 @@ export function createWorkspaceFeedActivationCoordinator<TRollback>(
       packet);
     if (!dependencies.isCurrent(navigationSequence)) return false;
     pendingNavigationSequence = navigationSequence;
-    releaseRollback();
-    rollback = {
-      retainedDefinitionId,
-      navigationSequence,
-      state: dependencies.captureRollback(),
-      sourceUrl: activeUrl,
-    };
+    const pendingPublishedRollback = posted !== null
+      && posted.published
+      && !deliveredDefinitionIds.has(posted.value.retainedDefinitionId)
+      && rollback?.retainedDefinitionId
+        === posted.value.retainedDefinitionId
+      && rollback.navigationSequence === posted.navigationSequence;
+    if (!pendingPublishedRollback) {
+      releaseRollback();
+      rollback = {
+        retainedDefinitionId,
+        navigationSequence,
+        state: dependencies.captureRollback(),
+        sourceUrl: activeUrl,
+      };
+    }
     const required = description.sources.filter(
       source => source.authentication === "AuthenticationRequired");
     if (required.length > 0) {
@@ -311,7 +324,9 @@ export function createWorkspaceFeedActivationCoordinator<TRollback>(
     const current = prompt;
     if (current === null) return;
     activationController().cancelPending();
-    releaseRollback();
+    releaseRollback(
+      current.retainedDefinitionId,
+      current.navigationSequence);
     clearPendingNavigation(current.navigationSequence);
     prompt = null;
     dependencies.document
@@ -365,6 +380,14 @@ export function createWorkspaceFeedActivationCoordinator<TRollback>(
           retainedDefinitionId,
           current.navigationSequence);
         current.retainedDefinitionId = retainedDefinitionId;
+      }
+      if (rollback === null) {
+        rollback = {
+          retainedDefinitionId,
+          navigationSequence: current.navigationSequence,
+          state: dependencies.captureRollback(),
+          sourceUrl: activeUrl,
+        };
       }
       const succeeded = await activate(
         retainedDefinitionId,
@@ -447,6 +470,11 @@ export function createWorkspaceFeedActivationCoordinator<TRollback>(
       }
       publicationAttempted = true;
       dependencies.publish(posting, models);
+      posted = {
+        value: posting,
+        navigationSequence,
+        published: true,
+      };
       projected = true;
     }
 
@@ -479,6 +507,7 @@ export function createWorkspaceFeedActivationCoordinator<TRollback>(
         posted = {
           value: result.posting,
           navigationSequence,
+          published: false,
         };
         await projectPosting(result.posting);
       }
@@ -569,7 +598,12 @@ export function createWorkspaceFeedActivationCoordinator<TRollback>(
       return;
     }
     rollback = null;
-    if (!dependencies.isCurrent(navigationSequence)) {
+    const stillOwnsVisiblePosting =
+      posted?.value.retainedDefinitionId === retainedDefinitionId
+      && posted.navigationSequence === navigationSequence
+      && posted.published;
+    if (!dependencies.isCurrent(navigationSequence)
+      && !stillOwnsVisiblePosting) {
       dependencies.releaseRollback(prior.state);
       return;
     }
@@ -610,6 +644,8 @@ export function createWorkspaceFeedActivationCoordinator<TRollback>(
     tryOpen,
     cancelPrompt,
     clearActiveUrl() {
+      releaseRollback();
+      posted = null;
       activeUrl = null;
     },
   };

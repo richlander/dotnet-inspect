@@ -17681,7 +17681,8 @@ async function navigateWithinCurrentWorkspace(
     await restorePlatformScopeThenDeepLink(
       loc,
       navigationSeq,
-      canonicalSnapshot);
+      canonicalSnapshot,
+      true);
     return;
   }
   const pkg = state.package;
@@ -17707,6 +17708,7 @@ async function navigateWithinCurrentWorkspace(
       canonicalSnapshot);
     return;
   }
+  clearWorkspaceFeedIdentity();
   commitWorkspaceShareBasis(loc.shareState);
   applyDeepLink(loc);
   render();
@@ -17835,7 +17837,6 @@ async function navigateInAppUrl(url: URL) {
       openFreshWorkspaceLink(loc, navigationSeq),
       "Opening workspace link");
   } else {
-    clearWorkspaceFeedIdentity();
     workspaceLocation.push(url.toString());
     observeAsync(
       navigateWithinCurrentWorkspace(loc, navigationSeq),

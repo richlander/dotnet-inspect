@@ -1187,7 +1187,10 @@ URL rather than being rewritten through the format-1 encoder.
 URL synchronization remains suspended for the complete source-activation
 lifecycle. History restoration performs source preflight before switching the
 retained host projection, and ordinary navigation preserves the incumbent
-source-bearing URL until its replacement commits. An identical active
+source-bearing URL until its replacement commits. Navigation supersession
+alone does not retire the last committed incumbent while a visibly published
+activation still awaits consumer completion; only a committed replacement
+retires that rollback. An identical active
 definition may reuse its posting only after that posting completed consumer
 delivery; an abandoned posting is deactivated and prepared again.
 Credential retry performs the same recovery while preserving its fresh

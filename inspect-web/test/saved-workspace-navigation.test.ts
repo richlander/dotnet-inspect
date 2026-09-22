@@ -111,6 +111,9 @@ const hostNames = new Set([
   "selectedCallGraphWorkspacePackages", "workspaceCoordinateCount",
   "selectedLibraryShareKey", "scope", "syncUrl", "buildStateUrl",
   "buildShareUrl", "share",
+  "navigateInAppUrl", "navigateWithinCurrentWorkspace",
+  "clearWorkspaceFeedIdentity", "failCanonicalWorkspaceRestore",
+  "workspaceUrlProjection",
   "openSavedWorkspace", "openSavedWorkspaceCore",
   "restoreWorkspaceCatalogEntry", "restoreWorkspaceFromLocation",
   "parseWorkspaceHref", "beginDemoNavigation", "stageDemoNavigation",
@@ -310,6 +313,7 @@ function harness() {
     workspaceDependencies: {} as Record<string, unknown>,
     workspaceDependencyErrors: {} as Record<string, string>,
     workspaceDependencyLoads: new Set<string>(),
+    workspaceFeedUrl: null as string | null,
     packageDependencies: null as {
       dependencyGroups: {
         index: number;
@@ -1367,6 +1371,66 @@ for (const failure of [
     assert.deepEqual(h.focus, [{ kind: "saved-open", name: saved.name, index: 0 }]);
   });
 }
+
+test("failed same-coordinate navigation preserves the source Workspace URL", async () => {
+  const h = harness();
+  const sourceUrl = "https://inspect.test/?w=private-source-workspace";
+  h.state.workspaceFeedUrl = sourceUrl;
+  h.context.activeWorkspaceUrl = sourceUrl;
+  h.location.href = sourceUrl;
+  let sourceCleared = false;
+  const loc = {
+    package: h.state.package?.id,
+    version: h.state.package?.version,
+    framework: h.state.package?.activeFramework,
+    tabs: [{ source: h.state.package?.id }],
+    hasWorkspaceState: true,
+    shareState: { format: 1 },
+    rootKind: "package",
+    atPackageRoot: true,
+    library: "missing.dll",
+    packageLens: "overview",
+  };
+  Object.assign(h.context, {
+    isDiagnosticsPath: () => false,
+    isCreditsPath: () => false,
+    isPackageQueryPath: () => false,
+    isPackageActivityPath: () => false,
+    cancelWorkspaceCredentialPrompt: () => {},
+    tryOpenSourceBearingWorkspace: async () => false,
+    workspaceFeedActivation: {
+      clearActiveUrl() {
+        sourceCleared = true;
+      },
+    },
+    workspaceCoordinatesMatch: () => true,
+    packageCoordinateMatchesLocation: () => true,
+    applyLoadedPackageLibraryScope: () =>
+      "The shared library is unavailable.",
+    parseWorkspaceHref: async () => loc,
+    bindWorkspaceRetryToUrl: (
+      _url: string,
+      _current: () => string,
+      _restore: (url: string) => void,
+      retry: () => void,
+    ) => retry,
+    captureView: () => ({}),
+  });
+
+  await runInNewContext(
+    `navigateInAppUrl(
+      new URL("https://inspect.test/?w=ordinary-same-coordinate"))`,
+    h.context);
+  await h.settle();
+  const share: unknown =
+    await runInNewContext("buildShareUrl()", h.context);
+
+  assert.equal(sourceCleared, false);
+  assert.equal(h.state.workspaceFeedUrl, sourceUrl);
+  assert.ok(share instanceof URL);
+  assert.equal(share.href, sourceUrl);
+  assert.match(h.state.queryNotice, /shared library is unavailable/);
+});
 
 for (const failure of ["acquisition", "selection"] as const) {
   test(`failed ${failure} Open restores comparison choices and their Package associations`, async () => {

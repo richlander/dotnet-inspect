@@ -1297,7 +1297,7 @@ test("Package query and Activity are routed Spotlight actions", () => {
     /onApplicationScopeSelect: applicationScope => \{[\s\S]*applicationScope === "query"[\s\S]*applicationScope === "activity"[\s\S]*openPackageActivityRoute\("application-activity"\)[\s\S]*else if \(scope\(\) !== "workspace"\) \{\s*observeAsync\(\s*selectWorkspaceApplicationScope\(\),\s*"Opening the Workspace scope"\)/);
   assert.match(
     appSource,
-    /const focusWorkspaceAfterRoutedPage =\s*state\.packageQueryOpen \|\| state\.packageActivityOpen;\s*if \(focusWorkspaceAfterRoutedPage\) \{\s*discardPackageQueryTermEditors\(\);\s*state\.packageQueryOpen = false;\s*state\.packageActivityOpen = false;\s*packageQueryController\.cancel\(\);\s*packageChangesController\.cancel\("disposed"\);\s*state\.packageQueryNavigationError = "";\s*\}\s*const navigationSeq = navigationSequence\.begin\(\);\s*cancelWorkspaceCredentialPrompt\(false\);\s*if \(focusWorkspaceAfterRoutedPage\) \{\s*packageQueryWorkspaceFocusNavigationSeq = navigationSeq;\s*\}\s*if \(await tryOpenSourceBearingWorkspace\(url, navigationSeq, true\)\) return;\s*let loc: ParsedLocation;\s*try \{\s*loc = await parseWorkspaceHref\(url\.toString\(\)\);[\s\S]*if \(!navigationSequence\.isCurrent\(navigationSeq\)\) return;[\s\S]*if \(!sameWorkspace\) \{[\s\S]*openFreshWorkspaceLink\(loc, navigationSeq\)[\s\S]*\} else \{\s*clearWorkspaceFeedIdentity\(\);\s*workspaceLocation\.push/);
+    /const focusWorkspaceAfterRoutedPage =\s*state\.packageQueryOpen \|\| state\.packageActivityOpen;\s*if \(focusWorkspaceAfterRoutedPage\) \{\s*discardPackageQueryTermEditors\(\);\s*state\.packageQueryOpen = false;\s*state\.packageActivityOpen = false;\s*packageQueryController\.cancel\(\);\s*packageChangesController\.cancel\("disposed"\);\s*state\.packageQueryNavigationError = "";\s*\}\s*const navigationSeq = navigationSequence\.begin\(\);\s*cancelWorkspaceCredentialPrompt\(false\);\s*if \(focusWorkspaceAfterRoutedPage\) \{\s*packageQueryWorkspaceFocusNavigationSeq = navigationSeq;\s*\}\s*if \(await tryOpenSourceBearingWorkspace\(url, navigationSeq, true\)\) return;\s*let loc: ParsedLocation;\s*try \{\s*loc = await parseWorkspaceHref\(url\.toString\(\)\);[\s\S]*if \(!navigationSequence\.isCurrent\(navigationSeq\)\) return;[\s\S]*if \(!sameWorkspace\) \{[\s\S]*openFreshWorkspaceLink\(loc, navigationSeq\)[\s\S]*\} else \{\s*workspaceLocation\.push/);
   assert.match(
     appSource,
     /function restorePackageQueryWorkspaceFocus\(\) \{\s*const navigationSeq = packageQueryWorkspaceFocusNavigationSeq;[\s\S]*navigationSequence\.isCurrent\(navigationSeq\)[\s\S]*afterCurrentNavigationFrame\(\(\) => \{\s*if \(!focusLevelOneHeading\(\)\) \{\s*document\.querySelector<HTMLElement>\("#type-list"\)\?\.focus\(\)/);
@@ -1404,11 +1404,17 @@ test("same-origin links retain different-coordinate Workspaces", () => {
     /if \(loc\.hasWorkspaceState && !loc\.shareState\) \{[\s\S]*Workspace restore failed:[\s\S]*render\(\{ synchronizeUrl: false \}\);\s*return;\s*\}[\s\S]*const tablessTarget = !loc\.tabs\.length && loc\.package\s*\? state\.packages\.find\(candidate =>\s*packageCoordinateMatchesLocation\(candidate, loc\)\)\s*: undefined;\s*const sameWorkspace = loc\.tabs\.length\s*\? workspaceCoordinatesMatch\(state\.packages, loc\.tabs\)\s*: tablessTarget !== undefined/);
   assert.match(
     navigate,
-    /if \(!sameWorkspace\) \{\s*observeAsync\(\s*openFreshWorkspaceLink\(loc, navigationSeq\),\s*"Opening workspace link"\);\s*\} else \{\s*clearWorkspaceFeedIdentity\(\);\s*workspaceLocation\.push\(url\.toString\(\)\);\s*observeAsync\(\s*navigateWithinCurrentWorkspace\(loc, navigationSeq\),\s*"Navigating"\)/);
+    /if \(!sameWorkspace\) \{\s*observeAsync\(\s*openFreshWorkspaceLink\(loc, navigationSeq\),\s*"Opening workspace link"\);\s*\} else \{\s*workspaceLocation\.push\(url\.toString\(\)\);\s*observeAsync\(\s*navigateWithinCurrentWorkspace\(loc, navigationSeq\),\s*"Navigating"\)/);
+  assert.doesNotMatch(
+    navigate.match(/if \(!sameWorkspace\)[\s\S]*$/)?.[0] ?? "",
+    /clearWorkspaceFeedIdentity/);
   assert.doesNotMatch(navigateCurrent, /clearWorkspacePackages|prepareUnpublishedWorkspace/);
   assert.match(
     navigateCurrent,
     /state\.packages\.find\(candidate =>\s*packageCoordinateMatchesLocation\(candidate, loc\)\)[\s\S]*activatePackage\(target, \{ resetAccessibility: true \}\)[\s\S]*applyDeepLink\(loc\)/);
+  assert.match(
+    navigateCurrent,
+    /if \(loc\.shareState && restorationFailure\) \{[\s\S]*failCanonicalWorkspaceRestore\([\s\S]*return;\s*\}\s*clearWorkspaceFeedIdentity\(\);\s*commitWorkspaceShareBasis/);
   assert.match(
     openFresh,
     /captureWorkspaceConstructionSnapshots\(navigationSeq\)[\s\S]*prepareUnpublishedWorkspace\(\)[\s\S]*restoreWorkspaceFromLocation\([\s\S]*false,\s*fail,\s*false\)[\s\S]*const destination = \(await buildStateUrl\(\)\)\.toString\(\);\s*if \(!navigationSequence\.isCurrent\(navigationSeq\)\) return;\s*clearWorkspaceFeedIdentity\(\);\s*publishCurrentWorkspace\(construction\.retainedSnapshot\);\s*workspaceLocation\.push\(destination\)/);
