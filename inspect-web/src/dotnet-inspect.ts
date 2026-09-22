@@ -1038,7 +1038,6 @@ const initialState = {
   packageChangesCatalogError: "",
   libraryOpen: false,
   libraryOpenBusy: false,
-  libraryOpenFileName: "",
   libraryOpenError: "",
   libraryOpenReturn: "surface" as LibraryOpenReturnTarget,
   packageQueryOpenedFromApp: false,
@@ -6020,7 +6019,6 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
     ${renderLibraryOpenDialog({
       open: state.libraryOpen,
       busy: state.libraryOpenBusy,
-      fileName: state.libraryOpenFileName,
       error: state.libraryOpenError,
     }, escapeHtml)}
     ${renderAnnotatedSourceModal()}`;
@@ -6172,7 +6170,6 @@ function renderWorkspaceCatalogView() {
     ${renderLibraryOpenDialog({
       open: state.libraryOpen,
       busy: state.libraryOpenBusy,
-      fileName: state.libraryOpenFileName,
       error: state.libraryOpenError,
     }, escapeHtml)}`;
   bindScopeBarEvents();
@@ -10330,7 +10327,6 @@ function renderPlatformView() {
     ${renderLibraryOpenDialog({
       open: state.libraryOpen,
       busy: state.libraryOpenBusy,
-      fileName: state.libraryOpenFileName,
       error: state.libraryOpenError,
     }, escapeHtml)}`;
   bindScopeBarEvents();
@@ -12445,7 +12441,6 @@ function renderHomeView(preservedFocus: HomeFocusTarget | null) {
     ${renderLibraryOpenDialog({
       open: state.libraryOpen,
       busy: state.libraryOpenBusy,
-      fileName: state.libraryOpenFileName,
       error: state.libraryOpenError,
     }, escapeHtml)}`;
   bindHomeEvents(preservedFocus);
@@ -12597,7 +12592,6 @@ function renderProductDemosPage(): void {
     ${renderLibraryOpenDialog({
       open: state.libraryOpen,
       busy: state.libraryOpenBusy,
-      fileName: state.libraryOpenFileName,
       error: state.libraryOpenError,
     }, escapeHtml)}`;
   bindHomeShell(document, homeShellActions);
@@ -16438,7 +16432,6 @@ function openLibraryDialog(
 ) {
   prepareLibraryOpen(returnTarget);
   state.libraryOpenBusy = false;
-  state.libraryOpenFileName = "";
   state.libraryOpenError = state.engineReady
     ? ""
     : "Wait for the browser inspection engine to finish starting.";
@@ -16450,7 +16443,6 @@ function closeLibraryDialog() {
   const returnTarget = state.libraryOpenReturn;
   libraryOpenSequence++;
   state.libraryOpen = false;
-  state.libraryOpenFileName = "";
   state.libraryOpenError = "";
   render({ synchronizeUrl: false });
   requestAnimationFrame(() => {
@@ -16490,7 +16482,6 @@ function currentLibraryOpenView() {
   return {
     open: state.libraryOpen,
     busy: state.libraryOpenBusy,
-    fileName: state.libraryOpenFileName,
     error: state.libraryOpenError,
   };
 }
@@ -16520,7 +16511,6 @@ async function openUploadedLibraryFile(
   if (input === "drop") prepareLibraryOpen("surface");
   else state.libraryOpen = true;
   state.libraryOpenBusy = state.engineReady;
-  state.libraryOpenFileName = file.name;
   state.libraryOpenError = state.engineReady
     ? ""
     : "Wait for the browser inspection engine to finish starting.";
@@ -16573,7 +16563,6 @@ async function openUploadedLibraryFile(
     state.memberBrowseTypeId = "";
     state.selectedOverloadIndex = null;
     state.libraryOpen = false;
-    state.libraryOpenFileName = "";
     state.libraryOpenError = "";
     if (retainedSnapshot !== null) {
       retainedWorkspaces = detachActiveRetainedWorkspace(
@@ -18982,7 +18971,6 @@ function dismissModalsForRoutedNavigation() {
   libraryOpenSequence++;
   state.libraryOpen = false;
   state.libraryOpenBusy = false;
-  state.libraryOpenFileName = "";
   state.libraryOpenError = "";
   state.explorer = null;
   spotlight.reset();

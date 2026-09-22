@@ -162,6 +162,28 @@ test("early drop waits for engine readiness before reading bytes", async ({
     .toBeVisible();
 });
 
+test("Open progress does not render raw Unicode controls from File.name", async ({
+  page,
+}) => {
+  await installLibraryUploadFacades(page, "deferred");
+  await page.goto(root);
+  await waitForWorkspaceReady(page);
+  const declaredName = "invoice\u202Egpj\u2028.exe";
+
+  await dropLibrary(page, declaredName, [1, 2, 3, 4]);
+
+  await expect(page.locator("html")).toHaveAttribute(
+    "data-library-upload-request",
+    JSON.stringify([declaredName, 4]),
+  );
+  await expect(page.locator(".library-open-status"))
+    .toHaveText("Opening managed assembly…");
+
+  await releaseFacade(page, "finish-library-upload");
+  await expect(page.getByText("Browser upload", { exact: true }))
+    .toBeVisible();
+});
+
 test("routed navigation retires an in-flight upload", async ({ page }) => {
   await installLibraryUploadFacades(page, "deferred");
   await page.goto(root);

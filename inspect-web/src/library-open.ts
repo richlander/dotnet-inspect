@@ -5,7 +5,6 @@ export type LibraryOpenInput = "picker" | "drop" | "paste";
 export interface LibraryOpenView {
   open: boolean;
   busy: boolean;
-  fileName: string;
   error: string;
 }
 
@@ -127,7 +126,7 @@ export function renderLibraryOpenDialog(
     ? `<div id="library-open-status" class="library-open-status"
         role="status" aria-live="polite" tabindex="-1">
         <span class="loader" aria-hidden="true"></span>
-        <span>Opening ${escapeHtml(view.fileName || "managed assembly")}…</span>
+        <span>Opening managed assembly…</span>
       </div>`
     : view.error
       ? `<div id="library-open-error" class="library-open-error"

@@ -4,6 +4,7 @@ import test from "node:test";
 import {
   admitLibraryUpload,
   MAX_LIBRARY_UPLOAD_BYTES,
+  renderLibraryOpenDialog,
   type LibraryUploadCandidate,
 } from "../src/library-open.ts";
 
@@ -47,4 +48,15 @@ test("admission rejects missing, empty, multiple, and over-bound files visibly",
     kind: "rejected",
     message: "The selected file exceeds the 32 MiB upload limit.",
   });
+});
+
+test("busy progress does not render an unadmitted declared name", () => {
+  const html = renderLibraryOpenDialog({
+    open: true,
+    busy: true,
+    error: "",
+  }, String);
+
+  assert.match(html, /Opening managed assembly…/);
+  assert.doesNotMatch(html, /invoice|\u202e|\u2028/i);
 });

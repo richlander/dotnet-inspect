@@ -378,6 +378,9 @@ starting, accepted Open work retains the file without materializing its bytes
 until the dedicated facade is ready. An accepted managed assembly opens
 directly as a transient Library with Type and Member API navigation; the Open
 surface keeps rejection visible and retains focus for correction.
+Open progress uses a generic managed-assembly label rather than rendering the
+raw browser filename before the host-neutral operation issues bounded inert
+display and provenance text.
 A page-level drop remains available across ordinary and full-bleed routed
 surfaces and opens the overlay before work begins so progress and typed
 rejection remain visible. It closes any existing modal without intermediate
