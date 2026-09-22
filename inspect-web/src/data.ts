@@ -1209,8 +1209,7 @@ export function graphTargetNavigationDisposition(
     return "none";
   }
   if (packageAvailable
-      && target?.kind === "external"
-      && Boolean(target.assembly)
+      && Boolean(target?.assembly)
       && Boolean(callGraphTargetTypeId(target))) {
     return "package";
   }

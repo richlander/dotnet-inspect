@@ -1479,6 +1479,20 @@ test("call graph navigation rejects ambiguous loaded package coordinates", () =>
   assert.equal(
     graphTargetNavigationDisposition(
       { status: "missing" },
+      { ...packageTarget, kind: "ordinary" },
+      false,
+      true),
+    "package");
+  assert.equal(
+    graphTargetNavigationDisposition(
+      { status: "missing" },
+      { ...packageTarget, kind: "ordinary", assemblyVersion: null },
+      false,
+      true),
+    "none");
+  assert.equal(
+    graphTargetNavigationDisposition(
+      { status: "missing" },
       { ...target, assemblyVersion: null }),
     "none");
 });
