@@ -84,7 +84,7 @@ internal static class MetadataTypeIdentityValidator
             MetadataTypeIdentity.FunctionPointer pointer =>
                 ValidateSignature(pointer.Signature),
             MetadataTypeIdentity.Modified modified =>
-                ValidateType(modified.Modifier)
+                ValidateModifier(modified.Modifier)
                 ?? ValidateType(modified.Type),
             MetadataTypeIdentity.Pinned pinned =>
                 ValidateType(pinned.Type),
@@ -112,9 +112,43 @@ internal static class MetadataTypeIdentityValidator
         return null;
     }
 
+    static string? ValidateModifier(MetadataTypeIdentity? modifier) =>
+        modifier switch
+        {
+            MetadataTypeIdentity.Named
+                {
+                    Definition: { } definition,
+                } =>
+                ValidateNamedDefinition(definition),
+            MetadataTypeIdentity.Named =>
+                "A named type identity is missing its definition.",
+            _ => ValidateType(modifier),
+        };
+
     static string? ValidateNamed(
         MetadataNamedTypeIdentity definition,
         int expectedArguments)
+    {
+        string? definitionFailure =
+            ValidateNamedDefinition(definition);
+        if (definitionFailure is not null)
+            return definitionFailure;
+
+        long arity = 0;
+        foreach (int count
+            in definition.IntroducedGenericParameterCounts)
+        {
+            arity += count;
+        }
+        if (arity != expectedArguments)
+        {
+            return "A named type identity's authenticated arity does not match its supplied arguments.";
+        }
+        return null;
+    }
+
+    static string? ValidateNamedDefinition(
+        MetadataNamedTypeIdentity definition)
     {
         if (definition.Scope is null)
             return "A named type identity is missing its scope.";
@@ -131,17 +165,6 @@ internal static class MetadataTypeIdentityValidator
                 count => count < 0))
         {
             return "A named type identity has incomplete generic-arity evidence.";
-        }
-
-        long arity = 0;
-        foreach (int count
-            in definition.IntroducedGenericParameterCounts)
-        {
-            arity += count;
-        }
-        if (arity != expectedArguments)
-        {
-            return "A named type identity's authenticated arity does not match its supplied arguments.";
         }
 
         MetadataTypeScopeIdentity scope = definition.Scope;

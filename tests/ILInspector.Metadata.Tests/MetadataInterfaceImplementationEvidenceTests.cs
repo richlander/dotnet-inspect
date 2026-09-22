@@ -38,6 +38,29 @@ public sealed class MetadataInterfaceImplementationEvidenceTests
     }
 
     [Fact]
+    public void GenericModifierIdentityIssuedByMethodImplMatches()
+    {
+        using GenericModifierFixture fixture =
+            GenericModifierFixture.Create();
+        MetadataTypeIdentity interfaceType =
+            ReadDeclarationOwner(
+                fixture.Path,
+                fixture.Type,
+                fixture.Body);
+
+        MetadataInterfaceImplementationResult.Related related =
+            AssertRelated(
+                Run(
+                    fixture.Path,
+                    fixture.Type,
+                    interfaceType));
+        MetadataInterfaceImplementationCertificate certificate =
+            Assert.Single(related.Relationships);
+
+        Assert.Equal(interfaceType, certificate.Interface);
+    }
+
+    [Fact]
     public void SameSpelledArgumentsFromDifferentAssembliesStayDistinct()
     {
         string path =
@@ -205,6 +228,35 @@ public sealed class MetadataInterfaceImplementationEvidenceTests
                 exact,
                 Counter(above.Counters, dimension));
         }
+    }
+
+    [Fact]
+    public void NestedTypeDefinitionTraversalChargesRelationshipEdges()
+    {
+        using AuthoredFixture fixture =
+            AuthoredFixture.CreateNestedTypeDefinition(depth: 8);
+        MetadataInterfaceImplementationResult.Related baseline =
+            AssertRelated(
+                Run(fixture, fixture.InterfaceIdentity));
+
+        Assert.True(
+            baseline.Counters.RelationshipEdges > 2,
+            "The nested declaring chain did not contribute edge work.");
+        MetadataInterfaceImplementationResult.Rejected rejected =
+            Assert.IsType<
+                MetadataInterfaceImplementationResult.Rejected>(
+                    Run(
+                        fixture,
+                        fixture.InterfaceIdentity,
+                        Policy(
+                            MetadataOperationDimension.RelationshipEdges,
+                            2)));
+        Assert.Equal(
+            MetadataInterfaceImplementationFailureReason.BudgetExceeded,
+            rejected.Failure.Reason);
+        Assert.Equal(
+            MetadataOperationDimension.RelationshipEdges,
+            rejected.Failure.BudgetDimension);
     }
 
     [Fact]
@@ -784,6 +836,172 @@ public sealed class MetadataInterfaceImplementationEvidenceTests
         CyclicTypeSpecification,
     }
 
+    sealed class GenericModifierFixture : IDisposable
+    {
+        GenericModifierFixture(
+            string path,
+            TypeDefinitionHandle type,
+            MethodDefinitionHandle body)
+        {
+            Path = path;
+            Type = type;
+            Body = body;
+        }
+
+        internal string Path { get; }
+        internal TypeDefinitionHandle Type { get; }
+        internal MethodDefinitionHandle Body { get; }
+
+        internal static GenericModifierFixture Create()
+        {
+            var metadata = new MetadataBuilder();
+            metadata.AddModule(
+                generation: 0,
+                metadata.GetOrAddString("generic-modifier.dll"),
+                metadata.GetOrAddGuid(Guid.NewGuid()),
+                default,
+                default);
+            metadata.AddAssembly(
+                metadata.GetOrAddString("GenericModifierFixture"),
+                new Version(1, 0, 0, 0),
+                default,
+                default,
+                (AssemblyFlags)0,
+                AssemblyHashAlgorithm.None);
+            metadata.AddTypeDefinition(
+                TypeAttributes.NotPublic,
+                default,
+                metadata.GetOrAddString("<Module>"),
+                default,
+                MetadataTokens.FieldDefinitionHandle(1),
+                MetadataTokens.MethodDefinitionHandle(1));
+            TypeDefinitionHandle contract =
+                metadata.AddTypeDefinition(
+                    TypeAttributes.Interface
+                        | TypeAttributes.Abstract
+                        | TypeAttributes.Public,
+                    metadata.GetOrAddString("Contracts"),
+                    metadata.GetOrAddString("IContract`1"),
+                    default,
+                    MetadataTokens.FieldDefinitionHandle(1),
+                    MetadataTokens.MethodDefinitionHandle(1));
+            metadata.AddGenericParameter(
+                contract,
+                GenericParameterAttributes.None,
+                metadata.GetOrAddString("T"),
+                index: 0);
+            TypeDefinitionHandle modifier =
+                metadata.AddTypeDefinition(
+                    TypeAttributes.Public,
+                    metadata.GetOrAddString("Contracts"),
+                    metadata.GetOrAddString("Modifier`1"),
+                    default,
+                    MetadataTokens.FieldDefinitionHandle(1),
+                    MetadataTokens.MethodDefinitionHandle(2));
+            metadata.AddGenericParameter(
+                modifier,
+                GenericParameterAttributes.None,
+                metadata.GetOrAddString("T"),
+                index: 0);
+            TypeDefinitionHandle target =
+                metadata.AddTypeDefinition(
+                    TypeAttributes.Public,
+                    metadata.GetOrAddString("Samples"),
+                    metadata.GetOrAddString("Target"),
+                    default,
+                    MetadataTokens.FieldDefinitionHandle(1),
+                    MetadataTokens.MethodDefinitionHandle(2));
+
+            var interfaceSignature = new BlobBuilder();
+            interfaceSignature.WriteByte(0x15);
+            interfaceSignature.WriteByte(0x12);
+            interfaceSignature.WriteCompressedInteger(
+                EncodeTypeDefOrRef(contract));
+            interfaceSignature.WriteCompressedInteger(1);
+            interfaceSignature.WriteByte(0x20);
+            interfaceSignature.WriteCompressedInteger(
+                EncodeTypeDefOrRef(modifier));
+            interfaceSignature.WriteByte(0x08);
+            TypeSpecificationHandle interfaceType =
+                metadata.AddTypeSpecification(
+                    metadata.GetOrAddBlob(interfaceSignature));
+            metadata.AddInterfaceImplementation(
+                target,
+                interfaceType);
+
+            var methodSignature = new BlobBuilder();
+            methodSignature.WriteByte(0x20);
+            methodSignature.WriteCompressedInteger(0);
+            methodSignature.WriteByte(0x01);
+            BlobHandle signature =
+                metadata.GetOrAddBlob(methodSignature);
+            metadata.AddMethodDefinition(
+                MethodAttributes.Public
+                    | MethodAttributes.Abstract
+                    | MethodAttributes.Virtual,
+                MethodImplAttributes.IL,
+                metadata.GetOrAddString("M"),
+                signature,
+                bodyOffset: 0,
+                MetadataTokens.ParameterHandle(1));
+            MethodDefinitionHandle body =
+                metadata.AddMethodDefinition(
+                    MethodAttributes.Private
+                        | MethodAttributes.Virtual
+                        | MethodAttributes.Final,
+                    MethodImplAttributes.IL,
+                    metadata.GetOrAddString("Body"),
+                    signature,
+                    bodyOffset: 0,
+                    MetadataTokens.ParameterHandle(1));
+            MemberReferenceHandle declaration =
+                metadata.AddMemberReference(
+                    interfaceType,
+                    metadata.GetOrAddString("M"),
+                    signature);
+            metadata.AddMethodImplementation(
+                target,
+                body,
+                declaration);
+
+            string path = System.IO.Path.Combine(
+                System.IO.Path.GetTempPath(),
+                $"interfaceimpl-modifier-{Guid.NewGuid():N}.dll");
+            File.WriteAllBytes(path, Serialize(metadata));
+            return new(path, target, body);
+        }
+
+        static int EncodeTypeDefOrRef(EntityHandle handle)
+        {
+            int tag = handle.Kind switch
+            {
+                HandleKind.TypeDefinition => 0,
+                HandleKind.TypeReference => 1,
+                HandleKind.TypeSpecification => 2,
+                _ => throw new ArgumentOutOfRangeException(
+                    nameof(handle)),
+            };
+            return checked(
+                (MetadataTokens.GetRowNumber(handle) << 2) | tag);
+        }
+
+        static byte[] Serialize(MetadataBuilder metadata)
+        {
+            var image = new BlobBuilder();
+            new ManagedPEBuilder(
+                PEHeaderBuilder.CreateLibraryHeader(),
+                new MetadataRootBuilder(
+                    metadata,
+                    suppressValidation: true),
+                new BlobBuilder(),
+                flags: CorFlags.ILOnly)
+                .Serialize(image);
+            return image.ToArray();
+        }
+
+        public void Dispose() => File.Delete(Path);
+    }
+
     sealed class AuthoredFixture : IDisposable
     {
         AuthoredFixture(
@@ -941,6 +1159,108 @@ public sealed class MetadataInterfaceImplementationEvidenceTests
                     definitionIdentity,
                     IsValueType: false);
             return new(path, typeAddress, identity);
+        }
+
+        internal static AuthoredFixture CreateNestedTypeDefinition(
+            int depth)
+        {
+            ArgumentOutOfRangeException.ThrowIfLessThan(depth, 2);
+            Guid mvid = Guid.NewGuid();
+            var metadata = new MetadataBuilder();
+            metadata.AddModule(
+                generation: 0,
+                metadata.GetOrAddString("nested-interface.dll"),
+                metadata.GetOrAddGuid(mvid),
+                default,
+                default);
+            metadata.AddAssembly(
+                metadata.GetOrAddString("NestedInterfaceFixture"),
+                new Version(1, 0, 0, 0),
+                default,
+                default,
+                (AssemblyFlags)0,
+                AssemblyHashAlgorithm.None);
+            metadata.AddTypeDefinition(
+                TypeAttributes.NotPublic,
+                default,
+                metadata.GetOrAddString("<Module>"),
+                default,
+                MetadataTokens.FieldDefinitionHandle(1),
+                MetadataTokens.MethodDefinitionHandle(1));
+
+            var segments = new string[depth];
+            TypeDefinitionHandle parent = default;
+            TypeDefinitionHandle contract = default;
+            for (int index = 0; index < depth; index++)
+            {
+                segments[index] =
+                    index == depth - 1
+                        ? "IContract"
+                        : $"Outer{index}";
+                TypeAttributes attributes =
+                    index == 0
+                        ? TypeAttributes.Public
+                        : TypeAttributes.NestedPublic;
+                if (index == depth - 1)
+                {
+                    attributes |=
+                        TypeAttributes.Interface
+                        | TypeAttributes.Abstract;
+                }
+                contract = metadata.AddTypeDefinition(
+                    attributes,
+                    index == 0
+                        ? metadata.GetOrAddString("Contracts")
+                        : default,
+                    metadata.GetOrAddString(segments[index]),
+                    default,
+                    MetadataTokens.FieldDefinitionHandle(1),
+                    MetadataTokens.MethodDefinitionHandle(1));
+                if (!parent.IsNil)
+                    metadata.AddNestedType(contract, parent);
+                parent = contract;
+            }
+            TypeDefinitionHandle target =
+                metadata.AddTypeDefinition(
+                    TypeAttributes.Public,
+                    metadata.GetOrAddString("Samples"),
+                    metadata.GetOrAddString("Target"),
+                    default,
+                    MetadataTokens.FieldDefinitionHandle(1),
+                    MetadataTokens.MethodDefinitionHandle(1));
+            metadata.AddInterfaceImplementation(
+                target,
+                contract);
+
+            string path = System.IO.Path.Combine(
+                System.IO.Path.GetTempPath(),
+                $"interfaceimpl-nested-{Guid.NewGuid():N}.dll");
+            File.WriteAllBytes(path, Serialize(metadata));
+            using var stream = File.OpenRead(path);
+            using var pe = new PEReader(stream);
+            MetadataReader reader = pe.GetMetadataReader();
+            var identity =
+                new MetadataTypeIdentity.Named(
+                    new MetadataNamedTypeIdentity(
+                        new MetadataTypeScopeIdentity(
+                            MetadataTypeScopeKind.CurrentModule,
+                            mvid,
+                            Text("nested-interface.dll"),
+                            new MetadataAssemblyIdentity(
+                                Text("NestedInterfaceFixture"),
+                                new Version(1, 0, 0, 0),
+                                Culture: null,
+                                PublicKeyToken: null)),
+                        Text("Contracts"),
+                        [.. segments.Select(Text)],
+                        [.. segments.Select(_ => 0)]),
+                    IsValueType: false);
+            return new(
+                path,
+                MetadataTypeDefinitionAddress.FromHandle(
+                    reader,
+                    target),
+                identity);
         }
 
         static BlobHandle AddBlob(

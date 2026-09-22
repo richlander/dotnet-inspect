@@ -165,9 +165,18 @@ internal sealed class TypeNodeProvider : ISignatureTypeProvider<TypeNode, Generi
             handle,
             observeName,
             out string? name,
-            out RelationshipTraversalRejection? rejection);
+            out RelationshipTraversalRejection? rejection,
+            beforeRelationshipFollow:
+                _beforeRelationshipFollow);
         MetadataTypeNameParts? metadataName = resolved
-            ? WithTrustedArity(reader, handle, TypeResolver.GetTypeNamePartsFromDefinition(reader, handle))
+            ? WithTrustedArity(
+                reader,
+                handle,
+                TypeResolver.GetTypeNamePartsFromDefinition(
+                    reader,
+                    handle,
+                    _beforeRelationshipFollow),
+                _beforeRelationshipFollow)
             : null;
         ApiAssemblyIdentity? assemblyIdentity =
             CurrentAssemblyIdentity(
@@ -211,11 +220,13 @@ internal sealed class TypeNodeProvider : ISignatureTypeProvider<TypeNode, Generi
     static MetadataTypeNameParts WithTrustedArity(
         MetadataReader reader,
         TypeDefinitionHandle handle,
-        MetadataTypeNameParts metadataName)
+        MetadataTypeNameParts metadataName,
+        Action<EntityHandle>? beforeRelationshipFollow)
         => metadataName.WithIntroducedTypeParameterCounts(
             MetadataDeclarationQuery.GetIntroducedTypeParameterCounts(
                 reader,
-                handle));
+                handle,
+                beforeRelationshipFollow));
 
     public TypeNode GetTypeFromReference(MetadataReader reader, TypeReferenceHandle handle, byte rawTypeKind)
     {
@@ -342,7 +353,8 @@ internal sealed class TypeNodeProvider : ISignatureTypeProvider<TypeNode, Generi
         return WithTrustedArity(
             reader,
             definition,
-            metadataName);
+            metadataName,
+            _beforeRelationshipFollow);
     }
 
     TypeNode ReadNamedType(

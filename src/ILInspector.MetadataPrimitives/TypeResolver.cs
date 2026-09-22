@@ -245,9 +245,14 @@ public static class TypeResolver
         Action<int>? beforeMaterialize,
         [NotNullWhen(true)] out string? name,
         out RelationshipTraversalRejection? rejection,
-        bool enforceCharacterBudget = true)
+        bool enforceCharacterBudget = true,
+        Action<EntityHandle>? beforeRelationshipFollow = null)
     {
-        ObserveTypeDefinitionName(reader, handle, beforeMaterialize);
+        ObserveTypeDefinitionName(
+            reader,
+            handle,
+            beforeMaterialize,
+            beforeRelationshipFollow);
         try
         {
             var typeDef = reader.GetTypeDefinition(handle);
@@ -270,7 +275,12 @@ public static class TypeResolver
             return false;
         }
 
-        return ResolveTypeNameFromDefinition(reader, handle, enforceCharacterBudget)
+        return ResolveTypeNameFromDefinition(
+                reader,
+                handle,
+                enforceCharacterBudget,
+                out _,
+                beforeRelationshipFollow)
             .TryComplete(out name, out rejection);
     }
 
@@ -304,27 +314,33 @@ public static class TypeResolver
     static void ObserveTypeDefinitionName(
         MetadataReader reader,
         TypeDefinitionHandle handle,
-        Action<int>? beforeMaterialize)
+        Action<int>? beforeMaterialize,
+        Action<EntityHandle>? beforeRelationshipFollow)
     {
-        if (beforeMaterialize is null)
+        if (beforeMaterialize is null
+            && beforeRelationshipFollow is null)
             return;
 
         Span<TypeDefinitionHandle> rootToLeaf =
             stackalloc TypeDefinitionHandle[MetadataSafetyPolicy.MaxRelationshipNodes];
-        if (!MetadataRelationshipTraversal.TryWalkTypeDefinitionDeclaringChain(
-                reader,
-                handle,
-                rootToLeaf,
-                out int consumedNodes,
-                out _,
-                out _))
+        if (!MetadataRelationshipTraversal
+                .TryWalkTypeDefinitionDeclaringChain(
+                    reader,
+                    handle,
+                    rootToLeaf,
+                    out int consumedNodes,
+                    out _,
+                    out _,
+                    beforeRelationshipFollow))
             return;
 
         foreach (TypeDefinitionHandle current in rootToLeaf[..consumedNodes])
         {
             TypeDefinition type = reader.GetTypeDefinition(current);
-            beforeMaterialize(reader.GetBlobReader(type.Namespace).Length);
-            beforeMaterialize(reader.GetBlobReader(type.Name).Length);
+            beforeMaterialize?.Invoke(
+                reader.GetBlobReader(type.Namespace).Length);
+            beforeMaterialize?.Invoke(
+                reader.GetBlobReader(type.Name).Length);
         }
     }
 
@@ -348,13 +364,15 @@ public static class TypeResolver
             reader,
             handle,
             enforceCharacterBudget,
-            out _);
+            out _,
+            beforeRelationshipFollow: null);
 
     static RelationshipTraversalResult<string> ResolveTypeNameFromDefinition(
         MetadataReader reader,
         TypeDefinitionHandle handle,
         bool enforceCharacterBudget,
-        out MetadataTypeNameBudget budget)
+        out MetadataTypeNameBudget budget,
+        Action<EntityHandle>? beforeRelationshipFollow = null)
     {
         try
         {
@@ -384,7 +402,14 @@ public static class TypeResolver
 
         return FormatChain(
             reader,
-            MetadataRelationshipTraversal.WalkTypeDefinitionDeclaringChain(reader, handle),
+            beforeRelationshipFollow is null
+                ? MetadataRelationshipTraversal
+                    .WalkTypeDefinitionDeclaringChain(reader, handle)
+                : MetadataRelationshipTraversal
+                    .WalkTypeDefinitionDeclaringChain(
+                        reader,
+                        handle,
+                        beforeRelationshipFollow),
             current =>
             {
                 var typeDef = reader.GetTypeDefinition(current);
@@ -397,17 +422,30 @@ public static class TypeResolver
 
     internal static MetadataTypeNameParts GetTypeNamePartsFromDefinition(
         MetadataReader reader,
-        TypeDefinitionHandle handle)
-        => ResolveTypeNamePartsFromDefinition(reader, handle).GetValueOrThrow();
+        TypeDefinitionHandle handle,
+        Action<EntityHandle>? beforeRelationshipFollow = null)
+        => ResolveTypeNamePartsFromDefinition(
+                reader,
+                handle,
+                beforeRelationshipFollow: beforeRelationshipFollow)
+            .GetValueOrThrow();
 
     internal static RelationshipTraversalResult<MetadataTypeNameParts>
         ResolveTypeNamePartsFromDefinition(
             MetadataReader reader,
             TypeDefinitionHandle handle,
-            bool enforceCharacterBudget = true)
+            bool enforceCharacterBudget = true,
+            Action<EntityHandle>? beforeRelationshipFollow = null)
         => FormatNameParts(
             reader,
-            MetadataRelationshipTraversal.WalkTypeDefinitionDeclaringChain(reader, handle),
+            beforeRelationshipFollow is null
+                ? MetadataRelationshipTraversal
+                    .WalkTypeDefinitionDeclaringChain(reader, handle)
+                : MetadataRelationshipTraversal
+                    .WalkTypeDefinitionDeclaringChain(
+                        reader,
+                        handle,
+                        beforeRelationshipFollow),
             current =>
             {
                 var typeDef = reader.GetTypeDefinition(current);
