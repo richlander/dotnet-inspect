@@ -171,6 +171,7 @@ public static class ApiMemberSectionDescriptors
             .Add<ApiMemberDetailSectionDescriptors.BodyShapeSummary>()
             .Add<SourceFiles>()
             .Add<ApiDeclarations>()
+            .Add<Source>()
             .Add<DecompiledSource>()
             .Add<PdbSource>()
             .Add<CloneCandidates>()
@@ -576,6 +577,19 @@ public static class ApiMemberSectionDescriptors
         public static bool CanRender(ApiType model) => true;
     }
 
+    public sealed class Source : ISectionDescriptor<ApiType>
+    {
+        public static string Name => SectionNames.Source;
+        public static bool IsExpensive => true;
+        public static bool ExplicitOnly => true;
+        public static bool ProbeEffectiveness => false;
+        public static SectionCost Cost => SectionCost.Moderated;
+        public static SectionSizeClass SizeClass => SectionSizeClass.Verbose;
+        public static SectionCapabilities Capabilities =>
+            SectionCapabilities.MayDownloadPdb | SectionCapabilities.MayFetchSources;
+        public static bool CanRender(ApiType model) => true;
+    }
+
     public sealed class DecompiledSource : ISectionDescriptor<ApiType>
     {
         public static string Name => SectionNames.DecompiledSource;
@@ -754,6 +768,7 @@ public static class ApiMemberSectionPipelines
 
     private static readonly string[] SourceSections =
     [
+        SectionNames.Source,
         SectionNames.DecompiledSource,
         SectionNames.AnnotatedSource,
         SectionNames.PdbSource,
@@ -880,6 +895,7 @@ public static class ApiMemberOverloadSectionDescriptors
             .Add<ApiMemberSectionDescriptors.ExtensionMethods>()
             .Add<ApiMemberSectionDescriptors.Events>()
             .Add<ApiMemberSectionDescriptors.MethodAttributes>(HasSingleBodyBackedMember)
+            .Add<ApiMemberSectionDescriptors.Source>(HasSingleBodyBackedMember)
             .Add<ApiMemberSectionDescriptors.DecompiledSource>(HasSingleBodyBackedMember)
             .Add<ApiMemberDetailSectionDescriptors.FidelityCauses>(HasSingleBodyBackedMember)
             .Add<ApiMemberDetailSectionDescriptors.AppliedTaste>(HasSingleBodyBackedMember)
@@ -973,6 +989,7 @@ public static class ApiMemberDetailSectionDescriptors
             .Add<Summary>()
             .Add<Signature>()
             .Add<MethodAttributes>()
+            .Add<Source>()
             .Add<DecompiledSource>()
             .Add<FidelityCauses>()
             .Add<AppliedTaste>()
@@ -1008,6 +1025,7 @@ public static class ApiMemberDetailSectionDescriptors
             [
                 SectionNames.Signature,
                 SectionNames.CustomAttributes,
+                SectionNames.Source,
                 SectionNames.DecompiledSource,
                 SectionNames.PdbSource,
                 SectionNames.IL,
@@ -1047,6 +1065,20 @@ public static class ApiMemberDetailSectionDescriptors
         public static bool IsExpensive => false;
         public static SectionSizeClass SizeClass => SectionSizeClass.Verbose;
         public static SectionCapabilities Capabilities => SectionCapabilities.MayDownloadPdb;
+        public static bool CanRender(ApiType model)
+            => model.Members.Any(ApiMemberSectionDescriptors.IsBodyBacked);
+    }
+
+    public sealed class Source : ISectionDescriptor<ApiType>
+    {
+        public static string Name => SectionNames.Source;
+        public static bool IsExpensive => true;
+        public static bool ExplicitOnly => true;
+        public static bool ProbeEffectiveness => false;
+        public static SectionCost Cost => SectionCost.Moderated;
+        public static SectionSizeClass SizeClass => SectionSizeClass.Verbose;
+        public static SectionCapabilities Capabilities =>
+            SectionCapabilities.MayDownloadPdb | SectionCapabilities.MayFetchSources;
         public static bool CanRender(ApiType model)
             => model.Members.Any(ApiMemberSectionDescriptors.IsBodyBacked);
     }

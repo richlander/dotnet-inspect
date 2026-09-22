@@ -304,12 +304,16 @@ public partial class SectionPipelineTests
         Assert.Contains("Events", names);
         Assert.Contains("Source Files", names);
         Assert.Contains("IL", names);
+        Assert.Contains("Source", names);
         Assert.Contains("Decompiled Source", names);
         Assert.Contains("PDB Source", names);
         Assert.Contains("Source Diff", names);
         Assert.Contains("Custom Attributes", names);
         Assert.Contains("Called Types", names);
         Assert.Contains("Top Leverage", names);
+        Assert.Contains(
+            SectionNames.Source,
+            pipeline.GetCategoryMap()[SectionCategoryNames.Source]);
     }
 
     [Fact]

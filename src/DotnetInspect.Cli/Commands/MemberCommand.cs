@@ -792,7 +792,9 @@ public static class MemberCommand
                 && AuthorizesMemberSourceResolution(apiType, effectiveOptions))
             {
                 bool fetchSource =
-                    AuthorizesMemberSourceContent(apiType, effectiveOptions);
+                    AuthorizesMemberProviderSourceContent(
+                        apiType,
+                        effectiveOptions);
                 var selectedMember = apiType.Members.Count == 1 ? apiType.Members[0] : null;
                 // A property/event (including an indexer) has no body of its own: its PDB source
                 // is located through the accessor the selected ordinal addresses, so resolve by that
@@ -1135,6 +1137,24 @@ public static class MemberCommand
                         }
                     }
                 }
+            }
+
+            if (apiDllPath is not null
+                && AuthorizesMemberOrdinarySource(
+                    apiType,
+                    effectiveOptions))
+            {
+                effectiveOptions =
+                    await AttachMemberSourceInspectionAsync(
+                        apiType,
+                        effectiveOptions,
+                        apiDllPath,
+                        sourceAssembly,
+                        loaded.TryGetBindingContext(apiType)
+                            ?? loaded.RootBindingContext,
+                        packageName,
+                        packageVersion,
+                        context.HttpClient);
             }
 
             if (effectiveOptions.EffectiveDiscovery)
@@ -1551,6 +1571,16 @@ public static class MemberCommand
         }
         if (options.IncludeSections is not { Count: > 0 })
             return false;
+        if (options.Select?.Any(selector =>
+                selector.Equals(
+                    SectionCategoryNames.Source,
+                    StringComparison.OrdinalIgnoreCase)) == true)
+        {
+            sections = SingleOverloadSectionNames
+                .Where(options.IncludeSections.Contains)
+                .ToList();
+            return sections.Count > 0;
+        }
         // Bare -S carries no selector value, so it cannot be recognized by inspecting Select.
         if (!options.MemberSectionsPreResolved
             && options.ImplicitIncludeSections.Count == 0
@@ -1653,6 +1683,7 @@ public static class MemberCommand
     [
         SectionNames.Signature,
         SectionNames.CustomAttributes,
+        SectionNames.Source,
         SectionNames.DecompiledSource,
         SectionNames.FidelityCauses,
         SectionNames.AppliedTaste,
@@ -1955,7 +1986,12 @@ public static class MemberCommand
     internal static bool NeedsMemberSourceResolution(ApiType apiType, MemberOptions options)
     {
         var sections = ApiCommand.GetRequestedMemberSections(apiType, options);
-        if (sections.Overlaps([SectionNames.PdbSource, SectionNames.SourceDiff]))
+        if (sections.Overlaps(
+                [
+                    SectionNames.Source,
+                    SectionNames.PdbSource,
+                    SectionNames.SourceDiff,
+                ]))
             return true;
 
         bool pdbAuthorized = options.IncludeSections is { Count: > 0 }
@@ -1982,7 +2018,138 @@ public static class MemberCommand
                 SectionCapabilities.MayFetchSources,
                 options.UserVerbosity,
                 options.IncludeSections)
+            .Overlaps(
+                [
+                    SectionNames.Source,
+                    SectionNames.PdbSource,
+                    SectionNames.SourceDiff,
+                ]);
+    }
+
+    private static bool AuthorizesMemberProviderSourceContent(
+        ApiType apiType,
+        MemberOptions options)
+    {
+        if (!AuthorizesMemberSourceContent(apiType, options))
+            return false;
+
+        return ApiCommand.GetRequestedMemberSections(apiType, options)
             .Overlaps([SectionNames.PdbSource, SectionNames.SourceDiff]);
+    }
+
+    private static bool AuthorizesMemberOrdinarySource(
+        ApiType apiType,
+        MemberOptions options)
+    {
+        if (ResolveOrdinarySourceMember(apiType, options) is null
+            || options.IncludeSections?.Contains(SectionNames.Source) != true)
+        {
+            return false;
+        }
+
+        var pipeline = ApiMemberSectionPipelines.Create(options);
+        return pipeline.GetAuthorizedSections(
+                SectionCapabilities.MayFetchSources,
+                options.UserVerbosity,
+                options.IncludeSections)
+            .Contains(SectionNames.Source);
+    }
+
+    private static async Task<MemberOptions>
+        AttachMemberSourceInspectionAsync(
+        ApiType apiType,
+        MemberOptions options,
+        string apiDllPath,
+        ResolvedAssemblyReference? sourceAssembly,
+        SelectedTypeBindingContext? bindingContext,
+        string? packageName,
+        string? packageVersion,
+        HttpClient httpClient)
+    {
+        ApiMember? selectedMember =
+            ResolveOrdinarySourceMember(apiType, options);
+        ApiMember? sourceAccessor =
+            ResolveSourceAccessor(
+                apiType,
+                selectedMember,
+                options.OverloadIndex);
+        ApiMember? sourceMember =
+            sourceAccessor
+            ?? selectedMember;
+        if (sourceMember?.MetadataToken is not { } sourceMemberToken
+            || MetadataTokens.EntityHandle(sourceMemberToken).Kind
+                != HandleKind.MethodDefinition)
+        {
+            return options;
+        }
+
+        string assemblyPath =
+            apiType.SourceAssemblyPath
+            ?? apiDllPath;
+        ResolvedAssemblyReference? selectedAssembly =
+            sourceAssembly?.Path is { } selectedPath
+            && LibraryMetadataService
+                .ReferenceTreePathComparer(
+                    OperatingSystem.IsWindows())
+                .Equals(
+                    Path.GetFullPath(selectedPath),
+                    Path.GetFullPath(assemblyPath))
+                ? sourceAssembly
+                : null;
+        var (participant, queryContext) =
+            AuthoredSourceDocumentPrinter.CreateContext(
+                assemblyPath,
+                options,
+                selectedAssembly,
+                packageName,
+                packageVersion,
+                httpClient,
+                bindingContext?.Policy);
+        InspectionEnvelope<AssemblyMemberSourceEntry> inspection;
+        await using (var workspace = new InspectionWorkspace())
+        {
+            using AssemblyContextGroup group =
+                workspace.CreateAssemblyContextGroup([participant]);
+            inspection =
+                await MemberSourceInspection.ExecuteAsync(
+                        group,
+                        participant,
+                        AssemblyMemberSourceRequest.From(
+                            apiType,
+                            sourceMember,
+                            options.RenderOptions),
+                        queryContext)
+                    .ConfigureAwait(false);
+        }
+
+        ApiCommand.WriteSourceInspectionDiagnostics(
+            inspection.Diagnostics);
+        return options with
+        {
+            MemberSourceInspection = inspection,
+        };
+    }
+
+    private static ApiMember? ResolveOrdinarySourceMember(
+        ApiType apiType,
+        MemberOptions options)
+    {
+        if (options.MemberFilter.Count == 1)
+        {
+            string memberName =
+                options.MemberFilter.First();
+            List<ApiMember> candidates =
+                GetCandidateMembers(
+                    apiType,
+                    options,
+                    memberName);
+            if (candidates.Count == 1)
+                return candidates[0];
+        }
+
+        return apiType.Members.Count == 1
+            ? apiType.Members[0]
+            : null;
     }
 
     private static bool NeedsMemberSourceLocationResolution(MemberOptions options)

@@ -3173,8 +3173,9 @@ public partial class CommandExecutionTests
             nameof(CommandExecutionSourceDiffFixture.AddOne), "-S", "@Source", "--tips", "q");
 
         Assert.Equal(0, exit);
-        Assert.Empty(error);
+        Assert.Contains("Source provider:", error);
         Assert.Contains("## Decompiled Source", output);
+        Assert.Contains("## Source", output);
         Assert.Contains("## Annotated Source", output);
         Assert.Contains("## Source Diff", output);
         Assert.Contains("## IL", output);
@@ -3188,8 +3189,9 @@ public partial class CommandExecutionTests
             "Overloaded:2", "-S", "@Source", "--tips", "q");
 
         Assert.Equal(0, exit);
-        Assert.Empty(error);
+        Assert.Contains("Source provider:", error);
         Assert.Contains("## Decompiled Source", output);
+        Assert.Contains("## Source", output);
         Assert.Contains("## Annotated Source", output);
         Assert.Contains("## IL", output);
         Assert.DoesNotContain("## Lowered Source", output);
