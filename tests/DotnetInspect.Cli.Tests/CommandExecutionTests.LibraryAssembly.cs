@@ -77,14 +77,16 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Library_FixedOverviewCountValidatesFieldProjection()
+    public async Task Library_InventoryCountValidatesFieldProjection()
     {
         var invalid = await RunAppAsync(
             "library", TestAssemblyPath,
-            "-S", "--count", "--fields", "NoSuchField", "--tips", "q");
+            "-S", SectionNames.References,
+            "--count", "--fields", "NoSuchField", "--tips", "q");
         var valid = await RunAppAsync(
             "library", TestAssemblyPath,
-            "-S", "--count", "--fields", "Name", "--tips", "q");
+            "-S", SectionNames.References,
+            "--count", "--fields", "Name", "--tips", "q");
 
         Assert.Equal(1, invalid.Exit);
         Assert.Empty(invalid.Output);
@@ -92,7 +94,13 @@ public partial class CommandExecutionTests
 
         Assert.Equal(0, valid.Exit);
         Assert.Empty(valid.Error);
-        Assert.Contains("| Library Info | 1 |", valid.Output);
+        Assert.True(
+            int.TryParse(
+                valid.Output.Trim(),
+                NumberStyles.None,
+                CultureInfo.InvariantCulture,
+                out int count)
+            && count > 0);
     }
 
     [Fact]
@@ -102,8 +110,8 @@ public partial class CommandExecutionTests
         try
         {
             var (libraryExit, libraryOutput, libraryError) = await RunAppAsync(
-                "library", "System.Text.Json",
-                "-S", "References,Library Info",
+                "library", TestAssemblyPath,
+                "-S", "References,Async Methods",
                 "--count", "--tree", "--tips", "q");
             var (packageExit, packageOutput, packageError) = await RunAppAsync(
                 "package", packagePath,
@@ -112,10 +120,10 @@ public partial class CommandExecutionTests
 
             Assert.Equal(1, libraryExit);
             Assert.Empty(libraryOutput);
-            Assert.Contains("exactly one", libraryError);
+            Assert.Contains("requires exactly", libraryError);
             Assert.Equal(1, packageExit);
             Assert.Empty(packageOutput);
-            Assert.Contains("exactly one", packageError);
+            Assert.Contains("requires exactly", packageError);
         }
         finally
         {
@@ -124,24 +132,50 @@ public partial class CommandExecutionTests
     }
 
     /// <summary>
-    /// Bare <c>-S</c> is a selection, so <c>--count</c> over it is well-defined (#3547). The
-    /// curated route carries that selection as a flag rather than as an include set, so this also
-    /// gates that the <c>--count</c> requirement reads the selection and not just the set.
+    /// A package Library aggregate is inventory-shaped, so bare <c>-S --count</c> remains
+    /// well-defined even though the same gesture is invalid for one exact scalar Library.
     /// </summary>
     [Fact]
-    public async Task Library_BareSelectCount_EmitsFixedOverviewMap()
+    public async Task
+        Library_PackageAggregateBareSelectCount_EmitsFixedOverviewMap()
     {
-        var (exit, output, error) = await RunAppAsync(
-            "library", "System.Text.Json", "-S", "--count", "--tips", "q");
+        var (packagePath, tempDir) = CreateLocalLayoutPackage();
+        try
+        {
+            var (exit, output, error) = await RunAppAsync(
+                "library", "--package", packagePath, "--tfm", "net8.0",
+                "-S", "--count", "--tips", "q");
+            var aggregate = await RunAppAsync(
+                "library", "--package", packagePath, "--tfm", "net8.0",
+                "-S", SectionNames.LibraryInfo,
+                "--count", "--tips", "q");
+            var packageAggregate = await RunAppAsync(
+                "package", packagePath, "--library", "--tfm", "net8.0",
+                "-S", SectionNames.LibraryInfo,
+                "--count", "--tips", "q");
 
-        Assert.Equal(0, exit);
-        Assert.Empty(error);
-        Assert.Contains("| Section | Count |", output);
+            Assert.Equal(0, exit);
+            Assert.Empty(error);
+            Assert.Contains("| Section | Count |", output);
 
-        var expected = LibrarySections.CreatePipeline().BareSelectSectionNames;
-        Assert.True(expected.Length > 1, "The overview must name several sections for a map to be the right answer.");
-        foreach (var section in expected)
-            Assert.Contains($"| {section} |", output);
+            var expected =
+                LibrarySections.CreatePipeline().BareSelectSectionNames;
+            Assert.True(
+                expected.Length > 1,
+                "The overview must name several sections for a map to be the right answer.");
+            foreach (var section in expected)
+                Assert.Contains($"| {section} |", output);
+
+            Assert.Equal(0, aggregate.Exit);
+            Assert.Equal(0, packageAggregate.Exit);
+            Assert.Empty(aggregate.Error);
+            Assert.Empty(packageAggregate.Error);
+            Assert.Equal(packageAggregate.Output, aggregate.Output);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
     }
 
     /// <summary>
@@ -154,30 +188,90 @@ public partial class CommandExecutionTests
     /// <c>Package_BareSelectCount_EmitsFixedOverviewMapIncludingEmptySections</c>.
     /// </summary>
     [Fact]
-    public async Task Library_BareSelectCount_MapDescribesTheBareSelectRender()
+    public async Task
+        Library_PackageAggregateBareSelectCount_MapDescribesRender()
     {
-        var (renderExit, renderOutput, _) = await RunAppAsync(
-            "library", "System.Text.Json", "-S", "--tips", "q");
-        Assert.Equal(0, renderExit);
+        var (packagePath, tempDir) = CreateLocalLayoutPackage();
+        try
+        {
+            var (renderExit, renderOutput, _) = await RunAppAsync(
+                "library", "--package", packagePath, "--tfm", "net8.0",
+                "-S", "--tips", "q");
+            Assert.Equal(0, renderExit);
 
-        var rendered = renderOutput.ReplaceLineEndings("\n").Split('\n')
-            .Where(line => line.StartsWith("## ", StringComparison.Ordinal))
-            .Select(line => line[3..].Trim())
-            .ToList();
-        Assert.True(rendered.Count > 1, "The overview must render several sections for a map to be the right answer.");
+            var rendered = renderOutput.ReplaceLineEndings("\n").Split('\n')
+                .Where(line => line.StartsWith("## ", StringComparison.Ordinal))
+                .Select(line =>
+                    line[3..]
+                        .Split(" (", 2, StringSplitOptions.None)[0]
+                        .Trim())
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
+            Assert.True(
+                rendered.Count > 1,
+                "The overview must render several sections for a map to be the right answer.");
 
-        var (countExit, countOutput, _) = await RunAppAsync(
-            "library", "System.Text.Json", "-S", "--count", "--tips", "q");
-        Assert.Equal(0, countExit);
+            var (countExit, countOutput, _) = await RunAppAsync(
+                "library", "--package", packagePath, "--tfm", "net8.0",
+                "-S", "--count", "--tips", "q");
+            Assert.Equal(0, countExit);
 
-        var mapped = countOutput.ReplaceLineEndings("\n").Split('\n')
-            .Where(line => line.StartsWith("| ", StringComparison.Ordinal))
-            .Select(line => line.Split('|')[1].Trim())
-            .Where(name => name.Length > 0 && name != "Section" && !name.StartsWith('-'))
-            .ToList();
+            var mapped = countOutput.ReplaceLineEndings("\n").Split('\n')
+                .Where(line => line.StartsWith("| ", StringComparison.Ordinal))
+                .Select(line => line.Split('|')[1].Trim())
+                .Where(name =>
+                    name.Length > 0
+                    && name != "Section"
+                    && !name.StartsWith('-'))
+                .ToList();
 
-        Assert.Equal(mapped.Distinct().Count(), mapped.Count);
-        Assert.Equal(rendered.Order(), mapped.Order());
+            Assert.Equal(mapped.Distinct().Count(), mapped.Count);
+            Assert.Equal(rendered.Order(), mapped.Order());
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task
+        Library_RealPackageAggregateCountMatchesPackageRoute()
+    {
+        string packagePath = Path.Combine(
+            AppContext.BaseDirectory,
+            "RealAssets",
+            "ApiMatching",
+            "avalonia.11.3.14.nupkg");
+        var aggregate = await RunAppAsync(
+            "library",
+            "--package",
+            packagePath,
+            "--tfm",
+            "net8.0",
+            "-S",
+            SectionNames.LibraryInfo,
+            "--count",
+            "--tips",
+            "q");
+        var packageAggregate = await RunAppAsync(
+            "package",
+            packagePath,
+            "--library",
+            "--tfm",
+            "net8.0",
+            "-S",
+            SectionNames.LibraryInfo,
+            "--count",
+            "--tips",
+            "q");
+
+        Assert.Equal(0, aggregate.Exit);
+        Assert.Equal(0, packageAggregate.Exit);
+        Assert.Empty(aggregate.Error);
+        Assert.Empty(packageAggregate.Error);
+        Assert.Equal("295", aggregate.Output.Trim());
+        Assert.Equal(packageAggregate.Output, aggregate.Output);
     }
 
     [Fact]
@@ -410,6 +504,26 @@ public partial class CommandExecutionTests
             "1",
             "--tips",
             "q");
+        var defaultCount = await RunAppAsync(
+            "library",
+            "missing-library-info-default-count.dll",
+            "--count",
+            "--tips",
+            "q");
+        var defaultRows = await RunAppAsync(
+            "library",
+            "missing-library-info-default-rows.dll",
+            "--rows",
+            "1",
+            "--tips",
+            "q");
+        var existingDefaultRows = await RunAppAsync(
+            "library",
+            TestAssemblyPath,
+            "--rows",
+            "1",
+            "--tips",
+            "q");
         var packageCount = await RunAppAsync(
             "library",
             "missing-library-info-package-count.dll",
@@ -436,6 +550,10 @@ public partial class CommandExecutionTests
             "does not exist",
             count.Error,
             StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "File not found",
+            count.Error,
+            StringComparison.Ordinal);
 
         Assert.Equal(1, rows.Exit);
         Assert.Empty(rows.Output);
@@ -451,6 +569,10 @@ public partial class CommandExecutionTests
             "does not exist",
             rows.Error,
             StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "File not found",
+            rows.Error,
+            StringComparison.Ordinal);
 
         foreach (var result in new[]
         {
@@ -458,6 +580,7 @@ public partial class CommandExecutionTests
             rowsWithAllTfm,
             mixedCount,
             fixedOverviewCount,
+            defaultCount,
             packageCount,
         })
         {
@@ -471,12 +594,18 @@ public partial class CommandExecutionTests
                 "does not exist",
                 result.Error,
                 StringComparison.Ordinal);
+            Assert.DoesNotContain(
+                "File not found",
+                result.Error,
+                StringComparison.Ordinal);
         }
 
         foreach (var result in new[]
         {
             mixedRows,
             fixedOverviewRows,
+            defaultRows,
+            existingDefaultRows,
         })
         {
             Assert.Equal(1, result.Exit);
@@ -491,6 +620,10 @@ public partial class CommandExecutionTests
                 StringComparison.Ordinal);
             Assert.DoesNotContain(
                 "does not exist",
+                result.Error,
+                StringComparison.Ordinal);
+            Assert.DoesNotContain(
+                "File not found",
                 result.Error,
                 StringComparison.Ordinal);
         }

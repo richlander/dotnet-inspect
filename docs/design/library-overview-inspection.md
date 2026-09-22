@@ -325,12 +325,13 @@ The complete initial operation adoption has six owner-scoped steps:
    envelope through direct-Library realization and an ephemeral Workspace.
    Reject Count and semantic row selection before acquisition whenever a
    single-Library effective selection contains scalar `Library Info`, including
-   mixed and fixed-overview selections, while preserving `-n` rendered-line
-   clipping. Reject
+   implicit default, mixed, and fixed-overview selections, while preserving
+   `-n` rendered-line clipping. Reject
    package, Platform, Workspace, and NuGet-source controls that cannot affect
    this direct-file-only envelope path rather than silently ignoring them.
-   Only the actual package-backed all-TFM operation retains its independently
-   declared aggregate cardinality; raw `--tfm all` text does not reclassify an
+   Package-backed aggregate operations retain their independently declared
+   cardinality, including all compile Libraries for one TFM and one exact
+   Package Library across all TFMs. Raw `--tfm all` text does not reclassify an
    exact direct or Platform Library.
 4. Adopt the same operation for the PackageHouse CLI route.
 5. Adopt the same operation for the PlatformHouse CLI route.
@@ -389,9 +390,10 @@ provides Release gates for:
 
 `DotnetInspect.Cli.Tests.CommandExecutionTests` provides the production-host
 gate `Library_SingleLibraryInfoHasNoRowsOrCount`: single-Library `Library Info`
-Count and semantic row selection fail before source acquisition for exact,
-mixed, fixed-overview, and Package gestures, while an accepted `--trace`
-request still reports its trace. The adjacent
+Count and semantic row selection fail before source acquisition for implicit
+default, exact, mixed, fixed-overview, and exact-Package gestures, while an
+accepted `--trace` request still reports its trace. Package-backed aggregate
+gestures retain their separately declared inventory cardinality. The adjacent
 `Library_SingleLibraryInfoSupportsRenderedLineSelection` gate preserves `-n`
 as scalar presentation clipping rather than semantic Rows.
 

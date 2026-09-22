@@ -1819,9 +1819,9 @@ public partial class LibraryCommand
         LibraryOptions options)
     {
         if (IsAllTfmPackageSelection(options)
-            || !options.FixedOverview
-                && options.IncludeSections?.Contains(
-                    SectionNames.LibraryInfo) != true)
+            || options.IncludeSections is { } sections
+                && !options.FixedOverview
+                && !sections.Contains(SectionNames.LibraryInfo))
         {
             return false;
         }
@@ -1834,7 +1834,8 @@ public partial class LibraryCommand
             LibraryOptions options,
             LibrarySourceBinding source)
     {
-        if (IsAllTfmPackageSelection(options)
+        if (!IsExactLibrarySelection(options, source)
+            || IsAllTfmPackageSelection(options)
             || !options.Count && options.Rows is null
             || !RawSelectionContainsLibraryInfo(options))
         {
@@ -1856,7 +1857,7 @@ public partial class LibraryCommand
             return true;
         }
         if (options.Select is not { Length: > 0 })
-            return options.SelectDefault || options.FixedOverview;
+            return true;
 
         var sections = LibrarySections.CreateCatalog().Sections;
         var selection = SelectResolver.ResolveSelectAsSections(
@@ -1869,6 +1870,13 @@ public partial class LibraryCommand
             && selection.Sections?.Contains(
                 SectionNames.LibraryInfo) == true;
     }
+
+    private static bool IsExactLibrarySelection(
+        LibraryOptions options,
+        LibrarySourceBinding source) =>
+        source.Selector is not SourceSelector.PackageSource
+        || options.NamesakeLibrary
+        || !string.IsNullOrWhiteSpace(options.AssemblyName);
 
     private static bool WriteSingleLibraryInfoCardinalityError(
         LibraryOptions options)
