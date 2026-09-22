@@ -561,9 +561,7 @@ public partial class PackageCommand
     }
 
     private static string GetVersionQueryLens(InspectionOptions options) =>
-        options.ForceLatest
-            ? "--latest-version"
-            : options.SingleVersionQuery
+        options.SingleVersionQuery
             ? "--version"
             : options.ListVersionsWithFeed
                 ? "--versions-with-feed"

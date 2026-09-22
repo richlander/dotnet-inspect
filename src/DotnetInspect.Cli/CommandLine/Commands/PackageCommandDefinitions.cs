@@ -129,10 +129,11 @@ public static class PackageCommandDefinitions
                 "Select an exact Package version",
             Arity = ArgumentArity.ExactlyOne,
         };
+        // Removed and reserved: the token is recognized only so the parser can reject
+        // it with its replacement instead of rebinding it as an option value.
         var latestVersionOption = new Option<bool>("--latest-version")
         {
-            Description =
-                "Show the latest stable version from eligible configured sources (add --preview for prerelease)",
+            Hidden = true,
             Arity = ArgumentArity.Zero,
         };
         packageCommand.Arguments.Add(packageNameArg);
