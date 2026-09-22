@@ -3,7 +3,6 @@ using System.Runtime.ExceptionServices;
 using DotnetInspect.Cli.CommandLine;
 using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Output;
-using DotnetInspect.Cli.Sections;
 using DotnetInspector.Libraries;
 using DotnetInspector.Queries;
 using DotnetInspector.Sections;
@@ -34,20 +33,9 @@ internal static class DirectLibraryOverviewCommand
                 LibraryOverviewInspectionJsonContext.Default
                     .LibraryOverviewOutcome);
 
-    private static readonly InspectionEnvelopeJsonContract<int>
-        s_countJson =
-            new(
-                "library-overview-count",
-                1,
-                static (writer, count) =>
-                    writer.WriteNumberValue(count));
-
     internal static bool ShouldExecute(
-        LibraryOptions options,
-        LibrarySourceBinding source) =>
-        options.EnvelopeOutput
-        || source.Selector is SourceSelector.Library
-            && IsExactLibraryInfoCount(options);
+        LibraryOptions options) =>
+        options.EnvelopeOutput;
 
     internal static async Task<int> ExecuteAsync(
         LibraryOptions options,
@@ -62,14 +50,19 @@ internal static class DirectLibraryOverviewCommand
                     + "assembly file.");
             return 1;
         }
-        if (options.Count && !IsExactLibraryInfoCount(options))
+        if (options.Count)
         {
             CommandError.Write(
-                "Library overview --count requires exactly "
-                    + $"-S \"{SectionNames.LibraryInfo}\".");
+                "The scalar Library overview does not support --count.");
             return 1;
         }
-        if (!options.Count && HasSectionSelection(options))
+        if (options.Rows is not null)
+        {
+            CommandError.Write(
+                "The scalar Library overview does not support --rows.");
+            return 1;
+        }
+        if (HasSectionSelection(options))
         {
             CommandError.Write(
                 "Library overview --envelope does not accept section "
@@ -106,7 +99,7 @@ internal static class DirectLibraryOverviewCommand
             return 1;
         }
 
-        LibraryOverviewCliResult? result = null;
+        InspectionEnvelope<LibraryOverviewOutcome>? result = null;
         string? terminalFailure = null;
         ExceptionDispatchInfo? primaryFailure = null;
         List<string> cleanupFailures = [];
@@ -170,18 +163,11 @@ internal static class DirectLibraryOverviewCommand
                     var request = new LibraryOverviewRequest(
                         available.Reference,
                         s_bounds);
-                    result = options.Count
-                        ? new LibraryOverviewCliResult.Count(
-                            LibraryOverviewInspectionOperation
-                                .ExecuteCount(
-                                    request,
-                                    operation.Lease,
-                                    cancellationToken))
-                        : new LibraryOverviewCliResult.Rows(
-                            LibraryOverviewInspectionOperation.Execute(
-                                request,
-                                operation.Lease,
-                                cancellationToken));
+                    result =
+                        LibraryOverviewInspectionOperation.Execute(
+                            request,
+                            operation.Lease,
+                            cancellationToken);
                 }
             }
         }
@@ -268,27 +254,14 @@ internal static class DirectLibraryOverviewCommand
             return 1;
         }
 
-        return Write(
+        return WriteEnvelope(
             result
             ?? throw new InvalidOperationException(
                 "Direct Library overview produced no terminal result."),
             options);
     }
 
-    private static int Write(
-        LibraryOverviewCliResult result,
-        LibraryOptions options) =>
-        result switch
-        {
-            LibraryOverviewCliResult.Rows rows =>
-                WriteRows(rows.Inspection, options),
-            LibraryOverviewCliResult.Count count =>
-                WriteCount(count.Result, options),
-            _ => throw new InvalidOperationException(
-                "Unknown direct Library overview result."),
-        };
-
-    private static int WriteRows(
+    private static int WriteEnvelope(
         InspectionEnvelope<LibraryOverviewOutcome> envelope,
         LibraryOptions options)
     {
@@ -304,50 +277,6 @@ internal static class DirectLibraryOverviewCommand
                 is LibraryOverviewOutcome.Available
                     ? 0
                     : 1;
-    }
-
-    private static int WriteCount(
-        LibraryOverviewCountResult result,
-        LibraryOptions options)
-    {
-        if (result
-            is LibraryOverviewCountResult.NotAvailable notAvailable)
-        {
-            if (options.EnvelopeOutput)
-            {
-                InspectionEnvelopeOutput.TryWrite(
-                    notAvailable.Inspection,
-                    s_overviewJson,
-                    includeEnvelope: true,
-                    options.CompactJson,
-                    options.OutputPath);
-            }
-            WriteDiagnostics(
-                notAvailable.Inspection.Diagnostics);
-            return 1;
-        }
-
-        InspectionEnvelope<int> envelope =
-            ((LibraryOverviewCountResult.Completed)result)
-                .Inspection;
-        WriteDiagnostics(envelope.Diagnostics);
-        if (!options.EnvelopeOutput)
-        {
-            CountOutput.WriteCount(
-                envelope.Content,
-                options.OutputPath);
-            return 0;
-        }
-
-        ProjectionAudit.MarkHonored(ProjectionAudit.Count);
-        return InspectionEnvelopeOutput.TryWrite(
-            envelope,
-            s_countJson,
-            includeEnvelope: true,
-            options.CompactJson,
-            options.OutputPath)
-                ? 0
-                : 1;
     }
 
     private static void WriteDiagnostics(
@@ -373,24 +302,6 @@ internal static class DirectLibraryOverviewCommand
             }
         }
     }
-
-    private static bool IsExactLibraryInfoCount(
-        LibraryOptions options) =>
-        options.Count
-        && options.Rows is null
-        && options.Columns is null
-        && options.Fields is null
-        && !options.SelectDefault
-        && (options.Select is [var selected]
-                && string.Equals(
-                    selected,
-                    SectionNames.LibraryInfo,
-                    StringComparison.OrdinalIgnoreCase)
-            || options.Select is null
-                && options.IncludeSections is { Count: 1 }
-                    sections
-                && sections.Contains(
-                    SectionNames.LibraryInfo));
 
     private static bool HasSectionSelection(
         LibraryOptions options) =>
@@ -442,19 +353,4 @@ internal static class DirectLibraryOverviewCommand
             _ => throw new InvalidOperationException(
                 "Unknown direct Library realization result."),
         };
-
-    private abstract record LibraryOverviewCliResult
-    {
-        private LibraryOverviewCliResult()
-        {
-        }
-
-        internal sealed record Rows(
-            InspectionEnvelope<LibraryOverviewOutcome> Inspection)
-            : LibraryOverviewCliResult;
-
-        internal sealed record Count(
-            LibraryOverviewCountResult Result)
-            : LibraryOverviewCliResult;
-    }
 }

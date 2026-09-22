@@ -404,6 +404,7 @@ public static class InspectionCommandDefinitions
             opts.Lines,
             opts.TailLines,
             opts.Trace,
+            opts.Count,
             opts.Effective,
             referencesOption,
             dependenciesOption,
@@ -432,24 +433,12 @@ public static class InspectionCommandDefinitions
             if (!result.GetValue(opts.Envelope))
                 return;
 
-            string? selected = result.GetValue(opts.Select);
-            bool count = result.GetValue(opts.Count);
-            if (!count && selected is not null)
+            if (result.GetResult(opts.Select)
+                is { Implicit: false })
             {
                 result.AddError(
                     "library --envelope does not accept section "
-                        + "selection unless --count selects "
-                        + $"\"{SectionNames.LibraryInfo}\".");
-            }
-            else if (count
-                && !string.Equals(
-                        selected,
-                        SectionNames.LibraryInfo,
-                        StringComparison.OrdinalIgnoreCase))
-            {
-                result.AddError(
-                    "library --envelope --count requires exactly "
-                        + $"-S \"{SectionNames.LibraryInfo}\".");
+                        + "selection.");
             }
         });
         assemblyCommand.Subcommands.Add(

@@ -155,9 +155,7 @@ public partial class LibraryCommand
         }
 
         options = source!.ApplyTo(options);
-        if (DirectLibraryOverviewCommand.ShouldExecute(
-                options,
-                source))
+        if (DirectLibraryOverviewCommand.ShouldExecute(options))
         {
             return await DirectLibraryOverviewCommand.ExecuteAsync(
                     options,
@@ -510,6 +508,8 @@ public partial class LibraryCommand
             IncludeSections =
                 libraryMetricsSelection.Sections,
         };
+        if (RejectSingleLibraryInfoCardinality(options))
+            return 1;
 
         if (MetadataRootSelectionError(options) is { } metadataRootError)
         {
@@ -1791,6 +1791,40 @@ public partial class LibraryCommand
         CommandError.Write(
             "--count cannot report an exact 'Reference Hierarchy' count because the requested reference evidence is incomplete.");
         return true;
+    }
+
+    private static bool RejectSingleLibraryInfoCardinality(
+        LibraryOptions options)
+    {
+        if (string.Equals(
+                options.Tfm,
+                "all",
+                StringComparison.OrdinalIgnoreCase)
+            || options.IncludeSections is not { Count: 1 }
+                sections
+            || !sections.Contains(SectionNames.LibraryInfo))
+        {
+            return false;
+        }
+
+        if (options.Count)
+        {
+            CommandError.Write(
+                $"Section '{SectionNames.LibraryInfo}' is scalar and "
+                    + "does not support --count.");
+            return true;
+        }
+
+        if (options.Rows is not null)
+        {
+            CommandError.Write(
+                $"Section '{SectionNames.LibraryInfo}' is scalar and "
+                    + "does not support --rows; use -n N to limit "
+                    + "rendered lines.");
+            return true;
+        }
+
+        return false;
     }
 
     internal static int SelectedInspectionFailureExitCode(

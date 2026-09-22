@@ -18,17 +18,17 @@ repository command inventory in
 `DotnetInspector.Sections` owns this claim:
 
 > Given one exact realized Library, a transferred operation lease, and one
-> bounded overview request, resolve its owner-issued QuerySpace Rows or Count
-> terminal, inspect the owner-attested API assembly once, and return a
-> resource-free portable envelope for that terminal after settling the
-> transferred lease on every terminal path. Rows returns
-> `InspectionEnvelope<LibraryOverviewOutcome>`; an available Count returns
-> `InspectionEnvelope<int>` with exact cardinality `1`. A non-available
-> overview remains its typed overview outcome and never becomes a successful
-> zero count.
+> bounded overview request, inspect the owner-attested API assembly once and
+> return one resource-free scalar
+> `InspectionEnvelope<LibraryOverviewOutcome>` after settling the transferred
+> lease on every terminal path.
 
 The available outcome contains one `LibraryOverviewDocument`. Expected cases
 that cannot construct that Document remain typed non-available outcomes.
+The overview is a scalar value under
+[Section cardinality](section-cardinality.md): it exposes neither semantic
+Rows nor semantic Count. Its fields describe one Library; they are not an
+inventory population.
 
 This owner composes existing contracts without redefining them:
 
@@ -97,12 +97,11 @@ envelope crosses the boundary.
 - the exact `LibraryReference`;
 - explicit finite API-surface extraction bounds.
 
-The operation declares one QuerySpace row set containing the overview
-Document. Its row scope admits no predicates, order, or row-selection stages,
-and its operation route admits no query terms. Rows and Count are its only
-terminals. It does not expose section names, verbosity, fields, columns, row
-windows, output format, or Browser navigation. Effective-section discovery
-remains outside this operation.
+The operation accepts one complete request and returns one scalar envelope. It
+does not declare a QuerySpace row set or admit Count, predicates, ordering, or
+semantic row selection. It does not expose section names, verbosity, fields,
+columns, line windows, output format, or Browser navigation.
+Effective-section discovery remains outside this operation.
 
 The overview always inspects the public API assembly and reports the complete
 bounded summary defined below. A host cannot request only the assembly name to
@@ -161,11 +160,10 @@ The total public-member count is the checked 64-bit sum of method, property,
 event, and field counts. It is presentation-independent summary data, not a
 second scan or a count of rendered rows.
 
-The complete Document is also the operation's one declared logical row. Its
-Count cardinality is therefore `1`, independently of how many property lines
-a host renders from it. Count is derived by the shared QuerySpace-to-Sections
-executor over that declaration; the operation and its hosts do not count
-rendered lines or hard-code a presentation-specific result.
+The complete Document is one scalar value. Its properties do not form logical
+Rows, and the value does not have semantic Count `1`. A host may render its
+properties as field/value pairs or lines and may clip those rendered lines,
+but neither presentation creates an inventory terminal.
 
 ### Non-available outcomes
 
@@ -191,10 +189,6 @@ same-named assembly.
 `Failed` preserves unsupported or malformed managed content, a managed module,
 Windows Metadata, or an empty module-version identity. These cases do not
 become an available zero-count Document.
-
-Count is applied only after an available complete Document exists.
-`Incomplete`, `Rejected`, and `Failed` preserve the original typed overview
-envelope and produce no successful `InspectionEnvelope<int>`.
 
 Cancellation and unexpected implementation failure produce no envelope.
 They propagate only after the transferred operation lease has settled.
@@ -327,9 +321,10 @@ The complete initial operation adoption has six owner-scoped steps:
 2. Implement the request, portable outcome and Document, envelope assembly,
    required non-projectable Share, diagnostics, and lease settlement in
    `DotnetInspector.Sections`.
-3. Adopt the operation for one ordinary direct-file CLI Library overview and
-   its exact `Library Info --count` projection through direct-Library
-   realization and an ephemeral Workspace.
+3. Adopt the operation for one direct-file CLI scalar Library-overview
+   envelope through direct-Library realization and an ephemeral Workspace.
+   Reject Count and semantic row selection for single-Library `Library Info`
+   before acquisition while preserving `-n` rendered-line clipping.
 4. Adopt the same operation for the PackageHouse CLI route.
 5. Adopt the same operation for the PlatformHouse CLI route.
 6. Consume the same envelope in Inspect Web's Library overview, then retire
@@ -366,9 +361,8 @@ provides Release gates for:
 
 - real `System.Text.Json` produces the expected managed identity, non-empty
   MVID, public API counts, measured work, and finite bounds;
-- the available Document is one declared QuerySpace row, Rows preserves it,
-  and Count produces exact cardinality `1`;
-- non-available outcomes do not produce a successful zero count;
+- the available Document remains one detached scalar value rather than a
+  declared row population;
 - equivalent independently realized Libraries produce equal portable
   Documents without accepting one another's leases;
 - each Library operation lease is settled on available, incomplete, rejected,
@@ -385,6 +379,13 @@ provides Release gates for:
   outcome; and
 - cancellation and validation failure settle transferred authority before
   propagating.
+
+`DotnetInspect.Cli.Tests.CommandExecutionTests` provides the production-host
+gate `Library_SingleLibraryInfoHasNoRowsOrCount`: exact single-Library
+`Library Info` Count and semantic row selection fail before source acquisition,
+while an accepted `--trace` request still reports its trace. The adjacent
+`Library_SingleLibraryInfoSupportsRenderedLineSelection` gate preserves `-n`
+as scalar presentation clipping rather than semantic Rows.
 
 The production-adoption claims remain **unverified** until their later Release
 gates prove:
@@ -410,8 +411,8 @@ This owner does not define:
 - Library reference, content role, borrowing, or retirement semantics;
 - Metadata grammar, API extraction, identity, MVID, or extraction bounds;
 - full API inventory, Library Query, or exact Type/Member inspection;
-- section catalogs, effective discovery, row selection, Analysis, Source,
-  Documentation, ecosystem, or Finding semantics;
+- section catalogs, effective discovery, inventory row selection, Analysis,
+  Source, Documentation, ecosystem, or Finding semantics;
 - CLI syntax, default verbosity, Browser navigation, rendering, or JSON
   transport;
 - available Share projection or its Workspace/request association;

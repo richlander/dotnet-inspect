@@ -337,45 +337,79 @@ public partial class CommandExecutionTests
 
     [Fact]
     public async Task
-        Library_DirectLibraryInfoCount_UsesOneLogicalOverviewRow()
+        Library_SingleLibraryInfoHasNoRowsOrCount()
     {
-        var scalar = await RunAppAsync(
+        var count = await RunAppAsync(
+            "library",
+            "missing-library-info-count.dll",
+            "-S",
+            SectionNames.LibraryInfo,
+            "--count",
+            "--trace",
+            "--tips",
+            "q");
+        var rows = await RunAppAsync(
+            "library",
+            "missing-library-info-rows.dll",
+            "-S",
+            SectionNames.LibraryInfo,
+            "--rows",
+            "1",
+            "--tips",
+            "q");
+
+        Assert.Equal(1, count.Exit);
+        Assert.Empty(count.Output);
+        Assert.Contains(
+            "is scalar and does not support --count",
+            count.Error,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "trace: library",
+            count.Error,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "does not exist",
+            count.Error,
+            StringComparison.Ordinal);
+
+        Assert.Equal(1, rows.Exit);
+        Assert.Empty(rows.Output);
+        Assert.Contains(
+            "is scalar and does not support --rows",
+            rows.Error,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "use -n N to limit rendered lines",
+            rows.Error,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "does not exist",
+            rows.Error,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task
+        Library_SingleLibraryInfoSupportsRenderedLineSelection()
+    {
+        var (exit, output, error) = await RunAppAsync(
             "library",
             TestAssemblyPath,
             "-S",
             SectionNames.LibraryInfo,
-            "--count",
-            "--tips",
-            "q");
-        var envelope = await RunAppAsync(
-            "library",
-            TestAssemblyPath,
-            "-S",
-            SectionNames.LibraryInfo,
-            "--count",
-            "--envelope",
-            "--compact",
+            "-n",
+            "3",
             "--tips",
             "q");
 
-        Assert.Equal(0, scalar.Exit);
-        Assert.Equal("1", scalar.Output.Trim());
-        Assert.Empty(scalar.Error);
-
-        Assert.Equal(0, envelope.Exit);
-        Assert.Empty(envelope.Error);
-        using JsonDocument json =
-            JsonDocument.Parse(envelope.Output);
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
         Assert.Equal(
-            "library-overview-count",
-            json.RootElement
-                .GetProperty("result_kind")
-                .GetString());
-        Assert.Equal(
-            1,
-            json.RootElement
-                .GetProperty("content")
-                .GetInt32());
+            3,
+            output.TrimEnd()
+                .Split('\n')
+                .Length);
     }
 
     [Fact]
@@ -463,13 +497,11 @@ public partial class CommandExecutionTests
             "Definitely.No.Such.Package",
             "--tips",
             "q");
-        var countSection = await RunAppAsync(
+        var count = await RunAppAsync(
             "library",
             "missing.dll",
             "--envelope",
             "--count",
-            "-S",
-            SectionNames.References,
             "--tips",
             "q");
 
@@ -495,15 +527,15 @@ public partial class CommandExecutionTests
             package.Error,
             StringComparison.Ordinal);
 
-        Assert.Equal(1, countSection.Exit);
-        Assert.Empty(countSection.Output);
+        Assert.Equal(1, count.Exit);
+        Assert.Empty(count.Output);
         Assert.Contains(
-            "--envelope --count requires exactly",
-            countSection.Error,
+            "--envelope cannot be combined with --count",
+            count.Error,
             StringComparison.Ordinal);
         Assert.DoesNotContain(
             "does not exist",
-            countSection.Error,
+            count.Error,
             StringComparison.Ordinal);
     }
 
