@@ -259,11 +259,11 @@ test("application menu renders exact conditional inventory", () => {
   assert.match(button, /aria-haspopup="menu"/);
   assert.match(
     withShare,
-    /data-application-action="share"[\s\S]*role="separator"[\s\S]*data-application-action="settings"[\s\S]*data-application-action="keyboard-help"/);
-  assert.doesNotMatch(withoutShare, /data-application-action="share"|role="separator"/);
+    /data-application-action="open-library"[\s\S]*role="separator"[\s\S]*data-application-action="share"[\s\S]*role="separator"[\s\S]*data-application-action="settings"[\s\S]*data-application-action="keyboard-help"/);
+  assert.doesNotMatch(withoutShare, /data-application-action="share"/);
   assert.match(
     withoutShare,
-    /data-application-action="settings"[\s\S]*data-application-action="keyboard-help"/);
+    /data-application-action="open-library"[\s\S]*role="separator"[\s\S]*data-application-action="settings"[\s\S]*data-application-action="keyboard-help"/);
 });
 
 test("application menu follows menu-button keyboard and dismissal behavior", () => {
@@ -271,14 +271,16 @@ test("application menu follows menu-button keyboard and dismissal behavior", () 
   const button = root.add("#application-menu-button");
   const menu = root.add("#application-menu");
   menu.hidden = true;
+  const open = root.element({ applicationAction: "open-library" });
   const share = root.element({ applicationAction: "share" });
   const settings = root.element({ applicationAction: "settings" });
   const help = root.element({ applicationAction: "keyboard-help" });
+  open.hidden = false;
   share.hidden = false;
   settings.hidden = false;
   help.hidden = false;
-  menu.addAll('[role="menuitem"]', share, settings, help);
-  menu.addAll("[data-application-action]", share, settings, help);
+  menu.addAll('[role="menuitem"]', open, share, settings, help);
+  menu.addAll("[data-application-action]", open, share, settings, help);
   root.addAll(
     'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
     button);
@@ -295,14 +297,14 @@ test("application menu follows menu-button keyboard and dismissal behavior", () 
   assert.equal(button.dispatch("keydown", { key: "ArrowDown" }), true);
   assert.equal(menu.hidden, false);
   assert.equal(button.getAttribute("aria-expanded"), "true");
-  assert.equal(share.focused, true);
+  assert.equal(open.focused, true);
 
   menu.dispatch("keydown", { key: "ArrowDown" });
-  assert.equal(settings.focused, true);
+  assert.equal(share.focused, true);
   menu.dispatch("keydown", { key: "End" });
   assert.equal(help.focused, true);
   menu.dispatch("keydown", { key: "ArrowDown" });
-  assert.equal(share.focused, true);
+  assert.equal(open.focused, true);
   assert.equal(menu.dispatch("keydown", { key: "Escape" }), true);
   assert.equal(menu.hidden, true);
   assert.equal(button.focused, true);
@@ -424,19 +426,22 @@ test("workbench search focus stays with the shell selector owner", () => {
     false);
 });
 
-test("home shell opens the product demo catalog", () => {
+test("home shell opens libraries and the product demo catalog", () => {
   const root = new FakeRoot();
   const theme = root.element();
   const dismiss = root.element();
   const demos = root.element();
+  const library = root.element();
   root.add("#home-theme", theme);
   root.add("#dismiss-notice", dismiss);
   root.add("#home-demos", demos);
+  root.add("#home-open-library", library);
   const calls: string[] = [];
 
   bindHomeShell(fakeDom.parentNode(root), {
     onDismissNotice: () => calls.push("dismiss"),
     onOpenDemos: () => calls.push("demos"),
+    onOpenLibrary: () => calls.push("library"),
     onToggleTheme: () => calls.push("theme"),
   });
 
@@ -446,6 +451,8 @@ test("home shell opens the product demo catalog", () => {
   assert.deepEqual(calls, ["theme", "dismiss"]);
   demos.dispatch("click");
   assert.deepEqual(calls, ["theme", "dismiss", "demos"]);
+  library.dispatch("click");
+  assert.deepEqual(calls, ["theme", "dismiss", "demos", "library"]);
 });
 
 test("load error shell parses replacement packages and owns local detail state", () => {
@@ -504,6 +511,7 @@ test("shell bindings tolerate inactive surfaces", () => {
   assert.doesNotThrow(() => bindHomeShell(root, {
     onDismissNotice() {},
     onOpenDemos() {},
+    onOpenLibrary() {},
     onToggleTheme() {},
   }));
   assert.doesNotThrow(() => bindLoadErrorShell(root, {

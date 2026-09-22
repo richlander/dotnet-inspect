@@ -1,5 +1,6 @@
 using System.Collections.Immutable;
 using DotnetInspector.Libraries;
+using DotnetInspector.Packages;
 using DotnetInspector.Services;
 using DotnetInspector.SourceHouse;
 using ILInspector.Metadata;
@@ -47,7 +48,8 @@ public static partial class AssemblyContextSourceQuery
                     : SourceHouseMemberSourceForm.DeclarationText),
             operationName: "member-source", limits, timeout, cancellationToken,
             retainLibrary,
-            retainedOperationLimits)
+            retainedOperationLimits,
+            pdbEvidence: null)
             .ConfigureAwait(false);
         PdbMemberSourceInspection inspection = authored switch
         {
@@ -82,7 +84,8 @@ public static partial class AssemblyContextSourceQuery
         SourceHouseLimits limits,
         TimeSpan timeout,
         CancellationToken cancellationToken,
-        bool retainLibrary = true)
+        bool retainLibrary = true,
+        PortablePdbAcquisitionEvidenceCollector? pdbEvidence = null)
     {
         var findingSubject = new FindingSubject(
             "type", request.Type.ToMetadataFullName());
@@ -97,7 +100,8 @@ public static partial class AssemblyContextSourceQuery
                 retainLibrary
                 && request.OriginalDocumentPath is null
                 ? context.TypeDecompilationLimits
-                : null).ConfigureAwait(false);
+                : null,
+            pdbEvidence).ConfigureAwait(false);
         try
         {
             PdbTypeSourceInspection inspection = authored switch
@@ -114,6 +118,11 @@ public static partial class AssemblyContextSourceQuery
                     ProjectTypeAuthored(outcome, findingSubject),
                 _ => throw new InvalidOperationException(
                     "Authored source inspection did not settle."),
+            };
+            inspection = inspection with
+            {
+                PortablePdbAvailable =
+                    authored.PortablePdbAvailable,
             };
             if (inspection.IsComplete
                 && authored.Provenance is null
@@ -156,10 +165,14 @@ public static partial class AssemblyContextSourceQuery
         CancellationToken cancellationToken,
         bool retainLibrary,
         SourceHouseDecompilationLimits?
-            retainedOperationLimits)
+            retainedOperationLimits,
+        PortablePdbAcquisitionEvidenceCollector? pdbEvidence)
     {
         var opened = await OpenSourceLinkAsync(
-            retained, context, cancellationToken).ConfigureAwait(false);
+            retained,
+            context,
+            pdbEvidence,
+            cancellationToken).ConfigureAwait(false);
 
         AssemblyContextLibraryPortablePdb? companion = null;
         ImmutableArray<byte>? pdbImage = null;
@@ -167,12 +180,19 @@ public static partial class AssemblyContextSourceQuery
         Exception? provenanceFailure = null;
         Exception? acquisitionFailure = opened.Failure;
         Exception? primaryFailure = null;
+        bool? portablePdbAvailable = null;
         if (opened.Source is { } source)
         {
             try
             {
                 cancellationToken.ThrowIfCancellationRequested();
                 EnsureBindingPolicyVersion(participant, version);
+                portablePdbAvailable =
+                    source.Context.HasPdb
+                        ? true
+                        : source.Context.PdbId is not null
+                            ? false
+                            : null;
                 try
                 {
                     provenance = new(
@@ -222,7 +242,16 @@ public static partial class AssemblyContextSourceQuery
             cancellationToken.ThrowIfCancellationRequested();
             EnsureBindingPolicyVersion(participant, version);
             if (!retainLibrary)
-                return new(AcquisitionFailure: acquisitionFailure);
+            {
+                return new(
+                    AcquisitionFailure: acquisitionFailure)
+                {
+                    PortablePdbAvailable =
+                        acquisitionFailure is null
+                            ? null
+                            : false,
+                };
+            }
         }
 
         ArgumentOutOfRangeException.ThrowIfLessThanOrEqual(timeout, TimeSpan.Zero);
@@ -267,6 +296,8 @@ public static partial class AssemblyContextSourceQuery
                 ProvenanceFailure: provenanceFailure)
             {
                 LibraryFailure = terminal,
+                PortablePdbAvailable =
+                    portablePdbAvailable,
             };
         }
         if (admission is not AssemblyContextLibraryAdapterResult.Completed completed)
@@ -335,6 +366,8 @@ public static partial class AssemblyContextSourceQuery
         {
             HouseOutcome = outcome,
             RetainedLibrary = retainLibrary ? completed : null,
+            PortablePdbAvailable =
+                portablePdbAvailable,
         };
     }
 
@@ -672,5 +705,6 @@ public static partial class AssemblyContextSourceQuery
         public AssemblyContextLibraryAdapterResult.Completed?
             RetainedLibrary
         { get; init; }
+        public bool? PortablePdbAvailable { get; init; }
     }
 }
