@@ -56,6 +56,23 @@ export function publishRetainedWorkspace<TSnapshot>(
   };
 }
 
+export function detachActiveRetainedWorkspace<TSnapshot>(
+  collection: RetainedWorkspaceCollection<TSnapshot>,
+  currentSnapshot: TSnapshot,
+): RetainedWorkspaceCollection<TSnapshot> {
+  const activeWorkspaceId = collection.activeWorkspaceId;
+  if (activeWorkspaceId === null) return collection;
+
+  return {
+    ...collection,
+    activeWorkspaceId: null,
+    workspaces: collection.workspaces.map(workspace =>
+      workspace.id === activeWorkspaceId
+        ? { ...workspace, snapshot: currentSnapshot }
+        : workspace),
+  };
+}
+
 export function activateRetainedWorkspace<TSnapshot>(
   collection: RetainedWorkspaceCollection<TSnapshot>,
   workspaceId: string,

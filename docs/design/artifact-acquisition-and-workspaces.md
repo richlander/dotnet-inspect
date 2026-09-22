@@ -969,6 +969,54 @@ represent incompatible framework or runtime contexts.
 
 The artifact set therefore owns content lifetime but not assembly grouping.
 
+### Embedded managed-Library inspection
+
+One focused operation inspects a caller-supplied immutable managed image as a
+standalone Library. Browser upload is the first production consumer, but the
+operation is host-neutral: its request carries a declared file name, immutable
+bytes, an explicit retained-image bound, and API-projection limits. It carries
+no path, package coordinate, project coordinate, or platform coordinate.
+The declared name is bounded inert display and provenance text; it is not
+normalized or interpreted as a filesystem path, and input that cannot fit the
+declared inert bound is rejected rather than silently truncated.
+
+The operation:
+
+1. rejects empty or over-bound input before descriptor construction;
+2. assigns `AssemblyResolutionProvenance.Embedded` using the declared name and
+   a SHA-256 digest of the supplied bytes;
+3. admits exactly one assembly descriptor, with native images, malformed
+   managed images, netmodules, and Windows Metadata remaining typed
+   rejections;
+4. creates one transient `InspectionWorkspace` and one closed-world
+   `AssemblyContextGroup` containing only that descriptor;
+5. executes the existing bounded assembly-context API-surface query; and
+6. disposes the workspace before returning a resource-free
+   `InspectionEnvelope<EmbeddedLibraryInspectionResult>`.
+
+The returned Content preserves the declared name, digest, byte length,
+embedded provenance, assembly identity, API surface, accessibility buckets,
+completeness, and typed failure. Share is non-projectable because the bytes
+are intentionally session-local. Inspection failures remain visible as
+envelope diagnostics.
+A successful result never implies sibling discovery, dependency acquisition,
+platform closure, package identity, local-file identity, source or PDB
+acquisition, persistence, or restoration.
+
+The Browser host rejects empty input and bounds one upload at 32 MiB before
+materialization and managed dispatch, then reasserts both constraints inside
+the operation. The UI may use the declared bounds to avoid an unnecessary
+browser allocation, but the product operation is the enforcement gate. If
+Browser DTO lowering exceeds its independent retained-text bound or the
+ordinary Worker's serialized-character or collection-entry bound, the Browser
+facade converts that truncation to the same typed `ProjectionTruncated`
+rejection shape; it never serializes partial Library content as available.
+`EmbeddedLibraryInspectionTests` gates
+managed-image projection, upload provenance, byte bounds, native and malformed
+rejection, netmodule rejection, and Windows Metadata rejection. Inspect Web's
+Browser boundary and TypeScript Open tests gate the production call sites and
+Browser transport-truncation rejection.
+
 ### Explicit local/designated/platform assembly context
 
 One focused context shape composes:
@@ -4342,14 +4390,22 @@ another Workspace. Once the operation returns an outcome, Workspace has either
 accepted every supplied authority or settled every Library owner and then the
 Artifact session.
 
-Acceptance issues one `WorkspaceLibraryAdmissionReceipt` and one distinct
-`WorkspaceLibraryOccurrence` per submitted Library. These values record
-physical Workspace admission only. They do not add logical scope membership,
-choose order or replacement, identify an Ecosystem contribution, or change
-Navigation. Repeated admission may therefore issue distinct physical
-occurrences even when source coordinates compare equal. The accepted
-registration revision is historical correspondence for the commit; a later
-registration replacement does not revoke direct use of the admitted Library.
+Acceptance issues one `WorkspaceLibraryAdmissionReceipt`, one distinct
+`WorkspaceLibraryOccurrence` per submitted Library, and one exact
+`WorkspaceLibraryAdmissionRelation` from the Workspace to each occurrence.
+The relation is the Workspace owner's resource-free evidence for the direct
+`Workspace -> Library` structural edge; it retains the exact admission and
+occurrence rather than reconstructing either from Library display or source
+identity. Receipt relation order matches occurrence order one-to-one. These
+values record physical Workspace admission only. They do not add logical scope
+membership, choose order or replacement, identify an Ecosystem or Package
+contribution, choose an active route, or change Navigation. Repeated admission
+therefore issues distinct occurrences and relations even when source
+coordinates compare equal. The accepted registration revision is historical
+correspondence for the commit; a later registration replacement does not
+revoke direct use of the admitted Library or replace its relation. Workspace
+close retires the owned resources but leaves the receipt and relation as
+comparable historical evidence; neither value grants operation authority.
 
 The Workspace issues a `LibraryOperationLease` only for an exact occurrence it
 admitted and only while it remains open. Issuance and close are serialized:
@@ -4363,6 +4419,8 @@ settlement. Cleanup failure is a typed failed outcome rather than a
 success-shaped rejection.
 
 `WorkspaceAdmission_OwnsOperationsAndRetiresOwnersBeforeArtifacts`,
+`WorkspaceAdmission_BatchPreservesOccurrenceRelationOrder`,
+`WorkspaceAdmission_RepeatedLibraryAdmissionIssuesDistinctRelations`,
 `WorkspaceAdmission_RejectsStaleRevisionAndSettlesTransferredResources`,
 `WorkspaceAdmission_RejectsForeignRevisionAndSettlesTransferredResources`, and
 `WorkspaceAdmission_RegistrationChangesDoNotRevokeAcceptedOccurrence` gate

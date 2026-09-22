@@ -1,4 +1,10 @@
 
+using System.Collections.Immutable;
+using System.Diagnostics;
+using System.Net;
+
+using InertText;
+
 namespace DotnetInspector.Packages;
 
 /// <summary>
@@ -11,6 +17,164 @@ public record PdbDownloadResult(
     PortablePdbStoreFailureKind? StoreFailure = null
 );
 
+public enum PortablePdbAcquisitionNetworkRoute
+{
+    MicrosoftSymbolServer,
+    SymbolPackage,
+    SymbolServer,
+}
+
+public enum PortablePdbNetworkAttemptOutcome
+{
+    Succeeded,
+    Unavailable,
+    ResponseRejected,
+    TooLarge,
+    Canceled,
+    Failed,
+}
+
+public sealed record PortablePdbNetworkAttemptEvidence(
+    PortablePdbAcquisitionNetworkRoute Route,
+    InertString Url,
+    int RequestCount,
+    PortablePdbNetworkAttemptOutcome Outcome,
+    HttpStatusCode? StatusCode,
+    long BodyBytesRead,
+    TimeSpan Elapsed);
+
+public enum PortablePdbExternalAcquisitionOutcome
+{
+    NotRequired,
+    Acquired,
+    Unavailable,
+    Canceled,
+    Failed,
+}
+
+public sealed record PortablePdbAcquisitionEvidenceDocument(
+    PortablePdbExternalAcquisitionOutcome Outcome,
+    string? SymbolServer,
+    bool FromCache,
+    bool WindowsPdbDetected,
+    PortablePdbStoreFailureKind? StoreFailure,
+    ImmutableArray<PortablePdbNetworkAttemptEvidence> NetworkAttempts);
+
+public sealed class PortablePdbAcquisitionEvidenceCollector
+{
+    private readonly object _gate = new();
+    private readonly List<PortablePdbNetworkAttemptEvidence> _networkAttempts = [];
+    private PortablePdbExternalAcquisitionOutcome _outcome =
+        PortablePdbExternalAcquisitionOutcome.NotRequired;
+    private string? _symbolServer;
+    private bool _fromCache;
+    private bool _windowsPdbDetected;
+    private PortablePdbStoreFailureKind? _storeFailure;
+
+    internal void RecordNetworkAttempt(
+        PortablePdbAcquisitionNetworkRoute route,
+        string url,
+        int requestCount,
+        PortablePdbNetworkAttemptOutcome outcome,
+        HttpStatusCode? statusCode,
+        long bodyBytesRead,
+        TimeSpan elapsed)
+    {
+        lock (_gate)
+        {
+            _networkAttempts.Add(new(
+                route,
+                NetworkRequestObservation.RedactSensitiveUrlText(url),
+                requestCount,
+                outcome,
+                statusCode,
+                bodyBytesRead,
+                elapsed));
+        }
+    }
+
+    internal void Complete(PortablePdbAcquisitionResult result)
+    {
+        lock (_gate)
+        {
+            _windowsPdbDetected |= result.WindowsPdbDetected;
+            _storeFailure ??= result.StoreFailure;
+            if (result is PortablePdbAcquisitionResult.Acquired acquired)
+            {
+                _outcome =
+                    PortablePdbExternalAcquisitionOutcome.Acquired;
+                _symbolServer = acquired.Pdb.SymbolServer;
+                _fromCache = acquired.Pdb.FromCache;
+            }
+            else
+            {
+                _outcome =
+                    result.AcquisitionFailure is null
+                        ? PortablePdbExternalAcquisitionOutcome.Unavailable
+                        : PortablePdbExternalAcquisitionOutcome.Failed;
+            }
+        }
+    }
+
+    internal void RecordObservations(
+        bool windowsPdbDetected,
+        PortablePdbStoreFailureKind? storeFailure)
+    {
+        lock (_gate)
+        {
+            _windowsPdbDetected |= windowsPdbDetected;
+            _storeFailure ??= storeFailure;
+        }
+    }
+
+    internal void CompleteCanceled()
+    {
+        lock (_gate)
+        {
+            _outcome =
+                PortablePdbExternalAcquisitionOutcome.Canceled;
+        }
+    }
+
+    internal void CompleteFailed()
+    {
+        lock (_gate)
+        {
+            _outcome =
+                PortablePdbExternalAcquisitionOutcome.Failed;
+        }
+    }
+
+    /// <summary>
+    /// Settles acquisition as failed when retained PDB content cannot be
+    /// consumed from the configured store.
+    /// </summary>
+    public void RecordStoreFailure(
+        PortablePdbStoreFailureKind storeFailure)
+    {
+        lock (_gate)
+        {
+            _outcome =
+                PortablePdbExternalAcquisitionOutcome.Failed;
+            _storeFailure = storeFailure;
+        }
+    }
+
+    public PortablePdbAcquisitionEvidenceDocument ToDocument()
+    {
+        lock (_gate)
+        {
+            return new(
+                _outcome,
+                _symbolServer,
+                _fromCache,
+                _windowsPdbDetected,
+                _storeFailure,
+                [.. _networkAttempts]);
+        }
+    }
+}
+
 /// <summary>Why the PDB store could not provide verified content.</summary>
 public enum PortablePdbStoreFailureKind
 {
@@ -22,6 +186,16 @@ public enum PortablePdbStoreFailureKind
 
     /// <summary>The store did not retain content after accepting a write.</summary>
     PublicationNotRetained,
+}
+
+/// <summary>Why an external PDB provider could not produce usable content.</summary>
+public enum PortablePdbAcquisitionFailureKind
+{
+    /// <summary>
+    /// A provider request or exact-identity response failed rather than
+    /// establishing definitive absence.
+    /// </summary>
+    ExternalProviderFailed,
 }
 
 /// <summary>
@@ -84,21 +258,27 @@ public abstract record PortablePdbAcquisitionResult
 {
     private protected PortablePdbAcquisitionResult(
         bool windowsPdbDetected,
-        PortablePdbStoreFailureKind? storeFailure)
+        PortablePdbStoreFailureKind? storeFailure,
+        PortablePdbAcquisitionFailureKind? acquisitionFailure)
     {
         WindowsPdbDetected = windowsPdbDetected;
         StoreFailure = storeFailure;
+        AcquisitionFailure = acquisitionFailure;
     }
 
     public bool WindowsPdbDetected { get; }
     public PortablePdbStoreFailureKind? StoreFailure { get; }
+    public PortablePdbAcquisitionFailureKind? AcquisitionFailure { get; }
 
     public sealed record Acquired : PortablePdbAcquisitionResult
     {
         internal Acquired(
             AcquiredPortablePdb pdb,
             bool windowsPdbDetected)
-            : base(windowsPdbDetected, storeFailure: null)
+            : base(
+                windowsPdbDetected,
+                storeFailure: null,
+                acquisitionFailure: null)
             => Pdb = pdb;
 
         public AcquiredPortablePdb Pdb { get; }
@@ -108,8 +288,12 @@ public abstract record PortablePdbAcquisitionResult
     {
         internal Unavailable(
             bool windowsPdbDetected,
-            PortablePdbStoreFailureKind? storeFailure = null)
-            : base(windowsPdbDetected, storeFailure)
+            PortablePdbStoreFailureKind? storeFailure = null,
+            PortablePdbAcquisitionFailureKind? acquisitionFailure = null)
+            : base(
+                windowsPdbDetected,
+                storeFailure,
+                acquisitionFailure)
         {
         }
     }
@@ -242,11 +426,60 @@ public partial class SymbolPackageDownloader
         bool cacheOnly = false,
         NuGetSourceOptions? sourceOptions = null,
         CancellationToken cancellationToken = default,
-        uint? portablePdbStamp = null)
+        uint? portablePdbStamp = null,
+        PortablePdbAcquisitionEvidenceCollector? evidence = null)
+    {
+        try
+        {
+            PortablePdbAcquisitionResult result =
+                await AcquirePdbCoreAsync(
+                    pdbGuid,
+                    pdbAge,
+                    pdbFileName,
+                    isPortable,
+                    assemblyName,
+                    packageName,
+                    packageVersion,
+                    log,
+                    isPlatformAssembly,
+                    cacheOnly,
+                    sourceOptions,
+                    cancellationToken,
+                    portablePdbStamp,
+                    evidence).ConfigureAwait(false);
+            evidence?.Complete(result);
+            return result;
+        }
+        catch (OperationCanceledException)
+            when (cancellationToken.IsCancellationRequested)
+        {
+            evidence?.CompleteCanceled();
+            throw;
+        }
+        catch
+        {
+            evidence?.CompleteFailed();
+            throw;
+        }
+    }
+
+    private async Task<PortablePdbAcquisitionResult> AcquirePdbCoreAsync(
+        Guid pdbGuid, int pdbAge, string pdbFileName, bool isPortable,
+        string? assemblyName,
+        string? packageName,
+        string? packageVersion,
+        Action<string>? log,
+        bool isPlatformAssembly,
+        bool cacheOnly,
+        NuGetSourceOptions? sourceOptions,
+        CancellationToken cancellationToken,
+        uint? portablePdbStamp,
+        PortablePdbAcquisitionEvidenceCollector? evidence)
     {
         cancellationToken.ThrowIfCancellationRequested();
         bool windowsPdbDetected = false;
         PortablePdbStoreFailureKind? storeFailure = null;
+        PortablePdbAcquisitionFailureKind? acquisitionFailure = null;
 
         pdbFileName = GetSymbolFileName(pdbFileName);
         // The PDB file name comes from untrusted PE debug metadata. Only the
@@ -281,7 +514,10 @@ public partial class SymbolPackageDownloader
             log?.Invoke(isPlatformAssembly ? "Platform library, trying MSDL symbol server" : "Microsoft package detected, trying MSDL symbol server first");
             var msdlResult = await TryLocateFromMsdlAsync(
                 pdbFileName, symbolKey, storeIdentity, pdbGuid, portablePdbStamp,
-                isPortable, log, cacheOnly, cancellationToken).ConfigureAwait(false);
+                isPortable, log, cacheOnly, evidence, cancellationToken).ConfigureAwait(false);
+            evidence?.RecordObservations(
+                msdlResult.WindowsPdbDetected,
+                msdlResult.StoreFailure);
             if (msdlResult.Pdb is not null)
             {
                 return new PortablePdbAcquisitionResult.Acquired(
@@ -291,6 +527,7 @@ public partial class SymbolPackageDownloader
             if (msdlResult.WindowsPdbDetected)
                 windowsPdbDetected = true;
             storeFailure ??= msdlResult.StoreFailure;
+            acquisitionFailure ??= msdlResult.AcquisitionFailure;
         }
 
         // Try downloading symbol package (.snupkg)
@@ -303,7 +540,10 @@ public partial class SymbolPackageDownloader
                 packageName, packageVersion, snupkgAssemblyName, symbolKey,
                 storeIdentity,
                 pdbGuid, portablePdbStamp, isPortable, log, cacheOnly,
-                cancellationToken).ConfigureAwait(false);
+                evidence, cancellationToken).ConfigureAwait(false);
+            evidence?.RecordObservations(
+                snupkgResult.WindowsPdbDetected,
+                snupkgResult.StoreFailure);
             if (snupkgResult.Pdb is not null)
             {
                 return new PortablePdbAcquisitionResult.Acquired(
@@ -313,6 +553,7 @@ public partial class SymbolPackageDownloader
             if (snupkgResult.WindowsPdbDetected)
                 windowsPdbDetected = true;
             storeFailure ??= snupkgResult.StoreFailure;
+            acquisitionFailure ??= snupkgResult.AcquisitionFailure;
         }
 
         // Try NuGet symbol server, then MSDL as fallback (for non-Microsoft packages)
@@ -320,7 +561,10 @@ public partial class SymbolPackageDownloader
         {
             var symbolResult = await TryLocateFromSymbolServerAsync(
                 pdbFileName, symbolKey, storeIdentity, pdbGuid, portablePdbStamp,
-                isPortable, log, cacheOnly, cancellationToken).ConfigureAwait(false);
+                isPortable, log, cacheOnly, evidence, cancellationToken).ConfigureAwait(false);
+            evidence?.RecordObservations(
+                symbolResult.WindowsPdbDetected,
+                symbolResult.StoreFailure);
             if (symbolResult.Pdb is not null)
             {
                 return new PortablePdbAcquisitionResult.Acquired(
@@ -330,13 +574,25 @@ public partial class SymbolPackageDownloader
             if (symbolResult.WindowsPdbDetected)
                 windowsPdbDetected = true;
             storeFailure ??= symbolResult.StoreFailure;
+            acquisitionFailure ??= symbolResult.AcquisitionFailure;
         }
 
         log?.Invoke(cacheOnly ? "No cached Portable PDB available" : "No Portable PDB available");
         return new PortablePdbAcquisitionResult.Unavailable(
             windowsPdbDetected,
-            storeFailure);
+            storeFailure,
+            acquisitionFailure);
     }
+
+    private static PortablePdbAcquisitionFailureKind?
+        ClassifyProviderFailure(
+            HttpRetryHelper.HttpBodyFetchResult result)
+        => result.Status
+                == HttpRetryHelper.HttpBodyFetchStatus.Unavailable
+            && result.StatusCode == HttpStatusCode.NotFound
+                ? null
+                : PortablePdbAcquisitionFailureKind
+                    .ExternalProviderFailed;
 
     /// <summary>
     /// Downloads a PDB file and returns its path on disk. This compatibility
@@ -403,6 +659,119 @@ public partial class SymbolPackageDownloader
                packageName.StartsWith("System.", StringComparison.OrdinalIgnoreCase) ||
                packageName.StartsWith("Azure.", StringComparison.OrdinalIgnoreCase) ||
                packageName.Equals("WindowsAzure.Storage", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private Task<HttpRetryHelper.HttpBodyFetchResult>
+        FetchPdbBytesWithEvidenceAsync(
+            PortablePdbAcquisitionNetworkRoute route,
+            string url,
+            Action<string>? log,
+            long maxDownloadSize,
+            PortablePdbAcquisitionEvidenceCollector? evidence,
+            CancellationToken cancellationToken)
+    {
+        if (evidence is null)
+        {
+            return HttpRetryHelper
+                .GetBytesAfterHeadersWithRetryAsync(
+                    _client,
+                    url,
+                    static _ => true,
+                    log: log,
+                    cancellationToken: cancellationToken,
+                    trafficKind:
+                        NetworkTrafficKind.SymbolDownload,
+                    maxDownloadSize:
+                        maxDownloadSize);
+        }
+
+        return FetchPdbBytesWithEvidenceCoreAsync(
+            route,
+            url,
+            log,
+            maxDownloadSize,
+            evidence,
+            cancellationToken);
+    }
+
+    private async Task<HttpRetryHelper.HttpBodyFetchResult>
+        FetchPdbBytesWithEvidenceCoreAsync(
+            PortablePdbAcquisitionNetworkRoute route,
+            string url,
+            Action<string>? log,
+            long maxDownloadSize,
+            PortablePdbAcquisitionEvidenceCollector evidence,
+            CancellationToken cancellationToken)
+    {
+        long started =
+            Stopwatch.GetTimestamp();
+        HttpRetryHelper.HttpBodyFetchProgress progress = default;
+        Action<HttpRetryHelper.HttpBodyFetchProgress> progressChanged =
+            value => progress = value;
+        try
+        {
+            HttpRetryHelper.HttpBodyFetchResult result =
+                await HttpRetryHelper.GetBytesAfterHeadersWithProgressAsync(
+                    _client,
+                    url,
+                    static _ => true,
+                    log: log,
+                    cancellationToken: cancellationToken,
+                    trafficKind:
+                        NetworkTrafficKind.SymbolDownload,
+                    maxDownloadSize:
+                        maxDownloadSize,
+                    progress:
+                        progressChanged).ConfigureAwait(false);
+            evidence.RecordNetworkAttempt(
+                route,
+                url,
+                result.RequestCount,
+                result.Status switch
+                {
+                    HttpRetryHelper.HttpBodyFetchStatus.Success =>
+                        PortablePdbNetworkAttemptOutcome.Succeeded,
+                    HttpRetryHelper.HttpBodyFetchStatus.Unavailable =>
+                        PortablePdbNetworkAttemptOutcome.Unavailable,
+                    HttpRetryHelper.HttpBodyFetchStatus.ResponseRejected =>
+                        PortablePdbNetworkAttemptOutcome.ResponseRejected,
+                    HttpRetryHelper.HttpBodyFetchStatus.TooLarge =>
+                        PortablePdbNetworkAttemptOutcome.TooLarge,
+                    _ => throw new InvalidOperationException(
+                        "Unknown Portable PDB network outcome."),
+                },
+                result.StatusCode,
+                result.BodyBytesRead,
+                Stopwatch.GetElapsedTime(started));
+            return result;
+        }
+        catch (OperationCanceledException)
+            when (cancellationToken.IsCancellationRequested)
+        {
+            evidence.RecordNetworkAttempt(
+                route,
+                url,
+                progress.RequestCount,
+                outcome:
+                    PortablePdbNetworkAttemptOutcome.Canceled,
+                progress.StatusCode,
+                progress.BodyBytesRead,
+                elapsed: Stopwatch.GetElapsedTime(started));
+            throw;
+        }
+        catch
+        {
+            evidence.RecordNetworkAttempt(
+                route,
+                url,
+                progress.RequestCount,
+                outcome:
+                    PortablePdbNetworkAttemptOutcome.Failed,
+                progress.StatusCode,
+                progress.BodyBytesRead,
+                elapsed: Stopwatch.GetElapsedTime(started));
+            throw;
+        }
     }
 
     private static string? GetSnupkgAssemblyName(

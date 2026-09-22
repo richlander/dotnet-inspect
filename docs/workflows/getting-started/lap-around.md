@@ -334,7 +334,7 @@ GHSA-8g4q-xg66-9fp4
 The tool supports NuGet sources. This is useful for dogfooding preview builds.
 
 ```bash
-dotnet-inspect package System.Text.Json --version '11.0.0-preview*' --add-source 'https://dnceng.pkgs.visualstudio.com/public/_packaging/dotnet11/nuget/v3/index.json' -v:q --prerelease
+dotnet-inspect package 'System.Text.Json@11.0.0-preview*' --add-source 'https://dnceng.pkgs.visualstudio.com/public/_packaging/dotnet11/nuget/v3/index.json' -v:q --prerelease
 ```
 
 ```expect

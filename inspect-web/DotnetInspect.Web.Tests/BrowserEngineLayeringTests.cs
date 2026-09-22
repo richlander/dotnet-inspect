@@ -803,6 +803,7 @@ public sealed class BrowserEngineLayeringTests
         .. new[]
         {
             ("DotnetInspect.Web.Interop.Package", "DotnetInspect.Web.Interop.Package.csproj"),
+            ("DotnetInspect.Web.Interop.Library", "DotnetInspect.Web.Interop.Library.csproj"),
             ("DotnetInspect.Web.Interop.Metadata", "DotnetInspect.Web.Interop.Metadata.csproj"),
             ("DotnetInspect.Web.Interop.Analysis", "DotnetInspect.Web.Interop.Analysis.csproj"),
             ("DotnetInspect.Web.Interop.Source", "DotnetInspect.Web.Interop.Source.csproj"),

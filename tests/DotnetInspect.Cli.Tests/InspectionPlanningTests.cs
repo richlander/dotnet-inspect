@@ -330,6 +330,38 @@ public sealed class InspectionPlanningTests
     }
 
     [Fact]
+    public void SectionDemandIndex_SourceNameAndCategoryRemainDistinct()
+    {
+        SectionDemandClassification exact =
+            ApiSectionDemandIndex.Classify(
+                InspectionSurface.Member,
+                [SectionNames.Source],
+                selectDefault: false,
+                InspectionTargetRequirement.MemberSet);
+        SectionDemandClassification category =
+            ApiSectionDemandIndex.Classify(
+                InspectionSurface.Member,
+                [SectionCategoryNames.Source],
+                selectDefault: false,
+                InspectionTargetRequirement.MemberSet);
+
+        Assert.Equal(
+            InspectionTargetRequirement.ExactMember,
+            exact.RequiredTarget);
+        Assert.Equal([SectionNames.Source], exact.MatchedSections);
+        Assert.Equal(
+            InspectionTargetRequirement.MemberSet,
+            category.RequiredTarget);
+        Assert.Contains(SectionNames.Source, category.MatchedSections);
+        Assert.Contains(
+            SectionNames.DecompiledSource,
+            category.MatchedSections);
+        Assert.Contains(SectionNames.PdbSource, category.MatchedSections);
+        Assert.Empty(exact.UnresolvedSelectors);
+        Assert.Empty(category.UnresolvedSelectors);
+    }
+
+    [Fact]
     public void MemberInspectionCatalogs_OmitFindingCensusFromCategories()
     {
         foreach (ApiInspectionCatalog catalog in
