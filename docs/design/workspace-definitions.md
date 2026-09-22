@@ -2538,6 +2538,13 @@ quoting-free as a bare CLI argument.
 The browser keeps a terse `?w=` base64url JSON packet as a **projection** the
 transposition layer converts to and from one packet-local scenario composition.
 
+Managed share producers compose that packet with the website origin selected
+at build time by the `DotnetInspectWebsiteUrl` MSBuild property. Development
+builds default to `https://dotnet-inspect.ca`; production NuGet packaging sets
+the property to `https://dotnet-inspect.net`. The property is the origin
+without a trailing slash, and one generated `WorkspaceShareUrl` contract owns
+the resulting `/?w=` prefix for CLI and query consumers.
+
 #### Packet format 1
 
 The normative v1 decoded shape is:
