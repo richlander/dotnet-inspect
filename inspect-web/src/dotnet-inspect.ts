@@ -142,7 +142,6 @@ import {
   createPackageInspectionCoordinator,
   resolvePackagePerformanceMember,
   workspaceDependencyKey,
-  type PackageLibraryMetrics,
   type PackagePerformance,
 } from "./package-inspection.ts";
 import {
