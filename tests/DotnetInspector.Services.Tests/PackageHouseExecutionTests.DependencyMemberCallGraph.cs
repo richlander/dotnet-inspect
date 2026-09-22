@@ -131,6 +131,87 @@ public sealed partial class PackageHouseExecutionTests
 
     [Fact]
     public async Task
+        DependencyMemberCallGraphRealizationBudgetFailureReleasesOperationWorkspace()
+    {
+        await using HouseEnvironment environment =
+            HouseEnvironment.CreateForAnyPackage(
+                new SourceBehavior(
+                    [RouteVersion],
+                    PayloadContentEntries:
+                    [
+                        (
+                            "lib/net11.0/ILInspector.Analysis.CallerGraphTarget.dll",
+                            File.ReadAllBytes(CallGraphTargetPath)),
+                    ]));
+        PackageRootBinding rootBinding = CallGraphRootBinding(
+            (CallGraphTargetPackage, RouteVersion));
+        var candidateSource =
+            new AuthorizedPackageDependencyCandidateSource(
+                environment.Authorization,
+                environment.Root);
+        PackageHouseOperation realizationOperation =
+            PackageHouseOperation.Create(
+                PackageHouseOperationProfile.Realize);
+
+        InvalidOperationException failure =
+            await Assert.ThrowsAsync<InvalidOperationException>(
+                async () =>
+                    await PackageDependencyMemberCallGraphInspection
+                        .ExecuteAsync(
+                            new PackageDependencyMemberCallGraphInspectionRequest(
+                                rootBinding,
+                                new PackageDependencyMemberCallGraphInspectionFocus(
+                                    ModuleVersionId(CallGraphCallerPath),
+                                    MethodToken(
+                                        CallGraphCallerPath,
+                                        "Entry",
+                                        "RunAcrossBoundary")),
+                                TraversalTargetFrameworkPolicy.ProductDefault,
+                                new MemberCallGraphCalleeNeighborhoodRequest(
+                                    maxDepth: 2,
+                                    maxNodes: 10),
+                                realizationOperation,
+                                DateTimeOffset.UtcNow.AddMinutes(1),
+                                maximumDependencyDepth: 1,
+                                traversalWorkBudget:
+                                    new PackageDependencyTraversalWorkBudget(
+                                        maxManifestProjections: 3,
+                                        maxDeclarationResolutions: 3),
+                                realizationOptions:
+                                    new PackageAssemblyContextRealizationOptions
+                                    {
+                                        MaxAssembliesPerRole = 0,
+                                        MaxAggregateRetainedImageBytes =
+                                            long.MaxValue,
+                                        MaxAssemblyEntryBytes =
+                                            long.MaxValue,
+                                        RequireDeclaredEntryLengths = true,
+                                    }),
+                            new PackageDependencyMemberCallGraphInspectionSource(
+                                new PackageDependencyTraversalCandidateAdapter(
+                                    candidateSource),
+                                new UnexpectedManifestAcquirer(),
+                                environment.CreateHouse(
+                                    (_, _) => new InMemoryPackageStore()),
+                                (operation, cancellationToken) =>
+                                    environment.Root.IssueOperationLease(
+                                        cancellationToken,
+                                        operation.RequestTimeout,
+                                        operation.OperationTimeout)),
+                            TestContext.Current.CancellationToken));
+
+        Assert.Contains(
+            "assembly-count limit",
+            failure.Message,
+            StringComparison.Ordinal);
+        Assert.Equal(
+            [CallGraphTargetPackage],
+            environment.Clients[0].PayloadPackageIds);
+        await environment.AssertRootSettledAsync();
+    }
+
+    [Fact]
+    public async Task
         DependencyMemberCallGraphExecutesRouteAndReturnsDetachedGraph()
     {
         await using HouseEnvironment environment =

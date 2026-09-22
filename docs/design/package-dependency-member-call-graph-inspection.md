@@ -79,6 +79,10 @@ roots.
 The inspection creates one fresh `InspectionWorkspace`, publishes only the
 exact root binding, and passes its committed Scope to the lower operation.
 Dependency routes append their exact Package contributions atomically.
+The request carries the host's package-assembly realization policy. Browser/Wasm
+uses the same participant, retained-image, entry, and declared-length bounds as
+its ordinary package Workspaces, so automatic dependency composition cannot
+bypass the Browser host's memory policy.
 
 Traversal retains every resolved candidate and route. For graph assembly
 composition only, the focused root wins any same-package-ID collision; other

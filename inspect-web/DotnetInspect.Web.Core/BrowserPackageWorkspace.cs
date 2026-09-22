@@ -260,6 +260,10 @@ internal static class BrowserPackageWorkspace
         Store;
     internal static PackagePayloadLimits PackageLimits => PayloadLimits;
 
+    internal static PackageAssemblyContextRealizationOptions
+        DependencyCallGraphRealizationPolicy =>
+        BrowserInspectionScope.RealizationPolicy;
+
     static BrowserSessionPackageStore StoreFor(IPackageSourceClient source) =>
         SourceStores.GetValue(
             source,
@@ -1114,7 +1118,9 @@ internal static class BrowserPackageWorkspace
                             operation,
                             DateTimeOffset.UtcNow
                                 .Add(deadline.Remaining),
-                            maximumDependencyDepth: 4),
+                            maximumDependencyDepth: 4,
+                            realizationOptions:
+                                DependencyCallGraphRealizationPolicy),
                         new PackageDependencyMemberCallGraphInspectionSource(
                             new PackageDependencyTraversalCandidateAdapter(
                                 candidateSource),
