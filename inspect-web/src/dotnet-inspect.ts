@@ -7278,7 +7278,6 @@ function renderWorkspaceView() {
           frameworkPackage.assemblyId)
       : null);
   return renderWorkspaceViewPure({
-    canAddPackage: state.engineReady && !state.loading && !state.error,
     savedWorkspaces: {
       state: savedWorkspaces.state,
       canSave: state.engineReady
@@ -7295,7 +7294,9 @@ function renderWorkspaceView() {
           navigationPackages: retainedWorkspacePresentation.packages,
           navigationPlatforms: retainedWorkspacePresentation.platforms,
         }
-      : {}),
+      : {
+          canAddPackage: state.engineReady && !state.loading && !state.error,
+        }),
     packages: state.packages,
     platform: presentPlatform ? state.platformSelection : null,
     frameworkLibraries: frameworkLibrary ? [{
@@ -19766,7 +19767,10 @@ window.addEventListener("popstate", () => {
     }
     return;
   }
-  if (restoredActiveManagedWorkspace) {
+  if (restoredActiveManagedWorkspace
+    && activeRetainedWorkspacePosting?.canonicalLocation === location.href) {
+    state.credits = false;
+    state.home = false;
     render({ synchronizeUrl: false });
     return;
   }
@@ -19816,7 +19820,9 @@ window.addEventListener("popstate", () => {
   }
   const bareHome = !loc.package && !(loc.tabs && loc.tabs.length);
   if (bareHome) {
-    if (historyWorkspaceReferenced && !historyWorkspaceAvailable) {
+    if (historyWorkspaceReferenced
+      && !managedHistoryWorkspaceAvailable
+      && !historyWorkspaceAvailable) {
       unavailableWorkspaceAdmissionRejected =
         !publishFreshEmptyWorkspaceFromHistory(location.href);
     }

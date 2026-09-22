@@ -2545,6 +2545,7 @@ test.describe("bounded network-backed two-host demo", () => {
       .toBe(persisted.entries[0]!.packet);
     const managedUrl = page.url();
     expect(managedUrl).not.toBe(compatibilityUrl);
+    await expect(page.locator("[data-workspace-add-package]")).toHaveCount(0);
 
     await page.locator('[data-application-scope="query"]').click();
     await expect(page).toHaveURL(/\/query$/);
@@ -2585,6 +2586,40 @@ test.describe("bounded network-backed two-host demo", () => {
     await expect.poll(() => page.url()).toBe(managedUrl);
     await expect(page.locator(".workspace-list .workspace-row"))
       .toHaveCount(2);
+
+    await page.getByRole(
+      "link",
+      { name: "dotnet inspect home", exact: true },
+    ).click();
+    await expect(page).toHaveURL(/\/$/);
+    await expect(page.locator("#spotlight-input")).toBeVisible();
+    await page.evaluate(() => history.back());
+    await expect.poll(() => page.url()).toBe(managedUrl);
+    await expect(page.locator("[data-navigation-order]"))
+      .toContainText("System.Text.Json");
+    await expect(page.locator("#spotlight-input")).toHaveCount(0);
+    await page.evaluate(() => history.forward());
+    await expect(page).toHaveURL(/\/$/);
+    await expect(page.locator("#spotlight-input")).toBeVisible();
+    await page.evaluate(() => history.back());
+    await expect.poll(() => page.url()).toBe(managedUrl);
+
+    await page.getByRole("link", { name: "Credits", exact: true }).click();
+    await expect(page).toHaveURL(/\/credits$/);
+    await expect(page.getByRole("heading", { name: "Credits", level: 1 }))
+      .toBeVisible();
+    await page.evaluate(() => history.back());
+    await expect.poll(() => page.url()).toBe(managedUrl);
+    await expect(page.locator("[data-navigation-order]"))
+      .toContainText("System.Text.Json");
+    await expect(page.getByRole("heading", { name: "Credits", level: 1 }))
+      .toHaveCount(0);
+    await page.evaluate(() => history.forward());
+    await expect(page).toHaveURL(/\/credits$/);
+    await expect(page.getByRole("heading", { name: "Credits", level: 1 }))
+      .toBeVisible();
+    await page.evaluate(() => history.back());
+    await expect.poll(() => page.url()).toBe(managedUrl);
 
     await page.evaluate(() => history.back());
     await expect.poll(() => page.url()).toBe(compatibilityUrl);

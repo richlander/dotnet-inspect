@@ -1291,10 +1291,13 @@ test("browser history reuses available identities and publishes only unavailable
     /managedHistoryWorkspaceAvailable[\s\S]*selectBrowserEntry\(\{[\s\S]*retainedDefinitionId: historyWorkspaceId[\s\S]*activate\(\s*historyWorkspaceId,[\s\S]*installRetainedWorkspacePosting\([\s\S]*posting\.canonicalLocation === location\.href \? "exact" : "changed"/);
   assert.match(
     history,
-    /let restoredActiveManagedWorkspace = false;[\s\S]*activeDefinitionId\s*=== historyWorkspaceId[\s\S]*restoredActiveManagedWorkspace = true;[\s\S]*if \(!restoredActiveManagedWorkspace\) return;[\s\S]*if \(isPackageQueryPath\(location\.pathname\)\)[\s\S]*if \(state\.packageQueryOpen \|\| leftPackageQueryHandoff\)[\s\S]*if \(restoredActiveManagedWorkspace\) \{\s*render\(\{ synchronizeUrl: false \}\);\s*return;\s*\}[\s\S]*const loc = await parseLocation\(\)/);
+    /let restoredActiveManagedWorkspace = false;[\s\S]*activeDefinitionId\s*=== historyWorkspaceId[\s\S]*restoredActiveManagedWorkspace = true;[\s\S]*if \(!restoredActiveManagedWorkspace\) return;[\s\S]*if \(isPackageQueryPath\(location\.pathname\)\)[\s\S]*if \(state\.packageQueryOpen \|\| leftPackageQueryHandoff\)[\s\S]*if \(restoredActiveManagedWorkspace\s*&& activeRetainedWorkspacePosting\?\.canonicalLocation === location\.href\) \{\s*state\.credits = false;\s*state\.home = false;\s*render\(\{ synchronizeUrl: false \}\);\s*return;\s*\}[\s\S]*const loc = await parseLocation\(\)/);
   assert.match(
     history,
     /const unavailableGlobalWorkspace =\s*historyWorkspaceReferenced\s*&& !managedHistoryWorkspaceAvailable\s*&& !historyWorkspaceAvailable/);
+  assert.match(
+    history,
+    /if \(bareHome\) \{\s*if \(historyWorkspaceReferenced\s*&& !managedHistoryWorkspaceAvailable\s*&& !historyWorkspaceAvailable\)/);
   assert.match(
     history,
     /historyWorkspaceAvailable[\s\S]*activeDefinitionId !== null[\s\S]*activateCompatibilityRetainedWorkspace\(historyWorkspaceId, \{[\s\S]*declaration: locationIntent,[\s\S]*restoration:/);
@@ -1376,6 +1379,9 @@ test("managed Saved Open keeps compact rows, packet fidelity, and focus ownershi
   const renderDispatch = appSource.match(
     /function render\(options: \{ synchronizeUrl\?: boolean \} = \{\}\) \{[\s\S]*?const pkg = state\.package;/,
   )?.[0] ?? "";
+  const workspaceView = appSource.match(
+    /function renderWorkspaceView\(\)[\s\S]*?\n}\n\nfunction packageLensBody/,
+  )?.[0] ?? "";
 
   assert.match(
     post,
@@ -1411,6 +1417,9 @@ test("managed Saved Open keeps compact rows, packet fidelity, and focus ownershi
   assert.match(
     renderDispatch,
     /retainedWorkspacePostingVisible[\s\S]*!retainedWorkspacePostingVisible[\s\S]*workspaceCatalogVisible/);
+  assert.match(
+    workspaceView,
+    /retainedWorkspacePresentation\s*\? \{[\s\S]*navigationPackages:[\s\S]*navigationPlatforms:[\s\S]*\}\s*: \{\s*canAddPackage:/);
   assert.match(
     capture,
     /if \(activeRetainedWorkspacePosting !== null\) \{\s*return activeRetainedWorkspacePosting\.canonicalPacket;\s*\}/);

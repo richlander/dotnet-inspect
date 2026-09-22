@@ -267,6 +267,7 @@ test("Workspace product rows do not expose compatibility mutation controls", () 
     escapeHtml,
   });
   assert.doesNotMatch(html, /data-workspace-remove=/);
+  assert.doesNotMatch(html, /data-workspace-add-package/);
   assert.match(html, /Choose a package to inspect it\.<\/p>/);
   assert.doesNotMatch(html, /adjacent close button/);
 });
