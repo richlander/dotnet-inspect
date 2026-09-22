@@ -102,6 +102,49 @@ acquisition failure or authored-source unavailability. This is execution
 evidence for deterministic gates and host timing work, not a rendering section
 or a claim that one timing sample establishes a universal policy.
 
+## PDB diagnostics and Debug evidence
+
+Every completed `TypeSourceInspection` envelope includes at most one
+result-relevant Portable PDB diagnostic. The stable codes distinguish:
+
+- `type-source.portable-pdb.available`: a matching Portable PDB participated in
+  the operation;
+- `type-source.portable-pdb.unavailable`: no matching Portable PDB was
+  available and Type Source continued without one;
+- `type-source.portable-pdb.preference-window-elapsed`: hedged acquisition did
+  not settle inside the configured preference window, so decompilation
+  continued without it; and
+- `type-source.portable-pdb.acquisition-failed`: PDB acquisition failed and the
+  remaining providers determined the result.
+
+An operation that rejects the subject or fails before attempting PDB work
+emits no PDB diagnostic. These diagnostics describe the settled result; they do
+not contain request logs, timing samples, cache internals, or exception traces.
+Matching-PDB availability is retained independently from a later House or
+Library terminal outcome so those downstream failures cannot change the PDB
+disposition.
+
+`TypeSourceInspection.ExecuteWithPdbLatencyHedgeAndEvidenceAsync` composes the
+same baseline envelope with `TypeSourcePdbAcquisitionEvidence`. The evidence
+records PDB disposition and contribution to authored source and decompilation,
+the hedge selection, whether decompilation started, and the
+operation-scoped external acquisition document owned by
+[PDB acquisition](../pdb-acquisition.md#acquisition-evidence). The ordinary
+operation does not construct that document.
+
+Inspect Web's ordinary Type Source result now carries the baseline Share and
+diagnostics beside the adapted source. Its Debug-only
+`QueryTypeSourceEvidence` export uses
+`EvidenceInspectionBuilder<TContent, TEvidence>` to select exactly one ordinary
+or evidence-enabled operation; Release builds cannot request the evidence
+path. Browser-owned evidence records project the host-neutral model into the
+facade wire contract rather than registering product-owned query or package
+types in the Browser serializer context. The production worker validates and
+preserves the added baseline fields.
+CLI Type Source remains serial and consumes the baseline envelope; a future
+multi-core hedge may adopt the evidence entry point when it has a production
+consumer.
+
 The PDB-only operation does not use `Task.Run`. Network transport may progress
 while synchronous decompilation owns a single-threaded Browser/Wasm worker, but
 managed continuations are observed only when decompilation yields or returns.
@@ -182,12 +225,14 @@ shared lifetime rather than a CLI-owned House composition.
 
 `TypeSourceInspection.ExecuteAsync` is the completed serial host-neutral facade,
 returning `InspectionEnvelope<AssemblyTypeSourceEntry>` with explicit
-non-projectable Share. The explicit CLI [Source section](cli-source-section.md)
+non-projectable Share and result-relevant PDB diagnostics.
+The explicit CLI [Source section](cli-source-section.md)
 consumes this ordinary authored-first operation, retaining its document scope
 and failed-attempt evidence. Browser Type Source instead consumes
 `ExecuteWithPdbLatencyHedgeAsync` through the existing browser projection and
-operation/cancellation bridge. Its wire shape, source policy, viewer, and
-rendering substrate remain unchanged.
+operation/cancellation bridge. The source case now preserves the shared
+envelope's Share and diagnostics beside the existing browser source value; its
+source policy, viewer, and rendering substrate remain unchanged.
 `TypeSourceInspection.DecompileAsync` is the adjacent completed
 decompiled-only facade, returning
 `InspectionEnvelope<AssemblyTypeDecompilationEntry>` after exact Library and
@@ -240,7 +285,7 @@ The following PR-fast Release gates define the delivery:
 | Gate | Claim |
 | --- | --- |
 | `AssemblyContextSourceQueryTests`, including `TypeSourceInspection_*` | Authored preference, native authored/decompilation House and Library evidence, one retained Library with fresh leases, independent finite bounds, type-document scope, and existing cancellation/currency/disposal behavior. |
-| `TypeSourcePdbLatencyHedge_*` | Deterministic scheduling with an injected clock: the PDB-only operation preserves the serial authored path after prompt PDB settlement, publishes no-PDB decompilation after PDB-window expiry, and preserves late authored source when decompilation is unavailable. |
+| `TypeSourcePdbLatencyHedge_*` | Deterministic scheduling with an injected clock: the PDB-only operation preserves the serial authored path after prompt PDB settlement, publishes no-PDB decompilation after PDB-window expiry, preserves late authored source when decompilation is unavailable, and aligns typed PDB diagnostics with the evidence envelope. |
 | `TypeDecompilationInspection_*` | Decompiled-only exact type identity, complete-type behavior despite a filtered request model, supplied/no-PDB input, native incomplete status, terminal Library admission, binding currency, settled operation leases, detached envelopes, and no authored or network requests. |
 | `TypeSourceInspection_Explicit*` | Exact primary/additional selection, ordinal membership, selected checksums, detached evidence, package/Platform authority and fallback coordinates, and unavailable/checksum/deadline results without decompiler substitution. |
 | CLI `Type_DecompiledSource_*`, `TypeWholeTypeDecompilerAcquisition_*`, and bodyless memory-safety cases | Ordinary whole-type SourceHouse adoption preserves complete source across default and `--all`, selected suppliers, symbol names, exact diagnostics, enum/bodyless distinctions, Markout/bare rendering, and lazy non-source paths; neighboring listing and exact-member cases retain their independent accessibility and target boundaries. |
@@ -249,7 +294,7 @@ The following PR-fast Release gates define the delivery:
 | `SourceForwarderResolutionTests.SourceDocumentAcquisition_UsesSelectedOpener` | Type/member document printing consumes the resolved descriptor through forwarding; listing performs no source-text transport, and unavailable printing fails visibly. |
 | `RenderedUrlPreferenceCommandTests.SourcePrint_EmitsPreferredUrlAndUnchangedContent` | Type/member JSON, JSONL, and JSON-array printing retain the selected URL, row/section identity, and full-file text. |
 | `BrowserSourceComparisonOperationTests.TypeSourcePdbHedgeEnvelope_PreservesBrowserPreferenceAndFallback` | The production browser selects PDB-only scheduling and preserves authored source, SourceHouse missing-source/deadline fallback, provenance, and visible limitations without changing the wire shape. |
-| `BrowserTypeSourceOperationTests` | The existing keyed operation, cancellation, expected failure, and scope-release contract remains intact. |
+| `BrowserTypeSourceOperationTests` | The keyed operation, cancellation, expected failure, scope-release, baseline Share/diagnostic transport, and Debug evidence serialization contracts remain intact. |
 | Published `source-comparison-production.spec.ts` fixture scenario | Generated `queryTypeSource` consumes product-discovered type identity and returns authored source or visible decompiler fallback; member and pair neighbors remain intact. |
 
 Use the existing published source-comparison gate after publishing Inspect Web.

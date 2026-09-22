@@ -22,6 +22,7 @@ public sealed class ProductionFacadeContextTests
 {
     const string HostAssembly = "DotnetInspect.Web";
     const string PackageAssembly = "DotnetInspect.Web.Interop.Package";
+    const string LibraryAssembly = "DotnetInspect.Web.Interop.Library";
     const string MetadataAssembly = "DotnetInspect.Web.Interop.Metadata";
     const string AnalysisAssembly = "DotnetInspect.Web.Interop.Analysis";
     const string SourceAssembly = "DotnetInspect.Web.Interop.Source";
@@ -33,6 +34,7 @@ public sealed class ProductionFacadeContextTests
     [
         HostAssembly,
         PackageAssembly,
+        LibraryAssembly,
         MetadataAssembly,
         AnalysisAssembly,
         SourceAssembly,
@@ -88,6 +90,10 @@ public sealed class ProductionFacadeContextTests
             "RunPackageActivity",
             "RunPackageQuery",
             "SearchTypes",
+        ],
+        [LibraryAssembly] =
+        [
+            "OpenUploadedLibrary",
         ],
         [MetadataAssembly] =
         [
@@ -205,10 +211,10 @@ public sealed class ProductionFacadeContextTests
                 actual[assembly]);
         }
 
-        // 95 operations, and no operation name in two modules: a move that forgot to delete its
+        // 96 operations, and no operation name in two modules: a move that forgot to delete its
         // origin, or a name published twice, fails here rather than in the browser.
         string[] everyExport = [.. actual.Values.SelectMany(names => names)];
-        Assert.Equal(95, everyExport.Length);
+        Assert.Equal(96, everyExport.Length);
         Assert.Equal(
             everyExport.Length,
             everyExport.Distinct(StringComparer.Ordinal).Count());
@@ -223,6 +229,7 @@ public sealed class ProductionFacadeContextTests
         string[] capabilities =
         [
             PackageAssembly,
+            LibraryAssembly,
             MetadataAssembly,
             AnalysisAssembly,
             SourceAssembly,
@@ -482,6 +489,8 @@ public sealed class ProductionFacadeContextTests
         [CoreAssembly] = Path.Combine("DotnetInspect.Web.Core", "DotnetInspect.Web.Core.csproj"),
         [PackageAssembly] =
             Path.Combine("DotnetInspect.Web.Interop.Package", "DotnetInspect.Web.Interop.Package.csproj"),
+        [LibraryAssembly] =
+            Path.Combine("DotnetInspect.Web.Interop.Library", "DotnetInspect.Web.Interop.Library.csproj"),
         [MetadataAssembly] =
             Path.Combine("DotnetInspect.Web.Interop.Metadata", "DotnetInspect.Web.Interop.Metadata.csproj"),
         [AnalysisAssembly] =

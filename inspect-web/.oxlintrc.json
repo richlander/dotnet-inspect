@@ -37,6 +37,7 @@
       "files": [
         "DotnetInspect.Web/wwwroot/inspect-web-host.js",
         "DotnetInspect.Web/wwwroot/inspect-web-package.js",
+        "DotnetInspect.Web/wwwroot/inspect-web-library.js",
         "DotnetInspect.Web/wwwroot/inspect-web-metadata.js",
         "DotnetInspect.Web/wwwroot/inspect-web-analysis.js",
         "DotnetInspect.Web/wwwroot/inspect-web-source.js",
@@ -56,6 +57,7 @@
       "files": [
         "DotnetInspect.Web/facades/inspect-web-host.ts",
         "DotnetInspect.Web/facades/inspect-web-package.ts",
+        "DotnetInspect.Web/facades/inspect-web-library.ts",
         "DotnetInspect.Web/facades/inspect-web-metadata.ts",
         "DotnetInspect.Web/facades/inspect-web-analysis.ts",
         "DotnetInspect.Web/facades/inspect-web-source.ts",

@@ -1,5 +1,6 @@
 type HostFacade = typeof import("./facades/inspect-web-host.d.ts");
 type PackageFacade = typeof import("./facades/inspect-web-package.d.ts");
+type LibraryFacade = typeof import("./facades/inspect-web-library.d.ts");
 type MetadataFacade = typeof import("./facades/inspect-web-metadata.d.ts");
 type AnalysisFacade = typeof import("./facades/inspect-web-analysis.d.ts");
 type SourceFacade = typeof import("./facades/inspect-web-source.d.ts");
@@ -44,6 +45,8 @@ type PackageOperations =
   | "runPackageActivity"
   | "runPackageQuery"
   | "searchTypes";
+
+type LibraryOperations = "openUploadedLibrary";
 
 type MetadataOperations =
   | "cancelLibraryApiDiff"
@@ -124,6 +127,7 @@ export interface EngineClient {
       ...args: Parameters<PackageFacade["requestPackageQueryMatches"]>
     ): Promise<ReturnType<PackageFacade["requestPackageQueryMatches"]>>;
   };
+  readonly library: AsyncFacade<LibraryFacade, LibraryOperations>;
   readonly metadata: AsyncFacade<MetadataFacade, MetadataOperations>;
   readonly analysis: AsyncFacade<AnalysisFacade, AnalysisOperations>;
   readonly source: AsyncFacade<SourceFacade, SourceOperations> & {
