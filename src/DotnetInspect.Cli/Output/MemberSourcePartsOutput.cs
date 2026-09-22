@@ -163,15 +163,34 @@ internal static class MemberSourcePartsOutput
                 CommandError.Write($"The selected member has no '{MemberSourcePartsProjection.Name(kind)}' part.");
                 return 1;
             }
-            ProjectionAudit.MarkHonored(ProjectionAudit.Print);
             string text = MemberSourcePartsProjection.GetText(document, part);
             result = result with { Part = MemberSourcePartsProjection.Name(kind), Content = text };
             if (options.JsonOutput || options.Jsonl || options.JsonArray)
+            {
+                ProjectionAudit.MarkHonored(ProjectionAudit.Print);
                 WriteJson([result], options, output);
-            else
-                ProjectionDestinationWriter.WriteRenderedText(new(null, options.Rows),
-                    MemberSourcePartsProjection.GetDisplayText(document.Text, part));
-            return 0;
+                return 0;
+            }
+
+            var printable = new PrintableDocument(
+                selectedIndex + 1,
+                SectionNames.SourceLocations,
+                $"{result.Member} ({result.Part})",
+                result.Document.Path,
+                result.Document.Url,
+                MemberSourcePartsProjection.GetDisplayText(document.Text, part))
+            {
+                Language = "csharp",
+            };
+            return PrintProjectionOutput.Write(
+                [printable],
+                new PrintProjectionOptions(
+                    Row: null,
+                    JsonOutput: false,
+                    Jsonl: false,
+                    JsonArray: false,
+                    Destination: new(null, options.Rows),
+                    Markdown: options.UsesMarkdownPayloadFormat));
         }
 
         if (options.JsonOutput)

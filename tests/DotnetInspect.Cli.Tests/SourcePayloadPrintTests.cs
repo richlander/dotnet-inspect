@@ -33,11 +33,13 @@ public sealed class SourcePayloadPrintTests
 
     // PR-fast: untagged cases make bounded offline single-member requests.
     [Theory]
-    [InlineData(SectionNames.CostOverlay)]
-    [InlineData(SectionNames.SemanticsOverlay)]
-    public async Task OverlayPrintHonorsExplicitMarkdown(string section)
+    [InlineData(SectionNames.CostOverlay, "--markdown")]
+    [InlineData(SectionNames.CostOverlay, "-v:q")]
+    [InlineData(SectionNames.SemanticsOverlay, "--markdown")]
+    [InlineData(SectionNames.SemanticsOverlay, "-v:q")]
+    public async Task OverlayPrintHonorsExplicitMarkdown(string section, string format)
     {
-        var result = await RunAsync(section, "--print", "--markdown");
+        var result = await RunAsync(section, "--print", format);
 
         Assert.Equal(0, result.ExitCode);
         Assert.Empty(result.Error);
