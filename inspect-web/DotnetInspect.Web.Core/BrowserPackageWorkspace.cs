@@ -8,6 +8,7 @@ using DotnetInspector.Packages;
 using DotnetInspector.PackageQueries;
 using DotnetInspector.Queries;
 using DotnetInspector.Sections;
+using DotnetInspector.SourceHouse;
 using ILInspector.Metadata;
 using NuGetFetch;
 
@@ -968,14 +969,16 @@ internal static class BrowserPackageWorkspace
             package.CreateRootBinding(targetFramework));
     }
 
-    internal static Task<CompiledDocumentationOutcome>
+    internal static Task<DocumentationQueryOutcome>
         QueryMemberDocumentationAsync(
             string packageId,
             string version,
             string targetFramework,
             string assemblyIdOrName,
             string documentationId,
-            CancellationToken cancellationToken = default) =>
+            CancellationToken cancellationToken = default,
+            IReadOnlyList<ISourceHouseSourceCapability>?
+                authoredSourceCapabilities = null) =>
         RunPackageOperationAsync(
             async deadline =>
             {
@@ -1060,16 +1063,14 @@ internal static class BrowserPackageWorkspace
                         .OfType<PackageHouseLibraryHandoff.Compile>()
                         .Single(candidate =>
                             ReferenceEquals(candidate.Asset, asset));
-                return await PackageCompiledDocumentationQuery.ExecuteAsync(
+                return await BrowserPackageDocumentationQuery.ExecuteAsync(
                         acquired,
                         handoff,
                         documentationId,
-                        new PackageCompiledDocumentationQueryLimits
-                        {
-                            ApiSurface =
-                                BrowserApiSurfacePolicy.ExtractionBounds,
-                        },
-                        cancellationToken: deadline.Token)
+                        authoredSourceCapabilities
+                            ?? BrowserSourceQueryContext
+                                .CreateSourceCapabilities(),
+                        deadline.Token)
                     .ConfigureAwait(false);
             },
             PackageOperationTimeout,

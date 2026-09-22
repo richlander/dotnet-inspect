@@ -9,6 +9,7 @@ src/DotnetInspector.DocumentationHouse
 src/DotnetInspector.DocumentationHouse.Contracts
 src/DotnetInspector.DocumentationHouse.Packages
 src/DotnetInspector.DocumentationHouse.Platform
+src/DotnetInspector.DocumentationHouse.Source
 src/DotnetInspector.EcosystemLoading
 src/DotnetInspector.Ecosystems
 src/DotnetInspector.LibraryMetadata
