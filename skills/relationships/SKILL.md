@@ -224,18 +224,19 @@ dnx dotnet-inspect -y -- type Type --library MyLib.dll -S "Called Types"
 ```
 
 For an integration-style explanation of calls leaving one package assembly,
-use `graph calls`. It resolves one exact member in `--root-package`, admits
-repeatable explicit `--package` participants, and retains only external
-boundary calls plus their shortest local connectors. This is always
-external-focused; it does not change the general bidirectional
-`member -S "Call Graph"` view.
+use `graph calls`. It resolves one exact member in `--root-package`,
+automatically follows that root's authorized dependency graph, and retains
+only external boundary calls plus their shortest local connectors. Root asset
+selection stays exact; dependency traversal independently uses `--tfm` or the
+product default. This is always external-focused; it does not change the
+general bidirectional `member -S "Call Graph"` view.
 
 ```bash
 dnx dotnet-inspect -y -- graph calls \
   Microsoft.Extensions.DependencyInjection.ProviderBuilderServiceCollectionExtensions \
   AddOpenTelemetrySharedProviderBuilderServices~4d95928639 \
   --root-package OpenTelemetry@1.18.0 \
-  --package OpenTelemetry.Api@1.18.0 \
+  --root-tfm net10.0 \
   --tfm net10.0 \
   --all
 ```
