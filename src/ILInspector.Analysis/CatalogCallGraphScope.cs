@@ -1256,29 +1256,41 @@ public sealed class CatalogCallGraphScope : IDisposable
                     continue;
                 }
 
-                StoredDefinition[] matches =
-                [
-                    .. candidates.Where(definition =>
-                        CorrespondsTo(
+                StoredDefinition? match = null;
+                bool ambiguous = false;
+                foreach (StoredDefinition candidate in candidates)
+                {
+                    if (!CorrespondsTo(
                             edge.Callee,
-                            definition,
-                            target.Assembly.Identity)),
-                ];
-                if (matches.Length != 1)
+                            candidate,
+                            target.Assembly.Identity))
+                    {
+                        continue;
+                    }
+
+                    if (match is not null)
+                    {
+                        ambiguous = true;
+                        break;
+                    }
+
+                    match = candidate;
+                }
+
+                if (ambiguous || match is null)
                     continue;
 
-                StoredDefinition targetDefinition = matches[0];
                 calls.Add(
                     new CatalogResolvedCallSite(
                         source,
                         edge.Caller.Method,
                         target,
-                        targetDefinition.Method,
+                        match.Method,
                         edge.Call with
                         {
                             ExactTarget = IsResolvedExactTarget(
                                 edge.Call.Kind,
-                                targetDefinition.Method),
+                                match.Method),
                         }));
             }
 
