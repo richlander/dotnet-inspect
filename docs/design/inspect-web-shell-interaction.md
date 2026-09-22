@@ -371,6 +371,43 @@ descriptors and outcomes; it does not infer supported extensions,
 correspondence, or workspace composition. Arbitrary pasted text is not guessed
 to be binary or base64.
 
+The first production shape accepts exactly one non-empty file and applies the
+declared 32 MiB browser preflight before reading it. The host-neutral operation
+remains the authoritative bound and format gate. If the engine is still
+starting, accepted Open work retains the file without materializing its bytes
+until the dedicated facade is ready. An accepted managed assembly opens
+directly as a transient Library with Type and Member API navigation; the Open
+surface keeps rejection visible and retains focus for correction.
+Open progress uses a generic managed-assembly label rather than rendering the
+raw browser filename before the host-neutral operation issues bounded inert
+display and provenance text.
+A page-level drop remains available across ordinary and full-bleed routed
+surfaces and opens the overlay before work begins so progress and typed
+rejection remain visible. It closes any existing modal without intermediate
+focus return, and the retained routed or inspection surface is inert while the
+Open overlay is present. File drag/drop browser defaults remain suppressed
+while Open work is busy, so a second drop cannot navigate the tab away from the
+in-flight operation. Each Open rerender restores focus inside the modal to its
+title, progress status, or rejection as appropriate. Ordinary dismissal
+returns to the Home Open control, Application menu button, or originating
+surface heading; successful activation focuses the transient Library heading.
+Routed navigation retires any in-flight Open
+operation, and beginning Open work retires older routed acquisition; a retired
+completion cannot replace the user's newer destination or rerender a dismissed
+overlay. Failed routed acquisition restores an active uploaded Library rather
+than dropping its transient model.
+
+Successful transient-Library activation replaces the current address with the
+neutral Home route `/`. The route carries no upload identity, bytes, or
+restoration claim; refresh therefore returns Home rather than restoring the
+session-local Library. Activation also detaches from any active retained
+Workspace: the prior packaged Workspace is retained at its canonical address,
+while the uploaded Library receives no retained identity or snapshot. A later
+Workspace construction may use the upload only as its failure rollback; it
+cannot publish the upload as the prior Workspace. In-memory history matches
+uploaded views with the digest-backed assembly identity, so replacing an upload
+cannot expose the new image through an older same-name/version history entry.
+
 ### Settings
 
 The Application menu's Settings action opens the one shared configuration

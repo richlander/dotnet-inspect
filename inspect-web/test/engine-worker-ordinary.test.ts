@@ -13,6 +13,7 @@ import {
   engineWorkerOrdinaryMaximumNesting,
   engineWorkerOrdinaryOperationKinds,
   engineWorkerOrdinaryOperations,
+  engineWorkerUploadedLibraryMaximumBytes,
   registerEngineWorkerOrdinaryOperations,
   type EngineWorkerOrdinaryFacades,
 } from "../src/engine-worker-ordinary.ts";
@@ -60,6 +61,9 @@ function contractViolation<T>(value: unknown): T {
 }
 
 const defaultFacades: EngineWorkerOrdinaryFacades = {
+  library: {
+    openUploadedLibrary: () => unexpected("openUploadedLibrary"),
+  },
   package: {
     classifyPackageGraphIdentities: () =>
       unexpected("classifyPackageGraphIdentities"),
@@ -207,6 +211,7 @@ function createFacades(
   overrides: FacadeOverrides = {},
 ): EngineWorkerOrdinaryFacades {
   return {
+    library: { ...defaultFacades.library, ...overrides.library },
     package: { ...defaultFacades.package, ...overrides.package },
     metadata: { ...defaultFacades.metadata, ...overrides.metadata },
     analysis: { ...defaultFacades.analysis, ...overrides.analysis },
@@ -354,6 +359,46 @@ function retainedDetailSurface(
     inspectionError: null,
   };
 }
+
+test("uploaded Library input uses a bounded structured-clone byte tuple", () => {
+  const operation =
+    engineWorkerOrdinaryOperations.library.openUploadedLibrary;
+  const input: [string, number[]] = [
+    "Example.dll",
+    [0x4d, 0x5a, 0x00, 0x01],
+  ];
+
+  assert.deepEqual(operation.encodeInput(input), {
+    kind: "decoded",
+    value: input,
+  });
+  assert.deepEqual(operation.input.decode(input), {
+    kind: "decoded",
+    value: input,
+  });
+
+  const invalidByte = operation.encodeInput([
+    "Example.dll",
+    [0x4d, 256],
+  ]);
+  assert.equal(invalidByte.kind, "rejected");
+  if (invalidByte.kind === "rejected") {
+    assert.equal(invalidByte.reason, "invalid");
+    assert.match(invalidByte.message, /outside the byte range/);
+  }
+
+  const oversized: number[] = [];
+  oversized.length = engineWorkerUploadedLibraryMaximumBytes + 1;
+  const oversizedInput = operation.input.decode([
+    "Example.dll",
+    oversized,
+  ]);
+  assert.equal(oversizedInput.kind, "rejected");
+  if (oversizedInput.kind === "rejected") {
+    assert.equal(oversizedInput.reason, "oversized");
+    assert.match(oversizedInput.message, /exceeds 33554432 bytes/);
+  }
+});
 
 test("format 3 packet remains opaque across Browser Worker transport", async () => {
   const packet =
@@ -1588,6 +1633,9 @@ test("a closed-epoch ordinary client cannot dispatch into a replacement", async 
 
 test("the page client and Worker catalog expose only the closed allow-list", () => {
   const expected = {
+    library: [
+      "openUploadedLibrary",
+    ],
     package: [
       "activateWorkspacePackageOccurrence",
       "classifyPackageGraphIdentities",
@@ -1678,6 +1726,7 @@ test("the page client and Worker catalog expose only the closed allow-list", () 
     ],
   } as const;
   const expectedKinds = [
+    ...Object.values(engineWorkerOrdinaryOperations.library),
     ...Object.values(engineWorkerOrdinaryOperations.package),
     ...Object.values(engineWorkerOrdinaryOperations.metadata),
     ...Object.values(engineWorkerOrdinaryOperations.analysis),
@@ -1689,10 +1738,11 @@ test("the page client and Worker catalog expose only the closed allow-list", () 
     [...engineWorkerOrdinaryOperationKinds].sort(),
     expectedKinds,
   );
-  assert.equal(engineWorkerOrdinaryOperationKinds.length, 76);
+  assert.equal(engineWorkerOrdinaryOperationKinds.length, 77);
 
   const state = fixture();
   const groups = [
+    "library",
     "package",
     "metadata",
     "analysis",

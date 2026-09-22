@@ -6,6 +6,7 @@ import {
   createNuGetPackageModel,
   createPackageAcquisition,
   createRuntimePackageModel,
+  createUploadedLibraryModel,
   createWorkspaceOccurrencePackageModel,
   graphOnlyImplementationBody,
   mergeRuntimePackageSurface,
@@ -25,6 +26,9 @@ import type {
   BrowserPackageVersionSettlementInspection,
   BrowserTypeSurface,
 } from "../src/facades/inspect-web-package.d.ts";
+import type {
+  BrowserUploadedLibraryResult,
+} from "../src/facades/inspect-web-library.d.ts";
 
 function assembly(
   id: string,
@@ -241,6 +245,58 @@ function generatedPackageSurfaceRejectsMutation(
   type.api[0] = member;
 }
 void generatedPackageSurfaceRejectsMutation;
+
+test("uploaded Library model stays detached from Package acquisition state", () => {
+  const descriptor = assembly("embedded:example", "Example.Uploaded", 1);
+  const uploadedType = {
+    ...typeSurface("Example.Uploaded.Widget", "Example.Uploaded"),
+    assemblyId: descriptor.id,
+  };
+  const result: BrowserUploadedLibraryResult = {
+    outcome: "Available",
+    declaredName: "renamed-upload.dll",
+    digest: `sha256:${"a".repeat(64)}`,
+    byteLength: 4096,
+    provenance: {
+      contentRef: "browser-upload",
+      digest: `sha256:${"a".repeat(64)}`,
+      declaredName: "renamed-upload.dll",
+    },
+    assembly: {
+      name: "Example.Uploaded",
+      version: "1.0.0.0",
+      culture: null,
+      publicKeyToken: null,
+    },
+    surface: {
+      assemblies: [descriptor],
+      types: [uploadedType],
+      accessibility: [{
+        id: "public",
+        label: "Public",
+        order: 0,
+        isDefault: true,
+        count: 1,
+      }],
+      totalMembers: 2,
+      inspectionErrors: [],
+      inspectionError: null,
+      isTruncated: false,
+    },
+    inspectionFailures: [],
+    failure: null,
+    isComplete: true,
+  };
+
+  const model = createUploadedLibraryModel(result);
+
+  assert.deepEqual(model.source, { kind: "file" });
+  assert.equal(model.id, "Example.Uploaded");
+  assert.equal(model.assemblyId, "embedded:example");
+  assert.equal(model.producerLabel, "Browser upload");
+  assert.deepEqual(model.documents, []);
+  assert.equal(model.types[0]?.displayName, "Example.Uploaded.Widget");
+});
 
 test("root-only package surfaces remain inspectable without inventing a Library", () => {
   for (const status of [

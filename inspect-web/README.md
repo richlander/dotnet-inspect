@@ -15,6 +15,14 @@ up with its complete Library inventory. Explicit links and restored workspace
 history keep their selected subjects and inspectors; packages with no compile
 Libraries remain at Package with the reason visible.
 
+**Open Library** and page-level file drop accept one managed `.dll` or `.exe`
+up to 32 MiB and open it directly as a transient Library subject. Picker, drop,
+and focused clipboard-file paste use the same admission path. The Browser
+passes immutable bytes to the host-neutral embedded-Library operation; it does
+not synthesize a local path or package coordinate. Uploaded Libraries expose
+Library Overview and API navigation through Type and Member, while package-
+dependent inspectors, persistence, restoration, and sharing remain unavailable.
+
 Demos has its own `/demos` page, linked from Home and the shared data bar.
 Workspace lists the active inspection's coordinates and saved workspaces,
 not demo definitions. Opening the catalog leaves the current Workspace
@@ -388,6 +396,7 @@ assemblies that receive a .NET platform lookup on click.
 | `DotnetInspect.Web` | Browser/Wasm entry point, host exports, build identity, compiled facade recipe, banned-symbol policy, and static assets |
 | `DotnetInspect.Web.Core` | shared browser workspaces, acquisition and operation coordination, host policy, lifetimes, and internal projections; no `[JSExport]` methods |
 | `DotnetInspect.Web.Interop.Package` | package and platform acquisition, query, documentation, and workspace-occurrence exports and wire contracts |
+| `DotnetInspect.Web.Interop.Library` | uploaded managed-Library inspection exports and wire contracts |
 | `DotnetInspect.Web.Interop.Metadata` | API and metadata exports and wire contracts |
 | `DotnetInspect.Web.Interop.Analysis` | analysis, integration, opportunity, performance, and clone-search exports and wire contracts |
 | `DotnetInspect.Web.Interop.Source` | source, annotated-source, method-body, and source-comparison exports and wire contracts |
@@ -1165,25 +1174,25 @@ the preferred SSH-forwarding pattern preserves a browser-loopback URL without
 exposing an application port.
 
 On a bare visit, `dotnet-inspect.ts` waits for the home page's first contentful
-paint before dynamically importing the seven production facade modules. Search
+paint before dynamically importing the eight production facade modules. Search
 and demo controls remain inert behind a loading indicator until every facade is
 ready; package and shared-workspace deep links retain the full loading
 interstitial. The `bare home paints before wasm engine download` JavaScript test
 gates this startup boundary.
 
 `eng/generate-inspect-web-engine-facade.sh` executes the engine's compiled
-`JsExportRoot` recipe once to generate the seven canonical context artifacts.
+`JsExportRoot` recipe once to generate the eight canonical context artifacts.
 This execution path is `ts-jsexport` context mode: the attributes declare the
 closed assembly set and `--context` names that declaration for the generator.
 It is one mechanism, not a TypeScript feature, and the generated modules
 contain no context construct. The script requires the context output to equal
-the exact seven-entry consumer map, proves each context artifact equals direct
+the exact eight-entry consumer map, proves each context artifact equals direct
 generation for its rooted assembly, and copies those bytes unchanged into
 `DotnetInspect.Web/facades/`.
 
 Those native TypeScript files are the authoritative checked-in handoff. The
 repository contains no checked-in declaration or JavaScript copies.
-`scripts/compile-engine-facades.ts` compiles all seven canonical sources in one
+`scripts/compile-engine-facades.ts` compiles all eight canonical sources in one
 exact program against the SDK-owned `dotnet.d.ts` from the Browser/Wasm runtime
 pack selected for the engine build, with LF compiler output on every host. It
 cleanly replaces the ignored declarations in `src/facades/` and the ignored
@@ -1191,7 +1200,7 @@ published modules in `DotnetInspect.Web/wwwroot/`, rejecting an extra or
 missing artifact in either inventory. Frontend commands and the
 `DotnetInspect.Web` build and publish targets invoke this TypeScript-only
 derivation path automatically. MSBuild removes all wildcard-discovered facade
-modules from its evaluated content, then admits only the exact seven generated
+modules from its evaluated content, then admits only the exact eight generated
 modules after derivation; deleting a stale ignored module therefore cannot
 leave a dangling static-web-asset item. The SDK declaration is copied only
 into a temporary compiler workspace and is never published.
@@ -1212,7 +1221,7 @@ well. The complete check compares its two transient declaration sets directly.
 
 `src/engine-facades.ts` owns runtime composition. Concurrent callers share one
 retained readiness promise. It calls the host module's `createRuntime()` once,
-then passes that same narrow runtime handle while the seven generated modules
+then passes that same narrow runtime handle while the eight generated modules
 initialize serially. Only the host facade configures browser policy and runs
 the entry point; application calls bind directly to their owning generated
 module rather than a compatibility monolith. After publish,
@@ -1506,13 +1515,13 @@ Spotlight scopes are literal unions derived from their UI catalogs. DOM and URL
 tokens are decoded before they reach typed state or actions; the scope-bar and
 workspace-navigation tests gate rejection of unknown values.
 
-Oxlint checks all seven production facade source, transient declaration, and
+Oxlint checks all eight production facade source, transient declaration, and
 transient JavaScript triples and the multi-facade and managed-operation canary
 sources as consumer contracts. The lint command derives the transient files
 before naming each ignored output explicitly, so repository ignore rules do
 not remove them from analysis.
 The `src/facades/*.d.ts` declarations receive the TypeScript rules, while the
-exact seven `DotnetInspect.Web/wwwroot/inspect-web-*.js` modules receive the JavaScript
+exact eight `DotnetInspect.Web/wwwroot/inspect-web-*.js` modules receive the JavaScript
 correctness and suspicious rules described below. TypeScript's declaration
 emitter appends `export {};` when an exported opaque type references its
 module-private `unique symbol`; generated declarations therefore disable only
@@ -2630,7 +2639,7 @@ framework/runtime-pack binaries, the separately published MSDL server API, and
 unrelated repository projects are outside that set.
 
 Each build then runs `verify-inspect-web-async-deployment.sh` immediately after
-their clean engine publish. The gate derives the seven export assemblies from
+their clean engine publish. The gate derives the eight export assemblies from
 the compiled `InspectWebJsExportContext`, enumerates every public async export
 as compiler async for Mono and runtime async for CoreCLR, and requires the
 entire census to use the expected physical lowering. These are the exact
@@ -2638,12 +2647,12 @@ pre-link assemblies that retain the compiler-generated runtime wrappers
 authenticated by `ts-jsexport`; the linker removes those wrappers from its
 intermediate assemblies before packaging the shipped WebCIL.
 
-The gate regenerates all seven declarations with
+The gate regenerates all eight declarations with
 `generate-inspect-web-engine-facade.sh --contract`, compiles every generated
 source with the pinned consumer program, and requires the independently
 generated transient declaration sets and the freshly compiled and published
 JavaScript bytes to match. It then
-initializes all seven facades through the published Browser/Wasm runtime and
+initializes all eight facades through the published Browser/Wasm runtime and
 invokes the host's `AsyncLoweringCanary`. The verifier carries the same
 authoritative product `VersionPrefix` used by the deployment build into
 `ts-jsexport`, so the compiled context and generator authenticate the same exact
