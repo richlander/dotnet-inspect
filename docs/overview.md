@@ -642,6 +642,14 @@ substrates, and inspection producers that will extend that space.
   `AnalysisDiff`/Markout `MappedTextDiff` lowering and source-diff transport,
   the Diff viewer interaction, and shell modal semantics without redefining
   them.
+- [Incremental Library API diff](design/incremental-library-api-diff.md)
+  owns producing one Library API comparison as an ordered row source
+  partitioned by exact Type key and materialized per member row: key-only
+  exact Counts ahead of rows, `(TypeKey, MemberKey)` continuation, per-window
+  retained-text bounds, one snapshot generation binding Count and Rows, and
+  the equivalence obligation against the whole-surface comparison. It consumes
+  Findings correspondence, the presentation projection, and QuerySpace
+  terminals without redefining them.
 - [Library API diff presentation](design/library-api-diff-presentation.md)
   owns the portable Library-root and changed-Type projection of one complete
   selected-library API comparison. It preserves Metadata identity,
