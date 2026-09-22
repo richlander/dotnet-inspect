@@ -16,12 +16,12 @@ public static partial class MemberBodyProducer
         MetadataSource source,
         bool pdbSupplied,
         PrinterOptions? printerOptions,
-        int maxBodyProjections,
+        CSharpTypeDocumentProductionTracker tracker,
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(requestedType);
         ArgumentNullException.ThrowIfNull(source);
-        ArgumentOutOfRangeException.ThrowIfNegative(maxBodyProjections);
+        ArgumentNullException.ThrowIfNull(tracker);
         cancellationToken.ThrowIfCancellationRequested();
 
         if (!TryResolveServiceType(
@@ -30,7 +30,8 @@ public static partial class MemberBodyProducer
                 out TypeDefinitionHandle typeHandle))
         {
             return new CSharpTypeDocumentOutcome.Rejected(
-                "The requested Type identity does not resolve in the supplied assembly.");
+                "The requested Type identity does not resolve in the supplied assembly.",
+                tracker.Attempted);
         }
 
         ThrowIfMemorySafetyModeUnavailable(source);
@@ -46,7 +47,8 @@ public static partial class MemberBodyProducer
         if (type is null)
         {
             return new CSharpTypeDocumentOutcome.Unavailable(
-                "Complete same-reader API extraction did not retain the selected Type.");
+                "Complete same-reader API extraction did not retain the selected Type.",
+                tracker.Attempted);
         }
 
         MetadataReader reader = source.Reader;
@@ -105,7 +107,8 @@ public static partial class MemberBodyProducer
             if (representation is null)
             {
                 return new CSharpTypeDocumentOutcome.Unavailable(
-                    $"FieldDef 0x{token:X8} has no proven C# representation.");
+                    $"FieldDef 0x{token:X8} has no proven C# representation.",
+                    tracker.Attempted);
             }
             artifacts.Add(new(
                 token,
@@ -128,7 +131,8 @@ public static partial class MemberBodyProducer
             if (representation is null)
             {
                 return new CSharpTypeDocumentOutcome.Unavailable(
-                    $"MethodDef 0x{token:X8} has no proven C# representation.");
+                    $"MethodDef 0x{token:X8} has no proven C# representation.",
+                    tracker.Attempted);
             }
             artifacts.Add(new(
                 token,
@@ -150,7 +154,8 @@ public static partial class MemberBodyProducer
             if (!declarationIdByToken.TryGetValue(token, out int declarationId))
             {
                 return new CSharpTypeDocumentOutcome.Unavailable(
-                    $"PropertyDef 0x{token:X8} has no complete logical declaration.");
+                    $"PropertyDef 0x{token:X8} has no complete logical declaration.",
+                    tracker.Attempted);
             }
             artifacts.Add(new(
                 token,
@@ -175,7 +180,8 @@ public static partial class MemberBodyProducer
             if (!declarationIdByToken.TryGetValue(token, out int declarationId))
             {
                 return new CSharpTypeDocumentOutcome.Unavailable(
-                    $"EventDef 0x{token:X8} has no complete logical declaration.");
+                    $"EventDef 0x{token:X8} has no complete logical declaration.",
+                    tracker.Attempted);
             }
             artifacts.Add(new(
                 token,
@@ -193,7 +199,6 @@ public static partial class MemberBodyProducer
             .Select((artifact, id) => (artifact.Token, id))
             .ToDictionary(static entry => entry.Token, static entry => entry.id);
         var bodyBuilds = new List<BodyBuild>();
-        int attemptedBodies = 0;
         foreach (MethodDefinitionHandle handle in definition.GetMethods())
         {
             cancellationToken.ThrowIfCancellationRequested();
@@ -220,7 +225,7 @@ public static partial class MemberBodyProducer
                 continue;
             }
 
-            if (attemptedBodies >= maxBodyProjections)
+            if (!tracker.TryBegin())
             {
                 bodyBuilds.Add(new(
                     token,
@@ -232,13 +237,12 @@ public static partial class MemberBodyProducer
                     [
                         new(
                             DiagnosticIds.CompositionBudgetExceeded,
-                            $"C# Type document exhausted its {maxBodyProjections} body-projection budget."),
+                            $"C# Type document exhausted its {tracker.Maximum} body-projection budget."),
                     ],
                     Result: null));
                 continue;
             }
 
-            attemptedBodies++;
             SelectedPropertyAccessorSource? propertySource =
                 accessor is { Declaration.Kind: "property" }
                     ? SelectedPropertyAccessorSource.Create(source, handle)
@@ -285,7 +289,8 @@ public static partial class MemberBodyProducer
                 && body.Result?.Body?.ConstructorInitializer is null))
         {
             return new CSharpTypeDocumentOutcome.Unavailable(
-                "A constructor body is unavailable and its required constructor initializer cannot be proven.");
+                "A constructor body is unavailable and its required constructor initializer cannot be proven.",
+                tracker.Attempted);
         }
         var loweredOwners = new Dictionary<int, int>();
         foreach (BodyBuild body in bodyBuilds)
@@ -303,7 +308,8 @@ public static partial class MemberBodyProducer
                         && owner != body.Token)
                     {
                         return new CSharpTypeDocumentOutcome.Unavailable(
-                            "A lowered helper has more than one primary body representation.");
+                            "A lowered helper has more than one primary body representation.",
+                            tracker.Attempted);
                     }
                     loweredOwners[helperToken] = body.Token;
                 }
@@ -352,7 +358,8 @@ public static partial class MemberBodyProducer
         {
             return new CSharpTypeDocumentOutcome.Unavailable(
                 initializerFailure
-                    ?? "Constructor initializers do not have one unambiguous declaration value.");
+                    ?? "Constructor initializers do not have one unambiguous declaration value.",
+                tracker.Attempted);
         }
         var memberRequests = BuildMemberRequests(
             source,
@@ -377,7 +384,8 @@ public static partial class MemberBodyProducer
         catch (NotSupportedException ex)
         {
             return new CSharpTypeDocumentOutcome.Unavailable(
-                $"CSharp could not issue a complete structured render plan: {ex.Message}");
+                $"CSharp could not issue a complete structured render plan: {ex.Message}",
+                tracker.Attempted);
         }
 
         var physicalArtifacts = artifacts
