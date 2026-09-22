@@ -101,6 +101,22 @@ discovery's `SelectCandidate` operation. Thus one discovery can serve multiple
 sparse or dense cells without rediscovery while every cell remains restricted
 to authorities that reported its version.
 
+Major-bound populations are an explicit `PackageVersionPopulationPolicy` opt-in.
+They retain the literal semantic range as the request, but interpret its
+endpoint majors as the required boundary buckets rather than requiring both
+literal endpoint versions. Every boundary major must have at least one
+admitted version in the inclusive range; therefore an unpublished stable upper
+bound can be represented by an admitted prerelease below that bound when
+prereleases are enabled. The default `ExactEndpoints` policy is unchanged.
+
+`PackageVersionMajorRepresentativePolicy.FirstStable` projects the lowest
+admitted stable address in each major, falling back to that major's latest
+admitted prerelease only when no stable address exists. `Latest` projects the
+highest admitted address in each major. Both projections preserve the
+caller-directed order of major buckets and return the original vector
+addresses, so the retained discovery and its source correspondence remain the
+handoff currency. These projections acquire no package payloads.
+
 The initial production bridge is online configured-source composition.
 Top-level `diff --history` and package version Count consume it. API-range
 inspection, offline extraction, operation-backed subject sections, and
