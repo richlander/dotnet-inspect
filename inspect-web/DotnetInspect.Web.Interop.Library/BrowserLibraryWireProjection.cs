@@ -68,6 +68,8 @@ internal static class BrowserLibraryWireProjection
         }
 
         return AdmitTransport(new(
+            inspection.ResourcePath.Value,
+            Project(inspection.ContentKind),
             new BrowserUploadedLibraryResult(
                 outcome,
                 content.DeclaredName.ToString(),
@@ -79,7 +81,7 @@ internal static class BrowserLibraryWireProjection
                 [.. content.InspectionFailures.Select(Project)],
                 failure,
                 isComplete),
-            Project(inspection.Share),
+            Project(inspection.PortableProjection),
             diagnostics));
     }
 
@@ -129,6 +131,8 @@ internal static class BrowserLibraryWireProjection
             + $"{limit} limit ({bound}): observed {observed}.";
         BrowserUploadedLibraryResult content = inspection.Content;
         var rejection = new BrowserUploadedLibraryInspection(
+            inspection.ResourcePath,
+            inspection.ContentKind,
             content with
             {
                 Outcome = BrowserUploadedLibraryInspectionOutcome.Rejected,
@@ -139,7 +143,7 @@ internal static class BrowserLibraryWireProjection
                     detail),
                 IsComplete = false,
             },
-            inspection.Share,
+            inspection.PortableProjection,
             [
                 new(
                     "embedded-library.browser-projection-truncated",
@@ -230,25 +234,65 @@ internal static class BrowserLibraryWireProjection
             Project(failure.SubjectAssembly),
             Project(failure.DependencyAssembly));
 
-    static BrowserLibraryInspectionShare Project(InspectionShare share) =>
-        share switch
+    static BrowserLibraryInspectionContentKind Project(
+        InspectionContentKind contentKind) =>
+        contentKind switch
         {
-            InspectionShare.Available available =>
+            InspectionContentKind.Result =>
+                BrowserLibraryInspectionContentKind.Result,
+            InspectionContentKind.Document =>
+                BrowserLibraryInspectionContentKind.Document,
+            InspectionContentKind.Outcome =>
+                BrowserLibraryInspectionContentKind.Outcome,
+            _ => throw new InvalidOperationException(
+                "Unknown inspection content kind."),
+        };
+
+    static BrowserLibraryInspectionPortableProjection Project(
+        InspectionPortableProjection portableProjection) =>
+        portableProjection switch
+        {
+            InspectionPortableProjection.Available available =>
                 new(
-                    BrowserLibraryInspectionShareKind.Available,
+                    BrowserLibraryInspectionPortableProjectionKind.Available,
                     available.FullUrl,
                     available.Packet,
-                    Path: null,
-                    Reason: null),
-            InspectionShare.NonProjectable nonProjectable =>
+                    Location: null,
+                    Reason: null,
+                    Explanation: null),
+            InspectionPortableProjection.NonProjectable nonProjectable =>
                 new(
-                    BrowserLibraryInspectionShareKind.NonProjectable,
+                    BrowserLibraryInspectionPortableProjectionKind
+                        .NonProjectable,
                     FullUrl: null,
                     Packet: null,
-                    nonProjectable.Path,
-                    nonProjectable.Reason.ToString()),
+                    nonProjectable.Location,
+                    Project(nonProjectable.Reason),
+                    nonProjectable.Explanation),
             _ => throw new InvalidOperationException(
-                "Unknown inspection Share outcome."),
+                "Unknown inspection portable projection."),
+        };
+
+    static BrowserLibraryInspectionPortableProjectionFailureReason Project(
+        InspectionPortableProjectionFailureReason reason) =>
+        reason switch
+        {
+            InspectionPortableProjectionFailureReason.NotSupported =>
+                BrowserLibraryInspectionPortableProjectionFailureReason
+                    .NotSupported,
+            InspectionPortableProjectionFailureReason.Invalid =>
+                BrowserLibraryInspectionPortableProjectionFailureReason
+                    .Invalid,
+            InspectionPortableProjectionFailureReason.Incomplete =>
+                BrowserLibraryInspectionPortableProjectionFailureReason
+                    .Incomplete,
+            InspectionPortableProjectionFailureReason.Unavailable =>
+                BrowserLibraryInspectionPortableProjectionFailureReason
+                    .Unavailable,
+            InspectionPortableProjectionFailureReason.Failed =>
+                BrowserLibraryInspectionPortableProjectionFailureReason.Failed,
+            _ => throw new InvalidOperationException(
+                "Unknown inspection portable projection failure reason."),
         };
 
     static BrowserLibraryInspectionDiagnostic Project(

@@ -1,6 +1,10 @@
 import { dotnet } from "./runtime-loader.js";
 
-export type BrowserLibraryInspectionShareKind = "Available" | "NonProjectable" | number;
+export type BrowserLibraryInspectionContentKind = "result" | "document" | "outcome" | number;
+
+export type BrowserLibraryInspectionPortableProjectionFailureReason = "notSupported" | "invalid" | "incomplete" | "unavailable" | "failed" | number;
+
+export type BrowserLibraryInspectionPortableProjectionKind = "Available" | "NonProjectable" | number;
 
 export type BrowserUploadedLibraryFailureKind = "InvalidDeclaredName" | "EmptyImage" | "ResourceBudget" | "DescriptorUnavailable" | "NotAssembly" | "InvalidImage" | "UnsupportedMetadataFormat" | "InspectionFailed" | "ProjectionTruncated" | number;
 
@@ -61,12 +65,13 @@ export interface BrowserLibraryInspectionFailure {
   readonly dependencyAssembly: BrowserLibraryAssemblyReference | null;
 }
 
-export interface BrowserLibraryInspectionShare {
-  readonly kind: BrowserLibraryInspectionShareKind;
+export interface BrowserLibraryInspectionPortableProjection {
+  readonly kind: BrowserLibraryInspectionPortableProjectionKind;
   readonly fullUrl: string | null;
   readonly packet: string | null;
-  readonly path: string | null;
-  readonly reason: string | null;
+  readonly location: string | null;
+  readonly reason: BrowserLibraryInspectionPortableProjectionFailureReason | null;
+  readonly explanation: string | null;
 }
 
 export interface BrowserLibraryMemberBodySelector {
@@ -139,8 +144,10 @@ export interface BrowserUploadedLibraryFailure {
 }
 
 export interface BrowserUploadedLibraryInspection {
+  readonly resourcePath: string;
+  readonly contentKind: BrowserLibraryInspectionContentKind;
   readonly content: BrowserUploadedLibraryResult;
-  readonly share: BrowserLibraryInspectionShare;
+  readonly portableProjection: BrowserLibraryInspectionPortableProjection;
   readonly diagnostics: ReadonlyArray<BrowserLibraryInspectionDiagnostic>;
 }
 

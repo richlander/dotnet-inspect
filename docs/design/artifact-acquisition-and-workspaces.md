@@ -996,9 +996,10 @@ The operation:
 
 The returned Content preserves the declared name, digest, byte length,
 embedded provenance, assembly identity, API surface, accessibility buckets,
-completeness, and typed failure. Share is non-projectable because the bytes
-are intentionally session-local. Inspection failures remain visible as
-envelope diagnostics.
+completeness, and typed failure. The envelope identifies the `embedded-library`
+resource and classifies the Content as an Outcome. Its PortableProjection is
+non-projectable because the bytes are intentionally session-local. Inspection
+failures remain visible as envelope diagnostics.
 A successful result never implies sibling discovery, dependency acquisition,
 platform closure, package identity, local-file identity, source or PDB
 acquisition, persistence, or restoration.

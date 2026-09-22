@@ -244,8 +244,10 @@ public static class EmbeddedLibraryInspection
             Failure: null,
             IsComplete: available.InspectionFailures.IsEmpty);
         return new(
+            new ResourcePath("embedded-library"),
+            InspectionContentKind.Outcome,
             result,
-            NonProjectableShare(),
+            NonProjectableProjection(),
             available.InspectionFailures.Select(
                 failure => new InspectionDiagnostic(
                     "embedded-library-inspection-incomplete",
@@ -267,6 +269,8 @@ public static class EmbeddedLibraryInspection
             kind,
             new InertString(TextPolicy.Field, detail));
         return new(
+            new ResourcePath("embedded-library"),
+            InspectionContentKind.Outcome,
             new EmbeddedLibraryInspectionResult(
                 EmbeddedLibraryInspectionOutcome.Rejected,
                 declaredName,
@@ -284,7 +288,7 @@ public static class EmbeddedLibraryInspection
                 InspectionFailures: [],
                 failure,
                 IsComplete: false),
-            NonProjectableShare(),
+            NonProjectableProjection(),
             [
                 new InspectionDiagnostic(
                     "embedded-library-rejected",
@@ -344,8 +348,9 @@ public static class EmbeddedLibraryInspection
                 $"Unknown candidate-open failure kind '{kind}'."),
         };
 
-    private static InspectionShare NonProjectableShare() =>
-        new InspectionShare.NonProjectable(
-            "embedded-library/share",
-            "Uploaded Library bytes are session-local and cannot be restored.");
+    private static InspectionPortableProjection NonProjectableProjection() =>
+        new InspectionPortableProjection.NonProjectable(
+            InspectionPortableProjectionFailureReason.NotSupported,
+            explanation:
+                "Uploaded Library bytes are session-local and cannot be restored.");
 }

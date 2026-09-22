@@ -349,6 +349,8 @@ async function installFacades(
     platformPack: null,
   };
   const availableUploadInspection = {
+    resourcePath: "embedded-library",
+    contentKind: "outcome",
     content: {
       outcome: "Available",
       declaredName: uploadAssembly.asset,
@@ -383,12 +385,13 @@ async function installFacades(
       failure: null,
       isComplete: true,
     },
-    share: {
+    portableProjection: {
       kind: "NonProjectable",
       fullUrl: null,
       packet: null,
-      path: "embedded-library/share",
-      reason: "Uploaded bytes are session-local.",
+      location: null,
+      reason: "notSupported",
+      explanation: "Uploaded bytes are session-local.",
     },
     diagnostics: [],
   };

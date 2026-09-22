@@ -3,8 +3,10 @@ using System.Text.Json.Serialization;
 namespace DotnetInspect.Web.Interop.Library;
 
 public sealed record BrowserUploadedLibraryInspection(
+    string ResourcePath,
+    BrowserLibraryInspectionContentKind ContentKind,
     BrowserUploadedLibraryResult Content,
-    BrowserLibraryInspectionShare Share,
+    BrowserLibraryInspectionPortableProjection PortableProjection,
     BrowserLibraryInspectionDiagnostic[] Diagnostics);
 
 public sealed record BrowserUploadedLibraryResult(
@@ -74,19 +76,57 @@ public sealed record BrowserLibraryInspectionFailure(
     BrowserLibraryAssemblyReference? SubjectAssembly,
     BrowserLibraryAssemblyReference? DependencyAssembly);
 
-[JsonConverter(typeof(JsonStringEnumConverter<BrowserLibraryInspectionShareKind>))]
-public enum BrowserLibraryInspectionShareKind
+[JsonConverter(
+    typeof(JsonStringEnumConverter<BrowserLibraryInspectionContentKind>))]
+public enum BrowserLibraryInspectionContentKind
+{
+    [JsonStringEnumMemberName("result")]
+    Result,
+
+    [JsonStringEnumMemberName("document")]
+    Document,
+
+    [JsonStringEnumMemberName("outcome")]
+    Outcome,
+}
+
+[JsonConverter(
+    typeof(JsonStringEnumConverter<
+        BrowserLibraryInspectionPortableProjectionKind>))]
+public enum BrowserLibraryInspectionPortableProjectionKind
 {
     Available,
     NonProjectable,
 }
 
-public sealed record BrowserLibraryInspectionShare(
-    BrowserLibraryInspectionShareKind Kind,
+public sealed record BrowserLibraryInspectionPortableProjection(
+    BrowserLibraryInspectionPortableProjectionKind Kind,
     string? FullUrl,
     string? Packet,
-    string? Path,
-    string? Reason);
+    string? Location,
+    BrowserLibraryInspectionPortableProjectionFailureReason? Reason,
+    string? Explanation);
+
+[JsonConverter(
+    typeof(JsonStringEnumConverter<
+        BrowserLibraryInspectionPortableProjectionFailureReason>))]
+public enum BrowserLibraryInspectionPortableProjectionFailureReason
+{
+    [JsonStringEnumMemberName("notSupported")]
+    NotSupported,
+
+    [JsonStringEnumMemberName("invalid")]
+    Invalid,
+
+    [JsonStringEnumMemberName("incomplete")]
+    Incomplete,
+
+    [JsonStringEnumMemberName("unavailable")]
+    Unavailable,
+
+    [JsonStringEnumMemberName("failed")]
+    Failed,
+}
 
 public sealed record BrowserLibraryInspectionDiagnostic(
     string Code,

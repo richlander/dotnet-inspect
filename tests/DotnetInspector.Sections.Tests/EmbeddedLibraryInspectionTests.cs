@@ -52,7 +52,15 @@ public sealed class EmbeddedLibraryInspectionTests
         Assert.Equal("browser-upload", provenance.ContentRef);
         Assert.Equal($"sha256:{result.Digest}", provenance.Digest);
         Assert.Equal("Sections.Tests.dll", provenance.DeclaredName);
-        Assert.IsType<InspectionShare.NonProjectable>(envelope.Share);
+        Assert.Equal("embedded-library", envelope.ResourcePath.Value);
+        Assert.Equal(InspectionContentKind.Outcome, envelope.ContentKind);
+        InspectionPortableProjection.NonProjectable portableProjection =
+            Assert.IsType<InspectionPortableProjection.NonProjectable>(
+                envelope.PortableProjection);
+        Assert.Equal(
+            InspectionPortableProjectionFailureReason.NotSupported,
+            portableProjection.Reason);
+        Assert.Null(portableProjection.Location);
     }
 
     [Fact]
@@ -185,7 +193,10 @@ public sealed class EmbeddedLibraryInspectionTests
             result.Outcome);
         Assert.Equal(kind, result.Failure?.Kind);
         Assert.Null(result.Surface);
-        Assert.IsType<InspectionShare.NonProjectable>(envelope.Share);
+        Assert.Equal("embedded-library", envelope.ResourcePath.Value);
+        Assert.Equal(InspectionContentKind.Outcome, envelope.ContentKind);
+        Assert.IsType<InspectionPortableProjection.NonProjectable>(
+            envelope.PortableProjection);
     }
 
     static byte[] BuildMalformedPe()

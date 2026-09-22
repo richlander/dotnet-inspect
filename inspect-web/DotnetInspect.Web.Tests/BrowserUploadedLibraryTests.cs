@@ -37,12 +37,20 @@ public sealed class BrowserUploadedLibraryTests
             $"sha256:{inspection.Content.Digest}",
             provenance.Digest);
         Assert.Equal(inspection.Content.DeclaredName, provenance.DeclaredName);
+        Assert.Equal("embedded-library", inspection.ResourcePath);
         Assert.Equal(
-            BrowserLibraryInspectionShareKind.NonProjectable,
-            inspection.Share.Kind);
-        Assert.Equal("embedded-library/share", inspection.Share.Path);
-        Assert.Null(inspection.Share.FullUrl);
-        Assert.Null(inspection.Share.Packet);
+            BrowserLibraryInspectionContentKind.Outcome,
+            inspection.ContentKind);
+        Assert.Equal(
+            BrowserLibraryInspectionPortableProjectionKind.NonProjectable,
+            inspection.PortableProjection.Kind);
+        Assert.Equal(
+            BrowserLibraryInspectionPortableProjectionFailureReason
+                .NotSupported,
+            inspection.PortableProjection.Reason);
+        Assert.Null(inspection.PortableProjection.Location);
+        Assert.Null(inspection.PortableProjection.FullUrl);
+        Assert.Null(inspection.PortableProjection.Packet);
 
         BrowserUploadedLibrarySurface surface =
             Assert.IsType<BrowserUploadedLibrarySurface>(
@@ -116,8 +124,10 @@ public sealed class BrowserUploadedLibraryTests
         };
         var oversizedInspection =
             new InspectionEnvelope<EmbeddedLibraryInspectionResult>(
+                inspection.ResourcePath,
+                inspection.ContentKind,
                 inspection.Content with { Surface = oversizedSurface },
-                inspection.Share,
+                inspection.PortableProjection,
                 inspection.Diagnostics);
 
         BrowserUploadedLibraryInspection projected =
@@ -184,8 +194,10 @@ public sealed class BrowserUploadedLibraryTests
         };
         var oversizedInspection =
             new InspectionEnvelope<EmbeddedLibraryInspectionResult>(
+                inspection.ResourcePath,
+                inspection.ContentKind,
                 inspection.Content with { Surface = oversizedSurface },
-                inspection.Share,
+                inspection.PortableProjection,
                 inspection.Diagnostics);
 
         BrowserUploadedLibraryInspection projected =

@@ -717,8 +717,6 @@ public static class SearchCommandDefinitions
                 result.AddError(
                     "--out is supported by asset-mode depends only with --evidence-envelope.");
             }
-#else
-            const bool evidenceEnvelope = false;
 #endif
             if (!typeMode
                 && result.GetValue(opts.Envelope))
