@@ -4,6 +4,7 @@ import {
   activateRetainedWorkspace,
   createRetainedWorkspaceCollection,
   deleteRetainedWorkspace,
+  detachActiveRetainedWorkspace,
   MAX_RETAINED_WORKSPACES,
   publishRetainedWorkspace,
 } from "../src/retained-workspaces.ts";
@@ -22,6 +23,20 @@ test("publishing retains the prior Workspace and activates a stable new identity
     id: "workspace-2",
     label: "Workspace 2",
     snapshot: null,
+  }]);
+});
+
+test("detaching retains the active Workspace snapshot without retaining its successor", () => {
+  let collection = createRetainedWorkspaceCollection<string>();
+  collection = publishRetainedWorkspace(collection, null);
+
+  collection = detachActiveRetainedWorkspace(collection, "first");
+
+  assert.equal(collection.activeWorkspaceId, null);
+  assert.deepEqual(collection.workspaces, [{
+    id: "workspace-1",
+    label: "Workspace 1",
+    snapshot: "first",
   }]);
 });
 

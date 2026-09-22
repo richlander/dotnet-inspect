@@ -444,6 +444,57 @@ library sections. It does not catch unrelated acquisition failures.
 `CommandExecutionTests.LibraryCommand_InvalidCachedPdbPreservesLibraryInspection`
 gates that command boundary.
 
+## Acquisition evidence
+
+`SymbolPackageDownloader.AcquirePdbAsync` accepts an optional
+`PortablePdbAcquisitionEvidenceCollector`. The ordinary path supplies no
+collector and does not allocate attempt records or capture elapsed timing.
+Evidence-enabled callers receive one immutable
+`PortablePdbAcquisitionEvidenceDocument` after the acquisition task has
+settled.
+
+The document records the external-acquisition outcome, selected symbol server,
+cache origin, Windows-PDB detection, PDB-store failure, and the ordered network
+attempts made by that acquisition. Each network attempt identifies the MSDL,
+symbol-package, or symbol-server route and records:
+
+- a credential-redacted inert URL;
+- the number of HTTP requests, including retries;
+- the terminal transport outcome and HTTP status when available;
+- bytes read across attempts; and
+- monotonic elapsed duration.
+
+Canceled and failed attempts retain the latest response status and cumulative
+body-byte count observed before settlement, including when a later retry is
+canceled before receiving headers, rather than reporting the operation as if no
+response arrived. Windows-PDB and store-failure observations from an earlier
+provider likewise remain visible when acquisition is canceled in a later
+provider.
+
+`Acquired` is emitted only after the downloaded or cached content has passed
+Portable PDB format and identity validation and has been retained by the
+configured store. `Unavailable` means no route produced retained matching
+content; `AcquisitionFailure` distinguishes a failed external provider from
+definitive absence, while `WindowsPdbDetected` and `StoreFailure` preserve the
+corresponding validation and persistence distinctions. The acquisition service
+returns that distinction from its explicit-capability descriptor overload, and
+the evidence document settles as `Failed`. Callers that use PDBs as optional
+enrichment may ignore the returned provider failure; Type Source projects it
+through its existing typed acquisition-failure path. A retained PDB that cannot
+be reopened by the acquisition service likewise settles as `Failed` with
+`StoreFailure = ReadFailed` while preserving its route and cache origin. A cache
+hit records `FromCache` and does not fabricate a network attempt.
+
+This operation-scoped evidence is captured directly in the downloader rather
+than reconstructed from process-global `NetworkTelemetry` subscriptions.
+`NetworkTelemetry` remains appropriate for request-start logging, aggregate
+counts, and policy observation, but it does not own response, retry, body,
+validation, or store settlement and can include concurrent unrelated work.
+`SymbolPackageDownloaderTests.AcquirePdbAsync_InMemoryStoreSupportsRepeatedReads`
+gates network acquisition evidence and the no-network cache-hit document;
+`HttpRetryHelperTests.HeaderFirstBodyRead_TimesOutAndRetriesAStalledBody`
+gates retry-count accounting.
+
 ## Error handling
 
 When PDB acquisition fails, we report the reason:
@@ -480,9 +531,13 @@ remote feed. The Release gates
 `AcquirePdbAsync_StoreWriteFailureContinuesToNextProvider`,
 `AcquirePdbAsync_UnretainedDownloadRecordsFailure`,
 `AcquirePdbAsync_ReadbackStoreFailureIsVisible`,
-`AcquirePdbAsync_UnretainedDownloadContinuesToNextProvider`, and
-`SourceCorrespondencePdbAcquisition_StorePermissionFailureIsTyped` enforce
-these distinctions.
+`AcquirePdbAsync_UnretainedDownloadContinuesToNextProvider`,
+`AcquirePdbAsync_CancellationPreservesPriorProviderStoreFailure`, and
+`PdbAcquisitionServiceTests.PathlessParticipant_ProviderFailureIsVisible`
+enforce these distinctions. Store-permission projection remains gated by
+`SourceCorrespondencePdbAcquisition_StorePermissionFailureIsTyped`. Type Source
+additionally gates the ordinary warning with
+`TypeSourcePdbLatencyHedge_FailedProviderReportsAcquisitionFailure`.
 
 The persistent symbol-miss cache records HTTP 404 absence only. A cached HTTP
 403 retains failure evidence, while other operational statuses are not replayed
