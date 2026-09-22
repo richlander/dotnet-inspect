@@ -624,6 +624,11 @@ internal sealed class MetadataInterfaceImplementationEvidenceOperation
                             _context.ObserveWork(
                                 MetadataOperationWorkKind
                                     .GenericParameterNameMaterialization),
+                        name =>
+                            Charge(
+                                site,
+                                MetadataOperationDimension.RetainedText,
+                                name.Length),
                         active =>
                             Charge(
                                 site with
@@ -632,13 +637,6 @@ internal sealed class MetadataInterfaceImplementationEvidenceOperation
                                 },
                                 MetadataOperationDimension
                                     .RelationshipEdges)));
-            foreach (string name in context.TypeParameters)
-            {
-                Charge(
-                    site,
-                    MetadataOperationDimension.RetainedText,
-                    name.Length);
-            }
             return context;
         }
         catch (GenericContextRelationshipRejectedException ex)

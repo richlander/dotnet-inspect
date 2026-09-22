@@ -168,16 +168,27 @@ internal sealed class TypeNodeProvider : ISignatureTypeProvider<TypeNode, Generi
             out RelationshipTraversalRejection? rejection,
             beforeRelationshipFollow:
                 _beforeRelationshipFollow);
-        MetadataTypeNameParts? metadataName = resolved
-            ? WithTrustedArity(
+        if (!resolved)
+        {
+            return ReadNamedType(
+                new(
+                    Resolved: false,
+                    Name: null,
+                    Rejection: rejection,
+                    MetadataName: null,
+                    AssemblyIdentity: null,
+                    ExactScope: null,
+                    MaterializationWork: materializationWork),
+                rawTypeKind);
+        }
+        MetadataTypeNameParts metadataName = WithTrustedArity(
+            reader,
+            handle,
+            TypeResolver.GetTypeNamePartsFromDefinition(
                 reader,
                 handle,
-                TypeResolver.GetTypeNamePartsFromDefinition(
-                    reader,
-                    handle,
-                    _beforeRelationshipFollow),
-                _beforeRelationshipFollow)
-            : null;
+                _beforeRelationshipFollow),
+            _beforeRelationshipFollow);
         ApiAssemblyIdentity? assemblyIdentity =
             CurrentAssemblyIdentity(
                 reader,
@@ -265,15 +276,27 @@ internal sealed class TypeNodeProvider : ISignatureTypeProvider<TypeNode, Generi
             out RelationshipTraversalRejection? rejection,
             beforeRelationshipFollow:
                 _beforeRelationshipFollow);
-        MetadataTypeNameParts? metadataName = resolved
-            ? WithTrustedLocalReferenceArity(
+        if (!resolved)
+        {
+            return ReadNamedType(
+                new(
+                    Resolved: false,
+                    Name: null,
+                    Rejection: rejection,
+                    MetadataName: null,
+                    AssemblyIdentity: null,
+                    ExactScope: null,
+                    MaterializationWork: materializationWork),
+                rawTypeKind);
+        }
+        MetadataTypeNameParts? metadataName =
+            WithTrustedLocalReferenceArity(
                 reader,
                 handle,
                 TypeResolver.GetTypeNamePartsFromReference(
                     reader,
                     handle,
-                    _beforeRelationshipFollow))
-            : null;
+                    _beforeRelationshipFollow));
         ApiAssemblyIdentity? assemblyIdentity =
             ReferencedAssemblyIdentity(
                 reader,

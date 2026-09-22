@@ -72,6 +72,7 @@ public class GenericContext
             reader,
             typeDef.GetGenericParameters(),
             beforeMaterialize,
+            beforeRetain: null,
             preserveBudgetRejection: false);
         return new GenericContext(typeParameters.Names, [], typeParameters.ValueTypeConstraints, []);
     }
@@ -80,6 +81,7 @@ public class GenericContext
         MetadataReader reader,
         TypeDefinition typeDef,
         Action<int>? beforeMaterialize,
+        Action<string>? beforeRetain,
         Action<EntityHandle> beforeRelationshipFollow)
     {
         ArgumentNullException.ThrowIfNull(beforeRelationshipFollow);
@@ -92,6 +94,7 @@ public class GenericContext
             reader,
             typeDef.GetGenericParameters(),
             beforeMaterialize,
+            beforeRetain,
             preserveBudgetRejection: true);
         return new GenericContext(
             typeParameters.Names,
@@ -130,6 +133,7 @@ public class GenericContext
             typeDef,
             methodDef,
             beforeMaterialize,
+            beforeRetain: null,
             preserveBudgetRejection: false);
     }
 
@@ -138,6 +142,7 @@ public class GenericContext
         TypeDefinition typeDef,
         MethodDefinition methodDef,
         Action<int>? beforeMaterialize,
+        Action<string>? beforeRetain,
         Action<EntityHandle> beforeRelationshipFollow)
     {
         ArgumentNullException.ThrowIfNull(beforeRelationshipFollow);
@@ -151,6 +156,7 @@ public class GenericContext
             typeDef,
             methodDef,
             beforeMaterialize,
+            beforeRetain,
             preserveBudgetRejection: true);
     }
 
@@ -159,17 +165,20 @@ public class GenericContext
         TypeDefinition typeDef,
         MethodDefinition methodDef,
         Action<int>? beforeMaterialize,
+        Action<string>? beforeRetain,
         bool preserveBudgetRejection)
     {
         var typeParameters = ReadParameters(
             reader,
             typeDef.GetGenericParameters(),
             beforeMaterialize,
+            beforeRetain,
             preserveBudgetRejection);
         var methodParameters = ReadParameters(
             reader,
             methodDef.GetGenericParameters(),
             beforeMaterialize,
+            beforeRetain,
             preserveBudgetRejection);
         return new GenericContext(
             typeParameters.Names,
@@ -252,6 +261,7 @@ public class GenericContext
             reader,
             methodDef.GetGenericParameters(),
             beforeMaterialize,
+            beforeRetain: null,
             preserveBudgetRejection: false);
         return new GenericContext(
             typeContext.TypeParameters,
@@ -264,6 +274,7 @@ public class GenericContext
         MetadataReader reader,
         GenericParameterHandleCollection handles,
         Action<int>? beforeMaterialize,
+        Action<string>? beforeRetain,
         bool preserveBudgetRejection)
     {
         if (handles.Count > MetadataSafetyPolicy.MaxSignatureTypeNodes)
@@ -296,6 +307,7 @@ public class GenericContext
                     preserveBudgetRejection);
             }
             totalNameLength += name.Length;
+            beforeRetain?.Invoke(name);
             names.Add(name);
             valueTypeConstraints.Add(
                 (parameter.Attributes & GenericParameterAttributes.NotNullableValueTypeConstraint) != 0);

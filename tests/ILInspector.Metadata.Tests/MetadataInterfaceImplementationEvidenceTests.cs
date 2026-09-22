@@ -355,7 +355,7 @@ public sealed class MetadataInterfaceImplementationEvidenceTests
                         fixture.InterfaceIdentity,
                         Policy(
                             MetadataOperationDimension.RelationshipEdges,
-                            4)));
+                            3)));
 
         foreach (MetadataInterfaceImplementationResult.Rejected rejected
             in new[] { unbounded, limited })
@@ -371,7 +371,70 @@ public sealed class MetadataInterfaceImplementationEvidenceTests
                 HandleKind.TypeReference,
                 rejected.Failure.RelevantHandle.Kind);
         }
-        Assert.True(limited.Counters.RelationshipEdges <= 4);
+        Assert.Equal(3, limited.Counters.RelationshipEdges);
+    }
+
+    [Fact]
+    public void TypeDefinitionCycleRemainsTheFirstDecisiveRejection()
+    {
+        using AuthoredFixture fixture =
+            AuthoredFixture.CreateTypeDefinitionCycle();
+
+        MetadataInterfaceImplementationResult.Rejected rejected =
+            Assert.IsType<
+                MetadataInterfaceImplementationResult.Rejected>(
+                    Run(
+                        fixture,
+                        fixture.InterfaceIdentity,
+                        Policy(
+                            MetadataOperationDimension.StructuredNodes,
+                            1)));
+
+        Assert.Equal(
+            MetadataInterfaceImplementationFailureReason.Cycle,
+            rejected.Failure.Reason);
+        Assert.Equal(
+            MetadataInterfaceImplementationMechanism
+                .RelationshipTraversal,
+            rejected.Failure.Mechanism);
+        Assert.Equal(
+            HandleKind.TypeDefinition,
+            rejected.Failure.RelevantHandle.Kind);
+    }
+
+    [Fact]
+    public void GenericContextTextBudgetPrecedesLaterMalformedName()
+    {
+        using AuthoredFixture fixture =
+            AuthoredFixture.CreateGenericContext(
+                corruptSecondName: true);
+
+        MetadataInterfaceImplementationResult.Rejected malformed =
+            Assert.IsType<
+                MetadataInterfaceImplementationResult.Rejected>(
+                    Run(fixture, fixture.InterfaceIdentity));
+        Assert.Equal(
+            MetadataInterfaceImplementationFailureReason
+                .MalformedMetadata,
+            malformed.Failure.Reason);
+
+        MetadataInterfaceImplementationResult.Rejected limited =
+            Assert.IsType<
+                MetadataInterfaceImplementationResult.Rejected>(
+                    Run(
+                        fixture,
+                        fixture.InterfaceIdentity,
+                        Policy(
+                            MetadataOperationDimension.RetainedText,
+                            0)));
+        Assert.Equal(
+            MetadataInterfaceImplementationFailureReason
+                .BudgetExceeded,
+            limited.Failure.Reason);
+        Assert.Equal(
+            MetadataOperationDimension.RetainedText,
+            limited.Failure.BudgetDimension);
+        Assert.Equal(0, limited.Counters.RetainedText);
     }
 
     [Fact]
@@ -1473,6 +1536,188 @@ public sealed class MetadataInterfaceImplementationEvidenceTests
                         Text("Contracts"),
                         [.. segments.Select(Text)],
                         [.. segments.Select(_ => 0)]),
+                    IsValueType: false);
+            return new(
+                path,
+                MetadataTypeDefinitionAddress.FromHandle(
+                    reader,
+                    target),
+                identity);
+        }
+
+        internal static AuthoredFixture CreateTypeDefinitionCycle()
+        {
+            Guid mvid = Guid.NewGuid();
+            var metadata = new MetadataBuilder();
+            metadata.AddModule(
+                generation: 0,
+                metadata.GetOrAddString("definition-cycle.dll"),
+                metadata.GetOrAddGuid(mvid),
+                default,
+                default);
+            metadata.AddAssembly(
+                metadata.GetOrAddString("DefinitionCycleFixture"),
+                new Version(1, 0, 0, 0),
+                default,
+                default,
+                (AssemblyFlags)0,
+                AssemblyHashAlgorithm.None);
+            metadata.AddTypeDefinition(
+                TypeAttributes.NotPublic,
+                default,
+                metadata.GetOrAddString("<Module>"),
+                default,
+                MetadataTokens.FieldDefinitionHandle(1),
+                MetadataTokens.MethodDefinitionHandle(1));
+            TypeDefinitionHandle contract =
+                metadata.AddTypeDefinition(
+                    TypeAttributes.Interface
+                        | TypeAttributes.Abstract
+                        | TypeAttributes.NestedPublic,
+                    default,
+                    metadata.GetOrAddString("IContract"),
+                    default,
+                    MetadataTokens.FieldDefinitionHandle(1),
+                    MetadataTokens.MethodDefinitionHandle(1));
+            metadata.AddNestedType(contract, contract);
+            TypeDefinitionHandle target =
+                metadata.AddTypeDefinition(
+                    TypeAttributes.Public,
+                    metadata.GetOrAddString("Samples"),
+                    metadata.GetOrAddString("Target"),
+                    default,
+                    MetadataTokens.FieldDefinitionHandle(1),
+                    MetadataTokens.MethodDefinitionHandle(1));
+            metadata.AddInterfaceImplementation(target, contract);
+
+            string path = System.IO.Path.Combine(
+                System.IO.Path.GetTempPath(),
+                $"interfaceimpl-definition-cycle-{Guid.NewGuid():N}.dll");
+            File.WriteAllBytes(path, Serialize(metadata));
+            using var stream = File.OpenRead(path);
+            using var pe = new PEReader(stream);
+            MetadataReader reader = pe.GetMetadataReader();
+            var identity =
+                new MetadataTypeIdentity.Named(
+                    new MetadataNamedTypeIdentity(
+                        new MetadataTypeScopeIdentity(
+                            MetadataTypeScopeKind.CurrentModule,
+                            mvid,
+                            Text("definition-cycle.dll"),
+                            new MetadataAssemblyIdentity(
+                                Text("DefinitionCycleFixture"),
+                                new Version(1, 0, 0, 0),
+                                Culture: null,
+                                PublicKeyToken: null)),
+                        Text(""),
+                        [Text("IContract")],
+                        [0]),
+                    IsValueType: false);
+            return new(
+                path,
+                MetadataTypeDefinitionAddress.FromHandle(
+                    reader,
+                    target),
+                identity);
+        }
+
+        internal static AuthoredFixture CreateGenericContext(
+            bool corruptSecondName)
+        {
+            Guid mvid = Guid.NewGuid();
+            var metadata = new MetadataBuilder();
+            metadata.AddModule(
+                generation: 0,
+                metadata.GetOrAddString("generic-context.dll"),
+                metadata.GetOrAddGuid(mvid),
+                default,
+                default);
+            metadata.AddAssembly(
+                metadata.GetOrAddString("GenericContextFixture"),
+                new Version(1, 0, 0, 0),
+                default,
+                default,
+                (AssemblyFlags)0,
+                AssemblyHashAlgorithm.None);
+            metadata.AddTypeDefinition(
+                TypeAttributes.NotPublic,
+                default,
+                metadata.GetOrAddString("<Module>"),
+                default,
+                MetadataTokens.FieldDefinitionHandle(1),
+                MetadataTokens.MethodDefinitionHandle(1));
+            TypeDefinitionHandle contract =
+                metadata.AddTypeDefinition(
+                    TypeAttributes.Interface
+                        | TypeAttributes.Abstract
+                        | TypeAttributes.Public,
+                    metadata.GetOrAddString("Contracts"),
+                    metadata.GetOrAddString("IContract"),
+                    default,
+                    MetadataTokens.FieldDefinitionHandle(1),
+                    MetadataTokens.MethodDefinitionHandle(1));
+            TypeDefinitionHandle target =
+                metadata.AddTypeDefinition(
+                    TypeAttributes.Public,
+                    metadata.GetOrAddString("Samples"),
+                    metadata.GetOrAddString("Target"),
+                    default,
+                    MetadataTokens.FieldDefinitionHandle(1),
+                    MetadataTokens.MethodDefinitionHandle(1));
+            metadata.AddGenericParameter(
+                target,
+                GenericParameterAttributes.None,
+                metadata.GetOrAddString("T"),
+                index: 0);
+            metadata.AddGenericParameter(
+                target,
+                GenericParameterAttributes.None,
+                metadata.GetOrAddString("U"),
+                index: 1);
+            metadata.AddInterfaceImplementation(target, contract);
+
+            byte[] image = Serialize(metadata);
+            if (corruptSecondName)
+            {
+                using var probe =
+                    new PEReader(new MemoryStream(image));
+                MetadataReader probeReader =
+                    probe.GetMetadataReader();
+                int rowSize =
+                    probeReader.GetTableRowSize(
+                        TableIndex.GenericParam);
+                int nameOffset =
+                    probe.PEHeaders.MetadataStartOffset
+                    + probeReader.GetTableMetadataOffset(
+                        TableIndex.GenericParam)
+                    + (2 * rowSize)
+                    - sizeof(ushort);
+                image[nameOffset] = 0xfe;
+                image[nameOffset + 1] = 0x7f;
+            }
+
+            string path = System.IO.Path.Combine(
+                System.IO.Path.GetTempPath(),
+                $"interfaceimpl-generic-context-{Guid.NewGuid():N}.dll");
+            File.WriteAllBytes(path, image);
+            using var stream = File.OpenRead(path);
+            using var pe = new PEReader(stream);
+            MetadataReader reader = pe.GetMetadataReader();
+            var identity =
+                new MetadataTypeIdentity.Named(
+                    new MetadataNamedTypeIdentity(
+                        new MetadataTypeScopeIdentity(
+                            MetadataTypeScopeKind.CurrentModule,
+                            mvid,
+                            Text("generic-context.dll"),
+                            new MetadataAssemblyIdentity(
+                                Text("GenericContextFixture"),
+                                new Version(1, 0, 0, 0),
+                                Culture: null,
+                                PublicKeyToken: null)),
+                        Text("Contracts"),
+                        [Text("IContract")],
+                        [0]),
                     IsValueType: false);
             return new(
                 path,
