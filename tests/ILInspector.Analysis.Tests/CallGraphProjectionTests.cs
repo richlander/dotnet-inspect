@@ -176,6 +176,188 @@ public class CallGraphProjectionTests
         Assert.Equal(0, projection.Focus.Id);
         Assert.Equal(CallGraphNodeKind.Focus, projection.Focus.Kind);
         Assert.Same(projection.Nodes[0], projection.Focus);
+        Assert.Equal([0], projection.RootNodeIds);
+    }
+
+    [Fact]
+    public void EqualRootsPrecedeOneSharedNeighborhood()
+    {
+        MemberRef first = Member("Api", "First");
+        MemberRef second = Member("Api", "Second");
+        MemberRef shared = Member("Core", "Shared");
+        MemberRef sink = Member("Core", "Sink");
+        DirectCall sharedCallsSink = Call(shared, sink, offset: 7);
+        CallTreeNode sharedPath =
+            Node(
+                shared,
+                CallTreeStatus.Expanded,
+                [
+                    Leaf(sink) with
+                    {
+                        ParentEdgeCallSites = [sharedCallsSink],
+                    },
+                ]);
+
+        CallGraphProjection projection =
+            CallGraphProjection.FromCallees(
+                [
+                    Node(
+                        first,
+                        CallTreeStatus.Expanded,
+                        [sharedPath]),
+                    Node(
+                        second,
+                        CallTreeStatus.Expanded,
+                        [sharedPath]),
+                ],
+                maxNodes: 10);
+
+        Assert.Equal([0, 1], projection.RootNodeIds);
+        Assert.Equal(
+            ["First", "Second", "Shared", "Sink"],
+            projection.Nodes.Select(static node => node.Member.Name));
+        Assert.All(
+            projection.RootNodeIds,
+            id => Assert.Equal(
+                CallGraphNodeKind.Focus,
+                projection.Nodes[id].Kind));
+        Assert.Throws<InvalidOperationException>(
+            () => projection.Focus);
+        Assert.Equal(
+            [(0, 2), (2, 3), (1, 2)],
+            projection.Edges.Select(static edge =>
+                (edge.From, edge.To)));
+        Assert.Single(projection.CallSites);
+        Assert.Equal(
+            projection.Edges[1].CallSiteIds,
+            [projection.CallSites[0].Id]);
+        Assert.False(projection.HasUnexploredTraversalBoundary);
+    }
+
+    [Fact]
+    public void EqualRootNodeBoundRetainsEveryRootAndDisclosesBoundary()
+    {
+        CallGraphProjection projection =
+            CallGraphProjection.FromCallees(
+                [
+                    Node(
+                        Member("Api", "First"),
+                        CallTreeStatus.Expanded,
+                        [Leaf(Member("Core", "FirstHelper"))]),
+                    Node(
+                        Member("Api", "Second"),
+                        CallTreeStatus.Expanded,
+                        [Leaf(Member("Core", "SecondHelper"))]),
+                ],
+                maxNodes: 2);
+
+        Assert.Equal([0, 1], projection.RootNodeIds);
+        Assert.Equal(2, projection.Nodes.Length);
+        Assert.Empty(projection.Edges);
+        Assert.True(projection.HasUnexploredTraversalBoundary);
+    }
+
+    [Fact]
+    public void EqualRootsRetainDisconnectedNeighborhoods()
+    {
+        CallGraphProjection projection =
+            CallGraphProjection.FromCallees(
+                [
+                    Node(
+                        Member("Api", "First"),
+                        CallTreeStatus.Expanded,
+                        [Leaf(Member("Core", "FirstHelper"))]),
+                    Node(
+                        Member("Api", "Second"),
+                        CallTreeStatus.Expanded,
+                        [Leaf(Member("Core", "SecondHelper"))]),
+                ],
+                maxNodes: 4);
+
+        Assert.Equal(
+            ["First", "Second", "FirstHelper", "SecondHelper"],
+            projection.Nodes.Select(static node => node.Member.Name));
+        Assert.Equal(
+            [(0, 2), (1, 3)],
+            projection.Edges.Select(static edge =>
+                (edge.From, edge.To)));
+        Assert.False(projection.HasUnexploredTraversalBoundary);
+    }
+
+    [Fact]
+    public void EqualRootsPreserveCyclesWithoutChoosingFocus()
+    {
+        MemberRef first = Member("Api", "First");
+        MemberRef second = Member("Api", "Second");
+        CallGraphProjection projection =
+            CallGraphProjection.FromCallees(
+                [
+                    Node(
+                        first,
+                        CallTreeStatus.Expanded,
+                        [
+                            Leaf(
+                                second,
+                                CallTreeStatus.AlreadyShown),
+                        ]),
+                    Node(
+                        second,
+                        CallTreeStatus.Expanded,
+                        [
+                            Leaf(
+                                first,
+                                CallTreeStatus.AlreadyShown),
+                        ]),
+                ],
+                maxNodes: 2);
+
+        Assert.Equal([0, 1], projection.RootNodeIds);
+        Assert.Equal(
+            [(0, 1), (1, 0)],
+            projection.Edges.Select(static edge =>
+                (edge.From, edge.To)));
+        Assert.Throws<InvalidOperationException>(
+            () => projection.Focus);
+    }
+
+    [Fact]
+    public void EqualRootsRequireDistinctIdentitiesAndSufficientBudget()
+    {
+        CallTreeNode first = Leaf(Member("Api", "First"));
+        CallTreeNode second = Leaf(Member("Api", "Second"));
+
+        Assert.Throws<ArgumentOutOfRangeException>(
+            () => CallGraphProjection.FromCallees(
+                [first, second],
+                maxNodes: 1));
+        Assert.Throws<ArgumentException>(
+            () => CallGraphProjection.FromCallees(
+                [first, first],
+                maxNodes: 2));
+    }
+
+    [Fact]
+    public void EqualRootsCombineTraversalAndAnalysisBoundaries()
+    {
+        CallTreeNode complete = Leaf(Member("Api", "First"));
+        CallTreeNode failed =
+            Leaf(
+                Member("Api", "Second"),
+                CallTreeStatus.AnalysisIncomplete) with
+            {
+                Diagnostic = new AnalysisDiagnostic(
+                    0x06000002,
+                    "Api.Second",
+                    "BadImageFormatException: invalid body"),
+            };
+
+        CallGraphProjection projection =
+            CallGraphProjection.FromCallees(
+                [complete, failed],
+                maxNodes: 2);
+
+        Assert.True(projection.HasUnexploredTraversalBoundary);
+        Assert.True(projection.HasAnalysisFailureBoundary);
     }
 
     [Fact]
