@@ -17,6 +17,8 @@ selected-target one-Library realization tracked by
 [#7825](https://github.com/richlander/dotnet-inspect/issues/7825) and
 selected-target complete reference-population realization tracked by
 [#7892](https://github.com/richlander/dotnet-inspect/issues/7892).
+Exact-target Type resolution from an implementation-view candidate is tracked
+by [#8298](https://github.com/richlander/dotnet-inspect/issues/8298).
 The former documentation-source extension from
 [#6375](https://github.com/richlander/dotnet-inspect/issues/6375) transfers to
 [DocumentationHouse](documentation-house.md) under #6579.
@@ -647,13 +649,31 @@ collapsed into strings, optional parameters, or nullable tuples.
 | --- | --- | --- |
 | **Realize** | One library identity or complete population demand | One owning Library realization or one platform population of owning Library realizations, each with resource-free source and view correspondence |
 | **Resolve assembly reference** | One exact Metadata `AssemblyBindingRequest` and platform-route prerequisites | Metadata-owned binding decision plus the platform contribution used by the ladder |
-| **Resolve type definition** | One exact Metadata `TypeResolutionRequest`, starting reference candidate, and required view | Metadata-owned `TypeResolutionOutcome` plus reference/implementation correspondence |
+| **Resolve type definition** | One exact Metadata `TypeResolutionRequest`, starting candidate with its owner-issued view, and required view | Metadata-owned `TypeResolutionOutcome` plus reference/implementation correspondence when the required view differs from the starting view |
 
 `Realize` supports direct platform browsing and supplies source candidates for
 the other operations. The two reference-resolution operations are the only
 product-facing paths that may turn platform catalogs, .NET Standard reference
 contracts, or platform-specific Metadata policy into a binding or
 implementation result.
+
+### Type-resolution starting views
+
+The starting candidate's owner issues its exact view separately from the
+required terminal view:
+
+- a **Reference** start may complete a Reference request directly; an
+  Implementation or ReferenceAndImplementation request additionally requires
+  explicit view correspondence and a second Metadata resolution;
+- an **Implementation** start may complete an Implementation request directly
+  from one Metadata outcome; it does not manufacture a reference outcome or
+  view correspondence; and
+- ReferenceAndImplementation is a terminal demand, not a candidate view.
+
+The House rejects an unsupported start/required-view pair before Metadata
+work. The completed value and receipt preserve whether the operation returned
+one reference outcome, one implementation outcome, or the existing paired
+reference-and-implementation outcomes.
 
 ### View and population demand
 
@@ -1945,6 +1965,16 @@ warning. A member whose signature changed, or which exists only in .NET 12,
 returns the attributed compatibility failure. Neither result removes the
 package participant or blocks unrelated inspection.
 
+### Runtime implementation facade resolves in its own view
+
+A type request starts from the selected `System.Xml` implementation facade for
+one exact .NET runtime target. The starting and required views are both
+Implementation. Metadata follows the exact `System.Xml` and
+`System.Xml.ReaderWriter` forwarding declarations to the physical
+`System.Private.Xml` definition under the House-supplied implementation
+policy. The House retains one Metadata outcome and every forwarding hop. It
+does not introduce a reference resolution or view-correspondence transition.
+
 ### .NET Standard facade resolves to runtime implementation
 
 A type request starts from a selected `.NET Standard` facade. The House target
@@ -2101,6 +2131,9 @@ semantics or change CLI or Inspect Web routing. Step 9a, tracked by
 family-default population and catalog query for versionless bare CLI type and
 member routing. Browser/Wasm adoption, exact-demand Metadata binding, and
 Services-era resolver retirement remain later focused slices.
+Issue #8298 owns the first exact-demand Metadata binding slice: one
+implementation-view start and required implementation result. It does not
+implement the reference-to-implementation bridge.
 
 The step-6 ownership correction was designed under
 [#6984](https://github.com/richlander/dotnet-inspect/issues/6984). It adopts
@@ -2332,6 +2365,7 @@ The implementation and adoption slices own these Release gates:
 | Permissive Workspace admission | A participant targeting a newer platform remains admissible and usable for same-participant inspection without realizing a matching complete platform. |
 | Exact traversal compatibility | Under an owner-classified unsupported downgrade, an exact Metadata member-signature match succeeds with downgrade context; a missing or changed signature returns the attributed compatibility failure without blocking unrelated work. Supported upward compatibility does not warn merely because targets differ. |
 | Metadata ownership | Platform type resolution invokes the structured Metadata API and preserves its exact outcome and forwarding hops. |
+| Direct implementation start | An implementation-view `System.Xml.XmlReader` request resolves through `System.Xml.ReaderWriter` to the physical `System.Private.Xml` definition in one Metadata outcome, with no fabricated reference outcome or view correspondence. |
 | Transparent .NET Standard | A `.NET Standard` facade can resolve through an exact runtime target without constructing a `NetStandard` family or implementation population. |
 | Physical supplier retention | A resolved implementation type or assembly retains its physical supplier rather than being relabeled as the reference facade. |
 | Visible incomplete evidence | Source, catalog, forwarding, acquisition, work, and generation incompleteness never become absence or a success-shaped empty result. |
