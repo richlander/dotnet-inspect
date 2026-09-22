@@ -461,6 +461,10 @@ public static class IrPasses
         // Decline any surviving unsafe-await statement rather than emit await
         // inside unsafe.
         new UnsafeAwaitBoundaryPass(),
+        // Retire the final renderer-owned materialized-local elimination:
+        // V = value; array[index] = V.ToString() becomes the equivalent direct
+        // receiver before PDB scope and declaration/binding planning.
+        new StoreElementReceiverInliningPass(),
         new PdbScopeEntryLocalPass(),
         new PdbLocalScopePass(),
         new CheckedIntegerOperandPass(),

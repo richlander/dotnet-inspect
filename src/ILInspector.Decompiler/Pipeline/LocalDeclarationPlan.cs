@@ -50,8 +50,7 @@ internal sealed class LocalDeclarationPlan
         IrFunction function,
         int localCount,
         PrinterOptions options,
-        IEnumerable<string>? enclosingScopeNames,
-        IReadOnlySet<int>? excludedLocalSlots)
+        IEnumerable<string>? enclosingScopeNames)
     {
         _function = function;
         _labelTargets = ReferenceOwnership.CollectBranchTargets(function);
@@ -59,8 +58,6 @@ internal sealed class LocalDeclarationPlan
             function,
             localCount,
             function.EliminatedLocalSlots);
-        if (excludedLocalSlots is not null)
-            _retainedLocalSlots.ExceptWith(excludedLocalSlots);
         _unsafeContext = new LocalDeclarationUnsafeContext(function);
 
         CollectSyntaxOwners();
@@ -94,14 +91,12 @@ internal sealed class LocalDeclarationPlan
         IrNode scope,
         int localCount,
         PrinterOptions? options = null,
-        IEnumerable<string>? enclosingScopeNames = null,
-        IReadOnlySet<int>? excludedLocalSlots = null)
+        IEnumerable<string>? enclosingScopeNames = null)
         => new(
             CreatePlanningFunction(scope),
             localCount,
             options ?? PrinterOptions.Default,
-            enclosingScopeNames,
-            excludedLocalSlots);
+            enclosingScopeNames);
 
     static IrFunction CreatePlanningFunction(IrNode scope)
     {
