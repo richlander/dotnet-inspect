@@ -6,6 +6,7 @@ using DotnetInspect.Cli.Inspectors;
 using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Output;
 using DotnetInspector.Packages;
+using DotnetInspector.Sections;
 using DotnetInspect.Cli.Planning;
 using DotnetInspector.Services;
 using DotnetInspect.Cli.Services;
@@ -169,9 +170,16 @@ public static class RouterCommandDefinition
                     structuralRewrite);
             }
 
+            bool hasBareLibraryTarget =
+                RouterTokenRewriter.ContainsOption(tokens, "--library")
+                && !RouterTokenRewriter.TryGetLibraryValue(
+                    tokens,
+                    rootCommand,
+                    out _);
             if (StructuralViewRegistry.TryClassifyCommandless(
                     tokens,
                     structuralDiscovery,
+                    hasBareLibraryTarget,
                     out CommandlessStructuralRoute? structuralRoute))
             {
                 if (!structuralDiscovery
@@ -220,11 +228,7 @@ public static class RouterCommandDefinition
                             request,
                             sourceIdentityTypeTarget);
                 var optionErrors = new Dictionary<StructuralRoute, OptionError?>();
-                string[] interpretationTokens =
-                    sourceParseResult.GetResult(packageArgs.AllLibrariesOption) is { Implicit: false }
-                    && !sourceParseResult.GetValue(packageArgs.AllLibrariesOption)
-                    ? RouterTokenRewriter.RemoveOptionWithValue(tokens, "--all-libraries", "false")
-                    : tokens;
+                string[] interpretationTokens = tokens;
                 foreach (StructuralRoute route in alternatives.Alternatives
                     .Select(alternative => alternative.Route)
                     .Distinct())
@@ -323,7 +327,8 @@ public static class RouterCommandDefinition
             var rewritten = await RouterTokenRewriter.RewriteAsync(
                 tokens,
                 sourceOptions,
-                rootCommand);
+                rootCommand,
+                ct);
             RequestTelemetry.Breadcrumb(
                 "router-rewrite",
                 $"{string.Join(' ', tokens)} -> {string.Join(' ', rewritten)}");
@@ -542,7 +547,8 @@ public static class RouterCommandDefinition
         public static async Task<string[]> RewriteAsync(
             string[] tokens,
             NuGetSourceOptions sourceOptions,
-            RootCommand rootCommand)
+            RootCommand rootCommand,
+            CancellationToken cancellationToken)
         {
             var target = tokens[0];
             var tail = tokens[1..];
@@ -606,6 +612,51 @@ public static class RouterCommandDefinition
             var allowPlatformPrefixFallback = PlatformResolver.IsPlatformCandidate(target);
 
             var frameworkSpec = GetOptionValue(tail, "--framework");
+            if (!hasExplicitApiSource
+                && frameworkSpec is null
+                && !hasTypeOption
+                && !hasMemberOption)
+            {
+                CliPlatformTypeCatalogOutcome catalogOutcome =
+                    await PlatformTypeCatalogRouting.LoadAsync(
+                        context,
+                        sourceOptions,
+                        cancellationToken);
+                switch (catalogOutcome)
+                {
+                    case CliPlatformTypeCatalogOutcome.Completed completed:
+                        InspectionEnvelope<PlatformTypeCatalogRouteOutcome>
+                            route =
+                            PlatformTypeCatalogRouting.Resolve(
+                                completed.Catalog,
+                                target,
+                                cancellationToken);
+                        switch (route.Content)
+                        {
+                            case PlatformTypeCatalogRouteOutcome.Resolved
+                                resolved:
+                                return RoutePlatformCatalogResult(
+                                    resolved,
+                                    tail);
+                            case PlatformTypeCatalogRouteOutcome.Ambiguous
+                                ambiguous:
+                                CommandError.Write(
+                                    $"Type '{ambiguous.Request.TypePattern}' matched multiple platform types. The target-bound catalog contains {ambiguous.Candidates.Length} equally preferred candidates.");
+                                return tokens;
+                            case PlatformTypeCatalogRouteOutcome.Rejected
+                                rejected:
+                                CommandError.Write(
+                                    $"Platform type lookup failed ({rejected.Rejection}).");
+                                return tokens;
+                        }
+                        break;
+                    case CliPlatformTypeCatalogOutcome.NotCompleted failure:
+                        CommandError.Write(
+                            $"Platform type catalog routing failed ({failure.Kind}).");
+                        return tokens;
+                }
+            }
+
             var exactTypeLookup = LookupExactGenericPlatformType(
                 target,
                 allowSimpleName: hasTypeOption || hasMemberOption,
@@ -780,9 +831,8 @@ public static class RouterCommandDefinition
 
             string target = tokens[0];
             string[] tail = tokens[1..];
-            if (CommandLineHelpers.IsBooleanOptionEnabled(
-                    tokens,
-                    "--all-libraries"))
+            if (ContainsOption(tokens, "--all-libraries")
+                || ContainsOption(tokens, "--namesake-library"))
             {
                 rewritten = [PackageCommand.Name, .. tokens];
                 return true;
@@ -823,24 +873,23 @@ public static class RouterCommandDefinition
                 tail,
                 rootCommand,
                 out string libraryValue);
-            bool hasPackageRelativeLibrary =
+            bool hasPackageLibraryValue =
                 hasLibraryValue
                 && SourceResolver
-                    .IsPackageRelativeLibraryValue(libraryValue);
+                    .IsPackageLibraryValue(target, libraryValue);
             bool hasExplicitApiSource =
                 ContainsOption(tail, "--package")
                 || ContainsOption(tail, "--platform")
                 || ContainsOption(tail, "--project")
                 || (hasLibraryValue
-                    && !hasPackageRelativeLibrary);
+                    && !hasPackageLibraryValue);
             bool hasVersionQuery =
-                ContainsOption(tokens, "--version")
-                || ContainsOption(tokens, "--versions")
+                ContainsOption(tokens, "--versions")
                 || ContainsOption(
                     tokens,
                     "--versions-with-feed");
             bool hasStructuralPackageAssetPath =
-                hasPackageRelativeLibrary
+                hasPackageLibraryValue
                 && (libraryValue.Contains('/')
                     || libraryValue.Contains('\\'));
 
@@ -867,7 +916,7 @@ public static class RouterCommandDefinition
             }
 
             if (hasTypeOption
-                && hasPackageRelativeLibrary)
+                && hasPackageLibraryValue)
             {
                 rewritten = [PackageCommand.Name, .. tokens];
                 return true;
@@ -949,7 +998,7 @@ public static class RouterCommandDefinition
                 && !ContainsOption(tail, "--package")
                 && !ContainsOption(tail, "--platform")
                 && !ContainsOption(tail, "--project")
-                && hasPackageRelativeLibrary
+                && hasPackageLibraryValue
                 && (!structuralSchema
                     || hasStructuralPackageAssetPath))
             {
@@ -1003,7 +1052,9 @@ public static class RouterCommandDefinition
                 return true;
             }
 
-            if (ContainsOption(tokens, "--library"))
+            if (ContainsOption(tokens, "--library")
+                || ContainsOption(tokens, "--namesake-library")
+                || ContainsOption(tokens, "--all-libraries"))
             {
                 rewritten = [PackageCommand.Name, .. tokens];
                 return true;
@@ -1080,7 +1131,7 @@ public static class RouterCommandDefinition
             return false;
         }
 
-        private static bool ContainsOption(string[] tokens, string option)
+        internal static bool ContainsOption(string[] tokens, string option)
             => tokens.Any(token => token.Equals(option, StringComparison.Ordinal)
                                    || TryGetAttachedOptionValue(
                                        token,
@@ -1357,6 +1408,40 @@ public static class RouterCommandDefinition
             }
         }
 
+        private static string[] RoutePlatformCatalogResult(
+            PlatformTypeCatalogRouteOutcome.Resolved resolved,
+            string[] tail)
+        {
+            string typeName =
+                MetadataTypeNameFormatter.FormatGenericTypeName(
+                    resolved.Candidate.Type.ToMetadataFullName());
+            string assemblyName =
+                resolved.Candidate.Assembly.Identity.Name;
+            string framework =
+                $"runtime@{resolved.Target.Version}";
+            return resolved.Request.MemberSelector is null
+                ? [
+                    "type",
+                    typeName,
+                    "--platform",
+                    assemblyName,
+                    "--framework",
+                    framework,
+                    .. tail,
+                ]
+                : [
+                    "member",
+                    typeName,
+                    "--platform",
+                    assemblyName,
+                    "--framework",
+                    framework,
+                    "-m",
+                    resolved.Request.MemberSelector,
+                    .. tail,
+                ];
+        }
+
         private static string[] RouteExactGenericPlatformType(
             PlatformTypeLookupOutcome.Resolved resolved,
             string target,
@@ -1427,7 +1512,7 @@ public static class RouterCommandDefinition
             || ContainsOption(tokens, "--platform")
             || ContainsOption(tokens, "--project");
 
-        private static bool TryGetLibraryValue(
+        internal static bool TryGetLibraryValue(
             string[] tokens,
             RootCommand rootCommand,
             out string value)
@@ -1439,7 +1524,7 @@ public static class RouterCommandDefinition
                         "--library",
                         out value))
                 {
-                    return true;
+                    return !string.IsNullOrWhiteSpace(value);
                 }
 
                 if (tokens[i].Equals(
@@ -1449,7 +1534,7 @@ public static class RouterCommandDefinition
                     && !IsKnownOption(rootCommand, tokens[i + 1]))
                 {
                     value = tokens[i + 1];
-                    return true;
+                    return !string.IsNullOrWhiteSpace(value);
                 }
             }
 

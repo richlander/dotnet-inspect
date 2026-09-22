@@ -54,6 +54,13 @@ test("call graph diagnostics distinguish failures from expected bounds", () => {
   })), "Partial call graph: one or more method bodies could not be analyzed.");
   assert.equal(callGraphDiagnosticsMessage(engineCallGraphDiagnostics({
     isIncomplete: true,
+    incompleteNodes: 0,
+    incompleteEdges: 0,
+    bindingIdentityConflicts: 0,
+    unavailableDependencyRoutes: 2
+  })), "Partial call graph: 2 unavailable dependency routes.");
+  assert.equal(callGraphDiagnosticsMessage(engineCallGraphDiagnostics({
+    isIncomplete: true,
     incompleteNodes: 1,
     incompleteEdges: 0,
     bindingIdentityConflicts: 0,
@@ -231,10 +238,7 @@ test("workspace UI routes replacements and restore notices through bounded paths
     /function packageLibraries\(\) \{\s*return packageLibraryInventory\(\);\s*\}/);
   assert.match(
     appSource,
-    /function currentLibraryQueryMatchIds\(\)[\s\S]*inspection\.content\.results\.map\(result => result\.assetId\)/);
-  assert.match(
-    appSource,
-    /const matchingLibraryIds = currentLibraryQueryMatchIds\(\);[\s\S]*renderLibrarySubjectNav\(\{[\s\S]*libraries: packageLibraries\(\)[\s\S]*matchingLibraryIds/);
+    /renderLibrarySubjectNav\(\{\s*libraries: packageLibraries\(\)/);
   assert.match(
     appSource,
     /assemblyDescriptorForType\(pkg\.assemblies, type\)/);

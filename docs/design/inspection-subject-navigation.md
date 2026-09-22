@@ -196,15 +196,20 @@ defining-Library result, preserves active ancestors, and applies forwarded
 fallback under #5584. CLI and Browser/Wasm adoption remain separately
 unverified.
 
-The aggregate-first Package policy below is likewise **target-only and
-unverified** under
+The aggregate-first Package policy below remains **target-only in shared
+Navigation** under
 [#7318](https://github.com/richlander/dotnet-inspect/issues/7318). Current
 `NavigationInitialSubjectRecommendation` still prefers one primary or
-declaration-order Library before `All libraries`. The #7318 slice instead
-recommends the existing Package-scoped aggregate and defines exact and
-namesake-Library narrowing as explicit gestures. It changes neither Package
-acquisition nor the shipped CLI and Browser consumers until their focused
-adoption slices land.
+declaration-order Library before `All libraries`. Focused CLI adoption has
+begun: PR #8018 composes Workspace-backed Library inspection from the selected
+Package aggregate, and PR #8081 adopts the aggregate default plus exact and
+namesake narrowing for direct Package/Library inspection. Direct Package
+selection accepts either `ID@VERSION` or explicit
+`package ID --version VERSION`; `package ID --latest-version` is the scalar
+latest-Version query. Commandless routing deliberately accepts neither
+singular option because a generic version lens does not compose across
+routable subjects. Shared Navigation, API/Type/Member, Find, and Browser
+adoption remain with their focused slices.
 
 ## Consumer and complexity record
 
@@ -2298,26 +2303,46 @@ retire it; no design-only claim presents that path as already shared.
 The model README records the TLC commands and scope. Model checking validates
 these finite specifications, not the implementation.
 
-Workspace isolation, structural ancestry, lens ranking, Registry-result
-classification, and the exact subject-plus-facet identity structure are
-intentionally absent from the models: subjects, snapshots, and lenses remain
-opaque values there. The pure recommendation, mapping, identity-binding, and
-Workspace-containment rules above are enforced by the implementation gates
-below rather than claimed as model-checked behavior. Ancestor fallback and
-coordinate inspector-request retention are likewise pure policy over those
-values, not changes to the modeled ordering protocol; their protected
-replacement gates are implemented. Forwarded ancestry is another pure
-structural policy, not a new concurrency transition; its Release gates, not the
-models, establish the implemented ancestry and correspondence properties.
+Workspace isolation, the closed structural grammar, lens ranking,
+Registry-result classification, and the exact subject-plus-facet identity
+structure are intentionally absent from the models. Subjects and lenses remain
+opaque values. `NavigationSession.tla` exposes only the distinction between one
+direct route and one route backed by an abstract owner relation so it can check
+publication behavior when that relation disappears. The pure recommendation,
+mapping, identity-binding, Workspace-containment, and exact relation-grammar
+rules above are enforced by the implementation gates below rather than claimed
+as model-checked behavior. Ancestor fallback and coordinate inspector-request
+retention are likewise pure policy over those values, not changes to the
+modeled ordering protocol; their protected replacement gates are implemented.
+Forwarded ancestry is another pure structural policy, not a new concurrency
+transition; its Release gates, not the models, establish the implemented
+ancestry and correspondence properties.
 
 The Workspace-rooted graph adds no second intent, publication, or
 acknowledgement protocol. Subject plus route remains one immutable semantic
-snapshot value under the existing ordering models. Before stage 8,
-`NavigationSession.tla` must exercise a route-only applied change, stale
-relation action rejection, and relation removal that cannot leave an invalid
-posted route. Those bounded results will establish model behavior, not
-implementation conformance. The #7301 model extension and all implementation
-properties remain **unverified**.
+snapshot value under the existing ordering model. `NavigationSession.tla`
+models those two semantic components separately and one abstract
+relation-backed route. `NavigationSession.cfg` checks the route properties
+alongside the retained session's existing contracts.
+`NavigationSessionRouteSafety.cfg` is the contract-defining gate that a
+route-only change advances semantic revision, a posted route never retains a
+removed relation, a stale relation action cannot install, and maintenance
+advances semantic revision exactly when the semantic value changes. The
+contract-defining
+`NavigationSessionRouteReachability.cfg` intentionally exits `12` only after
+one behavior successfully applies a route-only relation-backed publication,
+atomically replaces that exact publication with a direct route when the
+relation is removed, and rejects an action whose retained basis generation
+equals that removed publication.
+`NavigationSessionPostRemovalMaintenanceReachability.cfg` intentionally exits
+`12` only after relation removal invalidates one exact queued request's current
+relation-backed publication basis and that same request rebuilds, regathers,
+and drains without inventing a semantic revision.
+`NavigationSessionPostRemovalMaintenanceLiveness.cfg` verifies that every
+bounded queued request still drains across blocking, abort, stale-basis
+rebuild, and regather paths. These bounded results establish model behavior,
+not implementation conformance. The #7301 implementation properties remain
+**unverified**.
 
 ### Required implementation gates
 

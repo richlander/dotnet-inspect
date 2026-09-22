@@ -133,6 +133,8 @@ internal static class NativePasses
     public static SlotMaterializationPass SlotMaterialization => new();
     [Native(NativeCategory.EmitArtifact, "reference-coalesce assignment testimony and no-IL object argument conversions decided before emission")]
     public static ReferenceCoalesceBindingPass ReferenceCoalesceBinding => new();
+    [Native(NativeCategory.EmitArtifact, "reference-conditional arm assignment targets decided before emission without replacing storage admission")]
+    public static ReferenceConditionalBindingPass ReferenceConditionalBinding => new();
     [Native(NativeCategory.IlErasure, "bool marshalled as int (cgt against 0) normalized")]
     public static BoolToIntNormalizationPass BoolToIntNormalization => new();
     [Native(NativeCategory.IlErasure, "a bool operand of integer arithmetic (erased to i4 on the IL stack) materialized back to (cond ? 1 : 0) so the mix is not CS0019 int + bool")]

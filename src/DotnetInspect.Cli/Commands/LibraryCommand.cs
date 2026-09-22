@@ -143,10 +143,18 @@ public partial class LibraryCommand
         }
 
         options = source!.ApplyTo(options);
-        if (options.WorkspacePacket is not null)
+        if (source.Selector is SourceSelector.PackageSource
+            && (options.WorkspacePacket is not null
+                || options.NamesakeLibrary
+                || string.IsNullOrWhiteSpace(options.AssemblyName)
+                || !string.Equals(
+                    options.Tfm,
+                    "all",
+                    StringComparison.OrdinalIgnoreCase)))
         {
-            return await ExecuteWorkspacePackageAsync(
+            return await ExecutePackageAsync(
                 options,
+                source.PackageTarget,
                 workspaceLoadOptions).ConfigureAwait(false);
         }
 
@@ -462,6 +470,24 @@ public partial class LibraryCommand
             IncludeSections =
                 implementationProfilesSelection.Sections,
         };
+        var libraryMetricsSelection =
+            SelectResolver.NormalizeExactOnlySection(
+                options.Select,
+                options.IncludeSections,
+                options.ExactIncludeSections,
+                sections.SelectableSectionNames,
+                SectionNames.LibraryMetrics);
+        if (libraryMetricsSelection.Error is not null)
+        {
+            CommandError.Write(
+                libraryMetricsSelection.Error);
+            return 1;
+        }
+        options = options with
+        {
+            IncludeSections =
+                libraryMetricsSelection.Sections,
+        };
 
         if (MetadataRootSelectionError(options) is { } metadataRootError)
         {
@@ -583,6 +609,13 @@ public partial class LibraryCommand
             {
                 CommandError.Write(
                     "Document --json cannot represent Member Metrics analysis. "
+                    + "Use --jsonl, --tsv, or --table.");
+            }
+            else if (options.IncludeSections.Contains(
+                    SectionNames.LibraryMetrics))
+            {
+                CommandError.Write(
+                    "Document --json cannot represent Library Metrics analysis. "
                     + "Use --jsonl, --tsv, or --table.");
             }
             else
@@ -2310,7 +2343,7 @@ public partial class LibraryCommand
     /// That renderer carries no per-image provenance: several assemblies would emit repeated
     /// <c>## Metadata: TypeDef</c> headings whose rows silently belong to different images and
     /// whose row numbering restarts without saying so. Aggregate counts remain safe because they
-    /// do not expose image-relative row identities. Package <c>--all-libraries</c> is a separate
+    /// do not expose image-relative row identities. Package Library aggregate output is a separate
     /// renderer that suffixes each metadata heading with the package-relative assembly path. The
     /// direct-library rejection and count allowance are gated by
     /// <c>MetadataLens_MultipleAssemblies_IsRejected</c> in DotnetInspect.Cli.Tests; all-libraries

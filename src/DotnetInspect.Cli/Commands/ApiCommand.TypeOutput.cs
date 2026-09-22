@@ -126,6 +126,17 @@ public partial class ApiCommand
                 + "use --table, --tsv, --jsonl, or an explicit field/column projection for row shaping.");
             return 1;
         }
+        if (options.JsonOutput
+            && !options.Count
+            && !IsProjectionRequested(options)
+            && options.ExactIncludeSections?
+                .Contains(SectionNames.Source) == true
+            && options.IncludeSections is not { Count: 1 })
+        {
+            CommandError.Write(
+                $"section '{SectionNames.Source}' must be the only selected section under --json.");
+            return 1;
+        }
         bool findingCensusExplicitlySelected =
             HasExplicitFindingCensusSelector(options);
         if (findingCensusExplicitlySelected
@@ -204,6 +215,12 @@ public partial class ApiCommand
             }
             && options.IncludeSections.Contains(
                 SectionNames.ApiDeclarations);
+        bool sourceJson =
+            options.JsonOutput
+            && !options.Count
+            && !IsProjectionRequested(options)
+            && options.IncludeSections is { Count: 1 } sourceSections
+            && sourceSections.Contains(SectionNames.Source);
         bool nativePayloadRenderer =
             options.UsesNativePayloadDefault;
         string? exactSourceFailure =
@@ -257,6 +274,7 @@ public partial class ApiCommand
 
         if (options.JsonOutput && !options.Count && !IsProjectionRequested(options)
             && !typeApiDeclarationsJson
+            && !sourceJson
             && !sourceDocumentJson && !findingCensusJson && !factsJson
             && !projectedFactsJson && !callsJson && !callersJson)
         {
@@ -311,6 +329,9 @@ public partial class ApiCommand
                     ? 0
                     : 1;
         }
+
+        if (sourceJson)
+            return WriteSourceJson(options);
 
         var view = ApiOutputFormatter.BuildTypeView(type, foundIn, packageName, packageVersion, apiSource, selectedTfm, options);
         EventsView? eventsView = null;
@@ -896,6 +917,14 @@ public partial class ApiCommand
             }
         }
 
+        if (fullSerializer
+            && options.IncludeSections?
+                .Contains(SectionNames.Source) == true)
+        {
+            if (!TryPopulateSource(view, options))
+                return 1;
+        }
+
         if (options.Print)
         {
             int result = await PrintApiProjectionAsync(
@@ -1322,7 +1351,8 @@ public partial class ApiCommand
                 options, sourceAssembly, packageName, packageVersion, sourceClient);
         }
 
-        if (section is not (SectionNames.ApiDeclarations or SectionNames.PdbSource
+        if (section is not (SectionNames.ApiDeclarations or SectionNames.Source
+            or SectionNames.PdbSource
             or SectionNames.DecompiledSource or SectionNames.AnnotatedSource
             or SectionNames.SourceDiff or SectionNames.IL
             or SectionNames.CostOverlay or SectionNames.SemanticsOverlay))
@@ -1554,6 +1584,7 @@ public partial class ApiCommand
         => section switch
         {
             SectionNames.ApiDeclarations => view.MemberCode?.ApiDeclarationsCode.Content,
+            SectionNames.Source => view.MemberCode?.SourceCode.Content,
             SectionNames.DecompiledSource => view.MemberCode?.DecompiledSourceCode.Content,
             SectionNames.AnnotatedSource => view.MemberCode?.AnnotatedSourceCode.Content,
             SectionNames.FindingCensus => view.MemberCode?.FindingCensusCode.Content,

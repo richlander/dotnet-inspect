@@ -5,7 +5,11 @@ import {
 import { renderBrand } from "./brand.ts";
 import type { KeybindingDescription } from "./keybinding-registry.ts";
 
-export type ApplicationAction = "share" | "settings" | "keyboard-help";
+export type ApplicationAction =
+  | "open-library"
+  | "share"
+  | "settings"
+  | "keyboard-help";
 
 export interface WorkbenchShellBindingActions {
   onApplicationAction: (action: ApplicationAction) => void;
@@ -25,6 +29,7 @@ export interface WorkbenchShellBinding {
 export interface HomeShellBindingActions {
   onDismissNotice: () => void;
   onOpenDemos: () => void;
+  onOpenLibrary: () => void;
   onToggleTheme: () => void;
 }
 
@@ -105,6 +110,9 @@ export function renderApplicationMenu(shareAvailable: boolean): string {
   return `<div id="application-menu-overlay" class="application-menu-overlay">
     <div id="application-menu" class="application-menu" role="menu"
       aria-label="Application menu" hidden>
+      <button type="button" role="menuitem"
+        data-application-action="open-library">Open Library…</button>
+      <div class="application-menu-separator" role="separator"></div>
       ${shareAvailable
         ? `<button type="button" role="menuitem" data-application-action="share">Share</button>
           <div class="application-menu-separator" role="separator"></div>`
@@ -256,31 +264,6 @@ function closeApplicationMenu(
   if (restoreFocus) button.focus();
 }
 
-function documentFocusableElements(document: Document): HTMLElement[] {
-  return [...document.querySelectorAll<HTMLElement>(
-    'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), '
-      + 'textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
-  )].filter(element =>
-    !element.hidden
-    && element.getClientRects().length > 0
-    && element.closest("#application-menu") === null);
-}
-
-function continueDocumentOrder(
-  button: HTMLElement,
-  menu: HTMLElement,
-  event: KeyboardEvent,
-): void {
-  const focusable = documentFocusableElements(button.ownerDocument);
-  const buttonIndex = focusable.indexOf(button);
-  const target = event.shiftKey
-    ? focusable[buttonIndex - 1]
-    : focusable[buttonIndex + 1];
-  event.preventDefault();
-  closeApplicationMenu(button, menu, false);
-  target?.focus();
-}
-
 function isNodeTarget(target: EventTarget | null): target is Node {
   return target !== null && "nodeType" in target;
 }
@@ -362,7 +345,9 @@ export function bindWorkbenchShell(
         event.preventDefault();
         closeApplicationMenu(menuButton, menu, true);
       } else if (event.key === "Tab") {
-        continueDocumentOrder(menuButton, menu, event);
+        // Let native Tab traversal continue from the trigger, including at
+        // document boundaries and past controls outside the page Tab sequence.
+        closeApplicationMenu(menuButton, menu, true);
       } else if (event.key === "Home" || event.key === "End") {
         event.preventDefault();
         (event.key === "Home" ? items[0] : items.at(-1))?.focus();
@@ -375,7 +360,8 @@ export function bindWorkbenchShell(
     menu.querySelectorAll<HTMLElement>("[data-application-action]")
       .forEach(item => item.addEventListener("click", () => {
         const action = item.dataset.applicationAction;
-        if (action !== "share"
+        if (action !== "open-library"
+          && action !== "share"
           && action !== "settings"
           && action !== "keyboard-help") return;
         closeApplicationMenu(menuButton, menu, action === "share");
@@ -487,6 +473,8 @@ export function bindHomeShell(
     ?.addEventListener("click", actions.onDismissNotice);
   root.querySelector("#home-demos")
     ?.addEventListener("click", actions.onOpenDemos);
+  root.querySelector("#home-open-library")
+    ?.addEventListener("click", actions.onOpenLibrary);
 }
 
 export function bindLoadErrorShell(

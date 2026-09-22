@@ -526,6 +526,10 @@ public sealed class BrowserEngineLayeringTests
             // Operate on semantic product-resource paths, not filesystem paths.
             "DotnetInspector.Sections.ResourceExplanationCatalog",
             "DotnetInspector.Sections.ResourcePath",
+            // Operate on packet-local Workspace component paths.
+            "DotnetInspector.Queries.Definitions.WorkspaceContextComponentPath",
+            "DotnetInspector.Queries.Definitions.WorkspacePackageComponentEditor",
+            "DotnetInspector.Queries.Definitions.WorkspacePackageComponentPath",
             // Constructs a PDB document selector, not a filesystem inspection entry point.
             "DotnetInspector.Queries.AssemblyTypeSourceRequest",
             "DotnetInspector.Services.DepsJsonParser",
@@ -799,6 +803,7 @@ public sealed class BrowserEngineLayeringTests
         .. new[]
         {
             ("DotnetInspect.Web.Interop.Package", "DotnetInspect.Web.Interop.Package.csproj"),
+            ("DotnetInspect.Web.Interop.Library", "DotnetInspect.Web.Interop.Library.csproj"),
             ("DotnetInspect.Web.Interop.Metadata", "DotnetInspect.Web.Interop.Metadata.csproj"),
             ("DotnetInspect.Web.Interop.Analysis", "DotnetInspect.Web.Interop.Analysis.csproj"),
             ("DotnetInspect.Web.Interop.Source", "DotnetInspect.Web.Interop.Source.csproj"),

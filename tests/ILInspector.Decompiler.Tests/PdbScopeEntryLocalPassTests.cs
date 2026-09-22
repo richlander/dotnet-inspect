@@ -31,6 +31,36 @@ public sealed class PdbScopeEntryLocalPassTests
         Assert.Null(function.LocalDeclarationBindings[1]);
         Assert.Equal(1, function.LocalDeclarationBindings[2]!.VariableRowId);
         Assert.Equal(2, function.LocalDeclarationBindings[3]!.VariableRowId);
+        StoreLocal[] scopeEntryDeclarations =
+        [
+            .. function.DescendantsOutsideNestedFunctions
+                .OfType<StoreLocal>()
+                .Where(store => store.PdbScopeEntryProjection is not null),
+        ];
+        Assert.Equal([2, 3], scopeEntryDeclarations.Select(store => store.Index));
+        Assert.Equal(
+            [0, 1],
+            scopeEntryDeclarations.Select(
+                store => store.PdbScopeEntryProjection!.CarrierIndex));
+        Assert.All(
+            scopeEntryDeclarations,
+            store => Assert.Same(
+                function.LocalDeclarationBindings[store.Index],
+                store.PdbScopeEntryProjection!.Declaration));
+        var plan = LocalDeclarationPlan.Create(
+            function,
+            function.Locals.Length);
+        Assert.Equal(
+            [2, 3],
+            plan.ScopeEntryProjections.Keys.Order());
+        Assert.All(
+            scopeEntryDeclarations,
+            store => Assert.Same(
+                store,
+                plan.ScopeEntryProjections[store.Index]));
+        Assert.All(
+            scopeEntryDeclarations,
+            store => Assert.Contains(store, plan.DeclaringNodes));
         Assert.Equal(DecompilationFidelity.Full, result.Fidelity);
         Assert.Contains("First same = V_0;", result.Output);
         Assert.Contains("Second same = V_1;", result.Output);
@@ -72,6 +102,112 @@ public sealed class PdbScopeEntryLocalPassTests
         Assert.Equal(DecompilationFidelity.Full, result.Fidelity);
         Assert.Equal(2, result.Output!.Split("First left = ", StringSplitOptions.None).Length - 1);
         Assert.Equal(2, result.Output.Split("Second right = ", StringSplitOptions.None).Length - 1);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void RaisedBodyPlan_ConsumesScopeEntryProjection(bool localFunction)
+    {
+        var function = PatternCarriers();
+        new PdbScopeEntryLocalPass().Run(function, PassContext.None);
+        new PdbLocalScopePass().Run(function, PassContext.None);
+        var body = (BlockContainer)function.Body.Clone();
+        IrNode raisedBody = localFunction
+            ? new LocalFunctionStatement(
+                "Nested",
+                Void,
+                [],
+                isStatic: true,
+                function.Locals,
+                function.LocalNames,
+                usesUpdatedMemorySafetyRules: false,
+                skipLocalsInit: false,
+                body)
+            {
+                LocalDeclaredInNestedScope =
+                    function.LocalDeclaredInNestedScope,
+                LocalDeclarationBindings =
+                    function.LocalDeclarationBindings,
+            }
+            : new Lambda(
+                TypeRef.CoreLib("System", "Action"),
+                [],
+                function.Locals,
+                function.LocalNames,
+                usesUpdatedMemorySafetyRules: false,
+                skipLocalsInit: false,
+                body)
+            {
+                LocalDeclaredInNestedScope =
+                    function.LocalDeclaredInNestedScope,
+                LocalDeclarationBindings =
+                    function.LocalDeclarationBindings,
+            };
+
+        var plan = LocalDeclarationPlan.Create(
+            raisedBody,
+            function.Locals.Length);
+
+        Assert.Equal(
+            [2, 3],
+            plan.ScopeEntryProjections.Keys.Order());
+        Assert.All(
+            plan.ScopeEntryProjections.Values,
+            store => Assert.Contains(store, plan.DeclaringNodes));
+    }
+
+    [Fact]
+    public void ScopeEntryProjection_DoesNotOverrideFinalDeclarationSafety()
+    {
+        var binding = new PdbLocalDeclaration(
+            1,
+            1,
+            0,
+            "same",
+            new LocalSlotScope(10, 20),
+            LocalVariableAttributes.None);
+        var declaration = At(
+            new StoreLocal(
+                0,
+                First,
+                new LoadLocal(1, First))
+            {
+                PdbScopeEntryProjection = new(1, binding),
+            },
+            10);
+        var entry = new Block(0);
+        entry.Add(At(new StoreLocal(
+            1,
+            First,
+            new Constant(null, First)), 1));
+        entry.Add(At(new ConditionalBranch(
+            new Constant(true, Boolean),
+            30), 2));
+        entry.Add(declaration);
+        entry.Add(Observe(0, First, 11));
+        entry.Add(new Branch(40));
+        entry.Add(At(new Return(null), 30));
+        entry.Add(At(new Return(null), 40));
+        var body = new BlockContainer();
+        body.Add(entry);
+        var function = new IrFunction(
+            "M",
+            Owner,
+            new MethodSignature(Void, [], false, 0),
+            [First, First],
+            body)
+        {
+            LocalNames = ["same", null],
+            LocalDeclaredInNestedScope = [true, false],
+            LocalDeclarationBindings = [binding, null],
+        };
+
+        var plan = LocalDeclarationPlan.Create(function, 2);
+
+        Assert.Same(declaration, plan.ScopeEntryProjections[0]);
+        Assert.DoesNotContain(declaration, plan.DeclaringNodes);
+        Assert.Same(function.Body, plan.DeclarationScopes[0]);
     }
 
     [Theory]

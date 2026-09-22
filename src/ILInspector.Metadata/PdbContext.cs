@@ -895,6 +895,16 @@ public class PdbContext : IDisposable
         }
     }
 
+    /// <summary>Returns the exact module version identifier from the opened image.</summary>
+    public Guid ModuleVersionId()
+    {
+        EnsureAlive();
+        var reader =
+            MetadataFormatAdmission.GetMetadataReader(_peReader);
+        return reader.GetGuid(
+            reader.GetModuleDefinition().Mvid);
+    }
+
     /// <summary>
     /// Whether the MethodDef <paramref name="methodToken"/> addresses carries an IL body:
     /// <see langword="true"/> when it does, <see langword="false"/> when it does not — an

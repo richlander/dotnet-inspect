@@ -9,11 +9,20 @@ namespace DotnetInspector.Queries.Definitions;
 public sealed record WorkspacePackageCoordinateReplacementRequest
 {
     public WorkspacePackageCoordinateReplacementRequest(
-        string navigation,
+        string component,
+        string? version = null,
+        string? framework = null)
+        : this(ParseComponent(component), version, framework)
+    {
+    }
+
+    public WorkspacePackageCoordinateReplacementRequest(
+        WorkspacePackageComponentPath component,
         string? version = null,
         string? framework = null)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(navigation);
+        Component = component
+            ?? throw new ArgumentNullException(nameof(component));
         if (version is not null && string.IsNullOrWhiteSpace(version))
             throw new ArgumentException("Version must not be blank.", nameof(version));
         if (framework is not null && string.IsNullOrWhiteSpace(framework))
@@ -28,16 +37,28 @@ public sealed record WorkspacePackageCoordinateReplacementRequest
                 "At least one destination Version or Framework is required.");
         }
 
-        Navigation = navigation;
         Version = version;
         Framework = framework;
     }
 
-    public string Navigation { get; }
+    public WorkspacePackageComponentPath Component { get; }
 
     public string? Version { get; }
 
     public string? Framework { get; }
+
+    private static WorkspacePackageComponentPath ParseComponent(
+        string component)
+    {
+        if (!WorkspacePackageComponentPath.TryCreate(
+                component,
+                out WorkspacePackageComponentPath? path,
+                out string? error))
+        {
+            throw new ArgumentException(error, nameof(component));
+        }
+        return path!;
+    }
 }
 
 public enum WorkspacePortableCoordinateReplacementFailureKind
@@ -328,22 +349,38 @@ public static class WorkspacePortableCoordinateReplacement
                 "Query-bearing committed state is not supported by portable Package-coordinate replacement.");
         }
 
-        NavigationTabDefinition? tab = navigation.Tabs.FirstOrDefault(
-            candidate => candidate.Id == request.Navigation);
-        if (tab is null)
+        NavigationTabDefinition[] matchingTabs =
+        [
+            .. navigation.Tabs.Where(candidate =>
+                candidate.Coordinate
+                    is DefinitionMemberCoordinate.PackageCoordinate package
+                && WorkspacePackageComponentPath.Create(package)
+                    == request.Component),
+        ];
+        if (matchingTabs.Length == 0)
         {
             return Failed(
                 WorkspacePortableCoordinateReplacementFailureKind
                     .NavigationSourceMissing,
-                $"Navigation row '{request.Navigation}' is absent.");
+                $"Workspace Package component '{request.Component}' is absent.");
         }
+        if (matchingTabs.Length != 1)
+        {
+            return Failed(
+                WorkspacePortableCoordinateReplacementFailureKind
+                    .NavigationSourceAmbiguous,
+                $"Workspace Package component '{request.Component}' matches "
+                    + $"{matchingTabs.Length} Navigation rows.");
+        }
+        NavigationTabDefinition tab = matchingTabs[0];
         if (tab.Coordinate
             is not DefinitionMemberCoordinate.PackageCoordinate tabPackage)
         {
             return Failed(
                 WorkspacePortableCoordinateReplacementFailureKind
                     .NavigationSourceNotDirectPackage,
-                $"Navigation row '{request.Navigation}' is not a direct Package source.");
+                $"Workspace Package component '{request.Component}' is not a "
+                    + "direct Package source.");
         }
 
         IReadOnlyList<PackageNavigationSource> positions =
@@ -361,8 +398,10 @@ public static class WorkspacePortableCoordinateReplacement
                     : WorkspacePortableCoordinateReplacementFailureKind
                         .NavigationSourceAmbiguous,
                 positions.Count == 0
-                    ? $"Navigation row '{request.Navigation}' has no direct Package member position."
-                    : $"Navigation row '{request.Navigation}' matches {positions.Count} direct Package member positions.");
+                    ? $"Workspace Package component '{request.Component}' has "
+                        + "no direct Package member position."
+                    : $"Workspace Package component '{request.Component}' "
+                        + $"matches {positions.Count} direct Package member positions.");
         }
 
         PackageNavigationSource source = positions[0];
@@ -371,7 +410,8 @@ public static class WorkspacePortableCoordinateReplacement
             return Failed(
                 WorkspacePortableCoordinateReplacementFailureKind
                     .FloatingSourceUnsupported,
-                $"Navigation row '{request.Navigation}' selects a floating Package source.");
+                $"Workspace Package component '{request.Component}' selects "
+                    + "a floating Package source.");
         }
 
         string destinationVersion =
@@ -424,7 +464,7 @@ public static class WorkspacePortableCoordinateReplacement
                 definitions.NavigationTargetMatchMode);
             NavigationTabDefinition destinationTab =
                 destinationNavigation.Tabs.Single(
-                    candidate => candidate.Id == request.Navigation);
+                    candidate => candidate.Id == tab.Id);
             if (InspectionDefinitionRegistry
                     .ResolvePackageNavigationSourcePositions(
                         destinationWorkspace,
@@ -449,7 +489,7 @@ public static class WorkspacePortableCoordinateReplacement
         return new(
             new DefinitionMutationPreparation(
                 definitions,
-                request.Navigation,
+                tab.Id,
                 source,
                 frameworkChanged
                     || !string.Equals(
@@ -1030,22 +1070,40 @@ public static class WorkspacePortableCoordinateReplacement
                 "The selected navigation row has no committed view state.");
         }
 
-        PortableSubjectRequest subject = ToPortableSubject(destination);
-        PortableRetainedSubjectContext? context =
-            ToPortableContext(destination.RetainedContext);
-        if (subject is PortableSubjectRequest.Workspace
-            && context is PortableRetainedSubjectContext.Package)
+        CommittedViewStateDefinition sourceState = states[stateIndex];
+        if (sourceState.Subject is null)
         {
-            context = null;
+            states[stateIndex] =
+                new CommittedViewStateDefinition(mutation.NavigationId);
         }
-        states[stateIndex] = new CommittedViewStateDefinition(
-            mutation.NavigationId,
-            subject,
-            context,
-            destination.LensOutcome.Basis
-                is NavigationLensEvaluationBasis.ExactRequest exact
-                    ? exact.Request.Facet.Value
-                    : null);
+        else if (sourceState.Subject is PortableSubjectRequest.Workspace
+            && sourceState.Context is null)
+        {
+            states[stateIndex] = new CommittedViewStateDefinition(
+                mutation.NavigationId,
+                sourceState.Subject,
+                sourceState.Context,
+                sourceState.Facet);
+        }
+        else
+        {
+            PortableSubjectRequest subject = ToPortableSubject(destination);
+            PortableRetainedSubjectContext? context =
+                ToPortableContext(destination.RetainedContext);
+            if (subject is PortableSubjectRequest.Workspace
+                && context is PortableRetainedSubjectContext.Package)
+            {
+                context = null;
+            }
+            states[stateIndex] = new CommittedViewStateDefinition(
+                mutation.NavigationId,
+                subject,
+                context,
+                destination.LensOutcome.Basis
+                    is NavigationLensEvaluationBasis.ExactRequest exact
+                        ? exact.Request.Facet.Value
+                        : null);
+        }
         var destinationView = new CommittedViewDefinition(
             view.SchemaVersion,
             view.Id,

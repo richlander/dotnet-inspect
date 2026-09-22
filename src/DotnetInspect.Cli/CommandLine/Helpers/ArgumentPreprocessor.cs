@@ -107,15 +107,6 @@ public static class ArgumentPreprocessor
     /// </summary>
     public static string? GetRemovedPackageOptionError(string option)
     {
-        if (option.Equals("--latest-version", StringComparison.Ordinal)
-            || option.StartsWith("--latest-version=", StringComparison.Ordinal)
-            || option.StartsWith("--latest-version:", StringComparison.Ordinal))
-        {
-            return "'--latest-version' is no longer valid. Use "
-                + "'Package@latest --version' to query the latest published version, "
-                + "or omit the version to inspect the latest eligible package.";
-        }
-
         // --readme was a boolean option, so the parser also accepted --readme=true. Both spellings
         // named the removed flag and both deserve the replacement.
         if (!option.Equals("--readme", StringComparison.Ordinal)
@@ -153,6 +144,15 @@ public static class ArgumentPreprocessor
             error = "'dependency-evidence' is no longer valid. Use 'depends' "
                 + "with the same root options; add '-S Dependencies' for "
                 + "declaration evidence without traversal.";
+            return true;
+        }
+        if (command >= 0
+            && args[command].Equals(
+                "workspace-state",
+                StringComparison.OrdinalIgnoreCase))
+        {
+            error = "'workspace-state' has been removed. Use "
+                + "'workspace packet decode' or 'workspace packet encode'.";
             return true;
         }
         if (command >= 0
@@ -573,7 +573,7 @@ public static class ArgumentPreprocessor
             StringComparer.Ordinal);
     private static readonly HashSet<string> PackageOptionsWithOptionalFollowingValue =
         new(
-            ["--path", "--library", "--version"],
+            ["--path", "--library"],
             StringComparer.Ordinal);
     private static readonly string[] AtCategoryOptionAliases = [.. SelectAliases, "-D", "--discover", "-Q", "--query-help"];
     private static readonly HashSet<string> SearchScopeCommands = new(StringComparer.OrdinalIgnoreCase)

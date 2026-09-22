@@ -103,7 +103,7 @@ test("data bar shows versioned linked build provenance", () => {
 test("Diagnostics is a routed typed surface outside the Application menu", () => {
   assert.match(
     appSource,
-    /if \(isDiagnosticsPath\(location\.pathname\)\) \{\s*loadingBotSrc = null;\s*renderDiagnosticsPage\(\);\s*return;/);
+    /if \(isDiagnosticsPath\(location\.pathname\)\) \{\s*loadingBotSrc = null;\s*renderDiagnosticsPage\(\);\s*bindLibraryOpenEvents\(\);\s*return;/);
   assert.match(
     appSource,
     /function renderDiagnosticsPage\(\)[\s\S]*diagnosticsViewHtml\(\{[\s\S]*bindDiagnosticsView\(document/);
@@ -366,21 +366,23 @@ test("the frontend delegates compact packet syntax to the product codec", () => 
     /encodedWorkspaceSharePacket\(\s*(?:await )?encode\(workspaceShareState\(state\)\)\)/);
 });
 
-test("the selected canonical context bounds call graph workspace membership", () => {
-  const selection = appSource.match(
-    /function selectedCallGraphWorkspacePackages\(\)[\s\S]*?\n}/)?.[0] ?? "";
+test("package call graph traversal policy is independent of saved workspace membership", () => {
   const loader = appSource.match(
     /async function loadSelectedMemberCallGraph\([\s\S]*?\n}/)?.[0] ?? "";
 
   assert.match(
-    selection,
-    /selectedBrowserCallGraphPackageTabIds\(basis\)/);
-  assert.match(
-    selection,
-    /packageTabIds\.includes\(activeTab\.id\)/);
+    loader,
+    /const traversalFramework = state\.callGraphTraversalFramework/);
   assert.match(
     loader,
-    /workspacePackages = selectedCallGraphWorkspacePackages\(\)/);
+    /\|traversal:\$\{traversalFramework\}/);
+  assert.match(
+    loader,
+    /const memberSignature =\s*memberRequestSignature\(type, overload, true\)/);
+  assert.match(
+    loader,
+    /isCurrent: \(\) =>\s*memberRequestIsCurrent\(memberSignature, true\)\s*&& state\.callGraphTraversalFramework === traversalFramework/);
+  assert.doesNotMatch(loader, /workspacePackages|selectedCallGraphWorkspacePackages/);
   assert.match(
     appSource,
     /callGraphCaptureTopology\(\s*captured\.tabs,\s*activeIndex,\s*participantTabIds\)/);
@@ -467,7 +469,7 @@ test("canonical restoration is atomic and history adopts the active packet basis
     /canonicalViewRestorationFailure\(\s*targetModel,\s*deep,\s*loc\.lens,\s*loc\.libraryLens,\s*loc\.atPackageRoot && !loc\.workspaceSubjectOpen\s*\? loc\.packageLens\s*: null\)[\s\S]*failCanonicalWorkspaceRestore/);
   assert.match(
     validateView,
-    /const aggregateLibrarySubject =\s*state\.rootKind !== "platform"\s*&& state\.libraryScope === null\s*&& aggregateLibrarySubjectIsAvailable\(\)/);
+    /const aggregateLibrarySubject =\s*state\.rootKind === "package"\s*&& state\.libraryScope === null\s*&& aggregateLibrarySubjectIsAvailable\(\)/);
   assert.match(
     restore,
     /canonicalSnapshot = loc\.hasWorkspaceState[\s\S]*captureCanonicalWorkspaceRestoreSnapshot/);
@@ -527,7 +529,7 @@ test("canonical restoration is atomic and history adopts the active packet basis
     /invalidateMemberDestinationWork\(state\)[\s\S]*captureCanonicalWorkspaceRestoreSnapshot/);
   assert.match(
     appSource,
-    /const \{ tabs, resolvedTabs, preservesBasis \} = capturedShareTabs\(\);[\s\S]*activeShareTabIndex\(tabs, resolvedTabs\)[\s\S]*browserCreatedCallGraphTabIds\(tabs, activeIndex\)/);
+    /const captured = capturedShareTabs\(\);\s*const tabs = captured\.tabs;\s*const activeIndex = activeShareTabIndex\(tabs, captured\.resolvedTabs\)/);
   assert.match(
     appSource,
     /captured\.preservesBasis,[\s\S]*state\.memberSection === "call-graph"/);
@@ -543,7 +545,7 @@ test("canonical restoration is atomic and history adopts the active packet basis
     /const revision = \+\+syncUrlRevision;[\s\S]*if \(revision !== syncUrlRevision\s*\|\| !navigationSequence\.isCurrent\(navigationSeq\)\) return(?: undefined)?;[\s\S]*activeWorkspaceUrl = destination/);
   assert.match(
     appSource,
-    /const productDemosRouteVisible =\s*scope\(\) === "workspace"\s*&& isProductHomeDemosPath\(location\.pathname\);[\s\S]*document\.title = "Demos — dotnet-inspect";[\s\S]*else if \(options\.synchronizeUrl !== false\) \{\s*syncUrl\(\)/);
+    /const productDemosRouteVisible =\s*scope\(\) === "workspace"\s*&& isProductHomeDemosPath\(location\.pathname\);[\s\S]*document\.title = "Demos — dotnet-inspect";[\s\S]*else if \(state\.rootKind !== "library"\s*&& options\.synchronizeUrl !== false\) \{\s*syncUrl\(\)/);
   assert.match(
     stateUrl,
     /const snapshot = captureWorkspaceUrlState\(\);[\s\S]*await workspaceLocation\.build\(snapshot, base\)/);
@@ -964,9 +966,9 @@ test("catalog rollback reacquires Workspace occurrences with current authority",
     ?? "";
   assert.match(
     ensureOccurrence,
-    /const signature = JSON\.stringify\(workspaceOccurrenceRequest\(\)\);\s*if \(state\.workspaceOccurrenceLoading\) return;\s*if \(signature === state\.workspaceOccurrenceSignature\) return;/);
+    /const request = workspaceOccurrenceRequest\(\);\s*const signature = JSON\.stringify\(request\);\s*if \(state\.workspaceOccurrenceLoading\) return;\s*if \(signature === state\.workspaceOccurrenceSignature\) return;[\s\S]*queryWorkspaceOccurrenceView\(request, signature\)/);
   const occurrenceQuery =
-    appSource.match(/async function queryWorkspaceOccurrenceView\(\)[\s\S]*?\n}/)?.[0]
+    appSource.match(/async function queryWorkspaceOccurrenceView\([\s\S]*?\n}/)?.[0]
     ?? "";
   assert.match(
     occurrenceQuery,
@@ -997,7 +999,7 @@ test("Workspace occurrence rerenders preserve catalog failure focus", () => {
     )?.length,
     2);
   const occurrenceQuery =
-    appSource.match(/async function queryWorkspaceOccurrenceView\(\)[\s\S]*?\n}/)?.[0]
+    appSource.match(/async function queryWorkspaceOccurrenceView\([\s\S]*?\n}/)?.[0]
     ?? "";
   assert.match(occurrenceQuery, /finally \{[\s\S]*render\(\);\s*}/);
 });
@@ -1195,7 +1197,7 @@ test("Package query and Activity are routed Spotlight actions", () => {
     /const navigationSeq = navigationSequence\.begin\(\);\s*let leftPackageQueryForWorkspaceSuccessor = false;\s*let unavailableWorkspaceAdmissionRejected = false;\s*const dismissedAnnotatedSourceModal = dismissModalsForRoutedNavigation\(\);\s*invalidateMemberDestinationWork\(state\);[\s\S]*retainedWorkspaceIdFromHistory\(history\.state\)[\s\S]*activateRetainedWorkspaceProjection\(historyWorkspaceId, false\)/);
   assert.match(
     appSource,
-    /function dismissModalsForRoutedNavigation\(\) \{\s*cancelWorkspaceCredentialPrompt\(false\);\s*closeGraphExplorerForNavigation\(\);\s*const dismissedAnnotatedSourceModal = dismissAnnotatedSourceModal\(false\);\s*state\.settings = false;\s*state\.keyboardHelp = false;\s*state\.explorer = null;\s*spotlight\.reset\(\);\s*sourceInspection\.clearGraphSource\(\);\s*documentInspection\.clear\(\);\s*return dismissedAnnotatedSourceModal/);
+    /function dismissModalsForRoutedNavigation\(\) \{\s*cancelWorkspaceCredentialPrompt\(false\);\s*closeGraphExplorerForNavigation\(\);\s*const dismissedAnnotatedSourceModal = dismissAnnotatedSourceModal\(false\);\s*state\.settings = false;\s*state\.keyboardHelp = false;\s*libraryOpenSequence\+\+;\s*state\.libraryOpen = false;\s*state\.libraryOpenBusy = false;\s*state\.libraryOpenError = "";\s*state\.explorer = null;\s*spotlight\.reset\(\);\s*sourceInspection\.clearGraphSource\(\);\s*documentInspection\.clear\(\);\s*return dismissedAnnotatedSourceModal/);
   assert.match(
     route,
     /dismissModalsForRoutedNavigation\(\);\s*navigationSequence\.begin\(\)/);
@@ -1300,7 +1302,7 @@ test("Package query and Activity are routed Spotlight actions", () => {
     /openPackageQueryRoute\("", \{\s*preserveState: true,\s*returnFocus: "application-query"/);
   assert.match(
     appSource,
-    /async function selectWorkspaceApplicationScope\(\) \{\s*const pkg = state\.package;\s*if \(!pkg\) \{[\s\S]*state\.platformSelection[\s\S]*openDefaultWorkspace\(\);[\s\S]*navigationSequence\.begin\(\);[\s\S]*const projected = await buildStateUrl\(\);[\s\S]*resolvePackageQueryWorkspaceSuccessor\(\s*\(\) => projected,[\s\S]*fallback\.hash = "workspace";[\s\S]*appendQueryNotice\([\s\S]*complete state could not be saved in the address bar[\s\S]*workspaceLocation\.push\(successor\.url\.toString\(\)\);\s*render\(\)/);
+    /async function selectWorkspaceApplicationScope\(\) \{\s*const pkg = state\.package;[\s\S]*navigationSequence\.begin\(\);[\s\S]*const projected = await buildStateUrl\(\);[\s\S]*resolvePackageQueryWorkspaceSuccessor\(\s*\(\) => projected,[\s\S]*fallback\.hash = "workspace";[\s\S]*appendQueryNotice\([\s\S]*complete state could not be saved in the address bar[\s\S]*workspaceLocation\.push\(successor\.url\.toString\(\)\);\s*render\(\)/);
   assert.match(
     appSource,
     /onApplicationScopeSelect: applicationScope => \{[\s\S]*applicationScope === "query"[\s\S]*applicationScope === "activity"[\s\S]*openPackageActivityRoute\("application-activity"\)[\s\S]*else if \(scope\(\) !== "workspace"\) \{\s*observeAsync\(\s*selectWorkspaceApplicationScope\(\),\s*"Opening the Workspace scope"\)/);
@@ -1373,7 +1375,7 @@ test("browser history reuses available identities and publishes only unavailable
     /function finishPackageRemoval\([\s\S]*if \(!state\.package && !state\.platformSelection\) \{\s*activeWorkspaceUrl = "\/demos";\s*if \(!state\.home\) \{\s*state\.workspaceSubjectOpen = true;\s*workspaceLocation\.replace\("\/demos", history\.state\)/);
   assert.match(
     appSource,
-    /if \(snapshot\.state\.packages\.length === 0 && !snapshot\.state\.platformSelection\) \{\s*snapshot\.state\.workspaceSubjectOpen = true;\s*snapshot\.state\.atPackageRoot = true;\s*snapshot\.state\.atLibraryRoot = false;/);
+    /if \(snapshot\.state\.packages\.length === 0\s*&& !snapshot\.state\.platformSelection\s*&& !snapshot\.state\.uploadedLibrary\) \{\s*snapshot\.state\.workspaceSubjectOpen = true;\s*snapshot\.state\.atPackageRoot = true;\s*snapshot\.state\.atLibraryRoot = false;/);
   assert.match(
     appSource,
     /function restoreCanonicalWorkspaceRestoreSnapshot\([\s\S]*const memberCallGraphSeq = state\.memberCallGraphSeq;[\s\S]*const platformIndex = state\.platformIndex \?\? snapshot\.state\.platformIndex;\s*clearWorkspaceOccurrenceView\(\);[\s\S]*Object\.assign\(state, snapshot\.state\);[\s\S]*state\.memberCallGraphSeq =\s*Math\.max\(memberCallGraphSeq, snapshot\.state\.memberCallGraphSeq\) \+ 1;[\s\S]*state\.platformIndex = platformIndex;/);
@@ -1541,17 +1543,23 @@ test("metadata explorer request coordination stays outside the composition root"
 
 test("call graph request coordination stays outside the composition root", () => {
   const loader =
-    appSource.match(/async function loadSelectedMemberCallGraph\([\s\S]*?\n}\n\n\/\/ Update just/)?.[0]
+    appSource.match(/async function loadSelectedMemberCallGraph\([\s\S]*?\n}/)?.[0]
     ?? "";
   assert.match(
     loader,
-    /return callGraphInspection\.load\(\{[\s\S]*type: type\.queryId \?\? type\.id,[\s\S]*typeIdentity: type\.definitionId \?\? type\.id,[\s\S]*platformType:\s*type\.definitionId \?\? type\.metadataId \?\? type\.queryId \?\? type\.id,[\s\S]*platformPack:\s*platformPackForAssembly\(type\.assembly, type\.platformPack\) \?\? "",[\s\S]*isCurrent: \(\) => memberRequestIsCurrent\(signature, true\)/);
+    /return callGraphInspection\.load\(\{[\s\S]*type: type\.queryId \?\? type\.id,[\s\S]*typeIdentity: type\.definitionId \?\? type\.id,[\s\S]*platformType:\s*type\.definitionId \?\? type\.metadataId \?\? type\.queryId \?\? type\.id,[\s\S]*platformPack:\s*platformPackForAssembly\(type\.assembly, type\.platformPack\) \?\? "",[\s\S]*traversalFramework,[\s\S]*isCurrent: \(\) =>\s*memberRequestIsCurrent\(memberSignature, true\)\s*&& state\.callGraphTraversalFramework === traversalFramework/);
   assert.doesNotMatch(
     loader,
     /memberCallGraphSeq|inspectMemberCallGraph|inspectExpandPlatformCallGraph/);
   assert.match(
     callGraphInspectionSource,
-    /dependencies\.queryWorkspace\(request, \[\]\)[\s\S]*dependencies\.nextPaint\(\)[\s\S]*request\.workspacePackages[\s\S]*dependencies\.patchCallGraphSection\(previousMermaid\)/);
+    /const graph = await dependencies\.queryPackage\(request\)[\s\S]*state\.memberCallGraph = graph/);
+  assert.equal(
+    [...callGraphInspectionSource.matchAll(/dependencies\.queryPackage\(request\)/g)].length,
+    1);
+  assert.doesNotMatch(
+    callGraphInspectionSource,
+    /queryWorkspace|nextPaint|workspacePackages|patchCallGraphSection/);
   assert.match(
     callGraphInspectionSource,
     /request\.isRuntimePack[\s\S]*loadPlatformGraph\(request\)/);
@@ -1627,7 +1635,7 @@ test("Type Source completion settles behind workbench overlays", () => {
     ?? "";
   assert.match(
     appSource,
-    /function workbenchOverlayOwnsFocus\(\) \{\s*return workbenchModalOwnsFocus\(\);[\s\S]*function workbenchModalOwnsFocus\(\) \{\s*return state\.spotlightOpen\s*\|\| graphSourceIsOpen\(state\.graphSource\)\s*\|\| documentViewerIsOpen\(state\.docViewer\)\s*\|\| state\.memberAnnotatedModal !== null\s*\|\| graphExplorer\.isOpen;/);
+    /function workbenchOverlayOwnsFocus\(\) \{\s*return workbenchModalOwnsFocus\(\);[\s\S]*function workbenchModalOwnsFocus\(\) \{\s*return state\.libraryOpen\s*\|\| state\.spotlightOpen\s*\|\| graphSourceIsOpen\(state\.graphSource\)\s*\|\| documentViewerIsOpen\(state\.docViewer\)\s*\|\| state\.memberAnnotatedModal !== null\s*\|\| graphExplorer\.isOpen;/);
   assert.match(
     appSource,
     /sourceInspection\.loadTypeSource\(\{[\s\S]*isVisible: \(\) =>\s*currentSourceOperationKind\(\) === "type"\s*&& !workbenchModalOwnsFocus\(\)/);

@@ -388,12 +388,13 @@ export const applicationSources =
   `${appSource}\n${graphSource}\n${packageControlsSource}\n${workspaceSubjectSource}\n${metadataViewerSource}`;
 export const stylesSource = readFileSync(new URL("../src/styles.css", import.meta.url), "utf8");
 export const indexSource = readFileSync(new URL("../index.html", import.meta.url), "utf8");
-// The production facade set: seven independently generated modules over one runtime. Each
+// The production facade set: eight independently generated modules over one runtime. Each
 // assertion below reads the module that owns the operation it is about, so an operation that
 // moves to another facade fails here instead of matching a neighbouring module's text.
 export const generatedFacadeModules = [
   "inspect-web-host",
   "inspect-web-package",
+  "inspect-web-library",
   "inspect-web-metadata",
   "inspect-web-analysis",
   "inspect-web-source",

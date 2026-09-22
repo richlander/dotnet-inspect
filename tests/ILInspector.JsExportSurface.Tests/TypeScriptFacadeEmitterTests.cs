@@ -105,6 +105,10 @@ public sealed class TypeScriptFacadeEmitterTests
     {
         global::ILInspector.JsExportSurface.JsExportSurface surface =
             BuildSurface(typeof(FixtureExports).Assembly.Location);
+        JsExportFunction asyncRename = surface.Functions.Single(
+            function => function.Name == "RenameWidgetAsync");
+        JsExportFunction transformedAsync = surface.Functions.Single(
+            function => function.Name == "RenameNormalizedWidgetAsync");
         JsExportFunction rename = surface.Functions.Single(
             function => function.Name == "RenameWidgetForOwner");
         JsExportFunction compare = surface.Functions.Single(
@@ -118,6 +122,36 @@ public sealed class TypeScriptFacadeEmitterTests
             surface,
             RuntimeModule);
 
+        Assert.Contains(
+            $"readonly \"{asyncRename.RuntimeDispatchKey}\": "
+                + "(widgetJson: string, newName: string) => Promise<string>;",
+            source,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "export async function renameWidgetAsync("
+                + "widgetJson: WidgetDto, newName: string): "
+                + "Promise<WidgetDto>",
+            source,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            $"[\"{asyncRename.RuntimeDispatchKey}\"]("
+                + "$serializeJsonInput(widgetJson, "
+                + $"\"{asyncRename.DeclaringType}."
+                + $"{asyncRename.RuntimeDispatchKey}\", "
+                + "\"widgetJson\"), newName);",
+            source,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "export async function renameNormalizedWidgetAsync("
+                + "widgetJson: string, newName: string): "
+                + "Promise<WidgetDto>",
+            source,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            $"[\"{transformedAsync.RuntimeDispatchKey}\"]("
+                + "$serializeJsonInput(widgetJson,",
+            source,
+            StringComparison.Ordinal);
         Assert.Contains(
             $"readonly \"{rename.RuntimeDispatchKey}\": "
                 + "(owner: string, widgetJson: string, "
@@ -835,6 +869,112 @@ public sealed class TypeScriptFacadeEmitterTests
     }
 
     [Fact]
+    public void Emit_AllocatesDateTimeOffsetBrandBeforeUnrelatedTypes()
+    {
+        ApiAssemblyIdentity assembly = AssemblyIdentity();
+        var timestampSelection = new ApiType
+        {
+            Namespace = "Fixture",
+            Name = "TimestampSelection",
+            Kind = "class",
+        };
+        var unrelated = new ApiType
+        {
+            Namespace = "Application",
+            Name = "DateTimeOffsetString",
+            Kind = "class",
+            Members =
+            [
+                new ApiMember
+                {
+                    Name = "Value",
+                    Kind = "property",
+                    HasGetter = true,
+                    ReturnType = "string",
+                },
+            ],
+        };
+        var unrelatedBrand = new ApiType
+        {
+            Namespace = "Application",
+            Name = "dateTimeOffsetStringBrand",
+            Kind = "class",
+            Members =
+            [
+                new ApiMember
+                {
+                    Name = "Value",
+                    Kind = "property",
+                    HasGetter = true,
+                    ReturnType = "string",
+                },
+            ],
+        };
+        var surface =
+            new global::ILInspector.JsExportSurface.JsExportSurface
+            {
+                AssemblyIdentity = assembly,
+                Records = [unrelated, unrelatedBrand],
+                Unions =
+                [
+                    new JsExportUnion
+                    {
+                        Definition = timestampSelection,
+                        CaseTypes =
+                        [
+                            TypeRef.CoreLib(
+                                "System",
+                                "DateTimeOffset"),
+                            TypeRef.CoreLib("System", "Boolean"),
+                        ],
+                        IncludesNull = true,
+                    },
+                ],
+                WireDirections =
+                    new Dictionary<ApiType, JsonWireDirection>
+                    {
+                        [timestampSelection] =
+                            JsonWireDirection.Serialize,
+                        [unrelated] = JsonWireDirection.Serialize,
+                        [unrelatedBrand] = JsonWireDirection.Serialize,
+                    },
+            };
+
+        string source = TypeScriptFacadeEmitter.Emit(
+            surface,
+            RuntimeModule);
+
+        Assert.Contains(
+            """
+            declare const dateTimeOffsetStringBrand: unique symbol;
+
+            export type DateTimeOffsetString = string & {
+              readonly [dateTimeOffsetStringBrand]: "DateTimeOffsetString";
+            };
+            """,
+            source,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "export type TimestampSelection = "
+                + "DateTimeOffsetString | boolean | null;",
+            source,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "export interface DateTimeOffsetString {",
+            source,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "export interface dateTimeOffsetStringBrand {",
+            source,
+            StringComparison.Ordinal);
+        Assert.Equal(
+            2,
+            source.Split(
+                "export interface type_",
+                StringSplitOptions.None).Length - 1);
+    }
+
+    [Fact]
     [System.Runtime.Versioning.SupportedOSPlatform("browser")]
     public async Task InertStringFixture_SerializesEncodedTextAsScalarString()
     {
@@ -844,6 +984,77 @@ public sealed class TypeScriptFacadeEmitterTests
 
         Assert.Equal(
             """{"name":"widget","display":"line\\u202Egpj"}""",
+            json);
+    }
+
+    [Fact]
+    public void Emit_PreservesDateTimeOffsetAsOpaqueJsonString()
+    {
+        global::ILInspector.JsExportSurface.JsExportSurface surface =
+            BuildSurface(
+                typeof(global::ILInspector.JsExportSurface.TypeScriptFixtures
+                    .TypeScriptFixtureExports).Assembly.Location);
+
+        string source = TypeScriptFacadeEmitter.Emit(surface, RuntimeModule);
+
+        Assert.Contains(
+            """
+            declare const dateTimeOffsetStringBrand: unique symbol;
+
+            export type DateTimeOffsetString = string & {
+              readonly [dateTimeOffsetStringBrand]: "DateTimeOffsetString";
+            };
+            """,
+            source,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            """
+            export interface TimestampDto {
+              readonly observedAt: DateTimeOffsetString;
+              readonly completedAt: DateTimeOffsetString | null;
+              readonly selection: TimestampSelection;
+              readonly nullableSelection: NullableTimestampSelection;
+            }
+            """,
+            source,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "export type NullableTimestampSelection = "
+                + "DateTimeOffsetString | boolean | null;",
+            source,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "export type TimestampSelection = DateTimeOffsetString "
+                + "| ReadonlyArray<DateTimeOffsetString | null> "
+                + "| Readonly<Record<string, DateTimeOffsetString>> "
+                + "| null;",
+            source,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "export async function getTimestampAsync(): "
+                + "Promise<TimestampDto>",
+            source,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "parseDateTimeOffset",
+            source,
+            StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain(
+            "function dateTimeOffsetString(",
+            source,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    [System.Runtime.Versioning.SupportedOSPlatform("browser")]
+    public async Task DateTimeOffsetFixture_PreservesSerializerTimestampText()
+    {
+        string json = await global::ILInspector.JsExportSurface
+            .TypeScriptFixtures.TypeScriptFixtureExports
+            .GetTimestampAsync();
+
+        Assert.Equal(
+            """{"observedAt":"2026-09-21T10:30:45.1234567-07:00","completedAt":null,"selection":"2026-09-21T10:30:45.1234567-07:00","nullableSelection":null}""",
             json);
     }
 

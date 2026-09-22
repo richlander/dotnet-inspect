@@ -110,6 +110,7 @@ public static class TypeCommand
             ShowSamples = options.ShowSamples,
             PreferRenderedUrls = options.PreferRenderedUrls,
             Verbosity = options.Verbosity,
+            VerbosityExplicitlySet = options.VerbosityExplicitlySet,
             JsonOutput = options.JsonOutput,
             CompactJson = options.CompactJson,
             Tabular = options.Tabular,
@@ -595,6 +596,21 @@ public static class TypeCommand
                                 apiType,
                                 effectiveOptions,
                                 loaded,
+                                cancellationToken);
+                    }
+
+                    if (AuthorizesTypeSource(
+                            apiType,
+                            effectiveOptions))
+                    {
+                        effectiveOptions =
+                            await AttachTypeSourceInspectionAsync(
+                                apiType,
+                                effectiveOptions,
+                                loaded,
+                                packageName,
+                                packageVersion,
+                                context.HttpClient,
                                 cancellationToken);
                     }
 
@@ -1851,6 +1867,12 @@ public static class TypeCommand
            && ApiCommand.GetRequestedMemberSections(apiType, options)
                .Contains(SectionNames.DecompiledSource);
 
+    private static bool AuthorizesTypeSource(
+        ApiType apiType,
+        TypeOptions options)
+        => options.IncludeSections is { Count: > 0 }
+           && options.IncludeSections.Contains(SectionNames.Source);
+
     private static bool AuthorizesTypeApiDeclarations(
         ApiType apiType,
         TypeOptions options)
@@ -1925,6 +1947,63 @@ public static class TypeCommand
         return options with
         {
             TypeApiDeclarationInspection = inspection,
+        };
+    }
+
+    private static async Task<TypeOptions>
+        AttachTypeSourceInspectionAsync(
+        ApiType apiType,
+        TypeOptions options,
+        ApiServices.LoadedApiSurface loaded,
+        string? packageName,
+        string? packageVersion,
+        HttpClient httpClient,
+        CancellationToken cancellationToken)
+    {
+        string assemblyPath =
+            apiType.SourceAssemblyPath
+            ?? loaded.ApiDllPath;
+        ResolvedAssemblyReference definingAssembly =
+            loaded.TryGetSourceAssembly(apiType)
+            ?? ResolvedAssemblyReference.CreateFromPath(
+                assemblyPath,
+                AssemblyResolutionProvenance.Local(
+                    "type Source"));
+        SelectedTypeBindingContext? bindingContext =
+            loaded.TryGetBindingContext(apiType)
+            ?? loaded.RootBindingContext;
+        var (participant, queryContext) =
+            AuthoredSourceDocumentPrinter.CreateContext(
+                assemblyPath,
+                options,
+                definingAssembly,
+                packageName,
+                packageVersion,
+                httpClient,
+                bindingContext?.Policy);
+
+        InspectionEnvelope<AssemblyTypeSourceEntry> inspection;
+        await using (var workspace = new InspectionWorkspace())
+        {
+            using AssemblyContextGroup group =
+                workspace.CreateAssemblyContextGroup([participant]);
+            inspection =
+                await TypeSourceInspection.ExecuteAsync(
+                        group,
+                        participant,
+                        AssemblyTypeSourceRequest.From(
+                            apiType,
+                            options.RenderOptions),
+                        queryContext,
+                        cancellationToken)
+                    .ConfigureAwait(false);
+        }
+
+        ApiCommand.WriteSourceInspectionDiagnostics(
+            inspection.Diagnostics);
+        return options with
+        {
+            TypeSourceInspection = inspection,
         };
     }
 

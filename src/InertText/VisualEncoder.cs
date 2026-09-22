@@ -58,6 +58,62 @@ public static class VisualEncoder
     public static InertString Encode(TextPolicy policy, ReadOnlySpan<char> value)
         => EncodeCore(policy, value, original: null);
 
+    internal static int MeasureEncodedLength(
+        TextPolicy policy,
+        ReadOnlySpan<char> value)
+    {
+        ScalarPolicy permits = ScalarPolicies.For(policy);
+        VisualForm formsUsed = VisualForm.None;
+        int length = 0;
+
+        for (int i = 0; i < value.Length;)
+        {
+            Rune scalar = DecodeAt(
+                value,
+                i,
+                out int width,
+                out bool isUnpairedSurrogate);
+            bool encode =
+                isUnpairedSurrogate
+                || value[i] == '\\'
+                || !permits(scalar);
+            if (!encode)
+            {
+                length = checked(length + width);
+                i += width;
+                continue;
+            }
+
+            int spellingLength;
+            VisualForm form;
+            if (isUnpairedSurrogate)
+            {
+                spellingLength = 6;
+                form = VisualForm.BmpHex;
+            }
+            else
+            {
+                (spellingLength, form) = scalar.Value switch
+                {
+                    '\\' => (2, VisualForm.Backslash),
+                    <= 0x1F => (3, VisualForm.Caret),
+                    0x7F => (3, VisualForm.CaretDelete),
+                    <= 0xFFFF => (6, VisualForm.BmpHex),
+                    _ => (10, VisualForm.AstralHex),
+                };
+            }
+
+            length = checked(length + spellingLength);
+            formsUsed |= form;
+            i += width;
+        }
+
+        return formsUsed == VisualForm.Backslash
+            && CanRetainLiteralBackslashes(value)
+                ? value.Length
+                : length;
+    }
+
     private static InertString EncodeCore(
         TextPolicy policy,
         ReadOnlySpan<char> value,

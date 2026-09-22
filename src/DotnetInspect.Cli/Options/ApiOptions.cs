@@ -120,6 +120,7 @@ public partial record ApiOptions : IProjectionOptions
 
     // Shared output
     public Verbosity Verbosity { get; init; } = Verbosity.Minimal;
+    public bool VerbosityExplicitlySet { get; init; }
 
     /// <summary>
     /// The user's requested verbosity before internal section-selection promotion.
@@ -286,9 +287,9 @@ public partial record ApiOptions : IProjectionOptions
 
     public bool UsesMarkdownPayloadFormat =>
         MarkdownExplicitlySet
-        || (!FormatFlagExplicitlySet
-            && FormatExplicitlySet
-            && Format == OutputFormat.Markdown);
+        || (FormatExplicitlySet
+            && Format == OutputFormat.Markdown
+            && (!FormatFlagExplicitlySet || VerbosityExplicitlySet));
 
     public bool UsesNativePayloadDefault =>
         !FormatExplicitlySet
@@ -310,6 +311,7 @@ public partial record ApiOptions : IProjectionOptions
         && IncludeSections is { Count: 1 } sections
         && sections.First() is
             SectionNames.ApiDeclarations
+            or SectionNames.Source
             or SectionNames.DecompiledSource
             or SectionNames.AnnotatedSource
             or SectionNames.PdbSource
@@ -353,6 +355,12 @@ public record TypeOptions : ApiOptions
     public bool AllowPlatformPrefixFallback { get; init; }
     public InspectionEnvelope<AssemblyTypeDecompilationEntry>?
         TypeDecompilationInspection
+    {
+        get;
+        init;
+    }
+    public InspectionEnvelope<AssemblyTypeSourceEntry>?
+        TypeSourceInspection
     {
         get;
         init;
@@ -430,6 +438,12 @@ public record MemberOptions : ApiOptions
     }
     public InspectionEnvelope<AssemblyMemberDecompilationEntry>?
         MemberDecompilationInspection
+    {
+        get;
+        init;
+    }
+    public InspectionEnvelope<AssemblyMemberSourceEntry>?
+        MemberSourceInspection
     {
         get;
         init;

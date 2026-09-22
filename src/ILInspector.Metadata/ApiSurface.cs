@@ -1617,66 +1617,104 @@ public sealed class ApiAssemblyIdentity : IEquatable<ApiAssemblyIdentity>
 
     internal static ApiAssemblyIdentity FromDefinition(
         MetadataReader reader,
-        Action<int>? beforeMaterialize = null)
+        Action<int>? beforeMaterialize = null,
+        Action<int>? beforeRetainMaterialize = null,
+        Action? beforeNameMaterialize = null,
+        Action? beforePublicKeyMaterialize = null)
     {
         AssemblyDefinition definition = reader.GetAssemblyDefinition();
         return new(
-            ReadString(reader, definition.Name, beforeMaterialize),
+            ReadString(
+                reader,
+                definition.Name,
+                beforeMaterialize,
+                beforeRetainMaterialize,
+                beforeNameMaterialize),
             definition.Version,
             ReadStringOrNull(
                 reader,
                 definition.Culture,
-                beforeMaterialize),
+                beforeMaterialize,
+                beforeRetainMaterialize,
+                beforeNameMaterialize),
             ReadToken(
                 reader,
                 definition.PublicKey,
                 isPublicKey: true,
-                beforeMaterialize));
+                beforeMaterialize,
+                beforeRetainMaterialize,
+                beforePublicKeyMaterialize));
     }
 
     internal static ApiAssemblyIdentity FromReference(
         MetadataReader reader,
         AssemblyReferenceHandle handle,
-        Action<int>? beforeMaterialize = null)
+        Action<int>? beforeMaterialize = null,
+        Action<int>? beforeRetainMaterialize = null,
+        Action? beforeNameMaterialize = null,
+        Action? beforePublicKeyMaterialize = null)
     {
         System.Reflection.Metadata.AssemblyReference reference =
             reader.GetAssemblyReference(handle);
         return new(
-            ReadString(reader, reference.Name, beforeMaterialize),
+            ReadString(
+                reader,
+                reference.Name,
+                beforeMaterialize,
+                beforeRetainMaterialize,
+                beforeNameMaterialize),
             reference.Version,
             ReadStringOrNull(
                 reader,
                 reference.Culture,
-                beforeMaterialize),
+                beforeMaterialize,
+                beforeRetainMaterialize,
+                beforeNameMaterialize),
             ReadToken(
                 reader,
                 reference.PublicKeyOrToken,
                 (reference.Flags & AssemblyFlags.PublicKey) != 0,
-                beforeMaterialize));
+                beforeMaterialize,
+                beforeRetainMaterialize,
+                beforePublicKeyMaterialize));
     }
 
     static string ReadString(
         MetadataReader reader,
         StringHandle handle,
-        Action<int>? beforeMaterialize)
+        Action<int>? beforeMaterialize,
+        Action<int>? beforeRetainMaterialize,
+        Action? beforeNameMaterialize)
     {
-        beforeMaterialize?.Invoke(reader.GetBlobReader(handle).Length);
+        int length = reader.GetBlobReader(handle).Length;
+        beforeRetainMaterialize?.Invoke(length);
+        beforeMaterialize?.Invoke(length);
+        beforeNameMaterialize?.Invoke();
         return reader.GetString(handle);
     }
 
     static string? ReadStringOrNull(
         MetadataReader reader,
         StringHandle handle,
-        Action<int>? beforeMaterialize) =>
+        Action<int>? beforeMaterialize,
+        Action<int>? beforeRetainMaterialize,
+        Action? beforeNameMaterialize) =>
         handle.IsNil
             ? null
-            : ReadString(reader, handle, beforeMaterialize);
+            : ReadString(
+                reader,
+                handle,
+                beforeMaterialize,
+                beforeRetainMaterialize,
+                beforeNameMaterialize);
 
     static string? ReadToken(
         MetadataReader reader,
         BlobHandle handle,
         bool isPublicKey,
-        Action<int>? beforeMaterialize)
+        Action<int>? beforeMaterialize,
+        Action<int>? beforeRetainMaterialize,
+        Action? beforePublicKeyMaterialize)
     {
         if (handle.IsNil)
             return null;
@@ -1684,8 +1722,10 @@ public sealed class ApiAssemblyIdentity : IEquatable<ApiAssemblyIdentity>
         int length = reader.GetBlobReader(handle).Length;
         long work = (long)length
             + (isPublicKey ? 16L : (long)length * 2);
+        beforeRetainMaterialize?.Invoke(16);
         beforeMaterialize?.Invoke(
             (int)Math.Min(int.MaxValue, work));
+        beforePublicKeyMaterialize?.Invoke();
         return AssemblyReferenceIdentity.TokenOrNull(
             reader,
             handle,

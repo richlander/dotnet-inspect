@@ -9,8 +9,8 @@ public sealed record ExternalCallGraphOptions
     public required string TypeName { get; init; }
     public required string Member { get; init; }
     public required string RootPackage { get; init; }
-    public string[] Packages { get; init; } = [];
-    public required string Tfm { get; init; }
+    public required string RootTfm { get; init; }
+    public string? Tfm { get; init; }
     public bool IncludeAll { get; init; }
     public int Depth { get; init; } = 3;
     public int MaxNodes { get; init; } = 25;

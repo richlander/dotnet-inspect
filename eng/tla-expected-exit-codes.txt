@@ -155,6 +155,10 @@ docs/design/models/inspect-web-retained-navigation-handoff/BrokenMissingPredeces
 docs/design/models/inspect-web-retained-navigation-handoff/BrokenStalePosting.cfg=12
 docs/design/models/inspect-web-retained-navigation-handoff/ReachabilityOutOfOrderDelivery.cfg=12
 docs/design/models/inspect-web-retained-navigation-handoff/Safety.cfg=0
+docs/design/models/inspection-subject-navigation/NavigationSessionPostRemovalMaintenanceLiveness.cfg=0
+docs/design/models/inspection-subject-navigation/NavigationSessionPostRemovalMaintenanceReachability.cfg=12
+docs/design/models/inspection-subject-navigation/NavigationSessionRouteReachability.cfg=12
+docs/design/models/inspection-subject-navigation/NavigationSessionRouteSafety.cfg=0
 docs/design/models/resolver-lineage/BrokenAlwaysInherit.cfg=12
 docs/design/models/resolver-lineage/BrokenCandidateCache.cfg=12
 docs/design/models/resolver-lineage/BrokenRegistrationMap.cfg=12

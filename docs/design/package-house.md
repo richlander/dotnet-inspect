@@ -54,9 +54,9 @@ and presentation.
 credentials, transports, clients, stores, and disposal, but its
 composition-owned exact and selecting payload operations, asynchronous pinned
 candidate path, and candidate-manifest path now settle through PackageHouse.
-The CLI's online `package Package@latest --version` query and `@latest` package
-opening consume the shared `PackageVersionSettlementInspection` envelope, also
-used by Inspect Web exact/latest package opening. The shared inspection
+The CLI's online `package Package --latest-version` query and `@latest`
+package opening consume the shared `PackageVersionSettlementInspection`
+envelope, also used by Inspect Web exact/latest package opening. The shared inspection
 projects House `Settle` evidence into a serialization-ready outcome; hosts
 render or consume the selected coordinate rather than choosing a latest row.
 The earlier desktop-only `SettleVersionAsync` bridge is retired. Desktop
@@ -72,13 +72,12 @@ consume this detached listing, request prerelease and unlisted evidence, and
 apply their existing exact NuGet match over its rows. A matching pin remains
 usable with visible partial-source diagnostics; a missing pin is not declared
 absent when a configured authority failed, except when the failure concerns
-listing state rather than version existence. Online bare `package Package
---version` is an authoritative at-most-one-row projection over the same
-listing, preserving stable filtering, optional prerelease and unlisted rows,
-and successful empty output. It remains a listing rather than explicit
-`@latest` coordinate settlement. Raw listing may publish
-usable partial rows because it selects no coordinate; source failures remain
-visible and cannot become authoritative absence. Inspect Web's
+listing state rather than version existence. A caller can request that pinned
+single row with `Package@Version --versions -n 1`; valued
+`package Package --version VERSION` instead selects the Package to inspect.
+Raw listing may publish usable partial rows because it selects no coordinate;
+source failures remain visible and cannot become authoritative absence.
+Inspect Web's
 `BrowserPackageVersionInventory` is the second host adopter under
 [#7530](https://github.com/richlander/dotnet-inspect/issues/7530); it consumes
 the same detached listing while retaining Browser-owned predecessor policy.
@@ -377,14 +376,13 @@ failures to distinguish unavailable version evidence from incomplete listing
 state. The direct desktop version-discovery call is retired from that exact-
 pinned path.
 
-Online bare CLI `package Package --version` is the fourth production adopter.
-It requires authoritative Content and projects at most the first ordered row
-while preserving stable filtering, optional prerelease and unlisted rows, and
-successful empty output. This remains single-version listing rather than
-explicit `@latest` coordinate selection. The direct desktop version-discovery
-call is retired from that bare path. Latest selection, range vectors and cells,
-offline queries, and payload acquisition remain outside this listing
-operation.
+Pinned single-row CLI verification is the fourth production adopter. It
+projects `Package@Version --versions -n 1` from authoritative or usable partial
+Content while preserving prerelease and unlisted evidence. The explicit
+`package Package --version VERSION` spelling selects the Package for ordinary
+inspection and does not create a second listing lens. Latest selection, range
+vectors and cells, offline queries, and payload acquisition remain outside
+this listing operation.
 
 ## Version-population settlement
 
@@ -686,15 +684,22 @@ Dependency graph construction remains query-owned. A traversal consumer can
 issue `Settle` or `Realize` operations for admitted edges; PackageHouse does
 not own graph scheduling, cycle termination, depth, or traversal work budgets.
 
-The current `PackageHouse.ExecuteAsync` floor supports `Settle`, `Acquire`, and
+The current PackageHouse execution floor supports `Settle`, `Acquire`, and
 target-aware `Realize`.
 One `PackageHouse` instance retains the host's package-source authorization and
-an optional `PackagePayloadAcquisitionPlan`. Each invocation accepts the
-request and consumes one request-deadline-matched
-`PackageSourceOperationLease` by ordinary resource-parameter ownership
-transfer. A candidate-bound dependency invocation may additionally carry the
-exact PackageHouse-issued pruning receipt for that request. Caller cancellation
-and the operation ceiling are carried only by the lease's Package Source-owned
+an optional `PackagePayloadAcquisitionPlan`.
+
+`PackageHouse.ExecuteAsync` accepts one request and consumes one
+request-deadline-matched `PackageSourceOperationLease` by ordinary
+resource-parameter ownership transfer. `PackageHouse.ExecuteStepAsync` instead
+settles one awaited request without consuming the lease, so a caller-owned
+source-operation composition can validate all candidates first and execute
+several requests serially. The lease still permits only one active source step;
+parallel House calls through one lease are invalid.
+
+A candidate-bound dependency invocation may additionally carry the exact
+PackageHouse-issued pruning receipt for that request. Caller cancellation and
+the operation ceiling are carried only by the lease's Package Source-owned
 context. House operation declarations accept only deadlines representable by
 that lower-owner context.
 
@@ -762,8 +767,8 @@ lease. The inspection consumes that operation; hosts still own clients and
 the source root. A payload-free operation needs no Workspace.
 
 Production adoption has three steps within this slice: the shared boundary,
-CLI `Package@latest --version` queries, and Inspect Web exact/latest package
-opening.
+CLI `package Package --latest-version` queries, and Inspect Web exact/latest
+package opening.
 The CLI retains scalar/feed/listing presentation. Inspect Web retains the
 same baseline through its richer package-opening composition and transport,
 then continues existing payload acquisition and Workspace admission.
@@ -1456,6 +1461,7 @@ them.
 | Source completeness | Partial authority evidence cannot settle latest, wildcard, range, or authoritative absence, and cannot reach package-store or payload work. |
 | Version listing | Raw listing preserves authoritative or partial source evidence, publishes usable partial rows with failures disclosed, requires authoritative evidence for package absence, and never acquires payloads. |
 | Version population | One complete metadata-only discovery serves multiple exact population cells without rediscovery; cells preserve reporting authorities, require their exact vector address, use fresh operations, and reject another Package Source root generation. |
+| Source-operation stepping | `DependencyMemberCallGraphExecutesEdgesInTraversalOrder` proves that one caller-owned lease executes several House requests serially, while `DependencyMemberCallGraphRejectsForeignCandidatesBeforeSourceWork` proves complete candidate-generation validation before the first source step. Existing single-request gates continue to prove that `ExecuteAsync` consumes its lease. |
 | Pruning order | `KnownPlatformPackageAcquireDelegatesBeforePayloadCapability` and `CandidateRealizeDelegatesBeforePayloadCapability` prove that `Subsumed` skips payload acquisition for either upper work profile; neighboring pruning states cannot issue platform delegation. |
 | Pruning correspondence | Platform delegation consumes the policy-issued inventory/coordinate/supply receipt, compares the coordinate through the package owner's normalization, and matches the actual supplier family and exact target version. |
 | Payload authority | Discovered payload comes only from a reporting authority; pinned payload follows the Package Source Model's eligible-authority rule; the acquisition receipt and live payload match source, producer, origin, and generation. |

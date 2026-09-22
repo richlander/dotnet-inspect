@@ -74,6 +74,35 @@ public static class CommandLineBuilder
             args,
             out error);
 
+    internal static bool TryGetCommandlessPackageVersionError(
+        string[] args,
+        RootCommand rootCommand,
+        out string? error)
+    {
+        string[] routerArgs =
+            args.FirstOrDefault() == "router"
+                ? args[1..]
+                : args;
+        ParseResult packageParse =
+            rootCommand.Parse([PackageCommand.Name, .. routerArgs]);
+        if (HasParsedOption(packageParse, "--version"))
+        {
+            error = "'--version' requires the explicit 'package' command. "
+                + "Use 'package Package --version VERSION'.";
+            return true;
+        }
+
+        if (HasParsedOption(packageParse, "--latest-version"))
+        {
+            error = "'--latest-version' requires the explicit 'package' command. "
+                + "Use 'package Package --latest-version'.";
+            return true;
+        }
+
+        error = null;
+        return false;
+    }
+
     /// <summary>
     /// Reports stale direction syntax using the active command's count unit.
     /// </summary>
@@ -135,6 +164,7 @@ public static class CommandLineBuilder
         string[] processed = ArgumentPreprocessor.PreprocessArgs(
             args,
             UsesImplicitVersionDirectionPresence(args, rootCommand));
+        processed = BindWorkspaceShareValue(processed);
         processed = ExpandInlineEmptyParentOptionValuesBeforeChild(
             processed,
             rootCommand,
@@ -168,6 +198,27 @@ public static class CommandLineBuilder
         return ArgumentPreprocessor.RewriteLineWindowShorthand(
             parseResult,
             processed);
+    }
+
+    private static string[] BindWorkspaceShareValue(string[] args)
+    {
+        if (args.FirstOrDefault() != WorkspaceCommand.Name)
+            return args;
+
+        for (int index = 1; index + 1 < args.Length; index++)
+        {
+            if (args[index] == "--share"
+                && args[index + 1] is "packet" or "url")
+            {
+                return
+                [
+                    .. args[..index],
+                    $"--share={args[index + 1]}",
+                    .. args[(index + 2)..],
+                ];
+            }
+        }
+        return args;
     }
 
     private static string[] ExpandInlineEmptyParentOptionValuesBeforeChild(
@@ -311,6 +362,17 @@ public static class CommandLineBuilder
         ArgumentPreprocessor.SetLineWindow(
             headLines: null,
             tailLines: null);
+        if (rawArgs is not null
+            && parseResult.CommandResult.Command.Name == "router"
+            && TryGetCommandlessPackageVersionError(
+                rawArgs,
+                CreateRootCommand(),
+                out string? commandlessPackageVersionError))
+        {
+            CommandError.Write(commandlessPackageVersionError!);
+            return 1;
+        }
+
         CliRowSelectionPreparation rowSelection;
         try
         {
@@ -1159,11 +1221,7 @@ public static class CommandLineBuilder
         // Project command
         rootCommand.Subcommands.Add(ProjectCommandDefinitions.CreateProjectCommand(opts));
 
-        // Workspace share packet conversion
-        rootCommand.Subcommands.Add(
-            UtilityCommandDefinitions.CreateWorkspaceStateCommand());
-
-        // Product-owned runtime Workspace inventory
+        // Workspace definition, packet, editing, and runtime inventory
         rootCommand.Subcommands.Add(
             WorkspaceCommandDefinitions.CreateWorkspaceCommand(opts));
 

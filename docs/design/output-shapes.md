@@ -115,6 +115,17 @@ JSON boundary, and rejects projected or unadopted Diff operations rather than
 silently ignoring the option. Rendered-line clipping is rejected for complete Content JSON.
 Share remains the service-issued `NonProjectable` at `comparison/endpoints`.
 
+Exact-pair Implementation Diff registers `implementation-diff` at schema
+version `1`. For one local Library on each endpoint, exact
+`-S "Implementation Diff"` selects the operation without projecting Content.
+`--json` and `--envelope.content` use the same
+`ImplementationDiffDocument` serializer and retain request selectors, endpoint
+assembly identity/MVID/provenance, member evidence, complexity, and coverage.
+Type and member selectors remain semantic request inputs. Package/platform
+sources, PDB Source, categories or additional sections, row/field/column
+projection, and alternate formats remain outside this complete transport.
+Share is `NonProjectable` at `comparison/endpoints`.
+
 Package Activity registers `ecosystem-change-report` at schema version `1`.
 Unprojected `--json` and `--envelope.content` share the owner-issued
 `EcosystemChangeReportDocument` serializer. Report scope, interval, security
@@ -123,13 +134,13 @@ row selection, discovery, section selection, and competing output formats are
 rejected with `--envelope`. Typed incomplete or failed Documents remain
 visible before the command returns a nonzero exit.
 
-Ordinary Package Query registers `package-query`, while `--library-literal`
-registers `package-assembly-semantic-query`, both at schema version `1`.
-Unprojected `--json` and `--envelope.content` share each owner's complete
-Document serializer. Query planning inputs remain admitted, while row
-selection, projection, section selection, Count, discovery, and competing
-output formats are rejected with `--envelope`. Typed incomplete or failed
-Documents remain visible before the command returns a nonzero exit.
+Package Query registers `package-query` at schema version `1`, including
+composable `library-literal` qualification. Unprojected `--json` and
+`--envelope.content` share the complete `PackageQueryDocument` serializer.
+Query planning inputs remain admitted, while row selection, projection,
+section selection, Count, discovery, and competing output formats are rejected
+with `--envelope`. Typed incomplete or failed Documents remain visible before
+the command returns a nonzero exit.
 
 Exact package-backed Type inspection registers `exact-type`, while exact
 package-backed Library API inspection registers `exact-library-api`, both at
@@ -148,6 +159,12 @@ unadopted. Library API Diff's complete Browser baseline transport is governed
 by its [Browser owner](inspect-web-library-api-diff.md#managed-composition).
 [#7703](https://github.com/richlander/dotnet-inspect/issues/7703) owns the
 remaining Diff command-family adoption.
+
+Target-bound Platform catalog routing separately materializes its query and
+route correspondence as primary Content in an internal host-neutral
+inspection envelope. The CLI consumes that envelope silently before entering
+the existing rich Type or member compatibility path. This does not adopt
+those downstream Type routes for public `--envelope` output.
 
 The adoption also closes two shared Content-serialization prerequisites.
 `AssemblyResolutionProvenance` serializes its six existing cases with owner
@@ -342,7 +359,6 @@ The registered adopter identities are:
 | `asset-dependencies` | `DependencyInspectionContent` |
 | `ecosystem-change-report` | `EcosystemChangeReportDocument` |
 | `package-query` | `PackageQueryDocument` |
-| `package-assembly-semantic-query` | `PackageAssemblySemanticQueryDocument` |
 | `exact-type` | `ExactTypeInspectionResult` |
 | `exact-library-api` | `ExactLibraryApiInspectionResult` |
 

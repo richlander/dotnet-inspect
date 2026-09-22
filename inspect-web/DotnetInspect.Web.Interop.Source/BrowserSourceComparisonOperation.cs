@@ -119,7 +119,7 @@ public static partial class SourceExports
                                 afterGroup,
                                 afterParticipant,
                                 pairRequest,
-                                CreateSourceContext(),
+                                BrowserSourceQueryContext.Create(),
                                 cancellationToken)));
         cancellationToken.ThrowIfCancellationRequested();
         return BrowserSourceComparisonProjection.Project(

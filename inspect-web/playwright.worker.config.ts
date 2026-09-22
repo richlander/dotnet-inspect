@@ -3,6 +3,7 @@ import { defineConfig, devices } from "@playwright/test";
 export default defineConfig({
   testDir: "./browser",
   testMatch: ["worker-runtime.spec.ts", "content-security-policy.spec.ts"],
+  outputDir: "test-results/worker",
   workers: 1,
   forbidOnly: Boolean(process.env.CI),
   timeout: 120_000,

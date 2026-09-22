@@ -250,8 +250,9 @@ interface PackageLoadingFixture {
   failVersionOnce?: string;
   versions?: readonly string[];
   activityCatalogFailure?: boolean;
-  libraryQuery?: "ready" | "empty" | "partial" | "deferred-error";
 }
+
+type LibraryUploadFixture = "available" | "rejected" | "deferred";
 
 // Exercise the production composition root and bindings with deterministic facade
 // responses. Codec and participant-query behavior have separate engine outcome gates.
@@ -268,6 +269,7 @@ async function installFacades(
   diagnostics: DiagnosticsFixture = {},
   packageLoading: PackageLoadingFixture = {},
   workspaceSources: readonly BrowserWorkspacePackageSourceRequirement[] = [],
+  libraryUpload: LibraryUploadFixture = "available",
 ) {
   const catalogTarget: PlatformCatalogTarget = {
     ...platformTarget,
@@ -335,6 +337,81 @@ async function installFacades(
         && (!framework || item.activeFramework === framework))
         ?? surfaces.find(item => item.package === id) ?? surfaces[0];
     }`;
+  const uploadDigest = "a".repeat(64);
+  const uploadAssemblyId = `sha256:${uploadDigest}`;
+  const uploadAssembly = {
+    id: uploadAssemblyId,
+    name: "Uploaded.Library",
+    version: "1.0.0.0",
+    culture: null,
+    publicKeyToken: null,
+    asset: "Uploaded.Library.dll",
+    publicTypes: model.types.length,
+    publicMembers: model.totalMembers,
+    platformPack: null,
+  };
+  const availableUploadInspection = {
+    content: {
+      outcome: "Available",
+      declaredName: uploadAssembly.asset,
+      digest: uploadDigest,
+      byteLength: 4,
+      provenance: {
+        contentRef: "browser-upload",
+        digest: uploadAssemblyId,
+        declaredName: uploadAssembly.asset,
+      },
+      assembly: {
+        name: uploadAssembly.name,
+        version: uploadAssembly.version,
+        culture: null,
+        publicKeyToken: null,
+      },
+      surface: {
+        assemblies: [uploadAssembly],
+        types: model.types.map(item => ({
+          ...item,
+          assembly: uploadAssembly.asset,
+          assemblyId: uploadAssemblyId,
+          assemblyName: uploadAssembly.name,
+        })),
+        accessibility: model.accessibility,
+        totalMembers: model.totalMembers,
+        inspectionErrors: [],
+        inspectionError: null,
+        isTruncated: false,
+      },
+      inspectionFailures: [],
+      failure: null,
+      isComplete: true,
+    },
+    share: {
+      kind: "NonProjectable",
+      fullUrl: null,
+      packet: null,
+      path: "embedded-library/share",
+      reason: "Uploaded bytes are session-local.",
+    },
+    diagnostics: [],
+  };
+  const rejectedUploadInspection = {
+    ...availableUploadInspection,
+    content: {
+      ...availableUploadInspection.content,
+      outcome: "Rejected",
+      provenance: null,
+      assembly: null,
+      surface: null,
+      failure: {
+        kind: "InvalidImage",
+        detail: "The dropped file is not a managed assembly.",
+      },
+      isComplete: false,
+    },
+  };
+  const uploadInspection = libraryUpload === "rejected"
+    ? rejectedUploadInspection
+    : availableUploadInspection;
   const graphTargetType =
     model.types.find(item => item.queryId === "Example.Neighbor") ?? null;
   const graphTargetLibrary = graphTargetType
@@ -410,6 +487,7 @@ async function installFacades(
       bindingIdentityConflicts: 0,
       hasUnexploredTraversalBoundary: false,
       hasAnalysisFailureBoundary: false,
+      unavailableDependencyRoutes: 0,
       isIncomplete: false,
     },
     noBody: false,
@@ -612,67 +690,6 @@ async function installFacades(
           ...(versions[1] === undefined ? {} : { previousVersion: versions[1] }),
         };
       }
-      export async function queryLibraries(id, version, framework, admittedAssetIdsJson, requiredReferencesJson) {
-        const queryMode = packageLoading.libraryQuery ?? "ready";
-        document.documentElement.dataset.libraryQueryRequest =
-          JSON.stringify([id, version, framework, admittedAssetIdsJson, requiredReferencesJson]);
-        if (queryMode === "deferred-error") {
-          await new Promise(resolve => document.addEventListener(
-            "finish-library-query", resolve, { once: true }));
-          throw new Error("Library Query offline");
-        }
-        const surface = surfaceFor(id, version, framework);
-        const admittedAssetIds = JSON.parse(admittedAssetIdsJson);
-        const admitted = surface.assemblies.filter(assembly =>
-          admittedAssetIds.includes(assembly.id));
-        const selected = admitted[0];
-        const failed = admitted[2];
-        const results = queryMode === "empty" || !selected
-          ? []
-          : [{
-              assetId: selected.id,
-              library: selected.name,
-              path: selected.asset,
-              source: surface.package,
-              version: selected.version,
-              sourceKind: "Package",
-              targetFramework: surface.activeFramework,
-              matchedReferences: JSON.parse(requiredReferencesJson),
-            }];
-        const failures = queryMode === "partial" && failed
-          ? [{
-              assetId: failed.id,
-              library: failed.name,
-              path: failed.asset,
-              source: surface.package,
-              kind: "InvalidMetadata",
-              message: "Invalid metadata image.",
-            }]
-          : [];
-        return {
-          content: {
-            results,
-            failures,
-            summary: {
-              populationCandidates: admittedAssetIds.length,
-              candidateLimit: 256,
-              candidates: admittedAssetIds.length,
-              matches: results.length,
-              failures: failures.length,
-              incompleteReasons: failures.length ? "EvaluationFailures" : "None",
-              isComplete: failures.length === 0,
-            },
-          },
-          share: {
-            kind: "Unavailable",
-            fullUrl: null,
-            packet: null,
-            path: null,
-            reason: "Library Query results are not shareable.",
-          },
-          diagnostics: [],
-        };
-      }
       export async function loadRuntimePack(framework, version) {
         document.documentElement.dataset.runtimePackRequest = JSON.stringify([framework, version]);
         const surface = surfaceFor("Microsoft.NETCore.App");
@@ -686,8 +703,8 @@ async function installFacades(
           .map(candidate => ({ key: candidate.key, kind: "substring" }));
       }
       export function clearWorkspacePackageOccurrences() {}
-      export async function queryWorkspacePackageOccurrences(json) {
-        return { superseded: false, occurrences: JSON.parse(json).map(coordinate => ({
+      export async function queryWorkspacePackageOccurrences(workspace) {
+        return { superseded: false, occurrences: workspace.map(coordinate => ({
           ...coordinate, action: JSON.stringify(coordinate),
         })) };
       }
@@ -816,6 +833,51 @@ async function installFacades(
               }))
             : [{ name: selected.name + ".Dependency", version: "1.0.0.0", culture: null, publicKeyToken: null }] },
           compileLibrary: surface.compileLibrary
+        };
+      }`,
+    library: `
+      const uploadMode = ${JSON.stringify(libraryUpload)};
+      const uploadInspection = ${JSON.stringify(uploadInspection)};
+      export async function openUploadedLibrary(declaredName, content) {
+        document.documentElement.dataset.libraryUploadRequest =
+          JSON.stringify([declaredName, content.length]);
+        if (uploadMode === "deferred") {
+          await new Promise(resolve =>
+            document.addEventListener("finish-library-upload", resolve));
+        }
+        if (uploadInspection.content.outcome === "Available") {
+          const digest = (content[0] ?? 0).toString(16).padStart(64, "0");
+          const assemblyId = "sha256:" + digest;
+          document.documentElement.dataset.libraryUploadDigest = digest;
+          return {
+            ...uploadInspection,
+            content: {
+              ...uploadInspection.content,
+              declaredName,
+              digest,
+              byteLength: content.length,
+              provenance: {
+                ...uploadInspection.content.provenance,
+                digest: assemblyId,
+                declaredName,
+              },
+              surface: {
+                ...uploadInspection.content.surface,
+                assemblies: uploadInspection.content.surface.assemblies.map(
+                  assembly => ({ ...assembly, id: assemblyId, asset: declaredName })),
+                types: uploadInspection.content.surface.types.map(
+                  type => ({ ...type, assemblyId, assembly: declaredName })),
+              },
+            },
+          };
+        }
+        return {
+          ...uploadInspection,
+          content: {
+            ...uploadInspection.content,
+            declaredName,
+            byteLength: content.length,
+          },
         };
       }`,
     metadata: `
@@ -1165,15 +1227,28 @@ async function installFacades(
         };
       }
       let holdNextWorkspaceEncode = false;
+      let failNextWorkspaceEncode = false;
       document.addEventListener("hold-workspace-encode", () => {
         holdNextWorkspaceEncode = true;
       });
+      document.addEventListener("fail-workspace-encode", () => {
+        failNextWorkspaceEncode = true;
+      });
       export async function encodeWorkspaceShareState(state) {
+        const fail = failNextWorkspaceEncode;
+        failNextWorkspaceEncode = false;
         if (holdNextWorkspaceEncode) {
           holdNextWorkspaceEncode = false;
           document.documentElement.dataset.workspaceEncodePending = "true";
           await new Promise(resolve => document.addEventListener(
             "finish-workspace-encode", resolve, { once: true }));
+        }
+        if (fail) {
+          return {
+            succeeded: false,
+            packet: null,
+            failure: { kind: "Fixture", message: "Fixture workspace projection failure." },
+          };
         }
         return {
           succeeded: true,
@@ -1368,9 +1443,10 @@ async function openPlatform(page: Page, options: PlatformFixture = {}) {
   await openInstalledPlatform(page);
 }
 
-async function installLibraryQueryFacades(
+async function installLibraryUploadFacades(
   page: Page,
-  libraryQuery: NonNullable<PackageLoadingFixture["libraryQuery"]>,
+  libraryUpload: LibraryUploadFixture,
+  packageLoading: PackageLoadingFixture = {},
 ) {
   await installFacades(
     page,
@@ -1383,7 +1459,9 @@ async function installLibraryQueryFacades(
     "ready",
     undefined,
     {},
-    { libraryQuery },
+    packageLoading,
+    [],
+    libraryUpload,
   );
 }
 
@@ -1409,6 +1487,7 @@ export {
   installFacades,
   installWorkspaceSourceFacades,
   installLibraryQueryFacades,
+  installLibraryUploadFacades,
   releaseFacade,
   root,
   frameworkSurface,
@@ -1424,6 +1503,7 @@ export type {
   HomeDemoFixture,
   DiagnosticsFixture,
   PackageLoadingFixture,
+  LibraryUploadFixture,
   BrowserAssemblySurface,
   BrowserMemberSurface,
   BrowserPackageSurface,

@@ -87,10 +87,10 @@ test("platform type and member navigation hides package-only operations", () => 
     ["overview", "call-graph"]);
   assert.deepEqual(
     memberSectionIdsFor({ kind: "method" }, false),
-    ["overview", "call-graph", "facts", "source", "annotated"]);
+    ["overview", "call-graph", "facts", "source", "annotated", "compare"]);
   assert.deepEqual(
     memberSectionIdsFor({ kind: "property" }, false, true),
-    ["overview", "call-graph", "facts", "annotated"]);
+    ["overview", "call-graph", "facts", "annotated", "compare"]);
 });
 
 test("platform call graphs carry the target pack into lazy acquisition", () => {
@@ -368,11 +368,45 @@ test("workspace data bar receives package acquisition provenance", () => {
   assert.doesNotMatch(appSource, /source: \{ kind: "(?:nuget\.org|platform)" \}/);
   assert.match(
     appSource,
-    /producer: \{\s*kind: pkg\.source\.kind === "platform" \? "acquisition" : "package",\s*label: pkg\.producerLabel,\s*\}/);
+    /producer: \{\s*kind: pkg\.source\.kind === "platform"\s*\|\| state\.rootKind === "library"\s*\? "acquisition"\s*: "package",\s*label: pkg\.producerLabel,\s*\}/);
   assert.match(
     dataBarSource,
     /const producerLabel = model\.producer\?\.label\.trim\(\) \?\? ""/);
   assert.doesNotMatch(dataBarSource, /new URL|URLSearchParams|\.split\(/);
+});
+
+test("uploaded Libraries remain transient closed-world subjects", () => {
+  const open =
+    appSource.match(
+      /async function openUploadedLibraryFile\([\s\S]*?\n}\n\nbindLibraryOpenDocument/)?.[0]
+    ?? "";
+  const memberDocumentation =
+    appSource.match(
+      /async function loadSelectedMemberDocumentation\(\)[\s\S]*?\n}\n\nasync function loadSelectedMemberSource/)?.[0]
+    ?? "";
+  const libraryOverview =
+    appSource.match(
+      /function renderLibraryOverview\(\)[\s\S]*?\n}\n\nfunction renderGraphMemberPendingHtml/)?.[0]
+    ?? "";
+
+  assert.match(
+    open,
+    /const operationSequence = \+\+libraryOpenSequence;\s*const navigationSeq = navigationSequence\.begin\(\);\s*const isCurrent = \(\) =>\s*operationSequence === libraryOpenSequence\s*&& navigationSequence\.isCurrent\(navigationSeq\);[\s\S]*state\.libraryOpen = true;[\s\S]*await waitForLibraryEngineReady\(\);[\s\S]*if \(!isCurrent\(\)\) return;[\s\S]*file\.arrayBuffer\(\)[\s\S]*if \(!isCurrent\(\)\) return;[\s\S]*inspectOpenUploadedLibrary\(file\.name, content\);[\s\S]*if \(!isCurrent\(\)\) return;[\s\S]*const retainedSnapshot = retainedWorkspaces\.activeWorkspaceId === null\s*\? null\s*: captureRetainedWorkspaceSnapshot\(\);[\s\S]*createUploadedLibraryModel\(inspection\.content\)[\s\S]*activatePackage\(packageModel, \{ resetAccessibility: true \}\)[\s\S]*state\.uploadedLibrary = packageModel[\s\S]*state\.rootKind = "library"[\s\S]*detachActiveRetainedWorkspace\([\s\S]*retainedSnapshot\);[\s\S]*activeWorkspaceUrl = null;\s*activatedLibrary = true;\s*workspaceLocation\.replace\("\/"\)/);
+  assert.doesNotMatch(
+    open,
+    /retainPackageModel|state\.packages|syncUrl|workspaceShareBasis/);
+  assert.match(
+    appSource,
+    /else if \(state\.rootKind !== "library"\s*&& options\.synchronizeUrl !== false\) \{\s*syncUrl\(\);/);
+  assert.match(
+    appSource,
+    /if \(state\.rootKind !== "library"\) \{\s*maybeAutoLoadVisibleSource\(\);[\s\S]*maybeAutoLoadPackageMetadata\(\);\s*\}/);
+  assert.match(
+    memberDocumentation,
+    /if \(state\.rootKind === "library"\) \{\s*render\(\{ synchronizeUrl: false \}\);\s*return;\s*\}/);
+  assert.match(
+    libraryOverview,
+    /if \(state\.rootKind === "library" \|\| pkg\.isRuntimePack\) \{\s*return renderLibraryCompositionOverview\(pkg, library\);\s*\}/);
 });
 
 test("data bar has no expansion state or interaction binding", () => {
@@ -628,7 +662,7 @@ test("typed library controls own library and Platform picker bindings", () => {
     ?? "";
   assert.match(
     libraryControlsSource,
-    /export function bindLibraryControls\([\s\S]*\[data-library-chip\][\s\S]*\[data-access-chip\][\s\S]*\[data-library-query-form\][\s\S]*\[data-library-query-reference\][\s\S]*#library-jump[\s\S]*\[data-platform-library-select\]/);
+    /export function bindLibraryControls\([\s\S]*\[data-library-chip\][\s\S]*\[data-access-chip\][\s\S]*#library-jump[\s\S]*\[data-platform-library-select\]/);
   for (const lens of [
     "integrations",
     "analysis",
@@ -656,12 +690,6 @@ test("typed library controls own library and Platform picker bindings", () => {
   assert.match(
     binding,
     /onLibraryJump: library => \{\s*if \(library && selectLibrarySubject\(library\)\) render\(\);/);
-  assert.match(
-    binding,
-    /onLibraryQueryClear: \(\) => \{\s*clearLibraryQuery\(\);[\s\S]*renderPreservingContentFrameFocus\(\)/);
-  assert.match(
-    binding,
-    /onLibraryQuerySubmit: reference =>\s*observeAsync\(\s*runLibraryQuery\(reference\),\s*"Qualifying package libraries"\)/);
   assert.match(
     binding,
     /onPlatformLibrarySelect: \(name, pack\) =>\s*observeAsync\(\s*openPlatformLibrary\(name, pack, \{ inPlace: true \}\),\s*"Opening a platform library"\)/);
@@ -753,7 +781,7 @@ test("typed shell controls own workbench, home, and load-error bindings", () => 
     /onNavigateBack: navBack,[\s\S]*onNavigateForward: navForward,[\s\S]*onRetryNotice: \(\) => \{[\s\S]*state\.queryNoticeRetryAction;[\s\S]*if \(retryAction\) observeAction\(retryAction, "Retrying the inspection"\);[\s\S]*onSearch: \(\) => openSpotlight\(\)/);
   assert.match(
     homeActions,
-    /onDismissNotice: dismissQueryNotice,\s*onOpenDemos: openProductDemos,\s*onToggleTheme: toggleTheme/);
+    /onDismissNotice: dismissQueryNotice,\s*onOpenDemos: openProductDemos,\s*onOpenLibrary: \(\) => openLibraryDialog\("home"\),\s*onToggleTheme: toggleTheme/);
   assert.match(
     loadErrorActions,
     /onOpenPackage: openPackageQuery,\s*onRetry: \(\) => \{\s*if \(state\.retryAction === retryUnavailable\) return;\s*observeAction\(\s*state\.retryAction \?\? bootstrap,\s*"Retrying the inspection"\);\s*\}/);
@@ -864,7 +892,7 @@ test("the shell separates typed target and Subject navigation rows", () => {
 
   assert.match(
     render,
-    /workbenchShellHtml\(\{[\s\S]*contextualActionsHtml:[\s\S]*class="working-surface-actions"[\s\S]*inspectedTargetHtml:[\s\S]*class="inspected-target"[\s\S]*renderInspectedSubjectIcon\(pkg\)[\s\S]*class="subject-path"[\s\S]*subjectInspectorHtml: renderScopeBar\(\)[\s\S]*titleNavigationHtml: renderTitleNavigation\([\s\S]*<main id="subject-panel" class="workspace\$\{contentFrameEnabled[\s\S]*renderApplicationMenu\(true\)/);
+    /workbenchShellHtml\(\{[\s\S]*contextualActionsHtml:[\s\S]*class="working-surface-actions"[\s\S]*inspectedTargetHtml:[\s\S]*class="inspected-target"[\s\S]*renderInspectedSubjectIcon\(pkg\)[\s\S]*class="subject-path"[\s\S]*subjectInspectorHtml: renderScopeBar\(\)[\s\S]*titleNavigationHtml: renderTitleNavigation\([\s\S]*<main id="subject-panel" class="workspace\$\{contentFrameEnabled[\s\S]*renderApplicationMenu\(state\.rootKind !== "library"\)/);
   assert.doesNotMatch(render, /id="copy-name"|id="taste-btn"/);
   assert.doesNotMatch(
     render,
@@ -924,6 +952,12 @@ test("typed graph interactions own graph controls and Mermaid node bindings", ()
   assert.match(
     workspaceBinding,
     /bindGraphBack\(document, graphBackActions\)/);
+  assert.match(
+    workspaceBinding,
+    /bindCallGraphTraversalFramework\(\)/);
+  assert.match(
+    appSource,
+    /function bindCallGraphTraversalFramework\(\)[\s\S]*\[data-call-graph-traversal-framework\][\s\S]*addEventListener\("change"[\s\S]*invalidateMemberCallGraphWork\(state\)[\s\S]*loadSelectedMemberCallGraph\(\)/);
   assert.match(
     typeGraph,
     /bindGraphPanZoom\(container, viewport, \{[\s\S]*resolveTypeGraphNode: nodeId => \{[\s\S]*graphNodeOf\.get\(nodeId\)[\s\S]*closeGraphExplorerForNavigation\(\);[\s\S]*navigateToWorkspaceType\(candidate\.pkg, candidate\.type\)/);
@@ -998,7 +1032,7 @@ test("typed graph interactions own graph controls and Mermaid node bindings", ()
   assert.match(
     appSource,
     /document\.addEventListener\("pointerdown", trackContentFramePointer\)/);
-  assert.equal(appSource.match(/\.addEventListener\(/g)?.length, 5);
+  assert.equal(appSource.match(/\.addEventListener\(/g)?.length, 6);
 });
 
 test("Call graph presentation keeps renderer source internal", () => {
@@ -1768,7 +1802,7 @@ test("annotated source Escape and history ownership track the mounted surface", 
     /const dismissedAnnotatedSourceModal = dismissModalsForRoutedNavigation\(\);\s*invalidateMemberDestinationWork\(state\);[\s\S]*if \(dismissedAnnotatedSourceModal\) render\(\{ synchronizeUrl: false \}\);\s*if \(isDiagnosticsPath/);
   assert.match(
     appSource,
-    /function render\(options: \{ synchronizeUrl\?: boolean \} = \{\}\)[\s\S]*if \(productDemosRouteVisible\) \{\s*document\.title = "Demos — dotnet-inspect";\s*\} else if \(options\.synchronizeUrl !== false\) \{\s*syncUrl\(\);\s*\}/);
+    /function render\(options: \{ synchronizeUrl\?: boolean \} = \{\}\)[\s\S]*if \(productDemosRouteVisible\) \{\s*document\.title = "Demos — dotnet-inspect";\s*\} else if \(state\.rootKind !== "library"\s*&& options\.synchronizeUrl !== false\) \{\s*syncUrl\(\);\s*\}/);
 });
 
 test("package search state owner settles pending work and projects visible cache", () => {

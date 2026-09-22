@@ -198,6 +198,129 @@ public sealed partial class PackageHouseExecutionTests
 
     [Fact]
     public async Task
+        DependencyWorkspaceRoutesCanonicalizeRepeatedExactCandidate()
+    {
+        byte[] assembly = File.ReadAllBytes(
+            typeof(PackageHouseExecutionTests).Assembly.Location);
+        await using HouseEnvironment environment =
+            HouseEnvironment.CreateForAnyPackage(
+                new SourceBehavior(
+                    [RouteVersion],
+                    PayloadContentEntries:
+                    [
+                        ("lib/net11.0/Route.Dependency.dll", assembly),
+                    ]));
+        PackageRootBinding firstRoot =
+            RouteRootBinding(
+                "route.root.first",
+                (RoutePackageOne, RouteVersion));
+        PackageRootBinding secondRoot =
+            RouteRootBinding(
+                "route.root.second",
+                (RoutePackageOne, RouteVersion));
+        PackageDependencyTraversalOutcome traversal =
+            await RouteTraversalAsync(
+                environment,
+                new PackageDependencyTraversalRootOccurrence(
+                    await RouteRootContextAsync(firstRoot),
+                    PackageDependencyTraversalExpansionAuthority
+                        .RecursiveSources),
+                new PackageDependencyTraversalRootOccurrence(
+                    await RouteRootContextAsync(secondRoot),
+                    PackageDependencyTraversalExpansionAuthority
+                        .RecursiveSources));
+        PackageHouse house = environment.CreateHouse(
+            (_, _) => new InMemoryPackageStore());
+        var realizations =
+            ImmutableArray.CreateBuilder<
+                PackageDependencyEdgeRealizationEvidence>();
+        for (var rootIndex = 0;
+            rootIndex < traversal.Roots.Length;
+            rootIndex++)
+        {
+            for (var edgeIndex = 0;
+                edgeIndex < traversal.Edges.Length;
+                edgeIndex++)
+            {
+                if (!traversal.RootReachability[rootIndex]
+                        .IsEdgeAdmitted(edgeIndex, out _)
+                    || traversal.Edges[edgeIndex].Authority
+                        != PackageDependencyTraversalEdgeEmissionAuthority
+                            .ResolvedCandidate)
+                {
+                    continue;
+                }
+
+                PackageDependencyEdgeRealizationExecution execution =
+                    PackageDependencyEdgeRealizationQuery.Execute(
+                        new PackageDependencyEdgeRealizationRequest(
+                            traversal,
+                            rootIndex,
+                            edgeIndex,
+                            PackageHouseOperation.Create(
+                                PackageHouseOperationProfile.Realize),
+                            PackageHouseTargetContext.Exact(
+                                "net12.0")));
+                realizations.Add(
+                    await execution.ExecuteAsync(
+                        house,
+                        environment.IssueOperation(
+                            execution.Request,
+                            TestContext.Current.CancellationToken)));
+            }
+        }
+
+        Assert.Equal(2, realizations.Count);
+        Assert.Equal(
+            realizations[0].Subject.Candidate.Correspondence,
+            realizations[1].Subject.Candidate.Correspondence);
+        Assert.NotSame(
+            Assert.IsType<
+                    PackageHouseRootContributionOutcome.Contributed>(
+                    realizations[0].RootContribution)
+                .Contribution.Binding,
+            Assert.IsType<
+                    PackageHouseRootContributionOutcome.Contributed>(
+                    realizations[1].RootContribution)
+                .Contribution.Binding);
+
+        await using var workspace = new InspectionWorkspace();
+        WorkspaceScopeSnapshot empty = await CurrentScopeAsync(workspace);
+        WorkspaceScopeSnapshot rooted =
+            Assert.IsType<WorkspaceScopeOperationResult.Committed>(
+                await workspace.AddPackagesAsync(
+                    empty.Revision,
+                    empty.PublicationBase,
+                    [firstRoot, secondRoot],
+                    DateTimeOffset.UtcNow.AddMinutes(1),
+                    TestContext.Current.CancellationToken)).Snapshot;
+        PackageDependencyWorkspaceRouteOutcome.Completed completed =
+            Assert.IsType<PackageDependencyWorkspaceRouteOutcome.Completed>(
+                await PackageDependencyWorkspaceRouteQuery.ExecuteAsync(
+                    new PackageDependencyWorkspaceRouteRequest(
+                        workspace,
+                        rooted,
+                        traversal,
+                        [firstRoot, secondRoot],
+                        realizations.ToImmutable(),
+                        DateTimeOffset.UtcNow.AddMinutes(1)),
+                    TestContext.Current.CancellationToken));
+
+        Assert.Equal(3, completed.Scope.Packages.Length);
+        PackageDependencyWorkspaceDestination.Package[] destinations =
+        [
+            .. completed.Destinations.OfType<
+                PackageDependencyWorkspaceDestination.Package>(),
+        ];
+        Assert.Equal(2, destinations.Length);
+        Assert.Same(
+            destinations[0].Occurrence,
+            destinations[1].Occurrence);
+        await environment.AssertRootSettledAsync();
+    }
+
+    [Fact]
+    public async Task
         DependencyWorkspaceRoutesDoNotPublishPartialBatchWhenPreparationFails()
     {
         await using HouseEnvironment environment =

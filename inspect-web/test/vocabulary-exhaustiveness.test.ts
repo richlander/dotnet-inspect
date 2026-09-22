@@ -65,8 +65,8 @@ const widenings = [
   {
     vocabulary: "MemberSection",
     file: "data.ts",
-    find: '  ["annotated", "Annotated source"],\n] as const;',
-    replace: '  ["annotated", "Annotated source"],\n  ["probe-member-section", "Probe"],\n] as const;',
+    find: '  ["compare", "Compare"],\n] as const;',
+    replace: '  ["compare", "Compare"],\n  ["probe-member-section", "Probe"],\n] as const;',
     token: "probe-member-section",
     dispatches: [
       "loadMemberSectionContent",

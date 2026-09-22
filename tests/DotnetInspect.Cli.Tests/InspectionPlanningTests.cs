@@ -330,6 +330,38 @@ public sealed class InspectionPlanningTests
     }
 
     [Fact]
+    public void SectionDemandIndex_SourceNameAndCategoryRemainDistinct()
+    {
+        SectionDemandClassification exact =
+            ApiSectionDemandIndex.Classify(
+                InspectionSurface.Member,
+                [SectionNames.Source],
+                selectDefault: false,
+                InspectionTargetRequirement.MemberSet);
+        SectionDemandClassification category =
+            ApiSectionDemandIndex.Classify(
+                InspectionSurface.Member,
+                [SectionCategoryNames.Source],
+                selectDefault: false,
+                InspectionTargetRequirement.MemberSet);
+
+        Assert.Equal(
+            InspectionTargetRequirement.ExactMember,
+            exact.RequiredTarget);
+        Assert.Equal([SectionNames.Source], exact.MatchedSections);
+        Assert.Equal(
+            InspectionTargetRequirement.MemberSet,
+            category.RequiredTarget);
+        Assert.Contains(SectionNames.Source, category.MatchedSections);
+        Assert.Contains(
+            SectionNames.DecompiledSource,
+            category.MatchedSections);
+        Assert.Contains(SectionNames.PdbSource, category.MatchedSections);
+        Assert.Empty(exact.UnresolvedSelectors);
+        Assert.Empty(category.UnresolvedSelectors);
+    }
+
+    [Fact]
     public void MemberInspectionCatalogs_OmitFindingCensusFromCategories()
     {
         foreach (ApiInspectionCatalog catalog in
@@ -570,16 +602,23 @@ public sealed class InspectionPlanningTests
     }
 
     [Theory]
-    [InlineData("--library")]
-    [InlineData("--all-libraries")]
+    [InlineData("aggregate")]
+    [InlineData("exact")]
+    [InlineData("namesake")]
     public async Task ExplicitPackageStructuralSchema_DoesNotAcquireTarget(
-        string viewOption)
+        string target)
     {
         string missing =
             $"Missing.Package.{Guid.NewGuid():N}";
-        string[] args = viewOption == "--library"
-            ? ["package", missing, viewOption, "", "-D", "--schema"]
-            : ["package", missing, viewOption, "-D", "--schema"];
+        string[] selection = target switch
+        {
+            "aggregate" => ["--library"],
+            "exact" => ["--library", "Missing.dll"],
+            "namesake" => ["--namesake-library"],
+            _ => throw new ArgumentOutOfRangeException(nameof(target)),
+        };
+        string[] args =
+            ["package", missing, .. selection, "-D", "--schema"];
 
         var result = await RunAppAsync(args);
 
@@ -596,25 +635,19 @@ public sealed class InspectionPlanningTests
     [Theory]
     [InlineData("--all-libraries=false")]
     [InlineData("--all-libraries:false")]
-    public async Task CommandlessDisabledAllLibraries_MatchesOmission(
-        string disabledOption)
+    public async Task RemovedAllLibrariesAssignment_ReturnsReplacementGuidance(
+        string option)
     {
-        string[] projection =
-        [
-            "-D",
-            SectionNames.TypeInfo,
-            "--schema",
-            "--table",
-            "--tips",
-            "q",
-        ];
-        var disabled = await RunAppAsync(
-            ["System.String", disabledOption, .. projection]);
-        var omitted = await RunAppAsync(
-            ["System.String", .. projection]);
+        var result = await RunAppAsync(
+            "Missing.Package",
+            option);
 
-        Assert.Equal(omitted, disabled);
-        Assert.Equal(0, disabled.Exit);
+        Assert.Equal(1, result.Exit);
+        Assert.Empty(result.Output);
+        Assert.Contains(
+            "'--all-libraries' is no longer valid",
+            result.Error);
+        Assert.Contains("Use '--library'", result.Error);
     }
 
     [Fact]
@@ -820,6 +853,7 @@ public sealed class InspectionPlanningTests
                     "*",
                 ],
                 structuralDiscovery: true,
+                hasBareLibraryTarget: false,
                 out CommandlessStructuralRoute? route);
 
         Assert.True(classified);
@@ -955,6 +989,7 @@ public sealed class InspectionPlanningTests
             StructuralViewRegistry.TryClassifyCommandless(
                 ["missing.nupkg", "--library", "lib/a.dll"],
                 structuralDiscovery: true,
+                hasBareLibraryTarget: false,
                 out CommandlessStructuralRoute? route);
 
         Assert.True(classified);
@@ -981,6 +1016,7 @@ public sealed class InspectionPlanningTests
                     "Kind=ObjectCreationExpression",
                 ],
                 structuralDiscovery: true,
+                hasBareLibraryTarget: false,
                 out CommandlessStructuralRoute? route);
 
         Assert.True(classified);
@@ -1006,6 +1042,7 @@ public sealed class InspectionPlanningTests
                     "1",
                 ],
                 structuralDiscovery: true,
+                hasBareLibraryTarget: false,
                 out CommandlessStructuralRoute? route);
 
         Assert.True(classified);
@@ -1801,7 +1838,7 @@ public sealed class InspectionPlanningTests
         var result = await RunAppAsync(
             "package",
             target,
-            "--all-libraries",
+            "--library",
             "-D",
             "Library Info",
             "--schema",
@@ -1813,7 +1850,7 @@ public sealed class InspectionPlanningTests
         Assert.Equal(1, result.Exit);
         Assert.Empty(result.Output);
         Assert.Contains(
-            $"--all-libraries cannot be combined with {projection}",
+            $"Library aggregate inspection cannot be combined with {projection}",
             result.Error);
         Assert.DoesNotContain(
             target,
@@ -1883,7 +1920,7 @@ public sealed class InspectionPlanningTests
     [InlineData("package-version", "--library cannot be combined with --versions")]
     [InlineData("package-dependencies", "--library cannot be combined with --dependencies")]
     [InlineData("package-layout", "--library cannot be combined with --layout")]
-    [InlineData("all-libraries-layout", "--all-libraries cannot be combined with --layout")]
+    [InlineData("aggregate-layout", "Library aggregate inspection cannot be combined with --layout")]
     public async Task StaticSchema_PreservesRouteValidationAddedByReplacement(
         string scenario,
         string expectedError)
@@ -1904,6 +1941,7 @@ public sealed class InspectionPlanningTests
                 "package",
                 "Missing.Package",
                 "--library",
+                "Missing.dll",
                 "--versions",
                 "-D",
                 "--schema",
@@ -1928,11 +1966,11 @@ public sealed class InspectionPlanningTests
                 "-D",
                 "--schema",
             ],
-            "all-libraries-layout" =>
+            "aggregate-layout" =>
             [
                 "package",
                 "Missing.Package",
-                "--all-libraries",
+                "--library",
                 "--layout",
                 "-D",
                 "--schema",
@@ -2056,7 +2094,7 @@ public sealed class InspectionPlanningTests
         string[] scope =
             route == "library"
                 ? ["--library", "ref/net8.0/Missing.dll"]
-                : ["--all-libraries"];
+                : ["--library"];
 
         var result = await RunAppAsync(
             [
@@ -2777,7 +2815,7 @@ public sealed class InspectionPlanningTests
     }
 
     [Fact]
-    public async Task CommandlessDisabledAllLibrariesDoesNotBecomeTarget()
+    public async Task CommandlessRemovedAllLibrariesReturnsGuidance()
     {
         var result = await RunAppAsync(
             "Missing.Package",
@@ -2790,15 +2828,15 @@ public sealed class InspectionPlanningTests
             "--tips",
             "q");
 
-        Assert.Equal(0, result.Exit);
+        Assert.Equal(1, result.Exit);
+        Assert.Empty(result.Output);
         Assert.Contains(
-            "[package/package/Package] Package Info",
-            result.Output);
-        Assert.Empty(result.Error);
+            "'--all-libraries' is no longer valid",
+            result.Error);
     }
 
     [Fact]
-    public async Task CommandlessLeadingDisabledAllLibrariesDoesNotBecomeTarget()
+    public async Task CommandlessLeadingRemovedAllLibrariesReturnsGuidance()
     {
         var result = await RunAppAsync(
             "--all-libraries",
@@ -2811,11 +2849,11 @@ public sealed class InspectionPlanningTests
             "--tips",
             "q");
 
-        Assert.Equal(0, result.Exit);
+        Assert.Equal(1, result.Exit);
+        Assert.Empty(result.Output);
         Assert.Contains(
-            "[package/package/Package] Package Info",
-            result.Output);
-        Assert.Empty(result.Error);
+            "'--all-libraries' is no longer valid",
+            result.Error);
     }
 
     [Fact]
@@ -4207,7 +4245,7 @@ public sealed class InspectionPlanningTests
         Assert.Contains(
             route == "library"
                 ? "--library cannot be combined with --layout"
-                : "--all-libraries cannot be combined with --layout",
+                : "Library aggregate inspection cannot be combined with --layout",
             result.Error);
         Assert.DoesNotContain(
             "Package 'Missing.Package' not found",

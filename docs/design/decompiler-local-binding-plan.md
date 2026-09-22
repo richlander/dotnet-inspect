@@ -14,10 +14,11 @@ The focused claim is:
 This is one Decompiler responsibility moving out of `CSharpPrinter`. It does
 not create a new storage, PDB, C# language, or host owner.
 
-Today the pipeline's exact-name and PDB-scope decisions ask the printer to
-reconstruct declaration scopes, while the printer also allocates final names.
-That reverses the intended dependency and makes the chosen binding unavailable
-to non-text consumers.
+Before the first production adoption, the pipeline's exact-name and PDB-scope
+decisions asked the printer to reconstruct declaration scopes, while the
+printer also allocated final names. That reversed the intended dependency and
+made the chosen binding unavailable to non-text consumers. The adoption below
+retires that dependency for materialized locals.
 
 ## Boundaries
 
@@ -182,12 +183,16 @@ For a successful plan:
 7. Planning the same finalized body with the same options produces the same
    result.
 
-The first implementation must gate these positive properties in Release.
-This specification PR adds no implementation and therefore leaves them
-**unverified** as properties of a new planner. Existing output behavior remains
-covered by `PdbLocalDeclarationScopeTests`, `PdbLocalNameScopeTests`,
-`PdbLocalScopeFidelityTests`, `NestedScopeNameCollisionTests`,
-`ReadableLocalNamesTests`, and `ByteNeutralityGateTests`.
+The first production adoption gates the declaration-ownership subset in
+Release: `PdbLocalDeclarationScopeTests` checks that the plan owns
+materialized-local declarations, excludes residual stack slots, covers raised
+nested bodies, and supplies the emitted scopes consumed by exact-name
+allocation. Existing output behavior remains covered by
+`PdbLocalNameScopeTests`, `PdbLocalScopeFidelityTests`,
+`NestedScopeNameCollisionTests`, `ReadableLocalNamesTests`, and
+`ByteNeutralityGateTests`. Completing final approximate, synthesized, and
+fallback allocation as one closed plan remains **unverified** until later
+adoption slices.
 
 An eventual claim that no semantic declaration or local-name decision remains
 in the printer is a composition absence claim. Before making it, the operator
@@ -213,6 +218,25 @@ lambdas, and raised local functions. It must:
 A side-by-side computation is bounded migration evidence. It is not a
 long-lived second authority: the adoption slice names the production consumer
 and removes the replaced decision path.
+
+The first production consumer is `CSharpPrinter`: it consumes the
+pipeline-owned `LocalDeclarationPlan` for materialized-local declaring stores,
+syntax-owned declarations, verified `out` declarations, unsafe-placement
+dispositions, and exact emitted scopes. `ExactLocalNameAllocation` and
+`PdbLocalScopePass` consume those same emitted scopes directly. The former
+printer callback and its duplicate materialized-local collection path have
+been removed; residual `StoreStackSlot` declaration handling remains in the
+printer for the #2095 adoption.
+
+The scope-entry projection owner supplies declaration provenance with each
+logical local it has already proved from a compiler carrier. The declaration
+plan consumes that owner-issued projection while retaining responsibility for
+safe emitted declaration placement, and it preserves the projected body's
+finalized local identity through method, raised-lambda, and raised-local-
+function planning. It does not repeat the projection's reaching assignment,
+address-use, scope-entry, storage, or collision proof. Those admission and
+refusal boundaries remain owned by
+[Decompiler name and symbol preservation](decompiler-symbol-preservation.md).
 
 ## Pathological case
 

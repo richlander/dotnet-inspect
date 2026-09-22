@@ -75,12 +75,17 @@ public static class PackageCommandDefinitions
         var toolsOption = new Option<bool>("--tools") { Description = "Scope to tools/ folder (use with --layout)" };
         var libraryOption = new Option<string?>("--library")
         {
-            Description = "Inspect a library from this package; omit value to select the primary library when unambiguous",
+            Description = "Inspect this package's compile libraries; provide a DLL name to narrow exactly",
             Arity = ArgumentArity.ZeroOrOne
+        };
+        var namesakeLibraryOption = new Option<bool>("--namesake-library")
+        {
+            Description =
+                "Narrow to the Library whose assembly name matches the package ID",
         };
         var allLibrariesOption = new Option<bool>("--all-libraries")
         {
-            Description = "Inspect all compatible libraries from this package"
+            Hidden = true,
         };
         var versionsOption = new Option<bool>("--versions")
         {
@@ -118,7 +123,18 @@ public static class PackageCommandDefinitions
         });
         var typeFilterOption = new Option<string?>("-t") { Description = "Filter SourceLink: Files rows by type glob/name (e.g., *Json*)" };
         typeFilterOption.Aliases.Add("--type");
-        var versionOption = new Option<string?>("--version") { Description = "Package version (or use alone to show resolved version)", Arity = ArgumentArity.ZeroOrOne };
+        var versionOption = new Option<string?>("--version")
+        {
+            Description =
+                "Select an exact Package version",
+            Arity = ArgumentArity.ExactlyOne,
+        };
+        var latestVersionOption = new Option<bool>("--latest-version")
+        {
+            Description =
+                "Show the latest stable version from eligible configured sources (add --preview for prerelease)",
+            Arity = ArgumentArity.Zero,
+        };
         packageCommand.Arguments.Add(packageNameArg);
         packageCommand.Options.Add(workspaceOption);
         packageCommand.Options.Add(shareOption);
@@ -135,6 +151,7 @@ public static class PackageCommandDefinitions
         packageCommand.Options.Add(libOption);
         packageCommand.Options.Add(toolsOption);
         packageCommand.Options.Add(libraryOption);
+        packageCommand.Options.Add(namesakeLibraryOption);
         packageCommand.Options.Add(allLibrariesOption);
         packageCommand.Options.Add(versionsOption);
         packageCommand.Options.Add(versionsWithFeedOption);
@@ -147,14 +164,16 @@ public static class PackageCommandDefinitions
         packageCommand.Options.Add(depthOption);
         packageCommand.Options.Add(typeFilterOption);
         packageCommand.Options.Add(versionOption);
+        packageCommand.Options.Add(latestVersionOption);
         packageCommand.Options.Add(opts.PreferRenderedUrls);
         packageCommand.Options.Add(opts.Bare);
         packageCommand.Options.Add(outOption);
         var commandArgs = new PackageOptionsParser.PackageCommandArgs(
             packageNameArg, dependenciesOption, layoutOption, pathOption, tfmsOption,
-            libOption, toolsOption, libraryOption, allLibrariesOption, versionsOption, versionsWithFeedOption, prereleaseOption, includeUnlistedOption,
+            libOption, toolsOption, libraryOption, namesakeLibraryOption, allLibrariesOption, versionsOption, versionsWithFeedOption, prereleaseOption, includeUnlistedOption,
             contentOption, frontmatterOption, bodyOption,
             tfmOption, depthOption, typeFilterOption, versionOption,
+            latestVersionOption,
             opts.Lines, opts.TailLines, outOption, pathMatchOption,
             skipEmptyOption, rootsOption, opts.NoHeaders,
             workspaceOption, shareOption,
@@ -210,9 +229,10 @@ public static class PackageCommandDefinitions
             opts.Lines, opts.TailLines,
             dependenciesOption, layoutOption, pathOption, pathMatchOption,
             skipEmptyOption, tfmsOption, libOption, toolsOption,
-            libraryOption, allLibrariesOption,
+            libraryOption, namesakeLibraryOption, allLibrariesOption,
             contentOption, frontmatterOption, bodyOption, outOption,
-            tfmOption, depthOption, typeFilterOption, versionOption, rootsOption);
+            tfmOption, depthOption, typeFilterOption, versionOption,
+            latestVersionOption, rootsOption);
         packageCommand.Validators.Add(result =>
         {
             bool hasPluralVersionSelector =
@@ -508,7 +528,9 @@ public static class PackageCommandDefinitions
                 "Maximum package candidates to inspect "
                 + $"(otherwise default {PackageQuery.DefaultMaximumCandidates}; "
                 + $"{PackageQuery.MaximumPackageContentCandidates} for "
-                + "package-content queries; 5 for --library-literal; maximum "
+                + "package-content queries; "
+                + $"{PackageQuery.MaximumMetadataExpensiveCandidates} for "
+                + "metadata-expensive queries; maximum "
                 + $"{PackageQueryOptions.MaximumCandidates})",
             Arity = ArgumentArity.OneOrMore,
             AllowMultipleArgumentsPerToken = false
@@ -523,19 +545,11 @@ public static class PackageCommandDefinitions
             Description =
                 "Reject queries that require package archive content"
         };
-        var libraryLiteralOption = new Option<string?>("--library-literal")
-        {
-            Description =
-                "Match packages whose selected primary implementation library "
-                + "contains this exact ordinal decoded IL string substring; "
-                + "requires --tfm",
-            Arity = ArgumentArity.ExactlyOne
-        };
         var queryTfmOption = new Option<string?>("--tfm")
         {
             Description =
                 "Select the primary implementation library by TFM "
-                + "(required with --library-literal)"
+                + "(required with --where library-literal=...)"
         };
         var compactOption = new Option<bool>("--compact")
         {
@@ -545,7 +559,6 @@ public static class PackageCommandDefinitions
         queryCommand.Options.Add(takeOption);
         queryCommand.Options.Add(prereleaseOption);
         queryCommand.Options.Add(nuspecOnlyOption);
-        queryCommand.Options.Add(libraryLiteralOption);
         queryCommand.Options.Add(queryTfmOption);
         queryCommand.Options.Add(opts.RowWhere);
         queryCommand.Options.Add(opts.Json);
@@ -674,8 +687,6 @@ public static class PackageCommandDefinitions
                     "--tree with package query --json requires schema discovery.");
                 return 1;
             }
-            string? libraryLiteral =
-                parseResult.GetValue(libraryLiteralOption);
             string? inheritedTfm =
                 parseResult.GetValue(inheritedTfmOption);
             string? queryTfm =
@@ -701,13 +712,6 @@ public static class PackageCommandDefinitions
             }
             if (discover is not null)
             {
-                if (libraryLiteral is not null)
-                {
-                    CommandError.Write(
-                        "--library-literal is not available with schema discovery.");
-                    return 1;
-                }
-
                 var discoveryOptions = new PackageQueryOptions
                 {
                     Plan = ((PackageQueryPlanResult.Accepted)PackageQuery.PlanInput(
@@ -775,7 +779,6 @@ public static class PackageCommandDefinitions
                     rowSelection,
                     parseResult.GetValue(inheritedPrereleaseOption)
                         || parseResult.GetValue(prereleaseOption),
-                    libraryLiteral,
                     queryTfm ?? inheritedTfm,
                     out PackageQueryOptions? options,
                     out OptionError error))
@@ -800,14 +803,6 @@ public static class PackageCommandDefinitions
                 IncludeSections = includeSections,
                 SelectDefault = opts.ParseSelectDefault(parseResult),
             };
-            if (options.LibraryLiteralPlan is not null
-                && includeSections?.Contains(
-                    PackageQuerySections.QuerySummaryName) == true)
-            {
-                CommandError.Write(
-                    "Query Summary is not available with --library-literal.");
-                return 1;
-            }
             return await PackageQueryCommand.ExecuteAsync(
                 options,
                 new CommandContext(verbose: false),
@@ -836,9 +831,7 @@ public static class PackageCommandDefinitions
         CliExecutionBoundCommandRegistry.Register(
             queryCommand,
             takeOption,
-            result => result.GetValue(libraryLiteralOption) is null
-                ? PackageQueryOptions.MaximumCandidates
-                : PackageAcquisitionPopulation.MaximumCandidates,
+            static _ => PackageQueryOptions.MaximumCandidates,
             isActive: static _ => true);
 
         return queryCommand;

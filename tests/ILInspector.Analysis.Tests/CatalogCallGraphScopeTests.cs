@@ -1,4 +1,6 @@
 using System.Collections.Immutable;
+using System.Reflection;
+using System.Reflection.Emit;
 using System.Reflection.Metadata;
 
 using DotnetInspector.Fixtures;
@@ -251,6 +253,241 @@ public class CatalogCallGraphScopeTests
     }
 
     [Fact]
+    public void CensusPublishesWholePopulationInCanonicalOrder()
+    {
+        LibraryBodyIndex indirect = LibraryBodyIndex.Open(
+            FixtureCatalog.AnalysisCallerGraphIndirectCaller
+                .AssemblyPath());
+        LibraryBodyIndex caller = LibraryBodyIndex.Open(
+            FixtureCatalog.AnalysisCallerGraphCaller.AssemblyPath());
+        LibraryBodyIndex target = LibraryBodyIndex.Open(
+            FixtureCatalog.AnalysisCallerGraphTarget.AssemblyPath());
+        using CatalogCallGraphScope forward =
+            CatalogCallGraphTestExtensions.CreateScope(
+                indirect,
+                [caller, target]);
+        using CatalogCallGraphScope reverse =
+            CatalogCallGraphTestExtensions.CreateScope(
+                target,
+                [caller, indirect]);
+
+        CatalogCallCensus first = forward.Census();
+        CatalogCallCensus second = reverse.Census();
+
+        Assert.Equal(
+            first.Population.Select(
+                participant => participant.Assembly.Identity.Name),
+            second.Population.Select(
+                participant => participant.Assembly.Identity.Name));
+        Assert.Equal(
+            first.Members.Select(MemberFingerprint),
+            second.Members.Select(MemberFingerprint));
+        Assert.Equal(
+            first.Occurrences.Select(OccurrenceFingerprint),
+            second.Occurrences.Select(OccurrenceFingerprint));
+        Assert.Equal(
+            first.Members.Select(member => member.OrderingKey),
+            first.Members
+                .Select(member => member.OrderingKey)
+                .Order());
+        Assert.Equal(
+            first.Occurrences.Select(
+                occurrence => occurrence.OrderingKey),
+            first.Occurrences
+                .Select(occurrence => occurrence.OrderingKey)
+                .Order());
+        Assert.Equal(
+            first.Members.Length,
+            first.Members
+                .Select(member => member.OrderingKey)
+                .Distinct()
+                .Count());
+        Assert.Equal(
+            first.Occurrences.Length,
+            first.Occurrences
+                .Select(occurrence => occurrence.OrderingKey)
+                .Distinct()
+                .Count());
+
+        Assert.Contains(
+            first.Occurrences,
+            occurrence =>
+                occurrence.SourceMethod.Name == "Run"
+                && occurrence.Source.Assembly.Identity.Name
+                    .Contains("IndirectCaller", StringComparison.Ordinal)
+                && occurrence.TargetMethod.Name == "Run"
+                && occurrence.Target.Assembly.Identity.Name
+                    .Contains("Caller", StringComparison.Ordinal));
+        Assert.Contains(
+            first.Occurrences,
+            occurrence =>
+                occurrence.SourceMethod.Name == "RunOuter"
+                && occurrence.TargetMethod.Name == "Run"
+                && ReferenceEquals(
+                    occurrence.Source,
+                    occurrence.Target));
+        Assert.Equal(
+            2,
+            first.Occurrences.Count(occurrence =>
+                occurrence.SourceMethod.Name == "RunTwice"
+                && occurrence.TargetMethod.Name == "Echo"));
+        CatalogCallCensusOccurrence generated = Assert.Single(
+            first.Occurrences,
+            occurrence =>
+                occurrence.SourceMethod.Name == "AsyncRoot"
+                && occurrence.TargetMethod.Name == "AsyncUse");
+        Assert.Equal(
+            generated.SourceMethod.MetadataToken,
+            generated.Call.Caller.MetadataToken);
+        Assert.NotEqual(
+            generated.SourceMethod.MetadataToken,
+            generated.Call.EvidenceMethod.MetadataToken);
+        Assert.Equal(
+            generated.Call.EvidenceMethod.MetadataToken,
+            generated.OrderingKey.EvidenceMethod.MetadataToken);
+        CatalogMemberJoinProjection.Issued issued = Assert.IsType<
+            CatalogMemberJoinProjection.Issued>(
+                generated.CallSiteEvidence.Correspondence);
+        Assert.Same(first.Receipt.Generation, issued.Key.Generation);
+    }
+
+    [Fact]
+    public void CensusRetainsPositiveCallsBesideBoundaryDiagnostics()
+    {
+        LibraryBodyIndex caller = LibraryBodyIndex.Open(
+            FixtureCatalog.AnalysisCallerGraphCaller.AssemblyPath());
+        using CatalogCallGraphScope scope =
+            CatalogCallGraphTestExtensions.CreateScope(caller, []);
+
+        CatalogCallCensus census = scope.Census();
+
+        Assert.Contains(
+            census.Occurrences,
+            occurrence =>
+                occurrence.SourceMethod.Name == "RunOuter"
+                && occurrence.TargetMethod.Name == "Run");
+        Assert.DoesNotContain(
+            census.Occurrences,
+            occurrence =>
+                occurrence.SourceMethod.Name == "Run"
+                && occurrence.TargetMethod.Name == "Ping");
+        Assert.True(census.Diagnostics.IsIncomplete);
+        Assert.Contains(
+            census.UnresolvedOccurrences,
+            occurrence =>
+                occurrence.SourceMethod.Name == "Run"
+                && occurrence.Call.Callee.Name == "Ping");
+        Assert.False(census.IsComplete);
+    }
+
+    [Fact]
+    public void CensusHonorsExactBindingBeforeStructuralFallback()
+    {
+        (string directory, string callerPath, string selectedPath,
+            string shadowPath) = BuildSameIdentityCallFixture();
+        try
+        {
+            LibraryBodyIndex caller = LibraryBodyIndex.Open(callerPath);
+            LibraryBodyIndex selected =
+                LibraryBodyIndex.Open(selectedPath);
+            LibraryBodyIndex shadow = LibraryBodyIndex.Open(shadowPath);
+            ResolvedAssemblyReference callerAssembly =
+                Descriptor(caller);
+            ResolvedAssemblyReference selectedAssembly =
+                Descriptor(selected);
+            ResolvedAssemblyReference shadowAssembly =
+                Descriptor(shadow);
+            var policy = new CountingGroupPolicy(
+                [selectedAssembly, shadowAssembly, callerAssembly],
+                UnavailablePolicy.Instance);
+            using var scope = new CatalogCallGraphScope(
+                policy,
+                [
+                    new(caller, callerAssembly),
+                    new(selected, selectedAssembly),
+                    new(shadow, shadowAssembly),
+                ]);
+
+            CatalogCallCensus census = scope.Census();
+
+            CatalogCallCensusOccurrence call = Assert.Single(
+                census.Occurrences,
+                occurrence =>
+                    occurrence.SourceMethod.Name == "Run"
+                    && occurrence.TargetMethod.Name == "Ping");
+            Assert.Equal(
+                selected.ModuleIdentity.ModuleVersionId,
+                call.TargetMethod.ModuleVersionId);
+            Assert.DoesNotContain(
+                census.UnresolvedOccurrences,
+                occurrence =>
+                    occurrence.SourceMethod.Name == "Run"
+                    && occurrence.Call.Callee.Name == "Ping");
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void CensusKeepsAmbiguousUniqueStructuralMatchUnresolved()
+    {
+        (string directory, string callerPath, string selectedPath,
+            string shadowPath) =
+                BuildSameIdentityCallFixture(
+                    shadowDeclaresPing: false);
+        try
+        {
+            LibraryBodyIndex caller = LibraryBodyIndex.Open(callerPath);
+            LibraryBodyIndex selected =
+                LibraryBodyIndex.Open(selectedPath);
+            LibraryBodyIndex shadow = LibraryBodyIndex.Open(shadowPath);
+            ResolvedAssemblyReference callerAssembly =
+                Descriptor(caller);
+            ResolvedAssemblyReference selectedAssembly =
+                Descriptor(selected);
+            ResolvedAssemblyReference shadowAssembly =
+                Descriptor(shadow);
+            var policy = new SourceRelativeAssemblyGroupBindingPolicy(
+                new[]
+                {
+                    callerAssembly,
+                    selectedAssembly,
+                    shadowAssembly,
+                }.Select(assembly => (
+                    assembly,
+                    Policy: (IAssemblyBindingPolicy)
+                        UnavailablePolicy.Instance)));
+            using var scope = new CatalogCallGraphScope(
+                policy,
+                [
+                    new(caller, callerAssembly),
+                    new(selected, selectedAssembly),
+                    new(shadow, shadowAssembly),
+                ]);
+
+            CatalogCallCensus census = scope.Census();
+
+            Assert.DoesNotContain(
+                census.Occurrences,
+                occurrence =>
+                    occurrence.SourceMethod.Name == "Run"
+                    && occurrence.TargetMethod.Name == "Ping");
+            Assert.Contains(
+                census.UnresolvedOccurrences,
+                occurrence =>
+                    occurrence.SourceMethod.Name == "Run"
+                    && occurrence.Call.Callee.Name == "Ping");
+            Assert.False(census.IsComplete);
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Fact]
     public void FallbackSignatureRequiresCompleteRetainedTypeIdentity()
     {
         var targetIdentity = new AssemblyReferenceIdentity(
@@ -447,6 +684,10 @@ public class CatalogCallGraphScopeTests
             CatalogCallGraphTestExtensions.CreateScope(
                 targetV2,
                 [caller, targetV1]);
+        using CatalogCallGraphScope permuted =
+            CatalogCallGraphTestExtensions.CreateScope(
+                caller,
+                [targetV1, targetV2]);
         MethodIdentity ping = targetV2.DeclaredMethods.Single(method =>
             method.DeclaringType.Name == "Api"
             && method.Name == "Ping"
@@ -455,6 +696,8 @@ public class CatalogCallGraphScopeTests
         CallTreeNode tree = scope.BuildCallerTree(
             targetV2,
             ping.MetadataToken);
+        CatalogCallCensus census = scope.Census();
+        CatalogCallCensus permutedCensus = permuted.Census();
 
         Assert.Empty(tree.Children);
         Assert.NotEmpty(scope.BindingIdentityConflicts);
@@ -477,6 +720,33 @@ public class CatalogCallGraphScopeTests
                 Assert.IsType<CatalogMemberJoinProjection.Issued>(
                     conflict.CallSite.Correspondence);
             });
+        Assert.Contains(
+            census.VersionSkewedBindings,
+            evidence =>
+                evidence.Selected.Version
+                    == new Version(1, 0, 0, 0));
+        CatalogCallCensusVersionSkewEvidence skew =
+            census.VersionSkewedBindings.First(evidence =>
+                evidence.Selected.Version
+                    == new Version(1, 0, 0, 0));
+        Assert.Equal(
+            new Version(1, 0, 0, 0),
+            skew.Requested.Version);
+        Assert.Contains(
+            skew.AdmittedAlternatives,
+            identity =>
+                identity.Version == new Version(2, 0, 0, 0));
+        Assert.Equal(
+            census.VersionSkewedBindings.Length,
+            census.Diagnostics.VersionSkewedBindingCount);
+        Assert.Equal(
+            0,
+            census.Diagnostics.Graph.BindingIdentityConflictCount);
+        Assert.Equal(
+            census.VersionSkewedBindings.Select(
+                VersionSkewFingerprint),
+            permutedCensus.VersionSkewedBindings.Select(
+                VersionSkewFingerprint));
     }
 
     [Fact]
@@ -993,6 +1263,122 @@ public class CatalogCallGraphScopeTests
             index.Path,
             AssemblyResolutionProvenance.Local(
                 "catalog call-graph test"));
+
+    static string MemberFingerprint(CatalogCallCensusMember member) =>
+        string.Join(
+            "|",
+            member.OrderingKey.Assembly.Name,
+            member.OrderingKey.ModuleVersionId,
+            member.OrderingKey.MetadataToken,
+            member.HasBody);
+
+    static string OccurrenceFingerprint(
+        CatalogCallCensusOccurrence occurrence) =>
+        string.Join(
+            "|",
+            occurrence.SourceOrderingKey.Assembly.Name,
+            occurrence.SourceOrderingKey.MetadataToken,
+            occurrence.TargetOrderingKey.Assembly.Name,
+            occurrence.TargetOrderingKey.MetadataToken,
+            occurrence.OrderingKey.EvidenceMethod.MetadataToken,
+            occurrence.OrderingKey.ILOffset,
+            occurrence.OrderingKey.OperandToken,
+            occurrence.OrderingKey.Kind);
+
+    static string VersionSkewFingerprint(
+        CatalogCallCensusVersionSkewEvidence evidence) =>
+        string.Join(
+            "|",
+            evidence.CallSite.Storage.ModuleVersionId,
+            evidence.CallSite.Storage.MethodToken,
+            evidence.CallSite.Storage.ILOffset,
+            evidence.Requested,
+            evidence.Selected,
+            string.Join(",", evidence.AdmittedAlternatives));
+
+    static (string Directory, string CallerPath, string SelectedPath,
+        string ShadowPath) BuildSameIdentityCallFixture()
+        => BuildSameIdentityCallFixture(shadowDeclaresPing: true);
+
+    static (string Directory, string CallerPath, string SelectedPath,
+        string ShadowPath) BuildSameIdentityCallFixture(
+            bool shadowDeclaresPing)
+    {
+        string directory = Path.Combine(
+            Path.GetTempPath(),
+            "dotnet-inspect-call-census-"
+                + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(directory);
+        var targetName = new AssemblyName("CallCensusShadowTarget")
+        {
+            Version = new Version(1, 0, 0, 0),
+        };
+        string selectedPath =
+            Path.Combine(directory, "selected.dll");
+        MethodBuilder selectedMethod = BuildTarget(
+            targetName,
+            selectedPath);
+        string shadowPath =
+            Path.Combine(directory, "shadow.dll");
+        _ = BuildTarget(
+            targetName,
+            shadowPath,
+            shadowDeclaresPing ? "Ping" : "Other");
+
+        var callerName = new AssemblyName("CallCensusShadowCaller")
+        {
+            Version = new Version(1, 0, 0, 0),
+        };
+        var callerAssembly = new PersistedAssemblyBuilder(
+            callerName,
+            typeof(object).Assembly);
+        ModuleBuilder callerModule =
+            callerAssembly.DefineDynamicModule(callerName.Name!);
+        TypeBuilder callerType = callerModule.DefineType(
+            "Consumer.Entry",
+            TypeAttributes.Public
+                | TypeAttributes.Abstract
+                | TypeAttributes.Sealed);
+        MethodBuilder run = callerType.DefineMethod(
+            "Run",
+            MethodAttributes.Public | MethodAttributes.Static,
+            typeof(void),
+            Type.EmptyTypes);
+        ILGenerator il = run.GetILGenerator();
+        il.Emit(OpCodes.Call, selectedMethod);
+        il.Emit(OpCodes.Ret);
+        _ = callerType.CreateType();
+        string callerPath =
+            Path.Combine(directory, "caller.dll");
+        callerAssembly.Save(callerPath);
+        return (directory, callerPath, selectedPath, shadowPath);
+
+        static MethodBuilder BuildTarget(
+            AssemblyName assemblyName,
+            string path,
+            string methodName = "Ping")
+        {
+            var assembly = new PersistedAssemblyBuilder(
+                assemblyName,
+                typeof(object).Assembly);
+            ModuleBuilder module =
+                assembly.DefineDynamicModule(assemblyName.Name!);
+            TypeBuilder type = module.DefineType(
+                "Target.Api",
+                TypeAttributes.Public
+                    | TypeAttributes.Abstract
+                    | TypeAttributes.Sealed);
+            MethodBuilder method = type.DefineMethod(
+                methodName,
+                MethodAttributes.Public | MethodAttributes.Static,
+                typeof(void),
+                Type.EmptyTypes);
+            method.GetILGenerator().Emit(OpCodes.Ret);
+            _ = type.CreateType();
+            assembly.Save(path);
+            return method;
+        }
+    }
 
     static MetadataTypeDefinitionName TypeName(
         string @namespace,

@@ -20,9 +20,10 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <!-- The rule table and the scalar predicate are internal so no caller can supply one; the
-         sweeps that assert the encoder is total and invertible have to reach them anyway. -->
+    <!-- Tests reach the rule table for exhaustive encoder proofs. Metadata reaches only the
+         exact encoded-length preflight so it can admit retained text before allocation. -->
     <InternalsVisibleTo Include="InertText.Tests" />
+    <InternalsVisibleTo Include="ILInspector.Metadata" />
   </ItemGroup>
 
   <!-- Deliberately carries no ProjectReference. Every assembly that prints artifact-derived

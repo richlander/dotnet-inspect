@@ -49,7 +49,6 @@ import {
   createWorkspaceLocationPersistence,
   parseWorkspaceLocation,
   parseWorkspaceLocationAsync,
-  selectedBrowserCallGraphPackageTabIds,
   workspaceShareCaptureTopology,
   workspaceShareTabsMatchResolved,
   type ParsedWorkspaceLocation,
@@ -108,7 +107,7 @@ function isCapturedWorkspaceUrlState(
 const hostNames = new Set([
   "captureSavedWorkspacePacket", "captureWorkspaceUrlState",
   "capturedShareTabs", "resolvedWorkspaceShareTabs", "activeShareTabIndex",
-  "selectedCallGraphWorkspacePackages", "workspaceCoordinateCount",
+  "workspaceCoordinateCount",
   "selectedLibraryShareKey", "scope", "syncUrl", "buildStateUrl",
   "buildShareUrl", "share",
   "navigateInAppUrl", "navigateWithinCurrentWorkspace",
@@ -328,12 +327,6 @@ function harness() {
     spotlightPackageSearch: {
       status: "idle",
     } as SpotlightPackageSearchResultState,
-    libraryQueryReference: "",
-    libraryQueryInspection: null as object | null,
-    libraryQueryLoading: false,
-    libraryQueryError: "",
-    libraryQueryKey: "",
-    libraryQuerySequence: 0,
     history: [],
     spotlightOpen: false,
     memberCallGraph: null as object | null, memberCallGraphError: "", memberCallGraphKey: "",
@@ -601,7 +594,6 @@ function harness() {
       },
     },
     typeLensesFor, browserCreatedCallGraphTabIds,
-    selectedBrowserCallGraphPackageTabIds,
     workspaceShareCaptureTopology, workspaceShareTabsMatchResolved,
     parseWorkspaceLocation, parseWorkspaceLocationAsync, isProductHomeDemosPath,
     inspectDecodeWorkspaceShareState: (value: string) =>
@@ -613,6 +605,9 @@ function harness() {
       clearGraphSource: () => {},
     },
     libraryApiDiff: {
+      cancelCurrentRequest: () => {},
+    },
+    compareClone: {
       cancelCurrentRequest: () => {},
     },
     cancelFindingCensusRequest: () => {},
@@ -944,39 +939,6 @@ test("capture settles a loading document viewer without claiming ready content",
     { status: "loading", signature: "member" });
 });
 
-test("capture settles a pending Library Query as retryable interruption", () => {
-  const h = harness();
-  h.state.libraryQueryReference = "System.Runtime";
-  h.state.libraryQueryInspection = { content: { results: [] } };
-  h.state.libraryQueryLoading = true;
-  h.state.libraryQueryKey =
-    "source|1.2.3|net10.0|references=system.runtime";
-  h.state.libraryQuerySequence = 7;
-
-  const snapshot: unknown = runInNewContext(
-    "captureCanonicalWorkspaceRestoreSnapshot()",
-    h.context,
-  );
-  assert.ok(snapshot !== null && typeof snapshot === "object"
-    && "state" in snapshot);
-  const snapshotState = snapshot.state;
-  assert.ok(snapshotState !== null && typeof snapshotState === "object"
-    && "libraryQueryLoading" in snapshotState
-    && "libraryQueryInspection" in snapshotState
-    && "libraryQueryError" in snapshotState
-    && "libraryQuerySequence" in snapshotState);
-
-  assert.equal(snapshotState.libraryQueryLoading, false);
-  assert.equal(snapshotState.libraryQueryInspection, null);
-  assert.equal(
-    snapshotState.libraryQueryError,
-    "Library Query was interrupted. Run it again.",
-  );
-  assert.equal(snapshotState.libraryQuerySequence, 8);
-  assert.equal(h.state.libraryQueryLoading, true);
-  assert.equal(h.state.libraryQuerySequence, 7);
-});
-
 test("capture settles Spotlight package loading to cache or idle", () => {
   const cached = {
     status: "ready" as const,
@@ -1166,7 +1128,7 @@ for (const platform of [false, true]) {
   });
 }
 
-test("floating packet coordinates resolve the active package and Call Graph context", async () => {
+test("floating packet coordinates resolve the active package for saved capture", async () => {
   const h = harness();
   const exact = sharedState();
   const basis: BrowserWorkspaceShareState = {
@@ -1199,11 +1161,6 @@ test("floating packet coordinates resolve the active package and Call Graph cont
       ...basis,
       tabs: exact.tabs,
     });
-  const selected: unknown = runInNewContext(
-    "selectedCallGraphWorkspacePackages()",
-    h.context);
-  assert.ok(Array.isArray(selected));
-  assert.deepEqual(selected, h.state.packages);
 });
 
 test("saved Open uses only the opaque packet at the current origin and commits after view completion", async () => {
@@ -1519,7 +1476,7 @@ test("successful saved Open retires comparison settings with the discarded Packa
 
   assert.ok(h.state.package);
   assert.deepEqual(h.packageComparisonTargets.get(h.state.package), {
-    diff: { kind: "previous" }, clone: { kind: "workspace" },
+    diff: { kind: "previous" }, clone: { kind: "workspace" }, mode: "diff",
   });
   assert.deepEqual(h.packageComparisonTargets.get(sourcePackage).diff, { kind: "previous" });
   assert.deepEqual(h.catalogRequests.packageVersions(sourcePackage), { status: "idle" });

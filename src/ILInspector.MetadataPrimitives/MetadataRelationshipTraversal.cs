@@ -143,11 +143,14 @@ public static class MetadataSafetyPolicy
     /// Maximum cumulative anchor-signature work charged across one classified-
     /// method scan. Prevents many near-limit successful identities from
     /// multiplying per-anchor cost when none individually trips the failure
-    /// counter. Gated by
-    /// <c>Scan_NearLimitMultiMethodIdentitiesFailClosedBeforeLargeAllocation</c>.
+    /// counter. The scan gets two per-anchor ceilings so a large ordinary
+    /// assembly can project many small identities without granting an
+    /// unbounded multiplier to hostile near-limit identities. Gated by
+    /// <c>Scan_NearLimitMultiMethodIdentitiesFailClosedBeforeLargeAllocation</c>
+    /// and <c>Scan_RealTestAssemblyWithMtpSurfaceStaysWithinBudget</c>.
     /// </summary>
     public const int MaxClassificationScanWorkChars =
-        MaxAnchorSignatureWorkChars;
+        2 * MaxAnchorSignatureWorkChars;
 
     /// <summary>
     /// Maximum unique handles in one TypeDef, TypeRef, or ExportedType
@@ -261,6 +264,25 @@ public static class MetadataRelationshipTraversal
             out terminal,
             out rejection);
 
+    internal static bool TryWalkTypeDefinitionDeclaringChain(
+        MetadataReader reader,
+        TypeDefinitionHandle handle,
+        Span<TypeDefinitionHandle> rootToLeaf,
+        out int consumedNodes,
+        out EntityHandle terminal,
+        out RelationshipTraversalRejection? rejection,
+        Action<EntityHandle>? beforeRelationshipFollow)
+    {
+        return TryWalk<TypeDefinitionHandle, TypeDefinitionRelationship>(
+            reader,
+            handle,
+            rootToLeaf,
+            out consumedNodes,
+            out terminal,
+            out rejection,
+            beforeRelationshipFollow);
+    }
+
     /// <summary>Walks a TypeRef resolution-scope chain from its outermost type to the requested leaf.</summary>
     public static RelationshipTraversalResult<RelationshipChain<TypeReferenceHandle>>
         WalkTypeReferenceResolutionScope(
@@ -288,6 +310,26 @@ public static class MetadataRelationshipTraversal
             out consumedNodes,
             out terminal,
             out rejection);
+
+    internal static bool TryWalkTypeReferenceResolutionScope(
+        MetadataReader reader,
+        TypeReferenceHandle handle,
+        Span<TypeReferenceHandle> rootToLeaf,
+        out int consumedNodes,
+        out EntityHandle terminal,
+        out RelationshipTraversalRejection? rejection,
+        Action<EntityHandle> beforeRelationshipFollow)
+    {
+        ArgumentNullException.ThrowIfNull(beforeRelationshipFollow);
+        return TryWalk<TypeReferenceHandle, TypeReferenceRelationship>(
+            reader,
+            handle,
+            rootToLeaf,
+            out consumedNodes,
+            out terminal,
+            out rejection,
+            beforeRelationshipFollow);
+    }
 
     /// <summary>Walks an ExportedType implementation chain from its outermost type to the requested leaf.</summary>
     public static RelationshipTraversalResult<RelationshipChain<ExportedTypeHandle>>
@@ -350,7 +392,8 @@ public static class MetadataRelationshipTraversal
         Span<THandle> rootToLeaf,
         out int consumedNodes,
         out EntityHandle terminal,
-        out RelationshipTraversalRejection? rejection)
+        out RelationshipTraversalRejection? rejection,
+        Action<EntityHandle>? beforeRelationshipFollow = null)
         where THandle : unmanaged
         where TRelationship : struct, IRelationship<THandle>
     {
@@ -407,6 +450,7 @@ public static class MetadataRelationshipTraversal
             rootToLeaf[count++] = TRelationship.Convert(current);
             try
             {
+                beforeRelationshipFollow?.Invoke(current);
                 current = TRelationship.Next(
                     reader,
                     rootToLeaf[count - 1]);

@@ -528,7 +528,7 @@ test("selector-only accessors use body-aware implementation queries", () => {
     /member: state\.selectedBodyTarget\?\.memberName \?\? overload\.name/);
   assert.deepEqual(
     memberSectionIdsFor({ kind: "event" }, false, true),
-    ["overview", "call-graph", "facts", "annotated"]);
+    ["overview", "call-graph", "facts", "annotated", "compare"]);
 });
 
 test("platform graph borders reflect actual resident lookup", () => {
@@ -1083,7 +1083,7 @@ test("Package and Library Overview share the named identity frame", () => {
   assert.match(renderOverview,
     /renderPackageInfo\(pkg\.packageInfo, escapeHtml\)/);
   assert.doesNotMatch(renderOverview,
-    /platformLibrarySelectHtml|packageLibraries\(\)|data-lib-scope|library-list|data-library-query-form/);
+    /platformLibrarySelectHtml|packageLibraries\(\)|data-lib-scope|library-list/);
   assert.match(renderOverview,
     /renderOverviewSurface\(\{[\s\S]*subject: "package",[\s\S]*displayName: packageDisplayName\(pkg\),[\s\S]*iconHtml: renderInspectedSubjectIcon\(pkg\),[\s\S]*coordinateFieldsHtml: packageVersionField\(\),[\s\S]*contentHtml,/);
   const renderLibraryOverview =
@@ -1110,35 +1110,6 @@ test("Package and Library Overview share the named identity frame", () => {
     /\[\.\.\.inventory\.typeKinds\][\s\S]*\[\.\.\.inventory\.namespaces\]/);
   assert.match(stylesSource,
     /\.detail-scroll\.overview-working-surface,[\s\S]*?overflow: hidden;[^}]*padding: 0;/s);
-});
-
-test("Library Query filters only Library navigation by exact asset identity", () => {
-  const renderNavPane =
-    appSource.match(/function renderNavPane\([\s\S]*?\n}\n\ntype SubjectPathKind/)?.[0]
-    ?? "";
-  assert.match(
-    renderNavPane,
-    /const matchingLibraryIds = currentLibraryQueryMatchIds\(\);[\s\S]*renderLibrarySubjectNav\(\{[\s\S]*libraries: packageLibraries\(\)[\s\S]*matchingLibraryIds[\s\S]*queryControlsHtml: libraryQueryControlsHtml\(\)[\s\S]*queryStatusHtml: libraryQueryStatusHtml\(\)/);
-  assert.match(
-    appSource,
-    /function packageLibraries\(\) \{\s*return packageLibraryInventory\(\);\s*\}/);
-  assert.match(
-    appSource,
-    /function currentLibraryQueryMatchIds\(\)[\s\S]*currentLibraryQueryInspection\(\)[\s\S]*if \(!inspection\) return undefined;[\s\S]*inspection\.content\.results\.map\(result => result\.assetId\)/);
-  assert.match(
-    appSource,
-    /function libraryQueryControlsHtml\(\)[\s\S]*data-library-query-form[\s\S]*data-library-query-reference[\s\S]*data-library-query-clear/);
-  assert.match(
-    appSource,
-    /function libraryQueryStatusHtml\(\)[\s\S]*No admitted libraries directly reference/);
-  assert.match(
-    appSource,
-    /async function runLibraryQuery\([\s\S]*JSON\.stringify\(pkg\.assemblies\.map\(assembly => assembly\.id\)\)[\s\S]*inspectLibraries\(\s*pkg\.id,\s*pkg\.version,\s*pkg\.activeFramework,\s*admittedAssetIds,\s*JSON\.stringify\(\[reference\]\)\)[\s\S]*state\.libraryQuerySequence === sequence[\s\S]*libraryQuerySignature\(state\.package, reference\) === key/);
-  const activatePackage =
-    appSource.match(/function activatePackage\([\s\S]*?\n}\n\nfunction isDefaultAccessibility/)?.[0]
-    ?? "";
-  assert.match(activatePackage,
-    /const changed = !packageIdentityEquals\(state\.package, pkg\)[\s\S]*if \(changed\) \{[\s\S]*state\.libraryQuerySequence\+\+[\s\S]*state\.libraryQueryLoading = false[\s\S]*state\.libraryQueryKey = ""/);
 });
 
 test("library metadata uses compact coordinates in a full-area working surface", () => {

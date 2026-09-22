@@ -106,9 +106,10 @@ public partial class DependsCommand
                 options.Verbosity,
                 selection.Sections,
                 fixedOverview: options.SelectDefault);
-        bool emptyQuietSelection =
+        bool emptyAutomaticSelection =
             requestedSections.Count == 0
-            && options.Verbosity == Verbosity.Quiet;
+            && options.Select is null
+            && !options.SelectDefault;
         if (options.Depth is not null
             && !requestedSections.Contains(
                 DependsTypeSections.DependencyGraph))
@@ -117,7 +118,7 @@ public partial class DependsCommand
                 "--depth requires the Dependency Graph section.");
             return new TypeDependsOutcome(1, false);
         }
-        if (!emptyQuietSelection
+        if (!emptyAutomaticSelection
             && !requestedSections.Contains(
                 DependsTypeSections.DependencyGraph))
         {
@@ -159,7 +160,10 @@ public partial class DependsCommand
             bool uncertified = result.Diagnostics.Count > 0;
             bool serviceJson =
                 options.EnvelopeOutput
-                || (options.JsonOutput && !options.Tree && !options.Count && !emptyQuietSelection);
+                || (options.JsonOutput
+                    && !options.Tree
+                    && !options.Count
+                    && !emptyAutomaticSelection);
             if (serviceJson
                 && result.Envelope is { } envelope
                 && !InspectionEnvelopeOutput.TryWrite(
@@ -204,7 +208,7 @@ public partial class DependsCommand
                     + $"{rowFailure.Failure.AvailableCount} rows.");
                 return WithTypeShare(result, options, 1, uncertified);
             }
-            if (emptyQuietSelection || serviceJson)
+            if (emptyAutomaticSelection || serviceJson)
                 return WithTypeShare(result, options, 0, uncertified);
 
             DependencyGraphDocument document =
