@@ -2,6 +2,7 @@ using System.Collections.Immutable;
 using System.Text.Json.Serialization;
 using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Output;
+using DotnetInspector.Ecosystems;
 using DotnetInspector.Queries;
 using DotnetInspector.Sections;
 using DotnetInspect.Cli.Sections;
@@ -56,6 +57,27 @@ public class LibraryInspection
 
     [JsonIgnore]
     internal IReadOnlyList<AssemblyReferenceIdentity>? AssemblyReferenceIdentities { get; set; }
+
+    [JsonIgnore]
+    internal AssemblyReferencesResult? AssemblyReferencesQueryResult { get; set; }
+
+    [JsonIgnore]
+    public InspectionEnvelope<EcosystemDependencyRecognitionOutcome>?
+        EcosystemDependencyRecognitionInspection { get; set; }
+
+    /// <summary>
+    /// Presentation-selected ecosystem-dependency pairs. Null retains the
+    /// complete recognized population from the recognition Document.
+    /// </summary>
+    [JsonIgnore]
+    public IReadOnlyList<EcosystemDependencyRecognitionEntry>?
+        EcosystemDependencyRows { get; set; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public EcosystemDependencyRecognitionJson? EcosystemDependencies =>
+        EcosystemDependencyRecognitionJson.Create(
+            EcosystemDependencyRecognitionInspection,
+            EcosystemDependencyRows);
 
     [JsonIgnore]
     public AssemblyIntegrationsEntry? AssemblyIntegrationsEntry { get; set; }
@@ -509,6 +531,20 @@ public class LibraryInspection
     public IReadOnlyDictionary<int, (string? Stable, string Visibility, string Selector)>?
         ImplementationProfilesDrillMap { get; set; }
 
+    private LibraryMetricsResult? _libraryMetricsQueryResult;
+
+    /// <summary>Typed whole-library metrics report.</summary>
+    [JsonIgnore]
+    public LibraryMetricsResult? LibraryMetricsQueryResult
+    {
+        get => _libraryMetricsQueryResult;
+        set
+        {
+            _libraryMetricsQueryResult = value;
+            ResetFindingProjectionCaches();
+        }
+    }
+
     /// <summary>
     /// Safe, local optimization opportunities inferred from IL/body evidence. Internal backing
     /// for the kind-scoped performance sections and the nested <see cref="Performance"/> JSON
@@ -927,9 +963,17 @@ public class LibraryInspection
                 is ImplementationProfilesResult.Failed profileFailure)
             {
                 failures.Add(new LibraryInspectionFailureJson(
-                    SectionNames.ImplementationProfiles,
+                    SectionNames.MemberMetrics,
                     ImplementationProfilesQuery.Definition.Name,
                     profileFailure.Error.Message));
+            }
+            if (LibraryMetricsQueryResult
+                is LibraryMetricsResult.Failed libraryMetricsFailure)
+            {
+                failures.Add(new LibraryInspectionFailureJson(
+                    SectionNames.LibraryMetrics,
+                    LibraryMetricsQuery.Definition.Name,
+                    libraryMetricsFailure.Error.Message));
             }
             if (OptimizationOpportunitiesQueryResult
                 is OptimizationOpportunitiesResult.Failed optimizationFailure)

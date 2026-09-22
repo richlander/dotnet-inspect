@@ -57,13 +57,16 @@ const widenings = [
     find: '  ["metadata", "Metadata"]\n] as const;\n\nexport type PackageLens',
     replace: '  ["metadata", "Metadata"],\n  ["probe-library-lens", "Probe"]\n] as const;\n\nexport type PackageLens',
     token: "probe-library-lens",
-    dispatches: ["libraryLensBody"],
+    dispatches: [
+      "libraryLensRequiresExactLibrary",
+      "libraryLensBody",
+    ],
   },
   {
     vocabulary: "MemberSection",
     file: "data.ts",
-    find: '  ["annotated", "Annotated source"],\n] as const;',
-    replace: '  ["annotated", "Annotated source"],\n  ["probe-member-section", "Probe"],\n] as const;',
+    find: '  ["compare", "Compare"],\n] as const;',
+    replace: '  ["compare", "Compare"],\n  ["probe-member-section", "Probe"],\n] as const;',
     token: "probe-member-section",
     dispatches: [
       "loadMemberSectionContent",

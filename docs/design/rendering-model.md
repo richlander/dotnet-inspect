@@ -148,6 +148,92 @@ are scoped to that lens.
 
 When a lens has multiple possible rendering modes, the default should be the most broadly useful one. For `--files`, tree rendering is the default because it conveys structure -- the primary reason you'd look at files. A call graph is not intrinsically hierarchical, so its Markdown default is an edge table; tree and Mermaid views remain explicit. Flat lists are available implicitly via other tools (`--json` piped through `jq`, for example) but the default serves the common case.
 
+### Native type and source defaults
+
+This section owns the CLI default-renderer choice, not source acquisition or
+the content selected by an inspection. The default should preserve the
+selected view's useful representation instead of requiring a flag to remove
+an incidental document wrapper.
+
+The first adoption is the shared `type`/`member` output path:
+
+| Selected view | Default presentation |
+| --- | --- |
+| Eligible ordinary exact-type inspection | The existing type tree. |
+| One source/code payload | Its content, without document headings, fences, separators, or tips. |
+| Ordinary report or multiple selected sections | The existing Markdown document. |
+
+The source/code payloads are API Declarations, Source, Decompiled Source, Annotated Source, PDB Source,
+Source Diff, IL, Cost Overlay, Semantics Overlay, and the existing indivisible
+Finding Census document payload. A selected payload must be produced by its
+existing owner; missing or failed content is not fabricated or replaced by
+another source.
+
+The explicit [Source section](cli-source-section.md) consumes the shared
+authored-first result for a type or exact member. Its provider and retained
+attempt evidence follow that operation's policy; it does not change the
+provider-specific PDB Source or Decompiled Source views.
+
+An explicit format, including an environment format default, overrides this
+native default. `--markdown` and the existing `-v:*` Markdown selection request
+Markdown presentation. Explicit plaintext or JSON still takes precedence over
+verbosity according to the shared format resolver. A `--tree` request is not
+a Markdown request for a selected source payload. JSON, row-oriented
+formats, Count, field/column projection, and discovery retain their existing
+contracts rather than falling through to text output. Normalized section
+selection decides whether the result is a single payload; matching a category
+or wildcard must not discard another selected section merely because only one
+currently has content.
+
+Source Files and Source Locations remain inventories. Their existing `--print`
+selection prints one acquired source document, while `--urls` selects links.
+Printing a source payload also honors explicit Markdown. Multiple candidate
+documents still require the existing explicit row selection; this policy does
+not introduce concatenation or a multi-document framing contract.
+
+Authored `member --print --part` follows the same native/Markdown choice.
+Markdown frames only the selected part in a C# code block and identifies the
+member and part in its title. It preserves the display indentation supplied by
+the [authored-parts projection](authored-member-parts-presentation.md);
+`--row` still selects the member before part selection. The existing part-record
+JSON shapes remain separate from generic printable-document JSON.
+`LocalRepoSourceProjectionTests.MemberParts_*` gates this behavior in Release
+against this repository's compiled, XML-documented `MemberTextSlicer` source.
+Its `TypeSourcePrint_TreeDoesNotRequestMarkdown` cases gate tree/format
+provenance with the real `JsonNamingPolicy` type. These measured slow cases
+run in daily Deep Inspect and the focused pre-merge gate.
+
+API Declarations, Source, Decompiled Source, Annotated Source, PDB Source, Source Diff,
+IL, Cost Overlay, and Semantics Overlay support unary `--print` through the same
+payload projection. Printing preserves the selected content; explicit JSON
+formats wrap it in the existing printable-document shape rather than changing
+the direct inspection's JSON contract. Finding Census retains its separate
+[indivisible-envelope contract](member-source-presentation.md#format-behavior)
+and rejects payload projection.
+
+The motivating overlay case is `System.Text.Json@10.0.5`,
+`JsonElement.GetArrayLength:1`: both overlays already rendered natively, but
+`--print` rejected them. Release `SourcePayloadPrintTests` gates the production
+CLI with the installed System.Text.Json asset, including native/print content,
+explicit Markdown, structured projection, bodyless members, invalid rows, and
+rendered limits. Bounded single-member cases are PR-fast; the measured slow
+native/print comparisons and cost-annotation fixture run in daily Deep Inspect
+and the focused pre-merge gate.
+
+The `type` and `member` commands no longer expose `--bare`; the useful
+single-payload behavior is their default, not a compatibility alias or a new
+`--raw` mode. Other content commands retain their own current presentation
+contracts until separately adopted. Native output remains subject to existing
+terminal containment and diagnostic routing, not a promise of original bytes.
+Source origin, accessibility, decompilation scope, and authorization do not
+change.
+
+The shared inspection operations still return their typed completed envelopes.
+The CLI chooses the renderer; Browser continues using its existing code viewer.
+This approved CLI-only presentation slice introduces no host-specific
+inspection algorithm or new dependency. [API Declarations](type-api-declarations.md)
+adopts the same native-payload default for its separate bodyless metadata view.
+
 ## Summary Table
 
 | Command | Identity (verbosity) | Lenses (mode-switch flags) |

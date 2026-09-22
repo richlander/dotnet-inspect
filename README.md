@@ -157,13 +157,13 @@ stderr rather than mixed into structured output.
 | Relationships | `graph`, `depends`, `extensions`, `implements` | Integration graphs, type hierarchies, explicit package/nuspec/library/restored-project dependency graphs, reference graphs, extension methods/properties, implementors, and subclasses. |
 | Direct dependency evidence | `depends -S Dependencies` | `depends` combines explicit roots, traversal, and normalized declaration/restored evidence in one sectioned document. |
 | Package pruning policy | `depends -S Pruning` | Explicitly compares source-authorized direct dependency candidates with an exact installed runtime or ASP.NET Core platform inventory, without changing graph traversal. |
-| Source mapping | `library`/`package -S "SourceLink: Files"`, `type -S "Source Files"`, `member -S "Source Locations"` / `"PDB Source"` | SourceLink URLs, member file/line locations, and token+IL-offset to source-line resolution. `PDB Source` is checksum-verified source acquired from the PDB-recorded local path, a caller-supplied Git clone (`--repo`), or remote SourceLink, in that order. |
-| Performance analysis *(experimental)* | `library -S @Performance`, `library -S "Performance: Strings"`, `type`/`member -S "Performance Triage"`, `"Top Leverage"`, `"Resource Triage"`, `"Call Graph"` | Whole-assembly leverage ranking, exact string-materialization operations, actionable rewrite-shape detection, and exception-path resource-lifecycle candidates. |
+| Source | `type`/`member -S Source`, `library`/`package -S "SourceLink: Files"`, `type -S "Source Files"`, `member -S "Source Locations"` / `"PDB Source"` | `Source` is authored-first and retains provider and fallback context. Provider-specific views expose SourceLink URLs, member file/line locations, checksum-verified PDB source, and token+IL-offset mapping; `Decompiled Source` remains the local reconstructed view. |
+| Performance analysis *(experimental)* | `library -S "Library Metrics"`, `library -S @Performance`, `library -S "Performance: Strings"`, `type`/`member -S "Performance Triage"`, `"Top Leverage"`, `"Resource Triage"`, `"Call Graph"` | Whole-library structural metrics, whole-assembly leverage ranking, exact string-materialization operations, actionable rewrite-shape detection, and exception-path resource-lifecycle candidates. |
 | Decompiler *(experimental)* | `member -S @Source`, `member -S "Fidelity Causes"`, `member`/`type`/`library --where "Kind=<ID>"` | Decompiled C#, annotated source, IL, body-shape queries, and typed `DEC####` fidelity causes. |
 | Raw metadata | `library -S @Metadata`, `library coordinate "#Strings:0x1a4"` | Decoded ECMA-335 metadata tables and heap addressing. |
 | Workspace definition, inventory, and navigation | `workspace --package X --tfm TFM --share packet` | Author a durable format-3 Workspace definition without acquisition, or omit `--share` to realize and render typed top-level inventory. Repeat `--package` to compose Package Scope; add `--register-library`, `--register-package-prefix`, or `--register-ecosystem` for registration intent. `--packet` accepts a canonical Base64URL packet string. Add `--active-package N` on the direct inventory route for structural Library, Type, Member, and lens descriptors. |
-| Package Queries | `package query ID --library-literal TEXT --tfm TFM`, `workspace --root-request TOKEN` | Qualify exact package IDs or bounded package-ID prefixes by an ordinal decoded-`ldstr` substring in each selected primary implementation library. Results remain package-grain and carry typed occurrence evidence plus exact Root reopening tokens. |
-| Workspace sharing | `workspace-state encode` / `decode` | Convert the canonical browser/CLI base64url workspace packet to or from its bounded JSON shape without acquisition or execution. |
+| Package Queries | `package query ID --where "library-literal=TEXT" --tfm TFM`, `workspace --root-request TOKEN` | AND-compose ordinary Package Query terms with an ordinal decoded-`ldstr` substring over each prequalified package's selected primary implementation library. Results remain package-grain and carry typed selected-library context, complete occurrences, and exact Root reopening tokens. |
+| Workspace sharing and editing | `workspace packet encode` / `decode`, `workspace component list`, `workspace package add` / `update` / `remove` | Convert canonical browser/CLI packets, discover stable component paths, and immutably derive edited Workspace packets. |
 | Agent-friendly output | global flags | Markdown by default, compact `--table`, normalized `--tsv`, `--jsonl`, `--json`, Mermaid diagrams, section/field projection, `--count`, and row limiting. |
 
 ## Command inventory
@@ -174,13 +174,14 @@ stderr rather than mixed into structured output.
 | `package activity --ecosystem NAME` | Report bounded recent package activity for an ecosystem-selected package population, with source coverage and security evidence. |
 | `project [path]` | Inspect restored project package skills and package docs. |
 | `library X` | Inspect assembly metadata, symbols, SourceLink, references, resources, async methods, and rendered body shapes. |
+| `library query DIR` | Query a directory or `--platform` reference pack as a bounded Library population; `references=NAME` qualifies direct assembly references. |
 | `type X` | Discover types or render a single type shape. |
 | `member X` | Inspect members, docs, overloads, decompiled/lowered C#, rendered body shapes, checksum-verified PDB source, and IL. |
 | `find [X]` | Search for types across packages, frameworks, projects, and local assets. Add `--members` (or lead the query with `.`, such as `.Serialize`) to search member names instead. Use `--package-prefix PREFIX` with a type/member pattern to expand package scope. |
 | `diff X` | Compare API surfaces by default; opt into analysis or implementation evidence. |
 | `timeline X` | Correlate API or member-body Findings across a package version range. |
 | `graph integrations` | Induce extension, observed Integration, and Integration-opportunity relationships over an explicit package set; `-n`, `--tail`, and `--rows` select complete logical edges after graph construction. |
-| `graph calls TYPE MEMBER` | Explain one package member's outgoing calls that cross assembly boundaries, retaining only boundary calls and their shortest local connectors. |
+| `graph calls TYPE MEMBER` | Explain one package member's outgoing calls across its dependency graph, retaining only boundary calls and their shortest local connectors. |
 | `graph libraries` | Show exact resolved cross-library calls, direct-use clusters, and public entrypoint paths to one selected cluster. |
 | `depends [Type]` | With a positional type, walk its hierarchy inside `--package`, `--library`, `--project`, or platform search scopes. Without a positional type, combine repeatable explicit `--package`, `--nuspec`, `--library`, and `--project` roots, or exclusive `--package-prefix`, into one dependency graph and evidence document. |
 | `extensions X` | Find extension methods and C# extension properties for a type. |
@@ -189,8 +190,8 @@ stderr rather than mixed into structured output.
 | `match A --similar` | Rank structural candidates for one seed method, within a single assembly. Ranks candidates only; it establishes no relation. |
 | `vocabulary` | Discover product-owned query vocabularies such as `Accessibility`, `C# Style Choices`, and `C# Body Kinds`. |
 | `ecosystem [name]` | Inspect the ecosystem knowledge configured into this product build. Omit the name to list packs; use `-S Integrations` for configured Integration concepts, distinct from observations in a library. |
-| `workspace` | Render the typed top-level inventory of one ephemeral Workspace: committed ordered Package occurrences first, then inert Exact Library, Package Prefix, and Ecosystem registrations. Repeat `--package ID@VERSION` coordinates and supply `--tfm`; add `--register-library PACKAGE@VERSION/ASSEMBLY@ASSEMBLY_VERSION`, `--register-package-prefix PREFIX`, or `--register-ecosystem ID`; filter with repeatable `--kind`. Restore a current-format canonical Workspace packet with `--packet PACKET`, or use `--root-request TOKEN` to reopen the exact Package Root a `package query --library-literal` result names. Add `--active-package N` on direct construction to evaluate the exact occurrence and expose its Navigation hierarchy, Library asset IDs, Type and Member inventories, lenses, and diagnostics. |
-| `workspace-state encode` / `decode` | Convert validated workspace-state JSON and canonical base64url packets; pass `-` for stdin or use `--file`. |
+| `workspace` | Render the typed top-level inventory of one ephemeral Workspace: committed ordered Package occurrences first, then inert Exact Library, Package Prefix, and Ecosystem registrations. Repeat `--package ID@VERSION` coordinates and supply `--tfm`; add `--register-library PACKAGE@VERSION/ASSEMBLY@ASSEMBLY_VERSION`, `--register-package-prefix PREFIX`, or `--register-ecosystem ID`; filter with repeatable `--kind`. Restore a current-format canonical Workspace packet with `--packet PACKET`, or use `--root-request TOKEN` to reopen the exact Package Root a `package query --where "library-literal=..."` result names. Add `--active-package N` on direct construction to evaluate the exact occurrence and expose its Navigation hierarchy, Library asset IDs, Type and Member inventories, lenses, and diagnostics. |
+| `workspace packet encode` / `decode` | Convert validated Workspace JSON and canonical base64url packets; pass `-` for stdin or use `--file`. |
 | `skill` | Print the base LLM skill and route to focused built-in guidance (`skill list`, `skill query`, `skill decompiler`, `skill relationships`, and more). |
 | `demo [id]` | List or run product-home inspection demos backed by real section output. |
 | `cache` | Inspect or clear dotnet-inspect caches. |
@@ -226,6 +227,26 @@ dotnet-inspect ecosystem maui -S "Core Packages"
 dotnet-inspect ecosystem microsoft-extensions -S "Core Packages"
 dotnet-inspect ecosystem runtime -S Pruning
 ```
+
+Package Info and Library Info summarize ecosystems recognized from direct
+dependencies. Select `Ecosystem Dependencies` to see the dependency/ecosystem
+pairs, including one row per ecosystem when a dependency intentionally
+overlaps multiple packs:
+
+```bash
+dotnet-inspect package Microsoft.Extensions.Http@10.0.0 \
+  -S "Package Info"
+dotnet-inspect library --platform System.Text.Json \
+  -S "Library Info"
+dotnet-inspect library --platform System.Text.Json \
+  -S "Ecosystem Dependencies" \
+  --columns "Ecosystem,Kind,Dependency,Declared By"
+```
+
+Library recognition classifies the selected Library's declared assembly
+references. It does not resolve or traverse those references. Unrecognized
+references do not become ecosystem rows, while JSON still reports the
+recognition status as complete.
 
 `Core Packages` are inert registered package roots. Catalog inspection performs
 no source work; a later bounded operation that selects the ecosystem may resolve
@@ -306,6 +327,7 @@ workflow in more depth.
 
 ```bash
 dotnet-inspect library System.Text.Json -S @Performance
+dotnet-inspect library System.Text.Json -S "Library Metrics"
 dotnet-inspect library System.Text.Json -S @Performance --count
 dotnet-inspect library System.Text.Json -S "Performance: Boxing" --json -T q
 dotnet-inspect library System.Text.Json -S "Performance: Strings" --json -T q
@@ -337,6 +359,8 @@ exception propagates to the selected method.
 
 ```bash
 dotnet-inspect member JsonSerializer --package System.Text.Json Serialize:1 -S @Source
+dotnet-inspect type JsonSerializer --package System.Text.Json -S Source
+dotnet-inspect member JsonSerializer --package System.Text.Json Serialize:1 -S Source
 dotnet-inspect member JsonSerializer --package System.Text.Json Serialize:1 -S "Fidelity Causes"
 dotnet-inspect library coordinate 0x060002EA+0x0 \
   --package System.Text.Json --library System.Text.Json.dll
@@ -374,9 +398,9 @@ machine-friendly rows use `--tsv` or `--jsonl`; for structured graphs use
 Use `-T q` to suppress tips in script-oriented commands.
 
 Positional `depends <type>`, ordinary single-Library API `diff`, `package
-activity`, ordinary and `--library-literal` Package Query, and online package
-range-version population, and exact package-backed Type or Library API
-inspection support the presence-only `--envelope` service-output selector. It
+activity`, Package Query, online package range-version population, and exact
+package-backed Type or Library API inspection support the presence-only
+`--envelope` service-output selector. It
 implies JSON. For `depends`, API Diff, Package Activity, Package Query, and
 exact Type or Library API inspection, unprojected `--json` emits the same
 Content without the service frame. Package version `--json` remains an explicit
@@ -456,6 +480,8 @@ single-result projection such as `--tree` or `--mermaid`.
 
 ```bash
 dotnet-inspect package System.Text.Json
+dotnet-inspect package System.Text.Json --version 10.0.0
+dotnet-inspect package System.Text.Json --latest-version
 dotnet-inspect package System.Text.Json --versions -n 6
 dotnet-inspect package System.Text.Json@8.0.0..8.0.5 --versions
 dotnet-inspect package System.Text.Json@8.0.0..8.0.5 --versions --envelope
@@ -476,8 +502,23 @@ dotnet-inspect package Microsoft.Data.SqlClient@6.1.0 \
   --tfm net8.0 -S "Package files" --roots
 dotnet-inspect package Newtonsoft.Json@13.0.3 \
   -S "SourceLink: Files" -t JsonReader -n 1 --tail --urls
+packet=$(dotnet-inspect workspace \
+  --package System.Text.Json@10.0.0 \
+  --tfm net10.0 \
+  --share packet)
+dotnet-inspect package System.Text.Json --workspace "$packet"
+dotnet-inspect package System.Text.Json \
+  --workspace "$packet" --share packet
 dotnet-inspect package query 'Azure.AI*' --take 100 --tsv
 ```
+
+`package ID[@VERSION] --workspace PACKET` inspects the matching direct Package
+in the packet's selected context, independently of its focused tab, and reuses
+the exact Package Root and target admitted during Workspace restoration.
+Appending `--share` preserves ordinary stdout and writes a derived Package
+packet or URL as the final stderr line. An exact selector can inspect a
+currently resolved floating Package member, but Share refuses rather than
+silently pinning that preserved definition.
 
 For one package with exactly `Package files` selected, `-n`, `--tail`, and
 `--rows A..B` select complete path/size rows after archive extraction, file
@@ -529,6 +570,10 @@ considers all package manifest groups by default; add
 `dependency-target=all` spells the default explicitly and remains distinct
 from a manifest's real `any` group. Repeat `depends` to require every named
 dependency under the same scope. Use
+`depends starts-with <literal-package-id-prefix>` to require a direct
+dependency whose package ID begins with that prefix. The match is literal and
+case-insensitive; include a trailing `.` to express a dot-delimited family.
+Use
 `depends-ecosystem=<canonical-ecosystem-id>` to match a direct dependency
 against the ecosystem's registered exact packages and package prefixes:
 
@@ -541,6 +586,9 @@ dotnet-inspect package query 'Polly.*' \
 dotnet-inspect package query 'Microsoft.Extensions.*' \
   --where "depends=Microsoft.Extensions.DependencyInjection" \
   --where "depends=Microsoft.Extensions.Configuration" --count
+dotnet-inspect package query Microsoft.Extensions.Http \
+  --where "depends starts-with Microsoft.Extensions." \
+  --where "dependency-target=net10.0"
 dotnet-inspect package query Aspire.Hosting.PostgreSQL \
   --where "depends-ecosystem=ecosystem.aspire"
 ```
@@ -586,6 +634,23 @@ dotnet-inspect package query 'Microsoft.Extensions.*' \
 This package-content term matches simple names case-insensitively and reports
 the matching framework and archive path. It does not resolve or traverse the
 reference.
+
+Use the same key at Library grain to query top-level `*.dll` files in one
+directory, or one installed or explicitly acquired platform reference pack:
+
+```bash
+dotnet-inspect library query ./artifacts/bin \
+  --where "references=System.Text.Json"
+dotnet-inspect library query --platform runtime \
+  --where "references=System.Text.Json" --take 256 -n 10
+```
+
+Library Query tests each candidate Library's direct `AssemblyRef` table;
+repeated `references` terms are ANDed. `--take` bounds candidates scanned,
+while `-n`, `--head`, `--tail`, and `--rows` select matching Library rows
+afterward. Use `library query -Q Libraries` to discover the current vocabulary.
+Missing or malformed Metadata remains visible and makes unbounded Count
+inexact rather than silently becoming a nonmatch.
 
 License selection also stays at the manifest boundary. `license=any` matches
 any nuspec license declaration. Closed semantic values match nuspec metadata
@@ -695,36 +760,44 @@ to the search.
 
 ### Package Query over selected implementation libraries
 
-`package query ... --library-literal TEXT` qualifies package Results using an
-assembly-semantic query. An exact package ID selects its latest eligible listed
-version. A terminal-star package-ID prefix evaluates at most five candidates by
-default; use `--take 1..5` to choose the candidate bound. The query selects the
-primary implementation library of each candidate for an explicit `--tfm`.
+`package query ... --where "library-literal=TEXT" --tfm TFM` adds decoded
+string-literal qualification to the ordinary Package Query term plan. An exact
+package ID selects its latest eligible listed version. A terminal-star
+package-ID prefix evaluates at most five candidates; use `--take 1..5` to
+choose the candidate bound. Ordinary terms AND-compose and prequalify before
+the query evaluates each survivor's selected primary implementation library
+for the exact target framework.
 
 ```bash
 dotnet-inspect package query Newtonsoft.Json \
-  --library-literal "Unexpected end when reading JSON" --tfm net6.0
+  --where "library-literal=Unexpected end when reading JSON" --tfm net6.0
 
 dotnet-inspect package query 'Azure.Identity*' \
-  --library-literal "DefaultAzureCredential" --tfm net8.0 --take 5
+  --where "downloads=1m" \
+  --where "library-literal=DefaultAzureCredential" \
+  --tfm net8.0 --take 5
 ```
 
 `TEXT` is a raw ordinal substring, not a type pattern: it is case-sensitive,
-matches no wildcards, and preserves whitespace and Unicode spelling exactly.
-The query covers selected primary implementation assemblies only, not every
-assembly in a package. One output row is one matching package; occurrence count
-and method-token/IL-offset previews are evidence on that package Result.
-`-n` and `--rows` select package rows, while `--take` bounds package candidates.
-Candidate failures remain visible and prevent an unqualified Count. Candidate
-packages are disposable: they are never added to the package cache.
+matches no wildcards, and preserves 1 through 1,024 decoded UTF-16 code units,
+including leading/trailing whitespace and newlines. The Product planner records
+CLI `--tfm` as non-user-selectable `library-target=<canonical-tfm>` intent. The
+query covers selected primary implementation assemblies only, not every
+assembly in a package. One output row is one final matching package; typed
+selected-library context, the complete occurrence array, and bounded
+method-token/IL-offset previews remain evidence on that package Result.
+`-n` and `--rows` select final package rows, while `--take` bounds package
+candidates. Candidate failures remain visible and prevent an unqualified
+Count. Candidate packages are disposable: they are never added to the package
+cache.
 
-For both ordinary Package Query and `--library-literal`, unprojected `--json`
-emits the complete owner-issued Content. `--envelope` emits that same Content
-with Share and diagnostics, using result kind `package-query` or
-`package-assembly-semantic-query`. Query controls such as `--where`, `--take`,
-`--tfm`, and `--library-literal` remain admitted; row selection, Count,
-projection, discovery, section selection, and competing formats are rejected.
-Typed incomplete or failed Content is still emitted before a nonzero exit.
+Unprojected Package Query `--json` emits the complete owner-issued
+`PackageQueryDocument`. `--envelope` emits that same Content with Share and
+diagnostics using result kind `package-query`. Query controls such as
+`--where`, `--take`, and required semantic `--tfm` remain admitted; row
+selection, Count, projection, discovery, section selection, and competing
+formats are rejected. Typed incomplete or failed Content is still emitted
+before a nonzero exit.
 
 Each evaluated candidate carries a `Root` reopening token. Hand that token back
 to reopen exactly the Root the result came from:
@@ -791,20 +864,23 @@ controls, `--root-request`, or Package Navigation selectors. Explicit NuGet
 source policy is accepted only for dependency enrichment or coordinate
 replacement; `--preview` is accepted only for dependency enrichment.
 
-To replace one direct Package coordinate in an existing scenario, use its
-one-based **navigation-row order**, not inventory order. Unlike authoring,
-this explicit transformation acquires and realizes the input and destination:
+To edit one direct Package coordinate in an existing scenario, first list the
+packet's typed components and copy the canonical Package path:
 
 ```bash
-dotnet-inspect workspace --packet "$w" \
-  --replace-package 1 --to-version 12.1.2 --share packet
-dotnet-inspect workspace --packet "$w" \
-  --replace-package 1 --to-tfm net9.0 --share url
-dotnet-inspect workspace --packet "$w" \
-  --replace-package 1 --to-version 12.1.2 --json --envelope
+dotnet-inspect workspace component list --packet "$w"
+dotnet-inspect workspace package update \
+  packages/avalonia@11.3.14/net8.0/~ \
+  --packet "$w" --version 12.1.2
+dotnet-inspect workspace package update \
+  packages/avalonia@11.3.14/net8.0/~ \
+  --packet "$w" --tfm net9.0 --share url
+dotnet-inspect workspace package update \
+  packages/avalonia@11.3.14/net8.0/~ \
+  --packet "$w" --version 12.1.2 --json --envelope
 ```
 
-Use `--to-version`, `--to-tfm`, or both, and select either scalar `--share`
+Use `--version`, `--tfm`, or both, and select either scalar `--share`
 output or `--json --envelope`. The envelope includes the derived Share,
 actual Scope outcome, retention/fallback decision and diagnostics. Scalar
 output contains only the complete resulting packet/URL; fallback diagnostics
@@ -820,10 +896,18 @@ An explicitly active Library stays paired with that Library instead.
 Both Versions must be exact pins. Changed TFMs require an unsubscribed
 single-member context; shared-context TFM changes, floating selected sources,
 ambiguous source positions and query-bearing scenarios are visibly refused.
-Do not combine replacement with dependency enrichment, direct construction,
+Do not combine Package update with dependency enrichment, direct construction,
 inventory controls, or
 `--active-package`/Library/Type/Member/inspector selectors: the packet owns that
 intent. Browser coordinate-control and capture adoption remain separate.
+
+Use the same canonical paths for resource-free immutable Package edits:
+
+```bash
+dotnet-inspect workspace package add Markout@0.35.2 --packet "$w"
+dotnet-inspect workspace package remove \
+  packages/markout@0.35.2/net10.0/~ --packet "$w"
+```
 
 The default `workspace` output is the typed top-level inventory. Package
 occurrences appear in committed Scope order, followed by inert registrations
@@ -860,8 +944,9 @@ Packet input is mutually exclusive with direct Package and registration
 construction. Workspace Definitions performs complete restoration, including
 group and non-Package context intent and retained Navigation state, before the
 CLI enters the inventory operation. CLI refinement of that restored Navigation
-state is intentionally deferred. Without `--replace-package`, `--packet`
-combines only with inventory controls when `--share` is absent.
+state is intentionally deferred. Top-level `workspace --packet` combines only
+with inventory controls when `--share` is absent; nested component and Package
+commands own packet editing.
 
 `workspace` never selects an occurrence implicitly, even when the Workspace
 contains exactly one Package.
@@ -960,6 +1045,8 @@ dotnet-inspect member System.ThrowHelper --platform System.Private.CoreLib --all
   -m ThrowArgumentNullException:1 -S Callers -n 1 --tail --json
 dotnet-inspect member JsonSerializer --package System.Text.Json Serialize:1 --source-parts --json
 dotnet-inspect member JsonSerializer --package System.Text.Json Serialize:1 --print --part xml-docs
+dotnet-inspect member JsonSerializer --package System.Text.Json Serialize:1 \
+  --print --part body --markdown
 dotnet-inspect type JsonSerializer --platform System.Text.Json -S "Source Files" --urls --json-array -T q
 dotnet-inspect library coordinate 0x060002EA+0x0 \
   --package System.Text.Json --library System.Text.Json.dll
@@ -1081,6 +1168,28 @@ section selection, explicit verbosity, row/line windows, and non-API modes.
 Explicitly projected JSON, such as `-S Changes --json`, retains its existing
 presentation schema. Share is explicitly non-projectable for comparison
 endpoints; it is not a replay URL.
+
+The exact local-Library Implementation Diff route also exposes complete typed
+Content. Exact section selection chooses the operation rather than projecting
+its result; `--type` and `--member` remain semantic request inputs recorded in
+the Content:
+
+```bash
+before=old/Foo.dll
+after=new/Foo.dll
+dotnet-inspect diff \
+  --library "$before..$after" \
+  -S "Implementation Diff" --type Foo.Widget --envelope
+```
+
+Unprojected `--json` emits the same `ImplementationDiffDocument` found at
+`--envelope.content`; `--compact` controls whitespace. The document retains
+Before/After assembly identity, MVID and provenance, structured C# and IL
+evidence, complexity changes, and per-mechanism coverage. Share is currently
+non-projectable for the ordered endpoint pair. Package/platform ranges, PDB
+Source enrichment, row or field projection, alternate formats, and additional
+sections remain on the existing rendered paths or are rejected for complete
+transport.
 
 Changes without a compatibility classification remain visible under
 **Other API Changes**, or as `unclassified` rows in detailed output. They are
@@ -1300,7 +1409,7 @@ dotnet-inspect graph calls \
   Microsoft.Extensions.DependencyInjection.ProviderBuilderServiceCollectionExtensions \
   AddOpenTelemetrySharedProviderBuilderServices~4d95928639 \
   --root-package OpenTelemetry@1.18.0 \
-  --package OpenTelemetry.Api@1.18.0 \
+  --root-tfm net10.0 \
   --tfm net10.0 \
   --all
 dotnet-inspect graph libraries \
@@ -1333,6 +1442,12 @@ Target, or Kind field order; Traversal is a sequence order. Asset-mode
 `Dependency Hierarchy` and Package `Dependency Hierarchy` inherit the same
 `--depth` capability from the Dependency operation.
 
+For recursive package traversal, `--tfm` selects the root package dependency
+group and configures the stable traversal target. When `--tfm` is omitted, the
+root keeps its package-local selection while newly reached packages use the
+product traversal default, currently `net12.0`; a compatible destination
+selection does not replace that target on later edges.
+
 For `graph integrations` and `graph calls`, one semantic row is one logical
 graph edge in the completed typed document. Head/Tail and strict Window select
 those edges before Markdown, table, TSV, JSONL, JSON, Mermaid, plaintext graph,
@@ -1343,9 +1458,11 @@ and Direct Use Clusters cohorts are described below.
 
 `graph calls` is the integration-style complement to the general
 `member -S "Call Graph"` view. It starts from one exact member in
-`--root-package`, treats repeatable `--package` values as explicit external
-participants, and shows only calls crossing out of the focus assembly plus the
-shortest local paths needed to reach them. Each edge is typed as `connector`,
+`--root-package`, automatically follows the root's authorized dependency
+graph, and shows only calls crossing out of the focus assembly plus the
+shortest local paths needed to reach them. Root asset selection stays exact;
+dependency traversal independently uses `--tfm` or the product default. Each
+edge is typed as `connector`,
 `boundary`, or `unclassified-boundary`, and row-oriented output retains the
 physical MVID, MethodDef token, IL offset, operand token, call kind, dispatch
 kind, and loop state.
@@ -1355,9 +1472,8 @@ nine explanatory edges. Two local connectors retain the path from
 `AddOpenTelemetrySharedProviderBuilderServices` through
 `Sdk.get_SuppressInstrumentation` and
 `SuppressInstrumentationScope.get_IsSuppressed` to
-`OpenTelemetry.Api`'s `RuntimeContextSlot<T>.Get`. Calls into assemblies not
-declared by `--package` remain visible as `unclassified-boundary` edges with an
-incompleteness warning instead of being silently dropped. Use `--table`,
+`OpenTelemetry.Api`'s `RuntimeContextSlot<T>.Get`. Unavailable dependency participants remain visible through typed routes and
+diagnostics rather than being silently dropped. Use `--table`,
 `--jsonl`, or `--json` for exact receipts; `-n`, `--tail`, and `--rows` select
 complete logical edges after graph construction.
 
@@ -1483,10 +1599,10 @@ dotnet-inspect library coordinate "<EvidenceToken>+<ILOffset>" \
 ### Workspace sharing and built-in guidance
 
 ```bash
-dotnet-inspect workspace-state decode "$w"
-dotnet-inspect workspace-state decode "$w" | jq
-dotnet-inspect workspace-state encode --file workspace-state.json
-dotnet-inspect workspace-state encode --file workspace-state.json --url
+dotnet-inspect workspace packet decode "$w"
+dotnet-inspect workspace packet decode "$w" | jq
+dotnet-inspect workspace packet encode --file workspace-state.json
+dotnet-inspect workspace packet encode --file workspace-state.json --url
 dotnet-inspect member JsonConvert \
   --package Newtonsoft.Json@13.0.4 \
   SerializeObject:1 \
@@ -1501,7 +1617,7 @@ dotnet-inspect demo list
 dotnet-inspect demo list -n 3 --json
 ```
 
-`workspace-state encode --url` emits `https://dotnet-inspect.net/?w=<packet>`
+`workspace packet encode --url` emits `https://dotnet-inspect.net/?w=<packet>`
 for the existing share-packet JSON shape. Packet-only output remains the default.
 This is not an encoder for `workspace --json` inventory output. The packet's
 existing limits and the browser's supported restoration shapes still apply.

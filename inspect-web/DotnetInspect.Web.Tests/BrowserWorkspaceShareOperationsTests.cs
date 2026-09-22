@@ -1,4 +1,5 @@
 using System.Runtime.Versioning;
+using DotnetInspector.Queries.Definitions;
 
 using DotnetInspect.Web.Interop.Catalog;
 
@@ -60,7 +61,6 @@ public sealed class BrowserWorkspaceShareOperationsTests
             Assert.IsType<BrowserWorkspaceShareState>(
                 BrowserWorkspaceShareOperations.Decode(
                     IndependentFocusVector).State);
-
         Assert.Equal("t1", state.ActiveTabId);
         Assert.Equal("g0", state.SelectedContextId);
         Assert.Equal(["t0"], state.Contexts[0].TabIds);
@@ -69,6 +69,55 @@ public sealed class BrowserWorkspaceShareOperationsTests
             BrowserWorkspaceShareOperations.Encode(state);
 
         Assert.Equal(IndependentFocusVector, encoded.Packet);
+    }
+
+    [Fact]
+    public void CompleteCapture_AuthorsFormat3AndPreservesIndependentFocus()
+    {
+        BrowserWorkspaceShareState state =
+            Assert.IsType<BrowserWorkspaceShareState>(
+                BrowserWorkspaceShareOperations.Decode(
+                    IndependentFocusVector).State);
+        state = state with
+        {
+            Tabs =
+            [
+                .. state.Tabs.Select(tab => tab with
+                {
+                    Version = "1.0.0",
+                    Framework = "net10.0",
+                }),
+            ],
+        };
+
+        BrowserWorkspaceShareEncodeResult captured =
+            BrowserWorkspaceShareOperations.CaptureComplete(state);
+
+        Assert.True(captured.Succeeded);
+        Assert.Null(captured.Failure);
+        WorkspaceSharePacket packet = WorkspaceSharePacketCodec.Decode(
+            Assert.IsType<string>(captured.Packet),
+            TestContext.Current.CancellationToken);
+        Assert.Equal(WorkspaceSharePacketCodec.CurrentFormatVersion,
+            packet.FormatVersion);
+        Assert.Equal(1, packet.FocusedTabIndex);
+        Assert.Equal(0, packet.SelectedContextIndex);
+    }
+
+    [Fact]
+    public void CompleteCapture_RefusesNonRootViewsWithoutPartialPacket()
+    {
+        BrowserWorkspaceShareState state =
+            Assert.IsType<BrowserWorkspaceShareState>(
+                BrowserWorkspaceShareOperations.Decode(CanonicalVector).State);
+
+        BrowserWorkspaceShareEncodeResult captured =
+            BrowserWorkspaceShareOperations.CaptureComplete(state);
+
+        Assert.False(captured.Succeeded);
+        Assert.Null(captured.Packet);
+        Assert.Equal("NonProjectable", captured.Failure?.Kind);
+        Assert.Equal("view", captured.Failure?.Path);
     }
 
     [Fact]
@@ -116,6 +165,24 @@ public sealed class BrowserWorkspaceShareOperationsTests
         Assert.Equal(
             RegistrationOnlyFormat3Vector,
             result.Packet);
+    }
+
+    [Fact]
+    public void Format5Packet_RoundTripsThroughManagedBrowserBoundary()
+    {
+        const string json =
+            """{"f":5,"s":[["https://nuget.pkg.github.com/example/index.json","a"]],"t":[["Private.Package","1.2.3","net10.0",null]],"g":[[0]],"r":[],"a":null,"x":0,"v":[{"t":null,"u":{"k":"workspace"}},{"t":0}]}""";
+        string packet = WorkspaceSharePacketCodec.Encode(
+            WorkspaceSharePacketCodec.ParseJson(
+                json,
+                TestContext.Current.CancellationToken));
+
+        BrowserWorkspaceShareEncodeResult result =
+            BrowserWorkspaceShareOperations.Canonicalize(packet);
+
+        Assert.True(result.Succeeded);
+        Assert.Null(result.Failure);
+        Assert.Equal(packet, result.Packet);
     }
 
     [Fact]

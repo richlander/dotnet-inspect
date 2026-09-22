@@ -127,6 +127,9 @@ outputs. `PackagingSurfaceTests` pins both defaults and the tool census.
 Ordinary feature and fix PRs do not edit it. Instead, `AGENTS.md` names the
 current release tracker, and each user-observable change adds a short comment
 there with its implementing PR or stack link before the implementation merges.
+The same tracker accepts concise reconciliation suggestions for the
+release-managed central files defined in `AGENTS.md`. Those suggestions are
+maintenance input, not release-note candidates.
 
 A tracker is an append-only candidate ledger, not a release manifest. The exact
 shipped commit defines release membership. Do not move or delete entries to
@@ -138,27 +141,34 @@ Prepare the notes and hand off intake as follows:
    Give it the same candidate-ledger and SHA-boundary explanation.
 2. Update the tracker link and actual issue number in `AGENTS.md`. New changes
    now report to the successor while release preparation continues.
-3. Write the outgoing release notes from the candidate comments and linked
+3. Reconcile every release-managed central file defined in `AGENTS.md` from
+   suggestions on both trackers whose implementing changes are ancestors of
+   the proposed release commit. Update each stale owner; comment when its
+   current content already covers a suggestion or the suggestion no longer
+   applies.
+4. Write the outgoing release notes from the candidate comments and linked
    implementations on both the outgoing and successor trackers. Include a
    change only when its implementation is after the previous release commit
    and is an ancestor of the proposed release commit; tracker placement never
    decides membership. The pre-merge comment requirement makes every
    implementation in that proposed history visible before this intake pass.
-4. Commit the notes and select that commit as the exact release SHA. This closes
+5. Commit the notes and all central-file reconciliation, then select that
+   commit as the exact release SHA. This closes
    implementation membership: later merges are not ancestors and remain next-
    release candidates. Immediately before dispatch, recheck both trackers
-   against the selected SHA. If a late comment exposes an earlier qualifying
-   implementation or the history and notes otherwise disagree, correct the
-   notes and select the replacement commit.
-5. After every coordinated release surface succeeds, comment on the successor
+   against the selected SHA. If a late comment exposes a qualifying release-note
+   candidate or central-file suggestion, or the history and prepared artifacts
+   otherwise disagree, correct the notes or central file as applicable and
+   select the replacement commit.
+6. After every coordinated release surface succeeds, comment on the successor
    tracker with the released version, release URL, and full shipped SHA. State
    that changes at or before that commit shipped in the completed release and
    later changes remain candidates for the successor.
-6. Before closing the outgoing tracker, copy or link every still-eligible entry
+7. Before closing the outgoing tracker, copy or link every still-eligible entry
    whose implementation is not an ancestor of the shipped SHA to the successor.
    Preserve the original entry. Naming successor-tracker entries that actually
    shipped in the completed release is optional.
-7. Close the outgoing tracker only after the boundary comment and required
+8. Close the outgoing tracker only after the boundary comment and required
    carry-forward entries exist on the successor.
 
 Publication retries retain the same tracker handoff and release boundary. Do
@@ -343,8 +353,8 @@ commit.
 - **Reach validation fails:** fix the package shape rather than bypassing the
   guard.
 - **The release tag targets another commit:** move it to the resolved CI commit
-  and fix the workflow before the next release. The
-  `ReleaseWorkflow_TagsResolvedCiCommit` test gates this wiring.
+  before treating the release as complete. Verify the release version and
+  commit as part of the post-publish checks above.
 - **A package version already exists:** advance `VersionPrefix`; published
   package versions are immutable.
 - **A partially published release is retried:** the workflow uses

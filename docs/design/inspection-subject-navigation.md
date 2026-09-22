@@ -121,6 +121,16 @@ CLI gates prove only the implemented Package-backed subset. They do not yet
 prove Ecosystem subjects, direct Workspace-to-Library routes, route-independent
 subject identity, or route reconciliation.
 
+The first preparatory Ecosystem-intake slice is implemented by
+`EcosystemPopulationNavigationProjection` and its closed result shapes in
+`DotnetInspector.EcosystemLoading`. The adapter classifies each owner-issued
+historical accepted Focus witness against one caller-supplied current Workspace
+registration revision and returns exact current contribution evidence only
+while that revision retains the same owner-issued occurrence and contribution
+relation. Workspace registration now issues that occurrence and relation
+prerequisite. This slice does not implement the Ecosystem structural subject,
+route composition, activation, or reconciliation.
+
 PR #5433 demonstrates the intended browser distinction: Workspace manages
 retained coordinates, Package is inspectable, and package tabs are absent.
 Those browser identities and transitions remain host-local migration facts,
@@ -186,15 +196,20 @@ defining-Library result, preserves active ancestors, and applies forwarded
 fallback under #5584. CLI and Browser/Wasm adoption remain separately
 unverified.
 
-The aggregate-first Package policy below is likewise **target-only and
-unverified** under
+The aggregate-first Package policy below remains **target-only in shared
+Navigation** under
 [#7318](https://github.com/richlander/dotnet-inspect/issues/7318). Current
 `NavigationInitialSubjectRecommendation` still prefers one primary or
-declaration-order Library before `All libraries`. The #7318 slice instead
-recommends the existing Package-scoped aggregate and defines exact and
-namesake-Library narrowing as explicit gestures. It changes neither Package
-acquisition nor the shipped CLI and Browser consumers until their focused
-adoption slices land.
+declaration-order Library before `All libraries`. Focused CLI adoption has
+begun: PR #8018 composes Workspace-backed Library inspection from the selected
+Package aggregate, and PR #8081 adopts the aggregate default plus exact and
+namesake narrowing for direct Package/Library inspection. Direct Package
+selection accepts either `ID@VERSION` or explicit
+`package ID --version VERSION`; `package ID --latest-version` is the scalar
+latest-Version query. Commandless routing deliberately accepts neither
+singular option because a generic version lens does not compose across
+routable subjects. Shared Navigation, API/Type/Member, Find, and Browser
+adoption remain with their focused slices.
 
 ## Consumer and complexity record
 
@@ -270,8 +285,12 @@ scope-operation results are owned by
 protected Navigation consumption is implemented by the shared producer in
 [Navigation Scope-operation consumption](navigation-scope-operation-consumption.md)
 under [#5584](https://github.com/richlander/dotnet-inspect/issues/5584).
-Source-retiring correspondence orchestration is implemented there; CLI and
-Browser adoption remain unverified follow-on slices.
+Source-retiring same-Workspace correspondence orchestration is implemented
+there. [Navigation coordinate successor
+preparation](navigation-coordinate-successor-preparation.md) applies the same
+retention policy to explicit source and destination Workspace arguments while
+preparing a fresh destination lineage. Portable, CLI, and Browser adoption
+remain follow-on slices.
 Structural containment remains implementation-gated rather than model-checked.
 
 Navigation returns typed descriptors, identities, evidence, and outcomes. The
@@ -879,6 +898,57 @@ identity family. The closed-kind, component-binding, route-validation, and
 construction gates must be updated to this Workspace-rooted graph while
 preserving their existing exact Type and Member witnesses.
 
+### Current Ecosystem contribution intake
+
+The preparatory intake consumes only owner-issued evidence already produced by
+Workspace registration and Ecosystem Population Loading:
+
+- the exact current Workspace registration revision, Ecosystem occurrence, and
+  Workspace-to-Ecosystem contribution relation;
+- the exact historical registration revision and declaration retained by the
+  load receipt;
+- the exact Workspace Library admission receipt and occurrence; and
+- the Focus-only contribution witness that joins them.
+
+`EcosystemPopulationNavigationProjection` compares each inseparable
+Focus-witness association with one caller-supplied current Workspace
+registration revision. It returns:
+
+- `Available` with one
+  `EcosystemPopulationNavigationLibraryContribution` when the current revision
+  belongs to the witness's exact Workspace and still retains the same
+  occurrence and contribution relation as the historical revision;
+- `Unavailable(RegistrationNotCurrent)` when the historical evidence is valid
+  but that exact occurrence and relation are absent from the current revision;
+  or
+- `Rejected(ForeignWorkspace)` when the current revision belongs to another
+  Workspace.
+
+An equal ID, equal declaration value, or re-added declaration object is not
+currentness. A later registration revision may preserve the contribution only
+by retaining the same owner-issued occurrence and relation continuously from
+the historical revision. The available value retains both historical and
+current revisions, that exact occurrence and contribution relation, admission
+receipt, and Library occurrence. It has no Package field or implied Package
+ancestry.
+
+`EcosystemPopulationNavigationProjection` is the one-way adapter because
+`DotnetInspector.EcosystemLoading` already references
+`DotnetInspector.Queries`; reversing that dependency would create a cycle. It
+accepts only `EcosystemPopulationAdmissionResult.Contributions`, whose
+owner-issued witnesses already bind the exact historical registration,
+accepted admission, occurrence, and Focus role. The adapter does not expose a
+public component-wise constructor or evaluator that could substitute
+support-only or unrelated evidence; its result constructors are internal and
+binding-support-only Libraries never enter this intake.
+
+The Workspace-to-Ecosystem contribution relation is route-ready owner evidence,
+but it is not yet a Navigation `StructuralSubjectRelationIdentity` or route.
+The target graph still requires route construction, activation, and
+reconciliation in one coherent replacement of the package-only subject
+implementation. Hosts must not expose the available intake value as a
+supported route before that slice lands.
+
 A navigation lens identity combines one exact structural subject identity with
 one view-facet registry identity:
 
@@ -916,6 +986,11 @@ One navigation snapshot contains:
 | Lens descriptors | Registry order, subject-scoped identity, and availability |
 | Lens outcome | Effective identity or non-effective outcome, evaluation basis, and exact Registry evidence |
 | Diagnostics | Partial evidence and scoped failures |
+
+A consumer hierarchy descriptor classified as failed from inventory evidence
+carries that exact typed evidence. Consumers render the descriptor-owned
+evidence directly; they do not infer a slot association from the snapshot's
+separate diagnostic inventory.
 
 The semantic snapshot is the state lineage's only committed subject and lens
 state. It includes complete descriptors, retained context, diagnostics, and
@@ -1381,10 +1456,21 @@ and Navigation adoption rather than an implicit exception here.
 
 Because standalone lens activation requires the request's exact subject to
 equal the snapshot's active subject (see
-[Explicit activation](#explicit-activation)), switching lenses never silently
-changes the Library subject to obtain a supported arity. An unsupported arity
-is reported as `Unavailable` for that lens while the current Library subject
-remains active and selectable for a supported lens.
+[Explicit activation](#explicit-activation)), standalone activation never
+silently changes the Library subject to obtain a supported arity. An
+unsupported arity is reported as `Unavailable` for that lens while the current
+Library subject remains active and selectable for a supported lens.
+
+A host may expose a compound subject-and-lens gesture when the user moves from
+`All libraries` to a single-library-only inspector. Inspect Web defines that
+gesture by selecting the first case-insensitive Package-ID namesake in its
+alphabetically ordered Library inventory, or the first Library in that
+inventory when no namesake exists, and then activating the requested inspector.
+The transition runs only for user inspector navigation. Restoration,
+rerendering, and asynchronous settlement do not repeat it. A later explicit
+`All libraries` gesture remains active and receives the unsupported-arity
+result, while moving to an aggregate-capable inspector retains the selected
+exact Library rather than automatically returning to the aggregate.
 
 ## Activation and reconciliation
 
@@ -1738,9 +1824,12 @@ current snapshot and surfaces failure. For a newly activated occurrence with
 no prior retained path, Navigation runs independent initial recommendation;
 correspondence is not invented. Failed lower levels remain failed.
 
-Correspondence never crosses a Workspace boundary. A different exact Workspace
-uses a different retained navigation session and independently selected or
-restored state.
+Navigation state and structural-subject identity never cross a Workspace
+boundary. A focused successor operation may compare exact source and
+destination evidence under
+[Navigation coordinate successor preparation](navigation-coordinate-successor-preparation.md),
+but it creates a fresh destination Navigation session with independently
+selected or restored state.
 
 Membership-changing effects are outside this structural claim and are owned by
 Workspace Scope and Expansion. #5584 owns their stale-work sequencing and
@@ -2148,47 +2237,46 @@ retaining a navigation session.
 ## Workspace-rooted graph adoption
 
 Issue [#7301](https://github.com/richlander/dotnet-inspect/issues/7301) is the
-overall tracker. The current plan has sixteen focused stages:
+overall tracker. The current plan has twenty focused stages:
 
-1. Lock this Navigation-owned subject, identity, route, policy, and evidence
-   contract.
-2. Have the Ecosystems catalog define the `.NET Runtime` Ecosystem contribution
-   as the .NET runtime platform population plus the `System.` Package Prefix,
-   with `.NET Runtime` as its user-facing identity.
-3. Have the Workspace registration and ecosystem-handoff owners issue exact
-   Workspace-bound Ecosystem occurrences and contribution-relation witnesses.
-4. Have the responsible admission owner issue exact Workspace-bound Library
-   occurrences and direct, Package, and Ecosystem relation witnesses.
-5. Supply one host-neutral Ecosystem Overview inspection over the exact
-   registration occurrence and admitted-descendant descriptors through the
-   repository's `InspectionEnvelope<T>` boundary.
-6. Have View Facet Registry adopt the Ecosystem Overview descriptor, preferred
-   role, exact applicability, and execution binding.
-7. Have View Facet Registry make an explicit target-aware applicability
-   decision for existing Compare descriptors; the initial path keeps
-   source-native subjects without Package association inapplicable.
-8. Replace Navigation's package-only subject implementation with the closed
-   subject graph, route state, activation, reconciliation, and Release gates.
-9. Have Workspace Definitions resolve portable subject intent into exact fresh
-   Workspace subjects and routes without serializing runtime identities.
-10. Adopt the same Workspace-rooted subjects and routes in the CLI through the
-   existing Workspace top-level inventory selection receipt, Markout, and
-   structured-output path.
-11. Adopt the product-issued routes, actions, and outcomes in the Inspect Web
-   Navigation Consumer, resolving Workspace inventory rows through their
-   exact top-level inventory selection receipt.
-12. Have Inspect Web Workspace Editing expose configuration as an explicit
-   action on the singular live Workspace rather than as a structural subject.
-13. Have Inspect Web Saved Workspaces expose the plural saved-definition
-   collection and lifecycle separately from the active Workspace subject.
-14. Have Inspect Web Navigation Presentation make singular Workspace the
-   visible inspection root and compose the separately owned Configure
-   Workspace and Workspaces actions or surfaces without redefining them.
-15. Have Spotlight destination activation add typed Ecosystem destinations and
-   explicit registration effects, then retire its Browser-local framework
-   Library activation path after shared Navigation covers it.
-16. Include the CLI and website behavior in a separately authorized product
-   release and production-site deployment.
+1. Lock the Inspection Subject Navigation contract.
+2. Lock the Ecosystem Population Loading contract.
+3. Implement the loader binding, selection, request, outcome, receipt, and
+   owner-transfer substrate with a public consumer canary.
+4. Have Static Ecosystem Packs define `ecosystem.dotnet` and
+   `ecosystem.aspnetcore`, their presentation identities, package prefixes, and
+   independent loader bindings; retire the user-facing Platform pack identity.
+5. Have Workspace Ecosystem Registration Handoff preserve the lower
+   registrations and exact application correspondence needed for loader
+   selection without executable callbacks in Workspace state.
+6. Implement the `.NET` and ASP.NET Core loaders over PlatformHouse and the
+   shared Library contract, preserving family and focus/binding-support roles.
+7. Issue exact Workspace-bound Ecosystem occurrences and contribution
+   relations.
+8. Admit loader-produced and direct Libraries through the ordinary Workspace
+   owner and issue exact Ecosystem, Package, and Library relations.
+9. Supply a host-neutral Ecosystem Overview through `InspectionEnvelope<T>`.
+10. Register the Ecosystem Overview facet and preferred role.
+11. Make an explicit Registry-owned Compare applicability decision for
+    non-Package subjects; initially keep source-native subjects without Package
+    association inapplicable.
+12. Implement Navigation subject identities, routes, activation,
+    reconciliation, models, and gates.
+13. Adopt portable subject and route resolution in Workspace Definitions.
+14. Adopt top-level inventory selection, Ecosystem loading, Navigation,
+    Markout, and structured output in the CLI.
+15. Adopt exact inventory selection receipts, Ecosystem loading, and shared
+    Navigation outcomes in Inspect Web.
+16. Expose Configure Workspace as an explicit action through Workspace Editing.
+17. Separate the plural Workspaces saved-definition lifecycle through Saved
+    Workspaces.
+18. Present singular Workspace as the visible inspection root and compose the
+    adjacent actions through Navigation Presentation.
+19. Add typed Ecosystem Spotlight destinations and explicit
+    registration/loading effects; retire Browser-local framework Library
+    activation after shared loading and Navigation cover it.
+20. Include the CLI and website behavior in a separately authorized release
+    and production deployment.
 
 Each stage owns only its component's adoption decisions. This document does not
 define those adjacent internals. Stages may split when an owner demonstrates
@@ -2196,9 +2284,9 @@ more than one independently coherent claim; the tracker must then update the
 count rather than hide the additional work.
 
 The package-only `StructuralSubjectIdentity` is an alternative architecture,
-not a compatibility contract. Stage 8 replaces it in place once all current
+not a compatibility contract. Stage 12 replaces it in place once all current
 Package behavior has equivalent gates. The Browser-local framework Library
-route remains visible migration state until stages 11 through 15 replace and
+route remains visible migration state until stages 15 through 19 replace and
 retire it; no design-only claim presents that path as already shared.
 
 ## Verification
@@ -2215,26 +2303,46 @@ retire it; no design-only claim presents that path as already shared.
 The model README records the TLC commands and scope. Model checking validates
 these finite specifications, not the implementation.
 
-Workspace isolation, structural ancestry, lens ranking, Registry-result
-classification, and the exact subject-plus-facet identity structure are
-intentionally absent from the models: subjects, snapshots, and lenses remain
-opaque values there. The pure recommendation, mapping, identity-binding, and
-Workspace-containment rules above are enforced by the implementation gates
-below rather than claimed as model-checked behavior. Ancestor fallback and
-coordinate inspector-request retention are likewise pure policy over those
-values, not changes to the modeled ordering protocol; their protected
-replacement gates are implemented. Forwarded ancestry is another pure
-structural policy, not a new concurrency transition; its Release gates, not the
-models, establish the implemented ancestry and correspondence properties.
+Workspace isolation, the closed structural grammar, lens ranking,
+Registry-result classification, and the exact subject-plus-facet identity
+structure are intentionally absent from the models. Subjects and lenses remain
+opaque values. `NavigationSession.tla` exposes only the distinction between one
+direct route and one route backed by an abstract owner relation so it can check
+publication behavior when that relation disappears. The pure recommendation,
+mapping, identity-binding, Workspace-containment, and exact relation-grammar
+rules above are enforced by the implementation gates below rather than claimed
+as model-checked behavior. Ancestor fallback and coordinate inspector-request
+retention are likewise pure policy over those values, not changes to the
+modeled ordering protocol; their protected replacement gates are implemented.
+Forwarded ancestry is another pure structural policy, not a new concurrency
+transition; its Release gates, not the models, establish the implemented
+ancestry and correspondence properties.
 
 The Workspace-rooted graph adds no second intent, publication, or
 acknowledgement protocol. Subject plus route remains one immutable semantic
-snapshot value under the existing ordering models. Before stage 4,
-`NavigationSession.tla` must exercise a route-only applied change, stale
-relation action rejection, and relation removal that cannot leave an invalid
-posted route. Those bounded results will establish model behavior, not
-implementation conformance. The #7301 model extension and all implementation
-properties remain **unverified**.
+snapshot value under the existing ordering model. `NavigationSession.tla`
+models those two semantic components separately and one abstract
+relation-backed route. `NavigationSession.cfg` checks the route properties
+alongside the retained session's existing contracts.
+`NavigationSessionRouteSafety.cfg` is the contract-defining gate that a
+route-only change advances semantic revision, a posted route never retains a
+removed relation, a stale relation action cannot install, and maintenance
+advances semantic revision exactly when the semantic value changes. The
+contract-defining
+`NavigationSessionRouteReachability.cfg` intentionally exits `12` only after
+one behavior successfully applies a route-only relation-backed publication,
+atomically replaces that exact publication with a direct route when the
+relation is removed, and rejects an action whose retained basis generation
+equals that removed publication.
+`NavigationSessionPostRemovalMaintenanceReachability.cfg` intentionally exits
+`12` only after relation removal invalidates one exact queued request's current
+relation-backed publication basis and that same request rebuilds, regathers,
+and drains without inventing a semantic revision.
+`NavigationSessionPostRemovalMaintenanceLiveness.cfg` verifies that every
+bounded queued request still drains across blocking, abort, stale-basis
+rebuild, and regather paths. These bounded results establish model behavior,
+not implementation conformance. The #7301 implementation properties remain
+**unverified**.
 
 ### Required implementation gates
 
@@ -2247,6 +2355,10 @@ The eventual subject-navigation implementation must include named gates for:
 - `SubjectIdentity_ExcludesRouteIdentity`
 - `EcosystemSubject_RequiresExactWorkspaceRegistrationOccurrence`
 - `LibrarySubject_RequiresExactWorkspaceAdmissionOccurrence`
+- `CurrentNavigationContributionPreservesExactFocusAdmission`
+- `EqualTextRegistrationReplacementDoesNotReauthorizeContribution`
+- `RemovedAndReaddedRegistrationDoesNotReauthorizeContribution`
+- `ForeignWorkspaceCannotConsumeContribution`
 - `Construction_RejectsAbsentOwnerIssuedComponents`
 - `Route_AllowsOnlyClosedTypedRelations`
 - `Route_RequiresOneExactWorkspaceAndContiguousWitnesses`

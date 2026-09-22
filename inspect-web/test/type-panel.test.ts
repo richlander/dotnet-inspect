@@ -14,6 +14,7 @@ import {
   typeHeading,
   typeMetadataSignature,
   typeSourceSignature,
+  typeCodeViewText,
 } from "../src/type-panel.ts";
 import type {
   ExactTypeApi,
@@ -31,6 +32,7 @@ import type {
 import { KeybindingRegistry } from "../src/keybinding-registry.ts";
 import { WORKBENCH_KEYBINDING_PRIORITY } from "../src/workbench-keybindings.ts";
 import { fakeDom } from "./fake-dom.ts";
+import { apiDeclarationsFixture } from "./type-api-declarations-fixture.ts";
 import {
   inertStringFixture,
   metadataInertStringFixture,
@@ -305,6 +307,9 @@ function recordingActions(calls: string[]): TypePanelBindingActions {
     },
     onCopyTypeSource: () => {
       calls.push("copy-type-source");
+    },
+    onTypeSourceViewSelect: view => {
+      calls.push(`type-source-view:${view}`);
     },
     onExploreSource: () => {
       calls.push("explore-source");
@@ -1027,9 +1032,57 @@ test("type source signature routes through the shared decompiler-taste-aware key
       "net9.0",
       "System.Text.Json.dll",
       "T:System.Text.Json.JsonSerializer",
+      "source",
     ],
     taste: ["identifier-casing"],
   }]);
+});
+
+test("declaration request identity separates scope and ignores decompiler taste", () => {
+  const packageContext = { id: "System.Text.Json", version: "9.0.0", activeFramework: "net9.0" };
+  const requestKey = (parts: readonly string[], taste: readonly string[]) =>
+    JSON.stringify([parts, taste]);
+  const api = typeSourceSignature(jsonSerializer, packageContext, [], requestKey, "api-declarations");
+  assert.notEqual(api, typeSourceSignature(jsonSerializer, packageContext, [], requestKey, "source"));
+  assert.notEqual(api, typeSourceSignature(jsonSerializer, packageContext, [], requestKey, "all-declarations"));
+  assert.equal(api, typeSourceSignature(
+    jsonSerializer, packageContext, ["identifier-casing"], requestKey, "api-declarations"));
+});
+
+test("type source picker dispatches supported views without eager work", () => {
+  const root = new FakeRoot();
+  const picker = root.add("#type-source-view", new FakeElement());
+  const calls: string[] = [];
+  bindPanel(root, recordingActions(calls));
+  assert.deepEqual(calls, []);
+  picker.value = "api-declarations";
+  picker.dispatch("change");
+  picker.value = "all-declarations";
+  picker.dispatch("change");
+  picker.value = "unknown";
+  picker.dispatch("change");
+  assert.deepEqual(calls, [
+    "type-source-view:api-declarations",
+    "type-source-view:all-declarations",
+  ]);
+});
+
+test("declaration actions remain inside the type viewer and disable unavailable copy", () => {
+  const html = renderSourcePageActions({
+    source: null,
+    typeView: "all-declarations",
+    copyButtonId: "copy-type-source",
+    escapeHtml,
+  });
+  assert.match(html, /id="type-source-view"/);
+  assert.match(html, /value="all-declarations" selected/);
+  assert.match(html, /id="copy-type-source" type="button" disabled/);
+  assert.doesNotMatch(html, /id="explore-source"/);
+  assert.doesNotMatch(renderSourcePageActions({
+    source: null,
+    copyButtonId: "copy-source",
+    escapeHtml,
+  }), /id="type-source-view"/);
 });
 
 test("type metadata renders a loading state while the projection is in flight", () => {
@@ -1262,11 +1315,20 @@ test("type PDB source renders code above provenance once loaded", () => {
       status: "ready",
       signature: "sig",
       source: {
-        provider: "pdb",
-        provenance: inertStringFixture("SourceLink"),
-        url: "https://example.test",
-        pdbSourceLimitation: null,
-        text: "class JsonSerializer {}",
+        kind: "source",
+        value: {
+          provider: "pdb",
+          provenance: inertStringFixture("SourceLink"),
+          url: "https://example.test",
+          pdbSourceLimitation: null,
+          text: "class JsonSerializer {}",
+        },
+        share: {
+          kind: "available",
+          fullUrl: "https://example.test/type-source",
+          packet: "type-source",
+        },
+        diagnostics: [],
       },
     },
     escapeHtml,
@@ -1279,6 +1341,49 @@ test("type PDB source renders code above provenance once loaded", () => {
     html,
     /<pre[^>]*role="region"[^>]*aria-label="Source code"[\s\S]*class JsonSerializer \{\}[\s\S]*<\/pre>[\s\S]*<footer class="source-provenance">/);
   assert.doesNotMatch(html, /copy-type-source|open source/);
+});
+
+for (const scope of ["ApiVisible", "All"] as const) {
+  test(`${scope} declaration view displays and copies the unchanged shared text`, () => {
+    const source = apiDeclarationsFixture(scope);
+    const html = renderTypeSource({
+      item: jsonSerializer,
+      currentSignature: "declarations",
+      sourceState: { status: "ready", signature: "declarations", source },
+      view: scope === "All" ? "all-declarations" : "api-declarations",
+      escapeHtml,
+      highlightCSharp,
+    });
+    assert.match(html, /aria-label="API Declarations"/);
+    assert.match(html, /protected JsonNamingPolicy\(\);/);
+    assert.equal(html.includes("static JsonNamingPolicy();"), scope === "All");
+    assert.doesNotMatch(html, /PDB Source|Decompiled source/);
+    assert.equal(typeCodeViewText(source), source.inspection.content.text);
+    assert.match(renderSourcePageActions({
+      source: null, typeCodeView: source, typeView: "api-declarations",
+      copyButtonId: "copy-type-source", escapeHtml,
+    }), /id="copy-type-source" type="button">Copy/);
+  });
+}
+
+test("unavailable declarations retain visible diagnostics without source substitution", () => {
+  const source = apiDeclarationsFixture("ApiVisible", true);
+  const html = renderTypeSource({
+    item: jsonSerializer,
+    currentSignature: "declarations",
+    sourceState: { status: "ready", signature: "declarations", source },
+    view: "api-declarations",
+    escapeHtml,
+    highlightCSharp,
+  });
+  assert.match(html, /API Declarations unavailable/);
+  assert.match(html, /The &lt;metadata&gt; bound was exceeded/);
+  assert.doesNotMatch(html, /<pre|PDB Source|Decompiled source/);
+  assert.equal(typeCodeViewText(source), null);
+  assert.match(renderSourcePageActions({
+    source: null, typeCodeView: source, typeView: "api-declarations",
+    copyButtonId: "copy-type-source", escapeHtml,
+  }), /id="copy-type-source" type="button" disabled/);
 });
 
 test("source page actions render copy, open, and Explore for the page-owned group", () => {
@@ -1534,11 +1639,22 @@ test("decompiled type source discloses an escaped PDB-source limitation", () => 
       status: "ready",
       signature: "sig",
       source: {
-        provider: "decompiled",
-        provenance: inertStringFixture("decompiled from IL"),
-        url: null,
-        pdbSourceLimitation: "<checksum mismatch>",
-        text: "class JsonSerializer {}",
+        kind: "source",
+        value: {
+          provider: "decompiled",
+          provenance: inertStringFixture("decompiled from IL"),
+          url: null,
+          pdbSourceLimitation: "<checksum mismatch>",
+          text: "class JsonSerializer {}",
+        },
+        share: {
+          kind: "nonProjectable",
+          fullUrl: null,
+          packet: null,
+          path: "type-source/share",
+          reason: inertStringFixture("No portable Workspace Share representation."),
+        },
+        diagnostics: [],
       },
     },
     escapeHtml,

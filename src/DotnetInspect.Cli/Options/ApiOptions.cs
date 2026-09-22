@@ -1,4 +1,5 @@
 using DotnetInspect.Cli.Output;
+using DotnetInspect.Cli.Sections;
 using DotnetInspector.Packages;
 using DotnetInspector.Presentation;
 using DotnetInspector.Queries;
@@ -119,6 +120,7 @@ public partial record ApiOptions : IProjectionOptions
 
     // Shared output
     public Verbosity Verbosity { get; init; } = Verbosity.Minimal;
+    public bool VerbosityExplicitlySet { get; init; }
 
     /// <summary>
     /// The user's requested verbosity before internal section-selection promotion.
@@ -147,10 +149,6 @@ public partial record ApiOptions : IProjectionOptions
     /// Render graph sections as fenced Mermaid within the Markdown document.
     /// </summary>
     public bool EmbeddedMermaid { get; init; }
-
-    /// <summary>Print only the selected payload with no heading,
-    /// fence, separator, or tips.</summary>
-    public bool Bare { get; init; }
 
     public bool Print { get; init; }
 
@@ -287,10 +285,46 @@ public partial record ApiOptions : IProjectionOptions
             : new MarkdownFormatter(
                 EmbeddedMermaid ? MarkdownGraphMode.Mermaid : MarkdownGraphMode.EdgeTable);
 
+    public bool UsesMarkdownPayloadFormat =>
+        MarkdownExplicitlySet
+        || (FormatExplicitlySet
+            && Format == OutputFormat.Markdown
+            && (!FormatFlagExplicitlySet || VerbosityExplicitlySet));
+
+    public bool UsesNativePayloadDefault =>
+        !FormatExplicitlySet
+        && !JsonOutput
+        && !Tabular
+        && !Jsonl
+        && !PlainText
+        && !MermaidOutput
+        && !EmbeddedMermaid
+        && !NoHeader
+        && !Print
+        && !Value
+        && !Urls
+        && !Paths
+        && !Count
+        && Discover is null
+        && Columns is not { Length: > 0 }
+        && Fields is not { Length: > 0 }
+        && IncludeSections is { Count: 1 } sections
+        && sections.First() is
+            SectionNames.ApiDeclarations
+            or SectionNames.Source
+            or SectionNames.DecompiledSource
+            or SectionNames.AnnotatedSource
+            or SectionNames.PdbSource
+            or SectionNames.SourceDiff
+            or SectionNames.IL
+            or SectionNames.CostOverlay
+            or SectionNames.SemanticsOverlay
+            or SectionNames.FindingCensus;
+
     /// <summary>
     /// True when output is raw text (not rendered markdown).
     /// </summary>
-    public virtual bool IsRawOutput => Bare || Print || Value || Urls || Paths || JsonOutput || Tabular || Jsonl || NoHeader || Count;
+    public virtual bool IsRawOutput => UsesNativePayloadDefault || Print || Value || Urls || Paths || JsonOutput || Tabular || Jsonl || NoHeader || Count;
 }
 
 /// <summary>
@@ -319,6 +353,24 @@ public record TypeOptions : ApiOptions
     public string? OriginalTypeQuery { get; init; }
     public string? PlatformPrefixQuery { get; init; }
     public bool AllowPlatformPrefixFallback { get; init; }
+    public InspectionEnvelope<AssemblyTypeDecompilationEntry>?
+        TypeDecompilationInspection
+    {
+        get;
+        init;
+    }
+    public InspectionEnvelope<AssemblyTypeSourceEntry>?
+        TypeSourceInspection
+    {
+        get;
+        init;
+    }
+    public InspectionEnvelope<TypeApiDeclarationResult>?
+        TypeApiDeclarationInspection
+    {
+        get;
+        init;
+    }
 
     /// <summary>
     /// True when no explicit output format was selected (default invocation).
@@ -328,7 +380,15 @@ public record TypeOptions : ApiOptions
     /// <summary>
     /// True when output is raw text (not rendered markdown).
     /// </summary>
-    public override bool IsRawOutput => Bare || JsonOutput || EnvelopeOutput || Tabular || Jsonl || NoHeader || ShapeOutput || Count;
+    public override bool IsRawOutput =>
+        UsesNativePayloadDefault
+        || JsonOutput
+        || EnvelopeOutput
+        || Tabular
+        || Jsonl
+        || NoHeader
+        || ShapeOutput
+        || Count;
 }
 
 /// <summary>
@@ -372,6 +432,18 @@ public record MemberOptions : ApiOptions
     public MethodSourceContext? MethodSource { get; init; }
     public AssemblyMemberSourceComparisonEntry? MemberSourceComparison { get; init; }
     public InspectionEnvelope<AssemblyMemberSourceComparisonEntry>? MemberSourceComparisonInspection
+    {
+        get;
+        init;
+    }
+    public InspectionEnvelope<AssemblyMemberDecompilationEntry>?
+        MemberDecompilationInspection
+    {
+        get;
+        init;
+    }
+    public InspectionEnvelope<AssemblyMemberSourceEntry>?
+        MemberSourceInspection
     {
         get;
         init;

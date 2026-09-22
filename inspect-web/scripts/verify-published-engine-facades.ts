@@ -41,6 +41,10 @@ const productionFacades: readonly FacadeIdentity[] = [
     module: "inspect-web-package",
   },
   {
+    assembly: "DotnetInspect.Web.Interop.Library",
+    module: "inspect-web-library",
+  },
+  {
     assembly: "DotnetInspect.Web.Interop.Metadata",
     module: "inspect-web-metadata",
   },
@@ -328,6 +332,7 @@ export function inspectWebRuntimeObservation() {
     operations.push("host.buildIdentity");
 
     const packageFacade = requiredFacade(loaded, "inspect-web-package");
+    const libraryFacade = requiredFacade(loaded, "inspect-web-library");
     const metadataFacade = requiredFacade(loaded, "inspect-web-metadata");
     const analysisFacade = requiredFacade(loaded, "inspect-web-analysis");
     const sourceFacade = requiredFacade(loaded, "inspect-web-source");
@@ -356,6 +361,17 @@ export function inspectWebRuntimeObservation() {
       "package facade did not resolve the bounded dependency coordinate");
     operations.push("package.matchPackageDependencyCoordinate");
 
+    const uploadedLibrary: unknown = await operation(
+      libraryFacade,
+      "openUploadedLibrary",
+    )("broken.dll", [0x4d, 0x5a, 0x00, 0x01]);
+    assert.ok(
+      isRecord(uploadedLibrary)
+        && isRecord(uploadedLibrary.content)
+        && uploadedLibrary.content.outcome === "Rejected",
+      "library facade did not return a visible typed rejection");
+    operations.push("library.openUploadedLibrary.visibleRejection");
+
     await expectVisibleFailure(
       operation(metadataFacade, "queryPackageMetadata")(
         packageId,
@@ -372,15 +388,23 @@ export function inspectWebRuntimeObservation() {
       "analysis.queryPackageOpportunities");
     operations.push("analysis.queryPackageOpportunities.visibleFailure");
 
-    await expectVisibleFailure(
+    const typeSourceFailure = await withTimeout(Promise.resolve(
       operation(sourceFacade, "queryTypeSource")(
+        crypto.randomUUID(),
         packageId,
         packageVersion,
         framework,
         "Fixture.dll",
         "Fixture.Type",
-        "[]"),
+        "[]",
+        "source")),
       "source.queryTypeSource");
+    assert.ok(
+      typeof typeSourceFailure === "object" && typeSourceFailure !== null
+        && "kind" in typeSourceFailure && typeSourceFailure.kind === "Failed"
+        && "error" in typeSourceFailure && typeof typeSourceFailure.error === "string"
+        && typeSourceFailure.error.length > 0,
+      "source.queryTypeSource must report an explicit managed failure");
     operations.push("source.queryTypeSource.visibleFailure");
 
     await expectVisibleFailure(

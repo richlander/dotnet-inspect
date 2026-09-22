@@ -100,7 +100,8 @@ public partial class CommandExecutionTests
 
         Assert.Equal(0, getterExit);
         Assert.Empty(getterError);
-        Assert.Contains("## PDB Source", getterOutput);
+        Assert.DoesNotContain("## PDB Source", getterOutput);
+        Assert.DoesNotContain("```", getterOutput);
         Assert.Contains("get => _maxDepth;", getterOutput);
         Assert.Contains("_maxDepth = value;", getterOutput);
 
@@ -110,7 +111,8 @@ public partial class CommandExecutionTests
 
         Assert.Equal(0, setterExit);
         Assert.Empty(setterError);
-        Assert.Contains("## PDB Source", setterOutput);
+        Assert.DoesNotContain("## PDB Source", setterOutput);
+        Assert.DoesNotContain("```", setterOutput);
         Assert.Contains("_maxDepth = value;", setterOutput);
         Assert.Contains("get => _maxDepth;", setterOutput);
 
@@ -121,7 +123,7 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Member_OriginalSourceLegacyAlias_RendersCanonicalPdbSourceHeading()
+    public async Task Member_OriginalSourceLegacyAlias_RendersCanonicalPdbPayload()
     {
         var (exit, output, error) = await RunAppAsync(
             "member", "JsonSerializerOptions", "--platform", "System.Text.Json",
@@ -129,7 +131,7 @@ public partial class CommandExecutionTests
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
-        Assert.Contains("## PDB Source", output);
+        Assert.DoesNotContain("## PDB Source", output);
         Assert.DoesNotContain("## Original Source", output);
     }
 
@@ -146,7 +148,8 @@ public partial class CommandExecutionTests
 
             Assert.Equal(0, exit);
             Assert.Empty(error);
-            Assert.Contains("## PDB Source", output);
+            Assert.DoesNotContain("## PDB Source", output);
+            Assert.DoesNotContain("```", output);
             Assert.Contains(
                 "public static int Overloaded(int value) => value;",
                 output);
@@ -181,7 +184,8 @@ public partial class CommandExecutionTests
 
             Assert.Equal(0, exit);
             Assert.Empty(error);
-            Assert.Contains("## PDB Source", output);
+            Assert.DoesNotContain("## PDB Source", output);
+            Assert.DoesNotContain("```", output);
             Assert.Contains(ApiCommand.NoMatchingPdbSourceReason, output);
             Assert.DoesNotContain("value + 1", output);
 
@@ -348,7 +352,8 @@ public partial class CommandExecutionTests
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
-        Assert.Contains("## Source Diff", output);
+        Assert.DoesNotContain("## Source Diff", output);
+        Assert.DoesNotContain("```", output);
         Assert.Contains("lexical complexity limit", output);
         Assert.DoesNotContain("source diff requires both", output);
     }
@@ -714,7 +719,7 @@ public partial class CommandExecutionTests
     [InlineData(SectionNames.SourceDiff, false, "lexical complexity limit")]
     [InlineData(SectionNames.PdbSource, true, "sequence-point coordinates")]
     [InlineData(SectionNames.SourceDiff, true, "sequence-point coordinates")]
-    public async Task Member_SourceFailureUnderBareWithEarlierRendererFailsVisibly(
+    public async Task Member_SourceFailureUnderStructuredRendererFailsVisibly(
         string section,
         bool coordinatesInvalid,
         string expectedFailure)
@@ -728,8 +733,8 @@ public partial class CommandExecutionTests
         };
         var cases = new[]
         {
-            new MemberOptions { Bare = true, JsonOutput = true },
-            new MemberOptions { Bare = true, Count = true },
+            new MemberOptions { JsonOutput = true },
+            new MemberOptions { Count = true },
         };
 
         foreach (var candidate in cases)
@@ -762,7 +767,7 @@ public partial class CommandExecutionTests
     [Theory]
     [InlineData(SectionNames.PdbSource)]
     [InlineData(SectionNames.SourceDiff)]
-    public async Task Member_ComplexSourceUnderEffectiveBareRendererRemainsRepresentable(string section)
+    public async Task Member_ComplexSourceUnderNativeRendererRemainsRepresentable(string section)
     {
         var type = new ApiType
         {
@@ -771,37 +776,26 @@ public partial class CommandExecutionTests
             Kind = "class",
             Members = [new ApiMember { Name = "M", Kind = "method" }],
         };
-        var cases = new[]
+        var options = new MemberOptions
         {
-            new MemberOptions { Bare = true },
-            new MemberOptions { Bare = true, Tabular = true },
-            new MemberOptions { Bare = true, Tabular = true, Tsv = true },
-            new MemberOptions { Bare = true, Tabular = true, Jsonl = true },
+            MemberSourceTooComplex = true,
+            IncludeSections = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+                { section },
         };
 
-        foreach (var candidate in cases)
-        {
-            var options = candidate with
-            {
-                MemberSourceTooComplex = true,
-                IncludeSections = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
-                    { section },
-            };
+        var (exit, output, error) = await ConsoleCapture.RunAsync(
+            () => ApiCommand.WriteTypeOutputAsync(
+                type,
+                foundIn: null,
+                packageName: null,
+                packageVersion: null,
+                apiSource: null,
+                selectedTfm: null,
+                options));
 
-            var (exit, output, error) = await ConsoleCapture.RunAsync(
-                () => ApiCommand.WriteTypeOutputAsync(
-                    type,
-                    foundIn: null,
-                    packageName: null,
-                    packageVersion: null,
-                    apiSource: null,
-                    selectedTfm: null,
-                    options));
-
-            Assert.Equal(0, exit);
-            Assert.Empty(error);
-            Assert.Contains("lexical complexity limit", output);
-        }
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains("lexical complexity limit", output);
     }
 
     [Fact]
@@ -844,7 +838,7 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Member_PdbSource_ComplexSourceUnderBareRemainsRepresentable()
+    public async Task Member_PdbSource_ComplexSourceUnderNativeDefaultRemainsRepresentable()
     {
         var type = new ApiType
         {
@@ -855,7 +849,6 @@ public partial class CommandExecutionTests
         };
         var options = new MemberOptions
         {
-            Bare = true,
             MemberSourceTooComplex = true,
             IncludeSections = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
                 { SectionNames.PdbSource },
@@ -888,7 +881,7 @@ public partial class CommandExecutionTests
 
         Assert.Equal(0, abstractExit);
         Assert.Empty(abstractError);
-        Assert.Contains("## PDB Source", abstractOutput);
+        Assert.DoesNotContain("## PDB Source", abstractOutput);
         Assert.Contains("has no IL body", abstractOutput);
 
         // An interface method is bodyless for a different metadata reason and gets the same answer.
@@ -898,7 +891,7 @@ public partial class CommandExecutionTests
 
         Assert.Equal(0, interfaceExit);
         Assert.Empty(interfaceError);
-        Assert.Contains("## PDB Source", interfaceOutput);
+        Assert.DoesNotContain("## PDB Source", interfaceOutput);
         Assert.Contains("has no IL body", interfaceOutput);
 
         // Platform inspection can read API shape from a different image than the runtime
@@ -911,7 +904,7 @@ public partial class CommandExecutionTests
 
         Assert.Equal(0, forwardedExit);
         Assert.Empty(forwardedError);
-        Assert.Contains("## PDB Source", forwardedOutput);
+        Assert.DoesNotContain("## PDB Source", forwardedOutput);
         Assert.Contains("has no IL body", forwardedOutput);
         Assert.DoesNotContain(ApiCommand.NoPdbSourceMappingReason, forwardedOutput);
 
@@ -971,22 +964,22 @@ public partial class CommandExecutionTests
 
         foreach (string section in new[] { SectionNames.PdbSource, SectionNames.SourceDiff })
         {
-            var bare = await RunAppAsync(
+            var native = await RunAppAsync(
                 "member", typeName, memberName,
                 "--library", suppliedPath, "--all",
-                "-S", section, "--bare", "--tips", "q");
+                "-S", section, "--tips", "q");
             var count = await RunAppAsync(
                 "member", typeName, memberName,
                 "--library", suppliedPath, "--all",
                 "-S", section, "--count", "--tips", "q");
 
-            Assert.Equal(0, bare.Exit);
-            Assert.Empty(bare.Error);
+            Assert.Equal(0, native.Exit);
+            Assert.Empty(native.Error);
             Assert.Contains(
                 section == SectionNames.PdbSource
                     ? ApiCommand.BodylessMemberNote
                     : "Source diff unavailable",
-                bare.Output);
+                native.Output);
             if (section == SectionNames.PdbSource)
             {
                 Assert.Equal(0, count.Exit);
@@ -1033,7 +1026,8 @@ public partial class CommandExecutionTests
         Assert.Empty(error);
         Assert.Contains("## PDB Source", output);
         Assert.Contains(ApiCommand.BodylessMemberNote, output);
-        Assert.Contains("## Source Diff", output);
+        Assert.DoesNotContain("## Source Diff", output);
+        Assert.DoesNotContain("```", output);
         Assert.DoesNotContain("..", output);
     }
 
@@ -1048,7 +1042,8 @@ public partial class CommandExecutionTests
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
-        Assert.Contains("## Source Diff", output);
+        Assert.DoesNotContain("## Source Diff", output);
+        Assert.DoesNotContain("```", output);
         Assert.Contains("PDB comparison unavailable", output);
         Assert.DoesNotContain("has no IL body", output);
     }
@@ -1136,14 +1131,15 @@ public partial class CommandExecutionTests
         Assert.Equal(0, togetherExit);
         Assert.Empty(togetherError);
 
-        string alone = Assert.IsType<string>(
-            TryExtractSectionBody(
-                aloneOutput,
-                SectionNames.AnnotatedSource));
+        string alone = aloneOutput.Trim();
         string together = Assert.IsType<string>(
             TryExtractSectionBody(
                 togetherOutput,
-                SectionNames.AnnotatedSource));
+                SectionNames.AnnotatedSource)).Trim();
+        const string AnnotatedFence = "```csharp\n";
+        Assert.StartsWith(AnnotatedFence, together);
+        Assert.EndsWith("```", together);
+        together = together[AnnotatedFence.Length..^3].TrimEnd();
         Assert.Contains("value", alone);
         Assert.Contains("local: value", alone);
         Assert.DoesNotContain("V_0", alone);
@@ -1392,6 +1388,54 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Member_DecompiledSource_PlatformExplicitPropertyRemainsExact()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member", "System.Collections.Generic.Stack",
+            "explicit:System.Collections.ICollection.get_IsSynchronized",
+            "--platform", "System.Collections",
+            "-S", "Decompiled Source", "--tips", "q");
+
+        Assert.True(exit == 0, error);
+        Assert.Empty(error);
+        Assert.Equal(
+            "bool System.Collections.ICollection.IsSynchronized => false;",
+            output.Trim());
+        Assert.DoesNotContain("SyncRoot", output);
+    }
+
+    [Fact]
+    public async Task
+        Member_DecompiledSource_ExplicitPropertyOmitsPropertyDeclarationAttributes()
+    {
+        string interfaceName =
+            typeof(IAttributedExplicitValuesFixture).FullName!
+                .Replace('+', '.');
+        var (exit, output, error) = await RunAppAsync(
+            "member",
+            typeof(AttributedExplicitValuesFixture).FullName!,
+            $"explicit:{interfaceName}.get_Values",
+            "--library",
+            TestAssemblyPath,
+            "-S",
+            "Decompiled Source",
+            "--all",
+            "--tips",
+            "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.DoesNotContain(
+            "DataMember",
+            output,
+            StringComparison.Ordinal);
+        Assert.EndsWith(
+            "CommandExecutionTests.IAttributedExplicitValuesFixture.Values => _values;\n",
+            output,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task Member_SourceDiff_ExplicitInterfaceSetterUsesPropertyValueType()
     {
         var (exit, output, error) = await RunAppAsync(
@@ -1618,11 +1662,11 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Member_SourceLocations_BareSelectedSignature_EmitsSingleUrl()
+    public async Task Member_SourceLocations_UrlsSelectedSignature_EmitsSingleUrl()
     {
         var (exit, output, error) = await RunAppAsync(
             "member", "JsonConvert", "--package", "Newtonsoft.Json@13.0.4",
-            "SerializeObject:1", "-S", "Source Locations", "--bare", "--tips", "q");
+            "SerializeObject:1", "-S", "Source Locations", "--urls", "--tips", "q");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -1633,11 +1677,11 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Member_SourceLocations_BareGroup_EmitsUrlColumn()
+    public async Task Member_SourceLocations_UrlsGroup_EmitsUrlColumn()
     {
         var (exit, output, error) = await RunAppAsync(
             "member", "JsonConvert", "--package", "Newtonsoft.Json@13.0.4",
-            "-m", "SerializeObject", "-S", "Source Locations", "--bare", "--tips", "q");
+            "-m", "SerializeObject", "-S", "Source Locations", "--urls", "--tips", "q");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -2201,9 +2245,43 @@ public partial class CommandExecutionTests
             () => MemberCommand.ExecuteAsync(options));
 
         Assert.Equal(0, exit);
-        Assert.Contains("## Decompiled Source", output);
-        Assert.Contains("```csharp", output);
+        Assert.DoesNotContain("## Decompiled Source", output);
+        Assert.DoesNotContain("```", output);
         Assert.DoesNotMatch(@"// IL_[0-9A-Fa-f]{4}: ", output);
+    }
+
+    [Fact]
+    public async Task
+        Member_DecompiledSource_RemainsExactWhenTypeSourceIsComplete()
+    {
+        var (exit, output, error) =
+            await RunAppAsync(
+                "member",
+                typeof(FullTypeDecompilationFixture).FullName!,
+                "--library",
+                TestAssemblyPath,
+                nameof(
+                    FullTypeDecompilationFixture
+                        .InvokePrivateCore),
+                "-S",
+                "Decompiled Source",
+                "--tips",
+                "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains(
+            "InvokePrivateCore",
+            output,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "ConcealedCore()",
+            output,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "private static int ConcealedCore()",
+            output,
+            StringComparison.Ordinal);
     }
 
     [Fact]
@@ -2251,8 +2329,8 @@ public partial class CommandExecutionTests
             () => MemberCommand.ExecuteAsync(options));
 
         Assert.Equal(0, exit);
-        Assert.Contains("## Annotated Source", output);
-        Assert.Contains("```csharp", output);
+        Assert.DoesNotContain("## Annotated Source", output);
+        Assert.DoesNotContain("```", output);
         Assert.Matches(@"// IL_[0-9A-Fa-f]{4}: ", output);
     }
 
@@ -2687,7 +2765,8 @@ public partial class CommandExecutionTests
             "Pump:1", "-S", "Annotated Source", "--tips", "q");
 
         Assert.Equal(0, exit);
-        Assert.Contains("## Annotated Source", output);
+        Assert.DoesNotContain("## Annotated Source", output);
+        Assert.DoesNotContain("```", output);
         Assert.DoesNotContain("^^^^", output);
     }
 
@@ -2854,6 +2933,7 @@ public partial class CommandExecutionTests
             OverloadIndex = member.DeclaringOverloadIndex ?? 1,
             IncludeSections = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { SectionNames.SourceDiff },
             Verbosity = Verbosity.Detailed,
+            FormatExplicitlySet = true,
             MemberSourceComparison = MemberSourceComparisonTestData.Create(
                 type,
                 member,
@@ -2921,6 +3001,7 @@ public partial class CommandExecutionTests
             IncludeSections = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
                 { SectionNames.SourceDiff },
             Verbosity = verbosity,
+            FormatExplicitlySet = verbosity == Verbosity.Detailed,
             MemberSourceComparison = MemberSourceComparisonTestData.Create(
                 type,
                 member,
@@ -3092,8 +3173,9 @@ public partial class CommandExecutionTests
             nameof(CommandExecutionSourceDiffFixture.AddOne), "-S", "@Source", "--tips", "q");
 
         Assert.Equal(0, exit);
-        Assert.Empty(error);
+        Assert.Contains("Source provider:", error);
         Assert.Contains("## Decompiled Source", output);
+        Assert.Contains("## Source", output);
         Assert.Contains("## Annotated Source", output);
         Assert.Contains("## Source Diff", output);
         Assert.Contains("## IL", output);
@@ -3107,8 +3189,9 @@ public partial class CommandExecutionTests
             "Overloaded:2", "-S", "@Source", "--tips", "q");
 
         Assert.Equal(0, exit);
-        Assert.Empty(error);
+        Assert.Contains("Source provider:", error);
         Assert.Contains("## Decompiled Source", output);
+        Assert.Contains("## Source", output);
         Assert.Contains("## Annotated Source", output);
         Assert.Contains("## IL", output);
         Assert.DoesNotContain("## Lowered Source", output);
@@ -3244,7 +3327,8 @@ public partial class CommandExecutionTests
             () => MemberCommand.ExecuteAsync(options));
 
         Assert.Equal(0, exit);
-        Assert.Contains("## Decompiled Source", output);
+        Assert.DoesNotContain("## Decompiled Source", output);
+        Assert.DoesNotContain("```", output);
         Assert.Contains("GetTypeInfo", output);
         Assert.Contains("WriteElement", output);
         Assert.DoesNotContain("## PDB Source", output);
@@ -3256,12 +3340,45 @@ public partial class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "member", typeof(MemberCallsFixture).FullName!, "--library", TestAssemblyPath,
-            "CallsInterfaceItem", "-S", "Decompiled Source", "--bare");
+            "CallsInterfaceItem", "-S", "Decompiled Source");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
         Assert.Contains("public static int CallsInterfaceItem(System.Collections.Generic.IList<int> values) => values[0];", output);
         Assert.DoesNotContain("{", output);
+    }
+
+    [Fact]
+    public async Task Member_DecompiledSource_ExplicitMarkdown_RestoresDocumentFraming()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member", typeof(MemberCallsFixture).FullName!, "--library", TestAssemblyPath,
+            "CallsInterfaceItem", "-S", "Decompiled Source", "--markdown", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains("## Decompiled Source", output);
+        Assert.Contains("```csharp", output);
+        Assert.Contains(
+            "public static int CallsInterfaceItem",
+            output);
+    }
+
+    [Fact]
+    public async Task Member_Bare_IsRetiredAndAbsentFromHelp()
+    {
+        var rejected = await RunAppAsync(
+            "member", typeof(MemberCallsFixture).FullName!,
+            "CallsInterfaceItem", "--library", TestAssemblyPath,
+            "--bare", "--tips", "q");
+        var help = await RunAppAsync("member", "--help");
+
+        Assert.Equal(1, rejected.Exit);
+        Assert.Empty(rejected.Output);
+        Assert.Contains("Unrecognized option '--bare'", rejected.Error);
+        Assert.Equal(0, help.Exit);
+        Assert.Empty(help.Error);
+        Assert.DoesNotContain("--bare", help.Output);
     }
 
     [Fact]

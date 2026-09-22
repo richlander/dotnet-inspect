@@ -184,6 +184,7 @@ public sealed record NavigationConsumerSubjectDescriptor(
     NavigationDescriptorState State,
     bool IsActive,
     bool IsRetained,
+    ImmutableArray<NavigationConsumerDiagnostic> Evidence,
     NavigationAction? Action);
 
 public sealed record NavigationConsumerPackageDescriptor(

@@ -12,11 +12,62 @@ import {
   empty,
   surface,
   installFacades,
+  releaseFacade,
   root,
   currentWorkspaceHistoryState,
+  openProductDestination,
 } from "./library-hierarchy.support.ts";
 
 test.use({ viewport: { width: 900, height: 900 } });
+
+test("exact Library inspectors auto-select the alphabetical fallback only on navigation", async ({ page }) => {
+  await installFacades(page);
+  await page.goto(root.replace("#pkg", "#library"));
+
+  const rows = page.locator(".library-subject-list [data-library-subject]");
+  await expect(rows).toHaveCount(4);
+  expect(await rows.evaluateAll(elements =>
+    elements.map(element => element.getAttribute("data-library-subject"))))
+    .toEqual(["all", core.id, empty.id, other.id]);
+  const allLibraries = rows.first();
+  await expect(allLibraries).toHaveAttribute("aria-selected", "true");
+
+  await chooseInspector(page, "data-library-lens", "references", "References");
+  await expect(page.locator(
+    `.library-subject-list [data-library-subject="${core.id}"]`))
+    .toHaveAttribute("aria-selected", "true");
+
+  await chooseInspector(page, "data-library-lens", "overview", "Overview");
+  await expect(page.locator(
+    `.library-subject-list [data-library-subject="${core.id}"]`))
+    .toHaveAttribute("aria-selected", "true");
+  await expect(page.locator(".library-overview-surface h1"))
+    .toHaveText(core.name);
+
+  await allLibraries.click();
+  await expect(allLibraries).toHaveAttribute("aria-selected", "true");
+  await chooseInspector(page, "data-library-lens", "metadata", "Metadata");
+  await expect(page.locator(
+    `.library-subject-list [data-library-subject="${core.id}"]`))
+    .toHaveAttribute("aria-selected", "true");
+
+  await allLibraries.click();
+  await expect(allLibraries).toHaveAttribute("aria-selected", "true");
+  await expect(page.locator("#inspector-panel"))
+    .toContainText("Metadata requires one Library");
+  await page.keyboard.press("6");
+  await expect(allLibraries).toHaveAttribute("aria-selected", "true");
+  await expect(page.locator("#inspector-panel"))
+    .toContainText("Metadata requires one Library");
+  const shared = page.url();
+  await page.reload();
+  await expect(page.locator(
+    '.library-subject-list [data-library-subject="all"]'))
+    .toHaveAttribute("aria-selected", "true");
+  await expect(page.locator("#inspector-panel"))
+    .toContainText("Metadata requires one Library");
+  await expect(page).toHaveURL(shared);
+});
 
 for (const [width, selectedLibrary, activation] of [
   [900, core, "click"],
@@ -128,7 +179,7 @@ test("Workspace occurrence activation retains Package Info", async ({ page }) =>
   const overview = page.locator(".package-overview-surface");
   await expect(overview.locator(".package-info-rows")).toBeVisible();
 
-  await page.locator('[data-application-scope="workspace"]').click();
+  await openProductDestination(page, "workspace");
   const occurrence = page.locator("[data-workspace-activate]");
   await expect(occurrence).toBeEnabled();
   await occurrence.click();
@@ -139,6 +190,58 @@ test("Workspace occurrence activation retains Package Info", async ({ page }) =>
   await expect(overview.locator(
     ".package-overview-summary .section-title h2"))
     .toHaveText("Package Info");
+});
+
+test("Workspace product navigation exits every routed product surface", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await installFacades(page);
+  await page.goto(root);
+
+  const openWorkspace = async () => {
+    await openProductDestination(page, "workspace");
+    await expect(page.locator("#inspector-panel h1")).toHaveText("Workspace");
+  };
+
+  await openProductDestination(page, "home");
+  await expect(page).toHaveURL("/");
+  await openWorkspace();
+
+  await openProductDestination(page, "query");
+  await expect(page).toHaveURL(/\/query$/);
+  await openWorkspace();
+
+  await openProductDestination(page, "activity");
+  await expect(page).toHaveURL(/\/activity$/);
+  await openWorkspace();
+
+  await page.getByRole("link", { name: "Credits" }).click();
+  await expect(page).toHaveURL("/credits");
+  await openWorkspace();
+});
+
+test("Workspace projection failure pushes a degraded package successor", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await installFacades(page);
+  await page.goto(root);
+  await openProductDestination(page, "query");
+  await expect(page).toHaveURL(/\/query$/);
+
+  await releaseFacade(page, "fail-workspace-encode");
+  await openProductDestination(page, "workspace");
+
+  await expect(page.locator("#inspector-panel h1")).toHaveText("Workspace");
+  await expect(page).not.toHaveURL(/\/query$/);
+  await expect(page.locator(".query-notice"))
+    .toContainText("Fixture workspace projection failure.");
+
+  await page.goBack();
+  await expect(page).toHaveURL(/\/query$/);
+  await expect(page.locator("#package-query-heading"))
+    .toHaveText("Package query");
 });
 
 for (const width of [1440, 800, 390]) {
@@ -693,35 +796,12 @@ for (const width of [900, 390]) {
   });
 }
 
-for (const [lens, label] of [
-  ["compare", "Compare"],
-  ["references", "References"],
-  ["integrations", "Integrations"],
-  ["analysis", "Analysis"],
-  ["metadata", "Metadata"],
-] as const) {
-  test(`aggregate Library makes ${label} exact-only`, async ({ page }) => {
-    await installFacades(page);
-    await page.goto(root);
-    await chooseSubject(page, "library", "Library");
-    await chooseInspector(page, "data-library-lens", lens, label);
-    await expect(page.getByRole("heading", {
-      name: `${label} requires one Library`,
-    })).toBeVisible();
-    const shared = page.url();
-    await page.reload();
-    await expect(page.getByRole("heading", {
-      name: `${label} requires one Library`,
-    })).toBeVisible();
-    await expect(page).toHaveURL(shared);
-  });
-}
-
 test("exact Library selection resolves an aggregate References refusal", async ({ page }) => {
   await installFacades(page);
-  await page.goto(root);
-  await chooseSubject(page, "library", "Library");
+  await page.goto(root.replace("#pkg", "#library"));
   await chooseInspector(page, "data-library-lens", "references", "References");
+  await page.locator(
+    '.library-subject-list [data-library-subject="all"]').click();
   await expect(page.getByRole("heading", {
     name: "References requires one Library",
   })).toBeVisible();
@@ -945,7 +1025,7 @@ test("browser history from before reload reuses the active Workspace", async ({ 
   await expect(page.locator(".inspected-target")).toContainText("Second.Package");
   await expect.poll(() =>
     currentWorkspaceHistoryState(page)).toEqual(reloadedWorkspace);
-  await page.locator('[data-application-scope="workspace"]').click();
+  await openProductDestination(page, "workspace");
   await expect(page.locator(".workspace-card")).toHaveCount(1);
   await expect(page.locator(".query-notice-text", {
     hasText: "Workspace limit reached",

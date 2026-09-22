@@ -84,6 +84,9 @@ public static class SectionNames
     /// <summary>Section for the decompiled C# method body.</summary>
     public const string DecompiledSource = "Decompiled Source";
 
+    /// <summary>Section for bodyless C# API declarations of one exact type.</summary>
+    public const string ApiDeclarations = "API Declarations";
+
     /// <summary>Section for typed causes that prevent Full decompiler fidelity.</summary>
     public const string FidelityCauses = "Fidelity Causes";
 
@@ -107,6 +110,9 @@ public static class SectionNames
 
     /// <summary>Section for method source selected and checksum-verified through a Portable PDB.</summary>
     public const string PdbSource = "PDB Source";
+
+    /// <summary>Section for authored-first source with typed decompiler fallback.</summary>
+    public const string Source = "Source";
 
     /// <summary>Section for a line diff between PDB-selected and decompiled method source.</summary>
     public const string SourceDiff = "Source Diff";
@@ -205,8 +211,24 @@ public static class SectionNames
     /// <summary>Type-level section ranking members by call-graph leverage (direct callers, fanout, depth, loop calls).</summary>
     public const string TopLeverage = "Top Leverage";
 
-    /// <summary>Objective method-body measurements and overload-family call counts.</summary>
-    public const string ImplementationProfiles = "Implementation Profiles";
+    /// <summary>Objective measurements for every body associated with the selected type.</summary>
+    public const string TypeMetrics = "Type Metrics";
+
+    /// <summary>Objective measurements for every body associated with the selected member.</summary>
+    public const string MemberMetrics = "Member Metrics";
+
+    /// <summary>
+    /// Qualified descriptive measures for one exact library. This name is reserved for the
+    /// report described by <c>library-structural-report.md</c>; existing member-body inventories
+    /// remain <see cref="MemberMetrics"/>.
+    /// </summary>
+    public const string LibraryMetrics = "Library Metrics";
+
+    public static bool IncludesBodyMetrics(
+        IReadOnlyCollection<string>? sections) =>
+        sections is not null
+        && (sections.Contains(TypeMetrics)
+            || sections.Contains(MemberMetrics));
 
     /// <summary>Section for safe, local optimization opportunities inferred from IL/body evidence.</summary>
     public const string PerformanceTriage = "Performance Triage";
@@ -302,6 +324,7 @@ public static class SectionNames
 
     /// <summary>Section for direct assembly references.</summary>
     public const string References = "References";
+    public const string EcosystemDependencies = "Ecosystem Dependencies";
     public const string ReferenceHierarchy = "Reference Hierarchy";
 
     /// <summary>Section for P/Invoke declarations.</summary>

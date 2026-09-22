@@ -212,6 +212,10 @@ public sealed class BrowserPackageChangesOperationsTests
             "\"content\":{\"schemaVersion\":1",
             serialized,
             StringComparison.Ordinal);
+        Assert.Contains(
+            "\"commitTimestamp\":\"2026-03-31T00:00:00+00:00\"",
+            serialized,
+            StringComparison.Ordinal);
     }
 
     [Fact]

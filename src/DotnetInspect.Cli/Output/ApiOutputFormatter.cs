@@ -1219,7 +1219,7 @@ public static class ApiOutputFormatter
     }
 
     /// <summary>
-    /// Populates compact member summary sections for Minimal verbosity.
+    /// Populates compact grouped member summary sections.
     /// Groups members by name within each kind, with kind-specific columns
     /// matching the old QuietMemberFormatter design.
     /// </summary>
@@ -1835,7 +1835,9 @@ public static class ApiOutputFormatter
             sourceAssembly,
             request.RequiresResearchProjection && overloadIndex.HasValue
                 ? analysisInspection.ResearchAnalysis
-                : null))
+                : null,
+            (options as MemberOptions)?
+                .MemberDecompilationInspection))
         {
             if (code.Attributes is { Count: > 0 } attributes)
             {
@@ -2847,6 +2849,7 @@ public static class ApiOutputFormatter
         TypeView view,
         ApiType type,
         Analysis.LibraryBodyIndex index,
+        bool memberScope,
         bool restrictToModelMembers = false,
         int? selectedMethodToken = null)
     {
@@ -2898,7 +2901,12 @@ public static class ApiOutputFormatter
             })
             .ToList();
         if (rows.Count > 0)
-            view.ImplementationProfileRows = rows;
+        {
+            if (memberScope)
+                view.MemberMetricRows = rows;
+            else
+                view.TypeMetricRows = rows;
+        }
     }
 
     internal static bool IncludesImplementationProfileDiagnostic(

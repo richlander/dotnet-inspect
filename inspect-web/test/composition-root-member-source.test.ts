@@ -574,6 +574,7 @@ test("browser consumer explicitly sequences same-origin host configuration", () 
     [
       "host",
       "packageFacade",
+      "libraryFacade",
       "metadataFacade",
       "analysisFacade",
       "sourceFacade",
@@ -642,13 +643,18 @@ test("generated source wrappers parse their JSON envelopes", () => {
 
 test("MethodDef-only member sections are hidden for bodiless APIs", () => {
   for (const kind of ["property", "field", "event", "constant"]) {
+    // Compare stays: its Diff mode needs no body, and its Clone mode reports
+    // the missing body itself. Runtime packs have no Compare at all.
     assert.deepEqual(
       memberSectionIdsFor({ kind }),
+      ["overview", "compare"]);
+    assert.deepEqual(
+      memberSectionIdsFor({ kind }, true),
       ["overview"]);
   }
   assert.deepEqual(
     memberSectionIdsFor({ kind: "method" }),
-    ["overview", "call-graph", "facts", "source", "annotated"]);
+    ["overview", "call-graph", "facts", "source", "annotated", "compare"]);
 });
 
 // Arrowing between members keeps the active section (e.g. Source) sticky, the same way

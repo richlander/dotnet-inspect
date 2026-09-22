@@ -13,8 +13,10 @@ namespace ILInspector.Decompiler.Tests;
 /// The long-literal spelling choice
 /// <see cref="PrinterOptions.PreferLongLiteralSuffix"/> (#3347, #7763): the
 /// user-facing product default renders compiler-shaped <c>long</c> constants as
-/// idiomatic <c>NL</c> literals, while the low-level fidelity default and the
-/// explicit alternate retain <c>(long)N</c> casts.
+/// idiomatic literals: <c>NL</c> when the marker fixes the type, and bare
+/// <c>N</c> when another binary operand independently fixes long promotion.
+/// The low-level fidelity default and explicit alternate retain
+/// <c>(long)N</c> casts.
 ///
 /// <para>Three claims are pinned here, in the order they matter:</para>
 /// <list type="number">
@@ -26,7 +28,8 @@ namespace ILInspector.Decompiler.Tests;
 /// <item><description>
 /// <b>The product default folds the compiler shapes.</b> A
 /// <c>Convert(→Int64, Int32 Constant)</c> becomes <c>NL</c> at a ternary arm,
-/// return, argument, and binary operand. The zero-extended
+/// return, argument, and signed comparison operand; a binary operand may become
+/// bare <c>N</c> when its sibling fixes long promotion. The zero-extended
 /// <c>Convert(→UInt64, Int32 Constant)</c> becomes <c>2147483648L</c> only at an
 /// <c>Int64</c> sink, preserving value and overload binding.
 /// </description></item>
@@ -90,6 +93,8 @@ public sealed class LongLiteralFoldTests
         { nameof(LongLiteralFoldFixture.SmallArgument), "public static long SmallArgument() => Consume((long)7);" },
         { nameof(LongLiteralFoldFixture.BinaryOperand), "public static long BinaryOperand(long x) => x * (long)3;" },
         { nameof(LongLiteralFoldFixture.NegativeBinaryOperand), "public static long NegativeBinaryOperand(long x) => x * (long)-1;" },
+        { nameof(LongLiteralFoldFixture.ComparisonOperand), "public static bool ComparisonOperand(long x) => x == ((long)3);" },
+        { nameof(LongLiteralFoldFixture.NegativeComparisonOperand), "public static bool NegativeComparisonOperand(long x) => x != ((long)-1);" },
         { nameof(LongLiteralFoldFixture.Zero), "public static long Zero() => (long)0;" },
         { nameof(LongLiteralFoldFixture.MinusOne), "public static long MinusOne() => (long)-1;" },
         { nameof(LongLiteralFoldFixture.IntMinValue), "public static long IntMinValue() => (long)-2147483648;" },
@@ -135,10 +140,12 @@ public sealed class LongLiteralFoldTests
         { nameof(LongLiteralFoldFixture.TernaryArms), "public static long TernaryArms(bool c, long tail) => (c ? 10L : 20L) + tail;" },
         { nameof(LongLiteralFoldFixture.SmallReturn), "public static long SmallReturn() => 42L;" },
         { nameof(LongLiteralFoldFixture.SmallArgument), "public static long SmallArgument() => Consume(7L);" },
-        { nameof(LongLiteralFoldFixture.BinaryOperand), "public static long BinaryOperand(long x) => x * 3L;" },
+        { nameof(LongLiteralFoldFixture.BinaryOperand), "public static long BinaryOperand(long x) => x * 3;" },
         // `-1L` is a UNARY expression, not a primary one; at the right operand of `*`
         // the demand is exactly Unary, so it stays bare and still binds correctly.
-        { nameof(LongLiteralFoldFixture.NegativeBinaryOperand), "public static long NegativeBinaryOperand(long x) => x * -1L;" },
+        { nameof(LongLiteralFoldFixture.NegativeBinaryOperand), "public static long NegativeBinaryOperand(long x) => x * -1;" },
+        { nameof(LongLiteralFoldFixture.ComparisonOperand), "public static bool ComparisonOperand(long x) => x == 3L;" },
+        { nameof(LongLiteralFoldFixture.NegativeComparisonOperand), "public static bool NegativeComparisonOperand(long x) => x != -1L;" },
         { nameof(LongLiteralFoldFixture.Zero), "public static long Zero() => 0L;" },
         { nameof(LongLiteralFoldFixture.MinusOne), "public static long MinusOne() => -1L;" },
         { nameof(LongLiteralFoldFixture.IntMinValue), "public static long IntMinValue() => -2147483648L;" },
@@ -170,11 +177,18 @@ public sealed class LongLiteralFoldTests
             Render(typeof(CfgSampleClass), nameof(CfgSampleClass.InlineArraySpanTernaryConditionValue), ProductOptions));
     }
 
+    [Theory]
+    [InlineData(nameof(LongLiteralFoldFixture.ComparisonOperand))]
+    [InlineData(nameof(LongLiteralFoldFixture.NegativeComparisonOperand))]
+    public void ComparisonOperand_CastAlternateMatchesStrictFidelity(string member)
+        => Assert.Equal(Fixture(member), Fixture(member, CastOptions));
+
     // ---- 3. the close negative: a genuine ldc.i8 source is untouched ----
 
     [Theory]
     [InlineData(nameof(LongLiteralFoldFixture.LargeReturn))]
     [InlineData(nameof(LongLiteralFoldFixture.LargeTernaryArms))]
+    [InlineData(nameof(LongLiteralFoldFixture.LargeComparisonOperand))]
     public void LdcI8Sources_RenderIdenticallyWithSuffixesOnOrOff(string member)
     {
         // These are real `ldc.i8` bodies and are outside the compiler-shaped fold.
@@ -319,6 +333,8 @@ public sealed class LongLiteralFoldTests
         (nameof(LongLiteralFoldFixture.SmallArgument), "() -> corelib:System.Int64"),
         (nameof(LongLiteralFoldFixture.BinaryOperand), "(corelib:System.Int64) -> corelib:System.Int64"),
         (nameof(LongLiteralFoldFixture.NegativeBinaryOperand), "(corelib:System.Int64) -> corelib:System.Int64"),
+        (nameof(LongLiteralFoldFixture.ComparisonOperand), "(corelib:System.Int64) -> corelib:System.Boolean"),
+        (nameof(LongLiteralFoldFixture.NegativeComparisonOperand), "(corelib:System.Int64) -> corelib:System.Boolean"),
         (nameof(LongLiteralFoldFixture.Zero), "() -> corelib:System.Int64"),
         (nameof(LongLiteralFoldFixture.MinusOne), "() -> corelib:System.Int64"),
         (nameof(LongLiteralFoldFixture.IntMinValue), "() -> corelib:System.Int64"),

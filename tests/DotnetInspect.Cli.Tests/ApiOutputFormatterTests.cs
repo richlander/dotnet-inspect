@@ -2945,7 +2945,7 @@ public class ApiOutputFormatterTests
             surface,
             new ApiOptions
             {
-                Verbosity = Verbosity.Normal,
+                Verbosity = Verbosity.Detailed,
             });
 
         ApiInspectionFailureRow row =
@@ -2991,7 +2991,7 @@ public class ApiOutputFormatterTests
             surface,
             new ApiOptions
             {
-                Verbosity = Verbosity.Normal,
+                Verbosity = Verbosity.Detailed,
             });
 
         Assert.Equal(

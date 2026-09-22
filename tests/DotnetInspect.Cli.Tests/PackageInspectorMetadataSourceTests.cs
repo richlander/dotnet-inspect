@@ -1623,10 +1623,11 @@ public sealed class PackageInspectorMetadataSourceTests : IDisposable
     }
 
     [Theory]
-    [InlineData(Verbosity.Normal)]
-    [InlineData(Verbosity.Detailed)]
+    [InlineData(Verbosity.Normal, false)]
+    [InlineData(Verbosity.Detailed, true)]
     public void PackageCommand_LocalRenderedManifestRequestsRidAvailability(
-        Verbosity verbosity)
+        Verbosity verbosity,
+        bool expected)
     {
         var pipeline =
             PackageSectionDescriptors.CreateCatalog().Pipeline;
@@ -1635,7 +1636,7 @@ public sealed class PackageInspectorMetadataSourceTests : IDisposable
             Verbosity = verbosity,
         };
 
-        Assert.True(PackageCommand.RequestsRidPackageAvailability(
+        Assert.Equal(expected, PackageCommand.RequestsRidPackageAvailability(
             options,
             isLocalFile: true,
             pipeline));

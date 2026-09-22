@@ -697,8 +697,8 @@ public partial class CommandExecutionTests
     }
 
     [Theory]
-    [InlineData("Newtonsoft.Json@13.0.4", "--version", null)]
-    [InlineData("Newtonsoft.Json@latest", "--version", null)]
+    [InlineData("Newtonsoft.Json@13.0.4", "--versions", "1")]
+    [InlineData("Newtonsoft.Json", "--latest-version", null)]
     [InlineData("Newtonsoft.Json", "--versions-with-feed", "1")]
     public async Task Versions_Count_ValidatesTheRenderedBranchColumns(
         string package,
@@ -727,8 +727,8 @@ public partial class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "package",
-            "Newtonsoft.Json@latest",
-            "--version",
+            "Newtonsoft.Json",
+            "--latest-version",
             "--include-unlisted",
             "--count",
             "--columns",
@@ -3568,7 +3568,7 @@ public partial class CommandExecutionTests
                 "package",
                 packagePath,
                 packagePath,
-                "--all-libraries",
+                "--library",
                 "--tsv");
 
             Assert.Equal(1, library.Exit);
@@ -3579,7 +3579,7 @@ public partial class CommandExecutionTests
                 "Multiple package inspection cannot be combined with --library.",
                 library.Error);
             Assert.Contains(
-                "Multiple package inspection cannot be combined with --all-libraries.",
+                "Multiple package inspection cannot be combined with --library.",
                 allLibraries.Error);
         }
         finally

@@ -11,6 +11,10 @@ public sealed partial class WorkspacePortableCoordinateReplacementTests
     private const string ProducerUrl =
         "https://api.nuget.org/v3/index.json";
     private const string AvaloniaToken = "c8d484a7012f9a8b";
+    private const string AvaloniaComponentPath =
+        "packages/avalonia@11.3.14/net8.0/~";
+    private const string FloatingAvaloniaComponentPath =
+        "packages/avalonia@~/net8.0/~";
 
     [Theory]
     [Trait("Speed", "Slow")]
@@ -35,16 +39,26 @@ public sealed partial class WorkspacePortableCoordinateReplacementTests
         WorkspacePortableCoordinateReplacementResult result =
             await WorkspacePortableCoordinateReplacement.ExecuteAsync(
                 input,
-                new("avalonia", version: "12.1.2"),
+                new(AvaloniaComponentPath, version: "12.1.2"),
                 options,
                 TestContext.Current.CancellationToken);
 
         Assert.True(result.Succeeded, result.Failure?.Detail);
-        Assert.IsType<WorkspaceScopeOperationResult.Committed>(
+        var scope = Assert.IsType<WorkspaceScopeOperationResult.Committed>(
             result.ScopeResult);
+        Assert.Equal(WorkspaceScopeOperationKind.Add, scope.Effect);
+        Assert.Equal(WorkspaceScopeOperationKind.Add, scope.Association.Kind);
+        NavigationCoordinateRetentionResult retention =
+            result.CoordinateRetention!;
+        Assert.NotSame(
+            retention.SourceWorkspace,
+            retention.DestinationWorkspace);
+        Assert.Same(
+            retention.DestinationWorkspace,
+            scope.Association.Workspace);
         Assert.Equal(
             NavigationCoordinateRetentionDisposition.ExactPath,
-            result.NavigationResult!.CoordinateRetention!.Disposition);
+            retention.Disposition);
         CommittedScenarioDefinitionSet derived = result.Definitions!;
         Assert.Equal(InspectionDefinitionSchema.Version4,
             derived.Scenario.SchemaVersion);
@@ -112,7 +126,7 @@ public sealed partial class WorkspacePortableCoordinateReplacementTests
         WorkspacePortableCoordinateReplacementResult result =
             await WorkspacePortableCoordinateReplacement.ExecuteAsync(
                 input,
-                new("avalonia", version: "12.1.2"),
+                new(AvaloniaComponentPath, version: "12.1.2"),
                 Options(store),
                 TestContext.Current.CancellationToken);
 
@@ -120,7 +134,7 @@ public sealed partial class WorkspacePortableCoordinateReplacementTests
         Assert.Equal(
             NavigationCoordinateRetentionDisposition
                 .ActiveLibraryContainmentTruncated,
-            result.NavigationResult!.CoordinateRetention!.Disposition);
+            result.CoordinateRetention!.Disposition);
         CommittedViewStateDefinition state = result.Definitions!.View!.States[1];
         Assert.IsType<PortableSubjectRequest.Library>(state.Subject);
         var context =
@@ -154,7 +168,7 @@ public sealed partial class WorkspacePortableCoordinateReplacementTests
                 AvaloniaDefinitions(
                     new PortableSubjectRequest.Type(),
                     "type.metadata"),
-                new("avalonia", version: "12.1.2"),
+                new(AvaloniaComponentPath, version: "12.1.2"),
                 options with
                 {
                     FacetAvailability = (_, _) => availability,
@@ -181,13 +195,22 @@ public sealed partial class WorkspacePortableCoordinateReplacementTests
         WorkspacePortableCoordinateReplacementResult result =
             await WorkspacePortableCoordinateReplacement.ExecuteAsync(
                 input,
-                new("avalonia", version: "11.3.14"),
+                new(AvaloniaComponentPath, version: "11.3.14"),
                 Options(store),
                 TestContext.Current.CancellationToken);
 
         Assert.True(result.Succeeded, result.Failure?.Detail);
-        Assert.IsType<WorkspaceScopeOperationResult.Committed>(
+        var scope = Assert.IsType<WorkspaceScopeOperationResult.Committed>(
             result.ScopeResult);
+        Assert.Equal(WorkspaceScopeOperationKind.Add, scope.Effect);
+        NavigationCoordinateRetentionResult retention =
+            result.CoordinateRetention!;
+        Assert.NotSame(
+            retention.SourceWorkspace,
+            retention.DestinationWorkspace);
+        Assert.Same(
+            retention.DestinationWorkspace,
+            scope.Association.Workspace);
         Assert.Equal(
             Encode(input),
             Encode(result.Definitions!));
@@ -209,7 +232,7 @@ public sealed partial class WorkspacePortableCoordinateReplacementTests
         WorkspacePortableCoordinateReplacementResult result =
             await WorkspacePortableCoordinateReplacement.ExecuteAsync(
                 input,
-                new("avalonia", version: "12.1.2"),
+                new(AvaloniaComponentPath, version: "12.1.2"),
                 Options(store),
                 TestContext.Current.CancellationToken);
 
@@ -237,7 +260,9 @@ public sealed partial class WorkspacePortableCoordinateReplacementTests
         WorkspacePortableCoordinateReplacementResult result =
             await WorkspacePortableCoordinateReplacement.ExecuteAsync(
                 input,
-                new("avalonia", framework: "net8.0"),
+                new(
+                    "packages/avalonia@11.3.14/net6.0/linux-x64",
+                    framework: "net8.0"),
                 Options(store),
                 TestContext.Current.CancellationToken);
 
@@ -263,7 +288,7 @@ public sealed partial class WorkspacePortableCoordinateReplacementTests
     [InlineData(
         "group",
         WorkspacePortableCoordinateReplacementFailureKind
-            .NavigationSourceNotDirectPackage)]
+            .NavigationSourceMissing)]
     [InlineData(
         "repeated",
         WorkspacePortableCoordinateReplacementFailureKind
@@ -299,6 +324,7 @@ public sealed partial class WorkspacePortableCoordinateReplacementTests
         Assert.Equal(expected, result.Failure!.Kind);
         Assert.Null(result.ScopeResult);
         Assert.Null(result.NavigationResult);
+        Assert.Null(result.CoordinateRetention);
     }
 
     [Fact]
@@ -308,7 +334,7 @@ public sealed partial class WorkspacePortableCoordinateReplacementTests
             await WorkspacePortableCoordinateReplacement.ExecuteAsync(
                 PackageOnlyDefinitions(
                     InspectionDefinitionSchema.Version4),
-                new("avalonia", framework: "not a framework"),
+                new(AvaloniaComponentPath, framework: "not a framework"),
                 Options(new InMemoryPackageStore()),
                 TestContext.Current.CancellationToken);
 
@@ -319,6 +345,7 @@ public sealed partial class WorkspacePortableCoordinateReplacementTests
             result.Failure!.Kind);
         Assert.Null(result.ScopeResult);
         Assert.Null(result.NavigationResult);
+        Assert.Null(result.CoordinateRetention);
     }
 
     [Fact]
@@ -333,7 +360,7 @@ public sealed partial class WorkspacePortableCoordinateReplacementTests
                 AvaloniaDefinitions(
                     new PortableSubjectRequest.Package(),
                     "package.overview"),
-                new("avalonia", version: "12.1.2"),
+                new(AvaloniaComponentPath, version: "12.1.2"),
                 Options(store),
                 TestContext.Current.CancellationToken);
 
@@ -345,6 +372,7 @@ public sealed partial class WorkspacePortableCoordinateReplacementTests
         Assert.Null(result.Definitions);
         Assert.Null(result.ScopeResult);
         Assert.Null(result.NavigationResult);
+        Assert.Null(result.CoordinateRetention);
     }
 
     [Theory]
@@ -372,7 +400,7 @@ public sealed partial class WorkspacePortableCoordinateReplacementTests
             "avalonia");
 
         var result = await WorkspacePortableCoordinateReplacement.ExecuteAsync(
-            input, new("avalonia", version: "12.1.2"), options,
+            input, new(AvaloniaComponentPath, version: "12.1.2"), options,
             TestContext.Current.CancellationToken);
 
         Assert.True(result.Succeeded, result.Failure?.Detail);
@@ -393,6 +421,46 @@ public sealed partial class WorkspacePortableCoordinateReplacementTests
 
     [Fact]
     [Trait("Speed", "Slow")]
+    public async Task DormantPackageUpdate_PreservesDormantCommittedState()
+    {
+        InMemoryPackageStore store = await StoreAsync(
+            ("Avalonia", "11.3.14"), ("Avalonia", "12.1.2"));
+        CompleteRestorationExecutionOptions options = Options(store);
+        var package = new DefinitionMemberCoordinate.PackageCoordinate(
+            "Avalonia", "11.3.14", "net8.0");
+        var input = Definitions(
+            InspectionDefinitionSchema.Version3,
+            [
+                new WorkspaceContextDefinition(
+                    "context",
+                    "net8.0",
+                    members: [package]),
+            ],
+            [new NavigationTabDefinition("avalonia", coordinate: package)],
+            [
+                new(null, new PortableSubjectRequest.Workspace()),
+                new("avalonia"),
+            ],
+            focus: null);
+
+        WorkspacePortableCoordinateReplacementResult result =
+            await WorkspacePortableCoordinateReplacement.ExecuteAsync(
+                input,
+                new(AvaloniaComponentPath, version: "12.1.2"),
+                options,
+                TestContext.Current.CancellationToken);
+
+        Assert.True(result.Succeeded, result.Failure?.Detail);
+        CommittedViewStateDefinition state =
+            result.Definitions!.View!.States[1];
+        Assert.Null(state.Subject);
+        Assert.Null(state.Context);
+        Assert.Null(state.Facet);
+        Assert.Null(result.Definitions.Navigation!.Focus);
+    }
+
+    [Fact]
+    [Trait("Speed", "Slow")]
     public async Task WorkspaceActive_DeeperRetainedContextIsPreserved()
     {
         InMemoryPackageStore store = await StoreAsync(
@@ -402,7 +470,7 @@ public sealed partial class WorkspacePortableCoordinateReplacementTests
             new PortableSubjectRequest.Workspace(), "workspace.overview");
 
         var result = await WorkspacePortableCoordinateReplacement.ExecuteAsync(
-            input, new("avalonia", version: "12.1.2"), options,
+            input, new(AvaloniaComponentPath, version: "12.1.2"), options,
             TestContext.Current.CancellationToken);
 
         Assert.True(result.Succeeded, result.Failure?.Detail);
@@ -559,7 +627,7 @@ public sealed partial class WorkspacePortableCoordinateReplacementTests
                                 "net8.0"))],
                     BasicStates("avalonia"),
                     "avalonia"),
-                new("avalonia", version: "12.1.2")),
+                new(FloatingAvaloniaComponentPath, version: "12.1.2")),
             "group" => (
                 Definitions(
                     schema,
@@ -574,7 +642,7 @@ public sealed partial class WorkspacePortableCoordinateReplacementTests
                         framework: "net8.0")],
                     BasicStates("avalonia"),
                     focus: null),
-                new("avalonia", version: "12.1.2")),
+                new(AvaloniaComponentPath, version: "12.1.2")),
             "repeated" => (
                 Definitions(
                     schema,
@@ -591,7 +659,7 @@ public sealed partial class WorkspacePortableCoordinateReplacementTests
                         coordinate: Package("11.3.14"))],
                     BasicStates("avalonia"),
                     "avalonia"),
-                new("avalonia", version: "12.1.2")),
+                new(AvaloniaComponentPath, version: "12.1.2")),
             "duplicate-destination" => (
                 Definitions(
                     schema,
@@ -613,7 +681,7 @@ public sealed partial class WorkspacePortableCoordinateReplacementTests
                     ],
                     BasicStates("old", "new"),
                     "old"),
-                new("old", version: "12.1.2")),
+                new(AvaloniaComponentPath, version: "12.1.2")),
             "shared-framework" => (
                 Definitions(
                     schema,
@@ -633,7 +701,7 @@ public sealed partial class WorkspacePortableCoordinateReplacementTests
                         coordinate: Package("11.3.14"))],
                     BasicStates("avalonia"),
                     "avalonia"),
-                new("avalonia", framework: "net9.0")),
+                new(AvaloniaComponentPath, framework: "net9.0")),
             "query" => (
                 Definitions(
                     schema,
@@ -656,7 +724,7 @@ public sealed partial class WorkspacePortableCoordinateReplacementTests
                             queries: ["q"]),
                     ],
                     "avalonia"),
-                new("avalonia", version: "12.1.2")),
+                new(AvaloniaComponentPath, version: "12.1.2")),
             _ => throw new ArgumentOutOfRangeException(nameof(kind)),
         };
     }

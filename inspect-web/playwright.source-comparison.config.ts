@@ -3,11 +3,12 @@ import { defineConfig, devices } from "@playwright/test";
 import process from "node:process";
 
 process.env.INSPECT_WEB_SOURCE_DIFF_URL = "http://127.0.0.1:4188/index.html";
-process.env.INSPECT_WEB_SOURCE_DIFF_FIXTURE_ONLY = "1";
+process.env.INSPECT_WEB_SOURCE_DIFF_FIXTURE_ONLY ??= "1";
 
 export default defineConfig({
   testDir: "./browser",
   testMatch: "source-comparison-production.spec.ts",
+  outputDir: "test-results/source-comparison",
   workers: 1,
   forbidOnly: Boolean(process.env.CI),
   reporter: "line",

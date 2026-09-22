@@ -5,6 +5,7 @@ using DotnetInspect.Cli.Inspectors;
 using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Output;
 using DotnetInspector.Ecosystems;
+using DotnetInspector.Queries;
 using DotnetInspector.Sections;
 using DotnetInspector.Services;
 using DotnetInspect.Cli.Services;
@@ -99,6 +100,21 @@ public static class FindOptionsParser
             CommandError.Write(rowSelectionError!);
             return new Invalid();
         }
+        bool members = parseResult.GetValue(args.MembersOption)
+            || (pattern?.StartsWith('.') ?? false);
+        FindQueryRouteKind routeKind =
+            members
+                ? FindQueryRouteKind.MemberResults
+                : FindQueryRouteKind.TypeResults;
+        if (!FindQueryOptions.TryResolve(
+                routeKind,
+                rowSelection,
+                out FindQueryPlan queryPlan,
+                out string? queryPlanError))
+        {
+            CommandError.Write(queryPlanError!);
+            return new Invalid();
+        }
 
         var sourceOptions = opts.ParseNuGetSourceOptions(parseResult);
         var intent = SearchSourceAdapter.Declare(
@@ -127,12 +143,12 @@ public static class FindOptionsParser
             BinPaths = [.. sources.Directories],
             Tfm = parseResult.GetValue(args.TfmOption),
             IncludeAll = parseResult.GetValue(args.AllOption),
-            // Member lens: explicit --members, or auto-enabled by a leading '.' sentinel (e.g. .Serialize).
-            // No valid type/namespace starts with '.', so the shortcut is unambiguous.
-            Members = parseResult.GetValue(args.MembersOption)
-                || (pattern?.StartsWith('.') ?? false),
+            // Member lens: explicit --members, or auto-enabled by a leading '.'
+            // sentinel (e.g. .Serialize). No valid type or namespace starts
+            // with '.', so the shortcut is unambiguous.
+            Members = members,
             TypeFilter = typeFilter,
-            RowSelection = rowSelection,
+            QueryPlan = queryPlan,
             Count = parseResult.GetValue(opts.Count),
             JsonOutput = opts.ResolveFormat(parseResult) == OutputFormat.Json,
             CompactJson = parseResult.GetValue(args.CompactOption),
@@ -152,7 +168,7 @@ public static class FindOptionsParser
             SourceOptions = sourceOptions
         };
 
-        var tipLevel = options.FormatExplicitlySet || options.IsRawOutput || options.Count || verbosity == Verbosity.Quiet || options.Discover != null || ArgumentPreprocessor.HeadLines != null || ArgumentPreprocessor.TailLines != null || options.RowSelection is not null
+        var tipLevel = options.FormatExplicitlySet || options.IsRawOutput || options.Count || verbosity == Verbosity.Quiet || options.Discover != null || ArgumentPreprocessor.HeadLines != null || ArgumentPreprocessor.TailLines != null || options.EffectiveRowSelection is not null
             ? TipLevel.Quiet : opts.ParseTipLevel(parseResult);
 
         return new Success(options, verbosity, tipLevel);

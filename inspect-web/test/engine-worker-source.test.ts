@@ -1,9 +1,12 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { apiDeclarationsFixture } from "./type-api-declarations-fixture.ts";
 
 import type {
   BrowserSource,
+  BrowserTypeCodeView,
   BrowserTypeSourceResult,
+  Source as BrowserTypeSourceView,
 } from "../src/facades/inspect-web-source.d.ts";
 import type {
   OperationFeatureEvent,
@@ -55,6 +58,26 @@ const source: BrowserSource = {
   text: "public sealed class Widget {}",
 };
 
+function sourceView(value: BrowserSource = source): BrowserTypeSourceView {
+  return {
+    kind: "source",
+    value,
+    share: {
+      kind: "nonProjectable",
+      fullUrl: null,
+      packet: null,
+      path: "type-source/share",
+      reason: inertStringFixture("No portable Workspace Share representation."),
+    },
+    diagnostics: [{
+      code: "type-source.portable-pdb.unavailable",
+      severity: 0,
+      summary: inertStringFixture("Portable PDB information was unavailable."),
+      correspondence: null,
+    }],
+  };
+}
+
 const request: TypeSourceLoadRequest = {
   packageId: "Example.Package",
   version: "1.2.3",
@@ -62,6 +85,7 @@ const request: TypeSourceLoadRequest = {
   assembly: "Example.dll",
   type: "Example.Widget",
   taste: "[\"readable-locals\"]",
+  view: "source",
   signature: "page-only-signature",
   isVisible: () => true,
 };
@@ -96,7 +120,7 @@ function succeeded(value: BrowserSource = source): BrowserTypeSourceResult {
   return {
     version: 1,
     kind: "Succeeded",
-    value,
+    value: sourceView(value),
     failureKind: null,
     error: null,
     diagnostic: null,
@@ -200,16 +224,17 @@ async function startReady(harness: Harness): Promise<void> {
 
 function startSource(
   adapter: EngineWorkerTypeSourceAdapter,
+  sourceRequest: TypeSourceLoadRequest = request,
 ): {
-  readonly handle: OperationHandle<BrowserSource, EngineWorkerTypeSourceFailure>;
+  readonly handle: OperationHandle<BrowserTypeCodeView, EngineWorkerTypeSourceFailure>;
   readonly events: OperationFeatureEvent<
-    BrowserSource,
+    BrowserTypeCodeView,
     EngineWorkerTypeSourceFailure,
     never
   >[];
 } {
   const events: OperationFeatureEvent<
-    BrowserSource,
+    BrowserTypeCodeView,
     EngineWorkerTypeSourceFailure,
     never
   >[] = [];
@@ -218,7 +243,7 @@ function startSource(
   });
   const session = page.createSession<
     TypeSourceLoadRequest,
-    BrowserSource,
+    BrowserTypeCodeView,
     EngineWorkerTypeSourceFailure,
     never,
     WorkerRuntimePreparationError
@@ -231,7 +256,7 @@ function startSource(
     },
     diagnostic: { report: () => undefined },
   });
-  const started = session.start(request, adapter);
+  const started = session.start(sourceRequest, adapter);
   assert.equal(started.kind, "started");
   if (started.kind !== "started")
     throw new Error("Expected Type Source to start.");
@@ -254,7 +279,10 @@ test("Type Source Worker adapter projects clone-safe input and returns source", 
   const { handle } = startSource(harness.adapter);
   await harness.environment.flushAsync();
 
-  assert.deepEqual(await handle.outcome, { kind: "succeeded", value: source });
+  assert.deepEqual(await handle.outcome, {
+    kind: "succeeded",
+    value: sourceView(),
+  });
   await handle.quiesced;
   assert.deepEqual(calls, [[
     "source-operation",
@@ -264,6 +292,7 @@ test("Type Source Worker adapter projects clone-safe input and returns source", 
     request.assembly,
     request.type,
     request.taste,
+    request.view,
   ]]);
   const start = harness.worker.receivedMessages.find(message =>
     ownData(message, "kind") === "start");
@@ -276,6 +305,7 @@ test("Type Source Worker adapter projects clone-safe input and returns source", 
     assembly: request.assembly,
     type: request.type,
     taste: request.taste,
+    view: request.view,
   });
   assert.doesNotThrow(() => structuredClone(payload));
 
@@ -312,6 +342,7 @@ test("Type Source binding preserves caller identity and expected diagnostics", a
     request.assembly,
     request.type,
     request.taste,
+    request.view,
   ), failed(
     "Expected",
     "source unavailable",
@@ -357,7 +388,7 @@ test("Type Source Worker operation forwards keyed cancellation", async () => {
 test("Type Source managed terminal results map without losing failure kind", () => {
   assert.deepEqual(mapEngineWorkerTypeSourceResult(succeeded()), {
     kind: "succeeded",
-    value: source,
+    value: sourceView(),
   });
   assert.deepEqual(mapEngineWorkerTypeSourceResult({
     version: 1,
@@ -418,7 +449,7 @@ test("Type Source managed result and cancellation validators reject drift", () =
   assert.throws(
     () => mapEngineWorkerTypeSourceResult({
       ...succeeded(),
-      value: { ...source, text: undefined },
+      value: { ...sourceView(), value: { ...source, text: undefined } },
     }),
     /Expected Type Source text/,
   );
@@ -465,23 +496,25 @@ test("Type Source codecs enforce request, result, and no-progress bounds", () =>
     assembly: request.assembly,
     type: "T".repeat(64 * 1024),
     taste: request.taste,
+    view: request.view,
   });
+
   assert.equal(oversizedInput.kind, "rejected");
   if (oversizedInput.kind === "rejected")
     assert.equal(oversizedInput.reason, "oversized");
   assert.equal(engineWorkerTypeSourceInput.decode(request).kind, "rejected");
 
   const oversizedValue = engineWorkerTypeSourceValue.decode({
-    ...source,
-    provenance: "P".repeat(64 * 1024),
+    ...sourceView(),
+    value: { ...source, provenance: "P".repeat(64 * 1024) },
   });
   assert.equal(oversizedValue.kind, "rejected");
   if (oversizedValue.kind === "rejected")
     assert.equal(oversizedValue.reason, "oversized");
 
   const oversizedText = engineWorkerTypeSourceValue.decode({
-    ...source,
-    text: "S".repeat(32_000_001),
+    ...sourceView(),
+    value: { ...source, text: "S".repeat(32_000_001) },
   });
   assert.equal(oversizedText.kind, "rejected");
   if (oversizedText.kind === "rejected")
@@ -492,6 +525,40 @@ test("Type Source codecs enforce request, result, and no-progress bounds", () =>
     reason: "invalid",
     message: "Type Source does not publish progress payloads.",
   });
+});
+
+for (const unavailable of [false, true]) {
+  test(`Worker preserves the ${unavailable ? "unavailable" : "available"} declaration envelope`, async () => {
+    const value = apiDeclarationsFixture("All", unavailable);
+    const facade: EngineWorkerTypeSourceFacade = {
+      async queryTypeSource(...args) {
+        assert.equal(args.at(-1), "all-declarations");
+        return { ...succeeded(source), value };
+      },
+      cancelTypeSourceQuery: () => ({ kind: "NotActive", reason: null }),
+    };
+    const harness = createHarness(operations =>
+      registerEngineWorkerTypeSourceOperation(operations, () => facade));
+    await startReady(harness);
+    const { handle } = startSource(harness.adapter, { ...request, view: "all-declarations" });
+    await harness.environment.flushAsync();
+    assert.deepEqual(await handle.outcome, { kind: "succeeded", value });
+    await handle.quiesced;
+    harness.host.dispose();
+  });
+}
+
+test("declaration envelopes retain the ordinary Worker JSON bound", () => {
+  const value = apiDeclarationsFixture();
+  const decoded = engineWorkerTypeSourceValue.decode({
+    ...value,
+    inspection: {
+      ...value.inspection,
+      content: { ...value.inspection.content, text: "x".repeat(16_777_217) },
+    },
+  });
+  assert.equal(decoded.kind, "rejected");
+  if (decoded.kind === "rejected") assert.equal(decoded.reason, "oversized");
 });
 
 test("Page adapter rejects a malformed Worker settlement as boundary failure", async () => {
@@ -506,7 +573,7 @@ test("Page adapter rejects a malformed Worker settlement as boundary failure", a
       }),
       invoke: (): ManagedOperationSettlement<unknown, string, string> => ({
         kind: "succeeded",
-        value: { ...source, text: 42 },
+        value: { ...sourceView(), value: { ...source, text: 42 } },
       }),
     });
   });

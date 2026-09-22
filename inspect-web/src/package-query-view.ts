@@ -30,10 +30,7 @@ export interface PackageQueryBindingActions {
   onBack: () => void;
   onCancel: () => void;
   onPresetToggle: (presetId: string, prefix: string) => void;
-  onLibraryLiteralInput: (
-    operand: string,
-    targetFramework: string,
-  ) => void;
+  onLibraryTargetInput: (targetFramework: string) => void;
   onTermAdd?: (termKey: string) => void;
   onTermApply?: (
     index: number | null,
@@ -358,32 +355,12 @@ export function bindPackageQueryView(
   prerelease?.addEventListener("change", () => actions.onSourceChange({
     includePrerelease: prerelease.checked,
   }, prefixInput()?.value ?? ""));
-  const literal = root.querySelector<HTMLTextAreaElement>(
-    "#package-query-library-literal");
-  const serializedLiteral = literal?.dataset.queryLibraryLiteralValue;
-  if (literal && serializedLiteral !== undefined) {
-    const initialLiteral: unknown = JSON.parse(serializedLiteral);
-    if (typeof initialLiteral !== "string") {
-      throw new TypeError(
-        "The Library literal editor value was not serialized text.");
-    }
-    literal.value = initialLiteral;
-  }
   const targetFramework = root.querySelector<HTMLInputElement>(
     "#package-query-library-tfm");
-  const updateLibraryLiteral = () => actions.onLibraryLiteralInput(
-    decodeLibraryLiteralEditorValue(literal?.value ?? ""),
-    targetFramework?.value ?? "");
-  if (literal) {
-    bindPackageQueryEditor(
-      literal,
-      updateLibraryLiteral,
-      actions.onEditorCompositionEnd);
-  }
   if (targetFramework) {
     bindPackageQueryEditor(
       targetFramework,
-      updateLibraryLiteral,
+      () => actions.onLibraryTargetInput(targetFramework.value),
       actions.onEditorCompositionEnd);
   }
   bindPackageQueryStreamControls(root, actions);
@@ -416,7 +393,8 @@ function bindPackageQueryTerms(
       actions.onTermAdd?.(button.dataset.queryTermAdd ?? "")));
   root.querySelectorAll<HTMLFormElement>("[data-query-term-form]")
     .forEach(form => {
-      const termValue = form.querySelector<HTMLInputElement>(
+      const termValue = form.querySelector<
+        HTMLInputElement | HTMLTextAreaElement>(
         "[data-query-term-value]");
       const termOperator =
         form.querySelector<HTMLInputElement | HTMLSelectElement>(
@@ -428,7 +406,12 @@ function bindPackageQueryTerms(
       }
       const retainEdit = () => {
         if (!termValue || !termOperator) return;
-        actions.onTermEdit?.(index, termOperator.value, termValue.value);
+        actions.onTermEdit?.(
+          index,
+          termOperator.value,
+          termValue instanceof HTMLTextAreaElement
+            ? decodeLibraryLiteralEditorValue(termValue.value)
+            : termValue.value);
       };
       if (termValue) {
         const updateValue = () => {
@@ -448,7 +431,12 @@ function bindPackageQueryTerms(
           throw new Error("Package-query term controls are incomplete.");
         }
         termValue.setCustomValidity("");
-        if (termValue.value.trim().length === 0) {
+        const value = termValue instanceof HTMLTextAreaElement
+          ? decodeLibraryLiteralEditorValue(termValue.value)
+          : termValue.value;
+        if (value.length === 0
+          || (!(termValue instanceof HTMLTextAreaElement)
+            && value.trim().length === 0)) {
           termValue.setCustomValidity("Enter a term value.");
           termValue.reportValidity();
           return;
@@ -456,7 +444,7 @@ function bindPackageQueryTerms(
         actions.onTermApply?.(
           index,
           termOperator.value,
-          termValue.value,
+          value,
           prefixInput()?.value ?? "");
       });
     });
@@ -732,6 +720,31 @@ function renderTermEditor(
   const applyAttributes = draft
     ? 'data-query-term-draft-control="apply"'
     : `data-query-term-index="${index}" data-query-term-control="apply"`;
+  const editorValue = descriptor.multiline
+    ? encodeLibraryLiteralEditorValue(value)
+    : value;
+  const valueControl = descriptor.multiline
+    ? `<textarea
+          id="package-query-term-${identity}"
+          data-query-term-value
+          ${valueAttributes}
+          rows="3"
+          required
+          placeholder="${escapeHtml(descriptor.example)}"
+          title="${escapeHtml(descriptor.summary)}"
+          autocomplete="off"
+          spellcheck="false">${escapeHtml(editorValue)}</textarea>`
+    : `<input
+          id="package-query-term-${identity}"
+          data-query-term-value
+          ${valueAttributes}
+          type="text"
+          required
+          value="${escapeHtml(editorValue)}"
+          placeholder="${escapeHtml(descriptor.example)}"
+          title="${escapeHtml(descriptor.summary)}"
+          autocomplete="off"
+          spellcheck="false" />`;
   return `
     <form
       class="query-term"
@@ -739,17 +752,10 @@ function renderTermEditor(
       aria-label="${escapeHtml(descriptor.label)}">
       <label class="query-term-value" for="package-query-term-${identity}">
         <span>${escapeHtml(descriptor.label)}</span>
-        <input
-          id="package-query-term-${identity}"
-          data-query-term-value
-          ${valueAttributes}
-          type="text"
-          required
-          value="${escapeHtml(value)}"
-          placeholder="${escapeHtml(descriptor.example)}"
-          title="${escapeHtml(descriptor.summary)}"
-          autocomplete="off"
-          spellcheck="false" />
+        ${valueControl}
+        ${descriptor.multiline
+          ? "<small>Line feeds remain line breaks. Use <code>\\r</code> for a carriage return and <code>\\\\</code> for a literal backslash.</small>"
+          : ""}
       </label>
       ${renderTermOperator(descriptor, operator, index, escapeHtml)}
       <div class="query-term-actions">
@@ -866,6 +872,9 @@ function renderLibraryLiteralCompletionScope(
     case "PrefixExhausted":
       population = "prefix population exhausted";
       break;
+    case "MatchLimitReached":
+      population = "match limit reached";
+      break;
     case "CandidateLimitReached":
       population = "candidate limit reached";
       break;
@@ -886,41 +895,26 @@ function renderLibraryLiteralCompletionScope(
   return completion.complete ? population : `${population}; operation incomplete`;
 }
 
-function renderLibraryLiteralControls(
+function renderLibraryTargetControl(
   request: QueryRequest,
   escapeHtml: (value: unknown) => string,
 ): string {
-  const active = isLibraryLiteralQuery(request);
-  const editorLiteral =
-    encodeLibraryLiteralEditorValue(request.libraryLiteral.operand);
-  const serializedLiteral = escapeHtml(JSON.stringify(editorLiteral));
+  if (!isLibraryLiteralQuery(request)) return "";
   return `
-    <details class="query-library-literal"${active ? " open" : ""}>
-      <summary>Library literal</summary>
-      <p>Qualify the selected packages by decoded <code>ldstr</code> use in each package's primary implementation library.</p>
-      <label for="package-query-library-literal">
-        <span>Decoded literal contains</span>
-        <textarea
-          id="package-query-library-literal"
-          data-query-library-literal-value="${serializedLiteral}"
-          rows="3"
-          placeholder="Unexpected end when reading JSON"
-          autocomplete="off"
-          spellcheck="false"></textarea>
-      </label>
-      <p>Line feeds remain line breaks. Use <code>\\r</code> for a carriage return and <code>\\\\</code> for a literal backslash.</p>
+    <section class="query-library-literal">
+      <h2>Library selection</h2>
       <label for="package-query-library-tfm">
         <span>Target framework</span>
         <input
           id="package-query-library-tfm"
           type="text"
-          value="${escapeHtml(request.libraryLiteral.targetFramework)}"
+          value="${escapeHtml(request.targetFramework)}"
           placeholder="net10.0"
           autocomplete="off"
           spellcheck="false" />
       </label>
-      <p class="query-preset-disclosure">Literal qualification is exclusive with presets and active terms and evaluates at most five prefix candidates.</p>
-    </details>`;
+      <p class="query-preset-disclosure">The Product planner records this exact TFM with the active library-literal term. Metadata-expensive queries inspect at most five candidates.</p>
+    </section>`;
 }
 
 export function encodeLibraryLiteralEditorValue(value: string): string {
@@ -1223,10 +1217,7 @@ export function renderPackageQueryView(
   const failures = renderFailures(state, escapeHtml);
   const results = renderResults(state, escapeHtml, viewport);
   const request = state.request ?? createQueryRequest("");
-  const libraryLiteralActive = isLibraryLiteralQuery(request);
-  const terms = libraryLiteralActive
-    ? `<p class="query-preset-disclosure">Terms are unavailable while Library literal qualification is active.</p>`
-    : renderTermControls(state, availableTerms, escapeHtml);
+  const terms = renderTermControls(state, availableTerms, escapeHtml);
 
   return `
     <div class="query-page">
@@ -1257,15 +1248,14 @@ export function renderPackageQueryView(
         <div class="query-layout">
           <aside class="query-preset-rail" aria-label="Package query controls">
             ${renderPackageOptions(request)}
-            ${renderLibraryLiteralControls(request, escapeHtml)}
+            ${renderLibraryTargetControl(request, escapeHtml)}
             ${terms}
             <h2>Inspection facts</h2>
-            <p>${libraryLiteralActive
-              ? "Presets are unavailable while Library literal qualification is active."
-              : "Changes rerun the selected input; blank package input stays idle."}</p>
-            <div class="query-presets">${libraryLiteralActive ? "" : presets}</div>
+            <p>Changes rerun the selected input; blank package input stays idle.</p>
+            <div class="query-presets">${presets}</div>
             <p class="query-preset-disclosure">Content facts download up to 20 candidate package archives.</p>
             <p class="query-preset-disclosure">Transitive dependency facts inspect up to 5 package candidates.</p>
+            <p class="query-preset-disclosure">Metadata-expensive facts inspect up to 5 package candidates.</p>
             <p class="query-preset-disclosure">Candidate bound K: ${request.requestedLimit.toLocaleString()}; exact IDs use one candidate. Maximum matches N: ${request.requestedMatchLimit.toLocaleString()}. The match limit does not change prefix capacity.</p>
             <p class="query-preset-disclosure">Match counts and lifetime downloads describe a bounded response, not global top-N.</p>
           </aside>

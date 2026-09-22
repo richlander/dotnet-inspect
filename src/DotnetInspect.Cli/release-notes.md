@@ -1,228 +1,232 @@
 # Release Notes
 
-## Unreleased
+## v0.26.0
 
-- Makes `-n` adapt to the active command's available item sequence: declared
-  semantic rows remain preferred, while commands and modes without semantic
-  row adoption now select rendered lines instead of rejecting the count.
-  `--lines` remains an explicit unit override, and numeric `-t` on
-  `implements` and `extensions` is treated as type-filter input rather than a
-  legacy count or migration diagnostic (#4677).
-- Adds complete service `--envelope` output to `package activity` with result
-  kind `ecosystem-change-report` and schema version `1`. Unprojected `--json`
-  emits the same owner-issued report Content without the service frame.
-  Report request controls remain admitted while projection, Count, discovery,
-  section selection, row shaping, and competing formats are rejected. Typed
-  incomplete and failed Content remains visible before a nonzero exit (#7126).
-- **Breaking:** Modernizes `ecosystem` with route-specific `@Ecosystem` and
-  `@Integrations` categories, category-first alphabetical discovery, and
-  alphabetical multi-section output. Replace the former unprefixed
-  `-S Integrations` alias with `-S @Integrations`; exact
-  `-S "Known Integrations"` remains available. Computed `@All`, `@Default`,
-  and `@Hidden` selectors remain unsupported (#7453).
-- Adds focus-first `library coordinate <coordinate>` for exact IL and metadata
-  heap inspection and `library coordinate --file <path>` for sparse IL
-  coordinate populations, with named `--library`, `--package`, and `--platform`
-  source context. File mode admits at most 1,024 significant records before
-  Library acquisition; blank and comment lines do not count, while malformed
-  records remain visible. Heap coordinates remain bound to the selected
-  `--metadata-root`. The command reuses the existing coordinate sections,
-  projections, discovery, acquisition, and typed failures; legacy coordinate
-  options remain available until the retirement slice completes the command
-  transition (#7307).
-- **Breaking:** `library coordinate --file` emits valid and malformed records
-  together in source-file order, and applies row windows after that ordering.
-  Legacy `library --il-offsets` continues to group malformed records first
-  during the transition (#7307).
-- **Breaking:** Replaces the separate `Integration: <concept>` library sections
-  with one homogeneous `Integrations` section. Narrow it with
-  `--where "integration=integration.<concept>"`; use the composable `ecosystem`
-  facet to enable an ecosystem's registered Integration set. The current Aspire
-  registration enables the complete configured Integration catalog. Renames
-  `Integration: Opportunities` to `Integration Opportunities`, while
-  `@Integrations` continues to select both current sections.
-- **Breaking:** Corrects Member `find` match vocabulary so direct non-glob
-  discoveries emit `Direct` instead of `Exact` in unprojected JSON. Direct
-  member discovery remains case-insensitive and one-to-many across overloads,
-  declaring Types, and sources; the `this[]` alias continues to match indexer
-  metadata names. Glob matching and rendered output are unchanged (#7260).
-- Routes Inspect Web Package Activity at `/activity`, exposes it beside Query
-  and Workspace with Spotlight as the responsive alternate entry, and retires
-  the `/query` Packages/Activity peer mode while preserving report state,
-  cancellation, Worker operation, bridge, and wire contracts (#7179).
-- **Breaking:** Renames `package changes` to `package activity` and removes the
-  old spelling with direct replacement guidance. Inspect Web now presents the
-  same report as **Package Activity** while retaining the existing
-  `package-changes` Worker operation, bridge route, wire contracts, and report
-  semantics (#7175).
-- Adds canonical query-free Workspace share packet format 2 with nullable
-  Workspace/Package focus, complete direct-Package committed view state,
-  dormant non-Package rows, schema-version-2 transposition, and unchanged
-  format-1 byte behavior. Query-bearing format-2 state remains visibly
-  unsupported until its vocabulary-binding owner lands (#7087).
-- **Breaking:** Corrects Type `find` match vocabulary so direct non-glob
-  discoveries emit `Direct` in typed JSON and `direct` in rendered output
-  instead of the misleading `Exact`. Matching remains lenient and one-to-many;
-  this change did not alter the separately owned Member discovery vocabulary
-  (#7173).
-- Records Package Source-issued portable producer tokens in fresh package Root
-  coordinates, enabling configured HTTP and local Roots to round-trip through
-  current destination authorization while preserving existing content and
-  cache producer keys and legacy NuGet.org requests (#6946).
-- Routes eligible exact-Package and explicit-Platform type Find operations
-  through the Workspace declaration locator while preserving established
-  Markdown, tips, table formats, and root-array JSON. Internal Package
-  Type/Member handoff retains the selected implementation asset and compatible
-  target framework (#6844).
-- Adds a bounded, credential-free portable token to every Package Source
-  producer identity for later exact package Root correspondence without
-  carrying endpoint, path, or source authority (#6995).
-- Adds a receipt-preserving PackageHouse compile-realization adapter that issues
-  the existing package Root binding without repeating asset selection, retains
-  Root-only explicit-empty and no-match outcomes, and reports Unicode package
-  IDs outside the Root grammar as typed coordinate no-contribution evidence
-  (#6942).
-- Implements target-aware PackageHouse `Realize` execution over the existing
-  compile/runtime selector receipts, preserving acquired package shape,
-  optional Library handoffs, and terminal timeout evidence (#6880).
-- Routes the empty `cache` human result through the generated Markout context
-  and documents the bounded one-record JSON/JSONL compatibility contract
-  shared by populated and empty cache snapshots (#6833).
-- Routes vocabulary Markdown, plain text, table, TSV, JSONL, and projected JSON
-  through one generated Markout serializer view while preserving the
-  schema-versioned unprojected JSON contract (#6811).
+### Queries, packages, and ecosystems
+
+- Expands host-neutral query execution across the CLI and Inspect Web,
+  including package dependency, ecosystem, assembly-reference, literal-library,
+  prefix, and transitive-dependency qualification; direct Library-reference
+  queries over package, directory, and platform populations; bounded candidate
+  work; typed completion and failure outcomes; semantic result-row selection;
+  and service-envelope output. Query discovery and execution now share the
+  QuerySpace and Query Operation route across Package Query, Library Query,
+  Find, Depends, and Graph Libraries (#7373, #7561, #7575, #7594, #7677,
+  #7799, #7867, #7872, #7910, #7924, #7945, #7985, #8042).
+- Adds exact decoded-string `library-literal=<text>` qualification to Package
+  Query with an exact `--tfm`. Results remain package-grain while retaining the
+  selected Library, complete occurrences, typed completion, and an exact Root
+  reopening token (#8054).
 - **Breaking:** Replaces `package search` and patternless
-  `find --package-prefix` with host-neutral `package query`. Exact package IDs
-  and terminal-star package prefixes share the Package Query engine;
-  explicit `--take` bounds candidate work before `-n` selects final rows,
-  while a lone `-n` is pushed into direct or filtered query execution.
-  Selecting a content facet authorizes archive acquisition; `--nuspec-only`
-  rejects queries that require it. The initial CLI facet set identifies .NET
-  tool packages and reports CLI v1, CLI v2, or unrecognized tool settings.
-  Patterned `find PATTERN --package-prefix PREFIX` remains API search (#6768).
-- **Breaking:** Removes the `dependency-evidence` command and the positional
-  type-to-library fallback from `depends`. Use `depends` with explicit
-  `--package`, `--nuspec`, `--project`, `--library`, or `--package-prefix`
-  roots; add `-S Dependencies` for declaration evidence without traversal.
-  The retired command token remains reserved and reports this replacement
-  guidance instead of being interpreted as a package target (#5995).
-- **Breaking:** Positional `depends <type> --json` now serializes the shared
-  camelCase `TypeDependencySectionResult` Content directly. The former
-  presentation graph was `{nodes, edges, depth_boundaries,
-  package_projections}`: node identities carried `kind`, nodes and edges
-  carried `root_occurrences`, and edges duplicated flattened fields such as
-  `source_identity` and `target_identity`. The replacement is
-  `{queryResult:{dependency:{matchedType,tree,found,relationships,
-  depthBoundaries,rejections},participants:[{kind,subject,...}],
-  hasSurvivingParticipant,isComplete},rowSelection:{isSuccess,relationships,
-  failure}}`. Participant `kind` is `completed` or `rejected`; dependency enums
-  remain numeric. The complete dependency relationships and the selected
-  `rowSelection.relationships` are both retained. Asset-mode `depends`,
-  Discover, Count JSON, and non-JSON output are unchanged (#6719).
-- Adds presence-only `--envelope` to positional `depends <type>`, implying JSON
-  and emitting schema version `1`, result kind `type-dependencies`, the same
-  Content serializer used by `--json`, Share, and ordered diagnostics.
-  Framing uses lower snake case; Share preserves `available` and
-  `nonProjectable`, diagnostic severity remains `Information`, `Warning`, or
-  `Error`, absent correspondence remains `null`, and no `evidence` member is
-  emitted.
-  `--compact`, semantic relationship row selection, and `--depth` traversal
-  remain available. Competing formats, Discover/schema/effective modes,
-  section selection, explicit document verbosity, Count, projections,
-  decoration, and rendered-line clipping are rejected before acquisition.
-  Progress and informational options remain on stderr; explicit `--share`
-  retains its final-stderr-line policy. Type-not-found diagnostics precede
-  side output, and an available Share follows `--info` or trace host
-  diagnostics as the final stderr line. Share is constructed even when stderr
-  projection is not requested; mixed-source plans and explicit `--depth`
-  produce typed `nonProjectable` Share without changing successful Content.
-  Asset mode, other commands, evidence capture, and
-  `--evidence-envelope` have not adopted this transport (#6719, #7117, #7126).
-- **Breaking:** Unprojected `diff --json` on the shared single-Library API
-  route now emits complete `LibraryApiDiffOutcome` Content instead of the
-  former `{changes: ...}` presentation view. Root `outcome` is `available`,
-  `unavailable`, or `rejected`; Available includes `document`, while
-  non-success includes numeric `kind` and both endpoint summaries. Nested
-  ComparisonDocument retains its existing snake_case schema; other
-  Presentation-owned properties are camelCase and enums remain numeric.
-  Explicitly filtered or sectioned JSON keeps its presentation schema.
-- Adds `diff --envelope` for ordinary API comparison with exactly one Library
-  at each endpoint, using schema version `1`, result kind `library-api-diff`,
-  and the common buffered writer. Content matches unprojected `--json`;
-  Share remains non-projectable at `comparison/endpoints`. Typed non-success
-  is serialized before returning failure; acquisition failure fabricates no
-  result. `--compact` formats either complete JSON boundary, rejects projected
-  or other Diff operations, and `--all` remains an
-  API-scope input. Envelope rejects Type/classification filters, sections,
-  explicit verbosity, row/line controls, competing formats, and non-API modes.
-  Complete Content JSON rejects rendered-line clipping. This completes the
-  two-content-kind baseline transport rollout, not Browser baseline delivery,
-  House acquisition, command cutover, or Evidence capture (#6719).
-- Corrects shared assembly-context JSON prerequisites: the six existing
-  `AssemblyResolutionProvenance` cases now serialize with `kind` values
-  `package`, `platform`, `project`, `local`, `embedded`, and `designated`
-  instead of empty objects. `AssemblyContextSubject` retains Identity and full
-  typed resolution Provenance but excludes its process-local `Registration`.
-  The existing Browser source-generated serializer receives these Content
-  corrections without adding CLI framing or runtime evidence capture (#6719).
-- Routes `vocabulary` value rows through the shared semantic selection path:
-  `-n` and bare `-N` select Head rows, `--tail` selects from the end, and
-  range-form `--rows` composes in argument order across every selected section.
-  Strict windows fail without partial output, and `--count` observes the
-  selected rows (#6643).
-- Routes `timeline` Evaluations and Transitions through the shared semantic
-  selection path. `-n`, bare `-N`, `--tail`, and range-form `--rows` compose in
-  argument order independently for each selected section; strict windows fail
-  without partial output, JSON and count observe the selected rows, and
-  selection never reduces the package cells explicitly authorized by `--at`
-  (#6650).
-- **Breaking:** Makes restored-project package documents fully section-driven.
-  `project --agents-index` and `project --readme <package-id>` are removed; use
-  `-S Skills` or `-S "Package README file"` and add `--print --row N` to emit
-  one document. Package `AGENTS.md` and `PROJECT.md` files are no longer
-  interpreted, and the command no longer acquires missing packages from a
-  feed (#6676).
-- **Breaking:** Simplifies `vocabulary` into a flat section catalog. Bare
-  output now shows only section name, summary, and value count; `-D` lists
-  sections without category doors; exact names, stable section IDs, and globs
-  replace category selectors such as `@Decompiler`. Structured vocabulary
-  schema version 2 removes each section's `categories` member (#6404).
-- Lists verbs alphabetically in root CLI help while preserving authored
-  ordering within nested commands (#6413).
-- Adds explicit `Body Shape Summary` output to `library`, `type`, and `member`,
-  grouping identical rendered Kind/Match values with occurrence counts.
-  `Body Shapes` retains individual member/token/rendered-C# locations.
-  Column projection remains presentational; summary row limits select groups
-  without truncating their counts. Type `--member` filters now bound both
-  summary and occurrence evidence before rendering (#6186).
-- **Breaking:** Zero-arity CLI options now consistently reject supplied
-  values, including attached Boolean forms previously accepted by the parser.
-  For example, `package System.CommandLine --versions 2` reports
-  `--versions does not accept a value`; use `--versions -n 2` instead.
-  Valid positional arguments after flags and optional-valued Boolean options
-  keep their existing behavior (#6173).
-- Online single-package inspection now selects latest and wildcard versions
-  from configured local and HTTP authorities, including `--preview`.
-  Selection requires fresh, complete discovery and acquires only from sources
-  that reported the chosen version, even on a payload-cache hit. Local payload
-  caches and HTTP temporary ownership match exact-pin inspection. HTTP payloads
-  are downloaded anew in each invocation (#5400).
-- Online `type`, `member`, and `match` omitted/latest/wildcard selectors, exact
-  pins, and addressed package ranges, plus `timeline` ranges, now support
-  configured folder feeds and preserve reporting authority through acquisition
-  and executable replay. Omitted/latest API selection remains stable-only;
-  wildcards retain their prerelease-prefix semantics. Timeline retains one
-  fresh vector for sparse or dense probes; without `--at`, it remains
-  metadata-only. Ranges keep their listed-only semantics. Suggested probes
-  retain source/configuration and selection options. Multi-package commands,
-  dependency acquisition, and offline extraction remain on their existing
-  paths (#5400).
-- **Breaking:** Renames `match --implementation` to `match --body`, with
-  a `Method Body Diff` view. Body comparison now consumes the shared Queries
-  designated-pair path and retains native endpoint and failure outcomes.
-  `--body --json` uses a `match`/`body` envelope with typed native results
-  instead of the former `match`/`implementation` presentation envelope.
-  Plain `match --json` is unchanged (#5925).
+  `find --package-prefix` with host-neutral `package query`. Exact IDs and
+  terminal-star prefixes share the Package Query engine; `--take` limits
+  candidate work before adaptive `-n` selects final rows. Patterned
+  `find PATTERN --package-prefix PREFIX` remains API search (#6768).
+- Moves online version listing, exact-pin verification, latest/wildcard
+  selection, Package Info, and Browser package inventories onto shared
+  PackageHouse settlement. Package Info now reports the selected TFM, ordered
+  available TFMs, selected folders, compressed size, selected-TFM Library count
+  and size, declared .NET tool payloads, and recognized ecosystem dependencies.
+  Configured local and HTTP authorities retain authoritative source
+  correspondence through selection and acquisition (#5400, #7537, #7587,
+  #7599, #7612, #7663, #7684, #7694, #7695, #7734, #7864).
+- Adds aggregate Library selection to Workspace-backed inspection and Inspect
+  Web, including **All libraries** and useful exact-Library auto-selection.
+  Ordinary CLI package-backed Library inspection retains its exact/default
+  selection behavior. Package and Library dependency/reference surfaces now
+  distinguish direct relationships from occurrence-addressed
+  `Dependency Hierarchy` and `Reference Hierarchy` views (#7720, #7791,
+  #7792, #7939, #8040).
+- Renames the `.NET`/`dotnet` ecosystem to `.NET Runtime`/`runtime`, keeps
+  ASP.NET Core independent, reports recognized Package and Library ecosystem
+  dependencies, and exposes ecosystem-aware Package Query qualification.
+  Library integrations are presented as one homogeneous `Integrations`
+  section, narrowed with
+  `--where "integration=integration.<concept>"` (#7484, #7506, #7677,
+  #7864, #7925).
+- **Breaking:** Modernizes `ecosystem` with category-first alphabetical
+  discovery and alphabetical multi-section output. Select configured bindings
+  with exact `-S Integrations`; the former Ecosystem `@Integrations` category is
+  rejected, while Library's separate `@Integrations` category remains
+  available. Computed `@All`, `@Default`, and `@Hidden` remain unsupported
+  (#7453, #7506).
+- Uses explicit Package version lenses: `package ID --version VERSION`
+  verifies one exact version, while `package ID --latest-version` returns the
+  newest listed version. Root `dotnet-inspect --version` remains product
+  version reporting. SourceLink `--raw` and `--blob` are replaced by
+  `--prefer-rendered-urls`; direct fetchable URLs remain the default (#7621,
+  #8204).
+
+### Workspaces and coordinates
+
+- Adds complete Workspace-root capture, definition-first Package replacement,
+  direct-dependency realization, exact Package/Platform retention,
+  higher-capacity packet formats 3 and 4, credential-safe source declarations,
+  and packet-backed Package, Type, and Library inspection. Complete packet
+  replay preserves focus independently from selected context, while Inspect Web
+  activation and deletion settle as consumer-accepted transactions (#7505,
+  #7509, #7542, #7615, #7756, #7836, #7873, #7909, #7949, #8011).
+  Retained-Workspace package-source credentials now keep a typed C#/TypeScript
+  contract through the generated facade while preserving the private string
+  ABI and page-session-only credential constraints (#8238).
+- Adds canonical Workspace component paths and immutable
+  `workspace package add|update|remove` editing, plus nested packet
+  encode/decode commands. Inspect Web now saves and reopens complete Workspace
+  packets through retained-definition activation; legacy records remain
+  explicit compatibility records (#8146, #8153).
+- Adds bounded picker, drop, and paste opening of one standalone managed
+  assembly in Inspect Web, with typed rejection and Library-to-Type-to-Member
+  navigation (#8051).
+- Moves Inspect Web product navigation into the `dotnet-inspect` brand menu,
+  keeping Home, Query, Workspace, and Activity durable without competing with
+  inspected-subject navigation (#8047).
+- Adds focus-first `library coordinate <coordinate>` and bounded
+  `library coordinate --file <path>` for exact IL and metadata-heap inspection,
+  retaining source context and typed malformed-record evidence. File mode
+  preserves valid and malformed records together in source order before row
+  selection (#7307).
+- **Breaking:** Removes `library --il-offset`, `library --il-offsets`, and
+  `library --heap`. Use `library coordinate <token>+<offset>` or
+  `library coordinate --file <path>` (#7512).
+
+### Source, documentation, and decompilation
+
+- Routes authored and decompiled Type/Member source, Source Diff, selected
+  source files and parts, and platform/package XML documentation through shared
+  SourceHouse and DocumentationHouse envelopes across CLI and Browser/Wasm.
+  Full-Type source includes non-public implementations, API declarations are
+  explicitly selectable, and Browser Type Source can hedge a slow PDB path
+  without waiting indefinitely (#7502, #7527, #7568, #7597, #7605, #7680,
+  #7729, #7782, #7824, #7868, #7899, #7930, #7957, #7968, #8034, #8049,
+  #8058, #8065, #8101).
+- Adds explicit authored-first `type T -S Source` and exact
+  `member T M -S Source`. Native source remains the default presentation;
+  explicit Markdown and structured output preserve provider and fallback
+  context, while `PDB Source` and `Decompiled Source` remain independent
+  provider-specific views. Authored member-part printing now honors
+  `--markdown`, and Type Source preserves stable Portable PDB disposition
+  diagnostics (#8140, #8147, #8195).
+- Preserves compiled XML alongside typed authored-source availability,
+  incompleteness, and failure in Inspect Web package-member documentation
+  (#8161).
+- **Breaking:** A single selected Type or Member source/code payload now prints
+  native content by default. Use `--markdown` to request the framed document
+  presentation. Full-Type source no longer requires `--all` to include
+  non-public implementations (#7968, #8039).
+- Improves checked pointer and scalar updates, sparse enum switches,
+  cross-assembly and `[Flags]` enum constants, exact Portable PDB local scopes
+  and repeated names, state-machine outcomes, getter-only properties and
+  primary-constructor initializers, lazy delegate caches, generic
+  extension-call inference, widened integer and uppercase-`L` spelling,
+  method-group, conditional, and reference-coalescing-assignment rendering, and
+  conservative control-flow reconstruction. Failures and declined
+  reconstructions remain explicit rather than producing unsupported source
+  (#7482, #7507, #7536, #7540, #7571,
+  #7585, #7600, #7606, #7634, #7665, #7688, #7701, #7727, #7731, #7733,
+  #7741, #7773, #7774, #7781, #7793, #7813, #7849, #7856, #7866, #7902,
+  #7906, #7911, #7947, #7948, #7973, #7994, #8008, #8032, #8033, #8050,
+  #8078, #8087, #8131).
+
+### Analysis, graphs, and diffs
+
+- Adds exact direct-call annotations, recursion witnesses, classic-await
+  completion paths, allocation/handler distinctions, occurrence-preserving
+  Relationships tables and diagrams, local throw paths,
+  synchronous-completion evidence, and direct source-part selection (#7589,
+  #7627, #7673, #7715, #7752, #7780, #7821, #7846).
+- Adds external-focused `graph calls`, improves cross-Library call
+  neighborhoods, introduces semantic row selection throughout Graph Libraries,
+  Clone Candidates, Calls, Callers, Similar Matches, and integration graphs,
+  and adds structural and normal-flow complexity context to Implementation
+  Diff. Performance diagnostics now identify exact string-materialization
+  operations and runtime-confirmed hot paths. Large QuerySpace row populations
+  now reuse immutable snapshots instead of copying them during cohort binding
+  (#7508, #7579, #7603, #7722, #7725, #7738, #7770, #7817, #7861, #7869,
+  #7878, #7896, #7912, #7936, #7939, #7995, #8144).
+- Makes package-backed `graph calls` automatically follow the root package's
+  dependency graph in both the CLI and Inspect Web, preserving exact root
+  selection while applying an independent traversal target (#8215).
+- Adds an explicit `Library Metrics` section for whole-library structural
+  metrics. QuerySpace and metadata-backed count paths reduce allocation and
+  startup cost for Graph Libraries and installed-Platform Type inventories,
+  while retaining fallback when compact evidence is unavailable (#8183,
+  #8186, #8207, #8221).
+- Adds complete JSON and `InspectionEnvelope<ImplementationDiffDocument>`
+  transport for one exact local Implementation Diff pair while preserving
+  ordinary rendered output (#7876).
+- **Breaking:** Moves Type/Member history under `diff --history`, with full,
+  checkpoint, and adaptive policies plus complete JSON/envelope transport and
+  section projections. Deterministic `--sample-percent P` surveys can be
+  combined with an absolute `--max-probes N` cap. The standalone `timeline`
+  command is retired (#8005, #8110).
+
+### Output, discovery, and safety
+
+- Extends schema-versioned envelopes and owner-issued Content to Package Query,
+  package-version listing and counts, exact Type/Library API inspection,
+  positional `depends`, API Diff, and Package Activity. Typed incomplete or
+  failed Content is emitted before a nonzero exit where available.
+  Assembly-resolution provenance now serializes its actual typed kind rather
+  than `{}` (#6719, #7117, #7126, #7474, #7537, #7575, #7644, #7667).
+- **Breaking:** Positional `depends <type> --json` now emits shared camel-case
+  `TypeDependencySectionResult` Content rather than the former presentation
+  graph. Unprojected single-Library `diff --json` emits complete
+  `LibraryApiDiffOutcome` Content rather than `{changes: ...}`. Type and Member
+  direct `find` matches use `Direct`/`direct` instead of `Exact`. Explicitly
+  projected or sectioned presentation JSON remains presentation-shaped (#6719,
+  #7173, #7260).
+- **Breaking:** Removes `dependency-evidence` and the positional
+  type-to-library fallback from `depends`. Use explicit `--package`, `--nuspec`,
+  `--project`, `--library`, or `--package-prefix` roots; add
+  `-S Dependencies` for declaration evidence without traversal. Asset-mode
+  traversal is exposed as occurrence-addressed `Dependency Hierarchy`, while
+  direct dependencies remain `Dependencies` (#5995, #7616, #7669, #7720).
+- Adds `depends -S Licenses` for package-license declarations from explicit
+  nuspec roots and restored projects without reading package payloads (#8014).
+- Extends adaptive `-n`, `--tail`, strict `--rows`, Count, and
+  format-consistent row selection to Workspace inventory, Type catalogs,
+  project documents, package files/layout/TFMs, SourceLink files, Vocabulary,
+  Timeline, Graph Libraries, direct references, callers/calls,
+  clone/similarity results, and demos. Commands without adopted semantic rows
+  now let `-n` select rendered lines; `--lines` remains the explicit
+  rendered-line override (#4677, #6643, #6650, #7556, #7579, #7602, #7613,
+  #7622, #7661, #7684, #7723, #7725, #7738, #7764, #7770, #7779, #7817,
+  #7831, #7861, #7896, #7936).
+- **Breaking:** Numeric `-m` is no longer a Type/Member result count and remains
+  ordinary `--member` filter input; use adaptive `-n` for limits. Numeric `-t`
+  on `implements` and `extensions` remains Type-filter input. Zero-arity
+  options reject supplied values, including attached Boolean forms (#6173,
+  #7735).
+- Lists root verbs alphabetically, moves Graph Libraries and Package Query to
+  authored catalogs, adds Library `--details` format capabilities, calibrates
+  automatic section growth across Package, Library, Type, and Member domains,
+  keeps automatic `depends` Normal output bounded while exact dependency
+  evidence remains complete, and renames ambiguous `Implementation Profiles`
+  to `Type Metrics` and `Member Metrics` (#6413, #7535, #7561, #7834, #7922,
+  #7956, #7972, #7999, #8012, #8059, #8061, #8075, #8079, #8113, #8149).
+- Resolves versionless bare CLI Type and Member requests through the highest
+  eligible installed Platform catalog before lazy package fallback, retaining
+  exact assembly and runtime identity (#8177).
+- **Breaking:** Flattens `vocabulary` discovery and removes category selectors
+  such as `@Decompiler`; stable names, IDs, and globs replace them, and
+  structured schema v2 removes `categories`. Removes redundant `type --shape`;
+  exact-Type tree output remains the default and `--tree` is the explicit
+  spelling (#6404, #7730).
+- Makes restored-project Package documents section-driven. Use `-S Skills` or
+  `-S "Package README file"` and `--print --row N`; `project --agents-index`
+  and `project --readme` are removed. Package `AGENTS.md` and `PROJECT.md` are
+  no longer interpreted, and missing packages are not acquired from feeds
+  (#6676).
+- Renames `package changes` to `package activity`, removes the old spelling
+  with replacement guidance, adds schema-v1 `ecosystem-change-report` envelope
+  output, and gives Inspect Web a dedicated `/activity` route. Catalog
+  retrieval now tolerates omitted `Content-Type` only where NuGet Catalog
+  behavior requires it (#7126, #7175, #7179, #7635).
+- Preserves typed budget, malformed-data, unsupported-data, and correspondence
+  failures across TypeDef lookup, unsafe contracts, query handles, Package
+  audit text, and package inspection. Invalid-text package entries consume the
+  aggregate audit-byte budget rather than bypassing it (#7444, #7666, #7716,
+  #7755, #7775, #7798, #7823, #7844, #7855).
 
 ## v0.22.0
 

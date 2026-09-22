@@ -4,6 +4,7 @@ using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Output;
 using DotnetInspector.Packages;
 using DotnetInspector.Queries;
+using DotnetInspector.ResearchSections;
 using DotnetInspector.Sections;
 using DotnetInspect.Cli.Sections;
 using DotnetInspector.Services;
@@ -18,6 +19,7 @@ using ILInspector.Research;
 using Markout;
 using System.Collections.Immutable;
 using System.Text.Json;
+using QuerySpace.Rows;
 
 namespace DotnetInspect.Cli.Commands;
 
@@ -27,15 +29,52 @@ namespace DotnetInspect.Cli.Commands;
 public class DiffCommand
 {
     public const string Name = "diff";
-    public static async Task<int> ExecuteAsync(DiffOptions options)
+    public static async Task<int> ExecuteAsync(
+        DiffOptions options,
+        CancellationToken cancellationToken = default)
     {
+        if (options.History)
+        {
+            return await DiffHistoryCommand.ExecuteAsync(
+                options,
+                cancellationToken);
+        }
+        if (options.At.Length > 0
+            || options.MaxProbes is not null
+            || options.SamplePercent is not null
+            || options.IncludePrerelease)
+        {
+            CommandError.Write(
+                "--at, --max-probes, --sample-percent, and --preview require --history.");
+            return 1;
+        }
+        if (options.Count)
+        {
+            CommandError.Write(
+                "--count requires --history; pairwise Diff does not declare a countable cohort.");
+            return 1;
+        }
         string? transportOption = options.EnvelopeOutput ? "--envelope"
             : options.CompactJson ? "--compact" : null;
+        bool implementationTransport =
+            RequestsCompleteImplementationDiff(options);
+        if (implementationTransport
+            && HasIncompatibleImplementationTransportProjection(options))
+        {
+            CommandError.Write(
+                "Complete Implementation Diff transport cannot be combined "
+                    + "with presentation projection or another diff operation.");
+            return 1;
+        }
         if (transportOption is not null
-            && (options.HasContentProjection
+            && ((!implementationTransport
+                    && options.HasContentProjection)
+                || implementationTransport
+                    && HasIncompatibleImplementationTransportProjection(options)
                 || options.EnvelopeOutput && options.JsonOutput
                 || options.Discover is not null
-                || options.MemberFilter.Count > 0
+                || !implementationTransport
+                    && options.MemberFilter.Count > 0
                 || options.Finding is not null
                 || options.IncludePdbSource
                 || options.SourceRepositories.Length > 0
@@ -90,7 +129,23 @@ public class DiffCommand
             return 1;
         }
         if (selectResult.Sections != null)
-            options = options with { IncludeSections = selectResult.Sections };
+        {
+            options = options with
+            {
+                IncludeSections = selectResult.Sections,
+                ExactIncludeSectionsOverride = selectResult.ExactSections,
+            };
+        }
+        implementationTransport =
+            RequestsCompleteImplementationDiff(options);
+        if (implementationTransport
+            && HasIncompatibleImplementationTransportProjection(options))
+        {
+            CommandError.Write(
+                "Complete Implementation Diff transport cannot be combined "
+                    + "with presentation projection or another diff operation.");
+            return 1;
+        }
         if (options.Finding is not null && options.IncludeSections is null)
         {
             options = options with
@@ -105,6 +160,13 @@ public class DiffCommand
         var hasPlatform = !string.IsNullOrEmpty(options.PlatformVersionRange);
         var hasPackage = !string.IsNullOrEmpty(options.PackageVersionRange);
         var hasLibrary = !string.IsNullOrEmpty(options.LibraryVersionRange);
+        if (implementationTransport && !hasLibrary)
+        {
+            CommandError.Write(
+                "Complete Implementation Diff transport currently requires "
+                    + "one local --library pair.");
+            return 1;
+        }
 
         // Discovery mode: -D/--discover lists schema
         if (options.Discover != null)
@@ -286,13 +348,35 @@ public class DiffCommand
 
             try
             {
-                if (transportOption is not null && !UsesSharedLibraryApiDiff(inputs, options))
+                if (transportOption is not null
+                    && !UsesSharedLibraryApiDiff(inputs, options)
+                    && !implementationTransport)
                 {
                     CommandError.Write(
                         $"{transportOption} currently requires exactly one Library at each API diff endpoint; "
                         + $"resolved {inputs.From.AssemblySet.Assemblies.Count} before and "
                         + $"{inputs.To.AssemblySet.Assemblies.Count} after.");
                     return 1;
+                }
+                if (implementationTransport)
+                {
+                    if (inputs.From.AssemblySet.Assemblies.Count != 1
+                        || inputs.To.AssemblySet.Assemblies.Count != 1)
+                    {
+                        CommandError.Write(
+                            "Complete Implementation Diff transport requires "
+                                + "exactly one assembly on each endpoint.");
+                        return 1;
+                    }
+
+                    InspectionEnvelope<ImplementationDiffDocument> envelope =
+                        ImplementationDiffInspection.Execute(
+                            CreateImplementationComparisonInput(
+                                inputs,
+                                options));
+                    return ImplementationDiffOutput.Write(
+                        envelope,
+                        options);
                 }
                 if (UsesSharedLibraryApiDiff(inputs, options))
                 {
@@ -1111,6 +1195,63 @@ public class DiffCommand
     private static bool SelectsComplexityContext(DiffOptions options)
         => options.IncludeSections?.Contains(DiffSections.ComplexityContext.Name) == true;
 
+    private static bool RequestsCompleteImplementationDiff(
+        DiffOptions options)
+    {
+        if (!options.JsonOutput && !options.EnvelopeOutput)
+            return false;
+
+        bool selectsOnlyImplementationDiff;
+        if (options.IncludeSections is not null)
+        {
+            selectsOnlyImplementationDiff = options.IncludeSections.SetEquals(
+                    [DiffSections.ImplementationDiff.Name])
+                && options.ExactIncludeSections?.SetEquals(
+                    [DiffSections.ImplementationDiff.Name]) == true;
+        }
+        else
+        {
+            selectsOnlyImplementationDiff =
+                options.Select is { Length: 1 }
+                && string.Equals(
+                    options.Select[0],
+                    DiffSections.ImplementationDiff.Name,
+                    StringComparison.OrdinalIgnoreCase);
+        }
+
+        if (!selectsOnlyImplementationDiff)
+            return false;
+
+        // Exact non-Library JSON remains the existing rendered projection.
+        return options.EnvelopeOutput
+            || !string.IsNullOrEmpty(options.LibraryVersionRange);
+    }
+
+    private static bool HasIncompatibleImplementationTransportProjection(
+        DiffOptions options)
+        => options.Breaking
+            || options.Additive
+            || options.SelectDefault
+            || options.Columns is not null
+            || options.Fields is not null
+            || options.Rows is not null
+            || options.Tabular
+            || options.Tsv
+            || options.Jsonl
+            || options.NoHeader
+            || options.NameOnly
+            || options.Tree
+            || options.VerbosityExplicitlySet
+            || options.Discover is not null
+            || options.Schema
+            || options.Finding is not null
+            || options.IncludePdbSource
+            || options.SourceRepositories.Length > 0
+            || options.ChangedOnly
+            || options.AllocRegressionsOnly
+            || options.Legend
+            || options.EnvelopeOutput && options.JsonOutput;
+
     private static bool SelectsStructuralContext(DiffOptions options)
         => options.IncludeSections?.Contains(DiffSections.StructuralContext.Name) == true;
 
@@ -1535,25 +1676,66 @@ public class DiffCommand
             ApiSurface? fromSurface = null,
             ApiSurface? toSurface = null)
     {
-        var memberTargetIdentities = options.MemberFilter.Count == 0
-            ? null
-            : ResolveMemberTargetIdentities(
+        ImplementationAssemblyInput[] oldAssemblies =
+        [
+            .. fromPaths.Select(CreateImplementationAssemblyInput),
+        ];
+        ImplementationAssemblyInput[] newAssemblies =
+        [
+            .. toPaths.Select(CreateImplementationAssemblyInput),
+        ];
+        bool useExactBodyReturnIdentities =
+            oldAssemblies.Length == 1
+            && newAssemblies.Length == 1;
+        ResolvedDiffMemberTargets? targets =
+            options.MemberFilter.Count == 0
+                ? null
+                : ResolveMemberTargetIdentities(
                 fromSurface ?? AssemblySetSurfaceBuilder.Build(fromPaths, includeAll: options.IncludeAll) ?? new ApiSurface(),
                 toSurface ?? AssemblySetSurfaceBuilder.Build(toPaths, includeAll: options.IncludeAll) ?? new ApiSurface(),
                 options.MemberFilter,
                 options.TypeFilter,
                 requireBodyTargets: true,
+                includeReturnTypeBodyIdentities:
+                    !useExactBodyReturnIdentities,
                 bodySectionName: SelectsComplexityContext(options)
                     ? "Complexity Context"
                     : SelectsStructuralContext(options)
                         ? "Structural Context"
-                        : "Implementation Diff").MemberIdentities;
+                        : "Implementation Diff");
+        if (targets is not null && useExactBodyReturnIdentities)
+        {
+            AddReturnTypeTargetIdentities(
+                oldAssemblies[0],
+                targets.OldBodyMetadataTokens,
+                targets.MemberIdentities);
+            AddReturnTypeTargetIdentities(
+                newAssemblies[0],
+                targets.NewBodyMetadataTokens,
+                targets.MemberIdentities);
+        }
 
         return new ImplementationComparisonInput(
-            fromPaths.Select(CreateImplementationAssemblyInput).ToArray(),
-            toPaths.Select(CreateImplementationAssemblyInput).ToArray(),
+            oldAssemblies,
+            newAssemblies,
             options.TypeFilter,
-            memberTargetIdentities);
+            targets?.MemberIdentities);
+    }
+
+    static void AddReturnTypeTargetIdentities(
+        ImplementationAssemblyInput assembly,
+        IReadOnlySet<int> metadataTokens,
+        ISet<string> identities)
+    {
+        foreach (MethodIdentity method in assembly.BodyIndex.DeclaredMethods)
+        {
+            if (metadataTokens.Contains(method.MetadataToken))
+            {
+                ResearchMemberIdentity.AddReturnTypeTargetIdentity(
+                    method,
+                    identities);
+            }
+        }
     }
 
     static ImplementationAssemblyInput CreateImplementationAssemblyInput(
@@ -3211,7 +3393,9 @@ public class DiffCommand
 
     sealed record ResolvedDiffMemberTargets(
         HashSet<string> MemberIdentities,
-        HashSet<string> TypeNames);
+        HashSet<string> TypeNames,
+        HashSet<int> OldBodyMetadataTokens,
+        HashSet<int> NewBodyMetadataTokens);
 
     static bool MatchesMemberTarget(string typeFullName, ApiChange change, ResolvedDiffMemberTargets targets)
         => IsMemberChange(change.Kind)
@@ -3231,10 +3415,13 @@ public class DiffCommand
         IReadOnlyCollection<string> memberTargets,
         IReadOnlyCollection<string> typeFilters,
         bool requireBodyTargets = false,
+        bool includeReturnTypeBodyIdentities = false,
         string bodySectionName = "Analysis Diff")
     {
         HashSet<string> identities = new(StringComparer.Ordinal);
         HashSet<string> typeNames = new(StringComparer.Ordinal);
+        HashSet<int> oldBodyMetadataTokens = [];
+        HashSet<int> newBodyMetadataTokens = [];
         foreach (var rawTarget in memberTargets)
         {
             var parsed = ParseDiffMemberTarget(rawTarget, fromSurface, toSurface, typeFilters);
@@ -3266,9 +3453,15 @@ public class DiffCommand
 
             if (oldType is not null)
             {
-                var oldResult = AddResolvedIdentities(oldType, parsed.Selector, identities);
+                var oldResult = AddResolvedIdentities(
+                    oldType,
+                    parsed.Selector,
+                    identities,
+                    includeReturnTypeBodyIdentities);
                 found |= oldResult.Found;
                 bodyFound |= oldResult.BodyFound;
+                if (oldResult.BodyMetadataToken is { } oldToken)
+                    oldBodyMetadataTokens.Add(oldToken);
                 if (oldResult.Diagnostic is { } oldDiagnostic)
                 {
                     if (IsFatalTargetDiagnostic(oldDiagnostic.Kind))
@@ -3281,9 +3474,15 @@ public class DiffCommand
             }
             if (newType is not null)
             {
-                var newResult = AddResolvedIdentities(newType, parsed.Selector, identities);
+                var newResult = AddResolvedIdentities(
+                    newType,
+                    parsed.Selector,
+                    identities,
+                    includeReturnTypeBodyIdentities);
                 found |= newResult.Found;
                 bodyFound |= newResult.BodyFound;
+                if (newResult.BodyMetadataToken is { } newToken)
+                    newBodyMetadataTokens.Add(newToken);
                 if (newResult.Diagnostic is { } newDiagnostic)
                 {
                     if (IsFatalTargetDiagnostic(newDiagnostic.Kind))
@@ -3303,19 +3502,42 @@ public class DiffCommand
                 throw new InvalidOperationException($"{bodySectionName} --member requires a method-like target; '{rawTarget}' resolved to a member with no method body.");
         }
 
-        return new ResolvedDiffMemberTargets(identities, typeNames);
+        return new ResolvedDiffMemberTargets(
+            identities,
+            typeNames,
+            oldBodyMetadataTokens,
+            newBodyMetadataTokens);
     }
 
-    static (bool Found, bool BodyFound, MemberTargetDiagnostic? Diagnostic) AddResolvedIdentities(ApiType type, MemberTargetSelector selector, HashSet<string> identities)
+    static (
+        bool Found,
+        bool BodyFound,
+        int? BodyMetadataToken,
+        MemberTargetDiagnostic? Diagnostic)
+        AddResolvedIdentities(
+            ApiType type,
+            MemberTargetSelector selector,
+            HashSet<string> identities,
+            bool includeReturnTypeBodyIdentity)
     {
         var resolution = MemberTargetResolver.Resolve(type, selector);
         if (!resolution.Found)
-            return (false, false, resolution.Diagnostic);
+            return (false, false, null, resolution.Diagnostic);
 
         identities.Add(resolution.Target!.Anchor.StableSelector);
         identities.Add(resolution.Target.Anchor.CanonicalSignature);
         var bodyFound = AddResearchBodyIdentity(resolution.Target, identities);
-        return (true, bodyFound, null);
+        if (includeReturnTypeBodyIdentity)
+        {
+            ResearchMemberIdentity.TryAddReturnTypeTargetIdentity(
+                resolution.Target,
+                identities);
+        }
+        return (
+            true,
+            bodyFound,
+            resolution.Target.Body?.MetadataToken,
+            null);
     }
 
     internal static bool AddResearchBodyIdentity(ResolvedMemberTarget target, HashSet<string> identities)
@@ -3776,7 +3998,7 @@ public class DiffCommand
 /// <summary>
 /// Options for the diff command.
 /// </summary>
-public record DiffOptions
+public record DiffOptions : IProjectionOptions
 {
     public string? PackageVersionRange { get; init; }
     public string? PlatformVersionRange { get; init; }
@@ -3784,6 +4006,13 @@ public record DiffOptions
     public string? Framework { get; init; }
     public string? Tfm { get; init; }
     public bool IncludeAll { get; init; }
+    public bool History { get; init; }
+    public string[] At { get; init; } = [];
+    public int? MaxProbes { get; init; }
+    public int? SamplePercent { get; init; }
+    public bool IncludePrerelease { get; init; }
+    public bool Count { get; init; }
+    public RowSelectionIntent<string>? SemanticRowSelection { get; init; }
     public bool Verbose { get; init; }
     public HashSet<string> TypeFilter { get; init; } = [];
     public HashSet<string> MemberFilter { get; init; } = [];
@@ -3818,6 +4047,18 @@ public record DiffOptions
     /// </summary>
     public bool SelectDefault { get; init; }
     public HashSet<string>? IncludeSections { get; init; }
+
+    /// <summary>
+    /// Canonical sections reached through an exact selector or compatible legacy alias. An empty
+    /// set records that selection came only through categories or globs. Null preserves
+    /// exact-selection behavior for typed callers that supply <see cref="IncludeSections"/> directly.
+    /// </summary>
+    public HashSet<string>? ExactIncludeSectionsOverride { get; init; }
+
+    /// <summary>The selected sections that retain exact-selector provenance.</summary>
+    public HashSet<string>? ExactIncludeSections
+        => ExactIncludeSectionsOverride ?? IncludeSections;
+
     public string[]? Columns { get; init; }
     public string[]? Fields { get; init; }
     public RowWindow? Rows { get; init; }

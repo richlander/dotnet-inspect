@@ -11,7 +11,7 @@ using DotnetInspector.Packages;
 using DotnetInspector.Ecosystems;
 using DotnetInspect.Cli.Planning;
 using DotnetInspector.Queries;
-using DotnetInspector.RowSelection;
+using QuerySpace.Rows;
 using NuGetFetch;
 using PackageExtractor = DotnetInspector.Packages.PackageExtractor;
 using DotnetInspector.Sections;
@@ -88,21 +88,31 @@ public partial class PackageCommand
         out PackageHouseTargetContext? targetContext)
     {
         targetContext = null;
+        bool packageLibraryMode =
+            options.AllLibraries
+            || options.PackageLibrary is not null;
         if (options.ListVersions
             || options.ListLayout
             || options.ListTfms
             || options.ShowContent
-            || options.PackageLibrary is not null
-            || options.AllLibraries
-            || !RequestsPackageHouseCompileRealization(
-                producerOptions,
-                pipeline))
+            || (!packageLibraryMode
+                && !RequestsPackageHouseCompileRealization(
+                    producerOptions,
+                    pipeline)))
         {
             return true;
         }
 
-        if (string.IsNullOrWhiteSpace(options.Tfm)
-            || options.Tfm.Equals("all", StringComparison.OrdinalIgnoreCase))
+        if (options.Tfm?.Equals(
+                "all",
+                StringComparison.OrdinalIgnoreCase) == true)
+        {
+            if (!packageLibraryMode)
+                targetContext = PackageHouseTargetContext.OwnerDefault();
+            return true;
+        }
+
+        if (string.IsNullOrWhiteSpace(options.Tfm))
         {
             targetContext = PackageHouseTargetContext.OwnerDefault();
             return true;
@@ -115,6 +125,11 @@ public partial class PackageCommand
         }
         catch (ArgumentException)
         {
+            // Legacy package framework folders can be selected exactly even
+            // when they are not valid PackageHouse acquisition targets.
+            if (packageLibraryMode)
+                return true;
+
             CommandError.Write(
                 $"Invalid --tfm value '{options.Tfm}': expected a bounded ASCII target moniker.");
             return false;
@@ -217,16 +232,20 @@ public partial class PackageCommand
         }
 
         if (inspection is not null)
-        {
-            result.PackageInfoMeasurementInspection = inspection;
-            result.PackageSize =
-                inspection.Content.CompressedPackageBytes;
-            foreach (InspectionDiagnostic diagnostic in inspection.Diagnostics)
-                log?.Invoke($"{diagnostic.Code}: {diagnostic.Summary}");
-            return;
-        }
+            ApplyPackageInfoMeasurementInspection(result, inspection, log);
+        else
+            result.PackageSize = fallbackPackageSize;
+    }
 
-        result.PackageSize = fallbackPackageSize;
+    private static void ApplyPackageInfoMeasurementInspection(
+        InspectionResult result,
+        InspectionEnvelope<PackageInfoMeasurements> inspection,
+        Action<string>? log)
+    {
+        result.PackageInfoMeasurementInspection = inspection;
+        result.PackageSize = inspection.Content.CompressedPackageBytes;
+        foreach (InspectionDiagnostic diagnostic in inspection.Diagnostics)
+            log?.Invoke($"{diagnostic.Code}: {diagnostic.Summary}");
     }
 
     private static async Task ApplyPackageEcosystemDependenciesAsync(
@@ -270,6 +289,19 @@ public partial class PackageCommand
                     .ConfigureAwait(false);
         }
 
+        ApplyPackageEcosystemDependencies(
+            result,
+            inspection,
+            discloseEmptyDetailDiagnostics,
+            log);
+    }
+
+    private static void ApplyPackageEcosystemDependencies(
+        InspectionResult result,
+        InspectionEnvelope<EcosystemDependencyRecognitionOutcome> inspection,
+        bool discloseEmptyDetailDiagnostics,
+        Action<string>? log)
+    {
         result.EcosystemDependencyRecognitionInspection = inspection;
         bool discloseDiagnostics =
             discloseEmptyDetailDiagnostics
@@ -308,13 +340,20 @@ public partial class PackageCommand
         // Scope to a specific TFM if requested
         if (!string.IsNullOrEmpty(options.Tfm))
         {
-            string libDir = Path.Combine(extractPath, "lib", options.Tfm);
-            string toolsDir = Path.Combine(extractPath, "tools", options.Tfm);
+            string? scope = options.ScopeLib
+                ? "lib"
+                : options.ScopeTools
+                    ? "tools"
+                    : null;
+            string scopedDirectory =
+                Path.Combine(extractPath, scope ?? "lib", options.Tfm);
+            string toolsDirectory =
+                Path.Combine(extractPath, "tools", options.Tfm);
 
-            if (Directory.Exists(libDir))
-                searchPath = libDir;
-            else if (Directory.Exists(toolsDir))
-                searchPath = toolsDir;
+            if (Directory.Exists(scopedDirectory))
+                searchPath = scopedDirectory;
+            else if (scope is null && Directory.Exists(toolsDirectory))
+                searchPath = toolsDirectory;
             else
             {
                 CommandError.Write($"TFM '{options.Tfm}' not found. Use --tfms to list available frameworks.");

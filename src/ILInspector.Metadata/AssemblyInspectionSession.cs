@@ -1,3 +1,4 @@
+using System.Reflection.Metadata;
 using System.Reflection.PortableExecutable;
 using Inspector.Resources;
 using ILInspector.MetadataPrimitives;
@@ -56,7 +57,16 @@ public sealed class AssemblyInspectionSession :
     public static AssemblyInspectionSession Open(AssemblyImageSnapshot snapshot) =>
         new(AssemblyImage.Open(snapshot));
 
-    internal static AssemblyInspectionSession OpenPrefetched(Stream stream) =>
+    /// <summary>
+    /// Opens an owner-backed session by prefetching a transferred stream.
+    /// </summary>
+    /// <param name="stream">The readable stream whose ownership transfers to this operation.</param>
+    /// <remarks>
+    /// The complete image is prefetched synchronously. This method closes
+    /// <paramref name="stream"/> before returning or throwing, and the returned
+    /// session owns the prefetched image until disposed.
+    /// </remarks>
+    public static AssemblyInspectionSession OpenPrefetched(Stream stream) =>
         new(AssemblyImage.OpenPrefetched(stream));
 
     // Only the synchronous artifact query scope uses this borrow. It disposes
@@ -85,6 +95,23 @@ public sealed class AssemblyInspectionSession :
     /// </summary>
     public static AssemblyInspectionSession Borrow(PdbContext context)
         => new(AssemblyImage.Borrow(context.BorrowedPEReader, context.EnsureAliveForBorrower));
+
+    public MetadataDeclarationSession CreateDeclarationSession(
+        MetadataOperationContext operationContext)
+    {
+        ArgumentNullException.ThrowIfNull(operationContext);
+        _image.EnsureAlive();
+        return new MetadataDeclarationSession(this, operationContext);
+    }
+
+    internal void EnsureAliveForDeclarationSession() =>
+        _image.EnsureAlive();
+
+    internal MetadataReader GetMetadataReaderForDeclarationSession()
+    {
+        _image.EnsureAlive();
+        return _image.GetMetadataReader();
+    }
 
     /// <inheritdoc />
     /// <remarks>

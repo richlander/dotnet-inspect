@@ -35,7 +35,12 @@ internal static class AuthoredSourceDocumentPrinter
         }
 
         var (participant, context) = CreateContext(
-            assemblyPath, options, sourceAssembly, packageName, packageVersion, symbolClient);
+            assemblyPath,
+            options,
+            sourceAssembly,
+            packageName,
+            packageVersion,
+            symbolClient);
         InspectionEnvelope<AssemblyTypeSourceEntry> inspection;
         await using (var workspace = new InspectionWorkspace())
         {
@@ -77,7 +82,10 @@ internal static class AuthoredSourceDocumentPrinter
         }
 
         var document = new PrintableDocument(
-            selected.Row, selected.Section, selected.Label, selected.Path, selected.Url, source.Text);
+            selected.Row, selected.Section, selected.Label, selected.Path, selected.Url, source.Text)
+        {
+            Language = "csharp"
+        };
         return PrintProjectionOutput.Write(
             [document],
             new PrintProjectionOptions(
@@ -85,8 +93,8 @@ internal static class AuthoredSourceDocumentPrinter
                 options.JsonOutput,
                 options.Jsonl,
                 options.JsonArray,
-                options.Bare,
-                new ProjectionDestination(null, options.Rows)));
+                new ProjectionDestination(null, options.Rows),
+                Markdown: options.UsesMarkdownPayloadFormat));
     }
 
     internal static (AssemblyContextParticipant Participant, AssemblyContextSourceQueryContext Context)
@@ -96,22 +104,25 @@ internal static class AuthoredSourceDocumentPrinter
             ResolvedAssemblyReference? sourceAssembly,
             string? packageName,
             string? packageVersion,
-            HttpClient symbolClient)
+            HttpClient symbolClient,
+            IAssemblyBindingPolicy? selectedBindingPolicy = null)
     {
         ResolvedAssemblyReference assembly =
             sourceAssembly ?? ResolvedAssemblyReference.CreateFromPath(
                 assemblyPath,
                 AssemblyResolutionProvenance.Local("authored source document"));
-        var bindingPolicy = new AssemblyDependencyResolver(
-            new AssemblyDependencyResolutionOptions(assemblyPath)
-            {
-                ProjectAssetsPath = options.ProjectAssetsPath,
-                TargetFramework = options.Tfm,
-                IncludeDepsJsonAssets = false,
-                IncludeAspNetCoreSharedFramework = false,
-                PreferImplementationAssemblies = true,
-                AllowPlatformAssemblyVersionRollForward = true,
-            });
+        IAssemblyBindingPolicy bindingPolicy =
+            selectedBindingPolicy
+            ?? new AssemblyDependencyResolver(
+                new AssemblyDependencyResolutionOptions(assemblyPath)
+                {
+                    ProjectAssetsPath = options.ProjectAssetsPath,
+                    TargetFramework = options.Tfm,
+                    IncludeDepsJsonAssets = false,
+                    IncludeAspNetCoreSharedFramework = false,
+                    PreferImplementationAssemblies = true,
+                    AllowPlatformAssemblyVersionRollForward = true,
+                });
         var participant = new AssemblyContextParticipant(assembly, bindingPolicy);
         var logger = new VerboseLogger(options.Verbose);
         var context = new AssemblyContextSourceQueryContext(

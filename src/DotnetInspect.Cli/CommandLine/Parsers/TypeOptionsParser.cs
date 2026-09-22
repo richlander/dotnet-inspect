@@ -502,7 +502,6 @@ public static class TypeOptionsParser
             Format = outputFormat,
             MarkdownExplicitlySet = parseResult.GetResult(opts.Markdown) is { Implicit: false },
             PlainText = !envelopeOutput && parseResult.GetValue(opts.PlainText),
-            Bare = parseResult.GetValue(opts.Bare),
             RequestAllTaste = parseResult.GetValue(opts.Taste),
             RequestReadableLocalNames = parseResult.GetValue(opts.ReadableNames),
             Print = parseResult.GetValue(opts.Print),
@@ -537,6 +536,8 @@ public static class TypeOptionsParser
             Schema = opts.ParseSchema(parseResult),
             Verbose = parseResult.GetValue(opts.Verbose),
             Verbosity = opts.ParseVerbosity(parseResult),
+            VerbosityExplicitlySet =
+                parseResult.GetResult(opts.Verbosity) is { Implicit: false },
             SourceOptions = sourceOptions
         });
 

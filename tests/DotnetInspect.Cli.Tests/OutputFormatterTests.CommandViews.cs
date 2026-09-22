@@ -13,7 +13,7 @@ using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Output;
 using DotnetInspector.Packages;
 using DotnetInspector.Queries;
-using DotnetInspector.RowSelection;
+using QuerySpace.Rows;
 using DotnetInspector.Sections;
 using DotnetInspect.Cli.Sections;
 using DotnetInspector.Services;
@@ -601,7 +601,7 @@ public partial class OutputFormatterTests
     }
 
     /// <summary>
-    /// The aggregate <c>--all-libraries</c> sections declare a <see cref="MarkoutTable"/> rather
+    /// The aggregate Library sections declare a <see cref="MarkoutTable"/> rather
     /// than appending Markdown, so their rows reach the writer and <c>--rows</c> applies at the
     /// writer seam. This is the gate for that routing: a window set on the writer options must
     /// drop rows from a runtime-column table it never saw at compile time.

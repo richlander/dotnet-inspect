@@ -265,6 +265,72 @@ public sealed class EcosystemPopulationOwnerBatch : IAsyncDisposable
         }
     }
 
+    internal EcosystemPopulationChildAuthorityTransfer
+        TakeChildAuthorities(
+            EcosystemPopulationChildSettlement childSettlement)
+    {
+        ArgumentNullException.ThrowIfNull(childSettlement);
+        lock (_gate)
+        {
+            if (_state != EcosystemPopulationOwnerBatchState.Active)
+            {
+                throw new InvalidOperationException(
+                    "The Ecosystem population owner batch is not active.");
+            }
+
+            Entry[] libraryEntries =
+            [
+                .. _entries.Where(
+                    entry => ReferenceEquals(
+                        entry.Library.ChildSettlement,
+                        childSettlement)),
+            ];
+            ArtifactSessionEntry? artifactSessionEntry =
+                _artifactSessions.SingleOrDefault(
+                    entry => ReferenceEquals(
+                        entry.ChildSettlement,
+                        childSettlement));
+            if (libraryEntries.Length == 0
+                && artifactSessionEntry is null)
+            {
+                throw new InvalidOperationException(
+                    "The child has no transferable authorities.");
+            }
+            if (libraryEntries.Any(
+                    entry => entry.Transferred || entry.Retired)
+                || artifactSessionEntry?.Transferred == true
+                || artifactSessionEntry?.Retired == true)
+            {
+                throw new InvalidOperationException(
+                    "One or more child authorities were already settled.");
+            }
+
+            LibraryContentOwner[] owners =
+            [
+                .. libraryEntries.Select(
+                    entry =>
+                    {
+                        LibraryContentOwner owner = entry.Owner!;
+                        entry.Owner = null;
+                        entry.Transferred = true;
+                        return owner;
+                    }),
+            ];
+            ArtifactSetSession? artifactSession = null;
+            if (artifactSessionEntry is not null)
+            {
+                artifactSession = artifactSessionEntry.Session!;
+                artifactSessionEntry.Session = null;
+                artifactSessionEntry.Transferred = true;
+            }
+
+            return new(
+                owners,
+                libraryEntries.Select(entry => entry.Library).ToArray(),
+                artifactSession);
+        }
+    }
+
     public ValueTask DisposeAsync()
     {
         lock (_gate)
@@ -372,6 +438,80 @@ public sealed class EcosystemPopulationOwnerBatch : IAsyncDisposable
             childSettlement;
         public bool Transferred { get; set; }
         public bool Retired { get; set; }
+    }
+}
+
+[ResourceOwnership]
+internal sealed class EcosystemPopulationChildAuthorityTransfer :
+    IAsyncDisposable
+{
+    readonly LibraryContentOwner[] _owners;
+    readonly ArtifactSetSession? _artifactSession;
+    bool _consumed;
+
+    internal EcosystemPopulationChildAuthorityTransfer(
+        LibraryContentOwner[] owners,
+        EcosystemPopulationLoadedLibraryReference[] libraries,
+        ArtifactSetSession? artifactSession)
+    {
+        _owners = owners;
+        Libraries = Array.AsReadOnly(libraries);
+        _artifactSession = artifactSession;
+    }
+
+    internal IReadOnlyList<LibraryContentOwner> Owners => _owners;
+
+    internal IReadOnlyList<EcosystemPopulationLoadedLibraryReference>
+        Libraries
+    {
+        get;
+    }
+
+    internal ArtifactSetSession? ArtifactSession => _artifactSession;
+
+    internal void MarkConsumed() => _consumed = true;
+
+    public async ValueTask DisposeAsync()
+    {
+        if (_consumed)
+            return;
+
+        List<Exception>? failures = null;
+        foreach (LibraryContentOwner owner in _owners)
+        {
+            try
+            {
+                await owner.DisposeAsync();
+            }
+            catch (Exception failure)
+            {
+                (failures ??= []).Add(failure);
+            }
+        }
+        if (_artifactSession is not null)
+        {
+            try
+            {
+                await _artifactSession.DisposeAsync();
+            }
+            catch (Exception failure)
+            {
+                (failures ??= []).Add(failure);
+            }
+            if (_artifactSession.CleanupFailures.Count != 0)
+            {
+                (failures ??= []).AddRange(
+                    _artifactSession.CleanupFailures);
+            }
+        }
+
+        _consumed = true;
+        if (failures is not null)
+        {
+            throw new AggregateException(
+                "One or more Ecosystem population child authorities failed to retire.",
+                failures);
+        }
     }
 }
 

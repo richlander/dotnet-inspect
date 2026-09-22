@@ -1,8 +1,8 @@
 using System.Runtime.Versioning;
 using System.Text.Json;
-using DotnetInspector.PortableQueries;
+using QuerySpace;
 using DotnetInspector.Queries;
-using DotnetInspector.RowSelection;
+using QuerySpace.Rows;
 using DotnetInspector.Sections;
 using DotnetInspector.SourceSelection;
 using InertText;
@@ -19,117 +19,137 @@ public sealed class PackageQueryOperationCollection;
 [SupportedOSPlatform("browser")]
 public sealed class BrowserPackageQueryOperationsTests
 {
-    [Theory]
-    [InlineData("Newtonsoft.Json", 1, false)]
-    [InlineData("Newtonsoft.*", 5, true)]
-    public void AssemblySemanticPlan_UsesExactLatestOrBoundedPrefix(
-        string packageInput,
-        int maximumCandidates,
-        bool prefix)
-    {
-        (PackageQueryPlan plan, int requestedCandidates) =
-            BrowserPackageQueryOperations.PlanAssemblySemantic(
-                packageInput,
-                maximumCandidates,
-                includePrerelease: false);
-
-        Assert.Equal(maximumCandidates, requestedCandidates);
-        if (prefix)
-            Assert.IsType<SourceSelector.PackagePrefix>(plan.PackageInput);
-        else
-            Assert.IsType<SourceSelector.Package>(plan.PackageInput);
-    }
-
     [Fact]
-    public void AssemblySemanticPlan_RejectsBoundsOutsideTheInputShape()
+    public void LibraryLiteralPlan_UsesNormalPlanAndComposesWithOrdinaryTerms()
     {
-        Assert.Throws<ArgumentOutOfRangeException>(() =>
-            BrowserPackageQueryOperations.PlanAssemblySemantic(
-                "Newtonsoft.Json",
+        const string literal = " \r\nmarker ";
+        var literalTerm = new PortableQueryTerm(
+            PackageQuery.LibraryLiteralTermKey,
+            PortableQueryOperator.Equal,
+            literal);
+        var licenseTerm = new PortableQueryTerm(
+            PackageQuery.LicenseTermKey,
+            PortableQueryOperator.Equal,
+            "MIT");
+
+        var accepted = Assert.IsType<PackageQueryPlanResult.Accepted>(
+            BrowserPackageQueryOperations.Plan(
+                "Contoso.*",
+                [literalTerm, licenseTerm],
                 maximumCandidates: 5,
-                includePrerelease: false));
-        Assert.Throws<ArgumentOutOfRangeException>(() =>
-            BrowserPackageQueryOperations.PlanAssemblySemantic(
-                "Newtonsoft.*",
-                maximumCandidates: 6,
-                includePrerelease: false));
+                maximumMatches: 3,
+                includePrerelease: false,
+                targetFramework: "net8.0"));
+
+        Assert.True(accepted.Plan.RequiresLibraryLiteralEvaluation);
+        Assert.Equal(literal, accepted.Plan.LibraryLiteral);
+        Assert.Equal("net8.0", accepted.Plan.LibraryTargetFramework);
+        Assert.Same(
+            literalTerm,
+            accepted.Plan.Terms.Single(term =>
+                term.Key == PackageQuery.LibraryLiteralTermKey));
+        Assert.Same(
+            licenseTerm,
+            accepted.Plan.Terms.Single(term =>
+                term.Key == PackageQuery.LicenseTermKey));
+        Assert.Contains(
+            accepted.Plan.Terms,
+            term => term.Key == PackageQuery.LibraryTargetTermKey
+                && term.Value == "net8.0");
+
+        PackageQueryPlan prequalification =
+            accepted.Plan.CreatePrequalificationPlan();
+        Assert.Equal(
+            [PackageQuery.LicenseTermKey],
+            prequalification.Terms.Select(term => term.Key));
     }
 
     [Fact]
-    public void AssemblySemanticLiteral_AcceptsNonemptyWhitespace()
+    public void Project_LibraryLiteralDocumentPreservesTypedAssessmentAndRootRequest()
     {
-        BrowserPackageQueryOperations.ValidateAssemblySemanticLiteral(" ");
-
-        Assert.Throws<ArgumentException>(() =>
-            BrowserPackageQueryOperations.ValidateAssemblySemanticLiteral(""));
-    }
-
-    [Fact]
-    public void AssemblySemanticResultRow_PreservesRootAndBoundsPreview()
-    {
-        var selectedAsset = new BrowserPackageAssemblySemanticSelectedAsset(
-            "lib/net10.0/Contoso.dll",
-            "Contoso",
-            "net10.0",
-            "implementation",
-            Ordinal: 1,
-            UnevaluatedSiblings: 2,
-            RootRequest: "opaque-root-request");
-        BrowserPackageAssemblySemanticOccurrence[] occurrences =
-        [
-            .. Enumerable.Range(1, 4).Select(index =>
-                new BrowserPackageAssemblySemanticOccurrence(
-                    Guid.Empty.ToString("D"),
-                    MethodDefinitionToken: 0x06000000 + index,
-                    IlOffset: index,
-                    UserStringToken: 0x70000000 + index,
-                    LiteralCharacterCount: 24,
-                    LiteralText: $"shared-literal-use-marker-{index}")),
-        ];
-        var result = new BrowserPackageAssemblySemanticResult(
+        using IPackageSourceClient source =
+            PackageSourceClientFactory.CreateGallery(
+                PackageSourceAssociation.Create());
+        PackageRootReacquisitionRequest rootRequest =
+            RootRequest(source.Source.Producer.PortableKey);
+        string rootToken = rootRequest.Encode();
+        var selectedAsset = new PackageQueryLibraryLiteralSelectedAsset(
+            new InertString(TextPolicy.Field, "lib/net10.0/Contoso.dll"),
+            new InertString(TextPolicy.Field, "Contoso"),
+            new InertString(TextPolicy.Field, "net10.0"),
+            UnevaluatedSiblings: 2);
+        var package = new PackageProfileMatch(
+            "Contoso.Package",
+            "1.0.0",
+            [],
+            TotalDownloads: 42,
+            Verified: false,
+            source.Source,
+            Manifest("Contoso.Package", "1.0.0", isToolPackage: false));
+        var match = new PackageQueryMatch(
+            package,
+            PackageQueryAcquisitionTier.PackageContent,
+            [],
+            [])
+        {
+            LibraryLiteral = new(rootRequest, selectedAsset, []),
+        };
+        var assessment = new PackageQueryLibraryLiteralAssessment(
             CandidateOrdinal: 1,
-            PackageId: "Contoso.Package",
-            Version: "1.0.0",
-            Producer: "nuget.org",
-            selectedAsset,
-            occurrences);
+            "Contoso.Package",
+            "1.0.0",
+            source.Source,
+            PackageQueryLibraryLiteralAssessmentKind.Matched)
+        {
+            RootRequest = rootRequest,
+            SelectedAsset = selectedAsset,
+            Message = "The selected library contains the literal.",
+        };
+        var summary = new PackageQuerySummary(
+            new InertString(TextPolicy.Field, "Contoso."),
+            source.Source,
+            CandidateLimit: 5,
+            MatchLimit: 3,
+            Candidates: 1,
+            Matches: 1,
+            Failures: 0,
+            PackageQueryCompletionKind.Exhausted)
+        {
+            EvaluatedCandidates = 1,
+            SemanticMatches = 1,
+            SemanticMisses = 0,
+            NotApplicable = 0,
+            NotEvaluatedCandidates = 0,
+            Occurrences = 4,
+            Scope = "Selected primary implementation libraries",
+        };
+        var document = new PackageQueryDocument([match], [], summary)
+        {
+            LibraryLiteralAssessments = [assessment],
+        };
 
-        BrowserPackageQueryRow row =
-            BrowserPackageQueryOperations.ProjectResultRow(result);
+        BrowserPackageQueryDocument projected =
+            BrowserPackageQueryOperations.Project(document);
 
-        Assert.Equal("opaque-root-request", row.RootRequest);
-        BrowserPackageQueryEvidence evidence = Assert.Single(row.Evidence);
-        Assert.Equal("selected-assembly", evidence.Id);
-        Assert.Equal(4, evidence.Summary!.Count);
-        Assert.Equal(3, evidence.Summary.Preview.Length);
-        Assert.Contains(
-            evidence.Properties,
-            property =>
-                property.Name == "literal-use-count"
-                && property.Value == "4");
-        Assert.Contains(
-            evidence.Properties,
-            property =>
-                property.Name == "unevaluated-sibling-count"
-                && property.Value == "2");
-    }
-
-    [Fact]
-    public void AssemblySemanticProgress_ContainsNoTerminalTruth()
-    {
-        BrowserPackageQueryEvent progress =
-            BrowserPackageQueryOperations.ProjectAssemblySemanticProgress(
-                candidateOrdinal: 2,
-                candidateCount: 5);
-
-        Assert.Equal(BrowserPackageQueryEventKind.Progress, progress.Kind);
-        Assert.Null(progress.Row);
-        Assert.Null(progress.Failure);
-        Assert.Null(progress.Completion);
-        Assert.Null(progress.Assessment);
-        Assert.Equal(BrowserPackageQueryProgressPhase.Assembly, progress.Progress!.Phase);
-        Assert.Equal(2, progress.Progress.Completed);
-        Assert.Equal(5, progress.Progress.Limit);
+        Assert.Equal(rootToken, Assert.Single(projected.Results).RootRequest);
+        BrowserPackageAssemblySemanticCandidateOutcome projectedAssessment =
+            Assert.Single(projected.LibraryLiteralAssessments);
+        Assert.Equal(
+            BrowserPackageAssemblySemanticCandidateOutcomeKind.Matched,
+            projectedAssessment.Kind);
+        BrowserPackageAssemblySemanticResult projectedResult =
+            Assert.IsType<BrowserPackageAssemblySemanticResult>(
+                projectedAssessment.Result);
+        Assert.Equal(rootToken, projectedResult.SelectedAsset.RootRequest);
+        Assert.Equal(rootToken, projectedAssessment.RootRequest);
+        Assert.Equal(rootToken, projectedAssessment.SelectedAsset!.RootRequest);
+        Assert.Equal(
+            "lib/net10.0/Contoso.dll",
+            projectedAssessment.SelectedAsset.Path);
+        Assert.Equal(2, projectedAssessment.SelectedAsset.UnevaluatedSiblings);
+        Assert.Equal(1, projected.Completion.EvaluatedCandidates);
+        Assert.Equal(1, projected.Completion.SemanticMatches);
+        Assert.Equal(4, projected.Completion.Occurrences);
     }
 
     [Theory]
@@ -148,7 +168,8 @@ public sealed class BrowserPackageQueryOperationsTests
                 terms: null,
                 maximumCandidates: 200,
                 maximumMatches: 10,
-                includePrerelease: true));
+                includePrerelease: true,
+                targetFramework: null));
 
         Assert.Equal(expectedCandidates, accepted.Plan.MaximumCandidates);
         Assert.True(accepted.Plan.IncludePrerelease);
@@ -179,7 +200,8 @@ public sealed class BrowserPackageQueryOperationsTests
                 terms: null,
                 maximumCandidates: 200,
                 maximumMatches: 10,
-                includePrerelease: false));
+                includePrerelease: false,
+                targetFramework: null));
 
         Assert.Equal(
             PackageQueryRequestFailureReason.InvalidPackageInput,
@@ -200,7 +222,8 @@ public sealed class BrowserPackageQueryOperationsTests
                 ],
                 maximumCandidates: 1,
                 maximumMatches: 1,
-                includePrerelease: false));
+                includePrerelease: false,
+                targetFramework: null));
 
         Assert.True(accepted.Plan.RequiresManifest);
     }
@@ -227,10 +250,37 @@ public sealed class BrowserPackageQueryOperationsTests
                 ],
                 maximumCandidates: 1,
                 maximumMatches: 1,
-                includePrerelease: false));
+                includePrerelease: false,
+                targetFramework: null));
 
         Assert.Equal(expectedReason, rejected.Failure.Reason);
         Assert.Equal(ecosystemId, rejected.Failure.EcosystemId);
+    }
+
+    [Fact]
+    public void PackagePlan_RejectsDistinctRepeatedLibraryLiterals()
+    {
+        var rejected = Assert.IsType<PackageQueryPlanResult.Rejected>(
+            BrowserPackageQueryOperations.Plan(
+                "Contoso.Package",
+                [
+                    new PortableQueryTerm(
+                        PackageQuery.LibraryLiteralTermKey,
+                        PortableQueryOperator.Equal,
+                        "shared-literal-use-marker"),
+                    new PortableQueryTerm(
+                        PackageQuery.LibraryLiteralTermKey,
+                        PortableQueryOperator.Equal,
+                        "different-literal"),
+                ],
+                maximumCandidates: 1,
+                maximumMatches: 1,
+                includePrerelease: false,
+                targetFramework: "net10.0"));
+
+        Assert.Equal(
+            PackageQueryRequestFailureReason.IncompatibleTerms,
+            rejected.Failure.Reason);
     }
 
     [Fact]
@@ -244,7 +294,8 @@ public sealed class BrowserPackageQueryOperationsTests
                 maximum,
                 maximumCandidates: 200,
                 maximumMatches: 10,
-                includePrerelease: false));
+                includePrerelease: false,
+                targetFramework: null));
         Assert.Equal(
             PortableQueryPayloadCodec.MaxTerms,
             accepted.Plan.Intent.Terms.Count);
@@ -255,7 +306,8 @@ public sealed class BrowserPackageQueryOperationsTests
                 InspectionTerms(PackageQuery.MaximumInspectionTerms + 1),
                 maximumCandidates: 200,
                 maximumMatches: 10,
-                includePrerelease: false));
+                includePrerelease: false,
+                targetFramework: null));
         Assert.Equal(
             PackageQueryRequestFailureReason.TooManyTerms,
             rejected.Failure.Reason);
@@ -345,7 +397,8 @@ public sealed class BrowserPackageQueryOperationsTests
                 term.Descriptor.Role
                     == PackageQueryTermRole.Inspection
                 && term.Descriptor.ControlKind
-                    == PackageQueryTermControlKind.Input),
+                    is PackageQueryTermControlKind.Input
+                        or PackageQueryTermControlKind.MultilineInput),
         ];
         Assert.Equal(expectedTerms.Length, catalog.Terms.Length);
         for (int index = 0; index < expectedTerms.Length; index++)
@@ -368,6 +421,10 @@ public sealed class BrowserPackageQueryOperationsTests
             Assert.Equal(
                 expected.ExecutionClass.ToString(),
                 actual.ExecutionClass.ToString());
+            Assert.Equal(
+                expected.ControlKind
+                    == PackageQueryTermControlKind.MultilineInput,
+                actual.Multiline);
         }
     }
 
@@ -385,7 +442,8 @@ public sealed class BrowserPackageQueryOperationsTests
                 [term],
                 maximumCandidates: 200,
                 maximumMatches: 100,
-                includePrerelease: false));
+                includePrerelease: false,
+                targetFramework: null));
 
         Assert.Same(term, Assert.Single(accepted.Plan.Terms));
         Assert.Equal(
@@ -419,7 +477,8 @@ public sealed class BrowserPackageQueryOperationsTests
                 maximumCandidates:
                     PackageQuery.MaximumPackageContentCandidates,
                 maximumMatches: 10,
-                includePrerelease: false));
+                includePrerelease: false,
+                targetFramework: null));
 
         BoundPackageQueryTerm bound =
             Assert.Single(accepted.Plan.BoundTerms);
@@ -456,6 +515,25 @@ public sealed class BrowserPackageQueryOperationsTests
     }
 
     [Fact]
+    public void Catalog_ProjectsDependsStartsWithAsNuspecFreeOperator()
+    {
+        BrowserPackageQueryTermDescriptor term =
+            Assert.Single(
+                BrowserPackageQueryOperations.Catalog().Terms,
+                candidate =>
+                    candidate.Key == PackageQuery.DependsTermKey);
+
+        Assert.Equal(["eq", "starts-with"], term.Operators);
+        Assert.Equal("NuGet package ID or prefix", term.ValueKind);
+        Assert.Equal(
+            BrowserPackageQueryAcquisitionTier.Nuspec,
+            term.Tier);
+        Assert.Equal(
+            BrowserPackageQueryExecutionClass.Nuspec,
+            term.ExecutionClass);
+    }
+
+    [Fact]
     public void Catalog_ProjectsReferencesAsPackageContentFreeTerm()
     {
         BrowserPackageQueryTermDescriptor term =
@@ -488,7 +566,8 @@ public sealed class BrowserPackageQueryOperationsTests
                 ],
                 maximumCandidates: 200,
                 maximumMatches: 3,
-                includePrerelease: true));
+                includePrerelease: true,
+                targetFramework: null));
 
         PortableQueryIntent expected = PortableQueryIntent.Create(
             [
@@ -1836,4 +1915,27 @@ public sealed class BrowserPackageQueryOperationsTests
             IsToolPackage: isToolPackage,
             ReadmeFile: null,
             DependencyGroups: []);
+
+    static PackageRootReacquisitionRequest RootRequest(string producer)
+    {
+        Assert.True(
+            RealizedMemberCoordinate.Package.TryCreate(
+                "contoso.package",
+                "1.0.0",
+                producer,
+                "net10.0",
+                runtimeIdentifier: null,
+                out RealizedMemberCoordinate.Package? coordinate,
+                out string? problem),
+            problem);
+        return new PackageRootReacquisitionRequest(
+            PackageArtifactRootRequest.Create(
+                coordinate,
+                compileTargetFramework: "net10.0",
+                selectionTargetFramework: "net10.0",
+                selectionRuntimeIdentifier: null,
+                hasSelectedImplementationUniverse: true,
+                usesCompatibleImplementationSelection: false,
+                allowsCompatibleTargetSelection: false));
+    }
 }

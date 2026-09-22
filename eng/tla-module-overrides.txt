@@ -13,6 +13,10 @@
 # Format: one `<path-to-cfg>=<module-name>` pair per line. <module-name> is
 # the .tla module base name (no extension) and must exist beside the cfg.
 
+docs/design/models/inspection-subject-navigation/NavigationSessionPostRemovalMaintenanceLiveness.cfg=NavigationSession
+docs/design/models/inspection-subject-navigation/NavigationSessionPostRemovalMaintenanceReachability.cfg=NavigationSession
+docs/design/models/inspection-subject-navigation/NavigationSessionRouteReachability.cfg=NavigationSession
+docs/design/models/inspection-subject-navigation/NavigationSessionRouteSafety.cfg=NavigationSession
 docs/models/package-realization-admission/PackageRealizationAdmission.cfg=PackageRealizationAdmission_MC
 docs/models/package-realization-admission/PackageRealizationAdmission_Option.cfg=PackageRealizationAdmission_MC
 docs/models/package-realization-admission/PackageRealizationAdmission_ContentGeneration.cfg=PackageRealizationAdmission_MC

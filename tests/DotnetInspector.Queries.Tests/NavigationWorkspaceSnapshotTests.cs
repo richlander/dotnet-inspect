@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using ILInspector.Metadata;
 
 namespace DotnetInspector.Queries.Tests;
@@ -344,6 +345,26 @@ public sealed class NavigationWorkspaceSnapshotTests
                 slot => slot.Kind == StructuralSubjectKind.Member);
         Assert.Equal(NavigationDescriptorState.Failed, member.State);
         Assert.Null(member.Subject);
+
+        var projection = new NavigationConsumerProjection(
+            new NavigationProjectionState(
+                "session",
+                0,
+                ImmutableDictionary<StructuralSubjectIdentity, string>.Empty,
+                ImmutableDictionary<NavigationLensIdentity, string>.Empty));
+        (NavigationConsumerSnapshot consumer, _) =
+            projection.Build(snapshot, "session");
+        NavigationConsumerSubjectDescriptor consumerMember =
+            Assert.Single(
+                consumer.Hierarchy,
+                slot => slot.Kind == StructuralSubjectKind.Member);
+        NavigationConsumerDiagnostic diagnostic =
+            Assert.Single(consumerMember.Evidence);
+        Assert.Equal(NavigationDiagnosticKind.InspectionFailed, diagnostic.Kind);
+        Assert.Equal("decode member: invalid", diagnostic.Message);
+        Assert.All(
+            consumer.Hierarchy.Where(slot => slot != consumerMember),
+            slot => Assert.Empty(slot.Evidence));
     }
 
     [Fact]
@@ -534,10 +555,29 @@ public sealed class NavigationWorkspaceSnapshotTests
                     registry,
                     facts);
 
-            Assert.Equal(
-                item.Expected,
+            NavigationHierarchyDescriptor typeSlot =
                 selected.Hierarchy.Single(slot =>
-                    slot.Kind == StructuralSubjectKind.Type).State);
+                    slot.Kind == StructuralSubjectKind.Type);
+            Assert.Equal(item.Expected, typeSlot.State);
+            var projection = new NavigationConsumerProjection(
+                new NavigationProjectionState(
+                    "session",
+                    0,
+                    ImmutableDictionary<
+                        StructuralSubjectIdentity,
+                        string>.Empty,
+                    ImmutableDictionary<
+                        NavigationLensIdentity,
+                        string>.Empty));
+            (NavigationConsumerSnapshot consumer, _) =
+                projection.Build(selected, "session");
+            NavigationConsumerSubjectDescriptor consumerType =
+                consumer.Hierarchy.Single(slot =>
+                    slot.Kind == StructuralSubjectKind.Type);
+            if (item.Expected == NavigationDescriptorState.Failed)
+                Assert.Single(consumerType.Evidence);
+            else
+                Assert.Empty(consumerType.Evidence);
         }
     }
 

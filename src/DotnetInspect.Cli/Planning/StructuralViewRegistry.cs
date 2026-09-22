@@ -159,7 +159,7 @@ public sealed record StructuralDiscoveryRequest(
             options.Verbosity,
             options.IncludeSections,
             options.Schema,
-            false,
+            options.DiscoverDetails,
             options);
 
     public static StructuralDiscoveryRequest From(ApiOptions options)
@@ -353,15 +353,14 @@ public static class StructuralViewRegistry
     public static bool TryClassifyCommandless(
         string[] tokens,
         bool structuralDiscovery,
+        bool hasBareLibraryTarget,
         out CommandlessStructuralRoute? classification)
     {
         classification = null;
         if (tokens.Length == 0)
             return false;
 
-        if (CommandLineHelpers.IsBooleanOptionEnabled(
-                tokens,
-                "--all-libraries"))
+        if (hasBareLibraryTarget)
         {
             classification = new CommandlessStructuralRoute(
                 Route(
@@ -392,14 +391,25 @@ public static class StructuralViewRegistry
 
             if (nupkgPath is not null)
             {
-                StructuralViewIdentity view =
+                bool aggregateLibrary =
+                    hasBareLibraryTarget;
+                bool exactLibraryTarget =
                     ContainsOption(tokens, "--library")
+                    && !hasBareLibraryTarget
+                    || ContainsOption(tokens, "--namesake-library");
+                StructuralViewIdentity view = aggregateLibrary
+                    ? StructuralViewIdentity.PackageAllLibraries
+                    : exactLibraryTarget
                         ? StructuralViewIdentity.PackageSingleLibrary
                         : StructuralViewIdentity.Package;
-                InspectionCatalogIdentity catalog =
-                    view == StructuralViewIdentity.Package
-                        ? InspectionCatalogIdentity.Package
-                        : InspectionCatalogIdentity.Library;
+                InspectionCatalogIdentity catalog = view switch
+                {
+                    StructuralViewIdentity.PackageAllLibraries =>
+                        InspectionCatalogIdentity.LibraryAggregate,
+                    StructuralViewIdentity.PackageSingleLibrary =>
+                        InspectionCatalogIdentity.Library,
+                    _ => InspectionCatalogIdentity.Package,
+                };
                 classification = new CommandlessStructuralRoute(
                     Route(view, catalog),
                     [PackageCommand.Name, .. tokens]);
@@ -416,12 +426,12 @@ public static class StructuralViewRegistry
         string? libraryValue =
             GetOptionValues(tokens, "--library")
                 .LastOrDefault();
-        bool hasPackageRelativeLibrary =
+        bool hasPackageLibraryValue =
             libraryValue is not null
             && SourceResolver
-                .IsPackageRelativeLibraryValue(libraryValue);
+                .IsPackageLibraryValue(target, libraryValue);
         if (hasTypeOption
-            && hasPackageRelativeLibrary)
+            && hasPackageLibraryValue)
         {
             classification = new CommandlessStructuralRoute(
                 Route(
@@ -435,7 +445,7 @@ public static class StructuralViewRegistry
             || ContainsOption(tokens, "--platform")
             || ContainsOption(tokens, "--project")
             || (ContainsOption(tokens, "--library")
-                && !hasPackageRelativeLibrary);
+                && !hasPackageLibraryValue);
         string? typeOptionValue =
             GetOptionValues(tokens, "-t", "--type")
                 .LastOrDefault();
@@ -548,8 +558,7 @@ public static class StructuralViewRegistry
             return true;
         }
 
-        if (ContainsOption(tokens, "--version")
-            || ContainsOption(tokens, "--versions")
+        if (ContainsOption(tokens, "--versions")
             || ContainsOption(tokens, "--versions-with-feed")
             || target.Contains('@'))
         {
@@ -611,17 +620,17 @@ public static class StructuralViewRegistry
         string? libraryValue =
             GetOptionValues(tokens, "--library")
                 .FirstOrDefault();
-        bool hasPackageRelativeLibrary =
+        bool hasPackageLibraryValue =
             libraryValue is not null
             && SourceResolver
-                .IsPackageRelativeLibraryValue(libraryValue);
+                .IsPackageLibraryValue(target, libraryValue);
         bool hasExplicitLibraryPath =
             libraryValue is not null
-            && !hasPackageRelativeLibrary;
+            && !hasPackageLibraryValue;
         hasExplicitApiSource |= hasExplicitLibraryPath;
         bool hasLibraryGesture =
             ContainsOption(tokens, "--library")
-            && hasPackageRelativeLibrary;
+            && hasPackageLibraryValue;
         bool hasTypeMarker =
             ContainsOption(tokens, "-t")
             || ContainsOption(tokens, "--type");
@@ -1047,6 +1056,14 @@ public static class StructuralViewRegistry
         DocumentSchema schema = projection.Schema;
         if (request.Details)
         {
+            if (request.Discover is { Length: > 1 })
+            {
+                CommandError.Write(
+                    "--details supports bare -D or one exact category or "
+                    + "section selector in this Library adoption.");
+                return 1;
+            }
+
             if (request.Select is not null
                 || request.SelectDefault
                 || request.IncludeSections is { Count: > 0 })
@@ -1064,21 +1081,35 @@ public static class StructuralViewRegistry
                 return 1;
             }
 
-            return DetailedDiscoverOutput.Execute(
-                request.Discover,
-                schema,
-                projection.SelectableSectionNames,
-                projection.SectionCategories,
-                projection.CatalogHiddenSections,
-                projection.ListedCategoryDoors,
-                projection.OutputCapabilities,
+            DiscoveryOutputRequest detailedRequest =
                 DiscoveryOutputRequest.Create(
                     request.Format,
                     request.Tree,
                     request.TableExplicitlySet,
                     request.NoHeader,
                     (int)request.Verbosity,
-                    request.Projection));
+                    request.Projection);
+            if (DetailedDiscoverOutput.Validate(detailedRequest) != 0)
+                return 1;
+
+            DiscoveryDocumentFactory.Projection? detailedProjection =
+                DiscoveryDocumentFactory.CreateProjection(
+                    "library",
+                    request.Discover,
+                    schema,
+                    projection.SectionCategories,
+                    projection.CatalogHiddenSections,
+                    projection.ListedCategoryDoors,
+                    projection.SectionCostAnnotations,
+                    projection.ExactOnlySections,
+                    projection.OutputCapabilities,
+                    requireExactSelection: true);
+            if (detailedProjection is null)
+                return 1;
+
+            return DetailedDiscoverOutput.Write(
+                detailedProjection,
+                detailedRequest);
         }
 
         var selectedSections =
@@ -1110,6 +1141,26 @@ public static class StructuralViewRegistry
             || request.SelectDefault)
             schema = FilterSchema(schema, selectedSections);
 
+        DiscoveryDocumentFactory.Projection? discoveryProjection = null;
+        if (projection.OutputCapabilities is not null)
+        {
+            discoveryProjection =
+                DiscoveryDocumentFactory.CreateProjection(
+                "library",
+                request.Discover,
+                schema,
+                projection.SectionCategories,
+                request.Schema
+                    ? null
+                    : projection.CatalogHiddenSections,
+                projection.ListedCategoryDoors,
+                projection.SectionCostAnnotations,
+                projection.ExactOnlySections,
+                projection.OutputCapabilities);
+            if (discoveryProjection is null)
+                return 1;
+        }
+
         return DiscoverOutput.Execute(
             request.Discover,
             schema,
@@ -1128,7 +1179,11 @@ public static class StructuralViewRegistry
                 : projection.CatalogHiddenSections,
             listedCategoryDoors:
                 projection.ListedCategoryDoors,
-            exactOnlySections: projection.ExactOnlySections);
+            exactOnlySections: projection.ExactOnlySections,
+            document: discoveryProjection?.Document,
+            resourcePaths: discoveryProjection?.ResourcePaths.ToDictionary(
+                static registration => registration.Identity,
+                static registration => registration.Path));
     }
 
     public static int Execute(

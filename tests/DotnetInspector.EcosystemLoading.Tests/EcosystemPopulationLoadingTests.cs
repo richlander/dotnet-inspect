@@ -307,6 +307,647 @@ public sealed class EcosystemPopulationLoadingTests
 
     [Fact]
     public async Task
+        PlatformPopulationAdmissionPreservesCorrespondenceAndFocusRoles()
+    {
+        CompletedPlatformPopulation platform =
+            await MaterializePlatformPopulationAsync();
+        TestInputs inputs = new(LoadMode.PlatformCompleted)
+        {
+            Platform = platform,
+        };
+        await using WorkspaceFixture workspace =
+            WorkspaceFixture.Create(Binding());
+        var outcome =
+            Assert.IsType<EcosystemPopulationLoadOutcome.Completed>(
+                await EcosystemPopulationLoadOperation.InvokeAsync(
+                    workspace.Request(
+                        inputs,
+                        TestContext.Current.CancellationToken)));
+
+        EcosystemPopulationAdmissionResult result =
+            await EcosystemPopulationAdmissionOperation.AdmitAsync(
+                workspace.Workspace,
+                outcome);
+
+        Assert.Same(outcome.Receipt, result.LoadReceipt);
+        var childAdmission =
+            Assert.IsType<EcosystemPopulationChildAdmission.Attempted>(
+                Assert.Single(result.ChildAdmissions));
+        Assert.Same(
+            Assert.Single(outcome.Receipt.Children),
+            childAdmission.Child);
+        var accepted =
+            Assert.IsType<WorkspaceLibraryAdmissionOutcome.Accepted>(
+                childAdmission.Outcome);
+        Assert.Same(
+            workspace.Revision,
+            accepted.Receipt.RegistrationRevision);
+        Assert.Equal(2, result.Libraries.Count);
+        Assert.All(
+            result.Libraries,
+            correspondence =>
+            {
+                Assert.Same(outcome.Receipt, correspondence.LoadReceipt);
+                Assert.Same(
+                    accepted.Receipt,
+                    correspondence.Admission);
+                Assert.Same(
+                    correspondence.LoadedLibrary.Reference,
+                    correspondence.Occurrence.Library);
+            });
+        EcosystemPopulationLibraryContributionWitness contribution =
+            Assert.Single(result.Contributions);
+        Assert.Equal(
+            EcosystemPopulationLibraryRole.Focus,
+            contribution.Correspondence.LoadedLibrary.Roles);
+        Assert.DoesNotContain(
+            result.Contributions,
+            candidate =>
+                candidate.Correspondence.LoadedLibrary.Roles
+                == EcosystemPopulationLibraryRole.BindingSupport);
+        Assert.Equal(
+            EcosystemPopulationOwnerBatchState.Retired,
+            outcome.Owners.State);
+    }
+
+    [Fact]
+    public async Task
+        CurrentNavigationContributionPreservesExactFocusAdmission()
+    {
+        CompletedPlatformPopulation platform =
+            await MaterializePlatformPopulationAsync();
+        await using WorkspaceFixture workspace =
+            WorkspaceFixture.Create(Binding());
+        EcosystemPopulationAdmissionResult admission =
+            await AdmitPlatformAsync(workspace, platform);
+        WorkspaceEcosystemRegistrationDeclaration neighboring =
+            Declaration("ecosystem.neighboring");
+        var changed =
+            Assert.IsType<WorkspaceRegistrationOperationResult.Committed>(
+                workspace.Workspace.ReplaceRegistrations(
+                    workspace.Revision,
+                    [
+                        new WorkspaceRegistration.Ecosystem(
+                            workspace.Declaration),
+                        new WorkspaceRegistration.Ecosystem(neighboring),
+                    ]));
+        WorkspaceEcosystemContributionRelation currentRelation =
+            Assert.Single(workspace.Revision.EcosystemContributions);
+
+        EcosystemPopulationNavigationContribution projected =
+            Assert.Single(
+                EcosystemPopulationNavigationProjection.Project(
+                    changed.Revision,
+                    admission));
+
+        Assert.Same(
+            Assert.Single(admission.Contributions),
+            projected.Source);
+        Assert.Equal(
+            EcosystemPopulationLibraryRole.Focus,
+            projected.Source.Correspondence.LoadedLibrary.Roles);
+        var available =
+            Assert.IsType<
+                EcosystemPopulationNavigationOutcome.Available>(
+                    projected.Outcome);
+        EcosystemPopulationNavigationLibraryContribution contribution =
+            available.Contribution;
+        Assert.Same(
+            workspace.Workspace.Identity,
+            contribution.Workspace);
+        Assert.Same(
+            workspace.Revision,
+            contribution.HistoricalRevision);
+        Assert.Same(changed.Revision, contribution.CurrentRevision);
+        Assert.Same(
+            currentRelation,
+            contribution.EcosystemRelation);
+        Assert.Same(
+            workspace.Declaration,
+            contribution.Ecosystem.Declaration);
+        Assert.Same(
+            projected.Source.Correspondence.Admission,
+            contribution.Admission);
+        Assert.Same(
+            projected.Source.Correspondence.Occurrence,
+            contribution.Library);
+        Assert.DoesNotContain(
+            typeof(EcosystemPopulationNavigationLibraryContribution)
+                .GetProperties(),
+            property => property.Name.Contains(
+                "Package",
+                StringComparison.Ordinal));
+        Assert.Empty(
+            typeof(EcosystemPopulationNavigationLibraryContribution)
+                .GetConstructors());
+        Assert.Empty(
+            typeof(EcosystemPopulationNavigationOutcome.Available)
+                .GetConstructors());
+    }
+
+    [Fact]
+    public async Task
+        EqualTextRegistrationReplacementDoesNotReauthorizeContribution()
+    {
+        CompletedPlatformPopulation platform =
+            await MaterializePlatformPopulationAsync();
+        await using WorkspaceFixture workspace =
+            WorkspaceFixture.Create(Binding());
+        EcosystemPopulationAdmissionResult admission =
+            await AdmitPlatformAsync(workspace, platform);
+        WorkspaceEcosystemRegistrationDeclaration replacement =
+            Declaration(workspace.Declaration.Id.Value);
+        var changed =
+            Assert.IsType<WorkspaceRegistrationOperationResult.Committed>(
+                workspace.Workspace.ReplaceRegistrations(
+                    workspace.Revision,
+                    [
+                        new WorkspaceRegistration.Ecosystem(
+                            replacement),
+                    ]));
+
+        EcosystemPopulationNavigationContribution projected =
+            Assert.Single(
+                EcosystemPopulationNavigationProjection.Project(
+                    changed.Revision,
+                    admission));
+
+        var unavailable =
+            Assert.IsType<
+                EcosystemPopulationNavigationOutcome.Unavailable>(
+                    projected.Outcome);
+        Assert.Equal(
+            EcosystemPopulationNavigationUnavailableReason
+                .RegistrationNotCurrent,
+            unavailable.Reason);
+        Assert.Same(changed.Revision, unavailable.CurrentRevision);
+        Assert.Same(
+            workspace.Declaration,
+            projected.Source.Correspondence.LoadReceipt.Request
+                .Registration);
+    }
+
+    [Fact]
+    public async Task
+        RemovedAndReaddedRegistrationDoesNotReauthorizeContribution()
+    {
+        CompletedPlatformPopulation platform =
+            await MaterializePlatformPopulationAsync();
+        await using WorkspaceFixture workspace =
+            WorkspaceFixture.Create(Binding());
+        EcosystemPopulationAdmissionResult admission =
+            await AdmitPlatformAsync(workspace, platform);
+        var cleared =
+            Assert.IsType<WorkspaceRegistrationOperationResult.Committed>(
+                workspace.Workspace.ReplaceRegistrations(
+                    workspace.Revision,
+                    []));
+        var readded =
+            Assert.IsType<WorkspaceRegistrationOperationResult.Committed>(
+                workspace.Workspace.ReplaceRegistrations(
+                    cleared.Revision,
+                    [
+                        new WorkspaceRegistration.Ecosystem(
+                            workspace.Declaration),
+                    ]));
+
+        EcosystemPopulationNavigationContribution projected =
+            Assert.Single(
+                EcosystemPopulationNavigationProjection.Project(
+                    readded.Revision,
+                    admission));
+
+        var unavailable =
+            Assert.IsType<
+                EcosystemPopulationNavigationOutcome.Unavailable>(
+                    projected.Outcome);
+        Assert.Equal(
+            EcosystemPopulationNavigationUnavailableReason
+                .RegistrationNotCurrent,
+            unavailable.Reason);
+        Assert.Same(readded.Revision, unavailable.CurrentRevision);
+    }
+
+    [Fact]
+    public async Task ForeignWorkspaceCannotConsumeContribution()
+    {
+        CompletedPlatformPopulation platform =
+            await MaterializePlatformPopulationAsync();
+        await using WorkspaceFixture workspace =
+            WorkspaceFixture.Create(Binding());
+        EcosystemPopulationAdmissionResult admission =
+            await AdmitPlatformAsync(workspace, platform);
+        await using var foreignWorkspace = new InspectionWorkspace(
+            new WorkspacePlan(
+                [
+                    new WorkspaceRegistration.Ecosystem(
+                        workspace.Declaration),
+                ]));
+        WorkspaceRegistrationRevision foreignRevision =
+            Read(foreignWorkspace);
+
+        EcosystemPopulationNavigationContribution projected =
+            Assert.Single(
+                EcosystemPopulationNavigationProjection.Project(
+                    foreignRevision,
+                    admission));
+
+        var rejected =
+            Assert.IsType<
+                EcosystemPopulationNavigationOutcome.Rejected>(
+                    projected.Outcome);
+        Assert.Equal(
+            EcosystemPopulationNavigationRejection.ForeignWorkspace,
+            rejected.Reason);
+    }
+
+    [Fact]
+    public async Task
+        IncompleteLoadAdmitsOnlyItsIndependentlyCompletedPlatformChild()
+    {
+        CompletedPlatformPopulation platform =
+            await MaterializePlatformPopulationAsync();
+        TestInputs inputs = new(LoadMode.PlatformIncomplete)
+        {
+            Platform = platform,
+        };
+        await using WorkspaceFixture workspace =
+            WorkspaceFixture.Create(Binding());
+        var outcome =
+            Assert.IsType<EcosystemPopulationLoadOutcome.Incomplete>(
+                await EcosystemPopulationLoadOperation.InvokeAsync(
+                    workspace.Request(
+                        inputs,
+                        TestContext.Current.CancellationToken)));
+
+        EcosystemPopulationAdmissionResult result =
+            await EcosystemPopulationAdmissionOperation.AdmitAsync(
+                workspace.Workspace,
+                outcome);
+
+        Assert.Equal(2, outcome.Receipt.Children.Count);
+        var childAdmission =
+            Assert.IsType<EcosystemPopulationChildAdmission.Attempted>(
+                Assert.Single(result.ChildAdmissions));
+        Assert.Equal(
+            EcosystemPopulationChildSettlementKind.Completed,
+            childAdmission.Child.Kind);
+        Assert.IsType<WorkspaceLibraryAdmissionOutcome.Accepted>(
+            childAdmission.Outcome);
+        Assert.Equal(2, result.Libraries.Count);
+        Assert.Single(result.Contributions);
+    }
+
+    [Fact]
+    public async Task MultipleSessionBackedChildrenAdmitInReceiptOrder()
+    {
+        CompletedPlatformPopulation first =
+            await MaterializePlatformPopulationAsync();
+        CompletedPlatformPopulation second =
+            await MaterializePlatformPopulationAsync();
+        TestInputs inputs = new(LoadMode.MultiplePlatformCompleted)
+        {
+            Platforms = [first, second],
+        };
+        await using WorkspaceFixture workspace =
+            WorkspaceFixture.Create(Binding());
+        var outcome =
+            Assert.IsType<EcosystemPopulationLoadOutcome.Completed>(
+                await EcosystemPopulationLoadOperation.InvokeAsync(
+                    workspace.Request(
+                        inputs,
+                        TestContext.Current.CancellationToken)));
+
+        EcosystemPopulationAdmissionResult result =
+            await EcosystemPopulationAdmissionOperation.AdmitAsync(
+                workspace.Workspace,
+                outcome);
+
+        Assert.Equal(2, result.ChildAdmissions.Count);
+        Assert.Same(
+            outcome.Receipt.Children[0],
+            result.ChildAdmissions[0].Child);
+        Assert.Same(
+            outcome.Receipt.Children[1],
+            result.ChildAdmissions[1].Child);
+        Assert.All(
+            result.ChildAdmissions,
+            child => Assert.IsType<
+                EcosystemPopulationChildAdmission.Attempted>(child));
+        Assert.Equal(4, result.Libraries.Count);
+        Assert.Equal(2, result.Contributions.Count);
+    }
+
+    [Fact]
+    public async Task AcceptedChildRemainsUsableWhenLaterChildIsUnsupported()
+    {
+        CompletedPlatformPopulation platform =
+            await MaterializePlatformPopulationAsync();
+        await using ArtifactFixture artifacts =
+            await ArtifactFixture.CreateAsync();
+        LibraryContentOwner unsupportedOwner =
+            artifacts.CreateOwner("Contoso.UnsupportedAfterAccepted");
+        TestInputs inputs = new(LoadMode.PlatformThenUnsupported)
+        {
+            Owner = unsupportedOwner,
+            Platform = platform,
+        };
+        await using WorkspaceFixture workspace =
+            WorkspaceFixture.Create(Binding());
+        var outcome =
+            Assert.IsType<EcosystemPopulationLoadOutcome.Completed>(
+                await EcosystemPopulationLoadOperation.InvokeAsync(
+                    workspace.Request(
+                        inputs,
+                        TestContext.Current.CancellationToken)));
+
+        EcosystemPopulationAdmissionResult result =
+            await EcosystemPopulationAdmissionOperation.AdmitAsync(
+                workspace.Workspace,
+                outcome);
+
+        Assert.Collection(
+            result.ChildAdmissions,
+            first => Assert.IsType<
+                EcosystemPopulationChildAdmission.Attempted>(first),
+            second => Assert.IsType<
+                EcosystemPopulationChildAdmission.Unsupported>(second));
+        Assert.Equal(2, result.Libraries.Count);
+        Assert.Single(result.Contributions);
+        using LibraryOperationLease operation =
+            Assert.IsType<WorkspaceLibraryOperationIssueOutcome.Issued>(
+                workspace.Workspace.IssueLibraryOperation(
+                    result.Libraries[0].Occurrence))
+                .Lease;
+        Assert.Same(
+            result.Libraries[0].Occurrence.Library,
+            operation.Reference);
+        Assert.Equal(
+            LibraryContentOwnerState.Released,
+            unsupportedOwner.State);
+    }
+
+    [Fact]
+    public async Task
+        PartialAdmissionExceptionRetainsAcceptedCorrespondenceAndCleansRemainder()
+    {
+        CompletedPlatformPopulation first =
+            await MaterializePlatformPopulationAsync();
+        CompletedPlatformPopulation second =
+            await MaterializePlatformPopulationAsync();
+        TestInputs inputs = new(LoadMode.MultiplePlatformCompleted)
+        {
+            Platforms = [first, second],
+        };
+        await using WorkspaceFixture workspace =
+            WorkspaceFixture.Create(Binding());
+        var outcome =
+            Assert.IsType<EcosystemPopulationLoadOutcome.Completed>(
+                await EcosystemPopulationLoadOperation.InvokeAsync(
+                    workspace.Request(
+                        inputs,
+                        TestContext.Current.CancellationToken)));
+        EcosystemPopulationChildSettlement secondChild =
+            outcome.Receipt.Children[1];
+        EcosystemPopulationLoadedLibraryReference heldReference =
+            outcome.Owners.Libraries.First(
+                library => ReferenceEquals(
+                    library.ChildSettlement,
+                    secondChild));
+        LibraryContentOwner heldOwner =
+            Assert.IsType<EcosystemPopulationOwnerTakeOutcome.Transferred>(
+                outcome.Owners.Take(heldReference.Reference))
+                .Owner;
+
+        Task<EcosystemPopulationAdmissionResult> admission =
+            EcosystemPopulationAdmissionOperation.AdmitAsync(
+                workspace.Workspace,
+                outcome).AsTask();
+        Assert.False(admission.IsCompleted);
+        await heldOwner.DisposeAsync();
+        EcosystemPopulationAdmissionException failure =
+            await Assert.ThrowsAsync<
+                EcosystemPopulationAdmissionException>(
+                    () => admission);
+
+        Assert.Same(outcome.Receipt, failure.LoadReceipt);
+        var acceptedChild =
+            Assert.IsType<EcosystemPopulationChildAdmission.Attempted>(
+                Assert.Single(failure.ChildAdmissions));
+        Assert.IsType<WorkspaceLibraryAdmissionOutcome.Accepted>(
+            acceptedChild.Outcome);
+        Assert.Equal(2, failure.Libraries.Count);
+        Assert.Single(failure.Contributions);
+        Assert.Null(failure.RetirementFailure);
+        using LibraryOperationLease operation =
+            Assert.IsType<WorkspaceLibraryOperationIssueOutcome.Issued>(
+                workspace.Workspace.IssueLibraryOperation(
+                    failure.Libraries[0].Occurrence))
+                .Lease;
+        Assert.Same(
+            failure.Libraries[0].Occurrence.Library,
+            operation.Reference);
+        Assert.Equal(
+            EcosystemPopulationOwnerBatchState.Retired,
+            outcome.Owners.State);
+        Assert.Empty(second.Artifacts.CleanupFailures);
+    }
+
+    [Fact]
+    public async Task
+        WorkspaceRejectionRetainsLoaderReceiptAndIssuesNoContribution()
+    {
+        CompletedPlatformPopulation platform =
+            await MaterializePlatformPopulationAsync();
+        TestInputs inputs = new(LoadMode.PlatformCompleted)
+        {
+            Platform = platform,
+        };
+        await using WorkspaceFixture workspace =
+            WorkspaceFixture.Create(Binding());
+        var outcome =
+            Assert.IsType<EcosystemPopulationLoadOutcome.Completed>(
+                await EcosystemPopulationLoadOperation.InvokeAsync(
+                    workspace.Request(
+                        inputs,
+                        TestContext.Current.CancellationToken)));
+        var replacement =
+            Assert.IsType<WorkspaceRegistrationOperationResult.Committed>(
+                workspace.Workspace.ReplaceRegistrations(
+                    workspace.Revision,
+                    ImmutableArray<WorkspaceRegistration>.Empty));
+
+        EcosystemPopulationAdmissionResult result =
+            await EcosystemPopulationAdmissionOperation.AdmitAsync(
+                workspace.Workspace,
+                outcome);
+
+        Assert.Same(outcome.Receipt, result.LoadReceipt);
+        var childAdmission =
+            Assert.IsType<EcosystemPopulationChildAdmission.Attempted>(
+                Assert.Single(result.ChildAdmissions));
+        var rejected =
+            Assert.IsType<WorkspaceLibraryAdmissionOutcome.Rejected>(
+                childAdmission.Outcome);
+        Assert.Same(replacement.Revision, rejected.CurrentRevision);
+        Assert.Equal(
+            WorkspaceLibraryAdmissionRejection.RevisionMismatch,
+            rejected.Reason);
+        Assert.Empty(result.Libraries);
+        Assert.Empty(result.Contributions);
+        Assert.All(
+            platform.Population.Owners,
+            owner => Assert.Equal(
+                LibraryContentOwnerState.Released,
+                owner.State));
+        Assert.Empty(platform.Artifacts.CleanupFailures);
+    }
+
+    [Fact]
+    public async Task
+        WorkspaceFailureRetainsCleanupEvidenceWithoutSecondRetirement()
+    {
+        var cleanupFailure =
+            new IOException("synthetic admission cleanup failure");
+        var cleanupLease = new FailingArtifactLease(cleanupFailure);
+        CompletedPlatformPopulation platform =
+            await MaterializePlatformPopulationWithCleanupFailureAsync(
+                cleanupLease);
+        TestInputs inputs = new(LoadMode.PlatformCompleted)
+        {
+            Platform = platform,
+        };
+        await using WorkspaceFixture workspace =
+            WorkspaceFixture.Create(Binding());
+        var outcome =
+            Assert.IsType<EcosystemPopulationLoadOutcome.Completed>(
+                await EcosystemPopulationLoadOperation.InvokeAsync(
+                    workspace.Request(
+                        inputs,
+                        TestContext.Current.CancellationToken)));
+        _ = Assert.IsType<WorkspaceRegistrationOperationResult.Committed>(
+            workspace.Workspace.ReplaceRegistrations(
+                workspace.Revision,
+                ImmutableArray<WorkspaceRegistration>.Empty));
+
+        EcosystemPopulationAdmissionResult result =
+            await EcosystemPopulationAdmissionOperation.AdmitAsync(
+                workspace.Workspace,
+                outcome);
+
+        var attempted =
+            Assert.IsType<EcosystemPopulationChildAdmission.Attempted>(
+                Assert.Single(result.ChildAdmissions));
+        var failed =
+            Assert.IsType<WorkspaceLibraryAdmissionOutcome.Failed>(
+                attempted.Outcome);
+        Assert.Same(
+            cleanupFailure,
+            Assert.Single(failed.CleanupFailures).Failure);
+        Assert.Empty(result.Libraries);
+        Assert.Empty(result.Contributions);
+        Assert.Equal(1, cleanupLease.Disposals);
+        await workspace.Workspace.CloseAsync();
+        Assert.Equal(1, cleanupLease.Disposals);
+    }
+
+    [Fact]
+    public async Task NonOwningOutcomeProducesNoAdmissionAttempt()
+    {
+        TestInputs inputs = new(LoadMode.Ambiguous);
+        await using WorkspaceFixture workspace =
+            WorkspaceFixture.Create(Binding());
+        EcosystemPopulationLoadOutcome outcome =
+            await EcosystemPopulationLoadOperation.InvokeAsync(
+                workspace.Request(
+                    inputs,
+                    TestContext.Current.CancellationToken));
+
+        EcosystemPopulationAdmissionResult result =
+            await EcosystemPopulationAdmissionOperation.AdmitAsync(
+                workspace.Workspace,
+                outcome);
+
+        Assert.Same(outcome.Receipt, result.LoadReceipt);
+        Assert.Empty(result.ChildAdmissions);
+        Assert.Empty(result.Libraries);
+        Assert.Empty(result.Contributions);
+    }
+
+    [Fact]
+    public async Task EmptyOwningOutcomeProducesNoAdmissionAttempt()
+    {
+        TestInputs inputs = new(LoadMode.CompletedNoMembers);
+        await using WorkspaceFixture workspace =
+            WorkspaceFixture.Create(Binding());
+        var outcome =
+            Assert.IsType<EcosystemPopulationLoadOutcome.Completed>(
+                await EcosystemPopulationLoadOperation.InvokeAsync(
+                    workspace.Request(
+                        inputs,
+                        TestContext.Current.CancellationToken)));
+
+        EcosystemPopulationAdmissionResult result =
+            await EcosystemPopulationAdmissionOperation.AdmitAsync(
+                workspace.Workspace,
+                outcome);
+
+        Assert.Same(outcome.Receipt, result.LoadReceipt);
+        Assert.Empty(result.ChildAdmissions);
+        Assert.Empty(result.Libraries);
+        Assert.Empty(result.Contributions);
+        Assert.Equal(
+            EcosystemPopulationOwnerBatchState.Retired,
+            outcome.Owners.State);
+    }
+
+    [Fact]
+    public async Task
+        LibraryChildWithoutArtifactSessionIsRetiredAsUnsupported()
+    {
+        await using ArtifactFixture artifacts =
+            await ArtifactFixture.CreateAsync();
+        LibraryContentOwner owner =
+            artifacts.CreateOwner("Contoso.UnsupportedAdmission");
+        TestInputs inputs = new(LoadMode.CompletedMembers)
+        {
+            Owner = owner,
+        };
+        await using WorkspaceFixture workspace =
+            WorkspaceFixture.Create(Binding());
+        var outcome =
+            Assert.IsType<EcosystemPopulationLoadOutcome.Completed>(
+                await EcosystemPopulationLoadOperation.InvokeAsync(
+                    workspace.Request(
+                        inputs,
+                        TestContext.Current.CancellationToken)));
+
+        EcosystemPopulationAdmissionResult result =
+            await EcosystemPopulationAdmissionOperation.AdmitAsync(
+                workspace.Workspace,
+                outcome);
+
+        var unsupported =
+            Assert.IsType<EcosystemPopulationChildAdmission.Unsupported>(
+                Assert.Single(result.ChildAdmissions));
+        Assert.Equal(
+            EcosystemPopulationChildAdmissionUnsupportedReason
+                .LibrariesWithoutArtifactSession,
+            unsupported.Reason);
+        Assert.Empty(unsupported.RetirementFailures);
+        Assert.Same(
+            owner.Reference,
+            Assert.Single(unsupported.Libraries).Reference);
+        Assert.Empty(result.Libraries);
+        Assert.Empty(result.Contributions);
+        Assert.Equal(LibraryContentOwnerState.Released, owner.State);
+        Assert.Equal(
+            EcosystemPopulationOwnerBatchState.Retired,
+            outcome.Owners.State);
+    }
+
+    [Fact]
+    public async Task
         PlatformArtifactRetirementWaitsForTransferredLibraryOwner()
     {
         CompletedPlatformPopulation platform =
@@ -1054,6 +1695,36 @@ public sealed class EcosystemPopulationLoadingTests
                         request,
                         EcosystemPopulationCompletionKind.Satisfied),
                     [PlatformCompletedChild(request, inputs.Platform!)]),
+            LoadMode.MultiplePlatformCompleted =>
+                request.Completed(
+                    Completion(
+                        request,
+                        EcosystemPopulationCompletionKind.Satisfied),
+                    [
+                        .. inputs.Platforms!.Select(
+                            (platform, index) =>
+                                PlatformCompletedChild(
+                                    request,
+                                    platform,
+                                    $"platform-{index}")),
+                    ]),
+            LoadMode.PlatformIncomplete =>
+                PlatformIncomplete(request),
+            LoadMode.PlatformThenUnsupported =>
+                request.Completed(
+                    Completion(
+                        request,
+                        EcosystemPopulationCompletionKind.Satisfied),
+                    [
+                        PlatformCompletedChild(
+                            request,
+                            inputs.Platform!,
+                            "platform"),
+                        CompletedChild(
+                            request,
+                            inputs.Owner!,
+                            "unsupported"),
+                    ]),
             LoadMode.Ambiguous =>
                 request.Ambiguous(
                     [AmbiguousChild(request)],
@@ -1093,11 +1764,28 @@ public sealed class EcosystemPopulationLoadingTests
             [Diagnostic("ecosystem-loader.incomplete")]);
     }
 
+    static EcosystemPopulationLoaderReply PlatformIncomplete(
+        EcosystemPopulationLoadRequest<TestInputs> request)
+    {
+        EcosystemPopulationCompletedChild completed =
+            PlatformCompletedChild(request, request.Inputs.Platform!);
+        ChildEvidence evidence = Child(request, "incomplete");
+        EcosystemPopulationChildSettlement incomplete =
+            request.ChildIncomplete(
+                evidence.Request,
+                evidence.Receipt);
+        return request.Incomplete(
+            [completed.Settlement, incomplete],
+            [completed],
+            [Diagnostic("ecosystem-loader.platform-incomplete")]);
+    }
+
     static EcosystemPopulationCompletedChild CompletedChild(
         EcosystemPopulationLoadRequest<TestInputs> request,
-        LibraryContentOwner owner)
+        LibraryContentOwner owner,
+        string childName = "child")
     {
-        ChildEvidence evidence = Child(request, "child");
+        ChildEvidence evidence = Child(request, childName);
         EcosystemPopulationChildSettlement settlement =
             request.ChildCompleted(
                 evidence.Request,
@@ -1114,9 +1802,10 @@ public sealed class EcosystemPopulationLoadingTests
 
     static EcosystemPopulationCompletedChild PlatformCompletedChild(
         EcosystemPopulationLoadRequest<TestInputs> request,
-        CompletedPlatformPopulation platform)
+        CompletedPlatformPopulation platform,
+        string childName = "platform")
     {
-        ChildEvidence evidence = Child(request, "platform");
+        ChildEvidence evidence = Child(request, childName);
         return request.PlatformCompletedChild(
             evidence.Request,
             evidence.Receipt,
@@ -1167,6 +1856,25 @@ public sealed class EcosystemPopulationLoadingTests
                 (_, _) => operation(),
                 TestContext.Current.CancellationToken))
             .Value;
+
+    static async Task<EcosystemPopulationAdmissionResult>
+        AdmitPlatformAsync(
+            WorkspaceFixture workspace,
+            CompletedPlatformPopulation platform)
+    {
+        var outcome =
+            Assert.IsType<EcosystemPopulationLoadOutcome.Completed>(
+                await EcosystemPopulationLoadOperation.InvokeAsync(
+                    workspace.Request(
+                        new(LoadMode.PlatformCompleted)
+                        {
+                            Platform = platform,
+                        },
+                        TestContext.Current.CancellationToken)));
+        return await EcosystemPopulationAdmissionOperation.AdmitAsync(
+            workspace.Workspace,
+            outcome);
+    }
 
     static WorkspaceEcosystemRegistrationDeclaration Declaration(
         string id) =>
@@ -1482,6 +2190,9 @@ public sealed class EcosystemPopulationLoadingTests
         CompletedNoMembers,
         CompletedMembers,
         PlatformCompleted,
+        MultiplePlatformCompleted,
+        PlatformIncomplete,
+        PlatformThenUnsupported,
         Ambiguous,
         CancelAfterCompletedReply,
         Incomplete,
@@ -1495,6 +2206,11 @@ public sealed class EcosystemPopulationLoadingTests
         public int InvocationCount { get; set; }
         public LibraryContentOwner? Owner { get; init; }
         public CompletedPlatformPopulation? Platform
+        {
+            get;
+            init;
+        }
+        public IReadOnlyList<CompletedPlatformPopulation>? Platforms
         {
             get;
             init;

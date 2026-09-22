@@ -150,14 +150,16 @@ public sealed record BrowserCallGraphDiagnostics(
     int IncompleteEdges,
     int BindingIdentityConflicts,
     bool HasUnexploredTraversalBoundary,
-    bool HasAnalysisFailureBoundary)
+    bool HasAnalysisFailureBoundary,
+    int UnavailableDependencyRoutes)
 {
     public bool IsIncomplete =>
         IncompleteNodes > 0
         || IncompleteEdges > 0
         || BindingIdentityConflicts > 0
         || HasUnexploredTraversalBoundary
-        || HasAnalysisFailureBoundary;
+        || HasAnalysisFailureBoundary
+        || UnavailableDependencyRoutes > 0;
 }
 
 public sealed record BrowserCallGraphTarget(
@@ -381,6 +383,23 @@ public sealed record BrowserWorkspaceShareEncodeResult(
     string? Packet,
     BrowserWorkspaceShareFailure? Failure);
 
+public sealed record BrowserWorkspacePackageSourceRequirement(
+    string Endpoint,
+    BrowserWorkspacePackageSourceAuthentication Authentication);
+
+[JsonConverter(
+    typeof(JsonStringEnumConverter<BrowserWorkspacePackageSourceAuthentication>))]
+public enum BrowserWorkspacePackageSourceAuthentication
+{
+    Anonymous,
+    AuthenticationRequired,
+}
+
+public sealed record BrowserWorkspacePackageSourceRequirementsResult(
+    bool Succeeded,
+    BrowserWorkspacePackageSourceRequirement[] Sources,
+    BrowserWorkspaceShareFailure? Failure);
+
 public sealed record BrowserRetainedNavigationAction(
     string Session,
     string Generation,
@@ -408,6 +427,7 @@ public sealed record BrowserRetainedNavigationSubjectDescriptor(
     string State,
     bool IsActive,
     bool IsRetained,
+    BrowserRetainedNavigationDiagnostic[] Evidence,
     BrowserRetainedNavigationAction? Action);
 
 public sealed record BrowserRetainedNavigationPackageDescriptor(
@@ -666,6 +686,19 @@ public sealed record BrowserRetainedWorkspacePosting(
     BrowserRetainedWorkspacePredecessor? Predecessor,
     BrowserRetainedWorkspaceCleanup? Cleanup);
 
+/// <summary>
+/// Detached candidate evidence offered to the Browser before managed cutover.
+/// </summary>
+public sealed record BrowserRetainedWorkspacePreparedPosting(
+    string RetainedDefinitionId,
+    string Label,
+    string CanonicalLocation,
+    string CanonicalPacket,
+    BrowserRetainedWorkspaceDefinitionState Definition,
+    BrowserRetainedNavigationResult Navigation,
+    BrowserRetainedWorkspacePackageInventory[] Packages,
+    BrowserRetainedWorkspacePlatformInventory[] Platforms);
+
 /// <summary>Typed complete-restoration failure at the Browser boundary.</summary>
 public sealed record BrowserRetainedWorkspaceActivationFailure(
     string Kind,
@@ -681,11 +714,33 @@ public sealed record BrowserRetainedWorkspaceActivationResult(
     BrowserRetainedWorkspaceActivationFailure? Failure);
 
 /// <summary>
+/// Candidate preparation result. Status is <c>prepared</c>,
+/// <c>noEffect</c>, <c>superseded</c>, or <c>failed</c>.
+/// </summary>
+public sealed record BrowserRetainedWorkspacePreparationResult(
+    string Status,
+    string? Receipt,
+    BrowserRetainedWorkspacePreparedPosting? Preparation,
+    BrowserRetainedWorkspacePosting? Posting,
+    BrowserRetainedWorkspaceActivationFailure? Failure);
+
+/// <summary>
+/// Matching Browser completion for an irreversible activation or deactivation.
+/// Status is <c>completed</c> or <c>unavailable</c>.
+/// </summary>
+public sealed record BrowserRetainedWorkspaceConsumerCompletionResult(
+    string Status,
+    bool? Succeeded,
+    string? Failure,
+    string? Message);
+
+/// <summary>
 /// Active-retained-definition deletion result. Status is <c>deactivated</c>,
 /// <c>cleanupFailed</c>, <c>noEffect</c>, or <c>rejected</c>.
 /// </summary>
 public sealed record BrowserRetainedWorkspaceDeactivationResult(
     string Status,
+    string? CompletionReceipt,
     BrowserRetainedWorkspaceSettlement? Settlement,
     string? Message);
 
@@ -702,6 +757,11 @@ public sealed record BrowserRetainedWorkspaceSettlementResult(
     string Status,
     BrowserRetainedWorkspaceSettlement? Settlement);
 
+/// <summary>One page-session credential for an authenticated Workspace source.</summary>
+public sealed record BrowserRetainedWorkspacePackageSourceCredential(
+    string Username,
+    string Pat);
+
 [JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase)]
 [JsonSerializable(typeof(BrowserVocabularyDocument))]
 [JsonSerializable(typeof(BrowserHomeDemoCatalog))]
@@ -710,9 +770,15 @@ public sealed record BrowserRetainedWorkspaceSettlementResult(
 [JsonSerializable(typeof(BrowserWorkspaceShareState))]
 [JsonSerializable(typeof(BrowserWorkspaceShareDecodeResult))]
 [JsonSerializable(typeof(BrowserWorkspaceShareEncodeResult))]
+[JsonSerializable(typeof(BrowserWorkspacePackageSourceRequirementsResult))]
+[JsonSerializable(typeof(BrowserRetainedWorkspacePreparationResult))]
 [JsonSerializable(typeof(BrowserRetainedWorkspaceActivationResult))]
+[JsonSerializable(typeof(BrowserRetainedWorkspaceConsumerCompletionResult))]
 [JsonSerializable(typeof(BrowserRetainedWorkspacePackageAdmissionResult))]
 [JsonSerializable(typeof(BrowserRetainedWorkspacePlatformAdmissionResult))]
 [JsonSerializable(typeof(BrowserRetainedWorkspaceDeactivationResult))]
 [JsonSerializable(typeof(BrowserRetainedWorkspaceSettlementResult))]
+[JsonSerializable(typeof(Dictionary<
+    string,
+    BrowserRetainedWorkspacePackageSourceCredential>))]
 internal sealed partial class BrowserCatalogJsonContext : JsonSerializerContext;

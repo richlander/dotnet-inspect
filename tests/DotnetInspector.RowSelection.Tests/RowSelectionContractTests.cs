@@ -1,5 +1,5 @@
 using System.Collections;
-using DotnetInspector.RowSelection;
+using QuerySpace.Rows;
 
 namespace DotnetInspector.RowSelection.Tests;
 
@@ -145,6 +145,120 @@ public sealed class RowSelectionContractTests
                         null,
                         null)))
                 .Values);
+    }
+
+    [Fact]
+    public void SpecializedRowExecutionMatchesReferenceEvaluator()
+    {
+        RowSelectionPlan<string>[] plans =
+        [
+            RowSelectionPlan<string>.Empty,
+            Plan(RowSelectionStage<string>.Head(3)),
+            Plan(RowSelectionStage<string>.Tail(3)),
+            Plan(
+                RowSelectionStage<string>.Window(
+                    null,
+                    null)),
+            Plan(
+                RowSelectionStage<string>.Window(
+                    2,
+                    4)),
+            Plan(
+                RowSelectionStage<string>.Tail(4),
+                RowSelectionStage<string>.Window(
+                    2,
+                    3)),
+            Plan(
+                RowSelectionStage<string>.Head(2),
+                RowSelectionStage<string>.Window(
+                    2,
+                    3)),
+        ];
+
+        for (int sourceCount = 0; sourceCount <= 8; sourceCount++)
+        {
+            int[] values =
+                Enumerable.Range(1, sourceCount).ToArray();
+            foreach (RowSelectionPlan<string> plan in plans)
+            {
+                RowSelectionResult<int> materialized =
+                    RowSelectionExecutor.Apply(
+                        values,
+                        plan,
+                        static _ => Comparer<int>.Default);
+                Assert.True(
+                    RowSelectionCountExecutor.TryApply(
+                        sourceCount,
+                        plan,
+                        out RowSelectionCountResult counted));
+
+                Assert.Equal(
+                    materialized.IsSuccess,
+                    counted.IsSuccess);
+                if (materialized.IsSuccess)
+                {
+                    Assert.Equal(
+                        materialized.Values.Count,
+                        counted.Count);
+                    Assert.Null(counted.Failure);
+                    continue;
+                }
+
+                Assert.NotNull(counted.Failure);
+                AssertFailure(
+                    counted.Failure,
+                    materialized.Failure!.StageNumber,
+                    materialized.Failure.RequiredPosition,
+                    materialized.Failure.AvailableCount);
+            }
+        }
+
+        Assert.False(
+            RowSelectionCountExecutor.TryApply(
+                3,
+                Plan(
+                    RowSelectionStage<string>.Top(
+                        2,
+                        "ascending")),
+                out RowSelectionCountResult declined));
+        Assert.False(declined.IsSuccess);
+        Assert.Null(declined.Failure);
+
+        RowSelectionPlan<string> windowThenTop =
+            Plan(
+                RowSelectionStage<string>.Window(1, 2),
+                RowSelectionStage<string>.Top(
+                    1,
+                    "ascending"));
+        Assert.False(
+            RowSelectionCountExecutor.TryApply(
+                0,
+                windowThenTop,
+                out RowSelectionCountResult emptyDeclined));
+        Assert.False(emptyDeclined.IsSuccess);
+        Assert.Null(emptyDeclined.Failure);
+        Assert.False(
+            RowSelectionCountExecutor.TryApply(
+                3,
+                windowThenTop,
+                out RowSelectionCountResult populatedDeclined));
+        Assert.False(populatedDeclined.IsSuccess);
+        Assert.Null(populatedDeclined.Failure);
+
+        RowSelectionCountResult uninitialized = default;
+        Assert.False(uninitialized.IsSuccess);
+        Assert.Null(uninitialized.Failure);
+
+        Assert.Throws<ArgumentOutOfRangeException>(
+            () => RowSelectionCountExecutor.TryApply(
+                -1,
+                RowSelectionPlan<string>.Empty,
+                out _));
+        Assert.Throws<ArgumentNullException>(
+            () => RowSelectionCountExecutor.TryApply(
+                0,
+                (RowSelectionPlan<string>)null!,
+                out _));
     }
 
     [Fact]

@@ -66,6 +66,7 @@ public enum PdbTypeSourceOutcome
     InspectionFailed,
     SourceDeadlineExceeded,
     SourceLimitExceeded,
+    PortablePdbPreferenceWindowElapsed,
 }
 
 public enum PdbTypeSourceUnitScope
@@ -98,6 +99,8 @@ public sealed record PdbTypeSourceInspection(
         Lines.Value is FindingInspection<string>.Complete
             ? PdbTypeSourceOutcome.Complete
             : PdbTypeSourceOutcome.Unspecified;
+
+    public bool? PortablePdbAvailable { get; init; }
 
     public PdbTypeSourceUnitScope? Scope { get; init; }
     public PdbTypeSourceMappingStrength? Strength { get; init; }

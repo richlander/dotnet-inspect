@@ -1573,6 +1573,41 @@ project-to-binary provenance, or choose presentation. The vocabulary and
 cross-layer composition of those later answers remain owned by
 [`memory-safety-models.md`](memory-safety-models.md).
 
+## Compact Type-inventory cardinality
+
+Metadata owns one selective exact Count capability for the compact public Type
+inventory. `ApiSurfaceExtractor.CountSummaryTypes` walks the same public,
+non-compiler-generated, non-hidden Type population and the same compact member
+admission used by `ExtractSummary`, but retains no `ApiType` or `ApiMember`
+rows. A successful `ApiTypeInventoryCount` carries the module MVID and exact
+Class, Struct, Interface, Enum, and Delegate counts, so the scalar remains
+bound to the inspected image rather than becoming an independently minted
+integer.
+
+The capability returns `Declined`, never zero or a partial Count, when
+image-local metadata is insufficient. A missing MVID cannot bind the witness;
+Type forwarders require assembly resolution; malformed Type identity, generic
+parameter ordering, kind, or compact member evidence requires the existing
+evidence-bearing extraction path. Decline permits a caller to fall back before
+accepting execution and does not change the population.
+
+The first production adopter is deliberately narrower than the Metadata API:
+the `type` command accepts this Count only for an installed Platform image, one
+explicit Type-kind section, and no filter, row selection, limit, field/column
+projection, or other plan that changes membership. Every other topology uses
+the materialized path. This slice establishes neither a public `MoveNext`
+contract nor random access; Rows remain a separate terminal until multiple
+inventories demonstrate the same lower-layer cursor boundary.
+
+`CountSummaryTypes_MatchesCompactInventory`,
+`CountSummaryTypes_MatchesCoreLibraryFullSurface`,
+`CountSummaryTypes_CyclicTypeDeclinesWithoutPartialCount`,
+`SummaryAndCount_InvalidGenericParameterOrderReject`,
+`CountSummaryTypes_MissingMvidDeclines`,
+`CountSummaryTypes_DeclinesTypeForwarders`, and
+`Type_ListingKindCount_MatchesMetadataInventory` gate the accepted population,
+snapshot binding, pathological decline, and CLI adoption.
+
 ## The sibling seam: method-body / coordinate inspection
 
 Assembly-level inspection is only half the surface. The other half is **method-body /
@@ -1755,6 +1790,20 @@ Three rules keep the surface flat:
    both-or-neither shape is precisely the loose-parameter smell this design removes; it invites
    callers to pass a path and re-open. Prefer one required, typed input.
 
+One narrower construction boundary applies when an acquisition owner already
+holds one exact synchronous content stream and cannot issue a repeatable
+descriptor without copying or retaining a callback.
+`AssemblyInspectionSession.OpenPrefetched(Stream)` accepts ownership of that
+stream, eagerly retains the complete image in the Metadata owner, and closes
+the transferred stream before returning or throwing. The resulting session is
+the only inspection-time currency; no reader, independently supplied identity,
+format classification, opener, or stream escapes construction. This is the
+composition seam used by Library-owned synchronous snapshots, not an alternate
+resolution path or permission for downstream scanners to accept streams. The
+factory adds no second byte budget or cancellation boundary: the acquisition
+owner applies its finite byte limit before transfer, then the Metadata owner
+completes synchronous prefetch and format admission as one construction step.
+
 The only sanctioned duplication is **transitional**: during migration a service may expose both
 `Open(path)` and `Open(ResolvedAssemblyReference)` (see the path-backed adapter in
 [Method Body Inspection](method-body-inspection.md)'s migration) — but the path overload is
@@ -1923,6 +1972,18 @@ target artifact design moves source records to their adapters and designation
 to authorized workspace-role evidence instead of widening this hierarchy;
 either way, adding a field requires a named consumer rather than turning
 provenance into a grab bag.
+
+The focused transferred-stream construction gate
+`OpenPrefetched_TransfersStreamOwnershipAndPostsDetachedDeclarations` uses the
+real Metadata test assembly to prove that construction closes the input before
+returning, the returned owner remains usable for declaration inventory, and
+the detached inventory survives session retirement. Existing admission-cleanup
+gates preserve unsupported-image disposal and primary-failure precedence. The
+first production consumer is LibraryMetadata issue #7932, which opens and
+retires the session wholly inside one exact Library content snapshot before
+posting detached correspondence; PlatformHouse issue #7933 then consumes that
+correspondence in step 7 of its existing ten-step host-adoption and retirement
+plan.
 
 ## Open questions
 

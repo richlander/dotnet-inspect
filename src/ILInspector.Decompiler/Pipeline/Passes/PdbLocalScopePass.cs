@@ -20,25 +20,70 @@ public sealed class PdbLocalScopePass : IIrPass
         if (duplicates.Length == 0)
             return;
 
+        var nodeOrder = function.DescendantsOutsideNestedFunctions
+            .Select((node, position) => (node, position))
+            .ToDictionary(pair => pair.node, pair => pair.position);
+        var candidates = duplicates
+            .SelectMany(group => group.Select(index =>
+            {
+                var references =
+                    IrFunction.LocalSlotReferencesInScope(function, index).ToArray();
+                IrNode? declaration = DeclarationAnchor(references, index);
+                return (
+                    SameName: group,
+                    Index: index,
+                    DeclarationOrder: declaration is not null
+                        ? nodeOrder[declaration]
+                        : references.Select(reference => nodeOrder[reference])
+                            .DefaultIfEmpty(-1)
+                            .Min(),
+                    LastReferenceOrder: references.Select(reference => nodeOrder[reference])
+                        .DefaultIfEmpty(-1)
+                        .Max());
+            }))
+            .ToArray();
+        foreach (var scopeGroup in candidates
+            .Select((candidate, position) => (candidate, position))
+            .Where(item => ScopeRow(item.candidate.Index) > 0)
+            .GroupBy(item => ScopeRow(item.candidate.Index))
+            .Where(group => group.Skip(1).Any()))
+        {
+            int[] positions = [.. scopeGroup.Select(item => item.position)];
+            var insideOut = scopeGroup
+                .Select(item => item.candidate)
+                .OrderByDescending(candidate => candidate.DeclarationOrder)
+                .ThenByDescending(candidate => candidate.LastReferenceOrder)
+                .ToArray();
+            for (int position = 0; position < positions.Length; position++)
+                candidates[positions[position]] = insideOut[position];
+        }
+
         var reserved = ExactLocalNameAllocation.ReservedNames(
             function, function.Signature.Parameters, function.Signature.GenericParameterNames);
-        foreach (var group in duplicates)
+        foreach (var candidate in candidates)
         {
-            if (reserved.Contains(function.LocalNames[group[0]]!))
+            int[] group = candidate.SameName;
+            int index = candidate.Index;
+            if (reserved.Contains(function.LocalNames[index]!))
                 continue;
-            foreach (int index in group)
+            if (!function.IsLocalDeclaredInNestedScope(index))
+                continue;
+            var scopes = LocalDeclarationPlan
+                .Create(function, function.Locals.Length)
+                .DeclarationScopes;
+            if (!group.Any(other => other != index
+                && ExactLocalNameAllocation.ScopesOverlap(scopes[index], scopes[other])))
             {
-                if (!function.IsLocalDeclaredInNestedScope(index))
-                    continue;
-                var scopes = CSharpPrinter.LocalDeclarationScopes(function, function.Locals.Length);
-                if (!group.Any(other => other != index
-                    && ExactLocalNameAllocation.ScopesOverlap(scopes[index], scopes[other])))
-                {
-                    continue;
-                }
-                TryRetainBlock(function, index, group, context);
+                continue;
             }
+            TryRetainBlock(function, index, group, context);
         }
+
+        int ScopeRow(int index)
+            => index < function.LocalDeclarationBindings.Length
+                && function.LocalDeclarationBindings[index] is { } binding
+                ? binding.ScopeRowId
+                : -1;
     }
 
     static void TryRetainBlock(IrFunction function, int index, int[] sameName, PassContext context)
@@ -46,18 +91,7 @@ public sealed class PdbLocalScopePass : IIrPass
         var references = IrFunction.LocalSlotReferencesInScope(function.Body, index).ToArray();
         if (references.Length == 0)
             return;
-        IrNode? declaration = references[0] switch
-        {
-            StoreLocal store when !store.Value.DescendantsAndSelfOutsideNestedFunctions.Any(node =>
-                node is LoadLocal load && load.Index == index
-                || node is LoadLocalAddress address && address.Index == index) => store,
-            LoadLocalAddress address when address.Parent is InitObject init
-                && ReferenceEquals(init.Address, address) => init,
-            LoadLocalAddress address => OutArgumentStatement(address, index),
-            IsPattern pattern => PatternStatement(pattern, references),
-            RecursivePropertyDeclarationPattern pattern => PatternStatement(pattern, references),
-            _ => null,
-        };
+        IrNode? declaration = DeclarationAnchor(references, index);
         if (declaration?.Parent is not Block block)
         {
             return;
@@ -98,7 +132,7 @@ public sealed class PdbLocalScopePass : IIrPass
                 index,
                 sameName,
                 range,
-                CSharpPrinter.PdbLocalEntryLabelsPrintedOutside(
+                LocalDeclarationPlan.PdbLocalEntryLabelsPrintedOutside(
                     function,
                     declaration,
                     block)))
@@ -200,7 +234,7 @@ public sealed class PdbLocalScopePass : IIrPass
                 index,
                 sameName,
                 range,
-                CSharpPrinter.PdbLocalEntryLabelsPrintedOutside(
+                LocalDeclarationPlan.PdbLocalEntryLabelsPrintedOutside(
                     function,
                     declaration,
                     declarationBlock)))
@@ -260,7 +294,7 @@ public sealed class PdbLocalScopePass : IIrPass
         ref IrNode lastStatement)
     {
         IReadOnlySet<int>? labelsPrintedOutside =
-            CSharpPrinter.PdbLocalEntryLabelsPrintedOutside(
+            LocalDeclarationPlan.PdbLocalEntryLabelsPrintedOutside(
                 function,
                 declaration,
                 declarationBlock);
@@ -407,7 +441,7 @@ public sealed class PdbLocalScopePass : IIrPass
                 index,
                 sameName,
                 range,
-                CSharpPrinter.PdbLocalEntryLabelsPrintedOutside(
+                LocalDeclarationPlan.PdbLocalEntryLabelsPrintedOutside(
                     function,
                     declaration,
                     block)))
@@ -491,6 +525,20 @@ public sealed class PdbLocalScopePass : IIrPass
             node = node.Parent;
         return ReferenceEquals(node.Parent, block) ? node : null;
     }
+
+    static IrNode? DeclarationAnchor(IrNode[] references, int index)
+        => references[0] switch
+        {
+            StoreLocal store when !store.Value.DescendantsAndSelfOutsideNestedFunctions.Any(node =>
+                node is LoadLocal load && load.Index == index
+                || node is LoadLocalAddress address && address.Index == index) => store,
+            LoadLocalAddress address when address.Parent is InitObject init
+                && ReferenceEquals(init.Address, address) => init,
+            LoadLocalAddress address => OutArgumentStatement(address, index),
+            IsPattern pattern => PatternStatement(pattern, references),
+            RecursivePropertyDeclarationPattern pattern => PatternStatement(pattern, references),
+            _ => null,
+        };
 
     static IrNode? OutArgumentStatement(LoadLocalAddress address, int index)
     {

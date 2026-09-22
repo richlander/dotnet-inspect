@@ -13,9 +13,13 @@ import {
   engineWorkerOrdinaryMaximumNesting,
   engineWorkerOrdinaryOperationKinds,
   engineWorkerOrdinaryOperations,
+  engineWorkerUploadedLibraryMaximumBytes,
   registerEngineWorkerOrdinaryOperations,
   type EngineWorkerOrdinaryFacades,
 } from "../src/engine-worker-ordinary.ts";
+import type {
+  RetainedWorkspaceActivationClient,
+} from "../src/retained-workspace-activation.ts";
 import {
   FakeWorkerRuntime,
   ManualWorkerRuntimeEnvironment,
@@ -57,6 +61,9 @@ function contractViolation<T>(value: unknown): T {
 }
 
 const defaultFacades: EngineWorkerOrdinaryFacades = {
+  library: {
+    openUploadedLibrary: () => unexpected("openUploadedLibrary"),
+  },
   package: {
     classifyPackageGraphIdentities: () =>
       unexpected("classifyPackageGraphIdentities"),
@@ -77,6 +84,7 @@ const defaultFacades: EngineWorkerOrdinaryFacades = {
     loadRuntimePackAssembly: () =>
       unexpected("loadRuntimePackAssembly"),
     getPackageDocument: () => unexpected("getPackageDocument"),
+    queryLibraries: () => unexpected("queryLibraries"),
     queryLibraryApi: () => unexpected("queryLibraryApi"),
     queryMemberDocumentation: () =>
       unexpected("queryMemberDocumentation"),
@@ -116,6 +124,7 @@ const defaultFacades: EngineWorkerOrdinaryFacades = {
       unexpected("queryGraphMemberSurface"),
   },
   analysis: {
+    queryCloneCandidates: () => unexpected("queryCloneCandidates"),
     queryMemberFacts: () => unexpected("queryMemberFacts"),
     queryPackageIntegrations: () =>
       unexpected("queryPackageIntegrations"),
@@ -127,6 +136,10 @@ const defaultFacades: EngineWorkerOrdinaryFacades = {
       unexpected("queryPlatformOpportunities"),
     queryPackagePerformance: () =>
       unexpected("queryPackagePerformance"),
+    queryPackageLibraryMetrics: () =>
+      unexpected("queryPackageLibraryMetrics"),
+    queryPlatformLibraryMetrics: () =>
+      unexpected("queryPlatformLibraryMetrics"),
     queryPlatformPerformance: () =>
       unexpected("queryPlatformPerformance"),
   },
@@ -153,16 +166,34 @@ const defaultFacades: EngineWorkerOrdinaryFacades = {
       unexpected("expandPlatformCallGraph"),
   },
   catalog: {
+    abandonRetainedWorkspaceNavigation: () =>
+      unexpected("abandonRetainedWorkspaceNavigation"),
+    acknowledgeRetainedWorkspaceNavigation: () =>
+      unexpected("acknowledgeRetainedWorkspaceNavigation"),
     admitRetainedWorkspacePackage: () =>
       unexpected("admitRetainedWorkspacePackage"),
     admitRetainedWorkspacePlatform: () =>
       unexpected("admitRetainedWorkspacePlatform"),
     activateRetainedWorkspaceDefinition: () =>
       unexpected("activateRetainedWorkspaceDefinition"),
+    activateRetainedWorkspaceDefinitionWithCredentials: () =>
+      unexpected("activateRetainedWorkspaceDefinitionWithCredentials"),
+    cancelRetainedWorkspaceActivation: () =>
+      unexpected("cancelRetainedWorkspaceActivation"),
+    captureCompleteWorkspaceShareState: () =>
+      unexpected("captureCompleteWorkspaceShareState"),
     canonicalizeWorkspaceSharePacket: () =>
       unexpected("canonicalizeWorkspaceSharePacket"),
+    commitRetainedWorkspaceActivation: () =>
+      unexpected("commitRetainedWorkspaceActivation"),
+    completeRetainedWorkspaceActivation: () =>
+      unexpected("completeRetainedWorkspaceActivation"),
+    completeRetainedWorkspaceDeactivation: () =>
+      unexpected("completeRetainedWorkspaceDeactivation"),
     deactivateRetainedWorkspaceDefinition: () =>
       unexpected("deactivateRetainedWorkspaceDefinition"),
+    describeWorkspacePackageSources: () =>
+      unexpected("describeWorkspacePackageSources"),
     resolveHomeDemo: () => unexpected("resolveHomeDemo"),
     decodeWorkspaceShareState: () =>
       unexpected("decodeWorkspaceShareState"),
@@ -170,7 +201,15 @@ const defaultFacades: EngineWorkerOrdinaryFacades = {
       unexpected("encodeWorkspaceShareState"),
     observeRetainedWorkspaceSettlement: () =>
       unexpected("observeRetainedWorkspaceSettlement"),
+    prepareRetainedWorkspaceDefinition: () =>
+      unexpected("prepareRetainedWorkspaceDefinition"),
+    prepareRetainedWorkspaceDefinitionWithCredentials: () =>
+      unexpected("prepareRetainedWorkspaceDefinitionWithCredentials"),
+    recordRetainedWorkspaceNavigationPosting: () =>
+      unexpected("recordRetainedWorkspaceNavigationPosting"),
     runHomeDemo: () => unexpected("runHomeDemo"),
+    validateRetainedWorkspaceNavigationAuthority: () =>
+      unexpected("validateRetainedWorkspaceNavigationAuthority"),
   },
 };
 
@@ -178,6 +217,7 @@ function createFacades(
   overrides: FacadeOverrides = {},
 ): EngineWorkerOrdinaryFacades {
   return {
+    library: { ...defaultFacades.library, ...overrides.library },
     package: { ...defaultFacades.package, ...overrides.package },
     metadata: { ...defaultFacades.metadata, ...overrides.metadata },
     analysis: { ...defaultFacades.analysis, ...overrides.analysis },
@@ -325,6 +365,46 @@ function retainedDetailSurface(
     inspectionError: null,
   };
 }
+
+test("uploaded Library input uses a bounded structured-clone byte tuple", () => {
+  const operation =
+    engineWorkerOrdinaryOperations.library.openUploadedLibrary;
+  const input: [string, number[]] = [
+    "Example.dll",
+    [0x4d, 0x5a, 0x00, 0x01],
+  ];
+
+  assert.deepEqual(operation.encodeInput(input), {
+    kind: "decoded",
+    value: input,
+  });
+  assert.deepEqual(operation.input.decode(input), {
+    kind: "decoded",
+    value: input,
+  });
+
+  const invalidByte = operation.encodeInput([
+    "Example.dll",
+    [0x4d, 256],
+  ]);
+  assert.equal(invalidByte.kind, "rejected");
+  if (invalidByte.kind === "rejected") {
+    assert.equal(invalidByte.reason, "invalid");
+    assert.match(invalidByte.message, /outside the byte range/);
+  }
+
+  const oversized: number[] = [];
+  oversized.length = engineWorkerUploadedLibraryMaximumBytes + 1;
+  const oversizedInput = operation.input.decode([
+    "Example.dll",
+    oversized,
+  ]);
+  assert.equal(oversizedInput.kind, "rejected");
+  if (oversizedInput.kind === "rejected") {
+    assert.equal(oversizedInput.reason, "oversized");
+    assert.match(oversizedInput.message, /exceeds 33554432 bytes/);
+  }
+});
 
 test("format 3 packet remains opaque across Browser Worker transport", async () => {
   const packet =
@@ -676,6 +756,7 @@ test("ordinary transport preserves sync, async DTO, void, null, and arguments", 
   let libraryDiffArguments: readonly unknown[] = [];
   let libraryDiffCancelArguments: readonly unknown[] = [];
   let platformDocumentationArguments: readonly unknown[] = [];
+  let libraryQueryArguments: readonly unknown[] = [];
   const state = fixture({
     package: {
       classifyPackageGraphIdentities: (...args) => {
@@ -689,6 +770,41 @@ test("ordinary transport preserves sync, async DTO, void, null, and arguments", 
       },
       queryMemberDocumentation: async () =>
         contractViolation(null),
+      queryLibraries: (...args) => {
+        libraryQueryArguments = args;
+        return Promise.resolve({
+          content: {
+            results: [{
+              assetId: "compile:ref/net11.0/Example.dll",
+              library: "Example",
+              path: "ref/net11.0/Example.dll",
+              source: "Example.Package",
+              version: "1.0.0.0",
+              sourceKind: "Package",
+              targetFramework: "net11.0",
+              matchedReferences: ["System.Runtime"],
+            }],
+            failures: [],
+            summary: {
+              populationCandidates: 1,
+              candidateLimit: 256,
+              candidates: 1,
+              matches: 1,
+              failures: 0,
+              incompleteReasons: "None",
+              isComplete: true,
+            },
+          },
+          share: {
+            kind: "Available",
+            fullUrl: null,
+            packet: "packet",
+            path: null,
+            reason: null,
+          },
+          diagnostics: [],
+        });
+      },
       queryPlatformMemberDocumentation: (...args) => {
         platformDocumentationArguments = args;
         return Promise.resolve(contractViolation(null));
@@ -751,6 +867,13 @@ test("ordinary transport preserves sync, async DTO, void, null, and arguments", 
     "Example.dll",
     "M:Example.Api.Run",
   );
+  const libraryQuery = state.client.package.queryLibraries(
+    "Example",
+    "1.0.0",
+    "net11.0",
+    "[\"compile:ref/net11.0/Example.dll\"]",
+    "[\"System.Runtime\"]",
+  );
   const platformDocumentation =
     state.client.package.queryPlatformMemberDocumentation(
       "net11.0",
@@ -778,7 +901,13 @@ test("ordinary transport preserves sync, async DTO, void, null, and arguments", 
     "Example",
     "1.0.0",
     "net10.0",
-    "{\"schemaVersion\":1}",
+    {
+      schemaVersion: 1,
+      family: "netcoreapp",
+      targetFramework: "net10.0",
+      platformVersion: "10.0.0",
+      supplies: [],
+    },
   );
   const libraryDiff = state.client.metadata.queryLibraryApiDiff(
     "operation-1",
@@ -795,6 +924,23 @@ test("ordinary transport preserves sync, async DTO, void, null, and arguments", 
   assert.deepEqual(await asyncDto, activation);
   assert.equal(await voidResult, undefined);
   assert.equal(await nullResult, null);
+  assert.deepEqual((await libraryQuery).content.results, [{
+    assetId: "compile:ref/net11.0/Example.dll",
+    library: "Example",
+    path: "ref/net11.0/Example.dll",
+    source: "Example.Package",
+    version: "1.0.0.0",
+    sourceKind: "Package",
+    targetFramework: "net11.0",
+    matchedReferences: ["System.Runtime"],
+  }]);
+  assert.deepEqual(libraryQueryArguments, [
+    "Example",
+    "1.0.0",
+    "net11.0",
+    "[\"compile:ref/net11.0/Example.dll\"]",
+    "[\"System.Runtime\"]",
+  ]);
   assert.equal(await platformDocumentation, null);
   assert.deepEqual(platformDocumentationArguments, [
     "net11.0",
@@ -828,7 +974,13 @@ test("ordinary transport preserves sync, async DTO, void, null, and arguments", 
     "Example",
     "1.0.0",
     "net10.0",
-    "{\"schemaVersion\":1}",
+    {
+      schemaVersion: 1,
+      family: "netcoreapp",
+      targetFramework: "net10.0",
+      platformVersion: "10.0.0",
+      supplies: [],
+    },
   ]);
   assert.deepEqual(await libraryDiff, {
     schemaVersion: 1,
@@ -1089,6 +1241,7 @@ test("Platform graph transport preserves retained context selection and ordinary
           diagnostics: {
             incompleteNodes: 0, incompleteEdges: 0, bindingIdentityConflicts: 0,
             hasUnexploredTraversalBoundary: false, hasAnalysisFailureBoundary: false,
+            unavailableDependencyRoutes: 0,
             isIncomplete: false,
           },
           noBody: true,
@@ -1224,6 +1377,114 @@ test("malformed and oversized generated results reject only their calls", async 
   state.host.dispose();
 });
 
+test("oversized prepared activation is cancelled before rejection", async () => {
+  const cancellations: string[] = [];
+  const state = fixture({
+    catalog: {
+      prepareRetainedWorkspaceDefinition: async () =>
+        contractViolation({
+          status: "prepared",
+          receipt: "receipt-oversized",
+          preparation: {
+            label: "x".repeat(engineWorkerOrdinaryMaximumJsonCharacters),
+          },
+          posting: null,
+          failure: null,
+        }),
+      cancelRetainedWorkspaceActivation: async receipt => {
+        cancellations.push(receipt);
+        return {
+          status: "superseded",
+          posting: null,
+          failure: null,
+        };
+      },
+    },
+  });
+
+  const preparation =
+    state.client.catalog.prepareRetainedWorkspaceDefinition(
+      "definition",
+      "Definition",
+      "/definition",
+      "packet",
+    );
+  await state.environment.flushAsync();
+  await assert.rejects(
+    preparation,
+    new RegExp(
+      `exceeds ${engineWorkerOrdinaryMaximumJsonCharacters} characters`,
+    ),
+  );
+  assert.deepEqual(cancellations, ["receipt-oversized"]);
+  assert.equal(state.host.snapshot().phase, "ready");
+  state.host.dispose();
+});
+
+test("retained Workspace Navigation lifecycle crosses ordinary transport", async () => {
+  const calls: string[] = [];
+  const state = fixture({
+    catalog: {
+      validateRetainedWorkspaceNavigationAuthority: () => {
+        calls.push("validate");
+        return true;
+      },
+      recordRetainedWorkspaceNavigationPosting: () => {
+        calls.push("record");
+        return "accepted";
+      },
+      acknowledgeRetainedWorkspaceNavigation: () => {
+        calls.push("acknowledge");
+        return "accepted";
+      },
+      abandonRetainedWorkspaceNavigation: () => {
+        calls.push("abandon");
+        return "accepted";
+      },
+    },
+  });
+  const authority = [
+    "realization-1",
+    1,
+    "session-1",
+    "revision-1",
+    "intent-1",
+    "epoch-1",
+  ] as const;
+  const client: RetainedWorkspaceActivationClient = state.client.catalog;
+
+  const results = Promise.all([
+    client.validateRetainedWorkspaceNavigationAuthority(
+      ...authority,
+    ),
+    client.recordRetainedWorkspaceNavigationPosting(
+      ...authority,
+    ),
+    client.acknowledgeRetainedWorkspaceNavigation(
+      ...authority,
+    ),
+    client.abandonRetainedWorkspaceNavigation(
+      ...authority,
+    ),
+  ]);
+  await state.environment.flushAsync();
+
+  assert.deepEqual(await results, [
+    true,
+    "accepted",
+    "accepted",
+    "accepted",
+  ]);
+  assert.deepEqual(calls, [
+    "validate",
+    "record",
+    "acknowledge",
+    "abandon",
+  ]);
+  assert.equal(state.host.snapshot().phase, "ready");
+  state.host.dispose();
+});
+
 test("malformed and oversized inputs are rejected before facade invocation", async () => {
   let calls = 0;
   const state = fixture({
@@ -1247,7 +1508,9 @@ test("malformed and oversized inputs are rejected before facade invocation", asy
   );
   await assert.rejects(
     state.client.package.queryWorkspacePackageOccurrences(
-      "x".repeat(engineWorkerOrdinaryMaximumJsonCharacters),
+      contractViolation(
+        "x".repeat(engineWorkerOrdinaryMaximumJsonCharacters),
+      ),
     ),
     new RegExp(
       `exceeds ${engineWorkerOrdinaryMaximumJsonCharacters} characters`,
@@ -1379,6 +1642,9 @@ test("a closed-epoch ordinary client cannot dispatch into a replacement", async 
 
 test("the page client and Worker catalog expose only the closed allow-list", () => {
   const expected = {
+    library: [
+      "openUploadedLibrary",
+    ],
     package: [
       "activateWorkspacePackageOccurrence",
       "classifyPackageGraphIdentities",
@@ -1391,6 +1657,7 @@ test("the page client and Worker catalog expose only the closed allow-list", () 
       "matchPackageDependencyCoordinate",
       "packageCacheStats",
       "prefetchPlatformPacks",
+      "queryLibraries",
       "queryLibraryApi",
       "queryMemberDocumentation",
       "queryPlatformMemberDocumentation",
@@ -1418,11 +1685,14 @@ test("the page client and Worker catalog expose only the closed allow-list", () 
       "queryTypeProjection",
     ],
     analysis: [
+      "queryCloneCandidates",
       "queryMemberFacts",
       "queryPackageIntegrations",
+      "queryPackageLibraryMetrics",
       "queryPackageOpportunities",
       "queryPackagePerformance",
       "queryPlatformIntegrations",
+      "queryPlatformLibraryMetrics",
       "queryPlatformOpportunities",
       "queryPlatformPerformance",
     ],
@@ -1442,19 +1712,33 @@ test("the page client and Worker catalog expose only the closed allow-list", () 
       "queryMemberCallGraph",
     ],
     catalog: [
+      "abandonRetainedWorkspaceNavigation",
+      "acknowledgeRetainedWorkspaceNavigation",
       "admitRetainedWorkspacePackage",
       "admitRetainedWorkspacePlatform",
       "activateRetainedWorkspaceDefinition",
+      "activateRetainedWorkspaceDefinitionWithCredentials",
+      "cancelRetainedWorkspaceActivation",
+      "captureCompleteWorkspaceShareState",
       "canonicalizeWorkspaceSharePacket",
+      "commitRetainedWorkspaceActivation",
+      "completeRetainedWorkspaceActivation",
+      "completeRetainedWorkspaceDeactivation",
       "deactivateRetainedWorkspaceDefinition",
+      "describeWorkspacePackageSources",
       "decodeWorkspaceShareState",
       "encodeWorkspaceShareState",
       "observeRetainedWorkspaceSettlement",
+      "prepareRetainedWorkspaceDefinition",
+      "prepareRetainedWorkspaceDefinitionWithCredentials",
+      "recordRetainedWorkspaceNavigationPosting",
       "resolveHomeDemo",
       "runHomeDemo",
+      "validateRetainedWorkspaceNavigationAuthority",
     ],
   } as const;
   const expectedKinds = [
+    ...Object.values(engineWorkerOrdinaryOperations.library),
     ...Object.values(engineWorkerOrdinaryOperations.package),
     ...Object.values(engineWorkerOrdinaryOperations.metadata),
     ...Object.values(engineWorkerOrdinaryOperations.analysis),
@@ -1466,10 +1750,11 @@ test("the page client and Worker catalog expose only the closed allow-list", () 
     [...engineWorkerOrdinaryOperationKinds].sort(),
     expectedKinds,
   );
-  assert.equal(engineWorkerOrdinaryOperationKinds.length, 62);
+  assert.equal(engineWorkerOrdinaryOperationKinds.length, 80);
 
   const state = fixture();
   const groups = [
+    "library",
     "package",
     "metadata",
     "analysis",

@@ -2,8 +2,12 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import type {
   BrowserRetainedWorkspaceActivationResult,
+  BrowserRetainedWorkspaceConsumerCompletionResult,
   BrowserRetainedWorkspaceDeactivationResult,
+  BrowserRetainedWorkspacePackageSourceCredential,
   BrowserRetainedWorkspacePosting,
+  BrowserRetainedWorkspacePreparationResult,
+  BrowserRetainedWorkspacePreparedPosting,
   BrowserRetainedWorkspaceSettlementResult,
 } from "../src/facades/inspect-web-catalog.d.ts";
 import {
@@ -148,11 +152,55 @@ function posting(
   };
 }
 
+function preparedPosting(
+  value: BrowserRetainedWorkspacePosting,
+): BrowserRetainedWorkspacePreparedPosting {
+  return {
+    retainedDefinitionId: value.retainedDefinitionId,
+    label: value.label,
+    canonicalLocation: value.canonicalLocation,
+    canonicalPacket: value.canonicalPacket,
+    definition: value.definition,
+    navigation: value.navigation,
+    packages: value.packages,
+    platforms: value.platforms,
+  };
+}
+
 class ActivationClient implements RetainedWorkspaceActivationClient {
+  readonly packageSourceCredentialPayloads: Array<
+    Readonly<Record<string, BrowserRetainedWorkspacePackageSourceCredential>>
+  > = [];
   readonly activations: Array<{
     promise: Promise<BrowserRetainedWorkspaceActivationResult>;
     resolve(value: BrowserRetainedWorkspaceActivationResult): void;
   }> = [];
+  readonly activationResults = new Map<
+    string,
+    BrowserRetainedWorkspaceActivationResult
+  >();
+  readonly commitReceipts: string[] = [];
+  readonly commitResponses = new Map<
+    string,
+    Promise<BrowserRetainedWorkspaceActivationResult>
+  >();
+  readonly activationCompletions: Array<{
+    receipt: string;
+    succeeded: boolean;
+    failure: string | null;
+  }> = [];
+  readonly deactivationCompletions: Array<{
+    receipt: string;
+    succeeded: boolean;
+    failure: string | null;
+  }> = [];
+  readonly cancelledReceipts: string[] = [];
+  readonly cancellationResponses: Array<
+    Promise<BrowserRetainedWorkspaceActivationResult>
+  > = [];
+  cancellationResponse: BrowserRetainedWorkspaceActivationResult | null =
+    null;
+  activationCompletionError: Error | null = null;
   readonly settlements: string[] = [];
   readonly settlementResponses = new Map<
     string,
@@ -162,10 +210,15 @@ class ActivationClient implements RetainedWorkspaceActivationClient {
   readonly deactivationResponses: Array<{
     promise: Promise<BrowserRetainedWorkspaceDeactivationResult>;
     resolve(value: BrowserRetainedWorkspaceDeactivationResult): void;
+    reject(error: unknown): void;
   }> = [];
   readonly recordingResponses = new Map<
     string,
     string | Promise<string>
+  >();
+  readonly validationResponses = new Map<
+    string,
+    boolean | Promise<boolean>
   >();
   readonly acknowledgementResponses = new Map<
     string,
@@ -173,8 +226,8 @@ class ActivationClient implements RetainedWorkspaceActivationClient {
   >();
   readonly lifecycle: string[] = [];
 
-  activateRetainedWorkspaceDefinition():
-  Promise<BrowserRetainedWorkspaceActivationResult> {
+  prepareRetainedWorkspaceDefinition():
+  Promise<BrowserRetainedWorkspacePreparationResult> {
     let resolve!: (value: BrowserRetainedWorkspaceActivationResult) => void;
     const promise =
       new Promise<BrowserRetainedWorkspaceActivationResult>(accept => {
@@ -182,7 +235,122 @@ class ActivationClient implements RetainedWorkspaceActivationClient {
       });
     const activation = { promise, resolve };
     this.activations.push(activation);
-    return activation.promise;
+    const receipt = `receipt-${this.activations.length}`;
+    return activation.promise.then(result => {
+      switch (result.status) {
+        case "activated": {
+          if (result.posting === null) {
+            throw new Error("Activated test result omitted its posting.");
+          }
+
+          this.activationResults.set(receipt, result);
+          return {
+            status: "prepared",
+            receipt,
+            preparation: preparedPosting(result.posting),
+            posting: null,
+            failure: null,
+          };
+        }
+        case "noEffect":
+          return {
+            status: "noEffect",
+            receipt: null,
+            preparation: null,
+            posting: result.posting,
+            failure: null,
+          };
+        case "superseded":
+          return {
+            status: "superseded",
+            receipt: null,
+            preparation: null,
+            posting: null,
+            failure: null,
+          };
+        case "failed":
+          return {
+            status: "failed",
+            receipt: null,
+            preparation: null,
+            posting: null,
+            failure: result.failure,
+          };
+        default:
+          throw new Error(`Unexpected activation status: ${result.status}`);
+      }
+    });
+  }
+
+  prepareRetainedWorkspaceDefinitionWithCredentials(
+    _retainedDefinitionId: string,
+    _label: string,
+    _canonicalLocation: string,
+    _canonicalPacket: string,
+    packageSourceCredentials: Readonly<
+      Record<string, BrowserRetainedWorkspacePackageSourceCredential>
+    >,
+  ): Promise<BrowserRetainedWorkspacePreparationResult> {
+    this.packageSourceCredentialPayloads.push(
+      packageSourceCredentials,
+    );
+    return this.prepareRetainedWorkspaceDefinition();
+  }
+
+  commitRetainedWorkspaceActivation(
+    receipt: string,
+  ): Promise<BrowserRetainedWorkspaceActivationResult> {
+    this.commitReceipts.push(receipt);
+    const result = this.activationResults.get(receipt);
+    if (result === undefined) {
+      throw new Error(`Unknown activation receipt: ${receipt}`);
+    }
+    return this.commitResponses.get(receipt) ?? Promise.resolve(result);
+  }
+
+  cancelRetainedWorkspaceActivation(
+    receipt: string,
+  ): Promise<BrowserRetainedWorkspaceActivationResult> {
+    this.cancelledReceipts.push(receipt);
+    this.activationResults.delete(receipt);
+    const queuedResponse = this.cancellationResponses.shift();
+    if (queuedResponse !== undefined) return queuedResponse;
+    return Promise.resolve(this.cancellationResponse ?? {
+      status: "superseded",
+      posting: null,
+      failure: null,
+    });
+  }
+
+  completeRetainedWorkspaceActivation(
+    receipt: string,
+    succeeded: boolean,
+    failure: string | null,
+  ): Promise<BrowserRetainedWorkspaceConsumerCompletionResult> {
+    this.activationCompletions.push({ receipt, succeeded, failure });
+    if (this.activationCompletionError !== null) {
+      return Promise.reject(this.activationCompletionError);
+    }
+    return Promise.resolve({
+      status: "completed",
+      succeeded,
+      failure,
+      message: null,
+    });
+  }
+
+  completeRetainedWorkspaceDeactivation(
+    receipt: string,
+    succeeded: boolean,
+    failure: string | null,
+  ): Promise<BrowserRetainedWorkspaceConsumerCompletionResult> {
+    this.deactivationCompletions.push({ receipt, succeeded, failure });
+    return Promise.resolve({
+      status: "completed",
+      succeeded,
+      failure,
+      message: null,
+    });
   }
 
   deactivateRetainedWorkspaceDefinition(
@@ -192,13 +360,18 @@ class ActivationClient implements RetainedWorkspaceActivationClient {
     let resolve!: (
       value: BrowserRetainedWorkspaceDeactivationResult,
     ) => void;
+    let reject!: (error: unknown) => void;
     const promise =
-      new Promise<BrowserRetainedWorkspaceDeactivationResult>(accept => {
-        resolve = accept;
-      });
+      new Promise<BrowserRetainedWorkspaceDeactivationResult>(
+        (accept, fail) => {
+          resolve = accept;
+          reject = fail;
+        },
+      );
     this.deactivationResponses.push({
       promise,
       resolve,
+      reject,
     });
     return promise;
   }
@@ -219,9 +392,9 @@ class ActivationClient implements RetainedWorkspaceActivationClient {
 
   validateRetainedWorkspaceNavigationAuthority(
     realizationId: string,
-  ): boolean {
+  ): boolean | Promise<boolean> {
     this.lifecycle.push(`validate:${realizationId}`);
-    return true;
+    return this.validationResponses.get(realizationId) ?? true;
   }
 
   recordRetainedWorkspaceNavigationPosting(
@@ -246,9 +419,14 @@ class ActivationClient implements RetainedWorkspaceActivationClient {
   }
 }
 
-function createFixture(failPosting = false) {
+function createFixture(
+  failPosting = false,
+  failClear = false,
+) {
   const client = new ActivationClient();
   const posted: BrowserRetainedWorkspacePosting[] = [];
+  const presentationCurrent: boolean[] = [];
+  const clearPresentationCurrent: Array<boolean | undefined> = [];
   const settled: Array<{
     observation: RetainedWorkspacePredecessorObservation;
     result: BrowserRetainedWorkspaceSettlementResult;
@@ -259,14 +437,19 @@ function createFixture(failPosting = false) {
   }> = [];
   let clears = 0;
   const controller = createRetainedWorkspaceActivationController(client, {
-    post: value => {
+    post: (value, current) => {
       client.lifecycle.push(`post:${value.realizationId}`);
       if (failPosting) {
         throw new Error("Injected posting failure.");
       }
       posted.push(value);
+      presentationCurrent.push(current);
     },
-    clear: () => clears++,
+    clear: current => {
+      if (failClear) throw new Error("Injected clear failure.");
+      clearPresentationCurrent.push(current);
+      clears++;
+    },
     predecessorSettled: (observation, result) =>
       settled.push({ observation, result }),
     predecessorObservationFailed: (observation, error) =>
@@ -276,6 +459,8 @@ function createFixture(failPosting = false) {
     client,
     controller,
     posted,
+    presentationCurrent,
+    clearPresentationCurrent,
     settled,
     observationFailures,
     clears: () => clears,
@@ -290,7 +475,13 @@ test("posting records and acknowledges exact authority in order", async () => {
     canonicalPacket: "packet-a",
   });
 
-  const activation = fixture.controller.activate(definition.id);
+  const activation = fixture.controller.activate(
+    definition.id,
+    undefined,
+    value => {
+      fixture.client.lifecycle.push(`complete:${value.realizationId}`);
+    },
+  );
   fixture.client.activations[0]!.resolve({
     status: "activated",
     posting: posting(definition.id, "realization-1"),
@@ -302,8 +493,449 @@ test("posting records and acknowledges exact authority in order", async () => {
     "validate:realization-1",
     "post:realization-1",
     "record:realization-1",
+    "complete:realization-1",
     "acknowledge:realization-1",
   ]);
+});
+
+test("committed activation retains posting without replacing a newer route", async () => {
+  const fixture = createFixture();
+  const definition = fixture.controller.retain({
+    label: "A",
+    canonicalLocation: "/a",
+    canonicalPacket: "packet-a",
+  });
+  const committed =
+    deferred<BrowserRetainedWorkspaceActivationResult>();
+  fixture.client.commitResponses.set("receipt-1", committed.promise);
+  let presentationCurrent = true;
+  const completed: string[] = [];
+
+  const activation = fixture.controller.activate(
+    definition.id,
+    undefined,
+    value => {
+      completed.push(value.realizationId);
+    },
+    undefined,
+    undefined,
+    () => presentationCurrent,
+  );
+  const activated = {
+    status: "activated",
+    posting: posting(definition.id, "realization-1"),
+    failure: null,
+  } as const;
+  fixture.client.activations[0]!.resolve(activated);
+  while (fixture.client.commitReceipts.length === 0) {
+    await Promise.resolve();
+  }
+  presentationCurrent = false;
+  committed.resolve(activated);
+  await activation;
+
+  assert.deepEqual(
+    fixture.posted.map(value => value.realizationId),
+    ["realization-1"],
+  );
+  assert.deepEqual(fixture.presentationCurrent, [false]);
+  assert.deepEqual(completed, ["realization-1"]);
+  assert.deepEqual(fixture.client.activationCompletions, [{
+    receipt: "receipt-1",
+    succeeded: true,
+    failure: null,
+  }]);
+});
+
+test("posting failure clears retained state without replacing a newer route", async () => {
+  const fixture = createFixture();
+  const definition = fixture.controller.retain({
+    label: "A",
+    canonicalLocation: "/a",
+    canonicalPacket: "packet-a",
+  });
+  const recording = deferred<string>();
+  fixture.client.recordingResponses.set(
+    "realization-1",
+    recording.promise,
+  );
+  let presentationCurrent = true;
+
+  const activation = fixture.controller.activate(
+    definition.id,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    () => presentationCurrent,
+  );
+  fixture.client.activations[0]!.resolve({
+    status: "activated",
+    posting: posting(definition.id, "realization-1"),
+    failure: null,
+  });
+  while (!fixture.client.lifecycle.includes("record:realization-1")) {
+    await Promise.resolve();
+  }
+  presentationCurrent = false;
+  recording.resolve("invalidAuthority");
+
+  await assert.rejects(
+    activation,
+    /Navigation posting record rejected the committed authority/,
+  );
+  assert.deepEqual(fixture.presentationCurrent, [true]);
+  assert.deepEqual(fixture.clearPresentationCurrent, [false]);
+  assert.deepEqual(fixture.client.activationCompletions, [{
+    receipt: "receipt-1",
+    succeeded: false,
+    failure: "Navigation posting record rejected the committed authority.",
+  }]);
+});
+
+test("activation passes endpoint credentials without retaining them in controller state", async () => {
+  const fixture = createFixture();
+  const definition = fixture.controller.retain({
+    label: "Private",
+    canonicalLocation: "/private",
+    canonicalPacket: "packet-private",
+  });
+  const secret = "session-only-secret";
+
+  const activation = fixture.controller.activate(
+    definition.id,
+    undefined,
+    undefined,
+    undefined,
+    {
+      "https://nuget.pkg.github.com/example/index.json": {
+        username: "example-user",
+        pat: secret,
+      },
+    },
+  );
+  fixture.client.activations[0]!.resolve({
+    status: "activated",
+    posting: posting(definition.id, "realization-1"),
+    failure: null,
+  });
+  await activation;
+
+  assert.deepEqual(
+    fixture.client.packageSourceCredentialPayloads,
+    [
+      {
+        "https://nuget.pkg.github.com/example/index.json": {
+          username: "example-user",
+          pat: secret,
+        },
+      },
+    ],
+  );
+  assert.doesNotMatch(JSON.stringify(fixture.controller.state), /session-only-secret/);
+});
+
+test("consumer rejection cancels before cutover", async () => {
+  const fixture = createFixture();
+  const definition = fixture.controller.retain({
+    label: "A",
+    canonicalLocation: "/a",
+    canonicalPacket: "packet-a",
+  });
+
+  const activation = fixture.controller.activate(
+    definition.id,
+    () => false,
+  );
+  fixture.client.activations[0]!.resolve({
+    status: "activated",
+    posting: posting(definition.id, "realization-1"),
+    failure: null,
+  });
+  const result = await activation;
+
+  assert.equal(result.status, "superseded");
+  assert.equal(fixture.controller.state.activeDefinitionId, null);
+  assert.equal(fixture.controller.state.lastFailure, null);
+  assert.deepEqual(fixture.posted, []);
+  assert.deepEqual(fixture.client.cancelledReceipts, ["receipt-1"]);
+  assert.deepEqual(fixture.client.activationCompletions, []);
+});
+
+test("unknown cancellation outcome retains deletion barrier until retry", async () => {
+  const fixture = createFixture();
+  const cancellation =
+    deferred<BrowserRetainedWorkspaceActivationResult>();
+  fixture.client.cancellationResponses.push(cancellation.promise);
+  const definition = fixture.controller.retain({
+    label: "A",
+    canonicalLocation: "/a",
+    canonicalPacket: "packet-a",
+  });
+
+  const activation = fixture.controller.activate(
+    definition.id,
+    () => false,
+  );
+  fixture.client.activations[0]!.resolve({
+    status: "activated",
+    posting: posting(definition.id, "realization-1"),
+    failure: null,
+  });
+  await new Promise(resolve => setImmediate(resolve));
+  cancellation.reject(new Error("Cancellation response was lost."));
+
+  await assert.rejects(activation, /Cancellation response was lost/);
+  assert.deepEqual(
+    fixture.controller.state.unsettledDefinitionIds,
+    [definition.id],
+  );
+  await assert.rejects(
+    fixture.controller.delete(definition.id),
+    /cannot be deleted until its activation settles/,
+  );
+
+  assert.equal(fixture.controller.cancelPending(), true);
+  await new Promise(resolve => setImmediate(resolve));
+
+  assert.deepEqual(
+    fixture.client.cancelledReceipts,
+    ["receipt-1", "receipt-1"],
+  );
+  assert.deepEqual(fixture.controller.state.unsettledDefinitionIds, []);
+  await fixture.controller.delete(definition.id);
+  assert.deepEqual(fixture.controller.state.definitions, []);
+});
+
+test("overlapping unknown cancellations retain every receipt until retry", async () => {
+  const fixture = createFixture();
+  const firstCancellation =
+    deferred<BrowserRetainedWorkspaceActivationResult>();
+  const secondCancellation =
+    deferred<BrowserRetainedWorkspaceActivationResult>();
+  fixture.client.cancellationResponses.push(
+    secondCancellation.promise,
+    firstCancellation.promise,
+  );
+  const first = fixture.controller.retain({
+    label: "A",
+    canonicalLocation: "/a",
+    canonicalPacket: "packet-a",
+  });
+  const second = fixture.controller.retain({
+    label: "B",
+    canonicalLocation: "/b",
+    canonicalPacket: "packet-b",
+  });
+  const firstAcceptance = deferred<boolean>();
+
+  const selectFirst = fixture.controller.activate(
+    first.id,
+    () => firstAcceptance.promise,
+  );
+  fixture.client.activations[0]!.resolve({
+    status: "activated",
+    posting: posting(first.id, "realization-1"),
+    failure: null,
+  });
+  await new Promise(resolve => setImmediate(resolve));
+
+  const selectSecond = fixture.controller.activate(
+    second.id,
+    () => false,
+  );
+  fixture.client.activations[1]!.resolve({
+    status: "activated",
+    posting: posting(second.id, "realization-2"),
+    failure: null,
+  });
+  await new Promise(resolve => setImmediate(resolve));
+  secondCancellation.reject(new Error("Second cancellation response was lost."));
+  await assert.rejects(selectSecond, /Second cancellation response was lost/);
+
+  firstAcceptance.resolve(true);
+  await new Promise(resolve => setImmediate(resolve));
+  firstCancellation.reject(new Error("First cancellation response was lost."));
+  await assert.rejects(selectFirst, /First cancellation response was lost/);
+
+  assert.deepEqual(
+    fixture.controller.state.unsettledDefinitionIds,
+    [first.id, second.id],
+  );
+  await assert.rejects(
+    fixture.controller.activate(first.id),
+    /cancellation settlement is unknown/,
+  );
+
+  assert.equal(fixture.controller.cancelPending(), true);
+  await new Promise(resolve => setImmediate(resolve));
+
+  assert.deepEqual(
+    fixture.client.cancelledReceipts,
+    ["receipt-2", "receipt-1", "receipt-2", "receipt-1"],
+  );
+  assert.deepEqual(fixture.controller.state.unsettledDefinitionIds, []);
+  await fixture.controller.delete(first.id);
+  await fixture.controller.delete(second.id);
+  assert.deepEqual(fixture.controller.state.definitions, []);
+});
+
+test("cancelling current activation also retries older uncertain receipt", async () => {
+  const fixture = createFixture();
+  const firstCancellation =
+    deferred<BrowserRetainedWorkspaceActivationResult>();
+  fixture.client.cancellationResponses.push(firstCancellation.promise);
+  const first = fixture.controller.retain({
+    label: "A",
+    canonicalLocation: "/a",
+    canonicalPacket: "packet-a",
+  });
+  const second = fixture.controller.retain({
+    label: "B",
+    canonicalLocation: "/b",
+    canonicalPacket: "packet-b",
+  });
+  const firstAcceptance = deferred<boolean>();
+  const secondAcceptance = deferred<boolean>();
+
+  const selectFirst = fixture.controller.activate(
+    first.id,
+    () => firstAcceptance.promise,
+  );
+  fixture.client.activations[0]!.resolve({
+    status: "activated",
+    posting: posting(first.id, "realization-1"),
+    failure: null,
+  });
+  await new Promise(resolve => setImmediate(resolve));
+
+  const selectSecond = fixture.controller.activate(
+    second.id,
+    () => secondAcceptance.promise,
+  );
+  fixture.client.activations[1]!.resolve({
+    status: "activated",
+    posting: posting(second.id, "realization-2"),
+    failure: null,
+  });
+  await new Promise(resolve => setImmediate(resolve));
+
+  firstAcceptance.resolve(true);
+  await new Promise(resolve => setImmediate(resolve));
+  firstCancellation.reject(new Error("First cancellation response was lost."));
+  await assert.rejects(selectFirst, /First cancellation response was lost/);
+
+  assert.equal(fixture.controller.cancelPending(), true);
+  secondAcceptance.resolve(true);
+  const secondResult = await selectSecond;
+  await new Promise(resolve => setImmediate(resolve));
+
+  assert.equal(secondResult.status, "superseded");
+  assert.equal(fixture.controller.state.activeDefinitionId, null);
+  assert.deepEqual(fixture.controller.state.unsettledDefinitionIds, []);
+  assert.deepEqual(
+    fixture.client.cancelledReceipts,
+    ["receipt-1", "receipt-1", "receipt-2"],
+  );
+});
+
+test("cancellation before preparation prevents cutover", async () => {
+  const fixture = createFixture();
+  const definition = fixture.controller.retain({
+    label: "A",
+    canonicalLocation: "/a",
+    canonicalPacket: "packet-a",
+  });
+
+  const activation = fixture.controller.activate(definition.id);
+  assert.equal(fixture.controller.cancelPending(), true);
+  fixture.client.activations[0]!.resolve({
+    status: "activated",
+    posting: posting(definition.id, "realization-1"),
+    failure: null,
+  });
+  await activation;
+
+  assert.equal(fixture.controller.state.activeDefinitionId, null);
+  assert.deepEqual(fixture.posted, []);
+  assert.deepEqual(fixture.client.cancelledReceipts, ["receipt-1"]);
+});
+
+test("explicit cancellation consumes its prepared receipt once", async () => {
+  const fixture = createFixture();
+  const acceptance = deferred<boolean>();
+  const definition = fixture.controller.retain({
+    label: "A",
+    canonicalLocation: "/a",
+    canonicalPacket: "packet-a",
+  });
+
+  const activation = fixture.controller.activate(
+    definition.id,
+    () => acceptance.promise,
+  );
+  fixture.client.activations[0]!.resolve({
+    status: "activated",
+    posting: posting(definition.id, "realization-1"),
+    failure: null,
+  });
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(fixture.controller.cancelPending(), true);
+  acceptance.resolve(true);
+  await activation;
+
+  assert.deepEqual(fixture.client.cancelledReceipts, ["receipt-1"]);
+  assert.equal(fixture.controller.state.activeDefinitionId, null);
+});
+
+test("acceptance failure preserves candidate cleanup failure", async () => {
+  const fixture = createFixture();
+  fixture.client.cancellationResponse = {
+    status: "failed",
+    posting: null,
+    failure: {
+      kind: "CleanupFailed",
+      message: "Injected candidate cleanup failure.",
+    },
+  };
+  const definition = fixture.controller.retain({
+    label: "A",
+    canonicalLocation: "/a",
+    canonicalPacket: "packet-a",
+  });
+
+  const activation = fixture.controller.activate(
+    definition.id,
+    () => {
+      throw new Error("Injected acceptance failure.");
+    },
+  );
+  fixture.client.activations[0]!.resolve({
+    status: "activated",
+    posting: posting(definition.id, "realization-1"),
+    failure: null,
+  });
+
+  await assert.rejects(
+    activation,
+    (error: unknown) =>
+      error instanceof AggregateError
+      && error.errors.some(
+        candidate =>
+          candidate instanceof Error
+          && candidate.message === "Injected acceptance failure.",
+      )
+      && error.errors.some(
+        candidate =>
+          candidate instanceof Error
+          && candidate.message === "Injected candidate cleanup failure.",
+      ),
+  );
+  assert.equal(
+    fixture.controller.state.lastFailure,
+    "Injected candidate cleanup failure.",
+  );
+  assert.equal(fixture.controller.state.activeDefinitionId, null);
 });
 
 test("post-cutover posting failure abandons authority without rolling back active identity", async () => {
@@ -334,9 +966,226 @@ test("post-cutover posting failure abandons authority without rolling back activ
     "post:realization-1",
     "abandon:realization-1",
   ]);
+  assert.deepEqual(fixture.client.activationCompletions, [{
+    receipt: "receipt-1",
+    succeeded: false,
+    failure: "Injected posting failure.",
+  }]);
 });
 
-test("superseded acknowledgement cannot publish failure over the successor", async () => {
+test("validation failure after deletion cutover cannot restore predecessor", async () => {
+  const fixture = createFixture();
+  const first = fixture.controller.retain({
+    label: "A",
+    canonicalLocation: "/a",
+    canonicalPacket: "packet-a",
+  });
+  const second = fixture.controller.retain({
+    label: "B",
+    canonicalLocation: "/b",
+    canonicalPacket: "packet-b",
+  });
+  const selectFirst = fixture.controller.activate(first.id);
+  fixture.client.activations[0]!.resolve({
+    status: "activated",
+    posting: posting(first.id, "realization-1"),
+    failure: null,
+  });
+  await selectFirst;
+
+  const validation = deferred<boolean>();
+  fixture.client.validationResponses.set(
+    "realization-2",
+    validation.promise,
+  );
+  const deletion = fixture.controller.delete(first.id);
+  fixture.client.activations[1]!.resolve({
+    status: "activated",
+    posting: posting(second.id, "realization-2"),
+    failure: null,
+  });
+  await new Promise(resolve => setImmediate(resolve));
+  validation.reject(new Error("Navigation validation failed."));
+
+  await assert.rejects(deletion, /Navigation validation failed/);
+  assert.equal(fixture.controller.state.activeDefinitionId, second.id);
+  assert.deepEqual(
+    fixture.controller.state.definitions.map(value => value.id),
+    [second.id],
+  );
+  assert.equal(fixture.clears(), 1);
+  assert.deepEqual(
+    fixture.posted.map(value => value.realizationId),
+    ["realization-1"],
+  );
+  assert.deepEqual(fixture.client.activationCompletions.at(-1), {
+    receipt: "receipt-2",
+    succeeded: false,
+    failure: "Navigation validation failed.",
+  });
+});
+
+test("unknown commit outcome keeps the transaction barrier", async () => {
+  const fixture = createFixture();
+  const first = fixture.controller.retain({
+    label: "A",
+    canonicalLocation: "/a",
+    canonicalPacket: "packet-a",
+  });
+  const second = fixture.controller.retain({
+    label: "B",
+    canonicalLocation: "/b",
+    canonicalPacket: "packet-b",
+  });
+  const selectFirst = fixture.controller.activate(first.id);
+  fixture.client.activations[0]!.resolve({
+    status: "activated",
+    posting: posting(first.id, "realization-1"),
+    failure: null,
+  });
+  await selectFirst;
+
+  const commit =
+    deferred<BrowserRetainedWorkspaceActivationResult>();
+  fixture.client.commitResponses.set("receipt-2", commit.promise);
+  fixture.client.activationCompletionError =
+    new Error("Completion response was lost.");
+
+  const activation = fixture.controller.activate(second.id);
+  fixture.client.activations[1]!.resolve({
+    status: "activated",
+    posting: posting(second.id, "realization-2"),
+    failure: null,
+  });
+  await new Promise(resolve => setImmediate(resolve));
+  commit.reject(new Error("Commit response was lost."));
+  await assert.rejects(
+    activation,
+    /activation and completion reporting failed/,
+  );
+
+  assert.deepEqual(
+    fixture.controller.state.unsettledDefinitionIds,
+    [second.id],
+  );
+  assert.equal(fixture.controller.state.activeDefinitionId, null);
+  assert.equal(fixture.clears(), 1);
+  assert.notEqual(fixture.controller.waitForPendingCommit(), null);
+  await assert.rejects(
+    fixture.controller.activate(second.id),
+    /awaiting consumer completion/,
+  );
+});
+
+test("confirmed lost commit finalizes successor deletion", async () => {
+  const fixture = createFixture();
+  const first = fixture.controller.retain({
+    label: "A",
+    canonicalLocation: "/a",
+    canonicalPacket: "packet-a",
+  });
+  const second = fixture.controller.retain({
+    label: "B",
+    canonicalLocation: "/b",
+    canonicalPacket: "packet-b",
+  });
+  const selectFirst = fixture.controller.activate(first.id);
+  fixture.client.activations[0]!.resolve({
+    status: "activated",
+    posting: posting(first.id, "realization-1"),
+    failure: null,
+  });
+  await selectFirst;
+
+  const commit =
+    deferred<BrowserRetainedWorkspaceActivationResult>();
+  fixture.client.commitResponses.set("receipt-2", commit.promise);
+  const deletion = fixture.controller.delete(first.id, {
+    successorDefinitionId: second.id,
+  });
+  fixture.client.activations[1]!.resolve({
+    status: "activated",
+    posting: posting(second.id, "realization-2"),
+    failure: null,
+  });
+  await new Promise(resolve => setImmediate(resolve));
+  commit.reject(new Error("Commit response was lost."));
+
+  await assert.rejects(deletion, /Commit response was lost/);
+  assert.equal(fixture.controller.state.activeDefinitionId, second.id);
+  assert.deepEqual(
+    fixture.controller.state.definitions.map(value => value.id),
+    [second.id],
+  );
+  assert.equal(fixture.clears(), 1);
+  assert.equal(fixture.controller.waitForPendingCommit(), null);
+  assert.deepEqual(fixture.client.activationCompletions.at(-1), {
+    receipt: "receipt-2",
+    succeeded: false,
+    failure: "Commit response was lost.",
+  });
+});
+
+test("confirmed failed completion reconciles a lost commit response", async () => {
+  const fixture = createFixture();
+  const first = fixture.controller.retain({
+    label: "A",
+    canonicalLocation: "/a",
+    canonicalPacket: "packet-a",
+  });
+  const second = fixture.controller.retain({
+    label: "B",
+    canonicalLocation: "/b",
+    canonicalPacket: "packet-b",
+  });
+  const selectFirst = fixture.controller.activate(first.id);
+  fixture.client.activations[0]!.resolve({
+    status: "activated",
+    posting: posting(first.id, "realization-1"),
+    failure: null,
+  });
+  await selectFirst;
+
+  const commit =
+    deferred<BrowserRetainedWorkspaceActivationResult>();
+  fixture.client.commitResponses.set("receipt-2", commit.promise);
+  const selectSecond = fixture.controller.activate(second.id);
+  fixture.client.activations[1]!.resolve({
+    status: "activated",
+    posting: posting(second.id, "realization-2"),
+    failure: null,
+  });
+  await new Promise(resolve => setImmediate(resolve));
+  commit.reject(new Error("Commit response was lost."));
+  await assert.rejects(selectSecond, /Commit response was lost/);
+
+  assert.equal(fixture.controller.state.activeDefinitionId, second.id);
+  assert.equal(fixture.clears(), 1);
+  assert.equal(fixture.controller.waitForPendingCommit(), null);
+  assert.deepEqual(fixture.client.activationCompletions.at(-1), {
+    receipt: "receipt-2",
+    succeeded: false,
+    failure: "Commit response was lost.",
+  });
+
+  const deletion = fixture.controller.delete(second.id, {
+    successorDefinitionId: null,
+  });
+  assert.deepEqual(fixture.client.deactivations, [second.id]);
+  fixture.client.deactivationResponses[0]!.resolve({
+    status: "deactivated",
+    completionReceipt: "deactivation-1",
+    settlement: {
+      succeeded: true,
+      reason: "CoordinatorClosed",
+      failure: null,
+    },
+    message: null,
+  });
+  await deletion;
+});
+
+test("commit barrier remains held through consumer completion", async () => {
   const fixture = createFixture();
   const staleAcknowledgement = deferred<string>();
   fixture.client.acknowledgementResponses.set(
@@ -365,6 +1214,14 @@ test("superseded acknowledgement cannot publish failure over the successor", asy
     fixture.client.lifecycle.includes("acknowledge:realization-1"),
   );
 
+  await assert.rejects(
+    fixture.controller.activate(second.id),
+    /awaiting consumer completion/,
+  );
+  assert.equal(fixture.client.activations.length, 1);
+  staleAcknowledgement.resolve("accepted");
+  await selectFirst;
+
   const selectSecond = fixture.controller.activate(second.id);
   fixture.client.activations[1]!.resolve({
     status: "activated",
@@ -372,8 +1229,6 @@ test("superseded acknowledgement cannot publish failure over the successor", asy
     failure: null,
   });
   await selectSecond;
-  staleAcknowledgement.resolve("invalidAuthority");
-  await selectFirst;
 
   assert.equal(fixture.controller.state.activeDefinitionId, second.id);
   assert.equal(fixture.controller.state.pendingDefinitionId, null);
@@ -382,12 +1237,16 @@ test("superseded acknowledgement cannot publish failure over the successor", asy
     fixture.posted.map(value => value.realizationId),
     ["realization-1", "realization-2"],
   );
+  assert.deepEqual(
+    fixture.client.activationCompletions.map(value => value.receipt),
+    ["receipt-1", "receipt-2"],
+  );
   assert.ok(
     !fixture.client.lifecycle.includes("abandon:realization-1"),
   );
 });
 
-test("superseded recording cannot publish failure over the successor", async () => {
+test("recording holds the commit barrier through consumer completion", async () => {
   const fixture = createFixture();
   const staleRecording = deferred<string>();
   fixture.client.recordingResponses.set(
@@ -414,6 +1273,14 @@ test("superseded recording cannot publish failure over the successor", async () 
   await new Promise(resolve => setImmediate(resolve));
   assert.ok(fixture.client.lifecycle.includes("record:realization-1"));
 
+  await assert.rejects(
+    fixture.controller.activate(second.id),
+    /awaiting consumer completion/,
+  );
+  assert.equal(fixture.client.activations.length, 1);
+  staleRecording.resolve("accepted");
+  await selectFirst;
+
   const selectSecond = fixture.controller.activate(second.id);
   fixture.client.activations[1]!.resolve({
     status: "activated",
@@ -421,8 +1288,6 @@ test("superseded recording cannot publish failure over the successor", async () 
     failure: null,
   });
   await selectSecond;
-  staleRecording.resolve("invalidAuthority");
-  await selectFirst;
 
   assert.equal(fixture.controller.state.activeDefinitionId, second.id);
   assert.equal(fixture.controller.state.pendingDefinitionId, null);
@@ -431,12 +1296,7 @@ test("superseded recording cannot publish failure over the successor", async () 
     fixture.posted.map(value => value.realizationId),
     ["realization-1", "realization-2"],
   );
-  assert.ok(
-    !fixture.client.lifecycle.includes("acknowledge:realization-1"),
-  );
-  assert.ok(
-    !fixture.client.lifecycle.includes("abandon:realization-1"),
-  );
+  assert.ok(fixture.client.lifecycle.includes("acknowledge:realization-1"));
 });
 
 test("superseded activation cannot post over the latest selection", async () => {
@@ -480,7 +1340,7 @@ test("superseded activation cannot post over the latest selection", async () => 
   assert.equal(fixture.settled.length, 1);
 });
 
-test("publication order rejects a late response from an older cutover", async () => {
+test("publication order cancels a late preparation before cutover", async () => {
   const fixture = createFixture();
   const first = fixture.controller.retain({
     label: "A",
@@ -513,12 +1373,10 @@ test("publication order rejects a late response from an older cutover", async ()
     fixture.posted.map(value => value.realizationId),
     ["realization-2"],
   );
-  assert.ok(
-    fixture.client.lifecycle.includes("abandon:realization-1"),
-  );
+  assert.deepEqual(fixture.client.cancelledReceipts, ["receipt-1"]);
 });
 
-test("synchronous validation cannot yield to a queued newer publication", async () => {
+test("queued newer preparation supersedes before validation and cutover", async () => {
   const fixture = createFixture();
   const first = fixture.controller.retain({
     label: "A",
@@ -550,9 +1408,7 @@ test("synchronous validation cannot yield to a queued newer publication", async 
     fixture.posted.map(value => value.realizationId),
     ["realization-2"],
   );
-  assert.ok(
-    fixture.client.lifecycle.includes("abandon:realization-1"),
-  );
+  assert.deepEqual(fixture.client.cancelledReceipts, ["receipt-1"]);
 });
 
 test("late publication still observes distinct predecessor settlement", async () => {
@@ -612,9 +1468,10 @@ test("late publication still observes distinct predecessor settlement", async ()
   );
   assert.deepEqual(
     fixture.client.settlements,
-    ["settlement-a", "settlement-initial"],
+    ["settlement-a"],
   );
-  assert.equal(fixture.settled.length, 2);
+  assert.equal(fixture.settled.length, 1);
+  assert.deepEqual(fixture.client.cancelledReceipts, ["receipt-2"]);
 });
 
 test("out-of-order predecessor outcomes preserve originating posting association", async () => {
@@ -819,6 +1676,74 @@ test("displaced activation blocks deletion and exposes cleanup failure", async (
   await selectSecond;
 });
 
+test("sole-active deletion cannot revive retired authority", async () => {
+  const fixture = createFixture();
+  const completion = deferred<void>();
+  const first = fixture.controller.retain({
+    label: "A",
+    canonicalLocation: "/a",
+    canonicalPacket: "packet-a",
+  });
+  const selectFirst = fixture.controller.activate(first.id);
+  fixture.client.activations[0]!.resolve({
+    status: "activated",
+    posting: posting(first.id, "realization-1"),
+    failure: null,
+  });
+  await selectFirst;
+
+  const deletion = fixture.controller.delete(first.id, {
+    successorDefinitionId: null,
+    completeDeactivation: () => completion.promise,
+  });
+  fixture.client.deactivationResponses[0]!.resolve({
+    status: "deactivated",
+    completionReceipt: "deactivation-1",
+    settlement: {
+      succeeded: true,
+      reason: "CoordinatorClosed",
+      failure: null,
+    },
+    message: null,
+  });
+  await new Promise(resolve => setImmediate(resolve));
+
+  assert.equal(fixture.controller.state.activeDefinitionId, null);
+  assert.deepEqual(fixture.controller.state.definitions, []);
+  const second = fixture.controller.retain({
+    label: "B",
+    canonicalLocation: "/b",
+    canonicalPacket: "packet-b",
+  });
+  await assert.rejects(
+    fixture.controller.activate(second.id),
+    /being deactivated/,
+  );
+  await assert.rejects(
+    fixture.controller.activate(first.id),
+    /Unknown retained Workspace definition/,
+  );
+  assert.deepEqual(fixture.client.deactivationCompletions, []);
+
+  completion.resolve();
+  await deletion;
+  assert.deepEqual(fixture.client.deactivationCompletions, [{
+    receipt: "deactivation-1",
+    succeeded: true,
+    failure: null,
+  }]);
+  assert.equal(fixture.controller.state.activeDefinitionId, null);
+
+  const selectSecond = fixture.controller.activate(second.id);
+  fixture.client.activations[1]!.resolve({
+    status: "activated",
+    posting: posting(second.id, "realization-2"),
+    failure: null,
+  });
+  await selectSecond;
+  assert.equal(fixture.controller.state.activeDefinitionId, second.id);
+});
+
 test("overlapping activations retain deletion barrier until all settle", async () => {
   const fixture = createFixture();
   const first = fixture.controller.retain({
@@ -939,6 +1864,210 @@ test("active deletion activates the next definition before removal", async () =>
   );
 });
 
+test("waiting activation cannot revoke committed deletion", async () => {
+  const fixture = createFixture();
+  const first = fixture.controller.retain({
+    label: "A",
+    canonicalLocation: "/a",
+    canonicalPacket: "packet-a",
+  });
+  const second = fixture.controller.retain({
+    label: "B",
+    canonicalLocation: "/b",
+    canonicalPacket: "packet-b",
+  });
+  const selectFirst = fixture.controller.activate(first.id);
+  fixture.client.activations[0]!.resolve({
+    status: "activated",
+    posting: posting(first.id, "realization-1"),
+    failure: null,
+  });
+  await selectFirst;
+
+  const successorCompletion = deferred<void>();
+  const deletion = fixture.controller.delete(first.id, {
+    completeSuccessor: () => successorCompletion.promise,
+  });
+  fixture.client.activations[1]!.resolve({
+    status: "activated",
+    posting: posting(second.id, "realization-2"),
+    failure: null,
+  });
+  await new Promise(resolve => setImmediate(resolve));
+
+  const barrier = fixture.controller.waitForPendingCommit();
+  assert.notEqual(barrier, null);
+  const reselectDeleted = barrier!.then(
+    () => fixture.controller.activate(first.id),
+  );
+  successorCompletion.resolve();
+  await deletion;
+
+  assert.deepEqual(
+    fixture.controller.state.definitions.map(value => value.id),
+    [second.id],
+  );
+  await assert.rejects(reselectDeleted, /Unknown retained Workspace definition/);
+  assert.equal(fixture.controller.state.activeDefinitionId, second.id);
+});
+
+test("active deletion removes retired definition after cutover failure", async () => {
+  const fixture = createFixture();
+  const first = fixture.controller.retain({
+    label: "A",
+    canonicalLocation: "/a",
+    canonicalPacket: "packet-a",
+  });
+  const second = fixture.controller.retain({
+    label: "B",
+    canonicalLocation: "/b",
+    canonicalPacket: "packet-b",
+  });
+
+  const selectFirst = fixture.controller.activate(first.id);
+  fixture.client.activations[0]!.resolve({
+    status: "activated",
+    posting: posting(first.id, "realization-1"),
+    failure: null,
+  });
+  await selectFirst;
+
+  const deletion = fixture.controller.delete(first.id, {
+    completeSuccessor: () => {
+      throw new Error("Successor presentation failed.");
+    },
+  });
+  fixture.client.activations[1]!.resolve({
+    status: "activated",
+    posting: posting(second.id, "realization-2"),
+    failure: null,
+  });
+
+  await assert.rejects(deletion, /Successor presentation failed/);
+  assert.equal(fixture.controller.state.activeDefinitionId, second.id);
+  assert.deepEqual(
+    fixture.controller.state.definitions.map(value => value.id),
+    [second.id],
+  );
+  assert.deepEqual(fixture.client.activationCompletions.at(-1), {
+    receipt: "receipt-2",
+    succeeded: false,
+    failure: "Successor presentation failed.",
+  });
+});
+
+test("active deletion cannot overwrite an in-flight commit barrier", async () => {
+  const fixture = createFixture();
+  const first = fixture.controller.retain({
+    label: "A",
+    canonicalLocation: "/a",
+    canonicalPacket: "packet-a",
+  });
+  const second = fixture.controller.retain({
+    label: "B",
+    canonicalLocation: "/b",
+    canonicalPacket: "packet-b",
+  });
+  const selectFirst = fixture.controller.activate(first.id);
+  fixture.client.activations[0]!.resolve({
+    status: "activated",
+    posting: posting(first.id, "realization-1"),
+    failure: null,
+  });
+  await selectFirst;
+
+  const delayedCommit =
+    deferred<BrowserRetainedWorkspaceActivationResult>();
+  fixture.client.commitResponses.set("receipt-2", delayedCommit.promise);
+  const selectSecond = fixture.controller.activate(second.id);
+  fixture.client.activations[1]!.resolve({
+    status: "activated",
+    posting: posting(second.id, "realization-2"),
+    failure: null,
+  });
+  await new Promise(resolve => setImmediate(resolve));
+
+  await assert.rejects(
+    fixture.controller.delete(first.id, {
+      successorDefinitionId: null,
+    }),
+    /awaiting consumer completion/,
+  );
+  delayedCommit.resolve({
+    status: "activated",
+    posting: posting(second.id, "realization-2"),
+    failure: null,
+  });
+  await selectSecond;
+
+  assert.equal(fixture.controller.waitForPendingCommit(), null);
+  assert.equal(fixture.controller.state.activeDefinitionId, second.id);
+});
+
+test("active deletion cannot overlap another prepared activation", async () => {
+  const fixture = createFixture();
+  const first = fixture.controller.retain({
+    label: "A",
+    canonicalLocation: "/a",
+    canonicalPacket: "packet-a",
+  });
+  const second = fixture.controller.retain({
+    label: "B",
+    canonicalLocation: "/b",
+    canonicalPacket: "packet-b",
+  });
+  const selectFirst = fixture.controller.activate(first.id);
+  fixture.client.activations[0]!.resolve({
+    status: "activated",
+    posting: posting(first.id, "realization-1"),
+    failure: null,
+  });
+  await selectFirst;
+
+  const selectSecond = fixture.controller.activate(second.id);
+  await assert.rejects(
+    fixture.controller.delete(first.id, {
+      successorDefinitionId: null,
+    }),
+    /until pending activations settle/,
+  );
+  assert.deepEqual(fixture.client.deactivations, []);
+
+  fixture.client.activations[1]!.resolve({
+    status: "activated",
+    posting: posting(second.id, "realization-2"),
+    failure: null,
+  });
+  await selectSecond;
+  assert.equal(fixture.controller.state.activeDefinitionId, second.id);
+});
+
+test("active definition cannot be its own deletion successor", async () => {
+  const fixture = createFixture();
+  const first = fixture.controller.retain({
+    label: "A",
+    canonicalLocation: "/a",
+    canonicalPacket: "packet-a",
+  });
+  const selection = fixture.controller.activate(first.id);
+  fixture.client.activations[0]!.resolve({
+    status: "activated",
+    posting: posting(first.id, "realization-1"),
+    failure: null,
+  });
+  await selection;
+
+  await assert.rejects(
+    fixture.controller.delete(first.id, {
+      successorDefinitionId: first.id,
+    }),
+    /cannot be its own deletion successor/,
+  );
+  assert.equal(fixture.controller.state.activeDefinitionId, first.id);
+  assert.deepEqual(fixture.controller.state.definitions, [first]);
+  assert.equal(fixture.client.activations.length, 1);
+});
+
 test("newer selection cancels successor deletion commit", async () => {
   const fixture = createFixture();
   const first = fixture.controller.retain({
@@ -992,8 +2121,9 @@ test("newer selection cancels successor deletion commit", async () => {
   );
   assert.deepEqual(
     fixture.posted.map(value => value.realizationId),
-    ["realization-1", "realization-2", "realization-3"],
+    ["realization-1", "realization-3"],
   );
+  assert.deepEqual(fixture.client.cancelledReceipts, ["receipt-2"]);
 });
 
 test("deleting the sole active definition drains managed state", async () => {
@@ -1014,6 +2144,7 @@ test("deleting the sole active definition drains managed state", async () => {
   const deletion = fixture.controller.delete(first.id);
   fixture.client.deactivationResponses[0]!.resolve({
     status: "deactivated",
+    completionReceipt: "deactivation-1",
     settlement: {
       succeeded: true,
       reason: "CoordinatorClosed",
@@ -1047,6 +2178,7 @@ test("failed sole-active cleanup clears unavailable presentation and preserves e
   const deletion = fixture.controller.delete(first.id);
   fixture.client.deactivationResponses[0]!.resolve({
     status: "cleanupFailed",
+    completionReceipt: "deactivation-1",
     settlement: {
       succeeded: false,
       reason: "CoordinatorClosed",
@@ -1063,6 +2195,63 @@ test("failed sole-active cleanup clears unavailable presentation and preserves e
     "Injected cleanup failure.",
   );
   assert.equal(fixture.clears(), 1);
+});
+
+test("sole-active cleanup and clear failures remain visible together", async () => {
+  const fixture = createFixture(false, true);
+  const first = fixture.controller.retain({
+    label: "A",
+    canonicalLocation: "/a",
+    canonicalPacket: "packet-a",
+  });
+  const selection = fixture.controller.activate(first.id);
+  fixture.client.activations[0]!.resolve({
+    status: "activated",
+    posting: posting(first.id, "realization-1"),
+    failure: null,
+  });
+  await selection;
+
+  const deletion = fixture.controller.delete(first.id);
+  fixture.client.deactivationResponses[0]!.resolve({
+    status: "cleanupFailed",
+    completionReceipt: "deactivation-1",
+    settlement: {
+      succeeded: false,
+      reason: "CoordinatorClosed",
+      failure: "Injected managed cleanup failure.",
+    },
+    message: "The active Workspace could not be settled.",
+  });
+  await assert.rejects(
+    deletion,
+    (error: unknown) =>
+      error instanceof AggregateError
+      && error.errors.some(
+        candidate =>
+          candidate instanceof Error
+          && candidate.message === "Injected managed cleanup failure.",
+      )
+      && error.errors.some(
+        candidate =>
+          candidate instanceof Error
+          && candidate.message === "Injected clear failure.",
+      ),
+  );
+
+  assert.equal(fixture.controller.state.activeDefinitionId, null);
+  assert.deepEqual(fixture.controller.state.definitions, []);
+  assert.equal(
+    fixture.controller.state.lastFailure,
+    "Injected managed cleanup failure. Consumer completion failed: "
+      + "Injected clear failure.",
+  );
+  assert.deepEqual(fixture.client.deactivationCompletions, [{
+    receipt: "deactivation-1",
+    succeeded: false,
+    failure: "Injected managed cleanup failure. Consumer completion failed: "
+      + "Injected clear failure.",
+  }]);
 });
 
 test("pre-close deactivation rejection preserves active presentation", async () => {
@@ -1083,6 +2272,7 @@ test("pre-close deactivation rejection preserves active presentation", async () 
   const deletion = fixture.controller.delete(first.id);
   fixture.client.deactivationResponses[0]!.resolve({
     status: "rejected",
+    completionReceipt: null,
     settlement: null,
     message: "Deactivation did not begin.",
   });
@@ -1098,6 +2288,50 @@ test("pre-close deactivation rejection preserves active presentation", async () 
     "Deactivation did not begin.",
   );
   assert.equal(fixture.clears(), 0);
+});
+
+test("unknown deactivation outcome keeps the transition barrier", async () => {
+  const fixture = createFixture();
+  const first = fixture.controller.retain({
+    label: "A",
+    canonicalLocation: "/a",
+    canonicalPacket: "packet-a",
+  });
+  const selection = fixture.controller.activate(first.id);
+  fixture.client.activations[0]!.resolve({
+    status: "activated",
+    posting: posting(first.id, "realization-1"),
+    failure: null,
+  });
+  await selection;
+
+  const deletion = fixture.controller.delete(first.id, {
+    successorDefinitionId: null,
+  });
+  fixture.client.deactivationResponses[0]!.reject(
+    new Error("Deactivation response was lost."),
+  );
+  await assert.rejects(deletion, /Deactivation response was lost/);
+
+  assert.equal(
+    fixture.controller.state.lastFailure,
+    "Deactivation response was lost.",
+  );
+  assert.equal(
+    fixture.controller.state.deactivatingDefinitionId,
+    first.id,
+  );
+  assert.equal(fixture.controller.state.activeDefinitionId, null);
+  assert.equal(fixture.clears(), 1);
+  assert.notEqual(fixture.controller.waitForPendingCommit(), null);
+  await assert.rejects(
+    fixture.controller.activate(first.id),
+    /being deactivated/,
+  );
+  await assert.rejects(
+    fixture.controller.delete(first.id),
+    /already being deactivated/,
+  );
 });
 
 test("sole active deactivation blocks activation and preserves new definitions", async () => {
@@ -1138,6 +2372,7 @@ test("sole active deactivation blocks activation and preserves new definitions",
 
   fixture.client.deactivationResponses[0]!.resolve({
     status: "deactivated",
+    completionReceipt: "deactivation-1",
     settlement: {
       succeeded: true,
       reason: "CoordinatorClosed",

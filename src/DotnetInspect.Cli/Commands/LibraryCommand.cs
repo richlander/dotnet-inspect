@@ -1,5 +1,6 @@
 using DotnetInspector.Cache;
 using DotnetInspect.Cli.CommandLine;
+using DotnetInspector.Ecosystems;
 using DotnetInspector.MetadataRendering;
 using DotnetInspect.Cli.Models;
 using DotnetInspect.Cli.Inspectors;
@@ -8,6 +9,7 @@ using ILInspector.Research;
 using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Output;
 using DotnetInspector.Packages;
+using DotnetInspector.Platforms;
 using DotnetInspect.Cli.Planning;
 using DotnetInspector.Queries;
 using NuGetFetch;
@@ -21,6 +23,7 @@ using DotnetInspect.Cli.Views;
 using DotnetInspector.SourceSelection;
 using Markout;
 using System.Diagnostics;
+using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
 using System.Security.Cryptography;
 using System.Text;
@@ -123,7 +126,24 @@ public partial class LibraryCommand
                 UnsafeEvidencePresenceQuery.Definition),
         ];
 
-    public static async Task<int> ExecuteAsync(LibraryOptions options)
+    public static Task<int> ExecuteAsync(LibraryOptions options) =>
+        ExecuteAsync(
+            options,
+            workspaceLoadOptions: null,
+            CancellationToken.None);
+
+    public static Task<int> ExecuteAsync(
+        LibraryOptions options,
+        CancellationToken cancellationToken) =>
+        ExecuteAsync(
+            options,
+            workspaceLoadOptions: null,
+            cancellationToken);
+
+    internal static async Task<int> ExecuteAsync(
+        LibraryOptions options,
+        WorkspaceContextLoadOptions? workspaceLoadOptions,
+        CancellationToken cancellationToken = default)
     {
         if (!LibrarySourceAdapter.TryBind(
                 options,
@@ -135,8 +155,77 @@ public partial class LibraryCommand
         }
 
         options = source!.ApplyTo(options);
+        if (DirectLibraryOverviewCommand.ShouldExecute(options))
+        {
+            return await DirectLibraryOverviewCommand.ExecuteAsync(
+                    options,
+                    source,
+                    cancellationToken)
+                .ConfigureAwait(false);
+        }
+        if (source.Selector is SourceSelector.PackageSource
+            && (options.WorkspacePacket is not null
+                || options.NamesakeLibrary
+                || string.IsNullOrWhiteSpace(options.AssemblyName)
+                || !string.Equals(
+                    options.Tfm,
+                    "all",
+                    StringComparison.OrdinalIgnoreCase)))
+        {
+            return await ExecutePackageAsync(
+                options,
+                source.PackageTarget,
+                workspaceLoadOptions).ConfigureAwait(false);
+        }
+
+        return await ExecuteBoundAsync(
+            options,
+            source,
+            preResolvedPackage: null).ConfigureAwait(false);
+    }
+
+    internal static async Task<int> ExecuteResolvedPackageAsync(
+        LibraryOptions options,
+        PackageExtractionResult resolution)
+    {
+        ArgumentNullException.ThrowIfNull(resolution);
+        if (!LibrarySourceAdapter.TryBind(
+                options,
+                out LibrarySourceBinding? source,
+                out string? sourceError))
+        {
+            CommandError.Write(sourceError!);
+            return 1;
+        }
+
+        options = source!.ApplyTo(options);
+        if (source.Selector is not SourceSelector.PackageSource)
+        {
+            CommandError.Write(
+                "Resolved Package Library execution requires a Package "
+                    + "source selector.");
+            return 1;
+        }
+
+        return await ExecuteBoundAsync(
+            options,
+            source,
+            resolution).ConfigureAwait(false);
+    }
+
+    static async Task<int> ExecuteBoundAsync(
+        LibraryOptions options,
+        LibrarySourceBinding source,
+        PackageExtractionResult? preResolvedPackage)
+    {
         if (!options.Trace)
-            return await ExecuteCoreAsync(options, source, trace: null);
+        {
+            return await ExecuteCoreAsync(
+                options,
+                source,
+                trace: null,
+                preResolvedPackage).ConfigureAwait(false);
+        }
 
         // Rendered in a finally so a failed run still reports the work it did before failing —
         // which is exactly when "what did this actually scan?" is worth knowing.
@@ -154,7 +243,11 @@ public partial class LibraryCommand
 
         try
         {
-            return await ExecuteCoreAsync(options, source, trace);
+            return await ExecuteCoreAsync(
+                options,
+                source,
+                trace,
+                preResolvedPackage).ConfigureAwait(false);
         }
         finally
         {
@@ -192,7 +285,8 @@ public partial class LibraryCommand
     private static async Task<int> ExecuteCoreAsync(
         LibraryOptions options,
         LibrarySourceBinding source,
-        InspectionTrace? trace)
+        InspectionTrace? trace,
+        PackageExtractionResult? preResolvedPackage)
     {
         if (options.IntegrationQuery.HasFilter
             && (options.BodyKindQuery.HasFilter || options.PerformanceTriage.HasFilters
@@ -384,7 +478,7 @@ public partial class LibraryCommand
                 options.IncludeSections,
                 options.ExactIncludeSections,
                 sections.SelectableSectionNames,
-                SectionNames.ImplementationProfiles);
+                SectionNames.MemberMetrics);
         if (implementationProfilesSelection.Error is not null)
         {
             CommandError.Write(
@@ -395,6 +489,24 @@ public partial class LibraryCommand
         {
             IncludeSections =
                 implementationProfilesSelection.Sections,
+        };
+        var libraryMetricsSelection =
+            SelectResolver.NormalizeExactOnlySection(
+                options.Select,
+                options.IncludeSections,
+                options.ExactIncludeSections,
+                sections.SelectableSectionNames,
+                SectionNames.LibraryMetrics);
+        if (libraryMetricsSelection.Error is not null)
+        {
+            CommandError.Write(
+                libraryMetricsSelection.Error);
+            return 1;
+        }
+        options = options with
+        {
+            IncludeSections =
+                libraryMetricsSelection.Sections,
         };
 
         if (MetadataRootSelectionError(options) is { } metadataRootError)
@@ -509,14 +621,21 @@ public partial class LibraryCommand
             && !options.Count
             && options.IncludeSections is { Count: > 0 }
             && !LibraryOutputCapabilities.Catalog.Supports(
-                OutputMode.Json,
+                DiscoveryOutputMode.Json,
                 options.IncludeSections))
         {
             if (options.IncludeSections.Contains(
-                    SectionNames.ImplementationProfiles))
+                    SectionNames.MemberMetrics))
             {
                 CommandError.Write(
-                    "Document --json cannot represent Implementation Profiles analysis. "
+                    "Document --json cannot represent Member Metrics analysis. "
+                    + "Use --jsonl, --tsv, or --table.");
+            }
+            else if (options.IncludeSections.Contains(
+                    SectionNames.LibraryMetrics))
+            {
+                CommandError.Write(
+                    "Document --json cannot represent Library Metrics analysis. "
                     + "Use --jsonl, --tsv, or --table.");
             }
             else
@@ -550,7 +669,7 @@ public partial class LibraryCommand
         if (options.Tree && options.Discover == null)
         {
             if (!LibraryOutputCapabilities.Catalog.Supports(
-                    OutputMode.Tree,
+                    DiscoveryOutputMode.Tree,
                     options.IncludeSections))
             {
                 CommandError.Write(
@@ -567,7 +686,7 @@ public partial class LibraryCommand
             && options.Discover == null
             && !options.Count
             && !LibraryOutputCapabilities.Catalog.Supports(
-                OutputMode.Mermaid,
+                DiscoveryOutputMode.Mermaid,
                 options.IncludeSections))
         {
             CommandError.Write(
@@ -777,7 +896,7 @@ public partial class LibraryCommand
                 options.IncludeSections,
                 sections =>
                     LibraryOutputCapabilities.Catalog.Supports(
-                        OutputMode.Table,
+                        DiscoveryOutputMode.Table,
                         sections)))
             return 1;
 
@@ -815,6 +934,12 @@ public partial class LibraryCommand
             discoveryInspection && !fullEffectiveDiscovery
                 ? false
                 : options.FixedOverview);
+        bool wantsEcosystemDependencies =
+            sectionPlan.Demands.Any(
+                static demand =>
+                    demand.Section == SectionNames.LibraryInfo
+                    || demand.Section
+                        == SectionNames.EcosystemDependencies);
         if (sectionPlan.Queries.Contains(BodyShapesQuery.Definition)
             && options.BodyKindQuery.HasFilter
             && options.PerformanceTriage.HasCandidateFilters)
@@ -992,6 +1117,12 @@ public partial class LibraryCommand
 
                 inspection.Source = SourceKind.Platform;
                 inspection.PlatformVersion = version;
+                ApplyLibraryEcosystemDependencies(
+                    inspection,
+                    subject,
+                    wantsEcosystemDependencies,
+                    RequiresLibraryEcosystemDiagnosticDisclosure(options),
+                    logger);
                 if (!discoveryInspection)
                 {
                     await PopulateReferenceHierarchyAsync(
@@ -1022,6 +1153,12 @@ public partial class LibraryCommand
                         inspectedContentHash: inspectedContentHash);
                 if (!TrySelectAssemblyReferences(inspection, options.ReferenceRowSelection))
                     return 1;
+                if (!TrySelectLibraryEcosystemDependencies(
+                        inspection,
+                        options.EcosystemDependencyRowSelection))
+                {
+                    return 1;
+                }
                 if (options.Print)
                     return await WriteLibraryPrintProjectionAsync(inspection, options);
                 if (options.Value || options.Urls || options.Paths)
@@ -1055,7 +1192,11 @@ public partial class LibraryCommand
                     assemblyPath,
                     source.PackageTarget!,
                     options.Tfm,
-                    options.SourceOptions, options.IncludePrerelease, logger, context.HttpClient);
+                    options.SourceOptions,
+                    options.IncludePrerelease,
+                    logger,
+                    context.HttpClient,
+                    preResolvedPackage);
                 if (extractResult == null)
                 {
                     return 1;
@@ -1211,6 +1352,21 @@ public partial class LibraryCommand
 
                 foreach (var insp in inspections)
                     insp.Source = SourceKind.NuGet;
+                if (wantsEcosystemDependencies)
+                {
+                    for (int index = 0;
+                         index < inspections.Count;
+                         index++)
+                    {
+                        ApplyLibraryEcosystemDependencies(
+                            inspections[index],
+                            collection.Subjects[index],
+                            wantsEcosystemDependencies: true,
+                            RequiresLibraryEcosystemDiagnosticDisclosure(
+                                options),
+                            logger);
+                    }
+                }
                 if (!discoveryInspection)
                 {
                     for (int index = 0;
@@ -1268,6 +1424,13 @@ public partial class LibraryCommand
                     && !TrySelectAssemblyReferences(
                         inspections[0],
                         options.ReferenceRowSelection))
+                {
+                    return 1;
+                }
+                if (inspections.Count == 1
+                    && !TrySelectLibraryEcosystemDependencies(
+                        inspections[0],
+                        options.EcosystemDependencyRowSelection))
                 {
                     return 1;
                 }
@@ -1431,6 +1594,12 @@ public partial class LibraryCommand
                 }
 
                 inspection.Source = SourceKind.File;
+                ApplyLibraryEcosystemDependencies(
+                    inspection,
+                    subject,
+                    wantsEcosystemDependencies,
+                    RequiresLibraryEcosystemDiagnosticDisclosure(options),
+                    logger);
                 if (!discoveryInspection)
                 {
                     await PopulateReferenceHierarchyAsync(
@@ -1461,6 +1630,12 @@ public partial class LibraryCommand
                         inspectedContentHash: inspectedContentHash);
                 if (!TrySelectAssemblyReferences(inspection, options.ReferenceRowSelection))
                     return 1;
+                if (!TrySelectLibraryEcosystemDependencies(
+                        inspection,
+                        options.EcosystemDependencyRowSelection))
+                {
+                    return 1;
+                }
                 if (options.Print)
                     return await WriteLibraryPrintProjectionAsync(inspection, options);
                 if (options.Value || options.Urls || options.Paths)
@@ -2188,7 +2363,7 @@ public partial class LibraryCommand
     /// That renderer carries no per-image provenance: several assemblies would emit repeated
     /// <c>## Metadata: TypeDef</c> headings whose rows silently belong to different images and
     /// whose row numbering restarts without saying so. Aggregate counts remain safe because they
-    /// do not expose image-relative row identities. Package <c>--all-libraries</c> is a separate
+    /// do not expose image-relative row identities. Package Library aggregate output is a separate
     /// renderer that suffixes each metadata heading with the package-relative assembly path. The
     /// direct-library rejection and count allowance are gated by
     /// <c>MetadataLens_MultipleAssemblies_IsRejected</c> in DotnetInspect.Cli.Tests; all-libraries
@@ -2323,6 +2498,168 @@ public partial class LibraryCommand
             inspection.AssemblyInfo.References = [.. selected];
         return true;
     }
+
+    private static bool TrySelectLibraryEcosystemDependencies(
+        LibraryInspection inspection,
+        RowSelectionIntent<string>? intent)
+    {
+        if (intent is null)
+            return true;
+
+        IReadOnlyList<EcosystemDependencyRecognitionEntry> rows =
+            inspection.EcosystemDependencyRecognitionInspection?.Content
+                switch
+                {
+                    EcosystemDependencyRecognitionOutcome.Complete complete =>
+                        complete.Document.Classification.Recognized,
+                    EcosystemDependencyRecognitionOutcome.Incomplete incomplete =>
+                        incomplete.Document.Classification.Recognized,
+                    _ => [],
+                };
+        if (!CliSemanticRowSelection.TrySelect(
+                intent,
+                rows,
+                "Library ecosystem dependencies",
+                failure =>
+                    $"Library ecosystem dependency row selection stage "
+                    + $"{failure.Failure.StageNumber} requires row "
+                    + $"{failure.Failure.RequiredPosition}, but only "
+                    + $"{failure.Failure.AvailableCount} "
+                    + $"{(failure.Failure.AvailableCount == 1 ? "row is" : "rows are")} available.",
+                out IReadOnlyList<
+                    EcosystemDependencyRecognitionEntry> selected))
+        {
+            return false;
+        }
+
+        inspection.EcosystemDependencyRows = selected;
+        return true;
+    }
+
+    private static void ApplyLibraryEcosystemDependencies(
+        LibraryInspection inspection,
+        LibraryInspectionSubject subject,
+        bool wantsEcosystemDependencies,
+        bool discloseEmptyDetailDiagnostics,
+        VerboseLogger logger)
+    {
+        if (!wantsEcosystemDependencies)
+            return;
+
+        if (inspection.AssemblyReferencesQueryResult is not { } references)
+        {
+            throw new InvalidOperationException(
+                "Library ecosystem recognition requires the assembly-reference query result.");
+        }
+        if (subject.AssemblyReference is not { } assembly)
+        {
+            CommandError.WriteWarning(
+                "Library ecosystem recognition is unavailable because the "
+                + "selected input is not an assembly.");
+            return;
+        }
+        if (!TryCreateExactLibrarySourceCoordinate(
+                assembly,
+                out ExactLibrarySourceCoordinate? source))
+        {
+            CommandError.WriteWarning(
+                "Library ecosystem recognition is unavailable because the "
+                + "selected source does not have an exact Library coordinate.");
+            return;
+        }
+
+        InspectionEnvelope<EcosystemDependencyRecognitionOutcome> result =
+            LibraryEcosystemDependencyRecognitionInspection.Execute(
+                source,
+                references);
+        inspection.EcosystemDependencyRecognitionInspection = result;
+        bool discloseDiagnostics =
+            discloseEmptyDetailDiagnostics
+            && result.Content switch
+            {
+                EcosystemDependencyRecognitionOutcome.Incomplete incomplete =>
+                    incomplete.Document.Classification.Recognized.IsEmpty,
+                EcosystemDependencyRecognitionOutcome.Unavailable => true,
+                _ => false,
+            };
+        foreach (InspectionDiagnostic diagnostic in result.Diagnostics)
+        {
+            string message = $"{diagnostic.Code}: {diagnostic.Summary}";
+            if (discloseDiagnostics)
+                CommandError.WriteWarning(message);
+            else
+                logger.Log(message);
+        }
+    }
+
+    private static bool TryCreateExactLibrarySourceCoordinate(
+        ResolvedAssemblyReference assembly,
+        [NotNullWhen(true)]
+        out ExactLibrarySourceCoordinate? source)
+    {
+        var identity = new ManagedMetadataIdentity.Assembly(
+            assembly.Identity);
+        try
+        {
+            source = assembly.Provenance switch
+            {
+                AssemblyResolutionProvenance.PackageAsset package =>
+                    new ExactLibrarySourceCoordinate.Package(
+                        PackageSourceCoordinate.Create(
+                            package.PackageId,
+                            package.PackageVersion),
+                        identity),
+                AssemblyResolutionProvenance.PlatformAsset platform
+                    when TryGetPlatformFamily(
+                        platform.Framework,
+                        out PlatformFamily family) =>
+                    new ExactLibrarySourceCoordinate.Platform(
+                        new PlatformLibraryPopulationDeclaration(family),
+                        identity),
+                AssemblyResolutionProvenance.ProjectAsset =>
+                    new ExactLibrarySourceCoordinate.Project(identity),
+                AssemblyResolutionProvenance.LocalAsset
+                    or AssemblyResolutionProvenance.DesignatedAsset =>
+                    new ExactLibrarySourceCoordinate.Local(identity),
+                _ => null,
+            };
+            return source is not null;
+        }
+        catch (ArgumentException)
+        {
+            source = null;
+            return false;
+        }
+    }
+
+    private static bool TryGetPlatformFamily(
+        string value,
+        out PlatformFamily family)
+    {
+        if (value.Equals(
+                "runtime",
+                StringComparison.OrdinalIgnoreCase))
+        {
+            family = PlatformFamily.DotNetRuntime;
+            return true;
+        }
+        if (value.Equals(
+                "aspnetcore",
+                StringComparison.OrdinalIgnoreCase))
+        {
+            family = PlatformFamily.AspNetCore;
+            return true;
+        }
+
+        family = default;
+        return false;
+    }
+
+    private static bool RequiresLibraryEcosystemDiagnosticDisclosure(
+        LibraryOptions options) =>
+        options.IncludeSections is { } sections
+        && sections.Contains(SectionNames.EcosystemDependencies)
+        && !sections.Contains(SectionNames.LibraryInfo);
 
     /// <summary>
     /// Rewrites hex table spellings in <c>-S</c> and <c>-D</c> to canonical section names, so
@@ -2949,7 +3286,6 @@ public partial class LibraryCommand
                 options.JsonOutput,
                 options.Jsonl,
                 options.JsonArray,
-                Bare: false,
                 Destination: new ProjectionDestination(options.OutputPath, options.Rows)));
     }
 
@@ -3499,7 +3835,9 @@ public partial class LibraryCommand
             sectionCostAnnotations: pipeline.GetCostAnnotations(),
             sectionCategories: pipeline.GetCategoryMap(),
             catalogHiddenSections: EffectiveCatalogHidden(pipeline, effective),
-            listedCategoryDoors: pipeline.GetListedCategoryDoors());
+            listedCategoryDoors: pipeline.GetListedCategoryDoors(),
+            resourceCatalog: "library",
+            resourceCapabilities: LibraryOutputCapabilities.Catalog);
         return Math.Max(
             Math.Max(discoveryExitCode, inspectionFailureExitCode),
             IntegrityExitCode(
@@ -3686,7 +4024,9 @@ public partial class LibraryCommand
             sectionCostAnnotations: pipeline.GetCostAnnotations(),
             sectionCategories: pipeline.GetCategoryMap(),
             catalogHiddenSections: EffectiveCatalogHidden(pipeline, effective),
-            listedCategoryDoors: pipeline.GetListedCategoryDoors());
+            listedCategoryDoors: pipeline.GetListedCategoryDoors(),
+            resourceCatalog: "library",
+            resourceCapabilities: LibraryOutputCapabilities.Catalog);
     }
 
     /// <summary>
@@ -4089,20 +4429,29 @@ public partial class LibraryCommand
         NuGetSourceOptions? sourceOptions,
         bool includePrerelease,
         VerboseLogger logger,
-        HttpClient httpClient)
+        HttpClient httpClient,
+        PackageExtractionResult? preResolvedPackage)
     {
-        var outcome = await PackageExtractor.ExtractPackageAsync(
-            httpClient,
-            packageTarget,
-            logger.Log,
-            sourceOptions: sourceOptions,
-            includePrerelease: includePrerelease);
-        if (!outcome.IsSuccess)
+        PackageExtractionResult resolution;
+        if (preResolvedPackage is null)
         {
-            CommandError.Write($"{outcome.ErrorMessage}");
-            return null;
+            var outcome = await PackageExtractor.ExtractPackageAsync(
+                httpClient,
+                packageTarget,
+                logger.Log,
+                sourceOptions: sourceOptions,
+                includePrerelease: includePrerelease);
+            if (!outcome.IsSuccess)
+            {
+                CommandError.Write($"{outcome.ErrorMessage}");
+                return null;
+            }
+            resolution = outcome.Result!;
         }
-        var resolution = outcome.Result!;
+        else
+        {
+            resolution = preResolvedPackage;
+        }
 
         string extractPath = resolution.ExtractPath;
         string? tempDir = resolution.TempDir;

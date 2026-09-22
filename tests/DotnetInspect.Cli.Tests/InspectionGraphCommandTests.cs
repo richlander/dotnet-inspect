@@ -8,7 +8,7 @@ using DotnetInspect.Cli.Sections;
 using DotnetInspect.Cli.Views;
 using DotnetInspector.Fixtures;
 using DotnetInspector.Packages;
-using DotnetInspector.PortableQueries;
+using QuerySpace;
 using DotnetInspector.Queries;
 using DotnetInspector.Sections;
 using ILInspector.Analysis;
@@ -153,6 +153,20 @@ public sealed class InspectionGraphCommandTests
             PortableQueryPayloadCodec.Encode(
                 query.Plan.Intent,
                 TestContext.Current.CancellationToken));
+    }
+
+    [Fact]
+    public void LibrariesCommand_RejectsUnsupportedStartsWithPredicate()
+    {
+        Assert.False(
+            LibraryCallUseQueryOptions.TryParse(
+                ["Cluster starts-with 3"],
+                out _,
+                out OptionError error));
+        Assert.Contains(
+            "supports only = predicates",
+            error.Message,
+            StringComparison.Ordinal);
     }
 
     [Fact]
@@ -1080,25 +1094,18 @@ public sealed class InspectionGraphCommandTests
     [Fact]
     public async Task LibrariesCommand_SummaryRowsRetainCompleteGroupCounts()
     {
-        var captured = await ConsoleCapture.RunAsync(
-            () => CommandLineBuilder.CreateRootCommand()
-                .Parse(
-                    [
-                        "graph",
-                        "libraries",
-                        "--library",
-                        FixtureCatalog.AnalysisCallerGraphCaller
-                            .AssemblyPath(),
-                        "--library",
-                        FixtureCatalog.AnalysisCallerGraphTarget
-                            .AssemblyPath(),
-                        "-S",
-                        "Consumer Use Sites",
-                        "--jsonl",
-                        "--rows",
-                        "2..3",
-                    ])
-                .InvokeAsync());
+        var captured = await RunCliAsync(
+            "graph",
+            "libraries",
+            "--library",
+            FixtureCatalog.AnalysisCallerGraphCaller.AssemblyPath(),
+            "--library",
+            FixtureCatalog.AnalysisCallerGraphTarget.AssemblyPath(),
+            "-S",
+            "Consumer Use Sites",
+            "--jsonl",
+            "--rows",
+            "2..3");
 
         Assert.Equal(0, captured.ExitCode);
         string[] lines = captured.Output.ReplaceLineEndings("\n").Split(
@@ -1230,22 +1237,17 @@ public sealed class InspectionGraphCommandTests
     {
         async Task<(int ExitCode, string Output, string Error)> Execute(
             params string[] projection) =>
-            await ConsoleCapture.RunAsync(
-                () => CommandLineBuilder.CreateRootCommand()
-                    .Parse(
-                        [
-                            "graph",
-                            "libraries",
-                            "--library",
-                            FixtureCatalog.AnalysisCallerGraphCaller
-                                .AssemblyPath(),
-                            "--library",
-                            FixtureCatalog.AnalysisCallerGraphTarget
-                                .AssemblyPath(),
-                            .. projection,
-                            "--count",
-                        ])
-                    .InvokeAsync());
+            await RunCliAsync(
+                [
+                    "graph",
+                    "libraries",
+                    "--library",
+                    FixtureCatalog.AnalysisCallerGraphCaller.AssemblyPath(),
+                    "--library",
+                    FixtureCatalog.AnalysisCallerGraphTarget.AssemblyPath(),
+                    .. projection,
+                    "--count",
+                ]);
 
         var single = await Execute(
             "-S",
@@ -1563,6 +1565,61 @@ public sealed class InspectionGraphCommandTests
     }
 
     [Fact]
+    public void LibrariesCommand_SemanticSectionsResolveOneTypedDeclaration()
+    {
+        (string Section, string RowSet)[] expected =
+        [
+            (
+                LibraryCallUseSections.ConsumerUseSites,
+                GraphLibrariesQuery.ConsumerUseSitesRowSet),
+            (
+                LibraryCallUseSections.ProviderApiTypes,
+                GraphLibrariesQuery.ProviderApiTypesRowSet),
+            (
+                LibraryCallUseSections.DirectUseClusters,
+                GraphLibrariesQuery.DirectUseClustersRowSet),
+            (
+                LibraryCallUseSections.CallSites,
+                GraphLibrariesQuery.CallSitesRowSet),
+        ];
+
+        Assert.Equal(
+            expected.Length,
+            LibraryCallUseSections.SemanticRowDeclarations.Count);
+        foreach ((string section, string rowSet) in expected)
+        {
+            Assert.True(
+                LibraryCallUseSections.TryGetSemanticRows(
+                    [section],
+                    out LibraryCallUseSections.SemanticRowDeclaration?
+                        declaration));
+            Assert.NotNull(declaration);
+            Assert.Equal(section, declaration.Section);
+            Assert.Equal(rowSet, declaration.Rows.RowSet);
+        }
+
+        Assert.True(
+            LibraryCallUseSections.TryGetSemanticRows(
+                selectedSections: null,
+                out LibraryCallUseSections.SemanticRowDeclaration?
+                    defaultDeclaration));
+        Assert.Same(
+            GraphLibrariesSectionRows.CallSites,
+            defaultDeclaration!.Rows);
+        Assert.False(
+            LibraryCallUseSections.TryGetSemanticRows(
+                [LibraryCallUseSections.PublicRootPaths],
+                out _));
+        Assert.False(
+            LibraryCallUseSections.TryGetSemanticRows(
+                [
+                    LibraryCallUseSections.CallSites,
+                    LibraryCallUseSections.ConsumerUseSites,
+                ],
+                out _));
+    }
+
+    [Fact]
     public async Task LibrariesCommand_SemanticTailSelectsTheSameClusterAcrossFormats()
     {
         string[] pair =
@@ -1666,6 +1723,114 @@ public sealed class InspectionGraphCommandTests
         Assert.Equal("1", jsonCount.Output.Trim());
     }
 
+    [Theory]
+    [InlineData("Consumer Use Sites", "Source Member", "source_member")]
+    [InlineData("Provider API Types", "Target Type", "target_type")]
+    public async Task LibrariesCommand_SemanticTailSelectsTheSameSummaryAcrossFormats(
+        string section,
+        string identityColumn,
+        string identityProperty)
+    {
+        string[] pair =
+        [
+            "graph",
+            "libraries",
+            "--library",
+            FixtureCatalog.AnalysisCallerGraphCaller.AssemblyPath(),
+            "--library",
+            FixtureCatalog.AnalysisCallerGraphTarget.AssemblyPath(),
+            "-S",
+            section,
+        ];
+        string columns = $"{identityColumn};Call Site Rows";
+        var complete = await RunCliAsync(
+            [.. pair, "--jsonl", "--columns", columns]);
+        JsonElement expected;
+        using (var document = JsonDocument.Parse(
+            complete.Output
+                .ReplaceLineEndings("\n")
+                .Split(
+                    '\n',
+                    StringSplitOptions.RemoveEmptyEntries)
+                .Last()))
+        {
+            expected = document.RootElement.Clone();
+        }
+        string identity =
+            expected.GetProperty(identityProperty).GetString()!;
+        string callSiteRows =
+            expected.GetProperty("call_site_rows").GetString()!;
+
+        string[] selection =
+        [
+            .. pair,
+            "-n",
+            "1",
+            "--tail",
+            "--columns",
+            columns,
+        ];
+        var markdown = await RunCliAsync(selection);
+        var table = await RunCliAsync([.. selection, "--table"]);
+        var tsv = await RunCliAsync(
+            [.. selection, "--tsv", "--no-headers"]);
+        var jsonl = await RunCliAsync([.. selection, "--jsonl"]);
+        var json = await RunCliAsync([.. selection, "--json"]);
+        var count = await RunCliAsync([.. selection, "--count"]);
+        var jsonCount = await RunCliAsync(
+            [.. selection, "--count", "--json"]);
+
+        foreach (var result in new[]
+        {
+            complete,
+            markdown,
+            table,
+            tsv,
+            jsonl,
+            json,
+            count,
+            jsonCount,
+        })
+        {
+            Assert.Equal(0, result.ExitCode);
+            Assert.Empty(result.Error);
+        }
+
+        foreach (var result in new[]
+        {
+            markdown,
+            table,
+            tsv,
+            jsonl,
+            json,
+        })
+        {
+            Assert.Contains(
+                identity,
+                result.Output,
+                StringComparison.Ordinal);
+            Assert.Contains(
+                callSiteRows,
+                result.Output,
+                StringComparison.Ordinal);
+        }
+
+        Assert.Single(
+            tsv.Output.Split(
+                '\n',
+                StringSplitOptions.RemoveEmptyEntries));
+        Assert.Single(
+            jsonl.Output.Split(
+                '\n',
+                StringSplitOptions.RemoveEmptyEntries));
+        using var jsonDocument = JsonDocument.Parse(json.Output);
+        JsonProperty selectedSection =
+            Assert.Single(jsonDocument.RootElement.EnumerateObject());
+        Assert.Single(selectedSection.Value.EnumerateArray());
+        Assert.Equal("1", count.Output.Trim());
+        Assert.Equal("1", jsonCount.Output.Trim());
+    }
+
     [Fact]
     public async Task LibrariesCommand_StrictUnavailableWindowWithholdsOutput()
     {
@@ -1713,6 +1878,75 @@ public sealed class InspectionGraphCommandTests
         Assert.Contains(
             "Library direct-use cluster row selection stage 1 requires cluster "
                 + "1000, but only ",
+            captured.Error,
+            StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData(
+        "Consumer Use Sites",
+        "Library consumer-use-site row selection stage 1 requires use site "
+            + "1000, but only ")]
+    [InlineData(
+        "Provider API Types",
+        "Library provider-API-type row selection stage 1 requires type "
+            + "1000, but only ")]
+    public async Task LibrariesCommand_StrictUnavailableSummaryWindowWithholdsOutput(
+        string section,
+        string expectedError)
+    {
+        var captured = await RunCliAsync(
+            "graph",
+            "libraries",
+            "--library",
+            FixtureCatalog.AnalysisCallerGraphCaller.AssemblyPath(),
+            "--library",
+            FixtureCatalog.AnalysisCallerGraphTarget.AssemblyPath(),
+            "-S",
+            section,
+            "--rows",
+            "999..1000",
+            "--json");
+
+        Assert.Equal(1, captured.ExitCode);
+        Assert.Empty(captured.Output);
+        Assert.Contains(
+            expectedError,
+            captured.Error,
+            StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("Consumer Use Sites")]
+    [InlineData("Provider API Types")]
+    public async Task LibrariesCommand_SemanticSummarySelectionPreservesIncompleteEvidence(
+        string section)
+    {
+        string consumer =
+            FixtureCatalog.AnalysisAsyncSiblingFriend.AssemblyPath();
+        string provider = Path.Combine(
+            Path.GetDirectoryName(consumer)!,
+            "ILInspector.Analysis.AsyncSiblingFriendBaseFixtures.dll");
+        var captured = await RunCliAsync(
+            "graph",
+            "libraries",
+            "--library",
+            consumer,
+            "--library",
+            provider,
+            "-S",
+            section,
+            "-n",
+            "1",
+            "--jsonl");
+
+        Assert.Equal(1, captured.ExitCode);
+        Assert.Single(
+            captured.Output.Split(
+                '\n',
+                StringSplitOptions.RemoveEmptyEntries));
+        Assert.Contains(
+            "Pairwise call-use evidence is incomplete.",
             captured.Error,
             StringComparison.Ordinal);
     }
@@ -1774,6 +2008,44 @@ public sealed class InspectionGraphCommandTests
                 + "2, but only 1 direct-use clusters are available.",
             captured.Error,
             StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task LibrariesCommand_SummaryGroupingAndClusterScopePrecedeSemanticWindow()
+    {
+        var captured = await RunCliAsync(
+            "graph",
+            "libraries",
+            "--library",
+            FixtureCatalog.AnalysisCallerGraphCaller.AssemblyPath(),
+            "--library",
+            FixtureCatalog.AnalysisCallerGraphTarget.AssemblyPath(),
+            "--where",
+            "Cluster=3",
+            "-S",
+            LibraryCallUseSections.ConsumerUseSites,
+            "-n",
+            "1",
+            "--jsonl");
+
+        Assert.Equal(0, captured.ExitCode);
+        using JsonDocument document = JsonDocument.Parse(captured.Output);
+        Assert.Equal(
+            "Shared.Entry.RunTwice()",
+            document.RootElement
+                .GetProperty("source_member")
+                .GetString());
+        Assert.Equal(
+            "2",
+            document.RootElement
+                .GetProperty("call_sites")
+                .GetString());
+        Assert.Equal(
+            "1,2",
+            document.RootElement
+                .GetProperty("call_site_rows")
+                .GetString());
+        Assert.Empty(captured.Error);
     }
 
     [Fact]
@@ -2021,6 +2293,8 @@ public sealed class InspectionGraphCommandTests
 
     [Theory]
     [InlineData(null)]
+    [InlineData("Consumer Use Sites")]
+    [InlineData("Provider API Types")]
     [InlineData("Direct Use Clusters")]
     public async Task LibrariesCommand_RejectsLegacyCountRows(string? section)
     {
@@ -2107,7 +2381,9 @@ public sealed class InspectionGraphCommandTests
     [Theory]
     [InlineData(null)]
     [InlineData("Call Sites")]
+    [InlineData("Consumer Use Sites")]
     [InlineData("Direct Use Clusters")]
+    [InlineData("Provider API Types")]
     public async Task LibrariesCommand_HeadAllowsCompleteJsonBeforeRequiredInputs(
         string? section)
     {
@@ -2164,13 +2440,12 @@ public sealed class InspectionGraphCommandTests
     }
 
     [Fact]
-    public async Task LibrariesCommand_SummarySectionRetainsRenderedLineFallback()
+    public async Task LibrariesCommand_BareSummaryViewRetainsRenderedLineFallback()
     {
         var captured = await RunCliAsync(
             "graph",
             "libraries",
             "-S",
-            LibraryCallUseSections.ConsumerUseSites,
             "-n",
             "1",
             "--json");

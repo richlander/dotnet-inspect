@@ -1,5 +1,5 @@
 using System.Collections.ObjectModel;
-using DotnetInspector.PortableQueries;
+using QuerySpace;
 
 namespace DotnetInspector.Queries.Definitions;
 
@@ -132,6 +132,7 @@ public sealed class WorkspaceSharePacket
         Contexts = new ReadOnlyCollection<WorkspaceShareContext>(
             (WorkspaceShareContext[])contexts.Clone());
         Registrations = Array.Empty<WorkspaceRegistration>();
+        PackageSources = Array.Empty<WorkspacePackageSourceDefinition>();
         Queries = Array.Empty<PortableQueryIdentity>();
         FocusedTabIndex = activeTabIndex;
         ActiveTabIndex = activeTabIndex;
@@ -159,6 +160,7 @@ public sealed class WorkspaceSharePacket
         Contexts = new ReadOnlyCollection<WorkspaceShareContext>(
             (WorkspaceShareContext[])contexts.Clone());
         Registrations = Array.Empty<WorkspaceRegistration>();
+        PackageSources = Array.Empty<WorkspacePackageSourceDefinition>();
         Queries = new ReadOnlyCollection<PortableQueryIdentity>(
             queries is null
                 ? []
@@ -189,6 +191,7 @@ public sealed class WorkspaceSharePacket
             tabs,
             contexts,
             registrations,
+            [],
             focusedTabIndex,
             selectedContextIndex,
             viewStates,
@@ -201,6 +204,7 @@ public sealed class WorkspaceSharePacket
         WorkspaceShareTab[] tabs,
         WorkspaceShareContext[] contexts,
         WorkspaceRegistration[] registrations,
+        WorkspacePackageSourceDefinition[] packageSources,
         int? focusedTabIndex,
         int? selectedContextIndex,
         WorkspaceShareViewState[] viewStates,
@@ -208,13 +212,29 @@ public sealed class WorkspaceSharePacket
     {
         if (formatVersion is not (
             WorkspaceSharePacketCodec.CurrentFormatVersion
-            or WorkspaceSharePacketCodec.Format4Version))
+            or WorkspaceSharePacketCodec.Format4Version
+            or WorkspaceSharePacketCodec.Format5Version))
         {
             throw new ArgumentOutOfRangeException(
                 nameof(formatVersion),
                 formatVersion,
-                "A registration-bearing packet must use format 3 or 4.");
+                "A registration-bearing packet must use format 3, 4, or 5.");
         }
+        if (formatVersion != WorkspaceSharePacketCodec.Format5Version
+            && packageSources.Length != 0)
+        {
+            throw new ArgumentException(
+                "Workspace package sources require packet format 5.",
+                nameof(packageSources));
+        }
+        if (formatVersion == WorkspaceSharePacketCodec.Format5Version
+            && packageSources.Length == 0)
+        {
+            throw new ArgumentException(
+                "A format-5 Workspace packet requires at least one package source.",
+                nameof(packageSources));
+        }
+        WorkspacePackageSourceDefinition.ValidateSet(packageSources);
 
         FormatVersion = formatVersion;
         Tabs = new ReadOnlyCollection<WorkspaceShareTab>(
@@ -223,6 +243,9 @@ public sealed class WorkspaceSharePacket
             (WorkspaceShareContext[])contexts.Clone());
         Registrations = new ReadOnlyCollection<WorkspaceRegistration>(
             (WorkspaceRegistration[])registrations.Clone());
+        PackageSources =
+            new ReadOnlyCollection<WorkspacePackageSourceDefinition>(
+                (WorkspacePackageSourceDefinition[])packageSources.Clone());
         Queries = new ReadOnlyCollection<PortableQueryIdentity>(
             queries is null
                 ? []
@@ -253,6 +276,27 @@ public sealed class WorkspaceSharePacket
             tabs,
             contexts,
             registrations,
+            [],
+            focusedTabIndex,
+            selectedContextIndex,
+            viewStates,
+            queries);
+
+    internal static WorkspaceSharePacket CreateV5(
+        WorkspaceShareTab[] tabs,
+        WorkspaceShareContext[] contexts,
+        WorkspaceRegistration[] registrations,
+        WorkspacePackageSourceDefinition[] packageSources,
+        int? focusedTabIndex,
+        int? selectedContextIndex,
+        WorkspaceShareViewState[] viewStates,
+        PortableQueryIdentity[]? queries = null) =>
+        new(
+            WorkspaceSharePacketCodec.Format5Version,
+            tabs,
+            contexts,
+            registrations,
+            packageSources,
             focusedTabIndex,
             selectedContextIndex,
             viewStates,
@@ -267,7 +311,10 @@ public sealed class WorkspaceSharePacket
     /// <summary>Format-3-or-4 ordered portable Workspace registrations.</summary>
     public IReadOnlyList<WorkspaceRegistration> Registrations { get; }
 
-    /// <summary>Format-2-through-4 canonical packet-local query identities.</summary>
+    /// <summary>Format-5 ordered credential-free package source declarations.</summary>
+    public IReadOnlyList<WorkspacePackageSourceDefinition> PackageSources { get; }
+
+    /// <summary>Format-2-through-5 canonical packet-local query identities.</summary>
     public IReadOnlyList<PortableQueryIdentity> Queries { get; }
 
     /// <summary>
@@ -307,7 +354,7 @@ public sealed class WorkspaceSharePacket
     /// <summary>Format-1 filename-stem Library scope.</summary>
     public IReadOnlyList<string> Libraries { get; }
 
-    /// <summary>Format-2-through-4 committed view rows.</summary>
+    /// <summary>Format-2-through-5 committed view rows.</summary>
     public IReadOnlyList<WorkspaceShareViewState> ViewStates { get; }
 }
 

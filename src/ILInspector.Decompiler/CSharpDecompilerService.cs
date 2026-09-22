@@ -25,7 +25,10 @@ public sealed record CSharpBodyProjection(
     MetadataMethodAddress Address,
     DecompilerResult Projection,
     CSharpBodyProjectionKind Kind,
-    bool ContributesToOutput);
+    bool ContributesToOutput)
+{
+    public SelectedPropertyAccessorSource? PropertySource { get; init; }
+}
 
 public sealed record CSharpDecompilationAttempt(
     CSharpDecompilationStatus Status,
@@ -36,6 +39,12 @@ public sealed record CSharpDecompilationAttempt(
     DecompilerSymbolSource Symbols,
     int BodyProjectionsAttempted)
 {
+    /// <summary>
+    /// The selected declaration without its optional containing context, indented
+    /// for a type body. Comparison consumers use this fragment, not standalone source.
+    /// </summary>
+    public string? MemberDeclarationText { get; init; }
+
     public string? Text => Projection.Output;
     public DecompilationFidelity Fidelity => Projection.Fidelity;
     public bool IsAvailable => Status == CSharpDecompilationStatus.Available;
@@ -106,6 +115,81 @@ public static class CSharpDecompilerService
                     openSource,
                     printerOptions,
                     tracker));
+    }
+
+    /// <summary>
+    /// Produces one immutable structured document for the exact caller-selected
+    /// TypeDef. Assembly and PDB acquisition remain caller-owned.
+    /// </summary>
+    public static CSharpTypeDocumentOutcome ProduceTypeDocument(
+        ApiType type,
+        ResolvedAssemblyReference assembly,
+        IAssemblyBindingPolicy bindingPolicy,
+        ImmutableArray<byte>? pdbImage = null,
+        PrinterOptions? printerOptions = null,
+        int maxBodyProjections = DefaultMaxBodyProjections,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(type);
+        ArgumentNullException.ThrowIfNull(assembly);
+        ArgumentNullException.ThrowIfNull(bindingPolicy);
+        ArgumentOutOfRangeException.ThrowIfNegative(maxBodyProjections);
+        cancellationToken.ThrowIfCancellationRequested();
+
+        bool pdbSupplied = pdbImage.HasValue;
+        var tracker =
+            new CSharpTypeDocumentProductionTracker(
+                maxBodyProjections,
+                cancellationToken);
+        if (pdbImage is { IsDefaultOrEmpty: true })
+        {
+            return new CSharpTypeDocumentOutcome.Rejected(
+                "The supplied Portable PDB image is default or empty.");
+        }
+
+        var effectivePolicy =
+            new CancellationCheckingBindingPolicy(
+                bindingPolicy,
+                cancellationToken);
+        try
+        {
+            using MetadataSource source = pdbImage is { } supplied
+                ? MetadataSource.OpenWithSuppliedPortablePdb(
+                    assembly,
+                    supplied,
+                    effectivePolicy,
+                    cancellationToken:
+                        cancellationToken)
+                : MetadataSource.OpenWithoutSymbols(
+                    assembly,
+                    effectivePolicy);
+            cancellationToken.ThrowIfCancellationRequested();
+            CSharpTypeDocumentOutcome outcome =
+                MemberBodyProducer.ProduceTypeDocument(
+                    type,
+                    source,
+                    pdbSupplied,
+                    printerOptions,
+                    tracker,
+                    cancellationToken);
+            cancellationToken.ThrowIfCancellationRequested();
+            return outcome;
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception ex) when (
+            ex is BadImageFormatException
+                or InvalidDataException
+                or IOException)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            return new CSharpTypeDocumentOutcome.Unavailable(
+                $"Structured C# Type production is unavailable: "
+                    + $"{ex.GetType().Name}: {ex.Message}",
+                tracker.Attempted);
+        }
     }
 
     static CSharpDecompilationAttempt Produce(
@@ -293,7 +377,10 @@ public static class CSharpDecompilerService
             bodies,
             pdbSupplied,
             composed.Symbols,
-            tracker.Attempted);
+            tracker.Attempted)
+        {
+            MemberDeclarationText = composed.MemberDeclarationText,
+        };
     }
 
     static CSharpDecompilationAttempt Failure(
@@ -334,10 +421,36 @@ internal sealed record CSharpServiceCompositionResult(
     string? Text,
     ImmutableArray<string> Namespaces,
     DecompilerResult? Failure,
-    DecompilerSymbolSource Symbols);
+    DecompilerSymbolSource Symbols)
+{
+    internal string? MemberDeclarationText { get; init; }
+}
 
 internal sealed class CSharpCompositionBudgetExceededException : Exception
 {
+}
+
+internal sealed class CSharpTypeDocumentProductionTracker(
+    int maximum,
+    CancellationToken cancellationToken)
+{
+    int _attempted;
+
+    internal int Attempted => _attempted;
+    internal int Maximum { get; } =
+        maximum >= 0
+            ? maximum
+            : throw new ArgumentOutOfRangeException(nameof(maximum));
+
+    internal bool TryBegin()
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        if (_attempted >= Maximum)
+            return false;
+
+        _attempted++;
+        return true;
+    }
 }
 
 internal sealed class CSharpCompositionTracker(
@@ -369,7 +482,8 @@ internal sealed class CSharpCompositionTracker(
 
     internal void Complete(
         ProjectionTicket ticket,
-        DecompilerResult projection)
+        DecompilerResult projection,
+        SelectedPropertyAccessorSource? propertySource = null)
     {
         ArgumentNullException.ThrowIfNull(projection);
         int index = _projections.Count;
@@ -378,7 +492,8 @@ internal sealed class CSharpCompositionTracker(
                 ticket.Address,
                 projection,
                 ticket.Kind,
-                ContributesToOutput: true));
+                ContributesToOutput: true,
+                propertySource));
         ticket.Complete(index);
         cancellationToken.ThrowIfCancellationRequested();
     }
@@ -403,14 +518,19 @@ internal sealed class CSharpCompositionTracker(
                         projection.Address,
                         projection.Projection,
                         projection.Kind,
-                        projection.ContributesToOutput)),
+                        projection.ContributesToOutput)
+                    {
+                        PropertySource =
+                            projection.PropertySource,
+                    }),
         ];
 
     sealed record ProjectionEntry(
         MetadataMethodAddress Address,
         DecompilerResult Projection,
         CSharpBodyProjectionKind Kind,
-        bool ContributesToOutput);
+        bool ContributesToOutput,
+        SelectedPropertyAccessorSource? PropertySource);
 
     internal sealed class ProjectionTicket(
         CSharpCompositionTracker owner,

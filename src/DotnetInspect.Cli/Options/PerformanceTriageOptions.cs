@@ -37,6 +37,67 @@ public sealed record PerformanceTriageOptions
     public static IReadOnlyList<string> SortableFields =>
         PerformanceTriageRowQuery.SortableFields;
 
+    internal static IEnumerable<(
+        string Name,
+        string Kind,
+        string PathSegment)> DiscoveryItems()
+    {
+        yield return ("Triage desc", "default-order", "triage-desc");
+        yield return (
+            "Priority desc (high > medium > low)",
+            "order-step",
+            "priority-desc");
+        yield return (
+            "Confidence desc (high > medium > low)",
+            "order-step",
+            "confidence-desc");
+        yield return (
+            "Weight desc (high > medium > low > none)",
+            "order-step",
+            "weight-desc");
+        yield return ("RootReach desc", "order-step", "root-reach-desc");
+        foreach (string field in FilterableFields)
+        {
+            yield return (
+                field,
+                "filterable",
+                StableQueryKeyPathSegment(field));
+        }
+        foreach (string field in SortableFields)
+        {
+            yield return (
+                field,
+                "sortable",
+                StableQueryKeyPathSegment(field));
+        }
+    }
+
+    private static string StableQueryKeyPathSegment(string key)
+    {
+        var builder = new System.Text.StringBuilder(key.Length + 4);
+        for (int index = 0; index < key.Length; index++)
+        {
+            char character = key[index];
+            if (char.IsUpper(character)
+                && index > 0
+                && (char.IsLower(key[index - 1])
+                    || char.IsDigit(key[index - 1])))
+            {
+                builder.Append('-');
+            }
+            builder.Append(char.ToLowerInvariant(character));
+        }
+
+        string segment = builder.ToString();
+        if (!ResourcePath.IsCanonicalSegment(segment))
+        {
+            throw new InvalidOperationException(
+                $"Stable query key '{key}' cannot be represented as a "
+                + "resource-path segment.");
+        }
+        return segment;
+    }
+
     public static readonly string[] KnownShapes =
     [
         "allocation-hotspot",
@@ -355,17 +416,10 @@ public sealed record PerformanceTriageOptions
         out RowQueryOperator @operator)
     {
         ArgumentNullException.ThrowIfNull(field);
-        @operator = syntax switch
-        {
-            RowPredicateOperator.Equals => RowQueryOperator.Equals,
-            RowPredicateOperator.NotEquals => RowQueryOperator.NotEquals,
-            RowPredicateOperator.GreaterOrEqual =>
-                RowQueryOperator.GreaterOrEqual,
-            RowPredicateOperator.LessOrEqual =>
-                RowQueryOperator.LessOrEqual,
-            _ => throw new InvalidOperationException(
-                $"Unknown row predicate operator '{syntax}'."),
-        };
+        if (!RowPredicateSyntaxParser.TryRowOperator(
+                syntax,
+                out @operator))
+            return false;
         return field.Operators.Contains(@operator);
     }
 
@@ -374,7 +428,8 @@ public sealed record PerformanceTriageOptions
     {
         string[] comparisons =
         [
-            .. operators.Select(RowQueryKeyProjection.Comparison),
+            .. operators.Select(
+                RowPredicateSyntaxParser.Comparison),
         ];
         return comparisons.Length switch
         {

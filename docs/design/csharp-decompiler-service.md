@@ -8,9 +8,10 @@ owns its `CSharpDecompilerService` boundary, tracked in
 producer step of [#6512](https://github.com/richlander/dotnet-inspect/issues/6512)
 and project 4 of [#7177](https://github.com/richlander/dotnet-inspect/issues/7177).
 The service is implemented and consumed by the shared source-query family.
-SourceHouse now consumes the service for its shared exact-member decompilation
-operation. Broader type and host-envelope adoption remain separate steps of
-the broader #6512 plan.
+SourceHouse now consumes the service for shared exact-member and exact-type
+decompilation. Browser Type Source consumes the exact-type path through the
+completed shared query envelope; ordinary CLI whole-type Decompiled Source
+consumes the adjacent decompiled-only type envelope under #7963.
 
 > Given caller-selected assembly content, one exact type or member in that
 > content, a binding policy, explicit supplied-PDB or no-PDB input, rendering
@@ -146,10 +147,18 @@ family. The path has three steps:
    comparisons, supplying the PDB already selected by its acquisition stage.
    Both hosts consume that query family.
 
-SourceHouse consumes the same service for exact-member decompilation while
-retaining its Library snapshot, finite work, symbol-contribution, and lease
-settlement evidence. Type decompilation and other direct consumers remain later
-adoption under the broader #6512 plan.
+SourceHouse consumes the same service for exact-member and exact-type
+decompilation while retaining its Library snapshot, finite work,
+symbol-contribution, and lease-settlement evidence. Ordinary CLI
+selected-member Decompiled Source consumes the member operation's exact native
+body projection while retaining its existing declaration formatter. Browser
+Type Source consumes the authored-first type operation through
+`TypeSourceInspection.ExecuteAsync`; ordinary CLI whole-type Decompiled Source
+consumes `TypeSourceInspection.DecompileAsync` and preserves the native
+aggregate attempt. SourceHouse resolves a complete exact type for this producer
+independently of API listing accessibility; exact-member operations continue to
+supply one selected member. Neither the query nor CLI filters rendered C#.
+Other direct consumers remain later adoption under the broader #6512 plan.
 
 Retire direct composer calls in the adopted shared-query path. Other existing
 `MemberBodyProducer` consumers remain supported until their own adoption;
@@ -163,9 +172,11 @@ steps retain the goal of one shared completed inspection API returning
 `InspectionEnvelope<TContent>`; this producer slice does not claim that
 envelope migration is already complete.
 
-Direct CLI listings outside this shared-query path remain part of that broader
-adoption. Existing CLI Markout/code output and browser code viewers remain the
-host lowering boundaries; this producer introduces no alternative formatter.
+Direct CLI type decompilation is retired for ordinary whole-type Decompiled
+Source. Analysis projections and other direct consumers outside this
+shared-query path remain part of broader adoption. Existing CLI Markout/code
+output and browser code viewers remain the host lowering boundaries; this
+producer introduces no alternative formatter.
 
 ## Evidence
 

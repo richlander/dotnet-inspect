@@ -1,6 +1,7 @@
 using System.Collections.Immutable;
 using DotnetInspector.EcosystemLoading;
 using DotnetInspector.Ecosystems;
+using DotnetInspector.Platforms;
 using DotnetInspector.Queries;
 
 namespace DotnetInspector.Ecosystems.Consumer.Tests;
@@ -31,6 +32,92 @@ public sealed class EcosystemPopulationLoadingConsumerTests
         Assert.Equal("ecosystem-loader.runtime", known.Binding.Id.Value);
         Assert.Same(registration, known.Registration);
         Assert.Same(revision, known.Revision);
+    }
+
+    [Fact]
+    public async Task PublicRuntimeLoaderReturnsUnavailableWithoutCapability()
+    {
+        (WorkspaceRegistrationRevision revision,
+            WorkspaceEcosystemRegistrationDeclaration registration,
+            InspectionWorkspace workspace) =
+                await ProductWorkspaceAsync(EcosystemPackIds.Runtime);
+        await using (workspace)
+        {
+            var known = Assert.IsType<
+                EcosystemPopulationLoaderSelection.Known<
+                    RuntimeEcosystemPopulationLoadInputs>>(
+                    EcosystemPackCatalog.SelectPopulationLoader(
+                        revision,
+                        registration,
+                        EcosystemPopulationDemand
+                            .WholePopulation.Instance));
+            var inputs = new RuntimeEcosystemPopulationLoadInputs(
+                EcosystemPopulationOperationPolicyIdentity.Create(
+                    "consumer-runtime-policy"),
+                EcosystemPopulationCapabilityPlanIdentity.Create(
+                    "consumer-runtime-capabilities"),
+                EcosystemPopulationWorkIdentity.Create(
+                    "consumer-runtime-work"),
+                platformCapability: null);
+
+            var outcome =
+                Assert.IsType<EcosystemPopulationLoadOutcome.Unavailable>(
+                    await EcosystemPopulationLoadOperation.InvokeAsync(
+                        known.CreateRequest(
+                            inputs,
+                            TestContext.Current.CancellationToken)));
+
+            Assert.Equal(
+                PlatformFamily.DotNetRuntime,
+                inputs.PlatformDeclaration.Family);
+            Assert.Empty(outcome.Receipt.Children);
+            Assert.Equal(
+                "ecosystem-loader.platform-capability-unavailable",
+                Assert.Single(outcome.Receipt.Diagnostics).Code);
+        }
+    }
+
+    [Fact]
+    public async Task PublicAspNetCoreLoaderReturnsUnavailableWithoutCapability()
+    {
+        (WorkspaceRegistrationRevision revision,
+            WorkspaceEcosystemRegistrationDeclaration registration,
+            InspectionWorkspace workspace) =
+                await ProductWorkspaceAsync(EcosystemPackIds.AspNetCore);
+        await using (workspace)
+        {
+            var known = Assert.IsType<
+                EcosystemPopulationLoaderSelection.Known<
+                    AspNetCoreEcosystemPopulationLoadInputs>>(
+                    EcosystemPackCatalog.SelectPopulationLoader(
+                        revision,
+                        registration,
+                        EcosystemPopulationDemand
+                            .WholePopulation.Instance));
+            var inputs = new AspNetCoreEcosystemPopulationLoadInputs(
+                EcosystemPopulationOperationPolicyIdentity.Create(
+                    "consumer-aspnetcore-policy"),
+                EcosystemPopulationCapabilityPlanIdentity.Create(
+                    "consumer-aspnetcore-capabilities"),
+                EcosystemPopulationWorkIdentity.Create(
+                    "consumer-aspnetcore-work"),
+                platformCapability: null);
+
+            var outcome =
+                Assert.IsType<EcosystemPopulationLoadOutcome.Unavailable>(
+                    await EcosystemPopulationLoadOperation.InvokeAsync(
+                        known.CreateRequest(
+                            inputs,
+                            TestContext.Current.CancellationToken)));
+
+            Assert.Equal(
+                PlatformFamily.AspNetCore,
+                inputs.PlatformDeclaration.Family);
+            Assert.Empty(outcome.Receipt.Children);
+            Assert.Equal(
+                "ecosystem-loader.platform-capability-unavailable",
+                Assert.Single(outcome.Receipt.Diagnostics).Code);
+        }
     }
 
     [Fact]
@@ -112,6 +199,23 @@ public sealed class EcosystemPopulationLoadingConsumerTests
                         "consumer.no-members"),
                     EcosystemPopulationCompletionKind.NoMembers),
                 []));
+    }
+
+    static Task<(
+        WorkspaceRegistrationRevision Revision,
+        WorkspaceEcosystemRegistrationDeclaration Registration,
+        InspectionWorkspace Workspace)> ProductWorkspaceAsync(
+            EcosystemPackId id)
+    {
+        var workspace = new InspectionWorkspace(
+            EcosystemPackCatalog.CreateWorkspacePlan([id]));
+        WorkspaceRegistrationRevision revision =
+            Assert.IsType<WorkspaceRegistrationReadResult.Available>(
+                workspace.GetRegistrationSnapshot()).Revision;
+        WorkspaceEcosystemRegistrationDeclaration registration =
+            Assert.IsType<WorkspaceRegistration.Ecosystem>(
+                Assert.Single(revision.Registrations)).Declaration;
+        return Task.FromResult((revision, registration, workspace));
     }
 
     sealed class ConsumerInputs : IEcosystemPopulationLoadInputs

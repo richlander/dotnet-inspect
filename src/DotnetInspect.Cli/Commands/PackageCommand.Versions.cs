@@ -10,7 +10,7 @@ using DotnetInspect.Cli.Output;
 using DotnetInspector.Packages;
 using DotnetInspect.Cli.Planning;
 using DotnetInspector.Queries;
-using DotnetInspector.RowSelection;
+using QuerySpace.Rows;
 using NuGetFetch;
 using PackageExtractor = DotnetInspector.Packages.PackageExtractor;
 using DotnetInspector.Sections;
@@ -561,7 +561,9 @@ public partial class PackageCommand
     }
 
     private static string GetVersionQueryLens(InspectionOptions options) =>
-        options.SingleVersionQuery
+        options.ForceLatest
+            ? "--latest-version"
+            : options.SingleVersionQuery
             ? "--version"
             : options.ListVersionsWithFeed
                 ? "--versions-with-feed"

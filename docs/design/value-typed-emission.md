@@ -50,6 +50,84 @@ Instance 3 is noted where it sits and deferred. A second, orthogonal axis of
 thinness — the writer's *output* being structure rather than strings — is scoped
 in [the output half](#the-output-half--structure-not-strings) below.
 
+### Reference-coalesce assignment testimony
+
+Reference-coalesce assignment is a pre-print decision (#8105). Its evidence
+is an assignment type, not the left operand's IL result type and not a promise
+that every expression has a known C# natural type. The bounded relation admits
+null with a proven reference, equal proven reference types, and a proven
+reference paired with `object`. Unknown reference shapes, hierarchy
+conversions, variance, boxing, and user-defined conversions do not acquire
+proof from this rule. Nullable/value coalesces retain their existing contract.
+
+The expression carries the decision into residual-slot assignment checks.
+Binding runs at the final coercion boundary, after expression reconstruction
+and existing slot materialization.
+Both raised and lowered pipelines, including nested bodies, use that shared
+path. Printing consumes the issued type rather than inspecting coalesce arms.
+An object-typed call or construction argument whose proven coalesce assignment
+type is narrower retains an explicit reference-conversion witness; allowing
+assignment is not permission to rebind an overload (#3135).
+
+This bounded C# assignment relation does not replace the existing exact-storage
+admission contract or broaden its producer-result testimony. For example,
+Roslyn's `IEqualityComparer<T>` producer `comparer ?? EqualityComparer<T>.Default`
+continues to materialize under that existing contract; this slice does not
+push it back into residual-slot inference merely because the new bounded
+relation does not model its hierarchy conversion.
+`CompilerProducedComparerKeepsExistingStorageAdmission` gates this non-action
+with the same interface/default-comparer relation in a cached-result scenario.
+Hierarchy-aware binding and broader storage-proof work remain on #2095.
+
+The motivating published input is dotnet-inspect.any 0.14.0,
+`ApiOutputFormatter.FormatCallGraphAnnotation` (`0x06000ED9`). Its coalesce
+producer and object-typed null share a string-observed slot. Deciding the
+coalesce does not, by itself, authorize materializing the separate null
+producer. Printer decision retirement and slot-count reduction are distinct
+measurements.
+
+The focused Release gate is `ReferenceCoalesceBindingTests`, covering
+compiler-produced reference/null and reference-to-object cases, the pinned
+producer shape, overload binding, nested bodies, lowered output, and unknown
+non-actions, plus Roslyn's real `AnalyzerImageReference.Display` coalesce.
+Native product-artifact compile-back checks the direct binding outcomes;
+nested lambda and local-function cases retain their measured generated-identity
+limits rather than claiming exact fidelity. Fixed-input residual/unifier
+censuses and Render A/B measure the population effect separately.
+
+### Reference-conditional assignment testimony
+
+Reference/null conditional arm compatibility is decided before printing
+(#8181). This is a set of accepted reference targets, not one C# natural type:
+all-null arms admit any proven reference, and a nested conditional can retain
+both its arm evidence and its existing merged-result fallback. Binding
+intersects the arms' accepted targets without inferring class hierarchies.
+Unknown targets do not acquire reference proof.
+
+The final emission boundary binds after reconstruction and materialization,
+with coalesce assignment testimony already available. Raised, lowered, and
+nested bodies share that path; detached reconstruction bodies wait for their
+host's final binding. Cloning retains issued testimony, and final binding
+refreshes it after operand rewrites. Printing queries the issued evidence
+rather than walking conditional arms to recover the reference decision.
+
+This retirement preserves existing numeric, char, and enum rendering,
+merged-result fallback, and exact-storage admission. It neither changes
+`Conditional.ResultType` nor substitutes a narrower assignment type for it.
+General reference conversions and conditional overload-binding repair remain
+separate work; target compatibility alone does not authorize either.
+
+Newtonsoft.Json 13.0.4's `IsoDateTimeConverter.set_DateTimeFormat` is the
+published witness (#1767): the null/string producer and string field consumer
+must continue to share one assigned local. `ReferenceConditionalBindingTests`
+pins that assembly and gates raised/lowered binding, nested alternatives,
+null/unknown/value boundaries, clone/refresh, and storage non-actions in
+Release. Its Slow native family belongs to Deep Inspect and the focused
+pre-merge gate; the setter retains its measured temporary-induced `OpcodeDiff`
+rather than claiming exact fidelity. Fixed-input censuses and Render A/B
+measure population effects; the retirement does not promise fewer residual
+slots.
+
 ## Instance 1 — coercion: the missing member of the type system
 
 The decompiler has a rich vocabulary for **what a value is**: `TypeRef`
@@ -548,7 +626,8 @@ measurable, unlike the control-flow rewrite's all-or-nothing invariant relaxatio
    that boundary. `SlotMaterializationPass.Analyze` owns the overlapping veto
    attribution consumed by `--slot-residual-census`; each decision identifies
    its exact body scope and slot number, and the census fails unless those
-   identities equal the post-F2 and retained web sets. The former
+   identities equal the materialization-entry and retained web sets. Raises
+   between late F2 and that entry receive separate census accounting. The former
    conditional-single-load veto is retired: the late expression-inlining pass
    has already consumed every conditional store that it can safely move into
    its sole consumer, while the remaining post-F2 stores render as standalone

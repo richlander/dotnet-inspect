@@ -503,7 +503,7 @@ public sealed partial class AssemblyContextSourceQueryTests
         }
     }
 
-    sealed class FrameworkBindingPolicy
+    internal sealed class FrameworkBindingPolicy
         : IAssemblyBindingPolicy
     {
         int _selectionCount;

@@ -1,6 +1,7 @@
 using System.Collections.Immutable;
 using System.Reflection.Metadata;
 using System.Reflection.PortableExecutable;
+using DotnetInspector.Fixtures;
 using ILInspector.Decompiler.Pipeline;
 
 namespace ILInspector.Decompiler.Tests;
@@ -21,6 +22,168 @@ public class FunctionPointerDiagnosticsPassTests
         var type = DecodeFixtureField(fieldName);
 
         Assert.Equal(expected, type.ToDisplayString());
+    }
+
+    [Theory]
+    [InlineData(
+        0x20,
+        0,
+        0,
+        0,
+        "delegate* unmanaged[Cdecl]{flags=0x20}<System.Object>")]
+    [InlineData(
+        0x60,
+        0,
+        0,
+        0,
+        "delegate* unmanaged[Cdecl]{flags=0x60}<System.Object>")]
+    [InlineData(
+        0x10,
+        2,
+        0,
+        0,
+        "delegate* unmanaged[Cdecl]{flags=0x10;generic=2}<System.Object>")]
+    [InlineData(
+        0x05,
+        0,
+        1,
+        2,
+        "delegate* unmanaged{calling=0x05;required=1}"
+            + "<System.Object,System.Object,System.Object>")]
+    public void CanonicalFunctionPointerIdentity_PreservesSignatureStructure(
+        int signatureDiscriminator,
+        int genericParameterCount,
+        int requiredParameterCount,
+        int parameterCount,
+        string expected)
+    {
+        TypeRef pointer = TypeRef.FunctionPointer(
+            Object,
+            Enumerable.Repeat(Object, parameterCount).ToImmutableArray(),
+            signatureDiscriminator == 0x05
+                ? "unmanaged"
+                : "unmanaged[Cdecl]",
+            callingConventionIsExact: false,
+            signatureDiscriminator: (byte)signatureDiscriminator,
+            genericParameterCount,
+            requiredParameterCount);
+
+        Assert.Equal(expected, CSharpBodyDiff.CanonicalTypeName(pointer));
+        Assert.NotEqual(
+            TypeRef.FunctionPointer(
+                Object,
+                Enumerable.Repeat(Object, parameterCount).ToImmutableArray(),
+                "unmanaged[Cdecl]"),
+            pointer);
+    }
+
+    [Fact]
+    public void
+        TypeRefDecoder_DistinguishesLosslessAndDuplicateConventionModifiers()
+    {
+        byte[] image =
+            FunctionPointerConventionReturnOverloadFixture.Build(
+                returnOne: false,
+                identityCase:
+                    FunctionPointerConventionReturnOverloadFixture.IdentityCase
+                        .DuplicateConventionModifier);
+        using var pe = new PEReader(new MemoryStream(image));
+        MetadataReader reader = pe.GetMetadataReader();
+        TypeRef[] pointers =
+        [
+            .. reader.MethodDefinitions
+                .Select(handle => reader.GetMethodDefinition(handle))
+                .Where(method => reader.GetString(method.Name) == "Changed")
+                .Select(method => method.DecodeSignature(
+                    TypeRefDecoder.Instance,
+                    GenericScope.Empty).ReturnType),
+        ];
+
+        Assert.Equal(2, pointers.Length);
+        Assert.NotEqual(pointers[0], pointers[1]);
+        Assert.Equal(2, pointers.ToHashSet().Count);
+        Assert.Equal(
+            2,
+            pointers.Select(CSharpBodyDiff.CanonicalTypeName)
+                .Distinct(StringComparer.Ordinal)
+                .Count());
+    }
+
+    [Theory]
+    [InlineData(
+        FunctionPointerConventionReturnOverloadFixture.IdentityCase
+            .CoreLibraryLookalikeModifier,
+        "delegate* unmanaged[Cdecl]<System.Int32>",
+        "delegate* unmanaged"
+            + "<modopt(System.Runtime.CompilerServices.CallConvCdecl)"
+            + "System.Int32>")]
+    [InlineData(
+        FunctionPointerConventionReturnOverloadFixture.IdentityCase
+            .CoreLibrarySuppressGcTransitionLookalikeModifier,
+        "delegate* unmanaged[SuppressGCTransition]<System.Int32>",
+        "delegate* unmanaged"
+            + "<modopt(System.Runtime.CompilerServices"
+            + ".CallConvSuppressGCTransition)System.Int32>")]
+    [InlineData(
+        FunctionPointerConventionReturnOverloadFixture.IdentityCase
+            .MixedSuppressGcTransitionModifier,
+        "delegate* unmanaged[SuppressGCTransition]<System.Int32>",
+        "delegate* unmanaged"
+            + "<modopt(System.Runtime.CompilerServices"
+            + ".CallConvSuppressGCTransition)"
+            + "modopt(Probe.Marker)System.Int32>")]
+    public void TypeRefDecoder_PreservesConventionModifierIdentity(
+        FunctionPointerConventionReturnOverloadFixture.IdentityCase
+            identityCase,
+        string expectedCoreLibraryIdentity,
+        string expectedLookalikeIdentity)
+    {
+        byte[] image =
+            FunctionPointerConventionReturnOverloadFixture.Build(
+                returnOne: false,
+                identityCase);
+        using var pe = new PEReader(new MemoryStream(image));
+        MetadataReader reader = pe.GetMetadataReader();
+        string[] identities =
+        [
+            .. reader.MethodDefinitions
+                .Select(handle => reader.GetMethodDefinition(handle))
+                .Where(method => reader.GetString(method.Name) == "Changed")
+                .Select(method => method.DecodeSignature(
+                    TypeRefDecoder.Instance,
+                    GenericScope.Empty).ReturnType)
+                .Select(CSharpBodyDiff.CanonicalTypeName),
+        ];
+
+        Assert.Equal(
+            [expectedCoreLibraryIdentity, expectedLookalikeIdentity],
+            identities);
+    }
+
+    [Fact]
+    public void
+        TypeRefInstantiation_DoesNotNormalizeSuppressGcTransitionLookalike()
+    {
+        TypeRef lookalike = TypeRef.Definition(
+            "Sample",
+            "System.Runtime.CompilerServices",
+            "CallConvSuppressGCTransition");
+        TypeRef genericReturn = TypeRef.GenericParameter(0)
+            .WithCustomModifier(lookalike, isRequired: false);
+        TypeRef pointer = TypeRef.FunctionPointer(
+            genericReturn,
+            [],
+            "unmanaged");
+
+        TypeRef instantiated = pointer.Instantiate(
+            [TypeRef.CoreLib("System", "Int32")],
+            []);
+
+        Assert.Equal(
+            "delegate* unmanaged"
+                + "<modopt(System.Runtime.CompilerServices"
+                + ".CallConvSuppressGCTransition)System.Int32>",
+            CSharpBodyDiff.CanonicalTypeName(instantiated));
     }
 
     [Fact]

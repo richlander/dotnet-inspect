@@ -243,12 +243,310 @@ Candidate selection, effectiveness, and execution cost are independent axes.
 
 `SizeClass` describes output cardinality:
 
-- `Fixed`: bounded across targets
-- `Terse`: target-dependent and small
-- `Informative`: target-dependent and moderate
-- `Verbose`: potentially large
+- `Fixed`: structurally bounded independently of target content
+- `Terse`: target-dependent and approximately 12 rows or fewer in practice
+- `Informative`: target-dependent and approximately 24 rows or fewer in
+  practice
+- `Verbose`: potentially large or observed above the informative range
 
 `Fixed` does not mean fast. It describes row-set shape.
+
+#### Library base-section evidence
+
+The first #3284 growth audit covers the library base-category union:
+`@Library` and `@Surface`. It measured section row counts across .NET platform
+assemblies and pinned nuget.org packages. The representative corpus included
+`System.Runtime`, `System.Linq`, `System.Text.Json`, `System.Net.Http`,
+`System.Xml.ReaderWriter`, `Npgsql` 8.0.4, `Newtonsoft.Json` 13.0.3,
+`MessagePack` 2.5.192, `Polly` 8.5.0, and `SixLabors.ImageSharp` 3.1.6.
+
+The multi-section probe used this command shape:
+
+```sh
+dnx dotnet-inspect -y -- library --package Npgsql@8.0.4 \
+  -S '@Library,@Surface' --json --tips q
+```
+
+Sections not represented reliably in that JSON projection were measured
+directly:
+
+```sh
+dnx dotnet-inspect -y -- library \
+  --package SQLitePCLRaw.provider.e_sqlite3@2.1.10 \
+  -S 'P/Invoke Methods' --count --jsonl --tips q
+```
+
+The audit found four prior declarations outside their stated ranges:
+
+| Section | Evidence | Classification |
+| --- | --- | --- |
+| References | 31 rows in `Npgsql` 8.0.4 | `Verbose` |
+| Switches | 29 rows in `System.Private.CoreLib` | `Verbose` |
+| Type Forwarders | 918 rows in `System.Runtime`; 187 in `System.Xml.ReaderWriter` | `Verbose` |
+| P/Invoke Methods | 150 rows in `SQLitePCLRaw.provider.e_sqlite3` 2.1.10; 12 in `System.Drawing.Common` 8.0.8 | `Verbose` |
+
+The same corpus supported the existing `Verbose` declarations for Async
+Methods (38 rows in `Npgsql` 8.0.4) and Extension Methods (146 rows in
+`SixLabors.ImageSharp` 3.1.6, with a targeted platform probe finding 441 in
+`System.Private.CoreLib`). Custom Attributes and Resources remained within the
+`Terse` range, at maxima of 9 and 4 rows respectively.
+
+The follow-up audit resolved the two residual base-section classifications from
+their product contracts:
+
+- `Inspection Failures` remains `Terse`. The projection contains a finite set
+  of product-owned failure slots, each contributing at most one row, and the
+  automatic base-query closure remains within the terse range. The section
+  stays in `-v:n` so partial inspection cannot look like a clean result merely
+  because diagnostics were hidden.
+- `Union Types` is `Verbose`. `UnionTypeScanner` walks every type definition and
+  emits one row for every exact
+  `System.Runtime.CompilerServices.UnionAttribute`; the product places no cap
+  on the number of marked declarations in an assembly. Published-package
+  probes found four rows in `DotWasm.Models` 0.1.0, one in `DotWasm.Runtime`
+  0.1.0, and two in `UnionRailway` 1.2.2. The observed counts are small, but the
+  declaration-driven growth contract is not.
+
+`DotWasm.Models` 0.1.0 is pinned as a test asset. Its four native C# union rows
+exercise the production package-acquisition and metadata-inspection path
+without turning the broader package survey into a PR-CI corpus sweep.
+
+#### Package base-section evidence
+
+The package base-category audit covers `@Package` and `@Files`. It combines the
+producer contract with published-package measurements:
+
+| Section | Evidence | Classification |
+| --- | --- | --- |
+| Target Frameworks | 13 rows in `System.ValueTuple` 4.5.0; one row per uncapped `lib/<tfm>` directory | `Verbose` |
+| Package nuspec file | 31 matching paths in a boundary package | `Verbose` |
+| Dependencies | 150 rows in `Microsoft.AspNetCore.App` 2.2.8 | `Verbose` |
+| Ecosystem Dependencies | 139 rows in `Microsoft.AspNetCore.App` 2.2.8 | `Verbose` |
+| Vulnerabilities | 31 matching advisories in a configured-feed boundary | `Verbose` |
+| Manifest | 36 rows in a tool boundary package with 31 RID-package declarations | `Verbose` |
+| Runtime Dependencies | 44 rows in `dotnet-outdated-tool` 4.8.1; 120 in `Microsoft.DotNet.Interactive` | `Verbose` |
+| Package skill files | 172 rows in `CrestApps.AgentSkills.Mcp.OrchardCore` 1.2.0 | `Verbose` |
+
+Target Frameworks grows with distinct package-authored `lib/<tfm>` directories.
+Package nuspec file grows with every package path ending in `.nuspec`.
+Dependencies grow with package dependency declarations. Ecosystem Dependencies
+can project one or more recognized ecosystem associations for each declaration.
+Vulnerabilities adds every matching advisory from the configured feed.
+Manifest adds one row per package-authored RID-package declaration. Runtime
+Dependencies grow with package entries in tool `.deps.json` files, and Package
+skill files grows with matching `skills/**/SKILL.md` entries. None has a product
+row cap. Boundary fixtures gate the Target Frameworks, nuspec-path, RID-package,
+and vulnerability-feed cases that the published-package sample did not reach.
+
+The four compact witness packages are pinned as test assets and their exact
+row counts run through production package acquisition and projection in PR CI.
+Generated package and configured-feed boundary cases run through the same
+product command. The broader survey remains reproducible design evidence rather
+than a corpus gate.
+
+#### Package domain evidence
+
+The package domain audit covers sections that belong only to `@Dependencies`,
+`@Audit`, or `@SourceLink`. Every selectable package section has authored
+category membership, so there are no uncategorized exact-name sections.
+Domain membership remains explicit: these declarations do not add any section
+to the automatic `@Package` and `@Files` base-category union.
+
+| Section | Evidence and producer shape | Classification |
+| --- | --- | --- |
+| Dependency Hierarchy | One row per dependency occurrence; a 31-dependency local-feed boundary exceeds 24 rows | `Verbose` |
+| Audit: Artifact Text | One row per package field or file path requiring visual containment | `Verbose` |
+| Audit: Findings | One row per rendering or restore-policy finding in scanned package content | `Verbose` |
+| Audit: Identifier Confusion | One row per concerning package, alternate, dependency, runtime-dependency, or RID-package identifier; a 31-dependency boundary exceeds 24 rows | `Verbose` |
+| SourceLink: Files | One row per mapped source document across selected package libraries | `Verbose` |
+| SourceLink: Availability | A fixed aggregate field table over the selected package libraries | `Fixed` |
+| SourceLink: Missing Files | One row per missing source document or unavailable or failed library; a 31-file boundary exceeds 24 rows | `Verbose` |
+| SourceLink: Integrity | A fixed aggregate field table over the selected package libraries | `Fixed` |
+
+Availability and Integrity may contain variable-length values such as joined
+library or file details, but their semantic row sets remain fixed fields.
+Missing Files is the row inventory for those individual failures and therefore
+retains the target-dependent population. All SourceLink sections remain
+capability-gated and explicit despite their size classification.
+
+Other command families remain separate work under issue #3284.
+
+#### `depends` evidence
+
+Both `depends` catalogs expose target-growing row or edge populations. Their
+producer contracts place no section-level cap on the number of emitted items:
+
+| Sections | Evidence and producer shape | Classification |
+| --- | --- | --- |
+| Dependency Hierarchy, Dependencies, Restored Edges | One row per selected or traversed dependency edge; Dependencies has 150 rows in `Microsoft.AspNetCore.App` 2.2.8 | `Verbose` |
+| Roots, Dependency Groups, Restored Packages | One row per input root, authored dependency group, or restored package | `Verbose` |
+| Licenses, Pruning, Failures | One row per inspected package, pruning decision, or failed dependency operation | `Verbose` |
+| Dependency Graph | One row per discovered type relationship; `System.Int128` has 32 rows on .NET 11 RC1 | `Verbose` |
+
+The asset route keeps Dependency Hierarchy as its authored `Info` section.
+Minimal therefore retains that primary result, Normal omits every uncapped
+inventory, and Detailed restores the bounded-cost Dependency Hierarchy,
+Dependencies, and Failures sections. Licenses and Pruning remain explicit
+because their execution cost is unbounded. The positional-Type route follows
+the same primary-section rule for Dependency Graph: Minimal retains it, Normal
+is a valid empty automatic view, and Detailed restores it. Exact section or
+category selection retains complete evidence and promotes the effective
+verbosity to Detailed.
+
+#### Library domain and exact-name evidence
+
+The residual library audit covers the command's domain categories, exact-name
+sections, and one base-section omission from the first library pass. Domain
+membership remains explicit: changing a section's growth class does not add it
+to automatic `@Library` or `@Surface` scope.
+
+| Sections | Evidence and producer shape | Classification |
+| --- | --- | --- |
+| Ecosystem Dependencies | 31 rows in `Npgsql` 8.0.4; one row per recognized direct assembly reference with no product cap | `Verbose` |
+| Audit: Identifier Confusion, Non-normalized Paths | One row per concerning identifier or path across target-authored metadata populations | `Verbose` |
+| Integrations | One row per matching API or type signal; a target can contribute arbitrarily many signals | `Verbose` |
+| Integration Opportunities | At most one representative row per product-authored concept and opportunity kind; the current rule set permits six rows | `Terse` |
+| SourceLink: Availability, SourceLink: Integrity | Fixed aggregate field tables over the selected library | `Fixed` |
+| SourceLink: Missing Files | One complete row per missing source document; a 31-row boundary is preserved without truncation | `Verbose` |
+| Reference Hierarchy | One occurrence per traversed reference edge | `Verbose` |
+| Performance kind sections, Array Pool Escapes | One row per matching optimization opportunity or resource-lifecycle boundary | `Verbose` |
+| Clone Candidates | Ranked candidate rows with a default result ceiling of 100 | `Verbose` |
+| Context: Source Location, Member, Instruction, Callsite, Return Address, Allocation, Safety, Cost | Fixed facts for one exact method and IL coordinate | `Fixed` |
+| Context: Exception | One row per enclosing exception region; nesting has no product row cap | `Verbose` |
+
+The existing `Verbose` declarations for SourceLink Files and Diagnostics,
+Unsafe Members, Top Leverage, Member Metrics, Body Shapes, and Body Shape
+Summary already match their target-dependent inventories. Metadata and
+ReadyToRun sections retain their separately owned fixed-summary and verbose-
+inventory classifications.
+
+#### API type-list evidence
+
+The `type` command's assembly-list `@Surface` catalog groups public types by
+kind. Each kind table grows with matching type definitions and has no product
+row cap:
+
+| Section | `System.Runtime` rows | Classification |
+| --- | ---: | --- |
+| Classes | 500 | `Verbose` |
+| Structs | 123 | `Verbose` |
+| Interfaces | 97 | `Verbose` |
+| Enums | 98 | `Verbose` |
+| Delegates | 51 | `Verbose` |
+| Type Forwarders | 2 target-assembly groups; one per uncapped target assembly | `Verbose` |
+| Inspection Failures | 31 rows in a projection boundary | `Verbose` |
+
+The type-kind tables emit one row per matching type definition. Type Forwarders
+groups forwarded types by target assembly, whose distinct count is also
+package-authored, while Inspection Failures emits one row per rejected metadata
+subject. Neither producer has a row cap.
+
+All seven inventories remain the command's authored primary result and
+diagnostic context at `-v:m`. Their growth declarations remove them from the
+generic bounded `-v:n` preset; `-v:d`, exact section selection, and explicit
+`@Surface` selection retain the complete inventories. Exact-type/member
+sections and domain catalogs remain separate #3284 audit work.
+
+#### Base `@Member` evidence
+
+The focused base `@Member` audit covers the broad exact-type route, the
+named-member overload route, and the exact-member detail route. It classifies
+the shared descriptors at their declarations so overload and detail
+composition inherit the same growth contract.
+
+The broad exact-type route has these measured and structural bounds:
+
+| Section | Evidence and producer shape | Classification |
+| --- | --- | --- |
+| Type Info | One identity fact table | `Fixed` |
+| Values | 145 `ConsoleKey` values; one row per enum field | `Verbose` |
+| Type Parameters | 17 rows on the largest `Func` type | `Informative` |
+| Interfaces | 31 rows on `Decimal`; one row per implemented interface | `Verbose` |
+| Baseclass | Zero or one non-trivial base-class row | `Fixed` |
+| Constructors | Nine `System.String` overload rows at Detailed/exact selection; Minimal groups them into one authored summary row | `Verbose` |
+| Finalizer | Zero or one grouped finalizer row in supported valid metadata | `Fixed` |
+| Fields | 226 rows on `OpCodes` | `Verbose` |
+| Properties | 70 rows on `System.Type` | `Verbose` |
+| Method Groups | 75 rows on `Enumerable`; one row per method name | `Verbose` |
+| Methods | 234 rows on `Enumerable`; one row per overload | `Verbose` |
+| Operators | 37 rows on `Decimal` | `Verbose` |
+| Explicit Interface Implementations | 99 rows on `Decimal` | `Verbose` |
+| Extension Methods | 83 rows on `Span<T>` | `Verbose` |
+| Events | 31 rows in a product projection boundary; one row per target-authored event | `Verbose` |
+| Custom Attributes | 31 rows in an inspected-fixture boundary; one row per method attribute | `Verbose` |
+| Decompiled Source | Document length grows with selected source/body content | `Verbose` |
+| PDB Source | Document length grows with selected source content | `Verbose` |
+| IL | Document length grows with selected method bodies | `Verbose` |
+
+The named-member route owns a distinct `Methods` descriptor because it lists
+only overloads for the selected name. `AdvSimd.Store` has 41 overload rows, so
+that descriptor is also `Verbose`. The route reuses the broad Custom
+Attributes, Decompiled Source, PDB Source, and IL descriptors when composition
+narrows to one member; their growth classifications therefore belong on the
+shared declarations rather than duplicated route-local declarations.
+
+The exact-member route keeps `Signature` `Fixed`. Its route-local Custom
+Attributes descriptor is also `Verbose`, preserving the same uncapped metadata
+shape and inspected-fixture boundary as the shared descriptor. Its route-local
+Decompiled Source, PDB Source, and IL descriptors are `Verbose` because their
+rendered documents grow with the selected source or body;
+`Enumerable.ToArray:1` provides a stable platform IL witness above 24 rendered
+lines.
+
+This audit changes only base `@Member` behavior and declarations directly
+reused by its overload/detail composition. Domain-only and uncategorized
+analysis sections are audited separately below.
+
+#### Domain and uncategorized `@Member` evidence
+
+The domain and exact-name audit covers the broad exact-type, named-overload,
+and exact-member catalogs. Domain categories remain outside automatic output:
+their growth declarations determine the verbosity required by explicit
+category or exact-section selection, not whether `-v:n` or `-v:d` enters the
+domain.
+
+The broad and shared descriptors have these measured and structural bounds:
+
+| Sections | Evidence and producer shape | Classification |
+| --- | --- | --- |
+| Member Index | 252 `System.String` rows; one row per selected member | `Verbose` |
+| Unsafe Members | 192 `System.String` rows; one row per unsafe finding or visible decode diagnostic | `Verbose` |
+| Called Types | 51 `System.String` rows; one row per distinct called type | `Verbose` |
+| Allocation Facts, Safety Facts, Cost Facts | 26, 75, and 205 `System.String` rows respectively in the production host; one row per projected semantic fact | `Verbose` |
+| Top Leverage | 301 `System.String` rows; the producer requests the complete scoped ranking | `Verbose` |
+| Performance Triage | 31 `System.String` rows; one row per optimization opportunity | `Verbose` |
+| Type Metrics | 301 `System.String` rows; one row per scoped method profile | `Verbose` |
+| Member Metrics | 41 `AdvSimd.Store` rows; one row per selected overload profile | `Verbose` |
+| Clone Candidates | Ranked candidate rows with a default result ceiling of 100, above the Informative range | `Verbose` |
+| Exception Regions, Source Locations, Source Files, Facts | One row per region, selected source-located member, SourceLink document, or research fact; none has a section-level row cap | `Verbose` |
+| Cost Overlay, Semantics Overlay | Annotated documents grow with selected methods, source, and projected facts | `Verbose` |
+
+Shared descriptors retain the broad producer classification when an overload
+or exact-member route narrows their scope. This keeps one declaration for one
+producer contract; a narrower invocation does not redefine the section's
+maximum shape.
+
+The exact-member-only descriptors have these bounds:
+
+| Sections | Evidence and producer shape | Classification |
+| --- | --- | --- |
+| Annotated Source | `Enumerable.ToArray:1` exceeds 24 rendered lines; output grows with the selected body and annotations | `Verbose` |
+| Annotated Source Document, Finding Census | Portable documents contain target-dependent source trees, facts, instances, and correlation data | `Verbose` |
+| Source Diff | Diff length grows with the PDB and decompiled source documents | `Verbose` |
+| Fidelity Causes, Applied Taste | One row per recorded cause or decompiler decision; either population grows with body evidence | `Verbose` |
+| Calls, Callers, Call Graph | One row per call site, caller edge, or graph edge | `Verbose` |
+| Exception Regions, Unsafe Operations, Facts | One row per region, unsafe operation, or research fact | `Verbose` |
+| Body Shapes, Body Shape Summary | One row per matching occurrence or distinct `(Kind, Match)` group; one method can contain arbitrarily many | `Verbose` |
+| Cost Overlay, Semantics Overlay | Annotated documents grow with body text and projected facts | `Verbose` |
+| Source Locations | One selected logical member produces at most one location row | `Fixed` |
+
+The uncategorized `Member Index`, `Finding Census`, `Clone Candidates`, `Type
+Metrics`, and `Member Metrics` sections therefore require Detailed when
+selected by exact name. The overload route's `Signature` and `Custom
+Attributes` retain their base-audit `Fixed` and `Verbose` declarations.
+Exact-member `Source Locations` is the bounded exception: exact selection
+requires Normal, while broad and overload source-location inventories remain
+`Verbose`.
 
 ### Cost
 
@@ -553,7 +851,7 @@ The library command's current authored ownership is:
 
 | Category | Members |
 | --- | --- |
-| `@Library` | `Library Info`, `Inspection Failures`, `References`, `Signals`, `Symbols` |
+| `@Library` | `Library Info`, `Inspection Failures`, `References`, `Ecosystem Dependencies`, `Signals`, `Symbols` |
 | `@Surface` | `Async Methods`, `Custom Attributes`, `Extension Methods`, `Resources`, `Switches`, `Type Forwarders`, `Union Types`, `P/Invoke Methods` |
 | `@Audit` | `P/Invoke Methods`, `Non-normalized Paths`, `SourceLink: Diagnostics`, `Signals`, `Audit: Identifier Confusion`, `Symbols` |
 | `@Performance` | All `Performance:*` sections, `Array Pool Escapes`, `Top Leverage` |
@@ -576,9 +874,9 @@ The package command's current authored ownership is:
 
 | Category | Members |
 | --- | --- |
-| `@Package` | `Package Info`, `Signals`, `Statistics`, `Target Frameworks`, `Signature`, `Dependencies`, `Vulnerabilities`, `Manifest`, `Runtime Dependencies`, `Package files` |
+| `@Package` | `Package Info`, `Signals`, `Statistics`, `Target Frameworks`, `Signature`, `Dependencies`, `Ecosystem Dependencies`, `Vulnerabilities`, `Manifest`, `Runtime Dependencies`, `Package files` |
 | `@Files` | `Package nuspec file`, `Package README file`, `Package license files`, `Package skill files` |
-| `@Dependencies` | `Dependencies`, `Runtime Dependencies` |
+| `@Dependencies` | `Dependency Hierarchy`, `Dependencies`, `Ecosystem Dependencies`, `Runtime Dependencies` |
 | `@Audit` | `Signals`, `Audit: Artifact Text`, `Audit: Findings`, `Audit: Identifier Confusion`, `Signature`, `Vulnerabilities`, `SourceLink: Availability`, `SourceLink: Missing Files`, `SourceLink: Integrity` |
 | `@SourceLink` | All `SourceLink:*` sections |
 
@@ -604,7 +902,7 @@ The member command's current authored ownership is:
 selector and indivisible-document contracts are not coherent promises for a
 broader category. `Clone Candidates` also remains exact-name-only because its
 cross-member comparison does not compose with partial category selection.
-`Implementation Profiles` remains exact-name-only because its unbounded
+`Type Metrics` and `Member Metrics` remain exact-name-only because their unbounded
 whole-assembly acquisition must not be implied by category selection. On an
 overload inventory, `Signature` and `Custom Attributes` remain exact-name
 sections because both require one selected overload.

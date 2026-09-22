@@ -441,6 +441,71 @@ public partial class SectionPipelineTests
     }
 
     [Fact]
+    public void LibraryMetricsQuery_RunsOnlyItsFocusedProducer()
+    {
+        var registry = LibrarySections.CreateQueryRegistry();
+        var trace = new InspectionTrace();
+        using var service = SourceLinkService.OpenPrefetched(
+            typeof(SectionPipelineTests).Assembly.Location,
+            _ => { });
+        using var context = new InspectionQueryContext
+        {
+            AssemblyPath = typeof(SectionPipelineTests).Assembly.Location,
+            Model = new LibraryInspection(),
+            Logger = new Output.VerboseLogger(false),
+            MetadataContext = service.Context,
+            BodyAnalysisFeatures =
+                Analysis.LibraryBodyAnalysisFeatures
+                    .ImplementationProfiles,
+            Trace = trace,
+        };
+
+        InspectionQueryResults results = registry.Run(
+            [LibraryMetricsQuery.Definition],
+            context,
+            trace.RecordQueryExecution);
+
+        Assert.IsType<LibraryMetricsResult.Available>(
+            results.Get(LibraryMetricsQuery.Definition));
+        var analysis = Assert.Single(
+            trace.Resources,
+            resource => resource.Resource == "body analysis");
+        Assert.Contains(
+            "ImplementationProfiles",
+            analysis.Detail.ToString());
+        Assert.DoesNotContain(
+            "OptimizationOpportunities",
+            analysis.Detail.ToString(),
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            trace.Resources,
+            resource => resource.Resource == "body index");
+        Assert.DoesNotContain(
+            trace.Resources,
+            resource => resource.Resource == "drill map");
+    }
+
+    [Fact]
+    public void LibraryMetricsQuery_NoMetadata_DoesNotAcquireAnalysis()
+    {
+        bool acquired = false;
+
+        LibraryMetricsResult result =
+            LibrarySections.ExecuteLibraryMetricsQuery(
+                hasMetadata: false,
+                () =>
+                {
+                    acquired = true;
+                    throw new InvalidOperationException(
+                        "must not acquire");
+                });
+
+        Assert.IsType<LibraryMetricsResult.NoMetadata>(
+            result);
+        Assert.False(acquired);
+    }
+
+    [Fact]
     public void UnsafeEvidenceQuery_FailureProjectsToInspectionFailure()
     {
         var inspection = new LibraryInspection();

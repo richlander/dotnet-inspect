@@ -1,17 +1,24 @@
 using System.Text.Json;
 using DotnetInspect.Cli.Commands;
+using DotnetInspect.Cli.Models;
 using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Output;
 using DotnetInspect.Cli.Sections;
+using DotnetInspect.Cli.Views;
 using DotnetInspector.Fixtures;
+using DotnetInspector.Packages;
+using DotnetInspector.Queries;
 using ILInspector.Analysis;
 using ILInspector.Metadata;
+using ILInspector.Research;
 
 namespace DotnetInspect.Cli.Tests;
 
 [Collection("Console")]
-public class ImplementationProfilesSectionTests
+public class MetricSectionTests
 {
+    public MetricSectionTests() => NuGetCache.Initialize("dotnet-inspect");
+
     [Fact]
     public async Task
         LibraryImplementationProfiles_RendersPhysicalBodyRows()
@@ -22,17 +29,58 @@ public class ImplementationProfilesSectionTests
                 AssemblyName =
                     FixtureCatalog.AnalysisCallerLoop.AssemblyPath(),
                 IncludeSections =
-                    [SectionNames.ImplementationProfiles],
+                    [SectionNames.MemberMetrics],
                 Markdown = true,
             }));
 
         Assert.Equal(0, result.ExitCode);
         Assert.Contains(
-            "## Implementation Profiles",
+            "## Member Metrics",
             result.Output);
         Assert.Contains("Analyze(int, int)", result.Output);
         Assert.Contains("AnalyzeAsync(int)", result.Output);
         Assert.Contains("| Evidence Method |", result.Output);
+    }
+
+    [Fact]
+    public async Task
+        LibraryMetrics_RendersWholeLibraryDistributionRows()
+    {
+        var result = await ConsoleCapture.RunAsync(
+            () => LibraryCommand.ExecuteAsync(new LibraryOptions
+            {
+                AssemblyName =
+                    FixtureCatalog.AnalysisCallerLoop.AssemblyPath(),
+                IncludeSections =
+                    [SectionNames.LibraryMetrics],
+                Markdown = true,
+            }));
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Contains(
+            "## Library Metrics",
+            result.Output);
+        Assert.Contains(
+            "Physical evidence bodies",
+            result.Output);
+        Assert.Contains(
+            "Normal-Flow Cyclomatic Complexity",
+            result.Output);
+        Assert.Contains(
+            "Async state-machine bodies",
+            result.Output);
+        Assert.Contains(
+            "Maximum Bodies",
+            result.Output);
+        Assert.Contains(
+            "logical owners",
+            result.Output);
+        Assert.Contains(
+            result.Output.Split('\n'),
+            line => line.Contains(
+                    "ScopedAsyncAllocationHotspotLambdaOwner()",
+                    StringComparison.Ordinal)
+                && line.Contains("MoveNext()", StringComparison.Ordinal));
     }
 
     [Fact]
@@ -48,7 +96,7 @@ public class ImplementationProfilesSectionTests
                 AssemblyPath =
                     FixtureCatalog.AnalysisCallerLoop.AssemblyPath(),
                 IncludeSections =
-                    [SectionNames.ImplementationProfiles],
+                    [SectionNames.TypeMetrics],
                 IncludeAll = true,
                 TipLevel = TipLevel.Quiet,
                 Verbosity = Verbosity.Minimal,
@@ -58,7 +106,7 @@ public class ImplementationProfilesSectionTests
 
         Assert.Equal(0, result.ExitCode);
         Assert.Contains(
-            "## Implementation Profiles",
+            "## Type Metrics",
             result.Output);
         Assert.Contains("| Incoming Overloads |", result.Output);
         Assert.Contains("| Overload Targets |", result.Output);
@@ -71,6 +119,86 @@ public class ImplementationProfilesSectionTests
                 "Analyze(int)",
                 StringComparison.Ordinal));
     }
+
+    [Fact]
+    public void
+        LibraryMetrics_MaximumBodiesPreserveReturnOverloadTokens()
+    {
+        var first = ReturnOverload(0x06000001, TypeRef.CoreLib("System", "Int32"));
+        var second = ReturnOverload(0x06000002, TypeRef.CoreLib("System", "String"));
+        var coverage = new ImplementationProfilePopulationCoverageReceipt(
+            WasRequested: true,
+            HasFullMethodEvidenceScope: true,
+            DeclaredMethods: [first, second],
+            ManagedMethodBodies: [first, second],
+            ProfiledEvidenceBodies: [first, second],
+            UnavailableBodies: [],
+            Diagnostics: []);
+        var document = new LibraryStructuralReportDocument(
+            new(
+                "ReturnOverloads.dll",
+                null!,
+                LibraryBodyAnalysisFeatures.ImplementationProfiles,
+                HasFullMethodEvidenceScope: true,
+                Diagnostics: []),
+            LibraryStructuralReport.CurrentMethodologyVersion,
+            new(
+                coverage,
+                PhysicalEvidenceBodyCount: 2,
+                ProfiledPhysicalEvidenceBodyCount: 2,
+                LogicalOwnerCount: 2,
+                CompleteProfileCount: 2,
+                IncompleteProfileCount: 0,
+                IncompleteReasons: [],
+                UnavailableReasons: []),
+            [
+                new(
+                    LibraryStructuralMetric.InstructionCount,
+                    CompleteBodyCount: 2,
+                    Minimum: 1,
+                    P50: 1,
+                    P90: 1,
+                    P95: 1,
+                    P99: 1,
+                    Maximum: 1,
+                    MaximumBodies:
+                    [
+                        new(first, first, 1),
+                        new(second, second, 1),
+                    ],
+                    AdditionalMaximumBodyCount: 0),
+            ],
+            new(
+                "Async state-machine bodies",
+                CompleteBodyCount: 2,
+                PresentCount: 0,
+                AbsentCount: 2),
+            Diagnostics: []);
+        var view = new LibraryInspectionView(new LibraryInspection
+        {
+            FileName = "ReturnOverloads.dll",
+            LibraryMetricsQueryResult = new LibraryMetricsResult.Available(document),
+        });
+
+        LibraryMetricRow row = Assert.Single(
+            view.LibraryMetricsSection!,
+            row => row.Category == "Distribution");
+
+        Assert.Contains("ReturnOverloads.Same()", row.MaximumBodies);
+        Assert.Contains("0x06000001", row.MaximumBodies);
+        Assert.Contains("0x06000002", row.MaximumBodies);
+    }
+
+    private static MethodIdentity ReturnOverload(int metadataToken, TypeRef returnType) =>
+        new(
+            "ReturnOverloads",
+            Guid.Parse("00112233-4455-6677-8899-AABBCCDDEEFF"),
+            TypeRef.Definition("ReturnOverloads", "Probe", "ReturnOverloads"),
+            "Same",
+            [],
+            returnType,
+            metadataToken,
+            IsStatic: true);
 
     [Fact]
     public async Task
@@ -88,7 +216,7 @@ public class ImplementationProfilesSectionTests
                     ["Analyze"],
                 IncludeAll = true,
                 IncludeSections =
-                    [SectionNames.ImplementationProfiles],
+                    [SectionNames.MemberMetrics],
                 TipLevel = TipLevel.Quiet,
                 Verbosity = Verbosity.Minimal,
                 MarkdownExplicitlySet = true,
@@ -100,6 +228,45 @@ public class ImplementationProfilesSectionTests
         Assert.Contains("Analyze(int, int)", result.Output);
         Assert.Contains("Analyze(string)", result.Output);
         Assert.DoesNotContain("Other(int)", result.Output);
+    }
+
+    [Fact]
+    public async Task TypeMetrics_DoesNotResolveInMemberCatalog()
+    {
+        var result = await ConsoleCapture.RunAsync(
+            () => MemberCommand.ExecuteAsync(new MemberOptions
+            {
+                TypeName =
+                    "ILInspector.Analysis.ImplementationProfileFixtures."
+                    + "ImplementationProfileSample",
+                AssemblyPath =
+                    FixtureCatalog.AnalysisCallerLoop.AssemblyPath(),
+                MemberFilter = ["Analyze"],
+                Select = [SectionNames.TypeMetrics],
+                TipLevel = TipLevel.Quiet,
+            }));
+
+        Assert.Equal(1, result.ExitCode);
+        Assert.Contains(SectionNames.TypeMetrics, result.Error);
+    }
+
+    [Fact]
+    public async Task MemberMetrics_DoesNotResolveInTypeCatalog()
+    {
+        var result = await ConsoleCapture.RunAsync(
+            () => TypeCommand.ExecuteAsync(new TypeOptions
+            {
+                TypeName =
+                    "ILInspector.Analysis.ImplementationProfileFixtures."
+                    + "ImplementationProfileSample",
+                AssemblyPath =
+                    FixtureCatalog.AnalysisCallerLoop.AssemblyPath(),
+                Select = [SectionNames.MemberMetrics],
+                TipLevel = TipLevel.Quiet,
+            }));
+
+        Assert.Equal(1, result.ExitCode);
+        Assert.Contains(SectionNames.MemberMetrics, result.Error);
     }
 
     [Fact]
@@ -123,7 +290,26 @@ public class ImplementationProfilesSectionTests
 
         Assert.Equal(0, result.ExitCode);
         Assert.DoesNotContain(
-            "## Implementation Profiles",
+            "## Type Metrics",
+            result.Output);
+    }
+
+    [Fact]
+    public async Task
+        LibraryMetrics_RemainsExplicitOnly()
+    {
+        var result = await ConsoleCapture.RunAsync(
+            () => LibraryCommand.ExecuteAsync(new LibraryOptions
+            {
+                AssemblyName =
+                    FixtureCatalog.AnalysisCallerLoop.AssemblyPath(),
+                Verbosity = Verbosity.Detailed,
+                Markdown = true,
+            }));
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.DoesNotContain(
+            "## Library Metrics",
             result.Output);
     }
 
@@ -141,12 +327,13 @@ public class ImplementationProfilesSectionTests
                     FixtureCatalog.AnalysisCallerLoop.AssemblyPath(),
                 Select = ["*"],
                 JsonOutput = true,
+                FormatExplicitlySet = true,
                 TipLevel = TipLevel.Quiet,
             }));
 
         Assert.Equal(0, result.ExitCode);
         Assert.DoesNotContain(
-            "Implementation Profiles",
+            "Type Metrics",
             result.Error,
             StringComparison.Ordinal);
         using var json = JsonDocument.Parse(result.Output);
@@ -171,7 +358,7 @@ public class ImplementationProfilesSectionTests
                 OverloadIndex = 1,
                 IncludeAll = true,
                 IncludeSections =
-                    [SectionNames.ImplementationProfiles],
+                    [SectionNames.MemberMetrics],
                 TipLevel = TipLevel.Quiet,
                 Verbosity = Verbosity.Minimal,
                 MarkdownExplicitlySet = true,
@@ -240,7 +427,7 @@ public class ImplementationProfilesSectionTests
                 MemberFilter = ["Changed"],
                 IncludeAll = true,
                 IncludeSections =
-                    [SectionNames.ImplementationProfiles],
+                    [SectionNames.MemberMetrics],
                 TipLevel = TipLevel.Quiet,
                 Verbosity = Verbosity.Minimal,
                 MarkdownExplicitlySet = true,
@@ -265,7 +452,7 @@ public class ImplementationProfilesSectionTests
                 AssemblyPath =
                     FixtureCatalog.AnalysisCallerLoop.AssemblyPath(),
                 IncludeSections =
-                    [SectionNames.ImplementationProfiles],
+                    [SectionNames.TypeMetrics],
                 IncludeAll = true,
                 TipLevel = TipLevel.Quiet,
                 Verbosity = Verbosity.Minimal,
@@ -301,7 +488,7 @@ public class ImplementationProfilesSectionTests
                 AssemblyPath =
                     FixtureCatalog.AnalysisCallerLoop.AssemblyPath(),
                 IncludeSections =
-                    [SectionNames.ImplementationProfiles],
+                    [SectionNames.TypeMetrics],
                 IncludeAll = true,
                 Jsonl = true,
                 Tabular = true,
@@ -381,7 +568,7 @@ public class ImplementationProfilesSectionTests
                 AssemblyPath =
                     FixtureCatalog.AnalysisCallerLoop.AssemblyPath(),
                 IncludeSections =
-                    [SectionNames.ImplementationProfiles],
+                    [SectionNames.TypeMetrics],
                 JsonOutput = true,
                 TipLevel = TipLevel.Quiet,
             }));
@@ -389,7 +576,7 @@ public class ImplementationProfilesSectionTests
         Assert.Equal(1, result.ExitCode);
         Assert.Empty(result.Output);
         Assert.Contains(
-            "Document --json cannot represent Implementation Profiles analysis.",
+            "Document --json cannot represent Type Metrics analysis.",
             result.Error);
     }
 
@@ -403,14 +590,35 @@ public class ImplementationProfilesSectionTests
                 AssemblyName =
                     FixtureCatalog.AnalysisCallerLoop.AssemblyPath(),
                 IncludeSections =
-                    [SectionNames.ImplementationProfiles],
+                    [SectionNames.MemberMetrics],
                 JsonOutput = true,
             }));
 
         Assert.Equal(1, result.ExitCode);
         Assert.Empty(result.Output);
         Assert.Contains(
-            "Document --json cannot represent Implementation Profiles analysis.",
+            "Document --json cannot represent Member Metrics analysis.",
+            result.Error);
+    }
+
+    [Fact]
+    public async Task
+        LibraryMetrics_RejectsDocumentJson()
+    {
+        var result = await ConsoleCapture.RunAsync(
+            () => LibraryCommand.ExecuteAsync(new LibraryOptions
+            {
+                AssemblyName =
+                    FixtureCatalog.AnalysisCallerLoop.AssemblyPath(),
+                IncludeSections =
+                    [SectionNames.LibraryMetrics],
+                JsonOutput = true,
+            }));
+
+        Assert.Equal(1, result.ExitCode);
+        Assert.Empty(result.Output);
+        Assert.Contains(
+            "Document --json cannot represent Library Metrics analysis.",
             result.Error);
     }
 
@@ -424,7 +632,7 @@ public class ImplementationProfilesSectionTests
                 AssemblyName =
                     FixtureCatalog.AnalysisCallerLoop.AssemblyPath(),
                 IncludeSections =
-                    [SectionNames.ImplementationProfiles],
+                    [SectionNames.MemberMetrics],
                 Count = true,
                 JsonOutput = true,
             }));

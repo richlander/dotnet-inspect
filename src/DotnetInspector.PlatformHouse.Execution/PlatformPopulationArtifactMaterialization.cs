@@ -1,3 +1,4 @@
+using DotnetInspector.Libraries;
 using DotnetInspector.Platforms;
 using ILInspector.Metadata;
 using Inspector.Artifacts;
@@ -20,6 +21,15 @@ public abstract class PlatformPopulationArtifactMaterializationOutcome
     public sealed class Completed :
         PlatformPopulationArtifactMaterializationOutcome
     {
+        /// <summary>
+        /// Creates a source-neutral completed handoff from one owner-issued
+        /// population and its adjacent Artifact session.
+        /// </summary>
+        public static Completed Create(
+            PlatformPopulationRealizationResult.Completed population,
+            ArtifactSetSession artifacts) =>
+            new(population, artifacts);
+
         internal Completed(
             PlatformPopulationRealizationResult.Completed population,
             ArtifactSetSession artifacts)
@@ -70,6 +80,47 @@ public abstract class PlatformPopulationArtifactMaterializationOutcome
 /// </summary>
 public static class PlatformHousePopulationArtifactMaterializer
 {
+    /// <summary>
+    /// Preserves outcomes for the expected family and retires any completed
+    /// authorities before rejecting a mismatched request family.
+    /// </summary>
+    public static async ValueTask<
+        PlatformPopulationArtifactMaterializationOutcome>
+        RequireRequestFamilyAsync(
+            PlatformPopulationArtifactMaterializationOutcome outcome,
+            PlatformFamily expectedFamily,
+            string evidenceName)
+    {
+        ArgumentNullException.ThrowIfNull(outcome);
+        ArgumentException.ThrowIfNullOrWhiteSpace(evidenceName);
+        if (!Enum.IsDefined(expectedFamily))
+            throw new ArgumentOutOfRangeException(nameof(expectedFamily));
+
+        PlatformHouseReceipt receipt = outcome.Realization.Receipt.HouseReceipt;
+        if (receipt.Request.Target.Family == expectedFamily)
+            return outcome;
+
+        if (outcome
+            is PlatformPopulationArtifactMaterializationOutcome.Completed
+                completed)
+        {
+            PlatformHouseFailureKind[] failures =
+                await RetireCompletedAsync(completed).ConfigureAwait(false);
+            if (failures.Length != 0)
+            {
+                return Failed(
+                    receipt,
+                    failures,
+                    $"{evidenceName}.cleanup-failed");
+            }
+        }
+
+        return Rejected(
+            receipt,
+            PlatformHouseRejectionKind.InvalidTargetCorrespondence,
+            evidenceName);
+    }
+
     public static ValueTask<
         PlatformPopulationArtifactMaterializationOutcome>
         MaterializeReferencesAsync(
@@ -758,6 +809,88 @@ public static class PlatformHousePopulationArtifactMaterializer
     static PlatformPopulationArtifactMaterializationOutcome.Terminal Terminal(
         PlatformPopulationRealizationResult result) =>
         new((PlatformPopulationRealizationResult.Terminal)result);
+
+    static async ValueTask<PlatformHouseFailureKind[]> RetireCompletedAsync(
+        PlatformPopulationArtifactMaterializationOutcome.Completed completed)
+    {
+        var failures = new List<PlatformHouseFailureKind>();
+        foreach (LibraryContentOwner owner in completed.Population.Owners)
+        {
+            try
+            {
+                await owner.DisposeAsync().ConfigureAwait(false);
+            }
+            catch
+            {
+                failures.Add(PlatformHouseFailureKind.LibraryRetirement);
+            }
+        }
+        try
+        {
+            await completed.Artifacts.DisposeAsync().ConfigureAwait(false);
+        }
+        catch
+        {
+            failures.Add(PlatformHouseFailureKind.ArtifactRetirement);
+        }
+        if (completed.Artifacts.CleanupFailures.Count != 0)
+            failures.Add(PlatformHouseFailureKind.ArtifactRetirement);
+
+        return [.. failures.Distinct()];
+    }
+
+    static PlatformPopulationArtifactMaterializationOutcome Rejected(
+        PlatformHouseReceipt priorReceipt,
+        PlatformHouseRejectionKind kind,
+        string evidenceName)
+    {
+        var termination = new PlatformHouseTermination.Rejected(
+            new PlatformHouseRejection.OwnerEvidence(
+                kind,
+                PlatformHouseTerminalEvidenceIdentity.Create(
+                    evidenceName)));
+        PlatformHouseReceipt receipt = TerminalReceipt(
+            priorReceipt,
+            termination);
+        return new PlatformPopulationArtifactMaterializationOutcome.Terminal(
+            new PlatformPopulationRealizationResult.Terminal(
+                new PlatformHouseOutcome<
+                    PlatformPopulationRealizationValue>.Rejected(
+                        termination,
+                        receipt),
+                new PlatformPopulationRealizationReceipt(receipt)));
+    }
+
+    static PlatformPopulationArtifactMaterializationOutcome Failed(
+        PlatformHouseReceipt priorReceipt,
+        IEnumerable<PlatformHouseFailureKind> failures,
+        string evidenceName)
+    {
+        var termination = new PlatformHouseTermination.Failed(
+            PlatformHouseTerminalEvidenceIdentity.Create(evidenceName),
+            failures);
+        PlatformHouseReceipt receipt = TerminalReceipt(
+            priorReceipt,
+            termination);
+        return new PlatformPopulationArtifactMaterializationOutcome.Terminal(
+            new PlatformPopulationRealizationResult.Terminal(
+                new PlatformHouseOutcome<
+                    PlatformPopulationRealizationValue>.Failed(
+                        termination,
+                        receipt),
+                new PlatformPopulationRealizationReceipt(receipt)));
+    }
+
+    static PlatformHouseReceipt TerminalReceipt(
+        PlatformHouseReceipt priorReceipt,
+        PlatformHouseTermination termination) =>
+        new(
+            priorReceipt.Request,
+            PlatformHouseLibraryRealizer.TargetSettlement(
+                priorReceipt.Request.Target),
+            [],
+            priorReceipt.ConsumedWork,
+            termination: termination);
 
     static ArtifactSetAdmissionFailure Failure(
         string code,

@@ -9,7 +9,7 @@ import {
   type OperationProducerAdapter,
 } from "./operation-authority.ts";
 import type {
-  BrowserSource,
+  BrowserTypeCodeView,
   BrowserTypeSourceResult,
 } from "./facades/inspect-web-source.d.ts";
 import type {
@@ -17,8 +17,9 @@ import type {
   BrowserPackageChangesResult,
   BrowserPackageQueryEvent,
   BrowserPackageQueryResult,
+  BrowserPackageQueryTerm,
 } from "./facades/inspect-web-package.d.ts";
-import type { TypeSourceLoadRequest } from "./source-inspection.ts";
+import { typeSourceView, type TypeSourceLoadRequest } from "./source-inspection.ts";
 import { createBrowserWorkerRuntimeHost } from "./worker-runtime-browser.ts";
 import {
   createEngineWorkerProducerClasses,
@@ -113,7 +114,7 @@ export function createSharedEngineOperationAuthority(): SharedEngineOperationAut
 
 export type EngineWorkerTypeSourceAdapter = OperationProducerAdapter<
   TypeSourceLoadRequest,
-  BrowserSource,
+  BrowserTypeCodeView,
   EngineWorkerTypeSourceFailure,
   never,
   WorkerRuntimePreparationError
@@ -217,7 +218,8 @@ function registerEngineWorkerCanaryAdapter(host: EngineWorkerHost) {
 
 function packageQueryRequest(
   searchText: string,
-  termsJson: string,
+  terms: readonly BrowserPackageQueryTerm[],
+  targetFramework: string | null,
   maximumCandidates: number,
   maximumMatches: number,
   includePrerelease: boolean,
@@ -227,31 +229,6 @@ function packageQueryRequest(
     throw new Error(
       `Package Query initial credit must be ${PACKAGE_QUERY_INITIAL_MATCH_CREDIT}.`);
   }
-  const rawTerms: unknown = JSON.parse(termsJson);
-  if (!Array.isArray(rawTerms)) {
-    throw new TypeError(
-      "Package Query terms must be a JSON term array.");
-  }
-  const terms = rawTerms.map((value: unknown, index) => {
-    if (typeof value !== "object" || value === null) {
-      throw new TypeError(
-        `Package Query term ${index} must be an object.`);
-    }
-    if (!("key" in value)
-      || !("operator" in value)
-      || !("value" in value)
-      || typeof value.key !== "string"
-      || typeof value.operator !== "string"
-      || typeof value.value !== "string") {
-      throw new TypeError(
-        `Package Query term ${index} must contain text key, operator, and value fields.`);
-    }
-    return {
-      key: value.key,
-      operator: value.operator,
-      value: value.value,
-    };
-  });
   return {
     scopeQuery: searchText,
     presets: [],
@@ -267,6 +244,7 @@ function packageQueryRequest(
           operators: [term.operator],
           valueKind: "",
           example: "",
+          multiline: false,
         },
         operator: term.operator,
         value: term.value,
@@ -275,36 +253,7 @@ function packageQueryRequest(
     requestedLimit: maximumCandidates,
     requestedMatchLimit: maximumMatches,
     includePrerelease,
-    libraryLiteral: {
-      operand: "",
-      targetFramework: "net10.0",
-    },
-  };
-}
-
-function packageAssemblySemanticQueryRequest(
-  searchText: string,
-  operand: string,
-  targetFramework: string,
-  maximumCandidates: number,
-  includePrerelease: boolean,
-  initialMatchCredit: number,
-): QueryRequest {
-  if (initialMatchCredit !== PACKAGE_QUERY_INITIAL_MATCH_CREDIT) {
-    throw new Error(
-      `Package Query initial credit must be ${PACKAGE_QUERY_INITIAL_MATCH_CREDIT}.`);
-  }
-  return {
-    scopeQuery: searchText,
-    presets: [],
-    terms: [],
-    requestedLimit: maximumCandidates,
-    requestedMatchLimit: maximumCandidates,
-    includePrerelease,
-    libraryLiteral: {
-      operand,
-      targetFramework,
-    },
+    targetFramework: targetFramework ?? "net10.0",
   };
 }
 
@@ -344,12 +293,12 @@ export function bindTypeSourceFacade(
 > & { readonly dispose: () => void } {
   interface ActiveTypeSource {
     readonly handle: OperationHandle<
-      BrowserSource,
+      BrowserTypeCodeView,
       EngineWorkerTypeSourceFailure
     >;
     readonly session: OperationSession<
       TypeSourceLoadRequest,
-      BrowserSource,
+      BrowserTypeCodeView,
       EngineWorkerTypeSourceFailure,
       never,
       WorkerRuntimePreparationError
@@ -365,12 +314,16 @@ export function bindTypeSourceFacade(
       assembly,
       type,
       taste,
+      view,
     ): Promise<BrowserTypeSourceResult> {
       if (active.has(operationId))
         throw new Error(`Type Source operation '${operationId}' is already active.`);
+      const selectedView = typeSourceView(view);
+      if (selectedView === null)
+        throw new Error(`Unknown Type Source view '${view}'.`);
       const session = authority.page.createSession<
         TypeSourceLoadRequest,
-        BrowserSource,
+        BrowserTypeCodeView,
         EngineWorkerTypeSourceFailure,
         never,
         WorkerRuntimePreparationError
@@ -385,7 +338,8 @@ export function bindTypeSourceFacade(
           assembly,
           type,
           taste,
-          signature: `${packageId}/${version}/${framework}/${assembly}/${type}`,
+          view: selectedView,
+          signature: `${packageId}/${version}/${framework}/${assembly}/${type}/${view}`,
           isVisible: () => true,
         }, adapter));
       if (started.kind === "rejected") {
@@ -452,7 +406,6 @@ export function bindPackageQueryFacade(
   EngineClient["package"],
   | "cancelPackageQuery"
   | "requestPackageQueryMatches"
-  | "runPackageAssemblySemanticQuery"
   | "runPackageQuery"
 > & { readonly dispose: () => void } {
   interface ActivePackageQuery {
@@ -579,6 +532,7 @@ export function bindPackageQueryFacade(
       operationId,
       searchText,
       termsJson,
+      targetFramework,
       maximumCandidates,
       maximumMatches,
       includePrerelease,
@@ -590,31 +544,9 @@ export function bindPackageQueryFacade(
         packageQueryRequest(
           searchText,
           termsJson,
-          maximumCandidates,
-          maximumMatches,
-          includePrerelease,
-          initialMatchCredit,
-        ),
-        eventSink,
-      );
-    },
-    runPackageAssemblySemanticQuery(
-      operationId,
-      searchText,
-      operand,
-      targetFramework,
-      maximumCandidates,
-      includePrerelease,
-      initialMatchCredit,
-      eventSink,
-    ) {
-      return run(
-        operationId,
-        packageAssemblySemanticQueryRequest(
-          searchText,
-          operand,
           targetFramework,
           maximumCandidates,
+          maximumMatches,
           includePrerelease,
           initialMatchCredit,
         ),
@@ -663,21 +595,13 @@ export function bindPackageChangesFacade(
     cancelPackageActivity(operationId, reason) {
       active.get(operationId)?.handle.cancel(operationCancelReason(reason));
     },
-    async runPackageActivity(operationId, requestJson, eventSink) {
+    async runPackageActivity(operationId, request, eventSink) {
       if (active.has(operationId)) {
         throw new Error(
           `Package Activity operation '${operationId}' is already active.`);
       }
-      let rawRequest: unknown;
-      try {
-        rawRequest = JSON.parse(requestJson);
-      } catch (error: unknown) {
-        throw new TypeError("Package Activity request JSON is invalid.", {
-          cause: error,
-        });
-      }
       const decodedRequest =
-        engineWorkerPackageChangesInput.decode(rawRequest);
+        engineWorkerPackageChangesInput.decode(request);
       if (decodedRequest.kind === "rejected") {
         throw new TypeError(decodedRequest.message, {
           cause: decodedRequest.cause,
@@ -783,7 +707,7 @@ export function createEngineWorkerProbe(options: EngineWorkerProbeOptions) {
   });
   const typeSourceSession = page.createSession<
     TypeSourceLoadRequest,
-    BrowserSource,
+    BrowserTypeCodeView,
     EngineWorkerTypeSourceFailure,
     never,
     WorkerRuntimePreparationError
@@ -900,6 +824,7 @@ export function createProductionEngineWorkerClient(
       ...packageQuery,
       ...packageChanges,
     },
+    library: ordinary.library,
     metadata: ordinary.metadata,
     analysis: ordinary.analysis,
     source: {

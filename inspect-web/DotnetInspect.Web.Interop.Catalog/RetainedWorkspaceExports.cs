@@ -13,6 +13,128 @@ namespace DotnetInspect.Web.Interop.Catalog;
 public static partial class CatalogExports
 {
     [JSExport]
+    public static async Task<string> PrepareRetainedWorkspaceDefinition(
+        string retainedDefinitionId,
+        string label,
+        string canonicalLocation,
+        string canonicalPacket)
+    {
+        BrowserRetainedWorkspacePreparationResult result =
+            await BrowserRetainedWorkspaceActivationService.PrepareAsync(
+                    retainedDefinitionId,
+                    label,
+                    canonicalLocation,
+                    canonicalPacket)
+                .ConfigureAwait(false);
+        return JsonSerializer.Serialize(
+            result,
+            BrowserCatalogJsonContext.Default
+                .BrowserRetainedWorkspacePreparationResult);
+    }
+
+    [JSExport]
+    public static async Task<string>
+        PrepareRetainedWorkspaceDefinitionWithCredentials(
+            string retainedDefinitionId,
+            string label,
+            string canonicalLocation,
+            string canonicalPacket,
+            string packageSourceCredentialsJson)
+    {
+        Dictionary<
+            string,
+            BrowserRetainedWorkspacePackageSourceCredential>
+            packageSourceCredentials;
+        try
+        {
+            BrowserRetainedWorkspaceActivationService
+                .ValidatePackageSourceCredentialsJson(
+                    packageSourceCredentialsJson);
+            packageSourceCredentials = JsonSerializer.Deserialize(
+                    packageSourceCredentialsJson,
+                    BrowserCatalogJsonContext.Default
+                        .DictionaryStringBrowserRetainedWorkspacePackageSourceCredential)
+                ?? throw new JsonException();
+        }
+        catch (ArgumentException ex)
+        {
+            return JsonSerializer.Serialize(
+                BrowserRetainedWorkspaceActivationService
+                    .InvalidCredentialPreparation(ex.Message),
+                BrowserCatalogJsonContext.Default
+                    .BrowserRetainedWorkspacePreparationResult);
+        }
+        catch (JsonException)
+        {
+            return JsonSerializer.Serialize(
+                BrowserRetainedWorkspaceActivationService
+                    .InvalidCredentialPreparation(
+                        BrowserRetainedWorkspaceActivationService
+                            .InvalidPackageSourceCredentialsMessage),
+                BrowserCatalogJsonContext.Default
+                    .BrowserRetainedWorkspacePreparationResult);
+        }
+
+        BrowserRetainedWorkspacePreparationResult result =
+            await BrowserRetainedWorkspaceActivationService.PrepareAsync(
+                    retainedDefinitionId,
+                    label,
+                    canonicalLocation,
+                    canonicalPacket,
+                    packageSourceCredentials)
+                .ConfigureAwait(false);
+        return JsonSerializer.Serialize(
+            result,
+            BrowserCatalogJsonContext.Default
+                .BrowserRetainedWorkspacePreparationResult);
+    }
+
+    [JSExport]
+    public static async Task<string> CommitRetainedWorkspaceActivation(
+        string receipt)
+    {
+        BrowserRetainedWorkspaceActivationResult result =
+            await BrowserRetainedWorkspaceActivationService.CommitAsync(
+                    receipt)
+                .ConfigureAwait(false);
+        return JsonSerializer.Serialize(
+            result,
+            BrowserCatalogJsonContext.Default
+                .BrowserRetainedWorkspaceActivationResult);
+    }
+
+    [JSExport]
+    public static async Task<string> CancelRetainedWorkspaceActivation(
+        string receipt)
+    {
+        BrowserRetainedWorkspaceActivationResult result =
+            await BrowserRetainedWorkspaceActivationService.CancelAsync(
+                    receipt)
+                .ConfigureAwait(false);
+        return JsonSerializer.Serialize(
+            result,
+            BrowserCatalogJsonContext.Default
+                .BrowserRetainedWorkspaceActivationResult);
+    }
+
+    [JSExport]
+    public static string CompleteRetainedWorkspaceActivation(
+        string receipt,
+        bool succeeded,
+        string? failure)
+    {
+        BrowserRetainedWorkspaceConsumerCompletionResult result =
+            BrowserRetainedWorkspaceActivationService.CompleteActivation(
+                receipt,
+                succeeded,
+                failure);
+        return JsonSerializer.Serialize(
+            result,
+            BrowserCatalogJsonContext.Default
+                .BrowserRetainedWorkspaceConsumerCompletionResult);
+    }
+
+    [JSExport]
     public static async Task<string> AdmitRetainedWorkspacePackage(
         string retainedDefinitionId,
         string realizationId,
@@ -71,6 +193,76 @@ public static partial class CatalogExports
     }
 
     [JSExport]
+    public static async Task<string>
+        ActivateRetainedWorkspaceDefinitionWithCredentials(
+            string retainedDefinitionId,
+            string label,
+            string canonicalLocation,
+            string canonicalPacket,
+            string packageSourceCredentialsJson)
+    {
+        Dictionary<
+            string,
+            BrowserRetainedWorkspacePackageSourceCredential>
+            packageSourceCredentials;
+        try
+        {
+            BrowserRetainedWorkspaceActivationService
+                .ValidatePackageSourceCredentialsJson(
+                    packageSourceCredentialsJson);
+            packageSourceCredentials = JsonSerializer.Deserialize(
+                    packageSourceCredentialsJson,
+                    BrowserCatalogJsonContext.Default
+                        .DictionaryStringBrowserRetainedWorkspacePackageSourceCredential)
+                ?? throw new JsonException();
+        }
+        catch (ArgumentException ex)
+        {
+            return JsonSerializer.Serialize(
+                BrowserRetainedWorkspaceActivationService
+                    .InvalidCredentialActivation(ex.Message),
+                BrowserCatalogJsonContext.Default
+                    .BrowserRetainedWorkspaceActivationResult);
+        }
+        catch (JsonException)
+        {
+            return JsonSerializer.Serialize(
+                BrowserRetainedWorkspaceActivationService
+                    .InvalidCredentialActivation(
+                        BrowserRetainedWorkspaceActivationService
+                            .InvalidPackageSourceCredentialsMessage),
+                BrowserCatalogJsonContext.Default
+                    .BrowserRetainedWorkspaceActivationResult);
+        }
+
+        BrowserRetainedWorkspaceActivationResult result =
+            await BrowserRetainedWorkspaceActivationService.ActivateAsync(
+                    retainedDefinitionId,
+                    label,
+                    canonicalLocation,
+                    canonicalPacket,
+                    packageSourceCredentials)
+                .ConfigureAwait(false);
+        return JsonSerializer.Serialize(
+            result,
+            BrowserCatalogJsonContext.Default
+                .BrowserRetainedWorkspaceActivationResult);
+    }
+
+    [JSExport]
+    public static string DescribeWorkspacePackageSources(
+        string canonicalPacket)
+    {
+        BrowserWorkspacePackageSourceRequirementsResult result =
+            BrowserRetainedWorkspaceActivationService
+                .DescribePackageSources(canonicalPacket);
+        return JsonSerializer.Serialize(
+            result,
+            BrowserCatalogJsonContext.Default
+                .BrowserWorkspacePackageSourceRequirementsResult);
+    }
+
+    [JSExport]
     public static async Task<string> DeactivateRetainedWorkspaceDefinition(
         string retainedDefinitionId)
     {
@@ -82,6 +274,23 @@ public static partial class CatalogExports
             result,
             BrowserCatalogJsonContext.Default
                 .BrowserRetainedWorkspaceDeactivationResult);
+    }
+
+    [JSExport]
+    public static string CompleteRetainedWorkspaceDeactivation(
+        string receipt,
+        bool succeeded,
+        string? failure)
+    {
+        BrowserRetainedWorkspaceConsumerCompletionResult result =
+            BrowserRetainedWorkspaceActivationService.CompleteDeactivation(
+                receipt,
+                succeeded,
+                failure);
+        return JsonSerializer.Serialize(
+            result,
+            BrowserCatalogJsonContext.Default
+                .BrowserRetainedWorkspaceConsumerCompletionResult);
     }
 
     [JSExport]
@@ -172,6 +381,16 @@ public static partial class CatalogExports
 [SupportedOSPlatform("browser")]
 internal static class BrowserRetainedWorkspaceActivationService
 {
+    internal const int PackageSourceCredentialsJsonLengthLimit = 2 * 1024 * 1024;
+    internal const string InvalidPackageSourceCredentialsMessage =
+        "Workspace credential bindings must be one JSON object of "
+        + "source endpoints to username/PAT objects.";
+
+    static readonly object Gate = new();
+    static readonly Dictionary<
+        string,
+        BrowserRetainedWorkspaceActivationSession> Sessions =
+        new(StringComparer.Ordinal);
     static BrowserRetainedWorkspaceActivationOwner _owner =
         CreateOwner();
 
@@ -228,12 +447,32 @@ internal static class BrowserRetainedWorkspaceActivationService
         };
     }
 
-    internal static async Task<BrowserRetainedWorkspaceActivationResult>
-        ActivateAsync(
+    internal static async Task<BrowserRetainedWorkspacePreparationResult>
+        PrepareAsync(
         string retainedDefinitionId,
         string label,
         string canonicalLocation,
         string canonicalPacket)
+        => await PrepareAsync(
+            retainedDefinitionId,
+            label,
+            canonicalLocation,
+            canonicalPacket,
+            packageSourceCredentials: new Dictionary<
+                string,
+                BrowserRetainedWorkspacePackageSourceCredential>(
+                    StringComparer.Ordinal)).ConfigureAwait(false);
+
+    internal static async Task<BrowserRetainedWorkspacePreparationResult>
+        PrepareAsync(
+        string retainedDefinitionId,
+        string label,
+        string canonicalLocation,
+        string canonicalPacket,
+        IReadOnlyDictionary<
+            string,
+            BrowserRetainedWorkspacePackageSourceCredential>
+            packageSourceCredentials)
     {
         BrowserRetainedWorkspaceActivationRequest request;
         try
@@ -242,7 +481,232 @@ internal static class BrowserRetainedWorkspaceActivationService
                 retainedDefinitionId,
                 label,
                 canonicalLocation,
-                canonicalPacket);
+                canonicalPacket,
+                BindPackageSourceCredentials(packageSourceCredentials));
+        }
+        catch (ArgumentException ex)
+        {
+            return new(
+                "failed",
+                null,
+                null,
+                null,
+                new("InvalidRequest", ex.Message));
+        }
+
+        BrowserRetainedWorkspaceActivationSession session =
+            _owner.BeginActivation(request);
+        lock (Gate)
+            Sessions.Add(session.Receipt, session);
+
+        DotnetInspect.Web.BrowserRetainedWorkspacePreparationResult
+            preparation;
+        try
+        {
+            preparation = await session.Preparation.ConfigureAwait(false);
+        }
+        catch
+        {
+            lock (Gate)
+                Sessions.Remove(session.Receipt);
+            throw;
+        }
+
+        if (preparation
+            is not DotnetInspect.Web.BrowserRetainedWorkspacePreparationResult
+                .Prepared)
+        {
+            lock (Gate)
+                Sessions.Remove(session.Receipt);
+        }
+
+        return preparation switch
+        {
+            DotnetInspect.Web.BrowserRetainedWorkspacePreparationResult
+                    .Prepared prepared =>
+                new(
+                    "prepared",
+                    session.Receipt,
+                    PreparedPosting(prepared.Posting),
+                    null,
+                    null),
+            DotnetInspect.Web.BrowserRetainedWorkspacePreparationResult
+                    .NoEffect noEffect =>
+                new(
+                    "noEffect",
+                    null,
+                    null,
+                    Posting(noEffect.Posting),
+                    null),
+            DotnetInspect.Web.BrowserRetainedWorkspacePreparationResult
+                    .Superseded =>
+                new("superseded", null, null, null, null),
+            DotnetInspect.Web.BrowserRetainedWorkspacePreparationResult
+                    .Failed failed =>
+                new(
+                    "failed",
+                    null,
+                    null,
+                    null,
+                    new(
+                        failed.Failure.GetType().Name,
+                        failed.Failure.Message)),
+            _ => throw new InvalidOperationException(
+                "Retained Workspace preparation returned an unsupported result."),
+        };
+    }
+
+    internal static async Task<BrowserRetainedWorkspaceActivationResult>
+        CommitAsync(string receipt)
+    {
+        BrowserRetainedWorkspaceActivationSession? session =
+            FindSession(receipt);
+        if (session is null || !session.Commit())
+        {
+            return new(
+                "failed",
+                null,
+                new(
+                    "InvalidRequest",
+                    "The retained Workspace activation receipt cannot commit."));
+        }
+
+        DotnetInspect.Web.BrowserRetainedWorkspaceActivationResult activation;
+        try
+        {
+            activation = await session.Activation.ConfigureAwait(false);
+        }
+        catch
+        {
+            lock (Gate)
+                Sessions.Remove(receipt);
+            throw;
+        }
+        if (activation
+            is not DotnetInspect.Web.BrowserRetainedWorkspaceActivationResult
+                .Activated)
+        {
+            lock (Gate)
+                Sessions.Remove(receipt);
+        }
+        return Activation(activation);
+    }
+
+    internal static async Task<BrowserRetainedWorkspaceActivationResult>
+        CancelAsync(string receipt)
+    {
+        BrowserRetainedWorkspaceActivationSession? session =
+            FindSession(receipt);
+        if (session is null)
+        {
+            return new(
+                "failed",
+                null,
+                new(
+                    "InvalidRequest",
+                    "The retained Workspace activation receipt is unavailable."));
+        }
+        bool cancelled = session.Cancel();
+        DotnetInspect.Web.BrowserRetainedWorkspaceActivationResult activation;
+        try
+        {
+            activation = await session.Activation.ConfigureAwait(false);
+        }
+        catch
+        {
+            lock (Gate)
+                Sessions.Remove(receipt);
+            throw;
+        }
+        if (!cancelled
+            && activation
+                is DotnetInspect.Web.BrowserRetainedWorkspaceActivationResult
+                    .Activated)
+        {
+            return new(
+                "failed",
+                null,
+                new(
+                    "InvalidRequest",
+                    "The retained Workspace activation receipt is already committing."));
+        }
+
+        try
+        {
+            return Activation(activation);
+        }
+        finally
+        {
+            lock (Gate)
+                Sessions.Remove(receipt);
+        }
+    }
+
+    internal static BrowserRetainedWorkspaceConsumerCompletionResult
+        CompleteActivation(
+            string receipt,
+            bool succeeded,
+            string? failure)
+    {
+        BrowserRetainedWorkspaceActivationSession? session =
+            FindSession(receipt);
+        if (session is null)
+        {
+            return new(
+                "unavailable",
+                null,
+                null,
+                "The retained Workspace activation receipt is unavailable.");
+        }
+
+        DotnetInspect.Web.BrowserRetainedWorkspaceConsumerCompletionResult
+            completion = session.Complete(succeeded, failure);
+        if (completion
+            is DotnetInspect.Web
+                .BrowserRetainedWorkspaceConsumerCompletionResult.Completed)
+        {
+            lock (Gate)
+                Sessions.Remove(receipt);
+        }
+        return Completion(completion);
+    }
+
+    internal static async Task<BrowserRetainedWorkspaceActivationResult>
+        ActivateAsync(
+        string retainedDefinitionId,
+        string label,
+        string canonicalLocation,
+        string canonicalPacket)
+        => await ActivateAsync(
+            retainedDefinitionId,
+            label,
+            canonicalLocation,
+            canonicalPacket,
+            packageSourceCredentials: new Dictionary<
+                string,
+                BrowserRetainedWorkspacePackageSourceCredential>(
+                    StringComparer.Ordinal)).ConfigureAwait(false);
+
+    internal static async Task<BrowserRetainedWorkspaceActivationResult>
+        ActivateAsync(
+        string retainedDefinitionId,
+        string label,
+        string canonicalLocation,
+        string canonicalPacket,
+        IReadOnlyDictionary<
+            string,
+            BrowserRetainedWorkspacePackageSourceCredential>
+            packageSourceCredentials)
+    {
+        BrowserRetainedWorkspaceActivationRequest request;
+        try
+        {
+            request = new(
+                retainedDefinitionId,
+                label,
+                canonicalLocation,
+                canonicalPacket,
+                BindPackageSourceCredentials(packageSourceCredentials));
         }
         catch (ArgumentException ex)
         {
@@ -255,7 +719,202 @@ internal static class BrowserRetainedWorkspaceActivationService
         DotnetInspect.Web.BrowserRetainedWorkspaceActivationResult
             activation = await _owner.ActivateAsync(request)
                 .ConfigureAwait(false);
-        return activation switch
+        return Activation(activation);
+    }
+
+    internal static BrowserWorkspacePackageSourceRequirementsResult
+        DescribePackageSources(string canonicalPacket)
+    {
+        try
+        {
+            WorkspaceSharePacket packet =
+                WorkspaceSharePacketCodec.Decode(canonicalPacket);
+            return new(
+                true,
+                [
+                    .. packet.PackageSources.Select(source =>
+                        new BrowserWorkspacePackageSourceRequirement(
+                            source.Endpoint,
+                            source.Authentication
+                                switch
+                                {
+                                    WorkspacePackageSourceAuthentication.Anonymous =>
+                                        BrowserWorkspacePackageSourceAuthentication
+                                        .Anonymous,
+                                    WorkspacePackageSourceAuthentication.AuthenticationRequired =>
+                                        BrowserWorkspacePackageSourceAuthentication
+                                        .AuthenticationRequired,
+                                    _ => throw new InvalidOperationException(
+                                        "Unsupported Workspace package-source authentication."),
+                                })),
+                ],
+                null);
+        }
+        catch (WorkspaceSharePacketException ex)
+        {
+            return new(
+                false,
+                [],
+                new(ex.Kind.ToString(), "packet", ex.Message));
+        }
+    }
+
+    internal static BrowserRetainedWorkspacePreparationResult
+        InvalidCredentialPreparation(
+        string message) =>
+        new(
+            "failed",
+            null,
+            null,
+            null,
+            new("InvalidRequest", message));
+
+    internal static BrowserRetainedWorkspaceActivationResult
+        InvalidCredentialActivation(
+        string message) =>
+        new(
+            "failed",
+            null,
+            new("InvalidRequest", message));
+
+    internal static void ValidatePackageSourceCredentialsJson(string json)
+    {
+        if (json.Length > PackageSourceCredentialsJsonLengthLimit)
+        {
+            throw new ArgumentException(
+                "Workspace credential bindings exceed the browser transport limit.");
+        }
+
+        JsonDocument document;
+        try
+        {
+            document = JsonDocument.Parse(
+                json,
+                new JsonDocumentOptions
+                {
+                    AllowTrailingCommas = false,
+                    CommentHandling = JsonCommentHandling.Disallow,
+                    MaxDepth = 5,
+                });
+        }
+        catch (JsonException)
+        {
+            throw new ArgumentException(
+                InvalidPackageSourceCredentialsMessage);
+        }
+
+        using (document)
+        {
+            if (document.RootElement.ValueKind != JsonValueKind.Object)
+                throw new ArgumentException(InvalidPackageSourceCredentialsMessage);
+
+            var endpoints = new HashSet<string>(StringComparer.Ordinal);
+            foreach (JsonProperty property
+                in document.RootElement.EnumerateObject())
+            {
+                if (endpoints.Count >= WorkspaceSharePacketCodec.MaxPackageSources)
+                {
+                    throw new ArgumentException(
+                        "Workspace credential bindings contain too many source entries.");
+                }
+                if (!endpoints.Add(property.Name))
+                {
+                    throw new ArgumentException(
+                        $"Workspace credential binding '{property.Name}' is duplicated.");
+                }
+
+                JsonProperty[] fields =
+                    property.Value.ValueKind == JsonValueKind.Object
+                        ? [.. property.Value.EnumerateObject()]
+                        : [];
+                if (property.Value.ValueKind != JsonValueKind.Object
+                    || fields.Length != 2
+                    || fields.Count(
+                        child => child.NameEquals("username")) != 1
+                    || fields.Count(child => child.NameEquals("pat")) != 1
+                    || !property.Value.TryGetProperty(
+                        "username",
+                        out JsonElement usernameElement)
+                    || usernameElement.ValueKind != JsonValueKind.String
+                    || !property.Value.TryGetProperty(
+                        "pat",
+                        out JsonElement patElement)
+                    || patElement.ValueKind != JsonValueKind.String)
+                {
+                    throw new ArgumentException(
+                        $"Workspace credential binding '{property.Name}' must "
+                            + "contain only string 'username' and 'pat' properties.");
+                }
+            }
+        }
+    }
+
+    internal static IReadOnlyDictionary<string, NuGetFetch.PackageSourceCredential>
+        BindPackageSourceCredentials(
+        IReadOnlyDictionary<
+            string,
+            BrowserRetainedWorkspacePackageSourceCredential> credentials)
+    {
+        ArgumentNullException.ThrowIfNull(credentials);
+
+        var result = new Dictionary<
+            string,
+            NuGetFetch.PackageSourceCredential>(StringComparer.Ordinal);
+        foreach ((
+            string rawEndpoint,
+            BrowserRetainedWorkspacePackageSourceCredential credential)
+            in credentials)
+        {
+            if (result.Count >= WorkspaceSharePacketCodec.MaxPackageSources)
+            {
+                throw new ArgumentException(
+                    "Workspace credential bindings contain too many source entries.");
+            }
+            if (credential is null
+                || string.IsNullOrWhiteSpace(credential.Username))
+            {
+                throw new ArgumentException(
+                    $"Workspace credential binding '{rawEndpoint}' has "
+                        + "an invalid username.");
+            }
+            if (string.IsNullOrEmpty(credential.Pat)
+                || credential.Pat.Length > 64 * 1024)
+            {
+                throw new ArgumentException(
+                    $"Workspace credential binding '{rawEndpoint}' has "
+                        + "an invalid PAT length.");
+            }
+            string endpoint;
+            try
+            {
+                endpoint = new WorkspacePackageSourceDefinition(
+                    rawEndpoint,
+                    WorkspacePackageSourceAuthentication
+                        .AuthenticationRequired)
+                    .Endpoint;
+            }
+            catch (ArgumentException)
+            {
+                throw new ArgumentException(
+                    $"Workspace credential binding endpoint "
+                        + $"'{rawEndpoint}' is invalid.");
+            }
+            if (!result.TryAdd(
+                    endpoint,
+                    new NuGetFetch.PackageSourceCredential(
+                        credential.Username,
+                        credential.Pat)))
+            {
+                throw new ArgumentException(
+                    $"Workspace credential binding '{endpoint}' is duplicated.");
+            }
+        }
+        return result;
+    }
+
+    static BrowserRetainedWorkspaceActivationResult Activation(
+        DotnetInspect.Web.BrowserRetainedWorkspaceActivationResult activation) =>
+        activation switch
         {
             DotnetInspect.Web.BrowserRetainedWorkspaceActivationResult
                     .Activated activated =>
@@ -277,14 +936,13 @@ internal static class BrowserRetainedWorkspaceActivationService
             _ => throw new InvalidOperationException(
                 "Retained Workspace activation returned an unsupported result."),
         };
-    }
 
     internal static async Task<BrowserRetainedWorkspaceDeactivationResult>
         DeactivateAsync(
         string retainedDefinitionId)
     {
         DotnetInspect.Web.BrowserRetainedWorkspaceDeactivationResult outcome =
-            await _owner.DeactivateAsync(retainedDefinitionId)
+            await _owner.BeginDeactivationAsync(retainedDefinitionId)
                 .ConfigureAwait(false);
         BrowserRetainedWorkspaceDeactivationResult result = outcome switch
         {
@@ -292,26 +950,39 @@ internal static class BrowserRetainedWorkspaceActivationService
                     .Deactivated deactivated =>
                 new(
                     "deactivated",
+                    deactivated.CompletionReceipt,
                     Settlement(deactivated.Settlement),
                     null),
             DotnetInspect.Web.BrowserRetainedWorkspaceDeactivationResult
                     .CleanupFailed failed =>
                 new(
                     "cleanupFailed",
+                    failed.CompletionReceipt,
                     Settlement(failed.Settlement),
                     failed.NavigationFailure
                         ?? "The active Workspace could not be settled."),
             DotnetInspect.Web.BrowserRetainedWorkspaceDeactivationResult
                     .NoEffect =>
-                new("noEffect", null, null),
+                new("noEffect", null, null, null),
             DotnetInspect.Web.BrowserRetainedWorkspaceDeactivationResult
                     .Rejected rejected =>
-                new("rejected", null, rejected.Message),
+                new("rejected", null, null, rejected.Message),
             _ => throw new InvalidOperationException(
                 "Retained Workspace deactivation returned an unsupported result."),
         };
         return result;
     }
+
+    internal static BrowserRetainedWorkspaceConsumerCompletionResult
+        CompleteDeactivation(
+            string receipt,
+            bool succeeded,
+            string? failure) =>
+        Completion(
+            _owner.CompleteConsumerDeactivation(
+                receipt,
+                succeeded,
+                failure));
 
     internal static string RecordConsumerPosting(
         string realizationId,
@@ -376,11 +1047,76 @@ internal static class BrowserRetainedWorkspaceActivationService
     {
         BrowserRetainedWorkspaceActivationOwner prior = _owner;
         _owner = CreateOwner();
+        lock (Gate)
+            Sessions.Clear();
         await prior.DisposeAsync().ConfigureAwait(false);
+    }
+
+    static BrowserRetainedWorkspaceActivationSession? FindSession(
+        string receipt)
+    {
+        if (string.IsNullOrWhiteSpace(receipt))
+            return null;
+        lock (Gate)
+            return Sessions.GetValueOrDefault(receipt);
     }
 
     static BrowserRetainedWorkspaceActivationOwner CreateOwner() =>
         new(BrowserCompleteRestorationOptions.Create);
+
+    static BrowserRetainedWorkspaceConsumerCompletionResult Completion(
+        DotnetInspect.Web.BrowserRetainedWorkspaceConsumerCompletionResult
+            completion) =>
+        completion switch
+        {
+            DotnetInspect.Web.BrowserRetainedWorkspaceConsumerCompletionResult
+                    .Completed completed =>
+                new(
+                    "completed",
+                    completed.Succeeded,
+                    completed.Failure,
+                    null),
+            DotnetInspect.Web.BrowserRetainedWorkspaceConsumerCompletionResult
+                    .Unavailable unavailable =>
+                new("unavailable", null, null, unavailable.Message),
+            _ => throw new InvalidOperationException(
+                "Retained Workspace consumer completion returned an unsupported result."),
+        };
+
+    static BrowserRetainedWorkspacePreparedPosting PreparedPosting(
+        BrowserRetainedWorkspacePostingDraft posting)
+    {
+        string canonicalPacket = CanonicalPacket(posting.Projection);
+        return new(
+            posting.RetainedDefinitionId,
+            posting.Label,
+            posting.CanonicalLocation,
+            canonicalPacket,
+            Definition(
+                canonicalPacket,
+                posting.Definition),
+            BrowserCatalogWireProjection.Project(
+                posting.Navigation.Result.Consumer),
+            [
+                .. posting.Packages.Select(
+                    static package =>
+                        new BrowserRetainedWorkspacePackageInventory(
+                            package.NavigationId,
+                            package.ContextIndex,
+                            package.ConsumerPackageSubjectId,
+                            Summary(package.Surface))),
+            ],
+            [
+                .. posting.Platforms.Select(
+                    static platform =>
+                        new BrowserRetainedWorkspacePlatformInventory(
+                            platform.NavigationId,
+                            platform.ContextIndex,
+                            platform.Family,
+                            platform.RuntimeIdentifier,
+                            Summary(platform.Surface))),
+            ]);
+    }
 
     static BrowserRetainedWorkspacePosting Posting(
         DotnetInspect.Web.BrowserRetainedWorkspacePosting posting) =>
@@ -393,7 +1129,11 @@ internal static class BrowserRetainedWorkspaceActivationService
                     "The packet activation export cannot project a non-packet retained definition."),
             posting.RealizationId,
             posting.PublicationOrdinal,
-            Definition(posting),
+            Definition(
+                posting.CanonicalPacket
+                    ?? throw new InvalidOperationException(
+                        "The packet activation export requires a canonical packet."),
+                posting.Definition),
             BrowserCatalogWireProjection.Project(posting.Navigation),
             [
                 .. posting.Packages.Select(
@@ -472,19 +1212,25 @@ internal static class BrowserRetainedWorkspaceActivationService
             surface.Documents.Count,
             surface.InspectionErrors.Length > 0 || surface.InspectionError is not null);
 
+    static string CanonicalPacket(
+        CompleteRestorationProjection projection) =>
+        projection is CompleteRestorationProjection.Projectable projectable
+            ? projectable.CanonicalPacket
+            : throw new InvalidOperationException(
+                "The packet activation export cannot project a non-packet retained definition.");
+
     static BrowserRetainedWorkspaceDefinitionState Definition(
-        DotnetInspect.Web.BrowserRetainedWorkspacePosting posting)
+        string canonicalPacket,
+        CommittedScenarioDefinitionSet definition)
     {
         WorkspaceSharePacket packet = WorkspaceSharePacketCodec.Decode(
-            posting.CanonicalPacket
-                ?? throw new InvalidOperationException(
-                    "The packet activation export requires a canonical packet."));
+            canonicalPacket);
         CommittedNavigationDefinition navigation =
-            posting.Definition.Navigation
+            definition.Navigation
             ?? throw new InvalidOperationException(
                 "A restored Workspace requires its Navigation definition.");
         WorkspaceDefinition workspace =
-            posting.Definition.Workspace
+            definition.Workspace
             ?? throw new InvalidOperationException(
                 "A restored Workspace requires its Workspace definition.");
         return new(
@@ -509,7 +1255,7 @@ internal static class BrowserRetainedWorkspaceActivationService
             ],
             [.. workspace.Registrations.Select(Registration)],
             navigation.Focus,
-            posting.Definition.Scenario.Context);
+            definition.Scenario.Context);
     }
 
     static BrowserRetainedWorkspaceRegistration Registration(

@@ -1,4 +1,4 @@
-using DotnetInspector.RowSelection;
+using QuerySpace.Rows;
 using ILInspector.Metadata;
 
 namespace DotnetInspector.Sections.Tests;

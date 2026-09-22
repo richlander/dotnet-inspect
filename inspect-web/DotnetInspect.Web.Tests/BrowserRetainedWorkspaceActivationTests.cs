@@ -1,8 +1,11 @@
 using System.Runtime.Versioning;
+using System.Text.Json;
+using DotnetInspect.Web.Interop.Catalog;
 using DotnetInspector.Packages;
 using DotnetInspector.Queries;
 using DotnetInspector.Queries.Definitions;
 using NuGetFetch;
+using Catalog = DotnetInspect.Web.Interop.Catalog;
 
 namespace DotnetInspect.Web.Tests;
 
@@ -15,6 +18,331 @@ public sealed class BrowserRetainedWorkspaceActivationCollection;
 [SupportedOSPlatform("browser")]
 public sealed partial class BrowserRetainedWorkspaceActivationTests
 {
+    [Fact]
+    public void PackageSourcePatBindings_AreRequiredBeforeSourceAuthorization()
+    {
+        const string endpoint =
+            "https://nuget.pkg.github.com/example/index.json";
+        CompleteRestorationExecutionOptions options =
+            BrowserCompleteRestorationOptions.Create();
+        WorkspacePackageSourceDefinition[] definitions =
+        [
+            new(
+                endpoint,
+                WorkspacePackageSourceAuthentication.AuthenticationRequired),
+        ];
+
+        CompleteRestorationExecutionOptions denied =
+            BrowserCompleteRestorationOptions.BindPackageSources(
+                options,
+                definitions,
+                new Dictionary<
+                    string,
+                    PackageSourceCredential>(StringComparer.Ordinal));
+        PackageSourceAuthorization deniedAuthorization =
+            denied.ContextLoad.SourceAuthorization.AuthorizeSourcesFor(
+                "Private.Package");
+        Assert.Empty(deniedAuthorization.Sources);
+        Assert.Contains(
+            "requires an explicit Basic credential",
+            deniedAuthorization.DenialReason,
+            StringComparison.Ordinal);
+
+        const string secret = "session-only-secret";
+        CompleteRestorationExecutionOptions bound =
+            BrowserCompleteRestorationOptions.BindPackageSources(
+                options,
+                definitions,
+                new Dictionary<
+                    string,
+                    PackageSourceCredential>(StringComparer.Ordinal)
+                {
+                    [endpoint] = new("example-user", secret),
+                });
+        PackageSource source = Assert.Single(
+            bound.ContextLoad.SourceAuthorization
+                .AuthorizeSourcesFor("Private.Package")
+                .Sources);
+
+        Assert.Equal(endpoint, source.Name);
+        Assert.Equal("example-user", source.Credential?.Username);
+        Assert.Equal(secret, source.Credential?.Password);
+        Assert.DoesNotContain(secret, source.ToString(), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void AuthenticationRequiredSourceWithoutCredential_IsDeniedBeforeBrowserNetworkWork()
+    {
+        CompleteRestorationExecutionOptions options =
+            BrowserCompleteRestorationOptions.Create();
+        CompleteRestorationExecutionOptions denied =
+            BrowserCompleteRestorationOptions.BindPackageSources(
+                options,
+                [
+                    new(
+                        "https://pkgs.dev.azure.com/example/_packaging/feed/nuget/v3/index.json",
+                        WorkspacePackageSourceAuthentication.AuthenticationRequired),
+                ],
+                new Dictionary<
+                    string,
+                    PackageSourceCredential>(StringComparer.Ordinal));
+
+        PackageSourceAuthorization authorization =
+            denied.ContextLoad.SourceAuthorization.AuthorizeSourcesFor(
+                "Private.Package");
+
+        Assert.Empty(authorization.Sources);
+        Assert.Contains(
+            "unavailable in Browser/Wasm",
+            authorization.DenialReason,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ActivationRequest_ToStringRedactsPackageSourceCredentials()
+    {
+        const string secret = "session-only-secret";
+        var request = new BrowserRetainedWorkspaceActivationRequest(
+            "workspace-1",
+            "Private",
+            "/private",
+            "packet",
+            new Dictionary<
+                string,
+                PackageSourceCredential>(StringComparer.Ordinal)
+            {
+                ["https://nuget.pkg.github.com/example/index.json"] =
+                    new("example-user", secret),
+            });
+
+        Assert.DoesNotContain(secret, request.ToString(), StringComparison.Ordinal);
+        Assert.Contains("<redacted>", request.ToString(), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void PackageSourceCredentialJson_BindsEndpointUsernameAndPat()
+    {
+        const string secret = "session-only-secret";
+        Dictionary<string, BrowserRetainedWorkspacePackageSourceCredential>
+            wireCredentials = Assert.IsType<Dictionary<
+                string,
+                BrowserRetainedWorkspacePackageSourceCredential>>(
+                    JsonSerializer.Deserialize(
+                        $$"""
+                        {
+                          "https://nuget.pkg.github.com/example/index.json": {
+                            "username": "example-user",
+                            "pat": "{{secret}}"
+                          }
+                        }
+                        """,
+                        BrowserCatalogJsonContext.Default
+                            .DictionaryStringBrowserRetainedWorkspacePackageSourceCredential));
+        IReadOnlyDictionary<string, PackageSourceCredential> credentials =
+            BrowserRetainedWorkspaceActivationService
+                .BindPackageSourceCredentials(wireCredentials);
+
+        PackageSourceCredential credential = Assert.Single(credentials).Value;
+        Assert.Equal("example-user", credential.Username);
+        Assert.Equal(secret, credential.Password);
+        Assert.DoesNotContain(secret, credential.ToString());
+    }
+
+    public static TheoryData<string, string>
+        InvalidPackageSourceCredentialJson =>
+        new()
+        {
+            {
+                "must be one JSON object",
+                "[]"
+            },
+            {
+                "contain only string 'username' and 'pat' properties",
+                """
+                {
+                  "https://nuget.pkg.github.com/example/index.json": {
+                    "username": "example-user",
+                    "pat": "secret",
+                    "token": "unexpected"
+                  }
+                }
+                """
+            },
+            {
+                "contain only string 'username' and 'pat' properties",
+                """
+                {
+                  "https://nuget.pkg.github.com/example/index.json": {
+                    "username": "example-user"
+                  }
+                }
+                """
+            },
+            {
+                "contain only string 'username' and 'pat' properties",
+                """
+                {
+                  "https://nuget.pkg.github.com/example/index.json": {
+                    "username": "first",
+                    "username": "second",
+                    "pat": "secret"
+                  }
+                }
+                """
+            },
+            {
+                "is duplicated",
+                """
+                {
+                  "https://private.example/index.json": {
+                    "username": "first",
+                    "pat": "secret"
+                  },
+                  "https://private.example/index.json": {
+                    "username": "second",
+                    "pat": "secret"
+                  }
+                }
+                """
+            },
+            {
+                "must be one JSON object",
+                CredentialJson(
+                    pat: new string('[', 8)
+                        + "\"secret\""
+                        + new string(']', 8),
+                    patIsJson: true)
+            },
+            {
+                "browser transport limit",
+                CredentialJson(
+                    pat: new string(
+                        'x',
+                        BrowserRetainedWorkspaceActivationService
+                            .PackageSourceCredentialsJsonLengthLimit))
+            },
+            {
+                "too many source entries",
+                JsonSerializer.Serialize(
+                    Enumerable.Range(
+                            0,
+                            WorkspaceSharePacketCodec.MaxPackageSources + 1)
+                        .ToDictionary(
+                            index =>
+                                $"https://source-{index}.example/index.json",
+                            _ =>
+                                new BrowserRetainedWorkspacePackageSourceCredential(
+                                    "example-user",
+                                    "secret"),
+                            StringComparer.Ordinal),
+                    BrowserCatalogJsonContext.Default
+                        .DictionaryStringBrowserRetainedWorkspacePackageSourceCredential)
+            },
+            {
+                "endpoint 'http://private.example/index.json' is invalid",
+                CredentialJson(endpoint: "http://private.example/index.json")
+            },
+            {
+                "invalid username",
+                CredentialJson(username: " ")
+            },
+            {
+                "invalid PAT length",
+                CredentialJson(pat: "")
+            },
+            {
+                "invalid PAT length",
+                CredentialJson(pat: new string('x', 64 * 1024 + 1))
+            },
+            {
+                "is duplicated",
+                """
+                {
+                  "https://PRIVATE.EXAMPLE/index.json": {
+                    "username": "first",
+                    "pat": "secret"
+                  },
+                  "https://private.example/index.json": {
+                    "username": "second",
+                    "pat": "secret"
+                  }
+                }
+                """
+            },
+        };
+
+    [Theory]
+    [MemberData(nameof(InvalidPackageSourceCredentialJson))]
+    public async Task PackageSourceCredentialJson_RejectsUnauthenticatedShapes(
+        string expectedMessage,
+        string json)
+    {
+        Catalog.BrowserRetainedWorkspacePreparationResult preparation =
+            Assert.IsType<Catalog.BrowserRetainedWorkspacePreparationResult>(
+                JsonSerializer.Deserialize(
+                    await CatalogExports
+                        .PrepareRetainedWorkspaceDefinitionWithCredentials(
+                            "workspace-1",
+                            "Private",
+                            "/private",
+                            "packet",
+                            json),
+                    BrowserCatalogJsonContext.Default
+                        .BrowserRetainedWorkspacePreparationResult));
+        Assert.Equal("failed", preparation.Status);
+        Assert.Equal("InvalidRequest", preparation.Failure?.Kind);
+        Assert.Contains(
+            expectedMessage,
+            preparation.Failure?.Message,
+            StringComparison.Ordinal);
+
+        Catalog.BrowserRetainedWorkspaceActivationResult activation =
+            Assert.IsType<Catalog.BrowserRetainedWorkspaceActivationResult>(
+                JsonSerializer.Deserialize(
+                    await CatalogExports
+                        .ActivateRetainedWorkspaceDefinitionWithCredentials(
+                            "workspace-1",
+                            "Private",
+                            "/private",
+                            "packet",
+                            json),
+                    BrowserCatalogJsonContext.Default
+                        .BrowserRetainedWorkspaceActivationResult));
+        Assert.Equal("failed", activation.Status);
+        Assert.Equal("InvalidRequest", activation.Failure?.Kind);
+        Assert.Equal(preparation.Failure, activation.Failure);
+    }
+
+    static string CredentialJson(
+        string endpoint = "https://private.example/index.json",
+        string username = "example-user",
+        string pat = "secret",
+        bool patIsJson = false)
+    {
+        if (patIsJson)
+        {
+            return $$"""
+                {
+                  "{{endpoint}}": {
+                    "username": "{{username}}",
+                    "pat": {{pat}}
+                  }
+                }
+                """;
+        }
+
+        return JsonSerializer.Serialize(
+            new Dictionary<
+                string,
+                BrowserRetainedWorkspacePackageSourceCredential>(
+                    StringComparer.Ordinal)
+            {
+                [endpoint] = new(username, pat),
+            },
+            BrowserCatalogJsonContext.Default
+                .DictionaryStringBrowserRetainedWorkspacePackageSourceCredential);
+    }
+
     [Fact]
     public async Task A_B_A_RestoresWholeWorkspaceAndSelectedPackage()
     {
@@ -347,6 +675,238 @@ public sealed partial class BrowserRetainedWorkspaceActivationTests
                 await replacement);
         Assert.Equal("b", activated.Posting.RetainedDefinitionId);
         Assert.Equal("b", activationOwner.Active!.RetainedDefinitionId);
+    }
+
+    [Fact]
+    public async Task PreparedCandidateRequiresConsumerCommitBeforeCutover()
+    {
+        CompleteRestorationExecutionOptions options = await OptionsAsync();
+        string packet = Packet();
+        await using var owner =
+            new BrowserRetainedWorkspaceActivationOwner(() => options);
+        BrowserRetainedWorkspacePosting incumbent =
+            await ActivateAsync(owner, "a", packet);
+
+        BrowserRetainedWorkspaceActivationSession session =
+            owner.BeginActivation(
+                Request("b", packet),
+                TestContext.Current.CancellationToken);
+        var prepared = Assert.IsType<
+            BrowserRetainedWorkspacePreparationResult.Prepared>(
+                await session.Preparation);
+
+        Assert.Equal("b", prepared.Posting.RetainedDefinitionId);
+        Assert.Same(incumbent, owner.Active);
+        Assert.False(session.Activation.IsCompleted);
+        Assert.True(session.Commit());
+        var activated = Assert.IsType<
+            BrowserRetainedWorkspaceActivationResult.Activated>(
+                await session.Activation);
+        Assert.Same(activated.Posting, owner.Active);
+        Assert.IsType<
+            BrowserRetainedWorkspaceConsumerCompletionResult.Completed>(
+                session.Complete(succeeded: true, failure: null));
+    }
+
+    [Fact]
+    public async Task RejectedPreparedCandidatePreservesIncumbent()
+    {
+        CompleteRestorationExecutionOptions options = await OptionsAsync();
+        string packet = Packet();
+        await using var owner =
+            new BrowserRetainedWorkspaceActivationOwner(() => options);
+        BrowserRetainedWorkspacePosting incumbent =
+            await ActivateAsync(owner, "a", packet);
+
+        BrowserRetainedWorkspaceActivationSession session =
+            owner.BeginActivation(
+                Request("b", packet),
+                TestContext.Current.CancellationToken);
+        Assert.IsType<BrowserRetainedWorkspacePreparationResult.Prepared>(
+            await session.Preparation);
+        Assert.True(session.Cancel());
+        Assert.IsType<BrowserRetainedWorkspaceActivationResult.Superseded>(
+            await session.Activation);
+
+        Assert.Same(incumbent, owner.Active);
+        Assert.Equal(1, owner.Capacity.Charged);
+        Assert.False(session.Commit());
+        Assert.IsType<
+            BrowserRetainedWorkspaceConsumerCompletionResult.Unavailable>(
+                session.Complete(succeeded: true, failure: null));
+    }
+
+    [Fact]
+    public async Task CommitCompletionKeepsTransitionOwned()
+    {
+        CompleteRestorationExecutionOptions options = await OptionsAsync();
+        string packet = Packet();
+        await using var owner =
+            new BrowserRetainedWorkspaceActivationOwner(() => options);
+        using var cancellation = new CancellationTokenSource();
+
+        BrowserRetainedWorkspaceActivationSession session =
+            owner.BeginActivation(
+                Request("a", packet),
+                cancellation.Token);
+        bool committed = session.Commit();
+        Assert.IsType<BrowserRetainedWorkspacePreparationResult.Prepared>(
+            await session.Preparation);
+        Assert.True(committed || session.Commit());
+        cancellation.Cancel();
+        Assert.IsType<BrowserRetainedWorkspaceActivationResult.Activated>(
+            await session.Activation);
+
+        BrowserRetainedWorkspaceActivationSession blocked =
+            owner.BeginActivation(
+                Request("b", packet),
+                TestContext.Current.CancellationToken);
+        var failed = Assert.IsType<
+            BrowserRetainedWorkspacePreparationResult.Failed>(
+                await blocked.Preparation);
+        Assert.Contains(
+            "awaiting consumer completion",
+            failed.Failure.Message,
+            StringComparison.Ordinal);
+        Assert.IsType<
+            BrowserRetainedWorkspaceConsumerCompletionResult.Completed>(
+                session.Complete(succeeded: true, failure: null));
+        Assert.IsType<
+            BrowserRetainedWorkspaceConsumerCompletionResult.Unavailable>(
+                session.Complete(succeeded: true, failure: null));
+
+        BrowserRetainedWorkspacePosting replacement =
+            await ActivateAsync(owner, "b", packet);
+        Assert.Equal("b", replacement.RetainedDefinitionId);
+    }
+
+    [Fact]
+    public async Task CompletionFailureCannotRestorePredecessor()
+    {
+        CompleteRestorationExecutionOptions options = await OptionsAsync();
+        string packet = Packet();
+        await using var owner =
+            new BrowserRetainedWorkspaceActivationOwner(() => options);
+        BrowserRetainedWorkspacePosting incumbent =
+            await ActivateAsync(owner, "a", packet);
+        NavigationEffectAuthority incumbentAuthority =
+            Assert.IsType<NavigationEffectAuthority>(
+                incumbent.Navigation.Authority);
+
+        BrowserRetainedWorkspaceActivationSession session =
+            owner.BeginActivation(
+                Request("b", packet),
+                TestContext.Current.CancellationToken);
+        Assert.IsType<BrowserRetainedWorkspacePreparationResult.Prepared>(
+            await session.Preparation);
+        Assert.True(session.Commit());
+        var activated = Assert.IsType<
+            BrowserRetainedWorkspaceActivationResult.Activated>(
+                await session.Activation);
+        NavigationEffectAuthority successorAuthority =
+            Assert.IsType<NavigationEffectAuthority>(
+                activated.Posting.Navigation.Authority);
+        var completed = Assert.IsType<
+            BrowserRetainedWorkspaceConsumerCompletionResult.Completed>(
+                session.Complete(
+                    succeeded: false,
+                    failure: "Injected consumer failure."));
+
+        Assert.False(completed.Succeeded);
+        Assert.Equal("Injected consumer failure.", completed.Failure);
+        Assert.Same(activated.Posting, owner.Active);
+        Assert.Equal("b", owner.Active!.RetainedDefinitionId);
+        Assert.False(
+            owner.ValidateNavigationAuthority(
+                activated.Posting.RealizationId,
+                activated.Posting.PublicationOrdinal,
+                successorAuthority));
+        Assert.False(
+            owner.ValidateNavigationAuthority(
+                incumbent.RealizationId,
+                incumbent.PublicationOrdinal,
+                incumbentAuthority));
+        Assert.NotNull(activated.Posting.Predecessor);
+        Assert.IsType<BrowserRetainedWorkspaceSettlementResult.Settled>(
+            await owner.ObserveSettlementAsync(
+                activated.Posting.Predecessor.SettlementId,
+                TestContext.Current.CancellationToken));
+    }
+
+    [Fact]
+    public async Task DisposeClosesCommittedActivationAwaitingCompletion()
+    {
+        CompleteRestorationExecutionOptions options = await OptionsAsync();
+        string packet = Packet();
+        var owner =
+            new BrowserRetainedWorkspaceActivationOwner(() => options);
+        BrowserRetainedWorkspaceActivationSession session =
+            owner.BeginActivation(
+                Request("a", packet),
+                TestContext.Current.CancellationToken);
+        Assert.IsType<BrowserRetainedWorkspacePreparationResult.Prepared>(
+            await session.Preparation);
+        Assert.True(session.Commit());
+        Assert.IsType<BrowserRetainedWorkspaceActivationResult.Activated>(
+            await session.Activation);
+
+        await owner.DisposeAsync();
+
+        Assert.Null(owner.Active);
+        Assert.IsType<
+            BrowserRetainedWorkspaceConsumerCompletionResult.Unavailable>(
+                session.Complete(succeeded: true, failure: null));
+    }
+
+    [Fact]
+    public async Task SoleActiveDeactivationRequiresMatchingConsumerCompletion()
+    {
+        CompleteRestorationExecutionOptions options = await OptionsAsync();
+        string packet = Packet();
+        await using var owner =
+            new BrowserRetainedWorkspaceActivationOwner(() => options);
+        _ = await ActivateAsync(owner, "a", packet);
+
+        var deactivated = Assert.IsType<
+            BrowserRetainedWorkspaceDeactivationResult.Deactivated>(
+                await owner.BeginDeactivationAsync(
+                    "a",
+                    TestContext.Current.CancellationToken));
+        Assert.Null(owner.Active);
+
+        var blocked = Assert.IsType<
+            BrowserRetainedWorkspacePreparationResult.Failed>(
+                await owner.BeginActivation(
+                        Request("b", packet),
+                        TestContext.Current.CancellationToken)
+                    .Preparation);
+        Assert.Contains(
+            "still draining",
+            blocked.Failure.Message,
+            StringComparison.Ordinal);
+        Assert.IsType<
+            BrowserRetainedWorkspaceConsumerCompletionResult.Unavailable>(
+                owner.CompleteConsumerDeactivation(
+                    "workspace-deactivation-wrong",
+                    succeeded: true,
+                    failure: null));
+
+        Assert.IsType<
+            BrowserRetainedWorkspaceConsumerCompletionResult.Completed>(
+                owner.CompleteConsumerDeactivation(
+                    deactivated.CompletionReceipt,
+                    succeeded: true,
+                    failure: null));
+        Assert.IsType<
+            BrowserRetainedWorkspaceConsumerCompletionResult.Unavailable>(
+                owner.CompleteConsumerDeactivation(
+                    deactivated.CompletionReceipt,
+                    succeeded: true,
+                    failure: null));
+
+        BrowserRetainedWorkspacePosting replacement =
+            await ActivateAsync(owner, "b", packet);
+        Assert.Equal("b", replacement.RetainedDefinitionId);
     }
 
     [Fact]

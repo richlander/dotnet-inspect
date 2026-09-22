@@ -1596,6 +1596,46 @@ The current `PlatformTypeCatalog` is therefore migration evidence, not the
 future public API. Its useful indexing behavior moves behind the House; its
 source-selection heuristics do not become identity or Metadata policy.
 
+Stage 7b derives one complete reference catalog from one completed population
+and its still-active ordered Library owners. The derivation:
+
+- consumes the population value and receipt issued by the same completed House
+  operation rather than rediscovering a target, source, directory, or path;
+- issues one operation lease per exact population member and consumes
+  LibraryMetadata's detached declaration correspondence for that member's API
+  content;
+- retains the exact population member, API-content reference, module-version
+  identity, structured Metadata declaration, and declaration kind for every
+  public discovery entry, including module exports;
+- enforces finite member-inspection, population-assembly, aggregate-byte,
+  retained-entry, and duration bounds before publishing;
+- publishes only after every population member succeeds and all bounds remain
+  satisfied; and
+- closes every operation lease before returning while leaving population-owner
+  retirement with the caller.
+
+The completed catalog retains only the resource-free population value, its
+exact population receipt, consumed derivation work, and detached entries. The
+receipt keeps the original target demand, exact selected target, source
+generations and settlements, Reference view, and authoritative
+complete-population evidence visible. Exact structured lookup returns every
+candidate for one `MetadataTypeDefinitionName`, or `Missing` only from that
+completed catalog.
+
+Member inspection rejection or failure remains typed and names the exact
+population member. Member or aggregate bound exhaustion and deadline
+exhaustion return `Incomplete`; no prefix catalog or lookup result escapes.
+Every completed or terminal derivation outcome retains the same resource-free
+population value and receipt, so non-success cannot lose its target, source,
+view, or completeness context.
+Cancellation is observed after the active member lease closes and remains
+cancellation. If a member owner is already retiring or released, derivation is
+rejected without retiring any neighboring owner.
+
+This facet does not parse user text, prefer definitions over forwarders,
+collapse duplicate names, choose among candidates, or perform Metadata
+binding. Those policies remain downstream of the complete structured index.
+
 ## Documentation handoff boundary
 
 PlatformHouse no longer settles documentation. It supplies only the platform
@@ -2051,9 +2091,16 @@ Step 7 is staged without changing the ten-step count. Step 7a, tracked by
 [#7892](https://github.com/richlander/dotnet-inspect/issues/7892), selects one
 family-default target and realizes its authoritative complete reference
 population in the same closed operation. Step 7b derives the target-bound type
-catalog from that population before the later Metadata resolution and
-host-adoption slices. The stage-7a population operation does not expose catalog
-semantics or change CLI or Inspect Web routing.
+catalog from that population through LibraryMetadata's exact declaration
+correspondence. Step 7c, implemented under
+[#8096](https://github.com/richlander/dotnet-inspect/issues/8096), adapts user
+text to that resource-free catalog with typed resolved, ambiguous, missing, and
+rejected outcomes. The stage-7a population operation does not expose catalog
+semantics or change CLI or Inspect Web routing. Step 9a, tracked by
+[#8164](https://github.com/richlander/dotnet-inspect/issues/8164), adopts the
+family-default population and catalog query for versionless bare CLI type and
+member routing. Browser/Wasm adoption, exact-demand Metadata binding, and
+Services-era resolver retirement remain later focused slices.
 
 The step-6 ownership correction was designed under
 [#6984](https://github.com/richlander/dotnet-inspect/issues/6984). It adopts

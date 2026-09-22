@@ -1,5 +1,5 @@
 using System.Reflection;
-using DotnetInspector.RowSelection;
+using QuerySpace.Rows;
 
 namespace DotnetInspector.Sections.Tests;
 
@@ -207,6 +207,165 @@ public sealed class RowQueryContractTests
         Assert.Same(rows[0], result.Values[0]);
         Assert.Same(rows[2], result.Values[1]);
         Assert.Same(rows[4], result.Values[2]);
+    }
+
+    [Fact]
+    public void PredicateFreeUnorderedSelectionPreservesSnapshots()
+    {
+        VocabularyFixture fixture = Vocabulary();
+        ResolvedRowQueryPlan<QueryRow> plan =
+            AssertSuccess(
+                RowQueryResolver.Resolve(
+                    fixture.Vocabulary,
+                    Intent(
+                        selection:
+                        [
+                            RowSelectionIntentOperation<
+                                RowQueryOrderIntent>.Tail(2)
+                        ])));
+        QueryRow[] rows =
+        [
+            new("A", 1, 1, "x"),
+            new("B", 2, 1, "x"),
+            new("C", 3, 1, "x")
+        ];
+        NamedRowSequence<QueryRow>[] named =
+        [
+            NamedRowSequence<QueryRow>.Create(
+                RowSequenceKey.Create(1),
+                rows),
+        ];
+
+        RowSelectionResult<QueryRow> result =
+            RowQueryExecutor.Apply(rows, plan);
+        NamedRowSelectionResult<QueryRow> namedResult =
+            RowQueryExecutor.ApplyNamed(named, plan);
+        rows[1] = new("Changed", 4, 1, "x");
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal(
+            ["B", "C"],
+            result.Values.Select(row => row.Name));
+        Assert.True(namedResult.IsSuccess);
+        Assert.Equal(
+            ["B", "C"],
+            Assert.Single(namedResult.Sequences)
+                .Values
+                .Select(row => row.Name));
+    }
+
+    [Fact]
+    public void CountAccelerationAdmitsOnlyPredicateFreeUnorderedPlans()
+    {
+        VocabularyFixture fixture = Vocabulary();
+        ResolvedRowQueryPlan<QueryRow> selection =
+            AssertSuccess(
+                RowQueryResolver.Resolve(
+                    fixture.Vocabulary,
+                    Intent(
+                        selection:
+                        [
+                            RowSelectionIntentOperation<
+                                RowQueryOrderIntent>.Tail(2)
+                        ])));
+
+        Assert.True(
+            RowQueryExecutor.TryApplyCount(
+                5,
+                selection,
+                out RowSelectionCountResult count));
+        Assert.True(count.IsSuccess);
+        Assert.Equal(2, count.Count);
+
+        ResolvedRowQueryPlan<QueryRow> predicate =
+            AssertSuccess(
+                RowQueryResolver.Resolve(
+                    fixture.Vocabulary,
+                    Intent(
+                        predicates:
+                        [
+                            Predicate(
+                                "score",
+                                RowQueryOperator.GreaterOrEqual,
+                                "2")
+                        ])));
+        Assert.False(
+            RowQueryExecutor.TryApplyCount(
+                5,
+                predicate,
+                out _));
+
+        ResolvedRowQueryPlan<QueryRow> baseline =
+            AssertSuccess(
+                RowQueryResolver.Resolve(
+                    fixture.Vocabulary,
+                    Intent(
+                        baseline:
+                            RowQueryOrderIntent.Named(
+                                "score-order",
+                                RowQueryOrderDirection.Ascending))));
+        Assert.False(
+            RowQueryExecutor.TryApplyCount(
+                5,
+                baseline,
+                out _));
+
+        ResolvedRowQueryPlan<QueryRow> top =
+            AssertSuccess(
+                RowQueryResolver.Resolve(
+                    fixture.Vocabulary,
+                    Intent(
+                        selection:
+                        [
+                            RowSelectionIntentOperation<
+                                RowQueryOrderIntent>.Top(
+                                2,
+                                RowQueryOrderIntent.Named(
+                                    "score-order",
+                                    RowQueryOrderDirection.Ascending))
+                        ])));
+        Assert.False(
+            RowQueryExecutor.TryApplyCount(
+                5,
+                top,
+                out RowSelectionCountResult topDeclined));
+        Assert.False(topDeclined.IsSuccess);
+        Assert.Null(topDeclined.Failure);
+
+        ResolvedRowQueryPlan<QueryRow> windowThenTop =
+            AssertSuccess(
+                RowQueryResolver.Resolve(
+                    fixture.Vocabulary,
+                    Intent(
+                        selection:
+                        [
+                            RowSelectionIntentOperation<
+                                RowQueryOrderIntent>.Window(
+                                    1,
+                                    2),
+                            RowSelectionIntentOperation<
+                                RowQueryOrderIntent>.Top(
+                                    1,
+                                    RowQueryOrderIntent.Named(
+                                        "score-order",
+                                        RowQueryOrderDirection.Ascending))
+                        ])));
+        Assert.False(
+            RowQueryExecutor.CanApplyCount(windowThenTop));
+        Assert.False(
+            RowQueryExecutor.TryApplyCount(
+                0,
+                windowThenTop,
+                out RowSelectionCountResult emptyDeclined));
+        Assert.False(emptyDeclined.IsSuccess);
+        Assert.Null(emptyDeclined.Failure);
+        Assert.False(
+            RowQueryExecutor.TryApplyCount(
+                3,
+                windowThenTop,
+                out RowSelectionCountResult populatedDeclined));
+        Assert.False(populatedDeclined.IsSuccess);
+        Assert.Null(populatedDeclined.Failure);
     }
 
     [Fact]
@@ -806,6 +965,34 @@ public sealed class RowQueryContractTests
                     [new("A", 1, 1, "x")],
                     baselineFactoryPlan)));
         Assert.Equal(2, baselineFactoryCalls);
+
+        ResolvedRowQueryPlan<QueryRow> competingFailurePlan =
+            AssertSuccess(
+                RowQueryResolver.Resolve(
+                    RowQueryVocabulary<QueryRow>.Create(
+                        RowQueryVocabularyIdentity.Create(),
+                        [predicateKey],
+                        [baselineFactoryOrder]),
+                    Intent(
+                        predicates:
+                        [
+                            Predicate(
+                                "value",
+                                RowQueryOperator.Equals,
+                                "1")
+                        ],
+                        baseline:
+                            RowQueryOrderIntent.Named(
+                                "baseline-throwing",
+                                RowQueryOrderDirection.Ascending))));
+        baselineFactoryCalls = 0;
+        Assert.Same(
+            predicateException,
+            Assert.Throws<SentinelException>(
+                () => RowQueryExecutor.Apply(
+                    [new("A", 1, 1, "x")],
+                    competingFailurePlan)));
+        Assert.Equal(0, baselineFactoryCalls);
 
         var comparerException =
             new SentinelException("comparer");

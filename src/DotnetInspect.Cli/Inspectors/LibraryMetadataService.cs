@@ -8,7 +8,7 @@ using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Output;
 using DotnetInspector.Packages;
 using DotnetInspector.Queries;
-using DotnetInspector.RowSelection;
+using QuerySpace.Rows;
 using DotnetInspector.Sections;
 using DotnetInspect.Cli.Sections;
 using DotnetInspector.Services;
@@ -529,7 +529,8 @@ internal static class LibraryMetadataService
             features |= Analysis.LibraryBodyAnalysisFeatures.MethodEvidence;
         }
         if (queries?.Contains(
-                ImplementationProfilesQuery.Definition) == true)
+                ImplementationProfilesQuery.Definition) == true
+            || queries?.Contains(LibraryMetricsQuery.Definition) == true)
         {
             features |= Analysis.LibraryBodyAnalysisFeatures
                 .ImplementationProfiles;
@@ -2212,6 +2213,13 @@ internal static class LibraryMetadataService
         }
 
         if (results.TryGet(
+                LibraryMetricsQuery.Definition,
+                out LibraryMetricsResult? libraryMetrics))
+        {
+            ApplyLibraryMetricsResult(path, inspection, logger, libraryMetrics);
+        }
+
+        if (results.TryGet(
                 OptimizationOpportunitiesQuery.Definition,
                 out OptimizationOpportunitiesResult? optimizationOpportunities))
         {
@@ -2483,6 +2491,34 @@ internal static class LibraryMetadataService
         }
     }
 
+    internal static void ApplyLibraryMetricsResult(
+        string path,
+        LibraryInspection inspection,
+        VerboseLogger logger,
+        LibraryMetricsResult result)
+    {
+        inspection.LibraryMetricsQueryResult = result;
+
+        switch (result)
+        {
+            case LibraryMetricsResult.Available:
+            case LibraryMetricsResult.Unavailable:
+            case LibraryMetricsResult.NoMetadata:
+                break;
+
+            case LibraryMetricsResult.Failed failed:
+                logger.LogWarning(
+                    $"Error collecting library metrics in {path}: "
+                    + failed.Error.Message);
+                break;
+
+            default:
+                throw new InvalidOperationException(
+                    "Unknown library metrics result "
+                    + $"'{result.GetType().Name}'.");
+        }
+    }
+
     internal static ImmutableArray<Analysis.OptimizationOpportunity>
         SelectPerformanceTriageOpportunities(
             OptimizationOpportunitiesResult.Available available,
@@ -2623,6 +2659,7 @@ internal static class LibraryMetadataService
         VerboseLogger logger,
         AssemblyReferencesResult result)
     {
+        inspection.AssemblyReferencesQueryResult = result;
         switch (result)
         {
             case AssemblyReferencesResult.Available available:

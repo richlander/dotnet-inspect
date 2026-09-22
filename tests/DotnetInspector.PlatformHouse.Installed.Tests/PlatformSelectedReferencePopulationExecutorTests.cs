@@ -1,4 +1,5 @@
 using System.Reflection.Metadata;
+using DotnetInspector.LibraryMetadata;
 using DotnetInspector.PlatformHouse;
 using DotnetInspector.Platforms;
 using ILInspector.Metadata;
@@ -110,6 +111,51 @@ public sealed class PlatformSelectedReferencePopulationExecutorTests
             context.Contents.Sum(static content => content.Bytes.LongLength),
             receipt.ConsumedWork.Bytes);
 
+        MetadataTypeDefinitionName executorName = Name(
+            "DotnetInspector.PlatformHouse",
+            "PlatformHouseSelectedReferencePopulationExecutor");
+        var catalogBounds = new PlatformTypeCatalogDerivationBounds(
+            new LibraryTypeDeclarationInventoryInspectionBounds(
+                maximumAssemblyBytes: 16 * 1024 * 1024,
+                maximumRetainedDeclarations: 100_000),
+            maximumAssemblies: 8,
+            maximumAggregateAssemblyBytes: 64 * 1024 * 1024,
+            maximumRetainedEntries: 200_000,
+            maximumDuration: TimeSpan.FromSeconds(30));
+        PlatformTypeCatalog catalog = Assert.IsType<
+                PlatformTypeCatalogDerivationOutcome.Completed>(
+                PlatformTypeCatalogDerivation.Execute(
+                    completed.Population,
+                    catalogBounds,
+                    TestContext.Current.CancellationToken))
+            .Catalog;
+        Assert.Same(
+            completed.Population.Value,
+            catalog.Population);
+        Assert.Same(
+            completed.Population.Receipt,
+            catalog.PopulationReceipt);
+        Assert.Same(context.Request.Snapshot, catalog.PopulationReceipt
+            .HouseReceipt.Request);
+        Assert.Equal(context.InstalledTarget, catalog.Target);
+        Assert.Equal(PlatformViewDemand.Reference, catalog.View);
+        Assert.True(
+            catalog.Work.Elapsed < catalogBounds.MaximumDuration);
+        Assert.Equal(context.Contents.Count, catalog.Work.ObservedAssemblies);
+        Assert.Equal(
+            context.Contents.Sum(static content => content.Bytes.LongLength),
+            catalog.Work.ObservedAssemblyBytes);
+        PlatformTypeCatalogEntry executor = Assert.Single(
+            Assert.IsType<PlatformTypeCatalogLookupOutcome.Found>(
+                    catalog.Lookup(executorName))
+                .Candidates);
+        Assert.Same(
+            completed.Population.Value.Members[1],
+            executor.Member);
+        Assert.Equal(
+            AssemblyTypeDeclarationKind.Definition,
+            executor.Kind);
+
         Task artifactRetirement =
             completed.Artifacts.DisposeAsync().AsTask();
         Assert.False(artifactRetirement.IsCompleted);
@@ -123,6 +169,13 @@ public sealed class PlatformSelectedReferencePopulationExecutorTests
         }
         await artifactRetirement.WaitAsync(
             TestContext.Current.CancellationToken);
+        Assert.Same(
+            executor,
+            Assert.Single(
+                Assert.IsType<
+                        PlatformTypeCatalogLookupOutcome.Found>(
+                        catalog.Lookup(executorName))
+                    .Candidates));
     }
 
     [Fact]
@@ -503,6 +556,15 @@ public sealed class PlatformSelectedReferencePopulationExecutorTests
         await retirement.WaitAsync(
             TestContext.Current.CancellationToken);
     }
+
+    static MetadataTypeDefinitionName Name(
+        string @namespace,
+        params string[] segments) =>
+        Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
+                MetadataTypeDefinitionName.Create(
+                    @namespace,
+                    [.. segments]))
+            .Name;
 
     static string TerminalMessage(
         PlatformPopulationArtifactMaterializationOutcome.Terminal terminal)

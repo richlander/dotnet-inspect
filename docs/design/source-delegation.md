@@ -535,6 +535,14 @@ supported one; this is stated behavior verified by ordinary tests, not a
 named gate, because no promised safety property depends on which supported
 candidate wins.
 
+[Query Space Composition](query-space-composition.md) records the separately
+approved target in which an incomplete or semantically bounded result may
+preserve one opaque source-owned continuation receipt for a higher-level
+consumer. This contract has not adopted that target: its current result
+algebra still carries no cursor. A focused Source Delegation successor must
+define continuation correspondence, consistency, portability, authority, and
+completion interaction before any implementation exposes one.
+
 ## Security and platform boundary
 
 Remote content does not mint member or completion-requirement identities and

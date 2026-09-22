@@ -1,11 +1,10 @@
 using System.Collections.Immutable;
 using DotnetInspect.Cli.Output;
-using DotnetInspect.Cli.CommandLine;
 using DotnetInspect.Cli.Sections;
 using DotnetInspector.Ecosystems;
-using DotnetInspector.PortableQueries;
+using QuerySpace;
 using DotnetInspector.Queries;
-using DotnetInspector.RowSelection;
+using QuerySpace.Rows;
 using DotnetInspector.Sections;
 
 namespace DotnetInspect.Cli.Options;
@@ -15,7 +14,6 @@ public sealed record PackageQueryOptions : IProjectionOptions
     public const int MaximumCandidates = 1_000;
 
     public required PackageQueryPlan Plan { get; init; }
-    internal PackageAssemblySemanticQueryCliPlan? LibraryLiteralPlan { get; init; }
     public bool SemanticHeadPushedDown { get; init; }
     public RowSelectionIntent<string> RowSelection => Plan.RowSelection;
     public bool Count { get; init; }
@@ -55,7 +53,10 @@ public sealed record PackageQueryOptions : IProjectionOptions
         .. CliTerms.Select(term => new SectionQueryKey(
             term.Descriptor.Key,
             ["--where"],
-            [.. term.Operators.Select(Comparison)],
+            [
+                .. term.Operators.Select(
+                    RowPredicateSyntaxParser.Comparison),
+            ],
             term.Descriptor.ValueKind,
             [.. term.Descriptor.Options.Select(option => option.Value)],
             $"--where \"{term.Descriptor.Key}={term.Descriptor.ExampleValue}\"",
@@ -67,6 +68,8 @@ public sealed record PackageQueryOptions : IProjectionOptions
         "Use package query with repeated --where terms. "
         + "Terms are ANDed; repeated tool-format values are ORed. "
         + "depends=<package ID> matches a direct declared dependency; "
+        + "depends starts-with <package ID prefix> matches a direct declared "
+        + "dependency by literal prefix; "
         + "depends-transitive=<package ID> requires dependency-target=<TFM> "
         + "and dependency-depth=2|3|4; "
         + "dependencies=cross-prefix matches a dependency from another first ID segment; "
@@ -77,6 +80,9 @@ public sealed record PackageQueryOptions : IProjectionOptions
         + "Selecting a nuspec-expensive term evaluates at most "
         + PackageQuery.MaximumNuspecExpensiveCandidates
         + " candidates. "
+        + "Selecting a metadata-expensive term evaluates at most "
+        + PackageQuery.MaximumMetadataExpensiveCandidates
+        + " candidates and requires --tfm. "
         + "Selecting a package-content term authorizes at most "
         + PackageQuery.MaximumPackageContentCandidates
         + " candidates; --nuspec-only rejects those terms. "
@@ -98,7 +104,6 @@ public sealed record PackageQueryOptions : IProjectionOptions
             take,
             rowSelection,
             includePrerelease,
-            libraryLiteral: null,
             targetFramework: null,
             out options,
             out error);
@@ -110,80 +115,11 @@ public sealed record PackageQueryOptions : IProjectionOptions
         int? take,
         RowSelectionIntent<string>? rowSelection,
         bool includePrerelease,
-        string? libraryLiteral,
         string? targetFramework,
         out PackageQueryOptions? options,
         out OptionError error)
     {
         options = null;
-        if (libraryLiteral is not null)
-        {
-            if (expressions.Count > 0)
-            {
-                error =
-                    "--library-literal cannot yet be combined with --where; "
-                    + "run the package filters and library-literal query separately.";
-                return false;
-            }
-            if (nuspecOnly)
-            {
-                error =
-                    "--library-literal requires package and assembly content "
-                    + "and cannot be combined with --nuspec-only.";
-                return false;
-            }
-            if (string.IsNullOrWhiteSpace(targetFramework))
-            {
-                error =
-                    "--library-literal requires an explicit --tfm "
-                    + "(for example --tfm net10.0).";
-                return false;
-            }
-
-            try
-            {
-                PackageAssemblySemanticQueryCliPlan semanticPlan =
-                    PackageAssemblySemanticQueryCliPlan.Create(
-                        input,
-                        libraryLiteral,
-                        targetFramework,
-                        take,
-                        includePrerelease);
-                int semanticMaximumCandidates =
-                    semanticPlan.Population
-                        is PackageAssemblySemanticQueryPopulationPlan.Prefix
-                            prefix
-                        ? prefix.MaximumCandidates
-                        : 1;
-                PackageQueryPlanResult packagePlan = PackageQuery.PlanInput(
-                    input,
-                    terms: null,
-                    maximumCandidates: semanticMaximumCandidates,
-                    maximumMatches: null,
-                    includePrerelease: includePrerelease,
-                    rowSelection: rowSelection);
-                if (packagePlan
-                    is PackageQueryPlanResult.Rejected semanticRejected)
-                {
-                    error = semanticRejected.Failure.Message;
-                    return false;
-                }
-
-                options = new PackageQueryOptions
-                {
-                    Plan = ((PackageQueryPlanResult.Accepted)packagePlan).Plan,
-                    LibraryLiteralPlan = semanticPlan,
-                };
-                error = "";
-                return true;
-            }
-            catch (ArgumentException ex)
-            {
-                error = ex.Message;
-                return false;
-            }
-        }
-
         var terms = ImmutableArray.CreateBuilder<PortableQueryTerm>();
         foreach (string expression in expressions)
         {
@@ -195,31 +131,39 @@ public sealed record PackageQueryOptions : IProjectionOptions
                 return false;
             }
 
-            if (syntax.Operator != RowPredicateOperator.Equals)
-            {
-                error =
-                    "Package Query terms currently support equality; run "
-                    + "'package query -Q Packages' for keys and values.";
-                return false;
-            }
-
             PackageQueryRegisteredTerm? registeredTerm = CliTerms.FirstOrDefault(
                 term => term.Descriptor.Key.Equals(
                     syntax.Field,
                     StringComparison.OrdinalIgnoreCase));
-            if (registeredTerm is not null)
+            if (registeredTerm is null)
             {
-                terms.Add(new PortableQueryTerm(
-                    registeredTerm.Descriptor.Key,
-                    PortableQueryOperator.Equal,
-                    syntax.Value));
-                continue;
+                error =
+                    $"Package Query does not define term '{syntax.Field}'; run "
+                    + "'package query -Q Packages' for the current vocabulary.";
+                return false;
             }
 
-            error =
-                $"Package Query does not define term '{syntax.Field}'; run "
-                + "'package query -Q Packages' for the current vocabulary.";
-            return false;
+            PortableQueryOperator @operator =
+                RowPredicateSyntaxParser.PortableOperator(
+                    syntax.Operator);
+            if (!registeredTerm.Operators.Contains(@operator))
+            {
+                error =
+                    $"Package Query term '{registeredTerm.Descriptor.Key}' "
+                    + "does not support "
+                    + $"'{RowPredicateSyntaxParser.Comparison(@operator)}' "
+                    + "predicates; run 'package query -Q Packages' for "
+                    + "admitted operators and values.";
+                return false;
+            }
+
+            terms.Add(new PortableQueryTerm(
+                registeredTerm.Descriptor.Key,
+                @operator,
+                registeredTerm.Descriptor.ControlKind
+                    == PackageQueryTermControlKind.MultilineInput
+                        ? syntax.ExactValue
+                        : syntax.Value));
         }
 
         bool requiresPackageContent = terms.Any(term =>
@@ -232,6 +176,11 @@ public sealed record PackageQueryOptions : IProjectionOptions
                 registered.Descriptor.Key == term.Key
                 && registered.Descriptor.ExecutionClass
                     == PackageQueryExecutionClass.NuspecExpensive));
+        bool requiresMetadataExpensive = terms.Any(term =>
+            CliTerms.Any(registered =>
+                registered.Descriptor.Key == term.Key
+                && registered.Descriptor.ExecutionClass
+                    == PackageQueryExecutionClass.MetadataExpensive));
         if (nuspecOnly && requiresPackageContent)
         {
             error =
@@ -246,7 +195,9 @@ public sealed record PackageQueryOptions : IProjectionOptions
         int? semanticHead = requestedHead is <= MaximumCandidates
             ? requestedHead
             : null;
-        int defaultMaximumCandidates = requiresNuspecExpensive
+        int defaultMaximumCandidates = requiresMetadataExpensive
+            ? PackageQuery.MaximumMetadataExpensiveCandidates
+            : requiresNuspecExpensive
             ? PackageQuery.MaximumNuspecExpensiveCandidates
             : requiresPackageContent
                 ? PackageQuery.MaximumPackageContentCandidates
@@ -270,7 +221,8 @@ public sealed record PackageQueryOptions : IProjectionOptions
             maximumCandidates,
             maximumMatches: semanticHead,
             includePrerelease,
-            rowSelection);
+            rowSelection,
+            targetFramework);
         if (result is PackageQueryPlanResult.Rejected rejected)
         {
             error = rejected.Failure.Message;
@@ -299,15 +251,4 @@ public sealed record PackageQueryOptions : IProjectionOptions
             : null;
     }
 
-    private static string Comparison(
-        PortableQueryOperator @operator) =>
-        @operator switch
-        {
-            PortableQueryOperator.Equal => "=",
-            PortableQueryOperator.NotEqual => "!=",
-            PortableQueryOperator.AtLeast => ">=",
-            PortableQueryOperator.AtMost => "<=",
-            _ => throw new InvalidOperationException(
-                "Package Query registered an unsupported CLI comparison."),
-        };
 }

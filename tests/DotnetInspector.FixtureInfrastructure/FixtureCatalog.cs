@@ -59,6 +59,10 @@ public static class FixtureIds
     public const string MetadataApiCorrespondenceV2 =
         "metadata.api-correspondence.v2";
     public const string MetadataMemorySafety = "metadata.memory-safety";
+    public const string MetadataMethodImplContracts =
+        "metadata.methodimpl.contracts";
+    public const string MetadataMethodImplFixtures =
+        "metadata.methodimpl.fixtures";
     public const string MetadataPublicMethodRoots =
         "metadata.public-method-roots";
     public const string MetadataTypeDependencyConsumer =
@@ -90,6 +94,8 @@ public static class FixtureIds
     public const string MatchBindingDependency = "cli.match-binding.dependency";
     public const string MatchBindingFacade = "cli.match-binding.facade";
     public const string MatchBindingImplementation = "cli.match-binding.implementation";
+    public const string AnalysisAsyncSiblingFriendBase =
+        "analysis.async-sibling.friend-base";
     public const string AnalysisAsyncSiblingFriend = "analysis.async-sibling.friend";
     public const string AnalysisCallerLoop = "analysis.caller-loop";
     public const string AnalysisLocalThrows = "analysis.local-throws";
@@ -308,6 +314,24 @@ public static class FixtureCatalog
         "ILInspector.Metadata.MemorySafetyFixtures.dll",
         Boundaries(FixtureBoundary.ModuleAttribute),
         "metadata", "memory-safety", "layout");
+
+    public static readonly FixtureDefinition MetadataMethodImplContracts =
+        Fixture(
+            FixtureIds.MetadataMethodImplContracts,
+            "ILInspector.Metadata.MethodImplContracts",
+            "ILInspector.Metadata.MethodImplContracts.dll",
+            Boundaries(FixtureBoundary.CrossAssemblyBoundary),
+            "metadata", "methodimpl", "contract");
+
+    public static readonly FixtureDefinition MetadataMethodImplFixtures =
+        Fixture(
+            FixtureIds.MetadataMethodImplFixtures,
+            "ILInspector.Metadata.MethodImplFixtures",
+            "ILInspector.Metadata.MethodImplFixtures.dll",
+            Boundaries(
+                FixtureBoundary.CompilerLowering,
+                FixtureBoundary.CrossAssemblyBoundary),
+            "metadata", "methodimpl", "implementation");
 
     public static readonly FixtureDefinition DecompilerAuthoredRebuild = Fixture(
         FixtureIds.DecompilerAuthoredRebuild,
@@ -615,6 +639,16 @@ public static class FixtureCatalog
             FixtureBoundary.AssemblyIdentity,
             FixtureBoundary.CrossAssemblyBoundary),
         "analysis", "async-sibling", "friend-assembly");
+
+    public static readonly FixtureDefinition AnalysisAsyncSiblingFriendBase =
+        Fixture(
+            FixtureIds.AnalysisAsyncSiblingFriendBase,
+            "ILInspector.Analysis.AsyncSiblingFriendBaseFixtures",
+            "ILInspector.Analysis.AsyncSiblingFriendBaseFixtures.dll",
+            Boundaries(
+                FixtureBoundary.AssemblyIdentity,
+                FixtureBoundary.CrossAssemblyBoundary),
+            "analysis", "async-sibling", "friend-base");
 
     public static readonly FixtureDefinition AnalysisCrossAsmCollision = Fixture(
         FixtureIds.AnalysisCrossAsmCollision,
@@ -998,6 +1032,8 @@ public static class FixtureCatalog
         MetadataApiCorrespondenceV1,
         MetadataApiCorrespondenceV2,
         MetadataMemorySafety,
+        MetadataMethodImplContracts,
+        MetadataMethodImplFixtures,
         MetadataPublicMethodRoots,
         MetadataTypeDependencyConsumer,
         MetadataTypeDependencyReference,
@@ -1035,6 +1071,7 @@ public static class FixtureCatalog
         AnalysisCallerGraphLookalikeCaller,
         AnalysisCallerGraphTarget,
         AnalysisCallerGraphTargetV2,
+        AnalysisAsyncSiblingFriendBase,
         AnalysisAsyncSiblingFriend,
         AnalysisCallerLoop,
         AnalysisLocalThrows,
@@ -1113,6 +1150,10 @@ public static class FixtureCatalog
     public static readonly FixtureGroup DiffAssemblyFixtures = new(
         "diff-asm",
         [DiffAsmTarget, DiffAsmCaller, DiffAsmLibA, DiffAsmLibB]);
+
+    public static readonly FixtureGroup MetadataMethodImplFixtureGroup = new(
+        "metadata.methodimpl",
+        [MetadataMethodImplContracts, MetadataMethodImplFixtures]);
 
     public static readonly FixtureGroup AnalysisFixtures = new(
         "analysis",
@@ -1213,6 +1254,7 @@ public static class FixtureCatalog
     public static readonly IReadOnlyList<FixtureGroup> Groups =
     [
         DiffAssemblyFixtures,
+        MetadataMethodImplFixtureGroup,
         AnalysisFixtures,
         DecompilerFixtures,
         DecompilerAsyncLoweringFixtures,
@@ -1409,6 +1451,10 @@ public static class FixtureCatalog
                 "fixtures/metadata/ILInspector.Metadata.ApiDeclarationCorrespondence.V2",
             "ILInspector.Metadata.MemorySafetyFixtures" =>
                 "fixtures/metadata/ILInspector.Metadata.MemorySafetyFixtures",
+            "ILInspector.Metadata.MethodImplContracts" =>
+                "fixtures/metadata/ILInspector.Metadata.MethodImplContracts",
+            "ILInspector.Metadata.MethodImplFixtures" =>
+                "fixtures/metadata/ILInspector.Metadata.MethodImplFixtures",
             "ILInspector.Metadata.PublicMethodRootFixtures" =>
                 "fixtures/metadata/ILInspector.Metadata.PublicMethodRootFixtures",
             "ILInspector.Metadata.TypeDependencyConsumer" =>
@@ -1456,6 +1502,7 @@ public static class FixtureCatalog
             "DotnetInspector.Services.RouteLearning.InterfaceBase" => "fixtures/services/DotnetInspector.Services.RouteLearning.InterfaceBase",
             "DotnetInspector.Services.RouteLearning.Middle" => "fixtures/services/DotnetInspector.Services.RouteLearning.Middle",
             "DotnetInspector.Services.RouteLearning.Unrelated" => "fixtures/services/DotnetInspector.Services.RouteLearning.Unrelated",
+            "ILInspector.Analysis.AsyncSiblingFriendBaseFixtures" => "fixtures/analysis/ILInspector.Analysis.AsyncSiblingFriendBaseFixtures",
             "ILInspector.Analysis.AsyncSiblingFriendFixtures" => "fixtures/analysis/ILInspector.Analysis.AsyncSiblingFriendFixtures",
             "ILInspector.Analysis.CallerGraphCaller" => "fixtures/analysis/ILInspector.Analysis.CallerGraphCaller",
             "ILInspector.Analysis.CallerGraphCallerTwin" => "fixtures/analysis/ILInspector.Analysis.CallerGraphCallerTwin",

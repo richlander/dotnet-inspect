@@ -1271,7 +1271,7 @@ public static class AssemblyContextMemberProjectionQuery
         {
             LibraryBodyRootPathResult search =
                 LibraryBodyRootPathAnalysis.FindShortestPaths(
-                index,
+                index.CallGraphAnalysis,
                 [rootAddress],
                 destinations,
                 limits);

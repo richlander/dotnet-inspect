@@ -226,7 +226,7 @@ JsonSerializer.Helpers.cs
 Fetch selected member source text when source content is the desired artifact:
 
 ```bash
-dotnet-inspect member JsonSerializer --platform System.Text.Json Serialize:1 -S "PDB Source" --bare -n 20 --lines
+dotnet-inspect member JsonSerializer --platform System.Text.Json Serialize:1 -S "PDB Source" -n 20 --lines
 dotnet-inspect member JsonSerializer --platform System.Text.Json -m Serialize -S "Source Locations" --print --row 1
 ```
 
@@ -334,7 +334,7 @@ GHSA-8g4q-xg66-9fp4
 The tool supports NuGet sources. This is useful for dogfooding preview builds.
 
 ```bash
-dotnet-inspect package System.Text.Json --version '11.0.0-preview*' --add-source 'https://dnceng.pkgs.visualstudio.com/public/_packaging/dotnet11/nuget/v3/index.json' -v:q --prerelease
+dotnet-inspect package 'System.Text.Json@11.0.0-preview*' --add-source 'https://dnceng.pkgs.visualstudio.com/public/_packaging/dotnet11/nuget/v3/index.json' -v:q --prerelease
 ```
 
 ```expect

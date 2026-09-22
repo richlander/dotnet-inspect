@@ -87,8 +87,7 @@ public sealed record InspectionProjectionIntent(
 public sealed record InspectionPresentationIntent(
     OutputFormat Format,
     Verbosity Verbosity,
-    bool Tree,
-    bool Bare);
+    bool Tree);
 
 public sealed record CapabilityRequestProvenance(
     Verbosity UserVerbosity,
@@ -167,8 +166,7 @@ public sealed record ParsedInspectionIntent(
             new InspectionPresentationIntent(
                 options.Format,
                 options.UserVerbosity,
-                options.Tree,
-                options.Bare),
+                options.Tree),
             new CapabilityRequestProvenance(
                 options.UserVerbosity,
                 [.. options.Select ?? []],
@@ -556,7 +554,8 @@ public static class ApiSectionDemandIndex
             "Values",
             "Type Parameters",
             "Interfaces",
-            "Baseclass");
+            "Baseclass",
+            SectionNames.ApiDeclarations);
         Declare(
             declarations,
             InspectionTargetRequirement.MemberSet,
@@ -577,7 +576,8 @@ public static class ApiSectionDemandIndex
             SectionNames.SafetyFacts,
             SectionNames.CostFacts,
             SectionNames.TopLeverage,
-            SectionNames.ImplementationProfiles,
+            SectionNames.TypeMetrics,
+            SectionNames.MemberMetrics,
             SectionNames.SourceFiles,
             SectionNames.SourceLocations,
             SectionNames.PerformanceTriage);
@@ -595,6 +595,7 @@ public static class ApiSectionDemandIndex
             SectionNames.CostOverlay,
             SectionNames.SemanticsOverlay,
             SectionNames.PdbSource,
+            SectionNames.Source,
             SectionNames.SourceDiff,
             SectionNames.Calls,
             SectionNames.ExceptionRegions,

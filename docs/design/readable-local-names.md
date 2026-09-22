@@ -8,11 +8,12 @@ names unless they explicitly opt in.
 
 ## Problem
 
-`CSharpPrinter.LocalName(index)` renders a local as its PDB source name when one
-is present, usable as a C# identifier, and not already taken; otherwise it falls
-back to `V_index`. With no PDB — the common case for shipped/stripped assemblies,
-and the deterministic `--skip-pdb` reading path — every local is `V_0`, `V_1`, …,
-which is the single largest readability gap in otherwise-structured output.
+Before declaration-plan adoption, `CSharpPrinter.LocalName(index)` selected a
+PDB source name when one was present, usable as a C# identifier, and not already
+taken; otherwise it fell back to `V_index`. With no PDB — the common case for
+shipped/stripped assemblies, and the deterministic `--skip-pdb` reading path —
+every local is `V_0`, `V_1`, …, which is the single largest readability gap in
+otherwise-structured output.
 
 ## Consumer defaults
 
@@ -46,8 +47,9 @@ configuration for one invocation.
    - collision-resolved against `taken` (params, source-named locals, earlier
      synthesized names) with a numeric suffix.
    It never invents a name for a local that already has a usable source name.
-2. `LocalName` consults the synthesizer **only when the mode is on and no usable
-   source name exists**; otherwise the existing `V_index` fallback is untouched.
+2. `LocalDeclarationPlan` consults the synthesizer **only when the mode is on
+   and no usable source name exists**; otherwise the existing `V_index`
+   fallback is untouched. The printer spells the plan-issued identifier.
 3. The mode is threaded as an explicit option. It defaults off in the library,
    so `Print`/`PrintRaised` and every gate keep stable output; the CLI enables it
    for user-facing source.
@@ -67,17 +69,26 @@ fabricating — honest degradation, same as the rest of the pipeline.
 ## Wiring decision (resolved)
 
 Of the fork below, **option A (printer option)** was taken. The library carries
-`PrinterOptions.ReadableLocalNames` (default off) and consumes it in
-`CSharpPrinter.LocalName`; the registry represents the user choice with the
-inverse, default-off `slot-local-names` knob, so every registry-driven host gets
-the readable product default. `ApiOptions.RequestReadableLocalNames` remains the explicit
-one-run override for a config that disabled synthesis. The setting is
-orthogonal to the style axes (a name synthesis, not a byte-divergent lens), so
-it leaves the Annotated view's interleaved IL intact. For a persistent form the catalog entry carries the tool-owned config key
+`PrinterOptions.ReadableLocalNames` (default off); the option now enters the
+host-neutral `LocalDeclarationPlan`, and `CSharpPrinter` only spells its issued
+binding. The registry represents the user choice with the inverse, default-off
+`slot-local-names` knob, so every registry-driven host gets the readable product
+default. `ApiOptions.RequestReadableLocalNames` remains the explicit one-run
+override for a config that disabled synthesis. The setting is orthogonal to the
+style axes (a name synthesis, not a byte-divergent lens), so it leaves the
+Annotated view's interleaved IL intact. For a persistent form the catalog entry
+carries the tool-owned config key
 `dotnet_inspect_style_slot_local_names`; the resolver alone retains the original
 `dotnet_inspect_style_readable_local_names` compatibility spelling. Because the
 mode is byte-preserving (names do not affect IL) it is **not** oracle-endorsed,
 so the `--taste` / `dotnet_inspect_style_full_taste` aggregate never changes it.
+
+The separate `approximate-pdb-local-names` catalog choice applies before this
+synthesizer. It may use a disclosed, collision-resolved PDB slot label when an
+exact scoped identity is available but cannot be emitted. If that opt-in finds
+no eligible PDB label, this design's readable-name or `V_index` fallback
+continues unchanged. Approximate display never removes the exact-name fidelity
+cause.
 
 ## Open fork (historical — resolved above)
 

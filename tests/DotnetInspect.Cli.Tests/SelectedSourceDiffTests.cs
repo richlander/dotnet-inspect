@@ -22,8 +22,8 @@ public sealed class SelectedSourceDiffTests
 
     [Theory]
     [InlineData(false, false)]
-    [InlineData(true, false)]
     [InlineData(false, true)]
+    [InlineData(true, true)]
     public async Task SelectedSourceOnlyChange_IsVisibleWithoutLocalChanges(
         bool json,
         bool multipleSections)
@@ -78,7 +78,7 @@ public sealed class SelectedSourceDiffTests
         bool json)
     {
         var (exitCode, output, error) = await ConsoleCapture.RunAsync(
-            () => DiffCommand.ExecuteAsync(Options(member) with { JsonOutput = json }));
+            () => DiffCommand.ExecuteAsync(OutputOptions(member, json)));
 
         Assert.Equal(0, exitCode);
         Assert.Empty(error);
@@ -108,7 +108,8 @@ public sealed class SelectedSourceDiffTests
     public async Task SelectedReorderedSource_IsChangedRatherThanUnchanged(bool json)
     {
         var (exitCode, output, error) = await ConsoleCapture.RunAsync(
-            () => DiffCommand.ExecuteAsync(Options("Reordered") with { JsonOutput = json }));
+            () => DiffCommand.ExecuteAsync(
+                OutputOptions("Reordered", json)));
 
         Assert.Equal(0, exitCode);
         Assert.Empty(error);
@@ -129,10 +130,9 @@ public sealed class SelectedSourceDiffTests
 
     [Theory]
     [InlineData("MovedBlock", false, false)]
-    [InlineData("MovedBlock", true, false)]
     [InlineData("MovedBlock", true, true)]
     [InlineData("MovedBlockAndEdit", false, false)]
-    [InlineData("MovedBlockAndEdit", true, false)]
+    [InlineData("MovedBlockAndEdit", true, true)]
     public async Task SelectedMovedBlock_RetainsSourceEvidence(
         string member,
         bool json,
@@ -197,7 +197,8 @@ public sealed class SelectedSourceDiffTests
     public async Task MissingSelectedEndpoint_IsUnavailableNotSourceRemoval(bool json)
     {
         var (exitCode, output, error) = await ConsoleCapture.RunAsync(
-            () => DiffCommand.ExecuteAsync(Options("BeforeOnly") with { JsonOutput = json }));
+            () => DiffCommand.ExecuteAsync(
+                OutputOptions("BeforeOnly", json)));
 
         Assert.Equal(0, exitCode);
         Assert.Empty(error);
@@ -449,6 +450,7 @@ public sealed class SelectedSourceDiffTests
         {
             JsonOutput = true,
             MemberFilter = [],
+            Select = ["Analysis Diff", "Implementation Diff"],
         };
 
         var (exitCode, output, error) = await ConsoleCapture.RunAsync(
@@ -537,6 +539,7 @@ public sealed class SelectedSourceDiffTests
         {
             JsonOutput = true,
             MemberFilter = [],
+            Select = ["Analysis Diff", "Implementation Diff"],
         };
 
         var (exitCode, output, error) = await ConsoleCapture.RunAsync(
@@ -892,6 +895,15 @@ public sealed class SelectedSourceDiffTests
         MemberFilter = [member],
         IncludePdbSource = true,
     };
+
+    static DiffOptions OutputOptions(string member, bool json)
+        => Options(member) with
+        {
+            JsonOutput = json,
+            Select = json
+                ? ["Analysis Diff", "Implementation Diff"]
+                : ["Implementation Diff"],
+        };
 
     static AssemblyContextParticipant Participant(string path, string version)
         => new(

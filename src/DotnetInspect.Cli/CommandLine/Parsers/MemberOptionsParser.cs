@@ -654,7 +654,6 @@ public static class MemberOptionsParser
             PlainText = parseResult.GetValue(opts.PlainText),
             MermaidOutput = outputFormat == OutputFormat.Mermaid,
             EmbeddedMermaid = embeddedMermaid,
-            Bare = parseResult.GetValue(opts.Bare),
             RequestAllTaste = parseResult.GetValue(opts.Taste),
             RequestReadableLocalNames = parseResult.GetValue(opts.ReadableNames),
             Focus = parseResult.GetValue(opts.Focus),
@@ -721,6 +720,8 @@ public static class MemberOptionsParser
             Schema = opts.ParseSchema(parseResult),
             Verbose = parseResult.GetValue(opts.Verbose),
             Verbosity = opts.ParseVerbosity(parseResult),
+            VerbosityExplicitlySet =
+                parseResult.GetResult(opts.Verbosity) is { Implicit: false },
             SourceOptions = sourceOptions,
             RouterDeferredTypeOrMember = routerDeferredTypeOrMember,
             RouterDeferredTypeMemberValues = routerDeferredTypeMemberValues
@@ -965,7 +966,6 @@ public static class MemberOptionsParser
         if (parseResult.GetValue(options.Mermaid)
             && (parseResult.GetValue(options.Json)
                 || parseResult.GetValue(options.PlainText)
-                || parseResult.GetValue(options.Bare)
                 || parseResult.GetValue(options.Table)
                 || parseResult.GetValue(options.Tsv)
                 || parseResult.GetValue(options.Jsonl)

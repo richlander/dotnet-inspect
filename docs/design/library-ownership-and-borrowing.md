@@ -240,7 +240,7 @@ operation. The caller must not retain or dispose it after transfer. The
 operation settles the lease on success, failure, cancellation, rejection, and
 incomplete completion.
 
-Stable service objects, deferred providers, requests, policies, operation
+Stable service objects, deferred operations, requests, policies, operation
 plans, House contributions, and receipts may retain the `LibraryReference`.
 They never retain a `LibraryOperationLease`.
 

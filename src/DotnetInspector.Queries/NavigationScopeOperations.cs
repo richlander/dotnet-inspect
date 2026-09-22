@@ -14,7 +14,7 @@ public enum NavigationCoordinateRetentionDisposition
 
 /// <summary>
 /// Detached owner evidence and Navigation's retention decision for one exact
-/// protected Package-coordinate replacement.
+/// Package-coordinate successor.
 /// </summary>
 public sealed class NavigationCoordinateRetentionResult
 {
@@ -35,6 +35,8 @@ public sealed class NavigationCoordinateRetentionResult
         if (!Enum.IsDefined(disposition))
             throw new ArgumentOutOfRangeException(nameof(disposition));
 
+        SourceWorkspace = source.Occurrence.Identity.WorkspaceIdentity;
+        DestinationWorkspace = destination.Occurrence.Identity.WorkspaceIdentity;
         Source = source.Occurrence.Package;
         Destination = destination.Occurrence.Package;
         Disposition = disposition;
@@ -48,6 +50,10 @@ public sealed class NavigationCoordinateRetentionResult
     public WorkspacePackageDescriptor Source { get; }
 
     public WorkspacePackageDescriptor Destination { get; }
+
+    public InspectionWorkspaceIdentity SourceWorkspace { get; }
+
+    public InspectionWorkspaceIdentity DestinationWorkspace { get; }
 
     public NavigationCoordinateRetentionDisposition Disposition { get; }
 
@@ -63,10 +69,10 @@ public sealed class NavigationCoordinateRetentionResult
 }
 
 /// <summary>
-/// Production orchestration for an accepted protected Package-coordinate
+/// Transitional orchestration for an accepted protected Package-coordinate
 /// replacement. Scope submission and all artifact access remain invocation-local.
 /// </summary>
-public static class NavigationScopeOperations
+public static partial class NavigationScopeOperations
 {
     public static async ValueTask<NavigationScopeEvaluationResult>
         EvaluateCoordinateReplacementAsync(
@@ -381,7 +387,8 @@ public static class NavigationScopeOperations
             ?? throw new InvalidOperationException(
                 "Successful destination preparation omitted its observation.");
         NavigationCoordinateRetentionResult retention =
-            await PrepareRetentionAsync(
+            await NavigationCoordinateRetentionPolicy.PrepareAsync(
+                workspace,
                 workspace,
                 request.Basis,
                 sourceObservation,
@@ -399,10 +406,14 @@ public static class NavigationScopeOperations
                 registry);
         return evaluation.WithCoordinateRetention(retention);
     }
+}
 
-    static async ValueTask<NavigationCoordinateRetentionResult>
-        PrepareRetentionAsync(
-            InspectionWorkspace workspace,
+internal static class NavigationCoordinateRetentionPolicy
+{
+    internal static async ValueTask<NavigationCoordinateRetentionResult>
+        PrepareAsync(
+            InspectionWorkspace sourceWorkspace,
+            InspectionWorkspace destinationWorkspace,
             NavigationWorkspaceSnapshot basis,
             CoordinatePackageObservation sourceObservation,
             PackageAssemblyContextRealization sourceRealization,
@@ -417,7 +428,8 @@ public static class NavigationScopeOperations
                     + "Package context.");
         var destinationPackageSubject =
             StructuralSubjectIdentity.ForPackage(
-                basis.Workspace,
+                StructuralSubjectIdentity.ForWorkspace(
+                    destinationWorkspace.Identity),
                 destinationPackage.Occurrence.Occurrence);
         NavigationSubjectInventory inventory =
             NavigationWorkspaceSnapshotEvaluation.ClassifySubjectInventory(
@@ -457,7 +469,8 @@ public static class NavigationScopeOperations
                 typeCorrespondence =
                     await ApiCoordinateCorrespondenceQuery
                         .ExecuteAdmittedSourceAsync(
-                            workspace,
+                            sourceWorkspace,
+                            destinationWorkspace,
                             sourceType,
                             sourceObservation,
                             sourceRealization,
@@ -539,7 +552,8 @@ public static class NavigationScopeOperations
                         memberCorrespondence =
                             await ApiCoordinateCorrespondenceQuery
                                 .ExecuteAdmittedSourceAsync(
-                                    workspace,
+                                    sourceWorkspace,
+                                    destinationWorkspace,
                                     sourceMember,
                                     sourceKind,
                                     sourceObservation,
@@ -747,7 +761,10 @@ public static class NavigationScopeOperations
                 "The retained source Member has no supported declaration kind."),
         };
     }
+}
 
+public static partial class NavigationScopeOperations
+{
     static NavigationScopeEvaluationResult Evaluate(
         NavigationScopeEvaluationRequest request,
         WorkspaceScopeOperationResult settlement,

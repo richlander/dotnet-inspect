@@ -1,5 +1,8 @@
 fixtures/analysis/ILInspector.Analysis.AsyncSiblingFriendBaseFixtures
 fixtures/analysis/ILInspector.Analysis.AsyncSiblingFriendFixtures
+fixtures/analysis/ILInspector.Analysis.CallFunctionPointerScopeFixtures
+fixtures/analysis/ILInspector.Analysis.CallGenericScopeFixtures
+fixtures/analysis/ILInspector.Analysis.CallOverloadFixtures
 fixtures/analysis/ILInspector.Analysis.CallerGraphCaller
 fixtures/analysis/ILInspector.Analysis.CallerGraphCallerTwin
 fixtures/analysis/ILInspector.Analysis.CallerGraphIndirectCaller
@@ -16,6 +19,7 @@ fixtures/analysis/ILInspector.Analysis.ProtobufFixtures
 fixtures/analysis/ILInspector.Analysis.RenderFixtures
 fixtures/analysis/ILInspector.Analysis.SpoofFixtures
 fixtures/analysis/ILInspector.Analysis.SpoofRuntimeFixtures
+fixtures/analysis/ILInspector.Analysis.StringMaterializationFixtures
 fixtures/analysis/ILInspector.Analysis.TopLevelAsyncFixtures
 fixtures/analysis/ILInspector.Analysis.TopLevelClassicAsyncFixtures
 fixtures/analysis/ILInspector.Analysis.UnoptimizedAsyncFixtures
@@ -36,6 +40,7 @@ fixtures/diff/DiffAsmFixtures.LibA
 fixtures/diff/DiffAsmFixtures.LibB
 fixtures/diff/DiffAsmFixtures.Target
 fixtures/inspect-web/InspectWeb.CloneTransportFixtures
+fixtures/inspect-web/InspectWeb.DocumentationFixtures
 fixtures/inspect-web/InspectWeb.MethodBodyFixtures
 fixtures/inspect-web/InspectWeb.SourceComparisonFixtures.V1
 fixtures/inspect-web/InspectWeb.SourceComparisonFixtures.V2
@@ -46,11 +51,14 @@ fixtures/js-export/ILInspector.JsExportSurface.NestedContextConstructorFixtures
 fixtures/js-export/ILInspector.JsExportSurface.NestedContextFixtures
 fixtures/js-export/ILInspector.JsExportSurface.NestedContextUnsupportedFixtures
 fixtures/js-export/ILInspector.JsExportSurface.OperatorFixtures
+fixtures/js-export/ILInspector.JsExportSurface.PolymorphicContractsFixtures
+fixtures/js-export/ILInspector.JsExportSurface.PolymorphicExportFixtures
 fixtures/js-export/ILInspector.JsExportSurface.PublishabilityFixtures
 fixtures/js-export/ILInspector.JsExportSurface.RuntimeAsyncFixtures
 fixtures/js-export/ILInspector.JsExportSurface.ScalarFixtures
 fixtures/js-export/ILInspector.JsExportSurface.TypeScriptFixtures
 fixtures/js-export/ILInspector.JsExportSurface.UnionFixtures
+fixtures/js-export/ILInspector.JsExportSurface.UnsupportedPolymorphicExportFixtures
 fixtures/js-export/TsJsExport.ContextFixtures.Alpha
 fixtures/js-export/TsJsExport.ContextFixtures.Beta
 fixtures/js-export/TsJsExport.ContextFixtures.Host
@@ -63,6 +71,7 @@ fixtures/metadata/ILInspector.Metadata.AttributeEnumFixtures
 fixtures/metadata/ILInspector.Metadata.ExtensionInstanceNew
 fixtures/metadata/ILInspector.Metadata.ExtensionInstanceOld
 fixtures/metadata/ILInspector.Metadata.MemorySafetyFixtures
+fixtures/metadata/ILInspector.Metadata.PublicMethodRootFixtures
 fixtures/metadata/ILInspector.Metadata.SpellabilityConsumer
 fixtures/metadata/ILInspector.Metadata.SpellabilityReference
 fixtures/metadata/ILInspector.Metadata.TypeDependencyConsumer
@@ -72,6 +81,7 @@ fixtures/presentation/LibraryApiDiff.V2
 fixtures/queries/DotnetInspector.CloneSearchFixtures
 fixtures/queries/DotnetInspector.Queries.EmbeddedFixtures
 fixtures/queries/DotnetInspector.RestoredProjectFixtures
+fixtures/queries/DotnetInspector.RestoredRidFixtures
 fixtures/queries/DotnetInspector.SourceDiff.V1
 fixtures/queries/DotnetInspector.SourceDiff.V2
 fixtures/research/ILInspector.Research.TargetFixtures
@@ -86,8 +96,13 @@ fixtures/sourcelink/DotnetInspector.SourceLinkMalformedFixtures
 fixtures/sourcelink/DotnetInspector.SourceLinkNormalizedFixtures
 fixtures/sourcelink/DotnetInspector.SourceLinkVisualBasicFixtures
 src/DotnetInspect.Cli
+src/DotnetInspector.DocumentationHouse.Direct
+src/DotnetInspector.DocumentationHouse.Packages
+src/DotnetInspector.DocumentationHouse.Platform
+src/DotnetInspector.EcosystemLoading
 src/DotnetInspector.Ecosystems
 src/DotnetInspector.MetadataRendering
+src/DotnetInspector.PackageHouse.Execution
 src/DotnetInspector.PackageQueries
 src/DotnetInspector.PlatformHouse
 src/DotnetInspector.PlatformHouse.Execution
@@ -95,9 +110,11 @@ src/DotnetInspector.PlatformHouse.Execution.Installed
 src/DotnetInspector.PlatformHouse.Execution.Packages
 src/DotnetInspector.PlatformHouse.Installed
 src/DotnetInspector.PlatformHouse.Packages
+src/DotnetInspector.PlatformQueries
 src/DotnetInspector.Platforms.Installed
 src/DotnetInspector.Presentation
 src/DotnetInspector.Sections
+src/DotnetInspector.Sections.Installed
 src/DotnetInspector.SourceDelegation
 src/DotnetInspector.Vocabulary
 src/ILInspector.Analysis.App
@@ -115,6 +132,8 @@ tests/DotnetInspect.Cli.Tests
 tests/DotnetInspector.AssemblyOnlyHost.Fixture
 tests/DotnetInspector.Cache.Tests
 tests/DotnetInspector.DependencyManifests.Tests
+tests/DotnetInspector.DocumentationHouse.Tests
+tests/DotnetInspector.EcosystemLoading.Tests
 tests/DotnetInspector.Ecosystems.Consumer.Tests
 tests/DotnetInspector.Ecosystems.Tests
 tests/DotnetInspector.FixtureInfrastructure.Tests
@@ -135,12 +154,12 @@ tests/DotnetInspector.PortableQueries.Tests
 tests/DotnetInspector.Presentation.Tests
 tests/DotnetInspector.Queries.Consumer
 tests/DotnetInspector.Queries.Tests
-tests/DotnetInspector.RowSelection.Consumer
 tests/DotnetInspector.RowSelection.Tests
 tests/DotnetInspector.RuntimeFlavorProbe
 tests/DotnetInspector.Sections.Tests
 tests/DotnetInspector.Services.Tests
 tests/DotnetInspector.SourceDelegation.Tests
+tests/DotnetInspector.SourceHouse.Tests
 tests/DotnetInspector.SourceSelection.Tests
 tests/HarnessReportDiff.Tests
 tests/ILInspector.Analysis.Tests
@@ -159,6 +178,7 @@ tests/Inspector.Resources.Tests
 tests/Inspector.Text.Tests
 tests/NetworkAccess.Tests
 tests/NuGetFetch.Tests
+tests/QuerySpace.Consumer
 tests/TestExtensions
 tests/UntrustedDocuments.Tests
 tests/nuget/NuGetFetch.CustomClientFixture
@@ -169,8 +189,10 @@ tests/runfaster.Tests
 tools/AnalysisHarness
 tools/AotProbe
 tools/CSharpDiffHarness
+tools/CSharpPrinter.Benchmarks
 tools/DiffHarnessCommon
 tools/HarnessReportDiff
 tools/IlDiffHarness
 tools/InspectWebFixtureResolver
 tools/SectionRegistrySpike
+tools/SourceBuildAttestation

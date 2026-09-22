@@ -1,5 +1,6 @@
 using System.Collections.Immutable;
 using DotnetInspector.Libraries;
+using DotnetInspector.Packages;
 using DotnetInspector.Services;
 using DotnetInspector.SourceHouse;
 using ILInspector.Metadata;
@@ -33,7 +34,7 @@ public static partial class AssemblyContextSourceQuery
         TimeSpan timeout,
         CancellationToken cancellationToken,
         bool retainLibrary = false,
-        SourceHouseMemberDecompilationLimits?
+        SourceHouseDecompilationLimits?
             retainedOperationLimits = null)
     {
         var findingSubject = new FindingSubject(
@@ -46,9 +47,9 @@ public static partial class AssemblyContextSourceQuery
                     ? SourceHouseMemberSourceForm.DocumentParts
                     : SourceHouseMemberSourceForm.DeclarationText),
             operationName: "member-source", limits, timeout, cancellationToken,
-            retainSymbols: false,
             retainLibrary,
-            retainedOperationLimits)
+            retainedOperationLimits,
+            pdbEvidence: null)
             .ConfigureAwait(false);
         PdbMemberSourceInspection inspection = authored switch
         {
@@ -83,7 +84,8 @@ public static partial class AssemblyContextSourceQuery
         SourceHouseLimits limits,
         TimeSpan timeout,
         CancellationToken cancellationToken,
-        bool retainSymbols = false)
+        bool retainLibrary = true,
+        PortablePdbAcquisitionEvidenceCollector? pdbEvidence = null)
     {
         var findingSubject = new FindingSubject(
             "type", request.Type.ToMetadataFullName());
@@ -91,33 +93,63 @@ public static partial class AssemblyContextSourceQuery
             group, participant, context, retained, version,
             new SourceHouseTarget.TypeTarget(request.Type, request.OriginalDocumentPath),
             operationName: "type-source", limits, timeout, cancellationToken,
-            retainSymbols, retainLibrary: false,
-            retainedOperationLimits: null).ConfigureAwait(false);
-        PdbTypeSourceInspection inspection = authored switch
+            retainLibrary:
+                retainLibrary
+                && request.OriginalDocumentPath is null,
+            retainedOperationLimits:
+                retainLibrary
+                && request.OriginalDocumentPath is null
+                ? context.TypeDecompilationLimits
+                : null,
+            pdbEvidence).ConfigureAwait(false);
+        try
         {
-            { AcquisitionFailure: { } failure } =>
-                PdbSourceHouse.TypePdbAcquisitionFailed(findingSubject, failure),
-            { LibraryFailure: { } terminal } =>
-                UnsuccessfulTypeInspection(
-                    findingSubject, terminal is AssemblyContextLibraryAdapterResult.Incomplete
-                        ? PdbTypeSourceOutcome.SourceLimitExceeded
-                        : PdbTypeSourceOutcome.InspectionFailed,
-                    AdmissionDetail(terminal), failed: true),
-            { HouseOutcome: { } outcome } => ProjectTypeAuthored(outcome, findingSubject),
-            _ => throw new InvalidOperationException("Authored source inspection did not settle."),
-        };
-        if (inspection.IsComplete
-            && authored.Provenance is null
-            && authored.ProvenanceFailure is { } provenanceFailure)
-        {
-            throw provenanceFailure;
+            PdbTypeSourceInspection inspection = authored switch
+            {
+                { AcquisitionFailure: { } failure } =>
+                    PdbSourceHouse.TypePdbAcquisitionFailed(findingSubject, failure),
+                { LibraryFailure: { } terminal } =>
+                    UnsuccessfulTypeInspection(
+                        findingSubject, terminal is AssemblyContextLibraryAdapterResult.Incomplete
+                            ? PdbTypeSourceOutcome.SourceLimitExceeded
+                            : PdbTypeSourceOutcome.InspectionFailed,
+                        AdmissionDetail(terminal), failed: true),
+                { HouseOutcome: { } outcome } =>
+                    ProjectTypeAuthored(outcome, findingSubject),
+                _ => throw new InvalidOperationException(
+                    "Authored source inspection did not settle."),
+            };
+            inspection = inspection with
+            {
+                PortablePdbAvailable =
+                    authored.PortablePdbAvailable,
+            };
+            if (inspection.IsComplete
+                && authored.Provenance is null
+                && authored.ProvenanceFailure is { } provenanceFailure)
+            {
+                throw provenanceFailure;
+            }
+            return new(
+                inspection,
+                inspection.IsComplete ? authored.Provenance : null)
+            {
+                HouseOutcome = authored.HouseOutcome,
+                LibraryFailure = authored.LibraryFailure,
+                RetainedLibrary = authored.RetainedLibrary,
+            };
         }
-        return new(inspection, inspection.IsComplete ? authored.Provenance : null,
-            authored.PdbImage)
+        catch (Exception failure)
         {
-            HouseOutcome = authored.HouseOutcome,
-            LibraryFailure = authored.LibraryFailure,
-        };
+            if (authored.RetainedLibrary is { } completed)
+            {
+                await RetireSourceHouseLibraryAsync(
+                        completed,
+                        failure)
+                    .ConfigureAwait(false);
+            }
+            throw;
+        }
     }
 
     static async Task<AuthoredPdbInspection> InspectAuthoredPdbAsync(
@@ -131,13 +163,16 @@ public static partial class AssemblyContextSourceQuery
         SourceHouseLimits limits,
         TimeSpan timeout,
         CancellationToken cancellationToken,
-        bool retainSymbols,
         bool retainLibrary,
-        SourceHouseMemberDecompilationLimits?
-            retainedOperationLimits)
+        SourceHouseDecompilationLimits?
+            retainedOperationLimits,
+        PortablePdbAcquisitionEvidenceCollector? pdbEvidence)
     {
         var opened = await OpenSourceLinkAsync(
-            retained, context, cancellationToken).ConfigureAwait(false);
+            retained,
+            context,
+            pdbEvidence,
+            cancellationToken).ConfigureAwait(false);
 
         AssemblyContextLibraryPortablePdb? companion = null;
         ImmutableArray<byte>? pdbImage = null;
@@ -145,12 +180,19 @@ public static partial class AssemblyContextSourceQuery
         Exception? provenanceFailure = null;
         Exception? acquisitionFailure = opened.Failure;
         Exception? primaryFailure = null;
+        bool? portablePdbAvailable = null;
         if (opened.Source is { } source)
         {
             try
             {
                 cancellationToken.ThrowIfCancellationRequested();
                 EnsureBindingPolicyVersion(participant, version);
+                portablePdbAvailable =
+                    source.Context.HasPdb
+                        ? true
+                        : source.Context.PdbId is not null
+                            ? false
+                            : null;
                 try
                 {
                     provenance = new(
@@ -165,7 +207,7 @@ public static partial class AssemblyContextSourceQuery
                     // InspectTypePdbAsync rethrows this failure if authored source succeeds.
                     provenanceFailure = failure;
                 }
-                if (retainSymbols || !source.Context.HasEmbeddedPdb)
+                if (!source.Context.HasEmbeddedPdb)
                     pdbImage = source.Context.GetPortablePdbImage();
                 if (!source.Context.HasEmbeddedPdb
                     && pdbImage is { } image)
@@ -200,7 +242,16 @@ public static partial class AssemblyContextSourceQuery
             cancellationToken.ThrowIfCancellationRequested();
             EnsureBindingPolicyVersion(participant, version);
             if (!retainLibrary)
-                return new(AcquisitionFailure: acquisitionFailure);
+            {
+                return new(
+                    AcquisitionFailure: acquisitionFailure)
+                {
+                    PortablePdbAvailable =
+                        acquisitionFailure is null
+                            ? null
+                            : false,
+                };
+            }
         }
 
         ArgumentOutOfRangeException.ThrowIfLessThanOrEqual(timeout, TimeSpan.Zero);
@@ -209,7 +260,7 @@ public static partial class AssemblyContextSourceQuery
             SourceHousePolicyGeneration.Create($"{operationName}-v1"),
             limits,
             DateTimeOffset.UtcNow.Add(timeout),
-            SourceCapabilities(context));
+            AssemblyContextSourceCapabilities.Create(context));
         AssemblyContextLibraryAdapterResult admission =
             await AssemblyContextLibraryAdapter.MaterializeAsync(
                 group, participant, AssemblyContextLibraryRole.Implementation,
@@ -241,11 +292,12 @@ public static partial class AssemblyContextSourceQuery
             EnsureBindingPolicyVersion(participant, version);
             return new(
                 Provenance: provenance,
-                PdbImage: retainSymbols ? pdbImage : null,
                 AcquisitionFailure: acquisitionFailure,
                 ProvenanceFailure: provenanceFailure)
             {
                 LibraryFailure = terminal,
+                PortablePdbAvailable =
+                    portablePdbAvailable,
             };
         }
         if (admission is not AssemblyContextLibraryAdapterResult.Completed completed)
@@ -309,12 +361,13 @@ public static partial class AssemblyContextSourceQuery
         }
         return new(
             Provenance: provenance,
-            PdbImage: retainSymbols ? pdbImage : null,
             AcquisitionFailure: acquisitionFailure,
             ProvenanceFailure: provenanceFailure)
         {
             HouseOutcome = outcome,
             RetainedLibrary = retainLibrary ? completed : null,
+            PortablePdbAvailable =
+                portablePdbAvailable,
         };
     }
 
@@ -540,9 +593,11 @@ public static partial class AssemblyContextSourceQuery
             {
                 { Stage: SourceHouseFailureStage.SourceCapability, Code: "StorageFailed" } =>
                     "The source-content store failed.",
-                { Stage: SourceHouseFailureStage.PortablePdbInspection
+                {
+                    Stage: SourceHouseFailureStage.PortablePdbInspection
                     or SourceHouseFailureStage.SourceLinkInspection
-                    or SourceHouseFailureStage.TargetMapping } =>
+                    or SourceHouseFailureStage.TargetMapping
+                } =>
                     $"Portable PDB type source mapping failed: "
                     + $"{failure.Failure.Detail ?? failure.Failure.Code}",
                 _ => $"{failure.Failure.Code}: {failure.Failure.Detail}",
@@ -640,98 +695,16 @@ public static partial class AssemblyContextSourceQuery
                     .ToArray(),
         };
 
-    static IReadOnlyList<ISourceHouseSourceCapability> SourceCapabilities(
-        AssemblyContextSourceQueryContext context)
-    {
-        List<ISourceHouseSourceCapability> capabilities = [];
-        if (context.AllowLocalSourceReads)
-            capabilities.Add(new LocalSourceCapability());
-        if (context.RepositoryPaths is { Count: > 0 } paths)
-            capabilities.Add(new RepositorySourceCapability(paths));
-        capabilities.Add(new RemoteSourceCapability(context.SourceFetch));
-        return capabilities;
-    }
-
-    sealed class LocalSourceCapability : ISourceHouseSourceCapability
-    {
-        public SourceHouseCapabilityIdentity Identity { get; } =
-            SourceHouseCapabilityIdentity.Create("local-source");
-        public SourceHouseCapabilityCategory Category => SourceHouseCapabilityCategory.Local;
-        public ValueTask<SourceHouseCapabilityOutcome> ReadAsync(
-            SourceHouseSourceCandidate candidate, int maximumBytes, CancellationToken cancellationToken)
-        {
-            cancellationToken.ThrowIfCancellationRequested();
-            byte[]? bytes = PdbSourceHouse.TryReadVerifiedLocalSource(candidate.Document);
-            cancellationToken.ThrowIfCancellationRequested();
-            return ValueTask.FromResult(CapturedSource(bytes, maximumBytes, "LocalSourceUnavailable"));
-        }
-    }
-
-    sealed class RepositorySourceCapability(IReadOnlyList<string> paths) : ISourceHouseSourceCapability
-    {
-        public SourceHouseCapabilityIdentity Identity { get; } =
-            SourceHouseCapabilityIdentity.Create("repository-source");
-        public SourceHouseCapabilityCategory Category => SourceHouseCapabilityCategory.Repository;
-        public ValueTask<SourceHouseCapabilityOutcome> ReadAsync(
-            SourceHouseSourceCandidate candidate, int maximumBytes, CancellationToken cancellationToken)
-        {
-            cancellationToken.ThrowIfCancellationRequested();
-            byte[]? bytes = LocalRepoSourceAcquisition.TryReadVerifiedRepoBlob(candidate.Document, paths);
-            cancellationToken.ThrowIfCancellationRequested();
-            return ValueTask.FromResult(CapturedSource(bytes, maximumBytes, "RepositorySourceUnavailable"));
-        }
-    }
-
-    sealed class RemoteSourceCapability(SourceFetch fetcher) : ISourceHouseSourceCapability
-    {
-        public SourceHouseCapabilityIdentity Identity { get; } =
-            SourceHouseCapabilityIdentity.Create("remote-source");
-        public SourceHouseCapabilityCategory Category => SourceHouseCapabilityCategory.Remote;
-        public async ValueTask<SourceHouseCapabilityOutcome> ReadAsync(
-            SourceHouseSourceCandidate candidate, int maximumBytes, CancellationToken cancellationToken)
-        {
-            if (candidate.Document.ResolvedUrl is not { Length: > 0 } url)
-                return new SourceHouseCapabilityOutcome.Unavailable(new("SourceUrlUnavailable"));
-            SourceChecksumVerification checksum = SourceLinkService.VerifyChecksum(candidate.Document, []);
-            if (checksum is SourceChecksumVerification.Unavailable or SourceChecksumVerification.Unsupported)
-                return new SourceHouseCapabilityOutcome.Rejected(new(checksum.ToString()));
-
-            FetchSourceResult result = await fetcher.FetchVerifiedSourceBytesAsync(
-                url,
-                bytes => SourceLinkService.VerifyChecksum(candidate.Document, bytes.Span)
-                    is SourceChecksumVerification.Exact or SourceChecksumVerification.LineEndingNormalized,
-                cancellationToken).ConfigureAwait(false);
-            return result switch
-            {
-                FetchSourceResult.Success success =>
-                    CapturedSource(success.Content, maximumBytes, "SourceUnavailable"),
-                FetchSourceResult.Failure { Error: SourceError.NotFound } =>
-                    new SourceHouseCapabilityOutcome.Unavailable(new("SourceNotFound")),
-                FetchSourceResult.Failure { Error: SourceError.ValidationFailed } =>
-                    new SourceHouseCapabilityOutcome.Failed(new("ChecksumMismatch")),
-                FetchSourceResult.Failure failure =>
-                    new SourceHouseCapabilityOutcome.Failed(new(failure.Error.ToString())),
-                _ => throw new InvalidOperationException("Unknown source fetch result."),
-            };
-        }
-    }
-
-    static SourceHouseCapabilityOutcome CapturedSource(byte[]? bytes, int maximumBytes, string unavailable) =>
-        bytes is null
-            ? new SourceHouseCapabilityOutcome.Unavailable(new(unavailable))
-            : bytes.Length > maximumBytes
-                ? new SourceHouseCapabilityOutcome.Incomplete(new("SourceBytesExceeded"))
-                : new SourceHouseCapabilityOutcome.Available(bytes);
-
     sealed record AuthoredPdbInspection(
         AssemblyPdbSourceProvenance? Provenance = null,
-        ImmutableArray<byte>? PdbImage = null,
         Exception? AcquisitionFailure = null,
         Exception? ProvenanceFailure = null)
     {
         public SourceHouseOutcome? HouseOutcome { get; init; }
         public AssemblyContextLibraryAdapterResult.Terminal? LibraryFailure { get; init; }
         public AssemblyContextLibraryAdapterResult.Completed?
-            RetainedLibrary { get; init; }
+            RetainedLibrary
+        { get; init; }
+        public bool? PortablePdbAvailable { get; init; }
     }
 }

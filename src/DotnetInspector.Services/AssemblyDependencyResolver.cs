@@ -905,8 +905,7 @@ public sealed partial class AssemblyDependencyResolver :
             }
             reservedBytes = length;
 
-            byte[] image =
-                GC.AllocateUninitializedArray<byte>((int)length);
+            byte[] image = new byte[(int)length];
             source.ReadExactly(image);
 
             var selection = ResolvedAssemblyReference.SelectFromStream(

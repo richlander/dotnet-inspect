@@ -2,11 +2,15 @@ import {
   bindScopeBar,
   captureScopeBarFocus,
   createScopeBarState,
-  renderApplicationScopeBar,
   renderScopeBar,
   restoreScopeBarFocus,
   type ScopeBarBinding,
 } from "../src/scope-bar.ts";
+import {
+  bindProductNavigation,
+  renderBrand,
+  type ProductNavigationActions,
+} from "../src/brand.ts";
 import { renderAnnotatedSourcePageActions } from "../src/annotated-source.ts";
 import type {
   LibraryLens,
@@ -92,8 +96,8 @@ declare global {
   interface Window {
     focusWorkbenchSearchProbe: () => boolean;
     renderPackageScopeProbe: () => void;
-    rerenderApplicationScopeProbe: () => void;
     rerenderApplicationMenuProbe: () => void;
+    rerenderProductNavigationProbe: () => void;
     rerenderScopeBarProbe: () => void;
     beginContentFrameReplacementProbe: () => void;
     flushContentFrameReplacementProbe: () => void;
@@ -921,10 +925,6 @@ const harnessKeyboardHelpBindings = [
 app.innerHTML = `
   <div class="workbench">
     ${workbenchShellHtml({
-      applicationScopeHtml: renderApplicationScopeBar(
-        workspaceMode ? "workspace" : null,
-        true,
-        escapeHtml),
       contextualActionsHtml: annotatedMode || sourceMode
         ? `<div class="working-surface-actions" role="group" aria-label="${annotatedMode ? "Annotated Source actions" : "Source actions"}">
             ${annotatedMode ? renderAnnotatedSourcePageActions(true) : ""}
@@ -962,9 +962,7 @@ app.innerHTML = `
     <div class="notice-stack"></div>
     <main id="subject-panel" class="workspace${workspaceMode ? "" : " content-frame"}"
       ${workspaceMode ? "" : `data-content-pane="${contentFramePane}"`}
-      ${workspaceMode
-        ? 'role="tabpanel" aria-labelledby="application-scope-workspace"'
-        : ""}>
+      >
       ${navigationHtml}
       <section class="detail-pane${workspaceMode
         ? ""
@@ -1015,6 +1013,20 @@ app.innerHTML = `
     'id="keyboard-help-backdrop" class="modal-backdrop"',
     'id="keyboard-help-backdrop" class="modal-backdrop" hidden',
   )}`;
+const productNavigationActions: ProductNavigationActions = {
+  currentDestination: () => workspaceMode ? "workspace" : null,
+  onAction: action => {
+    if (action === "open-library") {
+      document.body.dataset.openLibrary = "true";
+    }
+  },
+  onNavigate: destination => {
+    document.body.dataset.productDestination = destination;
+  },
+  unavailableReason: () => null,
+};
+let productNavigationBinding =
+  bindProductNavigation(appRoot, productNavigationActions);
 
 function setApplicationDialog(
   next: "settings" | "keyboard-help" | null,
@@ -1152,9 +1164,6 @@ function renderHarnessScopeBar() {
 
 function bindHarnessScopeBar() {
   scopeBarBinding = bindScopeBar(document, {
-    onApplicationScopeSelect: applicationScope => {
-      document.body.dataset.applicationScope = applicationScope;
-    },
     onMemberSectionSelect: section => {
       activeMemberSection = section;
       renderHarnessScopeBar();
@@ -1318,35 +1327,6 @@ window.renderPackageScopeProbe = () => {
   activePackageLens = "overview";
   renderHarnessScopeBar();
 };
-window.rerenderApplicationScopeProbe = () => {
-  const focusedElement = document.activeElement instanceof HTMLElement
-    ? document.activeElement
-    : null;
-  const focusTarget = focusedElement
-    ?.closest("[data-application-scope-strip]")
-    ? captureScopeBarFocus(focusedElement)
-    : null;
-  const region = document.querySelector<HTMLElement>(
-    ".titlebar > .application-scope-region");
-  if (!focusTarget || !region)
-    throw new Error("The application scope focus probe is unavailable.");
-  appRoot.tabIndex = -1;
-  appRoot.focus({ preventScroll: true });
-  scopeBarBinding?.disconnect();
-  region.outerHTML = `
-    <div class="application-scope-region">
-      ${renderApplicationScopeBar(
-        workspaceMode ? "workspace" : null,
-        true,
-        escapeHtml)}
-    </div>`;
-  bindHarnessScopeBar();
-  if (!restoreScopeBarFocus(document, focusTarget)) {
-    document.querySelector<HTMLElement>(".brand")
-      ?.focus({ preventScroll: true });
-  }
-  appRoot.removeAttribute("tabindex");
-};
 window.rerenderApplicationMenuProbe = () => {
   const applicationMenuHadFocus = applicationMenuOwnsFocus(document);
   workbenchShellBinding?.disconnect();
@@ -1361,6 +1341,27 @@ window.rerenderApplicationMenuProbe = () => {
   workbenchShellBinding =
     bindWorkbenchShell(document, workbenchShellActions);
   if (applicationMenuHadFocus) focusApplicationMenuButton(document);
+};
+window.rerenderProductNavigationProbe = () => {
+  const button = document.querySelector<HTMLElement>(
+    "[data-product-navigation-button]");
+  const menu = document.querySelector<HTMLElement>(
+    "[data-product-navigation-menu]");
+  const productNavigationHadFocus =
+    document.activeElement === button
+    || (document.activeElement instanceof Node
+      && menu?.contains(document.activeElement) === true);
+  productNavigationBinding.disconnect();
+  menu?.remove();
+  if (!button)
+    throw new Error("The product-navigation shell is unavailable.");
+  button.outerHTML = renderBrand();
+  productNavigationBinding =
+    bindProductNavigation(appRoot, productNavigationActions);
+  if (productNavigationHadFocus) {
+    document.querySelector<HTMLElement>(
+      "[data-product-navigation-button]")?.focus();
+  }
 };
 window.rerenderScopeBarProbe = renderHarnessScopeBar;
 window.beginContentFrameReplacementProbe = () => {

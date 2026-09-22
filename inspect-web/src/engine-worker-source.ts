@@ -1,9 +1,17 @@
 import type {
   BrowserSource,
+  BrowserTypeCodeView,
   BrowserTypeSourceCancellation,
   BrowserTypeSourceResult,
+  InspectionDiagnostic,
+  InspectionShare,
 } from "./facades/inspect-web-source.d.ts";
-import type { TypeSourceLoadRequest } from "./source-inspection.ts";
+import {
+  typeSourceView,
+  type TypeSourceLoadRequest,
+  type TypeSourceView,
+} from "./source-inspection.ts";
+import { decodeEngineWorkerJsonValue } from "./engine-worker-ordinary.ts";
 import type {
   WorkerRuntimeOperationRegistration,
   WorkerRuntimePreparationError,
@@ -33,6 +41,7 @@ export interface EngineWorkerTypeSourceInput {
   readonly assembly: string;
   readonly type: string;
   readonly taste: string;
+  readonly view: TypeSourceView;
 }
 
 export interface EngineWorkerTypeSourceFacade {
@@ -44,6 +53,7 @@ export interface EngineWorkerTypeSourceFacade {
     assemblyName: string,
     typeIdentity: string,
     styleOptionsJson: string,
+    view: string,
   ): Promise<BrowserTypeSourceResult>;
   cancelTypeSourceQuery(
     operationId: string,
@@ -59,7 +69,7 @@ export interface EngineWorkerTypeSourceFailure {
 
 type TypeSourceSettlement =
   ManagedOperationSettlement<
-    BrowserSource,
+    BrowserTypeCodeView,
     EngineWorkerTypeSourceFailure,
     string
   >;
@@ -136,6 +146,7 @@ BoundedPayloadDecoder<EngineWorkerTypeSourceInput> = {
       "assembly",
       "type",
       "taste",
+      "view",
     ])) {
       return rejected("Expected a Type Source request.");
     }
@@ -146,20 +157,26 @@ BoundedPayloadDecoder<EngineWorkerTypeSourceInput> = {
     const assembly = ownData(candidate, "assembly");
     const type = ownData(candidate, "type");
     const taste = ownData(candidate, "taste");
+    const view = ownData(candidate, "view");
     if (typeof packageId !== "string"
       || typeof version !== "string"
       || typeof framework !== "string"
       || typeof assembly !== "string"
       || typeof type !== "string"
-      || typeof taste !== "string") {
+      || typeof taste !== "string"
+      || typeof view !== "string") {
       return rejected("Type Source request fields must be text.");
     }
+    const selectedView = typeSourceView(view);
+    if (selectedView === null)
+      return rejected("Unknown Type Source view.");
     const characters = packageId.length
       + version.length
       + framework.length
       + assembly.length
       + type.length
-      + taste.length;
+      + taste.length
+      + view.length;
     if (characters > maxRequestCharacters) {
       return rejected(
         `Type Source request exceeds ${maxRequestCharacters} characters.`,
@@ -176,12 +193,13 @@ BoundedPayloadDecoder<EngineWorkerTypeSourceInput> = {
         assembly,
         type,
         taste,
+        view: selectedView,
       },
     };
   },
 };
 
-export const engineWorkerTypeSourceValue: BoundedPayloadDecoder<BrowserSource> = {
+const sourcePayloadValue: BoundedPayloadDecoder<BrowserSource> = {
   decode(value) {
     const candidate = dataRecord(value);
     if (candidate === null || !hasExactData(candidate, [
@@ -240,6 +258,49 @@ export const engineWorkerTypeSourceValue: BoundedPayloadDecoder<BrowserSource> =
         text: text.value,
       },
     };
+  },
+};
+
+export const engineWorkerTypeSourceValue: BoundedPayloadDecoder<BrowserTypeCodeView> = {
+  decode(value) {
+    const candidate = dataRecord(value);
+    if (candidate === null)
+      return rejected("Expected a Type Source code view.");
+    const kind = ownData(candidate, "kind");
+    if (kind === "source" && hasExactData(candidate, [
+      "kind",
+      "value",
+      "share",
+      "diagnostics",
+    ])) {
+      const source = sourcePayloadValue.decode(ownData(candidate, "value"));
+      if (source.kind === "rejected") return source;
+      const envelope = decodeEngineWorkerJsonValue<{
+        readonly share: InspectionShare;
+        readonly diagnostics: ReadonlyArray<InspectionDiagnostic>;
+      }>({
+        share: ownData(candidate, "share"),
+        diagnostics: ownData(candidate, "diagnostics"),
+      });
+      return envelope.kind === "rejected"
+        ? envelope
+        : {
+          kind: "decoded",
+          value: {
+            kind,
+            value: source.value,
+            share: envelope.value.share,
+            diagnostics: envelope.value.diagnostics,
+          },
+        };
+    }
+    if (kind === "apiDeclarations" && hasExactData(candidate, ["kind", "inspection"])) {
+      const inspection = dataRecord(ownData(candidate, "inspection"));
+      if (inspection === null || !hasExactData(inspection, ["content", "share", "diagnostics"]))
+        return rejected("Expected a completed API Declarations inspection.");
+      return decodeEngineWorkerJsonValue<BrowserTypeCodeView>(value);
+    }
+    return rejected("Unknown Type Source code view.");
   },
 };
 
@@ -435,7 +496,7 @@ export function engineWorkerTypeSourceCancellationIsRunning(
 export function createEngineWorkerTypeSourceHostRegistration():
 WorkerRuntimeOperationRegistration<
   TypeSourceLoadRequest,
-  BrowserSource,
+  BrowserTypeCodeView,
   EngineWorkerTypeSourceFailure,
   string,
   never,
@@ -452,6 +513,7 @@ WorkerRuntimeOperationRegistration<
         assembly: request.assembly,
         type: request.type,
         taste: request.taste,
+        view: request.view,
       });
     },
     value: engineWorkerTypeSourceValue,
@@ -489,6 +551,7 @@ export function registerEngineWorkerTypeSourceOperation(
         input.assembly,
         input.type,
         input.taste,
+        input.view,
       );
       try {
         return mapEngineWorkerTypeSourceResult(result);

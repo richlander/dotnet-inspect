@@ -1,10 +1,14 @@
 using System.Reflection;
 using DotnetInspector.DocumentationHouse;
 using DotnetInspector.DocumentationHouse.Platform;
+using DotnetInspector.EcosystemLoading;
+using DotnetInspector.Ecosystems;
 using DotnetInspector.Libraries;
 using DotnetInspector.LibraryMetadata;
 using DotnetInspector.Platforms;
 using DotnetInspector.Platforms.Packages;
+using DotnetInspector.Queries;
+using DotnetInspector.SourceSelection;
 using ILInspector.Metadata;
 using Inspector.Artifacts;
 using Inspector.Resources;
@@ -22,6 +26,126 @@ public sealed class PackagePlatformLibraryMaterializerTests
                 maxTypeForwarders: 10_000,
                 maxMetadataRows: 1_000_000,
                 maxRetainedTextCharacters: 20_000_000);
+
+    [Fact]
+    public async Task
+        PublicRuntimeLoaderConsumesPackageBackedPopulationCapability()
+    {
+        CancellationToken cancellationToken =
+                TestContext.Current.CancellationToken;
+        await using PackagePlatformTestEnvironment environment =
+                PopulationEnvironment();
+        PackagePlatformHouseAdapter adapter = Adapter(environment);
+        await using var workspace = new InspectionWorkspace(
+                EcosystemPackCatalog.CreateWorkspacePlan(
+                    [EcosystemPackIds.Runtime]));
+        WorkspaceRegistrationRevision revision =
+                Assert.IsType<WorkspaceRegistrationReadResult.Available>(
+                    workspace.GetRegistrationSnapshot()).Revision;
+        WorkspaceEcosystemRegistrationDeclaration registration =
+                Assert.IsType<WorkspaceRegistration.Ecosystem>(
+                    Assert.Single(revision.Registrations)).Declaration;
+        var known = Assert.IsType<
+                EcosystemPopulationLoaderSelection.Known<
+                    RuntimeEcosystemPopulationLoadInputs>>(
+                        EcosystemPackCatalog.SelectPopulationLoader(
+                            revision,
+                            registration,
+                            EcosystemPopulationDemand
+                                .WholePopulation.Instance));
+        EcosystemPopulationCapabilityPlanIdentity capabilityPlan =
+                EcosystemPopulationCapabilityPlanIdentity.Create(
+                    "package-runtime-capability");
+        var capability = new PackagePopulationCapability(
+                capabilityPlan,
+                environment,
+                adapter);
+        var inputs = new RuntimeEcosystemPopulationLoadInputs(
+                EcosystemPopulationOperationPolicyIdentity.Create(
+                    "package-runtime-policy"),
+                capabilityPlan,
+                EcosystemPopulationWorkIdentity.Create(
+                    "package-runtime-work"),
+                capability);
+
+        var outcome =
+                Assert.IsType<EcosystemPopulationLoadOutcome.Completed>(
+                    await EcosystemPopulationLoadOperation.InvokeAsync(
+                        known.CreateRequest(inputs, cancellationToken)));
+        EcosystemPopulationAdmissionResult admission =
+                await EcosystemPopulationAdmissionOperation.AdmitAsync(
+                    workspace,
+                    outcome);
+
+        Assert.Equal(2, admission.Libraries.Count);
+        Assert.All(
+                admission.Libraries,
+                static correspondence =>
+                {
+                    Assert.Equal(
+                        EcosystemPopulationLibraryRole.Focus,
+                        correspondence.LoadedLibrary.Roles);
+                    Assert.IsType<PackageReferenceArtifactProvenance>(
+                        Assert.IsType<PlatformLibraryArtifactProvenance>(
+                                correspondence.LoadedLibrary
+                                    .Reference.ApiAssembly
+                                    .ArtifactReference.Provenance)
+                            .SourceProvenance);
+                });
+        Assert.Equal(2, admission.Contributions.Count);
+        IReadOnlyList<EcosystemPopulationNavigationContribution>
+            navigation =
+                EcosystemPopulationNavigationProjection.Project(
+                    revision,
+                    admission);
+        Assert.Equal(2, navigation.Count);
+        Assert.All(
+            navigation,
+            contribution =>
+            {
+                Assert.Contains(
+                    contribution.Source,
+                    admission.Contributions);
+                var available = Assert.IsType<
+                    EcosystemPopulationNavigationOutcome.Available>(
+                        contribution.Outcome);
+                Assert.Same(
+                    registration,
+                    available.Contribution.Ecosystem.Declaration);
+                Assert.Same(
+                    contribution.Source.Correspondence.Occurrence,
+                    available.Contribution.Library);
+            });
+        var accepted =
+                Assert.IsType<WorkspaceLibraryAdmissionOutcome.Accepted>(
+                    Assert.IsType<
+                            EcosystemPopulationChildAdmission.Attempted>(
+                            Assert.Single(admission.ChildAdmissions))
+                        .Outcome);
+        Assert.Same(revision, accepted.Receipt.RegistrationRevision);
+        Assert.All(
+                admission.Libraries,
+                correspondence =>
+                {
+                    Assert.Same(outcome.Receipt, correspondence.LoadReceipt);
+                    Assert.Same(
+                        accepted.Receipt,
+                        correspondence.Admission);
+                    Assert.Same(
+                        correspondence.LoadedLibrary.Reference,
+                        correspondence.Occurrence.Library);
+                });
+        Assert.Equal(
+                PlatformFamily.DotNetRuntime,
+                Assert.Single(outcome.Receipt.Children)
+                    .PlatformEvidence!
+                    .Request
+                    .Target
+                    .Family);
+
+        await workspace.CloseAsync();
+        await environment.AssertSettledAsync();
+    }
 
     [Fact]
     public async Task
@@ -673,7 +797,7 @@ public sealed class PackagePlatformLibraryMaterializerTests
                                 request.Work.MaxDuration)));
 
         var completed = Assert.IsType<
-            PackagePlatformPopulationMaterializationResult.Completed>(
+            PlatformPopulationArtifactMaterializationOutcome.Completed>(
                 await PackagePlatformLibraryMaterializer
                     .MaterializeReferencePopulationAsync(
                         request,
@@ -779,7 +903,7 @@ public sealed class PackagePlatformLibraryMaterializerTests
                                 sourceRequest.Work.MaxDuration)));
 
         var terminal = Assert.IsType<
-            PackagePlatformPopulationMaterializationResult.Terminal>(
+            PlatformPopulationArtifactMaterializationOutcome.Terminal>(
                 await PackagePlatformLibraryMaterializer
                     .MaterializeReferencePopulationAsync(
                         materializationRequest,
@@ -818,7 +942,7 @@ public sealed class PackagePlatformLibraryMaterializerTests
         PlatformHouseConsumedWork consumed = Consumed(reference.Value);
 
         var terminal = Assert.IsType<
-            PackagePlatformPopulationMaterializationResult.Terminal>(
+            PlatformPopulationArtifactMaterializationOutcome.Terminal>(
                 await PackagePlatformLibraryMaterializer
                     .MaterializeReferencePopulationAsync(
                         request,
@@ -900,7 +1024,7 @@ public sealed class PackagePlatformLibraryMaterializerTests
                                 request.Work.MaxDuration)));
 
         var completed = Assert.IsType<
-            PackagePlatformPopulationMaterializationResult.Completed>(
+            PlatformPopulationArtifactMaterializationOutcome.Completed>(
                 await PackagePlatformLibraryMaterializer
                     .MaterializeImplementationPopulationAsync(
                         request,
@@ -1040,7 +1164,7 @@ public sealed class PackagePlatformLibraryMaterializerTests
                                 sourceRequest.Work.MaxDuration)));
 
         var terminal = Assert.IsType<
-            PackagePlatformPopulationMaterializationResult.Terminal>(
+            PlatformPopulationArtifactMaterializationOutcome.Terminal>(
                 await PackagePlatformLibraryMaterializer
                     .MaterializeImplementationPopulationAsync(
                         materializationRequest,
@@ -1081,7 +1205,7 @@ public sealed class PackagePlatformLibraryMaterializerTests
             Consumed(implementation.Value);
 
         var terminal = Assert.IsType<
-            PackagePlatformPopulationMaterializationResult.Terminal>(
+            PlatformPopulationArtifactMaterializationOutcome.Terminal>(
                 await PackagePlatformLibraryMaterializer
                     .MaterializeImplementationPopulationAsync(
                         request,
@@ -1172,7 +1296,7 @@ public sealed class PackagePlatformLibraryMaterializerTests
                                 request.Work.MaxDuration)));
 
         var completed = Assert.IsType<
-            PackagePlatformPopulationMaterializationResult.Completed>(
+            PlatformPopulationArtifactMaterializationOutcome.Completed>(
                 await PackagePlatformLibraryMaterializer
                     .MaterializeReferenceAndImplementationPopulationAsync(
                         request,
@@ -1304,7 +1428,7 @@ public sealed class PackagePlatformLibraryMaterializerTests
                                 foreign.Work.MaxDuration)));
 
         var terminal = Assert.IsType<
-            PackagePlatformPopulationMaterializationResult.Terminal>(
+            PlatformPopulationArtifactMaterializationOutcome.Terminal>(
                 await PackagePlatformLibraryMaterializer
                     .MaterializeReferenceAndImplementationPopulationAsync(
                         request,
@@ -1355,7 +1479,7 @@ public sealed class PackagePlatformLibraryMaterializerTests
             Consumed(reference.Value, implementation.Value);
 
         var terminal = Assert.IsType<
-            PackagePlatformPopulationMaterializationResult.Terminal>(
+            PlatformPopulationArtifactMaterializationOutcome.Terminal>(
                 await PackagePlatformLibraryMaterializer
                     .MaterializeReferenceAndImplementationPopulationAsync(
                         request,
@@ -1936,7 +2060,7 @@ public sealed class PackagePlatformLibraryMaterializerTests
             typeof(PackageReferenceArtifactProvenance),
             typeof(PackageImplementationArtifactProvenance),
             typeof(PackagePlatformLibraryMaterializationResult.Terminal),
-            typeof(PackagePlatformPopulationMaterializationResult.Terminal),
+            typeof(PlatformPopulationArtifactMaterializationOutcome.Terminal),
         ];
 
         foreach (Type type in types)
@@ -2078,6 +2202,54 @@ public sealed class PackagePlatformLibraryMaterializerTests
     static PackagePlatformHouseAdapter Adapter(
         PackagePlatformTestEnvironment environment) =>
         new(environment.CreateSource(), "package-materializer");
+
+    sealed class PackagePopulationCapability :
+        IEcosystemPlatformPopulationCapability
+    {
+        readonly PackagePlatformTestEnvironment _environment;
+        readonly PackagePlatformHouseAdapter _adapter;
+
+        internal PackagePopulationCapability(
+            EcosystemPopulationCapabilityPlanIdentity planIdentity,
+            PackagePlatformTestEnvironment environment,
+            PackagePlatformHouseAdapter adapter)
+        {
+            PlanIdentity = planIdentity;
+            _environment = environment;
+            _adapter = adapter;
+        }
+
+        public EcosystemPopulationCapabilityPlanIdentity PlanIdentity
+        {
+            get;
+        }
+
+        public async ValueTask<
+            PlatformPopulationArtifactMaterializationOutcome> RealizeAsync(
+                PlatformLibraryPopulationDeclaration declaration,
+                CancellationToken cancellationToken)
+        {
+            Assert.Equal(PlatformFamily.DotNetRuntime, declaration.Family);
+            PlatformHouseRequest request = PopulationRequest(
+                _adapter,
+                cancellationToken,
+                PlatformViewDemand.Reference);
+            var reference = Assert.IsType<
+                PackagePlatformHouseResult<
+                    PackageReferenceRealization>.Succeeded>(
+                        await _adapter.RealizeReferenceAsync(
+                            request,
+                            _environment.IssueOperation(
+                                cancellationToken,
+                                operationTimeout:
+                                    request.Work.MaxDuration)));
+            return await PackagePlatformLibraryMaterializer
+                .MaterializeReferencePopulationAsync(
+                    request,
+                    reference,
+                    Consumed(reference.Value));
+        }
+    }
 
     static PlatformHouseRequest ImplementationFallbackRequest(
         PackagePlatformHouseAdapter adapter,

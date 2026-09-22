@@ -56,6 +56,11 @@ retained production consumer is Inspect Web activation
 [#7028](https://github.com/richlander/dotnet-inspect/issues/7028). CLI replay
 of the same portable records and packets is
 [#4647](https://github.com/richlander/dotnet-inspect/issues/4647).
+Schema-version-5 Workspace package-source declarations and packet format 5
+carry exact credential-free HTTPS NuGet source registrations. Construction
+selects one closed requirement: anonymous or authentication required. CLI and
+Browser hosts choose a supported authentication mechanism while realizing that
+definition; no credential or host mechanism is a definition or packet field.
 The definition-first role of the `workspace` command, portable
 Workspace-to-Workspace transformations, and noun-command packet consumption are
 specified by
@@ -196,7 +201,16 @@ Navigation effect authority remain separate owner-issued currencies.
    Version 3 adds one ordered registration vector beside contexts, permits zero
    contexts when that vector is nonempty or in the closed query-only composition,
    and projects the same complete state into the packet.
-8. **Restoration lowers first, then prepares one fresh host-owned Workspace.**
+8. **Portable package-source declarations begin at definition schema version 5
+   and packet format 5.** Versions 1 through 4 remain immutable source
+   contracts. Each source is identified by one exact HTTPS service-index
+   endpoint and carries either an anonymous or authentication-required policy.
+   Credentials are never part of the definition, packet, canonical URL,
+   projection, or diagnostic. A host binds authentication-required endpoints
+   to ephemeral credentials or, where supported, a noninteractive credential
+   provider before acquisition. It refuses unsupported, duplicate, or
+   unexpected bindings rather than widening to ambient source configuration.
+9. **Restoration lowers first, then prepares one fresh host-owned Workspace.**
    Resource-free phases produce one immutable `WorkspacePlan` and complete
    restoration recipe. The consuming host supplies the fresh Workspace
    construction authority for that exact plan; ordinary owner APIs populate
@@ -281,7 +295,7 @@ portable basis.
 
 ### The `workspace` command
 
-The `workspace` command transforms portable Workspace state:
+The `workspace` command authors and transforms portable Workspace definitions:
 
 ```text
 direct definition inputs | packet
@@ -679,7 +693,7 @@ Type-command portion and adds no root `-W` surface or serialized CLI grammar.
 
 #### Package packet-context adoption
 
-The second noun-command adoption is specified by
+The second noun-command adoption is implemented under
 [#7765](https://github.com/richlander/dotnet-inspect/issues/7765). Its exact CLI
 shape is:
 
@@ -700,8 +714,8 @@ positional Packages, an explicit target framework, preview/latest selection,
 version populations or ranges, Package discovery, or a Package child command.
 
 The first slice requires one positional canonical NuGet Package ID. The
-existing `ID@VERSION` and `ID --version VERSION` forms may additionally require
-one exact effective version. Bare `--version`, `--versions`,
+`ID@VERSION` form may additionally require one exact effective version. Bare
+`--version VERSION`, `--latest-version`, `--versions`,
 `--versions-with-feed`, range selection, and multi-Package execution remain
 outside this route. ID and version comparison use their existing Package-owned
 canonical semantics; packet adoption does not add prefix, fuzzy, display-text,
@@ -789,7 +803,7 @@ An explicit version requirement applied to a floating Package member may
 validate the current ordinary inspection, but it is not faithfully projectable:
 the derived packet preserves the original floating definition and the active
 Package state has no separate version predicate. Share therefore succeeds for
-an explicit `ID@VERSION` or `--version VERSION` request only when the preserved
+an explicit `ID@VERSION` request only when the preserved
 Package member is already pinned to that exact version. It never silently pins
 or otherwise mutates the input Workspace definition.
 
@@ -819,123 +833,82 @@ invalid and over-limit packets, unauthorized content, broken
 Root/occurrence correspondence, and a non-projectable Package facet or query
 that preserves ordinary stdout.
 
-Implementation integrates the active Package/Library CLI adoption rather than
-racing its transitional execution or option policy. #7668 and its successors
-own Package aggregate execution, tools-v2 containment, authoritative Package
-identity, aggregate-by-default routing, namesake narrowing, aliases, and
-`--all-libraries` retirement. #7293 owns evidence-envelope CLI transport and
-publication. #7765 owns exact Package selection from Workspace packet context,
-baseline CLI adoption, and the Package routing-evidence adopter after those
-supporting owners settle.
+Implementation reuses the existing Package aggregate executor without broadening
+the `workspace` command into an inspection host. #7430 owns the remaining direct
+Package/Library aggregate-default adoption and `--all-libraries` retirement.
+Issue #7293 owns evidence-envelope CLI transport and publication. #7765 owns
+exact Package selection from Workspace packet context and baseline CLI
+adoption.
 
 #### Library packet-context adoption
 
-The third noun-command adoption is specified by
-[#7746](https://github.com/richlander/dotnet-inspect/issues/7746). Its exact CLI
-shape is:
+Library inspection composes with a populated Workspace by naming its Package
+subject separately from its Library target:
 
 ```console
-dotnet-inspect library Microsoft.Azure.SignalR.Common \
+dotnet-inspect library \
+  --package Microsoft.Azure.SignalR \
   --workspace "$packet"
 
-dotnet-inspect library Microsoft.Azure.SignalR.Common \
+dotnet-inspect library \
+  --package Microsoft.Azure.SignalR \
   --workspace "$packet" \
-  --share packet
+  --namesake-library
+
+dotnet-inspect library Microsoft.Azure.SignalR.Common.dll \
+  --package Microsoft.Azure.SignalR \
+  --workspace "$packet"
 ```
 
 `--workspace` accepts one canonical Base64URL Workspace packet string as the
-`library` command's aggregate location context; URL input is rejected. The
-Library name remains an ordinary `library` subject. The packet is the sole
-location source and cannot be combined with Package, Platform, project,
-framework/version/TFM, local-path, package-inference, or aggregate-Library
-source selection.
+`library` command's location context; URL input is rejected. `--package`
+identifies one exact Package occurrence in the packet's selected context. The
+packet is the sole location and target-framework source and cannot be combined
+with Platform, project, framework/version/TFM, local-path, package-inference,
+preview, or latest selection.
 
-The first slice requires one positional exact assembly simple name. It adds no
-path, filename, wildcard, fuzzy, or full assembly-identity grammar. Matching is
-case-insensitive over the owner-issued assembly identity name; it does not strip
-`.dll` or infer identity from an asset filename. Library listing, replay of the
-packet's prior active subject, the `library coordinate` child, and aggregate
-Library selection remain later work.
+No Library selector means the selected Package's admitted compile-Library
+aggregate. `--namesake-library` is an explicit narrowing gesture. The existing
+positional Library selector narrows to one exact package asset. The two
+narrowing gestures are mutually exclusive and neither may fall back to the
+aggregate, a sibling Library, or Package inspection.
 
 Complete Restoration realizes the packet under the receiving host's ordinary
 source authorization and acquisition policy. The packet's **selected context**,
-not its focused Navigation tab, supplies the aggregate Library search scope.
-Resolution consumes one host-neutral selected-context exact-Library operation
-that accepts the complete realized context and returns either:
+not its focused Navigation tab, supplies Package occurrence scope. The shared
+selected-context exact-Package operation resolves that Package before Library
+selection. The Library route reuses the operation's live admitted Package Root
+and selected target; it does not reacquire the Package, infer the Package from
+focus, choose the first occurrence, or materialize a selected Library as an
+unrelated local-file inspection.
 
-- one unique exact participant with its live operation-bounded assembly,
-  detached Package source coordinate, and exact assembly identity;
-- no matching participant;
-- multiple exact candidates;
-- incomplete participant evidence; or
-- unavailable selected-context or realization authority.
+Aggregate execution preserves every selected compile Library as a managed
+participant or visible failure. Exact narrowing uses the package asset selector.
+Namesake narrowing resolves the unique managed assembly identity matching the
+Package ID. Missing, ambiguous, or failed selection is visible and does not
+fall back. Aggregate and narrowed output retain Package, version, Library, and
+target-framework provenance.
 
-The detached selection evidence records how many selected-context participants
-were considered, the exact matching candidates, and participant failures. The
-Workspace adopter does not choose a Package or participant before invoking the
-operation. Resolution never:
-
-- searches a global Package, Platform, project, or filesystem fallback;
-- chooses the first Package or Library participant;
-- reconstructs Library identity from a path, asset filename, heading, row
-  position, or rendered text; or
-- adds a packet-specific Library inventory or matching algorithm.
-
-The selected live participant retains its exact Package coordinate, selected
-target and asset provenance while the admitted Workspace operation remains
-valid. Execution must not materialize the selected bytes and silently downgrade
-the request to an unrelated local-file inspection. Without `--share`, the
-command preserves ordinary exact-Library output, sections, formats,
-projections, diagnostics, counts, source-sensitive behavior, and exit behavior.
-
-Appending `--share[=url|packet]` follows the additive
-[CLI Workspace Sharing](cli-workspace-sharing.md) contract and performs neither
-a second Library selection nor a second Library inspection. A schema-4 derived
-packet:
-
-1. moves focus to the existing tab for the exact effective source containing
-   the selected Library;
-2. carries `PortableSubjectRequest.Library`;
-3. retains the owner-issued exact Library identity beneath that direct Package
-   row; and
-4. includes a Library facet or query only when the ordinary command choice has
-   a faithful portable representation.
-
-Schemas 3 and 4 are valid packet inputs for ordinary Library inspection. A
-successful derived Library packet requires schema 4 because
-`PortableSubjectRequest.Library` has no schema-3 representation. A Share
-refusal preserves ordinary stdout, writes no partial scalar, names the first
-non-projectable choice, and makes the explicitly requested side output fail
-nonzero.
+Derived Library Share remains a later adoption. The packet is input context,
+not permission for the command to rewrite or replay prior active Navigation
+state.
 
 Inspected content, metadata rows, acquired bytes, diagnostics, credentials,
 and live Workspace authority do not enter the packet. The receiving host
 applies its own offline mode, source configuration, credentials, cache,
 timeout, preview, and transfer limits.
 
-The real multi-Library case uses
-`Microsoft.Azure.SignalR@1.33.1`. Selecting
-`Microsoft.Azure.SignalR.Common` must inspect that exact participant rather
-than the namesake or first selected compile Library. A two-context case selects
-the SignalR context while focus names a neighboring context; resolution uses
-the selected context, and derived Share focuses the exact SignalR source while
-preserving the neighboring context and dormant state.
+The real multi-Library case uses `Microsoft.Azure.SignalR@1.33.1`: the default
+includes both selected-framework compile Libraries, namesake narrowing chooses
+`Microsoft.Azure.SignalR.dll`, and the positional
+`Microsoft.Azure.SignalR.Common.dll` selector chooses only that asset. A
+two-context case selects the SignalR context while focus names a neighboring
+context; Package resolution uses the selected context.
 
-A focused ambiguity fixture places two participants with the same assembly
-simple name but different exact identities in the selected context. The
-command reports both candidates and emits no derived Share rather than choosing
-the first participant. Neighboring gates cover one unique Library, no match,
-incomplete evidence, registration-only or null-selected-context packets,
-schema-3 ordinary inspection and Share refusal, schema-4 derived Share, URL
-rejection, invalid and over-limit packets, unauthorized content, and a
-non-projectable section or query choice that preserves ordinary stdout.
-
-Implementation integrates the active Package/Library CLI adoption rather than
-racing its transitional execution or option policy. #7668 and its successors
-own Package aggregate execution, tools-v2 containment, authoritative Package
-identity, aggregate-by-default routing, namesake narrowing, aliases, and
-`--all-libraries` retirement. #7746 owns only exact Library selection from
-Workspace packet context.
+This command adoption composes the Workspace definition owner with the
+aggregate and narrowing policy owned by #7318 and the Package/Library CLI
+adoption tracked by #7430. It does not add Library inspection behavior to the
+`workspace` command.
 
 Platform, project, local, and registration-only Library activation remain
 outside this slice. Packet format 4 intentionally leaves non-Package
@@ -981,6 +954,92 @@ It is not the durable Workspace itself. The target CLI does not:
 Existing CLI inventory and `--active-package` behavior are transitional. They
 may be retired only after the definition-first command and equivalent
 packet-context noun-command paths exist.
+
+### Component identity and immutable packet editing
+
+Workspace Definitions owns packet-local component identity. It applies the
+same separation established by
+[Resource Explanation](resource-explanation.md#resource-identity-and-path-projection):
+typed owner identity remains authoritative, while a separate canonical,
+shell-safe path is emitted for unchanged handoff to a consuming command.
+Resource Explanation's `ResourcePath` is not reused: it names installed product
+contracts, while a Workspace component path names one component in one
+immutable packet snapshot.
+
+The first adopted component domain is every direct Package tuple. Its path is:
+
+```text
+packages/<lowercase-package-id>@<version>/<tfm>/<rid>
+```
+
+`~` represents an absent Version, TFM, or RID. Package ID equality follows the
+existing case-insensitive packet identity; Version, TFM, and RID use the
+packet's canonical normalized spellings. Because packet validity already
+rejects duplicate normalized source tuples, this projection is complete and
+unique for the adopted domain. Reordering unrelated tuples does not change a
+Package path. Updating a coordinate produces a new path in the derived packet,
+as expected for snapshot-local identity.
+
+Context paths use the existing packet-local context identity:
+`contexts/g0`, `contexts/g1`, and so on. They have the same scope as
+`WorkspaceContextAddress`: they are stable for one canonical packet, not global
+context identity. Package add defaults to the packet's selected context;
+`--context` is needed only to override that choice. Component inspection emits
+both typed path families and their relationship, so no edit command derives
+identity from display text or row order.
+
+Packet editing is immutable:
+
+```console
+$ dotnet-inspect workspace component list --packet "$w"
+{
+  "schema_version": 1,
+  "contexts": [
+    {
+      "path": "contexts/g0",
+      "packages": [
+        "packages/system.text.json@10.0.0/net10.0/~"
+      ]
+    }
+  ],
+  "packages": [
+    {
+      "path": "packages/system.text.json@10.0.0/net10.0/~",
+      "package_id": "System.Text.Json",
+      "version": "10.0.0",
+      "framework": "net10.0"
+    }
+  ]
+}
+
+$ w=$(dotnet-inspect workspace package add \
+    Microsoft.Extensions.Logging.Abstractions@10.0.0 --packet "$w")
+$ w=$(dotnet-inspect workspace package update \
+    packages/system.text.json@10.0.0/net10.0/~ \
+    --version 9.0.0 --packet "$w")
+$ w=$(dotnet-inspect workspace package remove \
+    packages/microsoft.extensions.logging.abstractions@10.0.0/net10.0/~ \
+    --packet "$w")
+```
+
+Add and remove are resource-free definition transformations. They preserve
+unselected tuples, contexts, registrations, package sources, queries, and view
+states, compact affected indexes, prune only query identities made unreachable
+by removal, and pass the complete result through the canonical packet validity
+gate before emitting it. A removal that cannot produce a valid complete packet
+is a visible refusal.
+
+Update is the user-facing name for the existing realization-backed portable
+Package-coordinate replacement. It accepts an emitted Package path rather than
+a navigation-row ordinal and retains the fresh successor Workspace,
+correspondence, committed-view, and complete-output obligations of that
+contract. "Replacement" remains an implementation description of the
+remove-old/admit-successor mechanism, not CLI vocabulary.
+
+Packet conversion is representation work beneath the same noun:
+`workspace packet decode` and `workspace packet encode`. It remains
+resource-free and canonical. The former peer `workspace-state` name is retired
+because the packet is durable snapshot data, not live Workspace authority.
 
 ### CLI mockup
 
@@ -1050,6 +1109,9 @@ Implementation proceeds in focused slices:
    placement, context-local duplicate handling, all-or-nothing completion, and
    that no graph result enters the packet. Implemented under
    [#7494](https://github.com/richlander/dotnet-inspect/issues/7494).
+   Canonical component paths and immutable Package add/update/remove adoption
+   are implemented under
+   [#8145](https://github.com/richlander/dotnet-inspect/issues/8145).
 5. **Noun-command packet context.** Adopt canonical Base64URL packet-string
    input and derived packet-or-URL Share in `type` under
    [#7555](https://github.com/richlander/dotnet-inspect/issues/7555), then
@@ -1317,16 +1379,16 @@ Field semantics:
   `members`. Schema versions 1 and 2 require at least one context. Schema
   version 3 permits an empty context array when `registrations` is nonempty or
   when the record participates in the query-only peer composition below.
-  Schema version 4 permits an empty context array only when `registrations` is
-  nonempty.
-- `registrations` — required on schema-version-3-or-4 Workspace records and
-  unknown on earlier versions. It is the ordered closed Exact Library, Package
+  Schema versions 4 and 5 permit an empty context array only when
+  `registrations` is nonempty.
+- `registrations` — required on schema-version-3-through-5 Workspace records
+  and unknown on earlier versions. It is the ordered closed Exact Library, Package
   Prefix, or Ecosystem union defined by
   [Schema-version-3 registration-bearing Workspaces](#schema-version-3-registration-bearing-workspaces).
   A version-3 Workspace with neither context nor registration is valid only in
   the query-only peer composition below.
 - `query` records — named query presets. Schema version 1 carries only an
-  optional product query ID. Versions 2 through 4 use the common closed envelope
+  optional product query ID. Versions 2 through 5 use the common closed envelope
   `schemaVersion`, `kind`, `id`, required `queryId`, and required `payload`.
   `payload` is one closed JSON object parsed and canonically rewritten by
   `PortableQueryPayloadCodec`. Workspace Definitions preserves the resulting
@@ -1451,6 +1513,60 @@ explicit active Library, Type and Member requests without reinterpreting the
 version-2/3 subject tags specified here. Its managed records, codec,
 transposition, resolution and complete restoration are implemented; that
 focused document names the Release gates and remaining CLI/Browser adoption.
+
+### Credential-free package-source declarations
+
+Schema version 5 and packet format 5 add the Workspace-owned
+`packageSources` vector. Each entry contains only an absolute HTTPS
+service-index endpoint without user information, query, or fragment and one
+authentication requirement (`Anonymous` or `AuthenticationRequired`). The
+exact endpoint is the source identity and is unique under ordinal comparison.
+Packet format 5 lowers anonymous sources to `[endpoint]` and
+authentication-required sources to `[endpoint, "a"]`.
+
+Each record is safe by construction: no separate annotation can promote a
+generic source after creation. Exact endpoints are unique. Sources on one
+origin cannot mix anonymous and authentication-required policy, preventing an
+anonymous registration from acquiring authority through another declaration's
+credential provider.
+
+The username, PAT, and credential-provider result are host execution authority,
+not portable state. They are absent from definition JSON, packets, URLs,
+retained postings, and all output. Complete restoration carries the
+credential-free declarations to the host. Before package acquisition, the host
+must validate any explicit bindings and install exactly the packet-declared
+source set. It must not import ambient `nuget.config` sources or persisted
+credentials when a version-5 source set exists.
+
+`WorkspacePackageSourceBinding` is the host-neutral construction boundary for
+that step. It accepts the declared source set plus explicit endpoint-bound
+Basic credentials and returns ordered `PackageSource` values together with the
+authentication-required declarations left unbound. Both CLI and Browser use
+this result. The CLI may assign provider authority to the remaining origins;
+Browser/Wasm must reject any remaining requirement before network work.
+`WorkspacePackageSourceBindingTests` gate declaration order, credential
+attachment, unbound requirements, unexpected credentials, same-origin partial
+binding, and incomplete credentials. This shared construction boundary is
+slice 1 of 2 in the CLI-and-Browser production adoption tracked by
+[#8154](https://github.com/richlander/dotnet-inspect/issues/8154).
+
+For an authentication-required endpoint, one complete explicit Basic
+credential wins. If none is supplied, a host that supports noninteractive
+NuGet credential providers may query one for that declared origin. An explicit
+credential rejection is final and must not fall back to a provider. Because
+provider authority is origin-scoped, explicit bindings must cover every
+authentication-required endpoint on the same origin or none. A host without a
+usable provider fails visibly. The CLI accepts explicit PATs through
+environment, redirected-standard-input, or caller-owned file bindings. Inspect
+Web has no provider capability and therefore requires an endpoint-bound
+username and PAT in page-session memory before network work.
+
+Those host mechanisms may retain a credential in process memory for the active
+operation or realization, but must not write it to a packet, browser storage,
+generated file, log, diagnostic, or telemetry event. Host-specific input and
+lifetime details remain owned by
+[NuGet feed authentication](nuget-authentication.md) and
+[Browser package sources](browser-package-sources.md).
 
 Definition schema version 2 replaces the flat version-1 view with one
 null-coordinate Workspace state followed by one state for every entry in the
@@ -2992,7 +3108,7 @@ One restoration attempt proceeds in this order:
    `UnsupportedCompleteRestorationGroup_ReturnsTypedFailure` gates refusal.
 4. Ask the consuming host for construction authority over one fresh Workspace
    created from that exact plan. Inspect Web begins a
-   `WorkspaceRealizationCoordinator` candidate and supplies its
+   `WorkspaceReplacementCoordinator` candidate and supplies its
    `WorkspaceRealizationConstructionLease`; the CLI supplies its sole
    invocation Workspace lifetime. Populate complete explicit membership and
    registrations through ordinary Artifact and Scope operations. Resolve and
@@ -3687,7 +3803,7 @@ Definition records and product demos (this slice):
   outcomes. Its fixed .NET vectors cover composed package/platform contexts,
   independent focus and context indexes, Unicode metadata and canonical
   signatures, and the pinned scalar-escaping rules. Its `ParseJson` and
-  `SerializeJson` boundary powers CLI `workspace-state encode` / `decode`;
+  `SerializeJson` boundary powers CLI `workspace packet encode` / `decode`;
   those commands accept inline input or bounded strict UTF-8 stdin/file input
   and emit BOM-free UTF-8 without acquisition or execution. Stream and file
   input may carry one terminal LF or CRLF outside the declared payload bound.

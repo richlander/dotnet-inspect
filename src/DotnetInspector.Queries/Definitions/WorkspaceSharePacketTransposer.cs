@@ -2,7 +2,7 @@ using System.Collections.ObjectModel;
 using System.Diagnostics;
 using System.Text;
 using DotnetInspector.Packages;
-using DotnetInspector.PortableQueries;
+using QuerySpace;
 using DotnetInspector.SourceSelection;
 using ILInspector.Metadata;
 using NuGet.Versioning;
@@ -227,10 +227,11 @@ public static class WorkspaceSharePacketTransposer
         if (canonical.FormatVersion is not (
             WorkspaceSharePacketCodec.Format2Version
             or WorkspaceSharePacketCodec.CurrentFormatVersion
-            or WorkspaceSharePacketCodec.Format4Version))
+            or WorkspaceSharePacketCodec.Format4Version
+            or WorkspaceSharePacketCodec.Format5Version))
         {
             throw new ArgumentException(
-                "Workspace share packet must use format 2, 3, or 4.",
+                "Workspace share packet must use format 2, 3, 4, or 5.",
                 nameof(packet));
         }
 
@@ -246,7 +247,12 @@ public static class WorkspaceSharePacketTransposer
             registrations:
                 schemaVersion is InspectionDefinitionSchema.Version3
                     or InspectionDefinitionSchema.Version4
+                    or InspectionDefinitionSchema.Version5
                     ? canonical.Registrations
+                    : null,
+            packageSources:
+                schemaVersion == InspectionDefinitionSchema.Version5
+                    ? canonical.PackageSources
                     : null);
         var navigation = new CommittedNavigationDefinition(
             schemaVersion,
@@ -576,6 +582,9 @@ public static class WorkspaceSharePacketTransposer
             (InspectionDefinitionScenarioPreparationResult.Version4 version4,
                 InspectionDefinitionSchema.Version4) =>
                 version4.Definitions,
+            (InspectionDefinitionScenarioPreparationResult.Version5 version5,
+                InspectionDefinitionSchema.Version5) =>
+                version5.Definitions,
             _ => throw new UnreachableException(),
         };
 
@@ -1020,7 +1029,8 @@ public static class WorkspaceSharePacketTransposer
         }
 
         if (schemaVersion is InspectionDefinitionSchema.Version3
-            or InspectionDefinitionSchema.Version4)
+            or InspectionDefinitionSchema.Version4
+            or InspectionDefinitionSchema.Version5)
         {
             WorkspaceSharePacketProjectionResult? registrationFailure =
                 ValidateProjectableRegistrations(workspace, format);
@@ -1136,6 +1146,16 @@ public static class WorkspaceSharePacketTransposer
 
         WorkspaceSharePacket packet = schemaVersion switch
         {
+            InspectionDefinitionSchema.Version5 =>
+                WorkspaceSharePacket.CreateV5(
+                    basis is null ? [] : [.. basis.Tabs],
+                    basis is null ? [] : [.. basis.Contexts],
+                    [.. workspace.Registrations],
+                    [.. workspace.PackageSources],
+                    focusedTabIndex,
+                    basis?.SelectedContextIndex,
+                    packetStates,
+                    packetQueries),
             InspectionDefinitionSchema.Version4 =>
                 WorkspaceSharePacket.CreateV4(
                     basis is null ? [] : [.. basis.Tabs],
@@ -1191,12 +1211,14 @@ public static class WorkspaceSharePacketTransposer
         if (schemaVersion is not (
             InspectionDefinitionSchema.Version2
             or InspectionDefinitionSchema.Version3
-            or InspectionDefinitionSchema.Version4))
+            or InspectionDefinitionSchema.Version4
+            or InspectionDefinitionSchema.Version5))
         {
             return InvalidDefinition(
                 "scenario.schemaVersion",
                 "Workspace share committed packets require "
-                    + "schema-version-2, schema-version-3, or schema-version-4 records.");
+                    + "schema-version-2, schema-version-3, schema-version-4, "
+                    + "or schema-version-5 records.");
         }
 
         foreach (InspectionDefinitionRecord record in definitions.Records)
@@ -1402,6 +1424,8 @@ public static class WorkspaceSharePacketTransposer
                     WorkspaceSharePacketCodec.MaxFormat3Tabs,
                 InspectionDefinitionSchema.Version4 =>
                     WorkspaceSharePacketCodec.MaxFormat4Tabs,
+                InspectionDefinitionSchema.Version5 =>
+                    WorkspaceSharePacketCodec.MaxFormat5Tabs,
                 _ => WorkspaceSharePacketCodec.MaxFormat2Tabs,
             },
             $"Packet format {workspace.SchemaVersion}");

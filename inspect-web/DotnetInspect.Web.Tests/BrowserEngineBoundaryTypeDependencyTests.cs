@@ -8,6 +8,7 @@ using DotnetInspector.Packages;
 using DotnetInspector.Queries;
 using DotnetInspector.Sections;
 using ILInspector.Metadata;
+using QuerySpace.Rows;
 
 using BrowserMetadataJsonContext =
     DotnetInspect.Web.Interop.Metadata.BrowserMetadataJsonContext;

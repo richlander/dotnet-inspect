@@ -1,8 +1,8 @@
 using System.Collections.Immutable;
+using System.Text.Json.Serialization;
 
 using DotnetInspector.Packages;
 using DotnetInspector.Queries;
-using DotnetInspector.Sections;
 using ILInspector.Metadata;
 using Inspector.Findings;
 
@@ -74,26 +74,11 @@ public sealed class DiffHistoryApiMemberInspectionRequest
         }
 
         ImmutableArray<PackageVersionAddress> selected =
-            evaluationPlan switch
-            {
-                DiffHistoryEvaluationPlan.FullPopulation =>
-                    population.Vector.Addresses,
-                DiffHistoryEvaluationPlan.ExplicitCheckpoints explicitPlan =>
-                    explicitPlan.Addresses,
-                DiffHistoryEvaluationPlan.AdaptiveBisect =>
-                [
-                    population.Vector.Addresses[0],
-                    population.Vector.Addresses[^1],
-                ],
-                _ => throw new ArgumentException(
-                    "Unknown Diff History evaluation plan.",
-                    nameof(evaluationPlan)),
-            };
-        int authorizedEvaluations = evaluationPlan
-            is DiffHistoryEvaluationPlan.AdaptiveBisect adaptivePlan
-                ? adaptivePlan.MaximumProbes
-                : selected.Length;
-        if (authorizedEvaluations > evaluationLimits.MaximumEvaluations)
+            evaluationPlan.ResolveInitialSelection(population.Vector);
+        int maximumEvaluations =
+            evaluationPlan.ResolveMaximumRealizableEvaluationCount(
+                population.Vector);
+        if (maximumEvaluations > evaluationLimits.MaximumEvaluations)
         {
             throw new ArgumentException(
                 "The Diff History evaluation plan exceeds its work limit.",
@@ -120,10 +105,7 @@ public sealed class DiffHistoryApiMemberInspectionRequest
 
         Population = population;
         EvaluationPlan = evaluationPlan;
-        InitialEvaluationSelection =
-        [
-            .. selected.OrderBy(static address => address.Position),
-        ];
+        InitialEvaluationSelection = selected;
         Operation = operation;
         TargetContext = targetContext;
         EvaluationLimits = evaluationLimits;
@@ -239,6 +221,22 @@ public sealed record DiffHistoryResolvedAssembly(
     AssemblyResolutionProvenance Provenance);
 
 /// <summary>Detached resolution of one Type focus within a Version cell.</summary>
+[JsonPolymorphic(TypeDiscriminatorPropertyName = "resolution")]
+[JsonDerivedType(
+    typeof(DiffHistoryApiMemberSubjectResolution.Resolved),
+    "resolved")]
+[JsonDerivedType(
+    typeof(DiffHistoryApiMemberSubjectResolution.SubjectAbsent),
+    "subjectAbsent")]
+[JsonDerivedType(
+    typeof(DiffHistoryApiMemberSubjectResolution.NoApplicableInput),
+    "noApplicableInput")]
+[JsonDerivedType(
+    typeof(DiffHistoryApiMemberSubjectResolution.Ambiguous),
+    "ambiguous")]
+[JsonDerivedType(
+    typeof(DiffHistoryApiMemberSubjectResolution.Failed),
+    "failed")]
 public abstract record DiffHistoryApiMemberSubjectResolution
 {
     private protected DiffHistoryApiMemberSubjectResolution()
@@ -286,6 +284,16 @@ public abstract record DiffHistoryApiMemberSubjectResolution
 }
 
 /// <summary>Detached API projection evidence for one Version participant.</summary>
+[JsonPolymorphic(TypeDiscriminatorPropertyName = "outcome")]
+[JsonDerivedType(
+    typeof(DiffHistoryApiParticipantEvidence.Available),
+    "available")]
+[JsonDerivedType(
+    typeof(DiffHistoryApiParticipantEvidence.Rejected),
+    "rejected")]
+[JsonDerivedType(
+    typeof(DiffHistoryApiParticipantEvidence.Failed),
+    "failed")]
 public abstract record DiffHistoryApiParticipantEvidence
 {
     private protected DiffHistoryApiParticipantEvidence(
@@ -698,9 +706,14 @@ public sealed class DiffHistoryApiMemberDocument
     public DiffHistoryEvaluationPlan EvaluationPlan { get; }
 
     public int? AuthorizedProbeCount =>
-        EvaluationPlan is DiffHistoryEvaluationPlan.AdaptiveBisect adaptive
-            ? adaptive.MaximumProbes
-            : null;
+        EvaluationPlan switch
+        {
+            DiffHistoryEvaluationPlan.AdaptiveBisect adaptive =>
+                adaptive.MaximumProbes,
+            DiffHistoryEvaluationPlan.RepresentativeSurvey =>
+                EvaluationPlan.ResolveAuthorizedEvaluationCount(Population),
+            _ => null,
+        };
 
     public int UsedProbeCount => Probes.Length;
 
@@ -748,6 +761,18 @@ public sealed class DiffHistoryApiMemberDocument
 }
 
 /// <summary>One producer-specific document arm of shared Diff History.</summary>
+[JsonPolymorphic(TypeDiscriminatorPropertyName = "document")]
+[JsonDerivedType(typeof(DiffHistoryDocument.ApiMembers), "apiMembers")]
+[JsonDerivedType(typeof(DiffHistoryDocument.ApiTypes), "apiTypes")]
+[JsonDerivedType(
+    typeof(DiffHistoryDocument.ApiAttributes),
+    "apiAttributes")]
+[JsonDerivedType(
+    typeof(DiffHistoryDocument.ExactApiMember),
+    "exactApiMember")]
+[JsonDerivedType(typeof(DiffHistoryDocument.Allocations), "allocations")]
+[JsonDerivedType(typeof(DiffHistoryDocument.CallSites), "callSites")]
+[JsonDerivedType(typeof(DiffHistoryDocument.Unsafety), "unsafety")]
 public abstract partial record DiffHistoryDocument
 {
     private protected DiffHistoryDocument()
@@ -767,29 +792,43 @@ public abstract partial record DiffHistoryDocument
 }
 
 /// <summary>Shared terminal outcome for one constructed Diff History.</summary>
+[JsonPolymorphic(TypeDiscriminatorPropertyName = "outcome")]
+[JsonDerivedType(typeof(DiffHistoryOutcome.Available), "available")]
+[JsonDerivedType(
+    typeof(DiffHistoryOutcome.ExactApiMemberUnavailable),
+    "exactApiMemberUnavailable")]
 public abstract record DiffHistoryOutcome
 {
     private protected DiffHistoryOutcome()
     {
     }
 
-    public sealed record Available : DiffHistoryOutcome
+    public record Available : DiffHistoryOutcome
     {
-        internal Available(
-            DiffHistoryDocument document,
-            SectionCountOutcome<
-                DiffHistoryCountCohort,
-                DiffHistoryChangedVersionCountEvidence>? count = null)
+        internal Available(DiffHistoryDocument document)
         {
             Document =
                 document ?? throw new ArgumentNullException(nameof(document));
-            Count = count;
         }
 
         public DiffHistoryDocument Document { get; }
+    }
 
-        public SectionCountOutcome<
-            DiffHistoryCountCohort,
-            DiffHistoryChangedVersionCountEvidence>? Count { get; }
+    public sealed record ExactApiMemberUnavailable : DiffHistoryOutcome
+    {
+        internal ExactApiMemberUnavailable(
+            DiffHistoryExactApiMemberSelection selection)
+        {
+            if (selection.State
+                == DiffHistoryExactApiMemberSelectionState.Selected)
+            {
+                throw new ArgumentException(
+                    "Unavailable exact-Member History requires selection non-success.",
+                    nameof(selection));
+            }
+            Selection = selection;
+        }
+
+        public DiffHistoryExactApiMemberSelection Selection { get; }
     }
 }

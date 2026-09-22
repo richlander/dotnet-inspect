@@ -4,6 +4,7 @@
 export type PlatformLibraryLens =
   | "integrations"
   | "analysis"
+  | "metrics"
   | "metadata";
 
 export interface LibraryControlBindingActions {
@@ -23,6 +24,7 @@ const platformLensSelectors:
   readonly [selector: string, lens: PlatformLibraryLens][] = [
     ["[data-platform-integrations-library]", "integrations"],
     ["[data-platform-analysis-library]", "analysis"],
+    ["[data-platform-metrics-library]", "metrics"],
     ["[data-platform-metadata-library]", "metadata"],
   ];
 
@@ -42,7 +44,6 @@ export function bindLibraryControls(
   root.querySelectorAll<HTMLElement>("[data-library-api-retry]")
     .forEach(button =>
       button.addEventListener("click", actions.onLibraryApiRetry));
-
   const libraryJump =
     root.querySelector<HTMLSelectElement>("#library-jump");
   libraryJump?.addEventListener(

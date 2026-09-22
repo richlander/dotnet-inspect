@@ -9,6 +9,7 @@ src/DotnetInspector.DocumentationHouse
 src/DotnetInspector.DocumentationHouse.Contracts
 src/DotnetInspector.DocumentationHouse.Packages
 src/DotnetInspector.DocumentationHouse.Platform
+src/DotnetInspector.DocumentationHouse.Source
 src/DotnetInspector.EcosystemLoading
 src/DotnetInspector.Ecosystems
 src/DotnetInspector.LibraryMetadata
@@ -27,7 +28,7 @@ src/DotnetInspector.Platforms.Formats
 src/DotnetInspector.Platforms.Packages
 src/DotnetInspector.Presentation
 src/DotnetInspector.Queries
-src/DotnetInspector.QueryEngine
+src/QuerySpace
 src/DotnetInspector.ResearchQueries
 src/DotnetInspector.Sections
 src/DotnetInspector.Services

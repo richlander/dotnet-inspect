@@ -132,9 +132,9 @@ public sealed partial class WorkspaceScopeTests
             [.. Enumerable.Range(0, 63).Select(index => Binding($"Package.{index}", entry: "README.md"))]);
         int duplicateReads = 0;
         var full = Committed(await workspace.AddPackagesAsync(initial.Revision,
-            [Binding("Package.0", onOpen: () => duplicateReads++),
+            [Binding("Package.0", entry: "README.md", onOpen: () => duplicateReads++),
              Binding("Last.Package", entry: "README.md"),
-             Binding("last.package", onOpen: () => duplicateReads++)],
+             Binding("last.package", entry: "README.md", onOpen: () => duplicateReads++)],
             Deadline, TestContext.Current.CancellationToken)).Snapshot;
         Assert.Equal(64, full.Packages.Length);
         Assert.Equal(0, duplicateReads);
@@ -143,7 +143,7 @@ public sealed partial class WorkspaceScopeTests
         int refusedReads = 0;
         var rejected = Assert.IsType<WorkspaceScopeOperationResult.Rejected>(
             await workspace.AddPackagesAsync(full.Revision,
-                [Binding("Last.Package", onOpen: () => refusedReads++),
+                [Binding("Last.Package", entry: "README.md", onOpen: () => refusedReads++),
                  Binding("Over.Capacity", onOpen: () => refusedReads++),
                  Binding("over.capacity", onOpen: () => refusedReads++)],
                 Deadline, TestContext.Current.CancellationToken));

@@ -8,11 +8,11 @@ import {
   assemblyDescriptorForType,
   memberRequestKey,
   packageIdentityKey,
+  workspacePackageRemovalKey,
 } from "../src/data.ts";
 import {
   createCallGraphInspectionCoordinator,
   type CallGraphInspectionState,
-  type CallGraphWorkspacePackage,
   type MemberCallGraphRequest,
   type PlatformDrillRequest,
 } from "../src/call-graph-inspection.ts";
@@ -28,16 +28,14 @@ import {
   type PackageRemovalState,
 } from "../src/package-removal.ts";
 import {
-  browserCreatedCallGraphTabIds,
   createNavigationSequence,
-  selectedBrowserCallGraphPackageTabIds,
-  workspaceShareTabsMatchResolved,
 } from "../src/workspace-navigation.ts";
 
 interface RemovalPackage {
   id: string;
   version: string;
   activeFramework: string;
+  runtimeIdentifier?: string | null;
   source: { kind: "nuget.org" | "platform" };
   isRuntimePack?: boolean;
 }
@@ -101,6 +99,30 @@ test("removing an inactive coordinate preserves active selection and other versi
   assert.deepEqual(h.activated, []);
   assert.deepEqual(h.released, [otherAlpha]);
   assert.equal(h.state.recentPackages.some(entry => entry.id === "Alpha"), false);
+});
+
+test("removing a runtime-specific coordinate preserves its otherwise identical peer", () => {
+  const linux = { ...alpha, runtimeIdentifier: "linux-x64" };
+  const windows = { ...alpha, runtimeIdentifier: "win-x64" };
+  const h = harness([linux, windows]);
+
+  assert.equal(workspacePackageRemovalKey(alpha), packageIdentityKey(alpha));
+  assert.throws(
+    () => h.removal.removeLoaded(packageIdentityKey(windows)),
+    /no longer removable/);
+  h.removal.removeLoaded(workspacePackageRemovalKey(windows));
+
+  assert.deepEqual(h.state.packages, [linux]);
+  assert.equal(h.state.package, linux);
+  assert.deepEqual(h.activated, []);
+  assert.deepEqual(h.released, [windows]);
+
+  const active = harness([linux, windows]);
+  active.removal.removeLoaded(workspacePackageRemovalKey(linux));
+  assert.deepEqual(active.state.packages, [windows]);
+  assert.equal(active.state.package, windows);
+  assert.deepEqual(active.activated, [windows]);
+  assert.deepEqual(active.released, [linux]);
 });
 
 test("active and last removal use the existing successor and release each removed model", () => {
@@ -317,6 +339,7 @@ function removalGraph(packages: readonly typeof alpha[]): BrowserCallGraph {
       bindingIdentityConflicts: 0,
       hasUnexploredTraversalBoundary: false,
       hasAnalysisFailureBoundary: false,
+      unavailableDependencyRoutes: 0,
       isIncomplete: false,
     },
     noBody: false,
@@ -326,9 +349,8 @@ function removalGraph(packages: readonly typeof alpha[]): BrowserCallGraph {
 const graphHostNames = new Set([
   "finishPackageRemoval", "invalidateGraphMemberNavigation",
   "invalidateWorkspaceMembershipViews",
-  "loadSelectedMemberCallGraph", "memberRequestSignature", "memberRequestIsCurrent",
-  "selectedCallGraphWorkspacePackages", "capturedShareTabs", "resolvedWorkspaceShareTabs",
-  "activeShareTabIndex", "currentPackage", "selectedType", "selectedMember",
+  "loadSelectedMemberCallGraph", "memberRequestSignature",
+  "currentPackage", "selectedType", "selectedMember",
   "memberGroups", "scope",
 ]);
 const graphHostDeclarations = app.program.body
@@ -363,16 +385,17 @@ function graphRemovalHarness() {
     workspaceShareBasis: null,
     graphMemberNavigationSeq: 0, graphMemberNavigationTitle: "",
     pendingGraphMemberDeepLink: null,
+    callGraphTraversalFramework: "net12.0",
   };
   const local = removalGraph([alpha]);
   const full = removalGraph([alpha, beta]);
-  const expansionStarted = deferred<void>();
-  const expansion = deferred<BrowserCallGraph>();
+  const packageQueryStarted = deferred<void>();
+  const packageQuery = deferred<BrowserCallGraph>();
   const platformStarted = deferred<void>();
   const platform = deferred<BrowserCallGraph>();
-  let deferExpansion = false;
+  let deferPackageQuery = false;
   let deferPlatform = false;
-  const queries: { request: MemberCallGraphRequest; workspace: CallGraphWorkspacePackage[] }[] = [];
+  const queries: MemberCallGraphRequest[] = [];
   const rendered: (BrowserCallGraph | null)[] = [];
   const pending: Promise<void>[] = [];
   const selection = () => ({
@@ -391,14 +414,14 @@ function graphRemovalHarness() {
   };
   const coordinator = createCallGraphInspectionCoordinator({
     state,
-    queryWorkspace: async (request, workspace) => {
-      queries.push({ request, workspace: structuredClone(workspace) });
-      if (!workspace.length) return local;
-      if (deferExpansion) {
-        expansionStarted.resolve(undefined);
-        return expansion.promise;
+    queryPackage: async request => {
+      queries.push(request);
+      if (deferPackageQuery) {
+        deferPackageQuery = false;
+        packageQueryStarted.resolve(undefined);
+        return packageQuery.promise;
       }
-      return full;
+      return state.packages.some(pkg => pkg.id === beta.id) ? full : local;
     },
     queryPlatform: async () => {
       if (!deferPlatform) return removalGraph([alpha]);
@@ -416,9 +439,6 @@ function graphRemovalHarness() {
       };
     },
     renderCallGraph: async () => render(),
-    nextPaint: async () => {},
-    refreshPackageStats: () => {},
-    patchCallGraphSection: render,
   });
   let host!: { load(): Promise<void>; remove(key: string): void };
   runInNewContext(
@@ -430,8 +450,8 @@ function graphRemovalHarness() {
       state, callGraphInspection: coordinator,
       createPackageRemoval, packageIdentityKey, memberRequestKey,
       assemblyDescriptorForType, selectedConcreteOverload, memberScopeIsActive,
-      browserCreatedCallGraphTabIds, selectedBrowserCallGraphPackageTabIds,
-      workspaceShareTabsMatchResolved, invalidateMemberCallGraphWork,
+      memberRequestIsCurrent: () => true,
+      invalidateMemberCallGraphWork,
       invalidateGraphMemberNavigationWork, navigationSequence: createNavigationSequence(),
       platformPackForAssembly: () => null,
       localStorage: { setItem: () => {} },
@@ -445,8 +465,8 @@ function graphRemovalHarness() {
     });
   return {
     state, local, full, queries, rendered, coordinator, host, selection,
-    expansion, expansionStarted, platform, platformStarted,
-    deferExpansion: () => { deferExpansion = true; },
+    packageQuery, packageQueryStarted, platform, platformStarted,
+    deferPackageQuery: () => { deferPackageQuery = true; },
     deferPlatform: () => { deferPlatform = true; },
     remove: () => host.remove(packageIdentityKey(beta)),
     settleRefresh: () => Promise.all(pending),
@@ -468,60 +488,54 @@ for (const visible of [true, false]) {
     assert.deepEqual(h.selection(), selection);
     assert.deepEqual(h.state.packages.map(pkg => pkg.id), ["Alpha"]);
     if (!visible) {
-      assert.equal(h.queries.length, 2, "Hidden graphs must not eagerly query");
+      assert.equal(h.queries.length, 1, "Hidden graphs must not eagerly query");
       assert.equal(h.state.memberCallGraph, null);
       assert.equal(h.state.memberCallGraphKey, "");
       h.state.memberSection = "call-graph";
       await h.host.load();
     }
-    assert.equal(h.queries.length, 3);
-    assert.deepEqual(structuredClone(h.queries[2]?.request.workspacePackages), [
-      { package: "Alpha", version: "1.0.0", framework: "net10.0" },
-    ]);
-    assert.equal(h.queries[2]?.request.hasOtherLibraries, false);
+    assert.equal(h.queries.length, 2);
+    assert.equal(h.queries[1]?.traversalFramework, "net12.0");
     assert.equal(h.state.memberCallGraph, h.local);
     assert.equal(h.rendered.at(-1), h.local);
     assert.equal(h.state.memberCallGraph.scope.packages, 1);
     assert.equal(h.state.memberCallGraph.callers.children.length, 0);
     await h.host.load();
-    assert.equal(h.queries.length, 3, "Reopening may reuse only the refreshed graph");
+    assert.equal(h.queries.length, 2, "Reopening may reuse only the refreshed graph");
   });
 }
 
 for (const failure of [false, true]) {
-  test(`inactive removal rejects a pending expansion ${failure ? "failure" : "result"} even when the refreshed local graph is the same object`, { timeout: 10_000 }, async () => {
+  test(`inactive removal rejects a pending package query ${failure ? "failure" : "result"} after the replacement query publishes`, { timeout: 10_000 }, async () => {
     const h = graphRemovalHarness();
-    h.deferExpansion();
+    h.deferPackageQuery();
     const originalLoad = h.host.load();
-    await h.expansionStarted.promise;
+    await h.packageQueryStarted.promise;
     const selection = h.selection();
-    const originalRequest = h.queries[0]!.request;
-    assert.equal(h.state.memberCallGraph, h.local);
+    const originalRequest = h.queries[0]!;
+    assert.equal(h.state.memberCallGraph, null);
 
     h.remove();
     await h.settleRefresh();
 
     assert.deepEqual(h.selection(), selection);
-    assert.equal(h.queries.length, 3);
-    assert.deepEqual(structuredClone(h.queries[2]?.request.workspacePackages), [
-      { package: "Alpha", version: "1.0.0", framework: "net10.0" },
-    ]);
+    assert.equal(h.queries.length, 2);
     assert.equal(h.state.memberCallGraph, h.local);
     assert.equal(h.state.memberCallGraphKey, originalRequest.signature);
     assert.equal(originalRequest.isCurrent(), true, "The active member selection is unchanged");
     const renders = h.rendered.length;
-    if (failure) h.expansion.reject(new Error("Beta expansion failed"));
-    else h.expansion.resolve(h.full);
+    if (failure) h.packageQuery.reject(new Error("Obsolete package query failed"));
+    else h.packageQuery.resolve(h.full);
     await originalLoad;
 
-    assert.equal(h.rendered.length, renders, "Obsolete expansion must not publish");
+    assert.equal(h.rendered.length, renders, "Obsolete package query must not publish");
     assert.equal(h.state.memberCallGraph, h.local);
     assert.equal(h.state.memberCallGraphError, "");
     assert.equal(h.state.memberCallGraphLoading, false);
     assert.equal(h.state.memberCallGraphExpanding, false);
     await h.host.load();
-    assert.equal(h.queries.length, 3);
-    assert.equal(h.state.memberCallGraph.scope.packages, 1);
+    assert.equal(h.queries.length, 2);
+    assert.equal(h.local.scope.packages, 1);
   });
 }
 

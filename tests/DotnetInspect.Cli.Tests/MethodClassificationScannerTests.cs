@@ -4,6 +4,7 @@ using System.Reflection.PortableExecutable;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using ILInspector.Metadata;
+using DotnetInspector.Fixtures;
 using DotnetInspector.Services;
 using DotnetInspect.Cli.Services;
 
@@ -14,20 +15,33 @@ namespace DotnetInspect.Cli.Tests;
 [Collection("Console")]
 public class MethodClassificationScannerTests
 {
+    const string MemorySafetyFixture =
+        "ILInspector.Decompiler.Fixtures.NewUnsafe.MemorySafetySpellingFixture";
+    const string UnsafeAsyncFixture =
+        "ILInspector.Decompiler.Fixtures.NewUnsafe.UnsafeFixtures.UnsafeAsyncFixtures";
+    const string PointerTargetFixture =
+        $"{UnsafeAsyncFixture}.PointerTarget";
+    const string ClassicAsyncFixture =
+        "ILInspector.Decompiler.Fixtures.ClassicAsync.AsyncInventoryFixtures";
+
     [Fact]
     public void Scan_FindsUnsafeMethods()
     {
-        var assemblyPath = typeof(MethodClassificationScannerTests).Assembly.Location;
+        string assemblyPath = FixtureCatalog.DecompilerUnsafeNew.AssemblyPath();
         using var stream = File.OpenRead(assemblyPath);
 
         var results = MethodClassificationScanner.Scan(stream);
 
         var unsafe_ = results.Where(r => r.Classification == MethodClassification.Unsafe).ToList();
-        Assert.Contains(unsafe_, m => m.MethodName == "UnsafePointerMethod");
-        Assert.Contains(unsafe_, m => m.MethodName == "UnsafeReturnPointer");
+        Assert.Contains(
+            unsafe_,
+            method => method.MethodName == "PointerNoneMethod"
+                && method.DeclaringType == MemorySafetyFixture);
+        Assert.Contains(unsafe_, method => method.MethodName == "PointerReturn");
 
-        var pointerMethod = unsafe_.First(m => m.MethodName == "UnsafePointerMethod");
-        Assert.Equal("DotnetInspect.Cli.Tests.SampleUnsafeClass", pointerMethod.DeclaringType);
+        var pointerMethod = unsafe_.First(
+            method => method.MethodName == "PointerNoneMethod"
+                && method.DeclaringType == MemorySafetyFixture);
         Assert.Contains("*", pointerMethod.Signature);
         Assert.NotNull(pointerMethod.Anchor);
         Assert.Equal("System.Int32", pointerMethod.ReturnType);
@@ -36,17 +50,21 @@ public class MethodClassificationScannerTests
     [Fact]
     public void Scan_FindsPInvokeMethods()
     {
-        var assemblyPath = typeof(MethodClassificationScannerTests).Assembly.Location;
+        string assemblyPath = FixtureCatalog.DecompilerUnsafeNew.AssemblyPath();
         using var stream = File.OpenRead(assemblyPath);
 
         var results = MethodClassificationScanner.Scan(stream);
 
         var pinvoke = results.Where(r => r.Classification == MethodClassification.PInvoke).ToList();
-        Assert.Contains(pinvoke, m => m.MethodName == "GetCurrentProcessId");
+        Assert.Contains(
+            pinvoke,
+            method => method.MethodName == "SafeExtern"
+                && method.DeclaringType == MemorySafetyFixture);
 
-        var method = pinvoke.First(m => m.MethodName == "GetCurrentProcessId");
-        Assert.Equal("DotnetInspect.Cli.Tests.SamplePInvokeClass", method.DeclaringType);
-        Assert.Equal("kernel32.dll", method.ModuleName);
+        var method = pinvoke.First(
+            method => method.MethodName == "SafeExtern"
+                && method.DeclaringType == MemorySafetyFixture);
+        Assert.Equal("__dotnet_inspect_memory_safety_fixture__", method.ModuleName);
         Assert.NotNull(method.Anchor);
         Assert.Equal("System.Int32", method.ReturnType);
     }
@@ -54,7 +72,7 @@ public class MethodClassificationScannerTests
     [Fact]
     public void ScanAuditMetadata_CountsAllPInvokeMethods()
     {
-        var assemblyPath = typeof(MethodClassificationScannerTests).Assembly.Location;
+        string assemblyPath = FixtureCatalog.DecompilerUnsafeNew.AssemblyPath();
         using var stream = File.OpenRead(assemblyPath);
         using var peReader = new PEReader(stream);
 
@@ -66,12 +84,15 @@ public class MethodClassificationScannerTests
     [Fact]
     public void Scan_DoesNotIncludeNormalMethods()
     {
-        var assemblyPath = typeof(MethodClassificationScannerTests).Assembly.Location;
+        string assemblyPath = FixtureCatalog.DecompilerUnsafeNew.AssemblyPath();
         using var stream = File.OpenRead(assemblyPath);
 
         var results = MethodClassificationScanner.Scan(stream);
 
-        Assert.DoesNotContain(results, m => m.MethodName == "SafeMethod");
+        Assert.DoesNotContain(
+            results,
+            method => method.MethodName == "NormalMethod"
+                && method.DeclaringType == MemorySafetyFixture);
     }
 
     [Fact]
@@ -94,14 +115,14 @@ public class MethodClassificationScannerTests
     [Fact]
     public void Scan_ClassifiesStateMachineAsyncMethods()
     {
-        // The classic-async path keys off AsyncStateMachineAttribute, applied directly
-        // so the test is deterministic regardless of the build's runtime-async setting.
-        var assemblyPath = typeof(MethodClassificationScannerTests).Assembly.Location;
+        string assemblyPath = FixtureCatalog.DecompilerClassicAsync.AssemblyPath();
         using var stream = File.OpenRead(assemblyPath);
 
         var results = MethodClassificationScanner.Scan(stream);
 
-        var method = results.FirstOrDefault(m => m.MethodName == "AttributedStateMachineAsync");
+        var method = results.FirstOrDefault(
+            method => method.MethodName == "Plain"
+                && method.DeclaringType == ClassicAsyncFixture);
         Assert.NotNull(method);
         Assert.Equal(MethodClassification.StateMachineAsync, method.Classification);
         Assert.NotNull(method.Anchor);
@@ -126,27 +147,52 @@ public class MethodClassificationScannerTests
     [Fact]
     public void Scan_ClassifiesRealAsyncMethodAsAsync()
     {
-        // A real async method is detected as async; its kind depends on whether the
-        // assembly was compiled with runtime async.
-        var assemblyPath = typeof(MethodClassificationScannerTests).Assembly.Location;
+        string assemblyPath = FixtureCatalog.DecompilerUnsafeNew.AssemblyPath();
         using var stream = File.OpenRead(assemblyPath);
 
         var results = MethodClassificationScanner.Scan(stream);
 
-        Assert.Contains(results, m => m.MethodName == "RealAsyncMethod"
-            && m.Classification is MethodClassification.RuntimeAsync
-                                or MethodClassification.StateMachineAsync);
+        Assert.Contains(
+            results,
+            method => method.MethodName == "AwaitPointerReceiver"
+                && method.DeclaringType == UnsafeAsyncFixture
+                && method.Classification == MethodClassification.RuntimeAsync);
+    }
+
+    [Fact]
+    public void Scan_RealTestAssemblyWithMtpSurfaceStaysWithinBudget()
+    {
+        const long LargeAssemblyThresholdBytes = 8L * 1024 * 1024;
+        string assemblyPath =
+            typeof(MethodClassificationScannerTests).Assembly.Location;
+        long assemblyLength = new FileInfo(assemblyPath).Length;
+        Assert.True(
+            assemblyLength > LargeAssemblyThresholdBytes,
+            $"Expected the MTP test assembly to exceed 8 MiB; actual size was {assemblyLength:N0} bytes.");
+
+        using var stream = File.OpenRead(assemblyPath);
+
+        var results = MethodClassificationScanner.Scan(stream);
+
+        Assert.Contains(
+            results,
+            method => method.MethodName == nameof(SampleAsyncClass.RealAsyncMethod)
+                && method.DeclaringType
+                    == "DotnetInspect.Cli.Tests.SampleAsyncClass");
     }
 
     [Fact]
     public void Scan_DoesNotClassifyNonAsyncTaskMethods()
     {
-        var assemblyPath = typeof(MethodClassificationScannerTests).Assembly.Location;
+        string assemblyPath = FixtureCatalog.DecompilerUnsafeNew.AssemblyPath();
         using var stream = File.OpenRead(assemblyPath);
 
         var results = MethodClassificationScanner.Scan(stream);
 
-        Assert.DoesNotContain(results, m => m.MethodName == "NotAsyncTaskMethod");
+        Assert.DoesNotContain(
+            results,
+            method => method.MethodName == "GetTask"
+                && method.DeclaringType == PointerTargetFixture);
     }
 
     private static MemoryStream BuildAssemblyWithRuntimeAsyncMethod()

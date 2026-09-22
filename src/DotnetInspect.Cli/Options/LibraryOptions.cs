@@ -61,6 +61,16 @@ public record LibraryOptions : IProjectionOptions
     public string? PackagePath { get; init; }
 
     /// <summary>
+    /// Canonical Workspace packet supplying the selected Package context.
+    /// </summary>
+    public string? WorkspacePacket { get; init; }
+
+    /// <summary>
+    /// Select the Package namesake Library instead of its admitted Library aggregate.
+    /// </summary>
+    public bool NamesakeLibrary { get; init; }
+
+    /// <summary>
     /// Include prerelease/preview versions when resolving an unversioned package.
     /// </summary>
     public bool IncludePrerelease { get; init; }
@@ -284,6 +294,14 @@ public record LibraryOptions : IProjectionOptions
     public bool Count { get; init; }
 
     /// <summary>
+    /// Output the complete shared inspection envelope as JSON.
+    /// </summary>
+    public bool EnvelopeOutput { get; init; }
+
+    /// <summary>Output minified envelope JSON.</summary>
+    public bool CompactJson { get; init; }
+
+    /// <summary>
     /// Path to write a projected payload to instead of stdout.
     /// </summary>
     public string? OutputPath { get; init; }
@@ -316,6 +334,12 @@ public record LibraryOptions : IProjectionOptions
     /// Semantic row selection for direct assembly references.
     /// </summary>
     public RowSelectionIntent<string>? ReferenceRowSelection { get; init; }
+
+    /// <summary>
+    /// Semantic row selection for one Library's ecosystem-dependency pairs.
+    /// </summary>
+    public RowSelectionIntent<string>?
+        EcosystemDependencyRowSelection { get; init; }
 
     /// <summary>
     /// Row predicates for the Performance Triage section.

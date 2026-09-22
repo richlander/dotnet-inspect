@@ -1,3 +1,6 @@
+using System.Reflection.Metadata;
+using System.Reflection.Metadata.Ecma335;
+
 using CSharpText;
 using DotnetInspector.Libraries;
 using DotnetInspector.LibraryMetadata;
@@ -85,12 +88,14 @@ public sealed class DocumentationSubjectReference
         ApiAssemblyIdentity metadataAssembly,
         MetadataTypeDefinitionName typeIdentity,
         MemberAnchor? memberIdentity,
+        int? metadataToken,
         XmlDocMemberIdentity compiledXmlIdentity,
         LibraryApiSurfaceCorrespondence apiSurfaceCorrespondence)
     {
         MetadataAssembly = metadataAssembly;
         TypeIdentity = typeIdentity;
         MemberIdentity = memberIdentity;
+        MetadataToken = metadataToken;
         CompiledXmlIdentity = compiledXmlIdentity;
         ApiSurfaceCorrespondence = apiSurfaceCorrespondence;
     }
@@ -98,6 +103,7 @@ public sealed class DocumentationSubjectReference
     public ApiAssemblyIdentity MetadataAssembly { get; }
     public MetadataTypeDefinitionName TypeIdentity { get; }
     public MemberAnchor? MemberIdentity { get; }
+    public int? MetadataToken { get; }
     public bool IsMember => MemberIdentity is not null;
     public XmlDocMemberIdentity CompiledXmlIdentity { get; }
     public LibraryApiSurfaceCorrespondence ApiSurfaceCorrespondence { get; }
@@ -125,6 +131,7 @@ public sealed class DocumentationSubjectReference
             surface.AssemblyIdentity!,
             type.DefinitionName!,
             memberIdentity: null,
+            type.MetadataToken,
             compiledXmlIdentity,
             apiSurfaceCorrespondence);
     }
@@ -162,6 +169,7 @@ public sealed class DocumentationSubjectReference
             ApiMemberIdentity.GetMemberAnchor(
                 declaringType,
                 member),
+            member.MetadataToken,
             compiledXmlIdentity,
             apiSurfaceCorrespondence);
     }
@@ -197,9 +205,61 @@ public sealed class DocumentationSubjectReference
     }
 }
 
+public sealed class DocumentationImplementationSubjectReference
+{
+    public DocumentationImplementationSubjectReference(
+        MetadataTypeDefinitionName typeIdentity,
+        MemberAnchor? memberIdentity,
+        int? metadataToken,
+        XmlDocMemberIdentity compiledXmlIdentity)
+    {
+        ArgumentNullException.ThrowIfNull(typeIdentity);
+        ArgumentNullException.ThrowIfNull(compiledXmlIdentity);
+        if (memberIdentity is null && metadataToken is not null)
+        {
+            throw new ArgumentException(
+                "A type implementation subject cannot carry a member token.",
+                nameof(metadataToken));
+        }
+        if (memberIdentity is not null
+            && (metadataToken is not { } token
+                || MetadataTokens.EntityHandle(token).Kind
+                    != HandleKind.MethodDefinition))
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(metadataToken),
+                "A member implementation subject requires one exact MethodDef token.");
+        }
+
+        TypeIdentity = typeIdentity;
+        MemberIdentity = memberIdentity;
+        MetadataToken = metadataToken;
+        CompiledXmlIdentity = compiledXmlIdentity;
+    }
+
+    public MetadataTypeDefinitionName TypeIdentity { get; }
+    public MemberAnchor? MemberIdentity { get; }
+    public int? MetadataToken { get; }
+    public bool IsMember => MemberIdentity is not null;
+    public XmlDocMemberIdentity CompiledXmlIdentity { get; }
+
+    public static DocumentationImplementationSubjectReference FromApiSubject(
+        DocumentationSubjectReference subject)
+    {
+        ArgumentNullException.ThrowIfNull(subject);
+        return new(
+            subject.TypeIdentity,
+            subject.MemberIdentity,
+            subject.IsMember ? subject.MetadataToken : null,
+            subject.CompiledXmlIdentity);
+    }
+}
+
 public enum DocumentationDemand
 {
     CompiledXml,
+    AuthoredSourceDocumentation,
+    CompiledXmlAndAuthoredSourceDocumentation,
 }
 
 public sealed class DocumentationHouseLimits
@@ -256,7 +316,8 @@ public sealed class DocumentationHouseOperationPlan
         DocumentationHousePolicyGeneration policyGeneration,
         DocumentationHouseLimits limits,
         DateTimeOffset deadline,
-        IReadOnlyList<CompiledXmlContribution> compiledXmlContributions)
+        IReadOnlyList<CompiledXmlContribution> compiledXmlContributions,
+        DocumentationAuthoredSourceChannelPlan? authoredSource = null)
     {
         ArgumentNullException.ThrowIfNull(identity);
         ArgumentNullException.ThrowIfNull(policyGeneration);
@@ -294,6 +355,7 @@ public sealed class DocumentationHouseOperationPlan
 
         CompiledXmlContributions =
             Array.AsReadOnly(_compiledXmlContributions);
+        AuthoredSource = authoredSource;
     }
 
     public DocumentationHouseOperationPlanIdentity Identity { get; }
@@ -306,11 +368,38 @@ public sealed class DocumentationHouseOperationPlan
     {
         get;
     }
+    public DocumentationAuthoredSourceChannelPlan? AuthoredSource { get; }
 }
 
 /// <summary>
-/// One resource-free DocumentationHouse request. Live Library authority is
-/// transferred separately to the executing operation.
+/// One pre-authorized source-neutral operation available to an authored
+/// documentation channel.
+/// </summary>
+public sealed class DocumentationAuthoredSourceChannelPlan
+{
+    public DocumentationAuthoredSourceChannelPlan(
+        DocumentationAuthoredSourceOperationBinding binding,
+        DocumentationAuthoredSourceOperationLimits limits,
+        IDocumentationAuthoredSourceOperation operation)
+    {
+        ArgumentNullException.ThrowIfNull(binding);
+        ArgumentNullException.ThrowIfNull(limits);
+        ArgumentNullException.ThrowIfNull(operation);
+
+        Binding = binding;
+        Limits = limits;
+        Operation = operation;
+    }
+
+    public DocumentationAuthoredSourceOperationBinding Binding { get; }
+    public DocumentationAuthoredSourceOperationLimits Limits { get; }
+    public IDocumentationAuthoredSourceOperation Operation { get; }
+}
+
+/// <summary>
+/// One DocumentationHouse request. Live Library authority is transferred
+/// separately; an optional cold authored operation is consumed only by
+/// explicit authored demand.
 /// </summary>
 public sealed class DocumentationHouseRequest
 {
@@ -325,6 +414,13 @@ public sealed class DocumentationHouseRequest
         if (!Enum.IsDefined(demand))
             throw new ArgumentOutOfRangeException(nameof(demand));
         ArgumentNullException.ThrowIfNull(plan);
+        if (demand == DocumentationDemand.CompiledXml
+            && plan.AuthoredSource is not null)
+        {
+            throw new ArgumentException(
+                "Compiled-only demand cannot retain an authored-source operation.",
+                nameof(plan));
+        }
 
         Identity = identity;
         Subject = subject;
@@ -336,6 +432,59 @@ public sealed class DocumentationHouseRequest
     public DocumentationSubjectReference Subject { get; }
     public DocumentationDemand Demand { get; }
     public DocumentationHouseOperationPlan Plan { get; }
+}
+
+/// <summary>Resource-free evidence for an accepted operation plan.</summary>
+public sealed class DocumentationHouseOperationPlanEvidence
+{
+    internal DocumentationHouseOperationPlanEvidence(
+        DocumentationHouseOperationPlan plan)
+    {
+        Identity = plan.Identity;
+        PolicyGeneration = plan.PolicyGeneration;
+        Limits = plan.Limits;
+        Deadline = plan.Deadline;
+        SuppliedCompiledXmlContributionCount =
+            plan.SuppliedCompiledXmlContributionCount;
+        ExceedsCompiledXmlContributionLimit =
+            plan.ExceedsCompiledXmlContributionLimit;
+        CompiledXmlContributions = plan.CompiledXmlContributions;
+        AuthoredSourceBinding = plan.AuthoredSource?.Binding;
+        AuthoredSourceLimits = plan.AuthoredSource?.Limits;
+    }
+
+    public DocumentationHouseOperationPlanIdentity Identity { get; }
+    public DocumentationHousePolicyGeneration PolicyGeneration { get; }
+    public DocumentationHouseLimits Limits { get; }
+    public DateTimeOffset Deadline { get; }
+    public int SuppliedCompiledXmlContributionCount { get; }
+    public bool ExceedsCompiledXmlContributionLimit { get; }
+    public IReadOnlyList<CompiledXmlContribution> CompiledXmlContributions
+    {
+        get;
+    }
+    public DocumentationAuthoredSourceOperationBinding?
+        AuthoredSourceBinding { get; }
+    public DocumentationAuthoredSourceOperationLimits?
+        AuthoredSourceLimits { get; }
+}
+
+/// <summary>Resource-free evidence for one DocumentationHouse request.</summary>
+public sealed class DocumentationHouseRequestEvidence
+{
+    internal DocumentationHouseRequestEvidence(
+        DocumentationHouseRequest request)
+    {
+        Identity = request.Identity;
+        Subject = request.Subject;
+        Demand = request.Demand;
+        Plan = new(request.Plan);
+    }
+
+    public DocumentationHouseRequestIdentity Identity { get; }
+    public DocumentationSubjectReference Subject { get; }
+    public DocumentationDemand Demand { get; }
+    public DocumentationHouseOperationPlanEvidence Plan { get; }
 }
 
 internal static class DocumentationHouseContractName

@@ -169,6 +169,78 @@ public class QueryDiscoveryTests
         Assert.DoesNotContain("C# Body Kinds", result.Output);
     }
 
+    [Theory]
+    [InlineData(
+        FindQueryRouteKind.TypeResults,
+        "Results")]
+    [InlineData(
+        FindQueryRouteKind.MemberResults,
+        "Members")]
+    public async Task FindQuery_PreservesFacetFreeRouteDiscovery(
+        FindQueryRouteKind kind,
+        string sectionName)
+    {
+        Assert.Equal(
+            sectionName,
+            FindQueryOptions.Section(kind));
+
+        var result = await Run(
+            "find",
+            "-Q",
+            sectionName,
+            "--json");
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Empty(result.Error);
+        using var json = JsonDocument.Parse(result.Output);
+        JsonElement section = Assert.Single(
+            json.RootElement.GetProperty("sections").EnumerateArray());
+        Assert.Equal(
+            sectionName,
+            section.GetProperty("section").GetString());
+        Assert.Equal(0, section.GetProperty("facet_count").GetInt32());
+        Assert.Empty(
+            section.GetProperty("facets").EnumerateArray());
+    }
+
+    [Fact]
+    public async Task LibraryQuery_ProjectsRegisteredReferenceCapabilityWithoutAcquisition()
+    {
+        var result = await Run(
+            "library",
+            "query",
+            "-Q",
+            LibraryQuerySections.LibrariesName,
+            "--json");
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Empty(result.Error);
+        using var json = JsonDocument.Parse(result.Output);
+        JsonElement section = Assert.Single(
+            json.RootElement.GetProperty("sections").EnumerateArray());
+        Assert.Equal(
+            LibraryQuerySections.LibrariesName,
+            section.GetProperty("section").GetString());
+        JsonElement reference = Assert.Single(
+            section.GetProperty("facets").EnumerateArray());
+        Assert.Equal(
+            LibraryQuery.ReferencesTermKey,
+            reference.GetProperty("name").GetString());
+        Assert.Equal(
+            ["--where"],
+            reference.GetProperty("operators")
+                .EnumerateArray()
+                .Select(value => value.GetString()));
+        Assert.Equal(
+            ["="],
+            reference.GetProperty("comparisons")
+                .EnumerateArray()
+                .Select(value => value.GetString()));
+        Assert.Equal(
+            "metadata",
+            reference.GetProperty("execution_class").GetString());
+    }
+
     [Fact]
     public async Task BodyShapeQuery_NonJsonDiscoveryReferencesKindVocabulary()
     {
@@ -488,12 +560,16 @@ public class QueryDiscoveryTests
                 facet.GetProperty("name").GetString()
                     == PackageQuery.ReferencesTermKey)
                 .GetProperty("execution_class").GetString());
+        JsonElement depends = facets.Single(facet =>
+            facet.GetProperty("name").GetString()
+                == PackageQuery.DependsTermKey);
         Assert.Equal(
-            "NuGet package ID",
-            facets.Single(facet =>
-                facet.GetProperty("name").GetString()
-                    == PackageQuery.DependsTermKey)
-                .GetProperty("value_kind").GetString());
+            "NuGet package ID or prefix",
+            depends.GetProperty("value_kind").GetString());
+        Assert.Equal(
+            ["=", "starts-with"],
+            depends.GetProperty("comparisons").EnumerateArray()
+                .Select(value => value.GetString()));
         Assert.Equal(
             ["any", "MIT", "OSMF"],
             facets.Single(facet =>
@@ -811,6 +887,11 @@ public class QueryDiscoveryTests
             PerformanceTriageOptions.TryBindPredicateOperator(
                 key,
                 RowPredicateOperator.GreaterOrEqual,
+                out _));
+        Assert.False(
+            PerformanceTriageOptions.TryBindPredicateOperator(
+                key,
+                RowPredicateOperator.StartsWith,
                 out _));
     }
 

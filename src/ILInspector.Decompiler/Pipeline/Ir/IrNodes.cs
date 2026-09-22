@@ -62,6 +62,10 @@ public enum LocalFunctionRaiseState
     Declined,
 }
 
+internal readonly record struct LambdaOutputInference(
+    int TypeArgumentIndex,
+    int ArgumentIndex);
+
 public sealed record MethodRef(
     TypeRef DeclaringType,
     string Name,
@@ -299,11 +303,20 @@ public sealed record MethodRef(
     public MetadataFactState IsExtension { get; init; } = MetadataFactState.Unknown;
 
     /// <summary>
-    /// True only when metadata proves that C# can infer every method type
-    /// argument from the extension receiver argument without changing overload
-    /// selection.
+    /// True only when metadata and the imported call prove that C# can infer
+    /// every method type argument from the extension receiver and supported
+    /// lambda outputs without changing overload selection. Lambda-output
+    /// obligations are revalidated against final raised expressions by the
+    /// printer.
     /// </summary>
     internal bool CanOmitTypeArguments { get; init; }
+
+    /// <summary>
+    /// Method type arguments not fixed by the receiver, each paired with the
+    /// <c>Func</c> argument whose direct result position must infer it. Empty
+    /// when the receiver fixes every type argument.
+    /// </summary>
+    internal ImmutableArray<LambdaOutputInference> TypeArgumentElisionLambdaOutputs { get; init; } = [];
 
     /// <summary>
     /// Whether the exact declaring type has no competing same-name overload
@@ -313,9 +326,10 @@ public sealed record MethodRef(
     internal MetadataFactState TypeArgumentElisionOverloadSafety { get; init; }
 
     /// <summary>
-    /// Same-name overload signatures that explicit type arguments and receiver
-    /// inference both admit. Their non-receiver arguments must independently
-    /// preserve the recorded method instantiation before elision is safe.
+    /// Same-name overload signatures that explicit type arguments and the
+    /// supported inference sources both admit. Their non-receiver arguments
+    /// must independently preserve the recorded method instantiation before
+    /// elision is safe.
     /// </summary>
     internal ImmutableArray<ImmutableArray<TypeRef>> TypeArgumentElisionSiblingParameters { get; init; } = [];
 

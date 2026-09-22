@@ -6,10 +6,20 @@ using DotnetInspector.Queries;
 namespace DotnetInspector.Sections;
 
 [JsonSourceGenerationOptions(
-    Converters = [typeof(InertStringJsonConverter)],
+    Converters =
+    [
+        typeof(InertStringJsonConverter),
+        typeof(PackageRootReacquisitionRequestJsonConverter),
+    ],
     PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase)]
 [JsonSerializable(typeof(PackageQueryDocument))]
 public partial class PackageQueryJsonContext : JsonSerializerContext;
+
+[JsonSourceGenerationOptions(
+    Converters = [typeof(InertStringJsonConverter)],
+    PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase)]
+[JsonSerializable(typeof(LibraryQueryDocument))]
+public partial class LibraryQueryJsonContext : JsonSerializerContext;
 
 [JsonSourceGenerationOptions(
     Converters = [typeof(InertStringJsonConverter)],
@@ -46,4 +56,12 @@ public partial class ExactTypeInspectionJsonContext
     PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase)]
 [JsonSerializable(typeof(ExactLibraryApiInspectionResult))]
 public partial class ExactLibraryApiInspectionJsonContext
+    : JsonSerializerContext;
+
+[JsonSourceGenerationOptions(
+    Converters = [typeof(InertStringJsonConverter)],
+    PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase)]
+[JsonSerializable(typeof(TypeApiDeclarationResult))]
+[JsonSerializable(typeof(InspectionEnvelope<TypeApiDeclarationResult>))]
+public partial class TypeApiDeclarationInspectionJsonContext
     : JsonSerializerContext;

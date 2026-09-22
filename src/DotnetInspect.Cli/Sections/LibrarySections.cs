@@ -1,5 +1,6 @@
 using DotnetInspect.Cli.Inspectors;
 using DotnetInspect.Cli.Models;
+using DotnetInspector.Ecosystems;
 using DotnetInspector.Queries;
 using ILInspector.Decompiler.Pipeline;
 using ILInspector.Metadata;
@@ -74,6 +75,7 @@ public static class LibrarySections
             .WithoutComputedPoles()
             .Add<LibraryInfo>(
                 [
+                    AssemblyReferencesQuery.Definition,
                     ClassifiedMethodsQuery.Definition,
                     CustomAttributesQuery.Definition,
                     ExtensionMethodsQuery.Definition,
@@ -115,6 +117,8 @@ public static class LibrarySections
             .Add<IntegrationOpportunities>(
                 AssemblyContextIntegrationOpportunitiesQuery.Definition)
             .Add<References>(AssemblyReferencesQuery.Definition, HasReferenceData)
+            .Add<EcosystemDependencies>(
+                AssemblyReferencesQuery.Definition)
             .Add<ReferenceHierarchy>()
             .Add<ExtensionMethods>(ExtensionMethodsQuery.Definition)
             .Add<UnsafeMembers>(
@@ -123,8 +127,11 @@ public static class LibrarySections
             .Add<TopLeverage>(
                 TopLeverageQuery.Definition,
                 HasMethodBodies)
-            .Add<ImplementationProfiles>(
+            .Add<MemberMetrics>(
                 ImplementationProfilesQuery.Definition,
+                HasMethodBodies)
+            .Add<LibraryMetrics>(
+                LibraryMetricsQuery.Definition,
                 HasMethodBodies)
             .Add<BodyShapes>(
                 BodyShapesQuery.Definition,
@@ -176,6 +183,7 @@ public static class LibrarySections
                 SectionNames.LibraryInfo,
                 SectionNames.InspectionFailures,
                 SectionNames.References,
+                SectionNames.EcosystemDependencies,
                 SectionNames.Signals,
                 SectionNames.Symbols)
             .AddBaseCategory(SectionCategoryNames.Surface,
@@ -209,6 +217,7 @@ public static class LibrarySections
             .AddCategory(
                 SectionCategoryNames.Dependencies,
                 SectionNames.References,
+                SectionNames.EcosystemDependencies,
                 SectionNames.ReferenceHierarchy)
             .AddCategory(SectionCategoryNames.Context,
                 SectionNames.ILOffset,
@@ -368,6 +377,9 @@ public static class LibrarySections
             .Add(
                 ImplementationProfilesQuery.Definition,
                 ExecuteImplementationProfilesQuery)
+            .Add(
+                LibraryMetricsQuery.Definition,
+                ExecuteLibraryMetricsQuery)
             .AddSourceLinkQueries(RequireSourceLinkContext)
             .Compile();
     }
@@ -466,6 +478,13 @@ public static class LibrarySections
             _ = context.DrillMap();
         return result;
     }
+
+    internal static LibraryMetricsResult
+        ExecuteLibraryMetricsQuery(
+            InspectionQueryContext context)
+        => ExecuteLibraryMetricsQuery(
+            context.MetadataContext?.HasMetadata != false,
+            () => context.BodyAnalysis().ImplementationProfiles);
 
     internal static OptimizationOpportunitiesResult
         ExecuteOptimizationOpportunitiesQuery(InspectionQueryContext context)
@@ -618,6 +637,32 @@ public static class LibrarySections
         }
     }
 
+    internal static LibraryMetricsResult
+        ExecuteLibraryMetricsQuery(
+            bool hasMetadata,
+            Func<ILInspector.Analysis.LibraryImplementationProfileAnalysisResult>
+                acquireAnalysis)
+    {
+        ArgumentNullException.ThrowIfNull(acquireAnalysis);
+
+        if (!hasMetadata)
+            return new LibraryMetricsResult.NoMetadata();
+
+        try
+        {
+            return LibraryMetricsQuery.Execute(
+                acquireAnalysis());
+        }
+        catch (CostDeclarationException)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            return new LibraryMetricsResult.Failed(ex);
+        }
+    }
+
     private static InspectionQueryCatalog<AssemblyContextGroup>
         BuildGroupQueryCatalog()
         => new InspectionQueryRegistry<AssemblyContextGroup>()
@@ -644,6 +689,7 @@ public static class LibrarySections
         public static bool IsExpensive => true;
         public static bool ExplicitOnly => true;
         public static bool ProbeEffectiveness => false;
+        public static SectionSizeClass SizeClass => SectionSizeClass.Verbose;
         public static SectionCost Cost => SectionCost.Unbounded;
         public static bool CanRender(LibraryInspection model) => true;
     }
@@ -661,6 +707,7 @@ public static class LibrarySections
     {
         public static string Name => SectionNames.InspectionFailures;
         public static bool IsExpensive => false;
+        public static SectionSizeClass SizeClass => SectionSizeClass.Terse;
         public static bool CanRender(LibraryInspection model)
             => model.InspectionFailures is { Count: > 0 };
     }
@@ -670,6 +717,7 @@ public static class LibrarySections
         public static string Name => SectionNames.ILOffset;
         public static bool IsExpensive => false;
         public static bool ExplicitOnly => true;
+        public static SectionSizeClass SizeClass => SectionSizeClass.Fixed;
         public static bool CanRender(LibraryInspection model) => model.ILOffset != null;
     }
 
@@ -678,6 +726,7 @@ public static class LibrarySections
         public static string Name => SectionNames.MemberContext;
         public static bool IsExpensive => false;
         public static bool ExplicitOnly => true;
+        public static SectionSizeClass SizeClass => SectionSizeClass.Fixed;
         public static bool CanRender(LibraryInspection model) => model.ILOffset?.MemberContext != null;
     }
 
@@ -686,6 +735,7 @@ public static class LibrarySections
         public static string Name => SectionNames.InstructionContext;
         public static bool IsExpensive => false;
         public static bool ExplicitOnly => true;
+        public static SectionSizeClass SizeClass => SectionSizeClass.Fixed;
         public static bool CanRender(LibraryInspection model) => model.ILOffset?.InstructionContext != null;
     }
 
@@ -694,6 +744,7 @@ public static class LibrarySections
         public static string Name => SectionNames.ExceptionContext;
         public static bool IsExpensive => false;
         public static bool ExplicitOnly => true;
+        public static SectionSizeClass SizeClass => SectionSizeClass.Verbose;
         public static bool CanRender(LibraryInspection model) => model.ILOffset?.ExceptionContext is { Count: > 0 };
     }
 
@@ -702,6 +753,7 @@ public static class LibrarySections
         public static string Name => SectionNames.CallsiteContext;
         public static bool IsExpensive => false;
         public static bool ExplicitOnly => true;
+        public static SectionSizeClass SizeClass => SectionSizeClass.Fixed;
         public static bool CanRender(LibraryInspection model) => model.ILOffset?.CallsiteContext != null;
     }
 
@@ -710,6 +762,7 @@ public static class LibrarySections
         public static string Name => SectionNames.ReturnAddressContext;
         public static bool IsExpensive => false;
         public static bool ExplicitOnly => true;
+        public static SectionSizeClass SizeClass => SectionSizeClass.Fixed;
         public static bool CanRender(LibraryInspection model) => model.ILOffset?.ReturnAddressContext != null;
     }
 
@@ -718,6 +771,7 @@ public static class LibrarySections
         public static string Name => SectionNames.AllocationContext;
         public static bool IsExpensive => false;
         public static bool ExplicitOnly => true;
+        public static SectionSizeClass SizeClass => SectionSizeClass.Fixed;
         public static bool CanRender(LibraryInspection model) => model.ILOffset?.AllocationContext is { Count: > 0 };
     }
 
@@ -726,6 +780,7 @@ public static class LibrarySections
         public static string Name => SectionNames.SafetyContext;
         public static bool IsExpensive => false;
         public static bool ExplicitOnly => true;
+        public static SectionSizeClass SizeClass => SectionSizeClass.Fixed;
         public static bool CanRender(LibraryInspection model) => model.ILOffset?.SafetyContext is { Count: > 0 };
     }
 
@@ -734,6 +789,7 @@ public static class LibrarySections
         public static string Name => SectionNames.CostContext;
         public static bool IsExpensive => false;
         public static bool ExplicitOnly => true;
+        public static SectionSizeClass SizeClass => SectionSizeClass.Fixed;
         public static bool CanRender(LibraryInspection model) => model.ILOffset?.CostContext is { Count: > 0 };
     }
 
@@ -771,7 +827,7 @@ public static class LibrarySections
         public static string Name => SectionNames.IdentifierConfusion;
         public static bool IsExpensive => true;
         public static bool ExplicitOnly => true;
-        public static SectionSizeClass SizeClass => SectionSizeClass.Informative;
+        public static SectionSizeClass SizeClass => SectionSizeClass.Verbose;
         public static SectionCost Cost => SectionCost.Unbounded;
         public static bool CanRender(LibraryInspection model)
             => IdentifierConfusionAudit.InspectLibrary(model).Count > 0;
@@ -781,7 +837,7 @@ public static class LibrarySections
     {
         public static string Name => SectionNames.Switches;
         public static bool IsExpensive => false;
-        public static SectionSizeClass SizeClass => SectionSizeClass.Informative;
+        public static SectionSizeClass SizeClass => SectionSizeClass.Verbose;
         public static bool CanRender(LibraryInspection model)
             => model.SwitchInspection.CanRenderWithPresence(model.HasSwitches);
     }
@@ -790,7 +846,7 @@ public static class LibrarySections
     {
         public static string Name => IntegrationSectionNames.Integrations;
         public static bool IsExpensive => false;
-        public static SectionSizeClass SizeClass => SectionSizeClass.Informative;
+        public static SectionSizeClass SizeClass => SectionSizeClass.Verbose;
         public static bool CanRender(LibraryInspection model)
             => LibraryIntegrationCatalog.CanRenderAny(model);
     }
@@ -799,7 +855,8 @@ public static class LibrarySections
     {
         public static string Name => IntegrationSectionNames.Opportunities;
         public static bool IsExpensive => false;
-        public static SectionSizeClass SizeClass => SectionSizeClass.Informative;
+        // The scanner retains at most one row per product-owned concept and opportunity kind.
+        public static SectionSizeClass SizeClass => SectionSizeClass.Terse;
         public static bool CanRender(LibraryInspection model)
             => model.IntegrationOpportunities is { Count: > 0 };
     }
@@ -840,6 +897,7 @@ public static class LibrarySections
         // Opt-in only: issues one HEAD per source file, which scales with source count and is too
         // slow to render as a full default section. Signals may still summarize this high-value audit.
         public static bool ExplicitOnly => true;
+        public static SectionSizeClass SizeClass => SectionSizeClass.Fixed;
         public static bool CanRender(LibraryInspection model)
             => model.AllSourcesAccessible.HasValue || model.TotalSourceFiles > 0;
     }
@@ -850,6 +908,7 @@ public static class LibrarySections
         public static bool IsExpensive => true;
         // Opt-in only: derived from the same per-file HEAD pass as SourceLink: Availability.
         public static bool ExplicitOnly => true;
+        public static SectionSizeClass SizeClass => SectionSizeClass.Verbose;
         public static bool CanRender(LibraryInspection model)
             => model.MissingSourceFiles is { Count: > 0 };
     }
@@ -859,18 +918,38 @@ public static class LibrarySections
         public static string Name => SectionNames.SourceLinkIntegrity;
         public static bool IsExpensive => true;
         public static bool ExplicitOnly => true;
+        public static SectionSizeClass SizeClass => SectionSizeClass.Fixed;
         public static bool CanRender(LibraryInspection model) => model.SourceIntegrityChecked;
     }
 
-    // ===== Normal sections (offline, cheap) =====
+    // ===== Offline inventory sections =====
 
     public sealed class References : ISectionDescriptor<LibraryInspection>
     {
         public static string Name => SectionNames.References;
         public static bool IsExpensive => false;
-        public static SectionSizeClass SizeClass => SectionSizeClass.Informative;
+        public static SectionSizeClass SizeClass => SectionSizeClass.Verbose;
         public static bool CanRender(LibraryInspection model)
             => HasReferenceData(model);
+    }
+
+    public sealed class EcosystemDependencies :
+        ISectionDescriptor<LibraryInspection>
+    {
+        public static string Name => SectionNames.EcosystemDependencies;
+        public static bool IsExpensive => false;
+        public static SectionSizeClass SizeClass =>
+            SectionSizeClass.Verbose;
+        public static bool CanRender(LibraryInspection model) =>
+            model.EcosystemDependencyRecognitionInspection?.Content
+                is EcosystemDependencyRecognitionOutcome.Complete
+                    {
+                        Document.Classification.Recognized.Length: > 0,
+                    }
+                or EcosystemDependencyRecognitionOutcome.Incomplete
+                    {
+                        Document.Classification.Recognized.Length: > 0,
+                    };
     }
 
     public sealed class ReferenceHierarchy :
@@ -879,7 +958,7 @@ public static class LibrarySections
         public static string Name => SectionNames.ReferenceHierarchy;
         public static bool IsExpensive => true;
         public static bool ExplicitOnly => true;
-        public static SectionSizeClass SizeClass => SectionSizeClass.Terse;
+        public static SectionSizeClass SizeClass => SectionSizeClass.Verbose;
         public static SectionCost Cost => SectionCost.Unbounded;
         public static bool CanRender(LibraryInspection model)
             => model.ReferenceHierarchyProjection is not null;
@@ -919,11 +998,10 @@ public static class LibrarySections
                 { Methods.IsEmpty: false };
     }
 
-    public sealed class ImplementationProfiles
+    public sealed class MemberMetrics
         : ISectionDescriptor<LibraryInspection>
     {
-        public static string Name =>
-            SectionNames.ImplementationProfiles;
+        public static string Name => SectionNames.MemberMetrics;
         public static bool IsExpensive => false;
         public static bool ExplicitOnly => true;
         public static SectionSizeClass SizeClass =>
@@ -933,6 +1011,21 @@ public static class LibrarySections
             => model.ImplementationProfilesQueryResult
                 is ImplementationProfilesResult.Available
                 { Profiles.IsEmpty: false };
+    }
+
+    public sealed class LibraryMetrics
+        : ISectionDescriptor<LibraryInspection>
+    {
+        public static string Name => SectionNames.LibraryMetrics;
+        public static bool IsExpensive => false;
+        public static bool ExplicitOnly => true;
+        public static SectionSizeClass SizeClass =>
+            SectionSizeClass.Verbose;
+        public static SectionCost Cost => SectionCost.Unbounded;
+        public static bool CanRender(LibraryInspection model)
+            => model.LibraryMetricsQueryResult
+                is LibraryMetricsResult.Available
+                    or LibraryMetricsResult.Unavailable;
     }
 
     public sealed class BodyShapes : ISectionDescriptor<LibraryInspection>
@@ -997,6 +1090,7 @@ public static class LibrarySections
     {
         public static string Name => SectionNames.PerformanceEnumerators;
         public static bool IsExpensive => false;
+        public static SectionSizeClass SizeClass => SectionSizeClass.Verbose;
         public static bool CanRender(LibraryInspection model)
             => HasPerformanceKind(model, SectionNames.PerformanceEnumerators);
     }
@@ -1005,6 +1099,7 @@ public static class LibrarySections
     {
         public static string Name => SectionNames.PerformanceStrings;
         public static bool IsExpensive => false;
+        public static SectionSizeClass SizeClass => SectionSizeClass.Verbose;
         public static bool CanRender(LibraryInspection model)
             => HasPerformanceKind(model, SectionNames.PerformanceStrings);
     }
@@ -1013,6 +1108,7 @@ public static class LibrarySections
     {
         public static string Name => SectionNames.PerformanceLoops;
         public static bool IsExpensive => false;
+        public static SectionSizeClass SizeClass => SectionSizeClass.Verbose;
         public static bool CanRender(LibraryInspection model)
             => HasPerformanceKind(model, SectionNames.PerformanceLoops);
     }
@@ -1021,6 +1117,7 @@ public static class LibrarySections
     {
         public static string Name => SectionNames.PerformanceHotspots;
         public static bool IsExpensive => false;
+        public static SectionSizeClass SizeClass => SectionSizeClass.Verbose;
         public static bool CanRender(LibraryInspection model)
             => HasPerformanceKind(model, SectionNames.PerformanceHotspots);
     }
@@ -1029,6 +1126,7 @@ public static class LibrarySections
     {
         public static string Name => SectionNames.PerformanceAsync;
         public static bool IsExpensive => false;
+        public static SectionSizeClass SizeClass => SectionSizeClass.Verbose;
         public static bool CanRender(LibraryInspection model)
             => HasPerformanceKind(model, SectionNames.PerformanceAsync);
     }
@@ -1037,6 +1135,7 @@ public static class LibrarySections
     {
         public static string Name => SectionNames.PerformanceOther;
         public static bool IsExpensive => false;
+        public static SectionSizeClass SizeClass => SectionSizeClass.Verbose;
         public static bool CanRender(LibraryInspection model)
             => HasPerformanceKind(model, SectionNames.PerformanceOther);
     }
@@ -1045,6 +1144,7 @@ public static class LibrarySections
     {
         public static string Name => SectionNames.ArrayPoolEscapes;
         public static bool IsExpensive => false;
+        public static SectionSizeClass SizeClass => SectionSizeClass.Verbose;
         public static bool CanRender(LibraryInspection model)
             => model.ResourceTriageAssessments.Length > 0
                 || model.ResourceTriage is { Count: > 0 };
@@ -1054,6 +1154,7 @@ public static class LibrarySections
     {
         public static string Name => SectionNames.PInvokeMethods;
         public static bool IsExpensive => false;
+        public static SectionSizeClass SizeClass => SectionSizeClass.Verbose;
         public static bool CanRender(LibraryInspection model)
             => model.ClassifiedMethodInspection.Failure() is null
                && (model.PInvokeMethodCount > 0 || model.HasPInvokeImports);
@@ -1090,6 +1191,7 @@ public static class LibrarySections
     {
         public static string Name => SectionNames.UnionTypes;
         public static bool IsExpensive => false;
+        public static SectionSizeClass SizeClass => SectionSizeClass.Verbose;
         public static bool CanRender(LibraryInspection model)
             => model.UnionTypeInspection.CanRenderWithPresence(model.HasUnionTypes);
     }
@@ -1098,6 +1200,7 @@ public static class LibrarySections
     {
         public static string Name => SectionNames.TypeForwarders;
         public static bool IsExpensive => false;
+        public static SectionSizeClass SizeClass => SectionSizeClass.Verbose;
         public static bool CanRender(LibraryInspection model)
             => model.TypeForwarderInspection.CanRenderWithPresence(model.HasExportedTypeForwarders);
     }
@@ -1106,6 +1209,7 @@ public static class LibrarySections
     {
         public static string Name => SectionNames.NonNormalizedPaths;
         public static bool IsExpensive => false;
+        public static SectionSizeClass SizeClass => SectionSizeClass.Verbose;
         public static bool CanRender(LibraryInspection model) => model.NonNormalizedPaths is { Count: > 0 };
     }
 

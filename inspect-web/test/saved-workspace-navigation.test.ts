@@ -49,7 +49,6 @@ import {
   createWorkspaceLocationPersistence,
   parseWorkspaceLocation,
   parseWorkspaceLocationAsync,
-  selectedBrowserCallGraphPackageTabIds,
   workspaceShareCaptureTopology,
   workspaceShareTabsMatchResolved,
   type ParsedWorkspaceLocation,
@@ -108,10 +107,10 @@ function isCapturedWorkspaceUrlState(
 const hostNames = new Set([
   "captureSavedWorkspacePacket", "captureWorkspaceUrlState",
   "capturedShareTabs", "resolvedWorkspaceShareTabs", "activeShareTabIndex",
-  "selectedCallGraphWorkspacePackages", "workspaceCoordinateCount",
+  "workspaceCoordinateCount",
   "selectedLibraryShareKey", "scope", "syncUrl", "buildStateUrl",
   "buildShareUrl", "share",
-  "openSavedWorkspace", "openSavedWorkspaceCore",
+  "openSavedWorkspace", "openSavedWorkspaceEntry", "openSavedWorkspaceCore",
   "restoreWorkspaceCatalogEntry", "restoreWorkspaceFromLocation",
   "parseWorkspaceHref", "beginDemoNavigation", "stageDemoNavigation",
   "commitDemoNavigation", "cancelDemoNavigation", "commitRestoredWorkspaceNavigation",
@@ -164,7 +163,11 @@ const sourcePackage: Package = {
   source: { kind: "nuget.org" },
 };
 const packet = "opaque+/packet?name=ignored&x=1#fragment";
-const saved = Object.freeze({ name: "My Workspace", packet });
+const saved = Object.freeze({
+  name: "My Workspace",
+  packet,
+  kind: "legacy" as const,
+});
 
 function packageSurface(
   id = "Added.Package", version = "4.5.6", framework = "net10.0",
@@ -465,6 +468,16 @@ function harness() {
   };
   const context = {
     state, location, history, document, workspaceLocation: asyncWorkspaceLocation,
+    engineClient: {
+      catalog: {
+        captureCompleteWorkspaceShareState: async (
+          shareState: BrowserWorkspaceShareState,
+        ) => {
+          encoded.push(structuredClone(shareState));
+          return controls.encodeResult;
+        },
+      },
+    },
     app: {
       inert: false,
       setAttribute: () => {},
@@ -493,6 +506,8 @@ function harness() {
     navigationSequence, navigationHistory,
     pendingDemoNavigation: null as { navigationSeq: number; destination: string } | null,
     pendingWorkspaceConstruction: null,
+    retainedWorkspaceActivation: null,
+    activeRetainedWorkspacePosting: null,
     packageContentLoadingSequence: null as number | null,
     activeWorkspaceUrl: null as string | null,
     failedWorkspaceUrlState: null, spotlightCache: null as object | null,
@@ -589,7 +604,6 @@ function harness() {
       },
     },
     typeLensesFor, browserCreatedCallGraphTabIds,
-    selectedBrowserCallGraphPackageTabIds,
     workspaceShareCaptureTopology, workspaceShareTabsMatchResolved,
     parseWorkspaceLocation, parseWorkspaceLocationAsync, isProductHomeDemosPath,
     inspectDecodeWorkspaceShareState: (value: string) =>
@@ -601,6 +615,9 @@ function harness() {
       clearGraphSource: () => {},
     },
     libraryApiDiff: {
+      cancelCurrentRequest: () => {},
+    },
+    compareClone: {
       cancelCurrentRequest: () => {},
     },
     cancelFindingCensusRequest: () => {},
@@ -1072,7 +1089,7 @@ test("capture rejects wrong scopes, empty or unready Workspaces, and incomplete 
     h.controls.encodeResult = result;
     await assert.rejects(
       h.capture(),
-      /Projection unavailable|canonical share/);
+      /Projection unavailable|complete share/);
     assert.equal(h.writes.length, 0);
   }
 });
@@ -1121,7 +1138,7 @@ for (const platform of [false, true]) {
   });
 }
 
-test("floating packet coordinates resolve the active package and Call Graph context", async () => {
+test("floating packet coordinates resolve the active package for saved capture", async () => {
   const h = harness();
   const exact = sharedState();
   const basis: BrowserWorkspaceShareState = {
@@ -1154,11 +1171,6 @@ test("floating packet coordinates resolve the active package and Call Graph cont
       ...basis,
       tabs: exact.tabs,
     });
-  const selected: unknown = runInNewContext(
-    "selectedCallGraphWorkspacePackages()",
-    h.context);
-  assert.ok(Array.isArray(selected));
-  assert.deepEqual(selected, h.state.packages);
 });
 
 test("saved Open uses only the opaque packet at the current origin and commits after view completion", async () => {
@@ -1282,7 +1294,7 @@ function assertRetained(h: ReturnType<typeof harness>, href: string, entryState:
   assert.equal(h.writes.length, 0);
   assert.deepEqual(h.publications, []);
   assert.match(h.state.queryNotice, /Saved Workspace "My Workspace" failed:/);
-  assert.deepEqual(saved, { name: "My Workspace", packet });
+  assert.deepEqual(saved, { name: "My Workspace", packet, kind: "legacy" });
   assert.equal(h.context.pendingDemoNavigation, null);
 }
 
@@ -1376,7 +1388,7 @@ test("successful saved Open retires comparison settings with the discarded Packa
 
   assert.ok(h.state.package);
   assert.deepEqual(h.packageComparisonTargets.get(h.state.package), {
-    diff: { kind: "previous" }, clone: { kind: "workspace" },
+    diff: { kind: "previous" }, clone: { kind: "workspace" }, mode: "diff",
   });
   assert.deepEqual(h.packageComparisonTargets.get(sourcePackage).diff, { kind: "previous" });
   assert.deepEqual(h.catalogRequests.packageVersions(sourcePackage), { status: "idle" });
@@ -1418,7 +1430,11 @@ for (const rejected of [false, true]) {
     h.controls.encodeResult = {
       succeeded: true, packet: "successor-packet", failure: null,
     };
-    h.open({ name: "Successor", packet: "successor-packet" });
+    h.open({
+      name: "Successor",
+      packet: "successor-packet",
+      kind: "legacy",
+    });
     await new Promise(resolve => setImmediate(resolve));
     const pending = h.context.pendingDemoNavigation;
     if (rejected) first.reject(new Error("Stale failure"));
@@ -1683,7 +1699,7 @@ test("Add appends the resolved coordinate, preserves inspection, invalidates mem
   assert.equal(h.location.searchParams.get("w"), packet);
   assert.equal(h.writes.filter(write => write.kind === "push").length, 1);
   assert.deepEqual(h.previousEntries, [{ url: href, state: entryState }]);
-  assert.deepEqual(saved, { name: "My Workspace", packet });
+  assert.deepEqual(saved, { name: "My Workspace", packet, kind: "legacy" });
   assert.equal(h.context.pendingDemoNavigation, null);
   h.flushFocus();
   assert.deepEqual(h.focus, ["heading"]);

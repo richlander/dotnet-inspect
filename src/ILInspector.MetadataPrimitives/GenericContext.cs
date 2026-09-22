@@ -63,11 +63,16 @@ public class GenericContext
         TypeDefinition typeDef,
         Action<int>? beforeMaterialize)
     {
-        ValidateDeclaringTypeParameterCounts(reader, typeDef);
+        ValidateDeclaringTypeParameterCounts(
+            reader,
+            typeDef,
+            beforeRelationshipFollow: null,
+            preserveRelationshipRejection: false);
         var typeParameters = ReadParameters(
             reader,
             typeDef.GetGenericParameters(),
-            beforeMaterialize);
+            beforeMaterialize,
+            preserveBudgetRejection: false);
         return new GenericContext(typeParameters.Names, [], typeParameters.ValueTypeConstraints, []);
     }
 
@@ -75,16 +80,73 @@ public class GenericContext
     /// Creates a context for a method definition (type + method parameters).
     /// </summary>
     public static GenericContext ForMethod(MetadataReader reader, TypeDefinition typeDef, MethodDefinition methodDef)
+        => ForMethod(
+            reader,
+            typeDef,
+            methodDef,
+            beforeMaterialize: null);
+
+    /// <summary>
+    /// Creates a context for a method definition while observing encoded
+    /// generic-parameter name work before materialization.
+    /// </summary>
+    public static GenericContext ForMethod(
+        MetadataReader reader,
+        TypeDefinition typeDef,
+        MethodDefinition methodDef,
+        Action<int>? beforeMaterialize)
     {
-        ValidateDeclaringTypeParameterCounts(reader, typeDef);
+        ValidateDeclaringTypeParameterCounts(
+            reader,
+            typeDef,
+            beforeRelationshipFollow: null,
+            preserveRelationshipRejection: false);
+        return CreateMethodContext(
+            reader,
+            typeDef,
+            methodDef,
+            beforeMaterialize,
+            preserveBudgetRejection: false);
+    }
+
+    internal static GenericContext ForMethodWithRelationshipObserver(
+        MetadataReader reader,
+        TypeDefinition typeDef,
+        MethodDefinition methodDef,
+        Action<int>? beforeMaterialize,
+        Action<EntityHandle> beforeRelationshipFollow)
+    {
+        ArgumentNullException.ThrowIfNull(beforeRelationshipFollow);
+        ValidateDeclaringTypeParameterCounts(
+            reader,
+            typeDef,
+            beforeRelationshipFollow,
+            preserveRelationshipRejection: true);
+        return CreateMethodContext(
+            reader,
+            typeDef,
+            methodDef,
+            beforeMaterialize,
+            preserveBudgetRejection: true);
+    }
+
+    static GenericContext CreateMethodContext(
+        MetadataReader reader,
+        TypeDefinition typeDef,
+        MethodDefinition methodDef,
+        Action<int>? beforeMaterialize,
+        bool preserveBudgetRejection)
+    {
         var typeParameters = ReadParameters(
             reader,
             typeDef.GetGenericParameters(),
-            beforeMaterialize: null);
+            beforeMaterialize,
+            preserveBudgetRejection);
         var methodParameters = ReadParameters(
             reader,
             methodDef.GetGenericParameters(),
-            beforeMaterialize: null);
+            beforeMaterialize,
+            preserveBudgetRejection);
         return new GenericContext(
             typeParameters.Names,
             methodParameters.Names,
@@ -94,7 +156,9 @@ public class GenericContext
 
     static void ValidateDeclaringTypeParameterCounts(
         MetadataReader reader,
-        TypeDefinition typeDef)
+        TypeDefinition typeDef,
+        Action<EntityHandle>? beforeRelationshipFollow,
+        bool preserveRelationshipRejection)
     {
         TypeDefinitionHandle declaringType = typeDef.GetDeclaringType();
         if (declaringType.IsNil)
@@ -110,10 +174,17 @@ public class GenericContext
                     chain,
                     out int consumed,
                     out EntityHandle terminal,
-                    out RelationshipTraversalRejection? rejection)
+                    out RelationshipTraversalRejection? rejection,
+                    beforeRelationshipFollow)
             || consumed == 0
             || !terminal.IsNil)
         {
+            if (preserveRelationshipRejection
+                && rejection is not null)
+            {
+                throw new GenericContextRelationshipRejectedException(
+                    rejection);
+            }
             throw new BadImageFormatException(
                 rejection?.Detail
                     ?? "The type has an invalid declaring-type chain.");
@@ -156,7 +227,8 @@ public class GenericContext
         var methodParameters = ReadParameters(
             reader,
             methodDef.GetGenericParameters(),
-            beforeMaterialize);
+            beforeMaterialize,
+            preserveBudgetRejection: false);
         return new GenericContext(
             typeContext.TypeParameters,
             methodParameters.Names,
@@ -167,7 +239,8 @@ public class GenericContext
     static (List<string> Names, List<bool> ValueTypeConstraints) ReadParameters(
         MetadataReader reader,
         GenericParameterHandleCollection handles,
-        Action<int>? beforeMaterialize)
+        Action<int>? beforeMaterialize,
+        bool preserveBudgetRejection)
     {
         if (handles.Count > MetadataSafetyPolicy.MaxSignatureTypeNodes)
         {
@@ -188,15 +261,15 @@ public class GenericContext
             int encodedNameLength = reader.GetBlobReader(parameter.Name).Length;
             if (encodedNameLength > remainingNameLength)
             {
-                throw new BadImageFormatException(
-                    "The generic-parameter names exceed the metadata safety limit.");
+                throw GenericParameterNameBudgetExceeded(
+                    preserveBudgetRejection);
             }
             beforeMaterialize?.Invoke(encodedNameLength);
             string name = reader.GetString(parameter.Name);
             if (name.Length > remainingNameLength)
             {
-                throw new BadImageFormatException(
-                    "The generic-parameter names exceed the metadata safety limit.");
+                throw GenericParameterNameBudgetExceeded(
+                    preserveBudgetRejection);
             }
             totalNameLength += name.Length;
             names.Add(name);
@@ -205,6 +278,14 @@ public class GenericContext
         }
         return (names, valueTypeConstraints);
     }
+
+    static Exception GenericParameterNameBudgetExceeded(
+        bool preserveBudgetRejection) =>
+        preserveBudgetRejection
+            ? new GenericContextBudgetExceededException(
+                "The generic-parameter names exceed the metadata safety limit.")
+            : new BadImageFormatException(
+                "The generic-parameter names exceed the metadata safety limit.");
 
     public static void ValidateParameterIndices(
         MetadataReader reader,
@@ -226,3 +307,12 @@ public class GenericContext
     static bool HasValueTypeConstraint(IReadOnlyList<bool> constraints, int index)
         => index >= 0 && index < constraints.Count && constraints[index];
 }
+
+internal sealed class GenericContextRelationshipRejectedException(
+    RelationshipTraversalRejection rejection) : Exception(rejection.Detail)
+{
+    internal RelationshipTraversalRejection Rejection { get; } = rejection;
+}
+
+internal sealed class GenericContextBudgetExceededException(
+    string detail) : Exception(detail);

@@ -66,13 +66,13 @@ General preconditions for all workflows:
 
   A workflow may explicitly build an alternate apphost when that runtime or
   configuration is the behavior under test. It must verify the same
-  `DOTNET_INSPECT_WORKFLOW_VERSION` and its required flavor. The DEBUG-only
-  network-guard workflow is the current exception.
+  `DOTNET_INSPECT_WORKFLOW_VERSION` and its required flavor. The Debug-only
+  network-observation workflow is the current exception.
 
 - **Warm cache**: Timing targets assume second+ invocation (OS and app caches warm).
 - **Network**: Some commands require network access (for example,
-  `Package@latest --version`). Others are fully offline (for example,
-  `--version` with cached data).
+  `package Package --latest-version`). Others are fully offline (for example,
+  exact Package inspection from a cached payload).
 
 ## Running a single workflow
 
@@ -107,7 +107,7 @@ Workflows are designed for parallel execution. Split the work by:
 | --- | --- | --- |
 | Agent 1 | `getting-started/`, `output/` | Basics and output formats |
 | Agent 2 | `core/`, `discovery/` | Core inspection and API discovery |
-| Agent 3 | `advanced/`, `perf/` | Network guard, offline, performance |
+| Agent 3 | `advanced/`, `perf/` | Network observation, offline, performance |
 
 ## The eval pattern
 

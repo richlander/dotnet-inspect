@@ -82,15 +82,22 @@ public sealed class LogicalBinary : IrExpression
     witness: "NullConditionalCoalescePassTests, corpus compile-back")]
 public sealed class Coalesce : IrExpression
 {
+    TypeRef? _assignmentType;
+
     public Coalesce(IrExpression left, IrExpression right)
     {
         AddChild(left);
         AddChild(right);
+        BindAssignmentType(ImmutableDictionary<TypeRef, TypeShape>.Empty);
     }
 
     public IrExpression Left => (IrExpression)Children[0];
     public IrExpression Right => (IrExpression)Children[1];
     public override TypeRef? ResultType => NullableValueCoalesceResult(Left.ResultType, Right.ResultType) ?? Left.ResultType ?? Right.ResultType;
+    public override TypeRef? AssignmentType => _assignmentType;
+
+    internal void BindAssignmentType(IReadOnlyDictionary<TypeRef, TypeShape> shapes)
+        => _assignmentType = CoercionRendering.CoalesceAssignmentType(this, shapes);
 
     public override string Describe() => "Coalesce";
 
@@ -265,11 +272,21 @@ public sealed class Conditional : IrExpression
         AddChild(condition);
         AddChild(whenTrue);
         AddChild(whenFalse);
+        BindReferenceAssignments(ImmutableDictionary<TypeRef, TypeShape>.Empty);
     }
 
     public IrExpression Condition => (IrExpression)Children[0];
     public IrExpression WhenTrue => (IrExpression)Children[1];
     public IrExpression WhenFalse => (IrExpression)Children[2];
+
+    internal ReferenceAssignmentTargets ReferenceAssignments { get; private set; }
+
+    public bool CanAssignReferenceArmsTo(
+        TypeRef target, IReadOnlyDictionary<TypeRef, TypeShape> shapes)
+        => ReferenceAssignments.Contains(target, shapes);
+
+    internal void BindReferenceAssignments(IReadOnlyDictionary<TypeRef, TypeShape> shapes)
+        => ReferenceAssignments = ReferenceAssignmentTargets.ForArms(this, shapes);
 
     /// <summary>
     /// The merged slot type the importer computed for the join the two arms
@@ -413,6 +430,8 @@ public sealed class IncrementDecrement : IrExpression
         => $"{(IsPrefix ? "Pre" : "Post")}{(IsIncrement ? "Increment" : "Decrement")}";
 }
 
+public enum CoercionKind { Value, ReferenceWitness }
+
 /// <summary>
 /// The C#-surface coercion of a value into a typed sink
 /// (docs/design/value-typed-emission.md): "render this value into a position
@@ -433,13 +452,15 @@ public sealed class IncrementDecrement : IrExpression
     witness: "CoerceChokePointTests, CoercionInvariantTests, corpus render-text A/B")]
 public sealed class Coerce : IrExpression
 {
-    public Coerce(TypeRef target, IrExpression operand)
+    public Coerce(TypeRef target, IrExpression operand, CoercionKind kind = CoercionKind.Value)
     {
         Target = target;
+        Kind = kind;
         AddChild(operand);
     }
 
     public TypeRef Target { get; }
+    public CoercionKind Kind { get; }
     public IrExpression Operand => (IrExpression)Children[0];
     public override TypeRef? ResultType => Target;
     public override IEnumerable<TypeRef> DirectTypes => [Target];

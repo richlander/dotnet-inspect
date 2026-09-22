@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { apiDeclarationsFixture } from "./type-api-declarations-fixture.ts";
+import type { TypeSourceView } from "../src/source-inspection.ts";
 import {
   createSourceInspectionCoordinator,
   type SourceInspectionState,
@@ -68,10 +70,11 @@ function fixture() {
       focusLost: false,
     }),
   });
-  function start(signature: string) {
+  function start(signature: string, view: TypeSourceView = "source", type = signature) {
     const request: TypeSourceLoadRequest = {
       signature, packageId: "Example", version: "1.0.0", framework: "net11.0",
-      assembly: "Example.dll", type: signature, taste: "[]", isVisible: () => true,
+      assembly: "Example.dll", type, taste: "[]", isVisible: () => true,
+      view,
     };
     const load = coordinator.loadTypeSource(request);
     const entry = [...queries.entries()].at(-1);
@@ -85,8 +88,15 @@ function fixture() {
 function succeeded(text: string): BrowserTypeSourceResult {
   return {
     version: 1, kind: "Succeeded",
-    value: { provider: "pdb", provenance: inertStringFixture("verified"), url: null,
+    value: { kind: "source", value: {
+      provider: "pdb", provenance: inertStringFixture("verified"), url: null,
       pdbSourceLimitation: null, text },
+    share: {
+      kind: "available",
+      fullUrl: "https://example.test/type-source",
+      packet: "type-source",
+    },
+    diagnostics: [] },
     failureKind: null, error: null, diagnostic: null, reason: null,
   };
 }
@@ -159,8 +169,8 @@ for (const kind of ["Expected", "Unexpected"] as const) {
     b.query.resolve(succeeded("current"));
     await b.load;
     assert.equal(
-      f.state.typeSource.status === "ready"
-        ? f.state.typeSource.source.text
+      f.state.typeSource.status === "ready" && f.state.typeSource.source.kind === "source"
+        ? f.state.typeSource.source.value.text
         : undefined,
       "current");
   });
@@ -207,12 +217,27 @@ test("late Promise rejection cannot affect a successful replacement", async () =
   a.query.reject(new Error("interop failed"));
   await a.load;
   assert.equal(
-    f.state.typeSource.status === "ready"
-      ? f.state.typeSource.source.text
+    f.state.typeSource.status === "ready" && f.state.typeSource.source.kind === "source"
+      ? f.state.typeSource.source.value.text
       : undefined,
     "B");
   assert.equal(f.diagnostics.length, 1);
   assert.equal(f.diagnostics[0]?.operationId, a.id);
+});
+
+test("switching the same type to declarations rejects an older source completion", async () => {
+  const f = fixture();
+  const source = f.start("source", "source", "Example.Type");
+  const declarations = f.start("api", "api-declarations", "Example.Type");
+  const value = apiDeclarationsFixture();
+  declarations.query.resolve({ ...succeeded("unused"), value });
+  await declarations.load;
+  source.query.resolve(succeeded("stale implementation"));
+  await source.load;
+  assert.deepEqual(f.state.typeSource, {
+    status: "ready", signature: "api", source: value,
+  });
+  assert.deepEqual(f.cancellations, [[source.id, "superseded"]]);
 });
 
 test("managed cancellation reaches the logical authority without an error", async () => {

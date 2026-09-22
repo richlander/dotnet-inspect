@@ -1,7 +1,7 @@
 import {
-  packageIdentityKey,
   removeWorkspacePackage,
   type RemoveWorkspacePackageInput,
+  workspacePackageRemovalKey,
 } from "./data.ts";
 
 export interface RecentPackageEntry {
@@ -21,8 +21,9 @@ export function packageRemoveButton(
   identity: string,
   label: string,
   escapeHtml: (value: unknown) => string,
+  disabled = false,
 ): string {
-  return `<button type="button" class="package-row-remove" ${attribute}="${escapeHtml(identity)}" aria-label="${escapeHtml(label)}" title="${escapeHtml(label)}"><span aria-hidden="true">&times;</span></button>`;
+  return `<button type="button" class="package-row-remove" ${attribute}="${escapeHtml(identity)}" aria-label="${escapeHtml(label)}" title="${escapeHtml(label)}"${disabled ? " disabled" : ""}><span aria-hidden="true">&times;</span></button>`;
 }
 
 export function createPackageRemoval<T extends RemoveWorkspacePackageInput>(
@@ -52,7 +53,8 @@ export function createPackageRemoval<T extends RemoveWorkspacePackageInput>(
       }
       forgetRecent(removed.closed.id);
       const activeChanged =
-        packageIdentityKey(state.package) !== packageIdentityKey(removed.active);
+        workspacePackageRemovalKey(state.package)
+          !== workspacePackageRemovalKey(removed.active);
       state.packages = removed.packages;
       if (activeChanged) options.activate(removed.active);
       options.release(removed.closed);

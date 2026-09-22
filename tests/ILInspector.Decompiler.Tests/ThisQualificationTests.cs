@@ -2,6 +2,7 @@ using System.Collections.Immutable;
 using System.Reflection.PortableExecutable;
 
 using ILInspector.Decompiler;
+using ILInspector.DecompilerHarness;
 using ILInspector.Decompiler.Pipeline;
 using ILInspector.Metadata;
 
@@ -165,6 +166,78 @@ public sealed class ThisQualificationTests
         var text = Render(nameof(ThisQualificationSpecimen.MethodGroup),
             new PrinterOptions { QualifyMethodAccess = true });
         Assert.Contains("this.ReadField", text);
+    }
+
+    [Fact]
+    public void GenericMethodGroup_PreservesExplicitTypeArguments()
+    {
+        var text = RenderMember(
+            typeof(ThisQualificationGenericGroup),
+            nameof(ThisQualificationGenericGroup.Build));
+
+        Assert.Contains("new Func<int>(Make<int>)", text);
+    }
+
+    [Fact]
+    public void GenericMethodGroup_QualifiesWithThisAndPreservesTypeArguments_WhenRequested()
+    {
+        var text = RenderMember(
+            typeof(ThisQualificationGenericGroup),
+            nameof(ThisQualificationGenericGroup.Build),
+            new PrinterOptions { QualifyMethodAccess = true });
+
+        Assert.Contains("new Func<int>(this.Make<int>)", text);
+    }
+
+    [Fact]
+    public void StaticGenericMethodGroup_PreservesExplicitTypeArguments()
+    {
+        var text = RenderMember(
+            typeof(ThisQualificationGenericGroup),
+            nameof(ThisQualificationGenericGroup.StaticBuild));
+
+        Assert.Contains(
+            "ThisQualificationGenericGroup.StaticMake<int>",
+            text);
+    }
+
+    [Theory]
+    [InlineData(typeof(GenericMethodGroupClass))]
+    [InlineData(typeof(GenericMethodGroupStruct))]
+    public void InterfaceGenericMethodGroup_PreservesCastAndExplicitTypeArguments(
+        System.Type declaringType)
+    {
+        var text = RenderMember(declaringType, "Build");
+
+        Assert.Contains(
+            "((IGenericMethodGroup)this).Make<int>",
+            text);
+    }
+
+    [Fact]
+    public async Task ReconstructableGenericMethodGroups_RecompileOpcodeExact()
+    {
+        var results = await ReturnToSender.CompileBackTargets(
+            AssemblyPath,
+            [
+                new(
+                    typeof(ThisQualificationGenericGroup).FullName!,
+                    nameof(ThisQualificationGenericGroup.Build),
+                    0),
+                new(
+                    typeof(ThisQualificationGenericGroup).FullName!,
+                    nameof(ThisQualificationGenericGroup.StaticBuild),
+                    0),
+            ],
+            sourceIndex: null,
+            applyCompileBackFloor: false);
+
+        Assert.Equal(2, results.Count);
+        Assert.All(results, result =>
+        {
+            Assert.False(result.UsedCompileBackFloor);
+            Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
+        });
     }
 
     [Fact]
@@ -898,16 +971,40 @@ public sealed class ThisQualificationGenericParam
     }
 }
 
-// A method GROUP over a generic instance method (this.Make<int> as a Func<int>).
-// MethodGroupText renders only the bare name, dropping the <int> (a pre-existing
-// emit gap; the group path never appends type arguments the way call and &-of
-// paths do). The emitted this.Make does not round-trip — delegate return-type
-// inference cannot recover T (CS0411) — so it must record nothing.
+// A method group over a generic instance method (this.Make<int> as a Func<int>).
+// The explicit type argument is required because delegate return-type inference
+// cannot recover T from a parameterless method group.
 public sealed class ThisQualificationGenericGroup
 {
     public T Make<T>() => default!;
 
     public System.Func<int> Build() => this.Make<int>;
+
+    public static T StaticMake<T>() => default!;
+
+    public static System.Func<int> StaticBuild()
+        => new(StaticMake<int>);
+}
+
+public interface IGenericMethodGroup
+{
+    T Make<T>();
+}
+
+public sealed class GenericMethodGroupClass : IGenericMethodGroup
+{
+    public T Make<T>() => default!;
+
+    public System.Func<int> Build()
+        => ((IGenericMethodGroup)this).Make<int>;
+}
+
+public struct GenericMethodGroupStruct : IGenericMethodGroup
+{
+    public T Make<T>() => default!;
+
+    public System.Func<int> Build()
+        => ((IGenericMethodGroup)this).Make<int>;
 }
 
 // A default interface member (DIM) reached from an implementing class. The DIM is

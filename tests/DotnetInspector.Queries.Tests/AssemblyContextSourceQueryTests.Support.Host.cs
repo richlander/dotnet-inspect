@@ -21,7 +21,7 @@ namespace DotnetInspector.Queries.Tests;
 
 public sealed partial class AssemblyContextSourceQueryTests
 {
-    sealed class TestAssembly
+    internal sealed class TestAssembly
     {
         readonly ApiSurface _surface;
 
@@ -225,7 +225,7 @@ public sealed partial class AssemblyContextSourceQueryTests
         }
     }
 
-    sealed class QueryHost : IDisposable
+    internal sealed class QueryHost : IDisposable
     {
         readonly HttpClient _symbolClient;
         readonly HttpClient _sourceClient;
@@ -277,7 +277,9 @@ public sealed partial class AssemblyContextSourceQueryTests
             byte[] sourceBytes,
             ISourceContentStore? sourceContentStore = null,
             IPdbStore? pdbStore = null,
-            int maxDecompilerBodyProjections = CSharpDecompilerService.DefaultMaxBodyProjections)
+            int maxDecompilerBodyProjections = CSharpDecompilerService.DefaultMaxBodyProjections,
+            Func<CancellationToken, Task>? beforeSymbolResponse = null,
+            Func<CancellationToken, Task>? beforeSourceResponse = null)
         {
             Assert.True(
                 File.Exists(pdbPath),
@@ -286,8 +288,13 @@ public sealed partial class AssemblyContextSourceQueryTests
                 new SymbolPackageHandler(
                     BuildSnupkg(
                         Path.GetFileName(pdbPath),
-                        File.ReadAllBytes(pdbPath))),
-                new SourceHandler(sourceBytes),
+                        File.ReadAllBytes(pdbPath)),
+                    beforeResponse:
+                        beforeSymbolResponse),
+                new SourceHandler(
+                    sourceBytes,
+                    beforeResponse:
+                        beforeSourceResponse),
                 sourceContentStore,
                 pdbStore,
                 maxDecompilerBodyProjections: maxDecompilerBodyProjections);
@@ -333,6 +340,17 @@ public sealed partial class AssemblyContextSourceQueryTests
                 allowLocalSourceReads: allowLocalSourceReads,
                 allowAdjacentPdbReads: allowAdjacentPdbReads,
                 maxDecompilerBodyProjections: maxDecompilerBodyProjections);
+
+        internal static QueryHost WithFailedPdbProvider()
+            => new(
+                new SymbolPackageHandler(
+                    new byte[65]),
+                new SourceHandler(content: null),
+                symbolAcquisitionLimits:
+                    new SymbolAcquisitionLimits(
+                        maxSymbolPackageBytes: 64,
+                        maxPortablePdbBytes: 64,
+                        maxSymbolPackageEntries: 8));
 
         internal static QueryHost WithPairPdb(
             TestAssembly before,
@@ -395,16 +413,23 @@ public sealed partial class AssemblyContextSourceQueryTests
 
     sealed class SymbolPackageHandler(
         byte[]? snupkg,
-        Func<Uri, byte[]?>? response = null)
+        Func<Uri, byte[]?>? response = null,
+        Func<CancellationToken, Task>? beforeResponse = null)
         : HttpMessageHandler
     {
         internal List<Uri> RequestUris { get; } = [];
 
-        protected override Task<HttpResponseMessage> SendAsync(
+        protected override async Task<HttpResponseMessage> SendAsync(
             HttpRequestMessage request,
             CancellationToken cancellationToken)
         {
             RequestUris.Add(request.RequestUri!);
+            if (beforeResponse is not null)
+            {
+                await beforeResponse(
+                        cancellationToken)
+                    .ConfigureAwait(false);
+            }
             byte[]? content = response is null
                 ? snupkg
                 : response(request.RequestUri!);
@@ -413,50 +438,55 @@ public sealed partial class AssemblyContextSourceQueryTests
                     ".snupkg",
                     StringComparison.OrdinalIgnoreCase))
             {
-                return Task.FromResult(
-                    new HttpResponseMessage(HttpStatusCode.OK)
-                    {
-                        Content = new ByteArrayContent(content),
-                        RequestMessage = request,
-                    });
+                return new HttpResponseMessage(
+                    HttpStatusCode.OK)
+                {
+                    Content = new ByteArrayContent(content),
+                    RequestMessage = request,
+                };
             }
 
-            return Task.FromResult(
-                new HttpResponseMessage(
-                    HttpStatusCode.NotFound)
-                {
-                    RequestMessage = request,
-                });
+            return new HttpResponseMessage(
+                HttpStatusCode.NotFound)
+            {
+                RequestMessage = request,
+            };
         }
     }
 
     sealed class SourceHandler(
         byte[]? content,
         Func<Uri, byte[]?>? response = null,
-        HttpStatusCode unavailableStatusCode = HttpStatusCode.NotFound)
+        HttpStatusCode unavailableStatusCode = HttpStatusCode.NotFound,
+        Func<CancellationToken, Task>? beforeResponse = null)
         : HttpMessageHandler
     {
         internal List<Uri> RequestUris { get; } = [];
 
-        protected override Task<HttpResponseMessage> SendAsync(
+        protected override async Task<HttpResponseMessage> SendAsync(
             HttpRequestMessage request,
             CancellationToken cancellationToken)
         {
             RequestUris.Add(request.RequestUri!);
+            if (beforeResponse is not null)
+            {
+                await beforeResponse(
+                        cancellationToken)
+                    .ConfigureAwait(false);
+            }
             byte[]? source = response is null
                 ? content
                 : response(request.RequestUri!);
-            return Task.FromResult(
-                new HttpResponseMessage(
-                    source is null
-                        ? unavailableStatusCode
-                        : HttpStatusCode.OK)
-                {
-                    Content = source is null
-                        ? null
-                        : new ByteArrayContent(source),
-                    RequestMessage = request,
-                });
+            return new HttpResponseMessage(
+                source is null
+                    ? unavailableStatusCode
+                    : HttpStatusCode.OK)
+            {
+                Content = source is null
+                    ? null
+                    : new ByteArrayContent(source),
+                RequestMessage = request,
+            };
         }
     }
 }

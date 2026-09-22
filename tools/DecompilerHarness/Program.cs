@@ -2390,10 +2390,10 @@ static class Program
                                 second run still rewrites (ordering gaps / instability);
                                 bucketed by the pass that fired. Zero is the target.
                                 A 2x-pipeline lane — for scheduled/deep runs.
-          --slot-residual-census  run to the late F2 expression-inlining boundary
-                                and report StoreStackSlot/LoadStackSlot residuals
-                                plus post-F2 residual deferral classes. Uses
-                                --corpus-method-cap to bound the sweep.
+          --slot-residual-census  report slot residuals with separate late-F2,
+                                intervening-pass, and materialization deltas,
+                                plus post-F2 classes and entry decisions.
+                                Uses --corpus-method-cap to bound the sweep.
           --slot-unifier-census   run the full pipeline and report the
                                 CSharpPrinter's own stack-slot unifier telemetry.
                                 Uses --corpus-method-cap to bound the sweep.

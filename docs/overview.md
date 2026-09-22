@@ -54,6 +54,25 @@ substrates, and inspection producers that will extend that space.
   bind one operation role and query profile; shared infrastructure then
   derives query discovery and host lowering without inferring facets from
   schemas or rendered fields.
+  [Query Space Composition](design/query-space-composition.md) owns the target
+  host-neutral composition of one operation route with explicit row spaces,
+  Rows or exact Count, structural plan descriptions, and preservation of an
+  adjacent source owner's continuation. It keeps semantic selection, work
+  bounds, source batching, consumer paging, and rendering distinct while
+  exposing one capability descriptor to CLI, Browser/Wasm, generated .NET
+  consumers, and other hosts.
+  [QuerySpace Library Boundary](design/query-space-library.md) separately owns
+  the target independent `QuerySpace` assembly, package, public namespace,
+  dependency and lifetime boundaries, and optional execution-witness seams.
+  It composes the existing query owners physically without taking their
+  semantics; `DotnetInspector.QueryEngine` remains the transitional carrier
+  until the focused migration under #7976 retires it.
+  [Resource Explanation](design/resource-explanation.md) owns exact,
+  shell-safe product-resource paths and a bounded host-neutral explanation
+  Document over owner-issued structural, query, and value-vocabulary
+  descriptors. It preserves typed owner identities and relationships without
+  acquiring a subject, executing a plan, parsing presentation, or moving those
+  facts into one universal catalog.
   [Operation Commands and Subject Sections](design/operation-command-and-subject-section-composition.md)
   owns the cross-command placement of top-level Diff, Graph, and Depends
   operations and equivalent curated subject sections, while each operation,
@@ -119,14 +138,22 @@ substrates, and inspection producers that will extend that space.
   reachability.   The
   [realized package dependency context](design/realized-package-dependency-context.md)
   query binds one physical Package Root selection to dependency evidence
-  projected from that exact retained content and selection intent, producing
-  detached source evidence for realized-package traversal without moving asset,
-  group, or traversal policy. The
+  projected from that exact retained content and selection intent. Package
+  Dependency Traversal retains that complete context as a typed root source
+  without moving its package-local asset or group selection, retains one
+  traversal target for compatible candidate-manifest selection, and hands
+  each root-relative resolved edge to
+  [package dependency edge
+  realization](design/package-dependency-edge-realization.md). That query
+  prepares exact candidate-bound PackageHouse compile realization under the
+  traversal target and optionally retains exact Platform pruning before the
+  later Workspace route composition. The
   [assembly reference resolution ladder](design/assembly-reference-resolution-ladder.md)
   is the target host-neutral composition for resolving one exact `AssemblyRef`
   through its referencing context, an applicable platform, and owner-issued
   package dependency routes without mutating a sealed assembly-context group.
-  The source query owns a Decompiler fallback over retained assembly content;
+  The source query delegates exact member and type decompilation to SourceHouse
+  over retained Library content while it still owns authored-first ordering;
   the
   [authored project dependency facts](design/authored-project-dependency-facts.md)
   owner projects bounded exact project XML into literal target observations,
@@ -423,11 +450,19 @@ substrates, and inspection producers that will extend that space.
   [Ecosystem Population Loading](design/ecosystem-population-loading.md) owner
   defines one explicit host-neutral operation over a statically selected
   Ecosystem loader binding. It preserves exact Workspace, registration,
-  capability, source-result, and admission correspondence while keeping loader
-  execution out of catalog discovery, registration, construction, and
-  restoration. The `.NET Runtime` and `ASP.NET Core` Ecosystems are the first
-  consumers; each composes its exact PlatformHouse family without exposing a
-  user-facing Platform component or merging focus and binding-support roles.
+  capability, source-result, and per-child Workspace admission correspondence
+  while keeping loader execution out of catalog discovery, registration,
+  construction, and restoration. Its admission composer atomically transfers
+  each session-backed child through ordinary Workspace admission, reports
+  unsupported owner shapes, and issues historical contribution witnesses only
+  for accepted Focus Libraries. Its one-way adapter into Queries classifies
+  those witnesses against one current Workspace registration revision,
+  preserving exact current contribution evidence without Package ancestry.
+  Navigation remains responsible for subject construction, route issuance, and
+  reconciliation. The `.NET Runtime` and `ASP.NET Core` Ecosystems are the
+  first consumers; each composes its exact PlatformHouse family without
+  exposing a user-facing Platform component or merging focus and
+  binding-support roles.
 - `src/DotnetInspector.PackageQueries/` is the optional package-aware query
   companion. It consumes package realization proofs and package-neutral core
   queries without adding package identity or acquisition policy to those core
@@ -529,6 +564,9 @@ substrates, and inspection producers that will extend that space.
   [Research Finding census projection](design/research-finding-census-projection.md)
   owns preservation of one producer-sealed body-fact receipt and its instance
   keys across those projections.
+  The proposed [Library Metrics](design/library-structural-report.md)
+  separately owns one exact library's qualified compiled-IL structural
+  population document without assigning a score or source-level meaning.
 - `prototypes/annotated-source-viewer/` is the dependency-free browser consumer
   for `AnnotatedSourceDocument`: it derives lines from the canonical text buffer,
   resolves facts through targets to multi-span nodes, filters the stable node-kind
@@ -595,6 +633,15 @@ substrates, and inspection producers that will extend that space.
   drill-down projection, Member detail boundary, and Explore return state. It
   consumes owner-issued comparison, clone, target, identity, and navigation
   contracts without redefining them.
+- [Inspect Web Compare Explore](design/inspect-web-compare-explore.md) owns
+  the Member Diff Explore destination: its product issuance, the full-bleed
+  transient viewer that composes classified API changes, a declaration diff,
+  and the paired authored-Source comparison from their owners' evidence, its
+  pane lifetime, and the Compare state restored on return. It consumes the
+  Diff document, the paired Source query, the declaration pair, the shared
+  `AnalysisDiff`/Markout `MappedTextDiff` lowering and source-diff transport,
+  the Diff viewer interaction, and shell modal semantics without redefining
+  them.
 - [Library API diff presentation](design/library-api-diff-presentation.md)
   owns the portable Library-root and changed-Type projection of one complete
   selected-library API comparison. It preserves Metadata identity,
@@ -857,8 +904,9 @@ use the task map in `AGENTS.md` to find the focused guidance for a change.
   Platform/ASP.NET Core/Microsoft.Extensions Workspace.
 - [Ecosystem Population Loading](design/ecosystem-population-loading.md):
   explicit execution of one statically selected special loader for one exact
-  Workspace Ecosystem registration, with typed outcomes and owner-preserving
-  handoff to ordinary Workspace admission.
+  Workspace Ecosystem registration, with typed outcomes, per-child
+  owner-preserving handoff to ordinary Workspace admission, exact accepted
+  Library correspondence, and Focus-only historical contribution witnesses.
 - [Inspection subject navigation](design/inspection-subject-navigation.md):
   host-neutral Workspace, Package, Library, Type, and
   Member descriptors, availability, initial recommendations, transitions,

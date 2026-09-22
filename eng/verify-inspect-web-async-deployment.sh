@@ -140,6 +140,7 @@ const expected = [
   "DotnetInspect.Web.Interop.Analysis",
   "DotnetInspect.Web.Interop.CallGraph",
   "DotnetInspect.Web.Interop.Catalog",
+  "DotnetInspect.Web.Interop.Library",
   "DotnetInspect.Web.Interop.Metadata",
   "DotnetInspect.Web.Interop.Package",
   "DotnetInspect.Web.Interop.Source",
@@ -434,8 +435,8 @@ const integerFields = [
   graph.repository_project_count,
 ];
 assert.ok(integerFields.every(Number.isInteger), "receipt counts are not integers");
-assert.equal(census.assembly_count, 7);
-assert.equal(assemblies.length, 7);
+assert.equal(census.assembly_count, 8);
+assert.equal(assemblies.length, 8);
 assert.ok(
   census.js_export_method_count > 0,
   "InspectWebJsExportContext census reported no exported methods");

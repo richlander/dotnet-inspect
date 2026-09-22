@@ -47,6 +47,31 @@ public static partial class CatalogExports
     }
 
     [JSExport]
+    public static string CaptureCompleteWorkspaceShareState(string stateJson)
+    {
+        BrowserWorkspaceShareEncodeResult result;
+        try
+        {
+            BrowserWorkspaceShareState? state = JsonSerializer.Deserialize(
+                stateJson,
+                BrowserCatalogJsonContext.Default.BrowserWorkspaceShareState);
+            result = state is null
+                ? BrowserWorkspaceShareOperations.InvalidState(
+                    "Workspace share state must be one object.")
+                : BrowserWorkspaceShareOperations.CaptureComplete(state);
+        }
+        catch (JsonException)
+        {
+            result = BrowserWorkspaceShareOperations.InvalidState(
+                "Workspace share state is not valid Browser transport JSON.");
+        }
+
+        return JsonSerializer.Serialize(
+            result,
+            BrowserCatalogJsonContext.Default.BrowserWorkspaceShareEncodeResult);
+    }
+
+    [JSExport]
     public static string CanonicalizeWorkspaceSharePacket(string encoded)
     {
         BrowserWorkspaceShareEncodeResult result =
@@ -183,6 +208,55 @@ namespace DotnetInspect.Web.Interop.Catalog
             }
         }
 
+        internal static BrowserWorkspaceShareEncodeResult CaptureComplete(
+            BrowserWorkspaceShareState state)
+        {
+            ArgumentNullException.ThrowIfNull(state);
+
+            try
+            {
+                WorkspaceSharePacketProjectionResult projection =
+                    WorkspaceSharePacketTransposer.ToCompleteWorkspacePacket(
+                        ToDefinitions(state));
+                if (!projection.Succeeded)
+                {
+                    WorkspaceSharePacketProjectionFailure failure =
+                        projection.Failure
+                        ?? throw new InvalidOperationException(
+                            "A failed complete Workspace projection requires a failure.");
+                    return new BrowserWorkspaceShareEncodeResult(
+                        Succeeded: false,
+                        Packet: null,
+                        Failure: new BrowserWorkspaceShareFailure(
+                            failure.Kind.ToString(),
+                            failure.Path,
+                            failure.Message));
+                }
+
+                return new BrowserWorkspaceShareEncodeResult(
+                    Succeeded: true,
+                    WorkspaceSharePacketCodec.Encode(
+                        projection.Packet
+                        ?? throw new InvalidOperationException(
+                            "A successful complete Workspace projection requires a packet.")),
+                    Failure: null);
+            }
+            catch (WorkspaceSharePacketException ex)
+            {
+                return new BrowserWorkspaceShareEncodeResult(
+                    Succeeded: false,
+                    Packet: null,
+                    Failure: new BrowserWorkspaceShareFailure(
+                        ex.Kind.ToString(),
+                        "state",
+                        ex.Message));
+            }
+            catch (ArgumentException ex)
+            {
+                return InvalidState(ex.Message);
+            }
+        }
+
         internal static BrowserWorkspaceShareEncodeResult Canonicalize(
             string encoded)
         {
@@ -193,7 +267,9 @@ namespace DotnetInspect.Web.Interop.Catalog
                     WorkspaceSharePacketCodec.Decode(encoded);
                 if (packet.FormatVersion is not (
                     WorkspaceSharePacketCodec.Format2Version
-                    or WorkspaceSharePacketCodec.CurrentFormatVersion))
+                    or WorkspaceSharePacketCodec.CurrentFormatVersion
+                    or WorkspaceSharePacketCodec.Format4Version
+                    or WorkspaceSharePacketCodec.Format5Version))
                 {
                     return new BrowserWorkspaceShareEncodeResult(
                         Succeeded: false,

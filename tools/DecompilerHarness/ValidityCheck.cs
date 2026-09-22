@@ -776,6 +776,13 @@ static class ValidityCheck
             : "";
         string returnType = TypeText(function.Signature.ReturnType);
         string parameters = productParameterList ?? string.Join(", ", function.Signature.Parameters.Select(ParameterText));
+        // Signature types are printed by simple name; import their real namespaces
+        // so sibling-assembly members participate in body binding instead of
+        // degrading to Roslyn error types.
+        string signatureUsings = string.Join(
+            Environment.NewLine,
+            SignatureNamespaces(function)
+                .Select(static ns => $"using {NamespaceText(ns)};"));
         // A decompiled async method renders its awaiting constructs faithfully, but
         // the original `async` modifier lives in metadata, not in the body. Use the
         // function's unified typed context rather than searching for AwaitExpression:
@@ -808,6 +815,7 @@ static class ValidityCheck
             using System.Text;
             using System.Threading;
             using System.Threading.Tasks;
+            {{signatureUsings}}
             class __Shell
             {
                 {{modifier}} {{returnType}} __M{{genericList}}({{parameters}}){{whereClauses}}
@@ -817,6 +825,36 @@ static class ValidityCheck
             }
             """;
     }
+
+    static IEnumerable<string> SignatureNamespaces(IrFunction function)
+    {
+        var namespaces = new SortedSet<string>(StringComparer.Ordinal);
+
+        void Visit(TypeRef? type)
+        {
+            if (type is null)
+                return;
+
+            if (type.Kind == TypeRefKind.Definition
+                && type.Namespace.Length > 0)
+            {
+                namespaces.Add(type.Namespace);
+            }
+
+            Visit(type.ElementType);
+            foreach (var argument in type.TypeArguments)
+                Visit(argument);
+        }
+
+        Visit(function.Signature.ReturnType);
+        foreach (var parameter in function.Signature.Parameters)
+            Visit(parameter.Type);
+
+        return namespaces;
+    }
+
+    static string NamespaceText(string ns)
+        => string.Join(".", ns.Split('.').Select(CSharpNaming.SafeIdentifier));
 
     static bool HasAwaitSyntax(IrFunction function)
         => UnsafeAwaitOperand.ContainsAwait(function);

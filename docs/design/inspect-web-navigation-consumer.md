@@ -10,11 +10,21 @@ dedicated synchronization request returns a typed outcome. It does not decide
 which subject, coordinate, or lens is rendered; that is
 [Inspect Web Navigation Presentation](inspect-web-navigation-presentation.md).
 
+## Status
+
+Accepted design. The retained-realization posting handoff is implemented, but
+the location-intent arbitration is implemented as a typed declaration and pure
+effect classifier under [#7705](https://github.com/richlander/dotnet-inspect/issues/7705).
+Complete Saved Workspace Open and production entry-point adoption remain
+[#7709](https://github.com/richlander/dotnet-inspect/issues/7709).
+
 ## Ownership and boundaries
 
 This owner defines:
 
 - canonical location composition and browser refresh/shared-link restoration;
+- the session-scoped location-intent identity that authorizes one browser
+  history effect;
 - browser-history push, replace, and adopt classification, including
   non-posting traversal realignment;
 - the product transition lifecycle: semantic outcome and synchronization
@@ -112,6 +122,114 @@ the slot and abandons its current authority, then cancels outstanding work.
 A cancellation callback failure is visible cleanup evidence attached to the
 successful successor publication; it cannot turn completed cutover into a
 failed activation or restore predecessor authority.
+
+### Location intent and publication ownership
+
+The motivating production scenario uses real
+`System.Text.Json@9.0.4` Workspaces A and B. While B is crossing an
+irreversible retained-realization cutover, the person selects Back to A. The
+browser has already selected A's entry when it dispatches `popstate`; B must
+still complete its accepted posting, but B must not replace A's selected entry
+or truncate the forward entry. The neighboring case starts a newer explicit
+Saved Open while an older asynchronous operation is still waiting; the older
+completion cannot reacquire publication authority.
+
+The conventional single-page-application rule is that a newer navigation
+supersedes an older asynchronous navigation and stale results do not commit.
+This design follows that rule, consistent with
+[React Router's race-condition handling](https://reactrouter.com/explanation/race-conditions).
+It deliberately diverges after retained-realization consumer acceptance:
+cutover is then irreversible under
+[Inspect Web Retained Workspace
+Realization](inspect-web-retained-workspace-realization.md#acceptance-and-completion-ownership),
+so a later browser traversal cannot cancel it. The traversal instead takes
+location-publication ownership while the accepted posting and matching
+completion finish without writing history.
+
+The Navigation Consumer issues one opaque, page-session
+**location-intent identity** synchronously when it observes a browser-selected
+entry or admits a non-browser navigation source. This identity is the
+consumer-owned join currency among:
+
+- the source event and its captured browser entry, when one exists;
+- the asynchronous request submitted for that source;
+- the exact result or retained-realization posting installed for it; and
+- the one history effect permitted by the source and typed result.
+
+The identity is neither a product Navigation intent token, effect authority,
+retained-definition identity, realization identity, publication ordinal, nor
+activation receipt. Those owner-issued values retain their existing roles.
+For a managed posting, location publication additionally requires the exact
+retained-definition/realization/publication/authority association supplied by
+the retained-realization handoff. A display label, canonical URL, equal
+snapshot, or completion order cannot recreate either identity.
+
+A location-intent declaration has one of two sources:
+
+- **Browser-selected entry.** Initial activation, refresh, Back, or Forward
+  captures the selected URL, page-session history state, retained-definition
+  identity when present, and the installed incumbent association before any
+  engine readiness, cutover barrier, packet decode, acquisition, or Worker
+  wait. Back and Forward additionally identify the one selected entry that may
+  be adopted or realigned.
+- **Non-browser intent.** An explicit action, maintenance request, dedicated
+  synchronization request, retained selection or deletion, or another
+  product-triggering Browser gesture captures its intended push, replace, or
+  no-write policy before its first asynchronous prerequisite. A returned
+  result carries that originating identity; completion cannot mint a newer
+  identity or derive one from then-current UI state.
+
+Only the current location-intent identity may publish location. A newer browser
+selection replaces any older unresolved browser selection because the browser
+has already selected the newer entry. Before the consumer admits a newer
+non-browser intent while the selected entry is unresolved, it synchronously
+realigns that entry to the exact installed incumbent and closes the older
+location obligation. Only then may the newer intent become current. If
+realignment fails, the failure remains visible and the newer intent is not
+admitted.
+
+Publication applies and settles the classified effect as one synchronous
+operation. Settlement is not a separate caller action and cannot be completed
+independently from the Browser history effect.
+
+Every location effect is produced by one pure classification from the current
+location-intent declaration, the typed semantic outcome and synchronization
+disposition, and the exact installed association:
+
+| Current source and result | Permitted location effect |
+| ------------------------- | ------------------------- |
+| Exact browser-selected restoration | Adopt the already selected entry |
+| Browser-selected restoration that posts changed current state | Replace the selected entry |
+| Browser-selected `Current` failure or unavailable result without replacement | Realign the selected entry to the installed incumbent |
+| Applied non-browser intent declared as push | Push its installed location |
+| Applied non-browser intent declared as replace | Replace with its installed location |
+| Non-applied or dedicated result with `Synchronization required` | Replace with the posted canonical location |
+| Current result requiring no location change | No write |
+| Stale or foreign location intent | No write |
+
+This classification is the only path to push, replace, adopt, or realign.
+Retained selection, managed-to-compatibility selection, active deletion with
+either successor kind, Saved Open, package-row actions, and ordinary
+Navigation do not add branch-specific history guards.
+
+A browser traversal observed during an accepted retained cutover captures its
+entry and becomes the current location intent immediately, then waits for the
+cutover barrier. The accepted result still installs and reports matching
+completion under its retained-realization authority, but its staged history
+effect becomes `No write`. After the barrier releases, only the captured
+traversal may restore, adopt, replace, or realign that selected entry. The same
+rule applies while managed deactivation completes for compatibility selection
+or active deletion.
+
+If a current browser restoration fails before cutover, the incumbent remains
+installed and that exact traversal realigns only its selected entry to the
+incumbent canonical location. It does not push, remove forward entries, or
+repair an entry owned by a newer traversal. If a history operation fails after
+irreversible cutover, the successor installation remains authoritative and the
+location obligation remains explicitly unresolved with visible failure.
+Neither the Navigation Consumer nor the retained-realization owner rolls back
+to the predecessor. A later non-browser admission must first realign the
+selected entry to that installed successor.
 
 ## Canonical location and refresh
 
@@ -416,6 +534,15 @@ is retired before successor presentation can post. It deliberately leaves
 focus, announcement, history classification, and synchronization debt to
 `UiEffectLifecycle`.
 
+The location-intent arbitration is modeled separately by
+[`BrowserLocationIntentArbitration.tla`](models/inspect-web-navigation-location-intent/BrowserLocationIntentArbitration.tla).
+It checks synchronous browser-entry capture, current-intent-only publication,
+pre-admission realignment, current failed-traversal repair, immutable
+originating intent across asynchronous prerequisites, and history-write
+yielding while an older accepted cutover completes. It treats the
+retained-realization cutover and exact posting association as consumed
+owner-issued facts rather than reproducing their lifecycle.
+
 ### Shell and menu focus resolution
 
 Activating an available item for a non-modal transition closes the menu. A
@@ -503,12 +630,12 @@ Package query's `/query` route is a full-bleed routed surface under
 Back/Forward and focus-restoration classification. This UI owns the entry and
 return specifics beyond that classification. Browser Back and Forward own
 entry and return. Entry from Search returns focus to Search when it remains
-rendered; entry from the application-scope strip returns focus to its Query
-control. Either path falls back to the prior surface's level-one heading. The
-route's visible `Back` action invokes the same history transition, falling back
-to Home only when the route was loaded without an in-app predecessor. Each
-query history entry carries its own predecessor identity and focus target in
-session-only history state, so a later query route cannot change an older
+rendered; entry from the product-navigation menu returns focus to the brand
+trigger. Either path falls back to the prior surface's level-one heading. The
+route's visible `Back` action invokes the same history transition, falling
+back to Home only when the route was loaded without an in-app predecessor.
+Each query history entry carries its own predecessor identity and focus target
+in session-only history state, so a later query route cannot change an older
 entry's Back behavior.
 
 Selecting Query without a new seed restores the current session request,
@@ -534,9 +661,9 @@ failure semantics are owned by
 
 Package Activity's `/activity` route follows the same full-bleed
 Back/Forward, predecessor-identity, and proportional focus-restoration pattern.
-Entry from Search returns focus to Search; entry from the application-scope
-strip returns focus to its Activity control. The visible `Back` action falls
-back to Home only when the route was loaded without an in-app predecessor.
+Entry from Search returns focus to Search; entry from the product-navigation
+menu returns focus to the brand trigger. The visible `Back` action falls back
+to Home only when the route was loaded without an in-app predecessor.
 
 Selecting Activity restores the current session request, admitted rows,
 failures, progress, and typed completion state. Leaving `/activity`, route
@@ -556,11 +683,52 @@ occur in the defined order.
 
 ## Implementation gates
 
+### Platform catalog to Workspace history
+
+The motivating repository source is
+[`selectWorkspaceApplicationScope` at `5744ae5cd`](https://github.com/richlander/dotnet-inspect/blob/5744ae5cd/inspect-web/src/dotnet-inspect.ts).
+Its catalog-only Platform branch renders Workspace before projecting a URL,
+so maintenance synchronization replaces the catalog history entry. This
+violates the explicit-Workspace-action push classification above.
+The PR-fast `Platform Workspace entry preserves the catalog for Back and
+Forward` browser case exercises the existing production control, canonical
+packet path, and Platform fixture containing `System.Text.Json`. Neighboring
+cases gate pending projection, visible failure with an unchanged predecessor,
+superseding Query navigation, and preservation of newer Search focus.
+Package-backed fallback and new entry controls on other routed surfaces are
+outside this repair.
+
+### Existing transition gates
+
 Before implementation claims this interaction contract, it must add and pass
 these named Inspect Web tests. Descriptor-rendering and widget-focus gates for
 this same test file are recorded in
 [Inspect Web Navigation Presentation](inspect-web-navigation-presentation.md#implementation-gates):
 
+- `navigation-location-intent.test.ts`:
+  `one location intent classifies every history effect`,
+  `browser traversal owns location across irreversible Workspace completion`,
+  `new intent repairs unresolved traversal before admission`,
+  `failed traversal realigns only its current selected entry`,
+  `delayed operation retains its originating location intent`, and
+  `publication revalidates intent after classification`, and
+  `successful publication consumes its location intent`, and
+  `publication claims its intent before writer reentry`,
+  `successful current no-write consumes its location intent`, and
+  `repair failure rejects reentrant intent admission`, and
+  `publication owns settlement across writer reentry`, and
+  `post-cutover history failure keeps the installed successor unresolved`
+  cover the typed declaration and pure push, replace, adopt, realign, or
+  no-write classifier. They preserve exact installed association separately
+  from canonical location and require synchronous repair before a later
+  non-browser intent is admitted.
+- `browser/navigation-location-intent.spec.ts`:
+  `browser traversal owns location across irreversible Workspace completion`
+  and `post-cutover history failure keeps the installed successor` run the
+  production arbiter and Browser history adapter in Firefox. They prove that
+  stale cutover completion preserves the selected and forward entries, and
+  that a thrown history write leaves exact successor association unresolved
+  until synchronous realignment precedes the next intent.
 - `navigation-consumer.test.ts`:
   `typed outcomes commit only returned state and release authority` covers
   applied, unavailable with and without a replacement snapshot, rejected,
@@ -637,6 +805,43 @@ this same test file are recorded in
   a non-posting current result leaves the address bar and selected entry
   aligned with the posted snapshot while superseded work writes nothing.
 - `navigation-consumer.test.ts`:
+  `one location intent arbitrates every history effect` covers exact adoption,
+  changed-state replacement, current-failure realignment, explicit push and
+  replace, and no-write results through one typed declaration and pure
+  classification. It proves that every effect names the current
+  location-intent identity and exact installed association.
+- `saved-workspace-navigation.test.ts`:
+  `browser traversal owns location across irreversible Workspace completion`
+  captures Back before waiting for managed activation or deactivation,
+  completes retained selection and active deletion with managed and
+  compatibility successors, and proves that installation and completion
+  finish while their stale history effects yield. The captured entry and
+  forward entries remain unchanged until that traversal alone adopts,
+  replaces, or realigns them.
+- `saved-workspace-navigation.test.ts`:
+  `new intent repairs unresolved traversal before admission` starts a
+  traversal before and after consumer acceptance, supersedes it with Saved
+  Open, and proves that incumbent realignment completes before the newer
+  request receives its identity. An injected realignment failure rejects the
+  newer request and remains visible.
+- `saved-workspace-navigation.test.ts`:
+  `failed traversal realigns only its current selected entry` fails managed
+  acquisition while another Workspace remains installed, then supersedes the
+  same case with a newer traversal. Only the still-current failure replaces
+  its selected entry with the incumbent canonical location and retained
+  identity.
+- `saved-workspace-navigation.test.ts`:
+  `delayed operation retains its originating location intent` holds an
+  ordinary managed package-row Worker response, admits a newer Saved Open, and
+  proves that the older response cannot mint authority, publish package
+  presentation, mutate history, or supersede the newer Open.
+- `saved-workspace-navigation.test.ts`:
+  `post-cutover history failure keeps the installed successor` rejects the
+  normalized history write after managed cutover and proves that the successor
+  realization and presentation remain current, failure is visible, the
+  location obligation remains unresolved, and later non-browser admission
+  first realigns to that successor.
+- `navigation-consumer.test.ts`:
   `acknowledgement follows every required visible effect` proves that
   location realignment, posting, focus, and announcement complete before
   acknowledgement whenever each effect is required. For `Synchronization
@@ -665,16 +870,19 @@ The implementation fixture supplies typed product results through the normal
 navigation-consumer boundary. It does not construct a parallel host catalog or
 bypass effect-authority validation merely to observe the renderer.
 
-These gates are not implemented by this documentation-only design. Until they
-exist and pass, the prose and TLA+ model define the target contract but do not
-claim Inspect Web implementation conformance.
+The focused location-intent declaration, classification, Browser adapter, and
+Firefox gates are implemented. Complete production call-site adoption remains
+unimplemented until #7709 adopts the arbiter across Saved Workspace Open,
+traversal, deletion, and delayed ordinary operations.
 
 The first #5511 implementation slice replaces the retained-activation
 facade's reduced initial Navigation state with the exact handoff above and
 adopts it in the retained-activation controller tests. Production
 `dotnet-inspect.ts` adoption, ordinary Navigation actions, history, focus,
 announcement, synchronization recovery, and removal of the old TypeScript
-snapshot path remain later consumer work and are not implied by that slice.
+snapshot path remain later consumer work. #7705 owns location-intent
+arbitration; #7709 composes it with complete Saved Workspace Open and the
+production entry points.
 
 ## Acceptance scenarios
 

@@ -28,6 +28,16 @@ dnx dotnet-inspect -y -- type MyType --library MyLib.dll --all -S "Top Leverage"
 Ranking rows carry a copyable `Stable` selector, `Visibility`, and `Selector`.
 Add `--all` to include non-public members.
 
+For a whole-library structural report rather than ranked candidates, select
+the explicit `Library Metrics` section:
+
+```bash
+dnx dotnet-inspect -y -- library MyLib.dll -S "Library Metrics"
+```
+
+It reports the Research-owned compiled-IL population metrics without assigning
+an overall score or source-level meaning.
+
 ## Triage against rewrite shapes
 
 Library triage is split into kind-scoped sections under `@Performance`
@@ -153,7 +163,7 @@ source member, it can name the generated `MoveNext` body whose offset appears in
 otherwise `MethodToken`) + `IL`; `ModuleVersionId` distinguishes physical
 module builds when static inputs carry it, and `Token` is the operand of
 `Operation`. Use these fields for runtime/static joins or to carry one triage
-row into the matching `diff`/`timeline` confirmation workflow
+row into the matching pairwise `diff` or `diff --history` confirmation workflow
 without parsing `Evidence` text:
 
 ```bash
@@ -217,6 +227,16 @@ represented assembly; it does not walk past an unexported in-assembly callee
 and credit an outer caller. If `--library` and `--triage` name the same physical
 candidate, the shape-compatible triage row carries the runtime evidence.
 The raw library row is marked `superseded-by-triage`, not workload-cold.
+Exact `string-materialization` rows intentionally have no static allocated
+type. RunFaster accepts only an observed `System.String` at their same-build
+nearest-preceding IL coordinate and lists the result under
+`Runtime-confirmed string materialization`. Those rows remain outside the
+automatic optimization verdict because runtime volume alone cannot distinguish
+required output from removable intermediate text; inspect the result consumer
+before choosing a rewrite. Supplied allocation-type fields, method-only heat,
+and aggregate `SupportingCallSite` coordinates cannot confirm string
+materialization: none identifies an observed `System.String` allocation at the
+exact string-producing operation.
 For a repeated-scan aggregate with a supporting call site, `runfaster` promotes
 an allocation observation only when the same build has a raw library allocation
 at that coordinate and exactly one aggregate support in that build claims it.
@@ -290,7 +310,7 @@ Correlate one method's native allocation census across caller-selected package
 cells:
 
 ```bash
-dnx dotnet-inspect -y -- timeline --package MyLib@1.0.0..2.0.0 \
+dnx dotnet-inspect -y -- diff --history --package MyLib@1.0.0..2.0.0 \
   -t MyType -m HotPath \
   --finding analysis.allocation --at first --at last
 ```

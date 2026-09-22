@@ -16,7 +16,6 @@ type LensDefinition<TId extends string = string> = readonly [
   label: string,
 ];
 
-export type ApplicationScope = "query" | "activity" | "workspace";
 export type AdaptiveNavigationForm = "tabs" | "chooser";
 
 export interface AdaptiveNavigationPair {
@@ -37,22 +36,40 @@ export interface RenderScopeBarOptions<TId extends string = string> {
   escapeHtml: (value: unknown) => string;
 }
 
+export interface NavigationDescriptorBarItem {
+  key: string;
+  identity: string | null;
+  label: string;
+  summary: string | null;
+  state: string;
+  current: boolean;
+  action: string | null;
+  localAction: "choose-member" | null;
+  evidence: string | null;
+}
+
+export interface NavigationLensOutcomeBar {
+  status: "Lens unavailable" | "Lens failed";
+  evidence: string | null;
+}
+
+export interface RenderNavigationDescriptorBarOptions {
+  subjects: readonly NavigationDescriptorBarItem[];
+  inspectors: readonly NavigationDescriptorBarItem[];
+  subjectLabel: string;
+  lensOutcome: NavigationLensOutcomeBar | null;
+  subjectPanelId?: string;
+  inspectorPanelId?: string;
+  memberChoicesPanelId?: string;
+  escapeHtml: (value: unknown) => string;
+}
+
 export interface ScopeBarBindingActions {
-  onApplicationScopeSelect: (scope: ApplicationScope) => void;
   onLibraryLensSelect: (lens: LibraryLens) => void;
   onMemberSectionSelect: (section: MemberSection) => void;
   onPackageLensSelect: (lens: PackageLens) => void;
   onScopeSelect: (scope: WorkspaceScope) => void;
   onTypeLensSelect: (lens: TypeLens) => void;
-}
-
-export interface ApplicationScopeBarBindingActions {
-  onApplicationScopeSelect: (scope: ApplicationScope) => void;
-  onFocusedControlUnavailable?: () => void;
-}
-
-export interface ApplicationScopeBarBinding {
-  disconnect(): void;
 }
 
 type NavigationGroupName = "subject" | "inspector";
@@ -62,10 +79,6 @@ export type ScopeBarFocusTarget =
   | {
       kind: "navigation-trigger";
       value: NavigationGroupName;
-    }
-  | {
-      kind: "application-scope";
-      value: ApplicationScope;
     }
   | {
       kind: "library-lens";
@@ -90,6 +103,12 @@ export type ScopeBarFocusTarget =
   | {
       kind: "type-lens";
       value: TypeLens;
+      presentation?: NavigationItemPresentation;
+    }
+  | {
+      kind: "product-navigation";
+      value: string;
+      group: NavigationGroupName;
       presentation?: NavigationItemPresentation;
     };
 
@@ -124,14 +143,6 @@ interface AdaptiveNavigationGroup {
   chooserWidth: number;
   frameWidth: number;
   form: AdaptiveNavigationForm;
-}
-
-function isApplicationScope(
-  value: string | null | undefined,
-): value is ApplicationScope {
-  return value === "query"
-    || value === "activity"
-    || value === "workspace";
 }
 
 function isNavigationGroupName(
@@ -238,12 +249,19 @@ export function captureScopeBarFocus(
     return { kind: "navigation-trigger", value: trigger };
   }
 
-  const applicationScope = element.dataset.applicationScope;
-  if (isApplicationScope(applicationScope)) {
-    return { kind: "application-scope", value: applicationScope };
-  }
-
   const presentation = itemPresentation(element);
+  const productNavigation = element.dataset.navigationId;
+  const productGroup = element.dataset.navigationGroup;
+  if (element.dataset.productNavigationItem !== undefined
+    && productNavigation !== undefined
+    && isNavigationGroupName(productGroup)) {
+    return {
+      kind: "product-navigation",
+      value: productNavigation,
+      group: productGroup,
+      ...(presentation ? { presentation } : {}),
+    };
+  }
   const scope = element.dataset.scope;
   if (isWorkspaceScope(scope)) {
     return { kind: "scope", value: scope, ...(presentation ? { presentation } : {}) };
@@ -302,26 +320,29 @@ export function focusRenderedElement(
 function focusTargetSelector(
   target: Exclude<ScopeBarFocusTarget, { kind: "navigation-trigger" }>,
 ): [selector: string, value: string] {
-  return target.kind === "application-scope"
-    ? ["[data-application-scope]", target.value]
-    : target.kind === "scope"
-      ? ["[data-scope]", target.value]
+  return target.kind === "scope"
+    ? ["[data-scope]", target.value]
       : target.kind === "package-lens"
         ? ["[data-package-lens]", target.value]
         : target.kind === "library-lens"
           ? ["[data-library-lens]", target.value]
           : target.kind === "type-lens"
             ? ["[data-lens]", target.value]
-            : ["[data-member-section]", target.value];
+            : target.kind === "member-section"
+              ? ["[data-member-section]", target.value]
+              : [
+                  `[data-product-navigation-item][data-navigation-group="${target.group}"]`,
+                  target.value,
+                ];
 }
 
 function elementIdentity(element: HTMLElement): string | undefined {
-  return element.dataset.applicationScope
-    ?? element.dataset.scope
+  return element.dataset.scope
     ?? element.dataset.packageLens
     ?? element.dataset.libraryLens
     ?? element.dataset.lens
-    ?? element.dataset.memberSection;
+    ?? element.dataset.memberSection
+    ?? element.dataset.navigationId;
 }
 
 export function restoreScopeBarFocus(
@@ -376,7 +397,7 @@ function bindRovingTabs(tabs: readonly HTMLButtonElement[]): void {
         event.preventDefault();
         const id = groupItemId(tab);
         tab.click();
-        if (id) {
+        if (id && tab.dataset.localNavigationAction === undefined) {
           queueMicrotask(() => {
             const replacement = tab.ownerDocument.querySelector<HTMLElement>(
               `[data-navigation-item="tab"][data-navigation-id="${CSS.escape(id)}"]`);
@@ -403,37 +424,46 @@ function bindRovingTabs(tabs: readonly HTMLButtonElement[]): void {
   });
 }
 
+function navigationItemIsDisabled(item: HTMLButtonElement): boolean {
+  return item.disabled || item.ariaDisabled === "true";
+}
+
 function bindItemActions(
   root: ParentNode,
   actions: ScopeBarBindingActions,
 ): void {
-  root.querySelectorAll<HTMLElement>("[data-scope]").forEach(button =>
+  root.querySelectorAll<HTMLButtonElement>("[data-scope]").forEach(button =>
     button.addEventListener("click", () => {
-      if (button.dataset.navigationCurrent === "true") return;
+      if (button.dataset.navigationCurrent === "true"
+        || navigationItemIsDisabled(button)) return;
       const scope = button.dataset.scope;
       if (isWorkspaceScope(scope)) actions.onScopeSelect(scope);
     }));
-  root.querySelectorAll<HTMLElement>("[data-package-lens]").forEach(button =>
-    button.addEventListener("click", () => {
-      if (button.dataset.navigationCurrent === "true") return;
+  root.querySelectorAll<HTMLButtonElement>("[data-package-lens]").forEach(
+    button => button.addEventListener("click", () => {
+      if (button.dataset.navigationCurrent === "true"
+        || navigationItemIsDisabled(button)) return;
       const lens = button.dataset.packageLens;
       if (isPackageLens(lens)) actions.onPackageLensSelect(lens);
     }));
-  root.querySelectorAll<HTMLElement>("[data-library-lens]").forEach(button =>
-    button.addEventListener("click", () => {
-      if (button.dataset.navigationCurrent === "true") return;
+  root.querySelectorAll<HTMLButtonElement>("[data-library-lens]").forEach(
+    button => button.addEventListener("click", () => {
+      if (button.dataset.navigationCurrent === "true"
+        || navigationItemIsDisabled(button)) return;
       const lens = button.dataset.libraryLens;
       if (isLibraryLens(lens)) actions.onLibraryLensSelect(lens);
     }));
-  root.querySelectorAll<HTMLElement>("[data-lens]").forEach(button =>
+  root.querySelectorAll<HTMLButtonElement>("[data-lens]").forEach(button =>
     button.addEventListener("click", () => {
-      if (button.dataset.navigationCurrent === "true") return;
+      if (button.dataset.navigationCurrent === "true"
+        || navigationItemIsDisabled(button)) return;
       const lens = button.dataset.lens;
       if (isTypeLens(lens)) actions.onTypeLensSelect(lens);
     }));
-  root.querySelectorAll<HTMLElement>("[data-member-section]").forEach(button =>
-    button.addEventListener("click", () => {
-      if (button.dataset.navigationCurrent === "true") return;
+  root.querySelectorAll<HTMLButtonElement>("[data-member-section]").forEach(
+    button => button.addEventListener("click", () => {
+      if (button.dataset.navigationCurrent === "true"
+        || navigationItemIsDisabled(button)) return;
       const section = button.dataset.memberSection;
       if (isMemberSection(section)) actions.onMemberSectionSelect(section);
     }));
@@ -447,13 +477,6 @@ export function bindScopeBar(
   const controller = ScopeBarController.create(
     root,
     state ?? createScopeBarState());
-  const applicationBinding = bindApplicationScopeBar(root, {
-    onApplicationScopeSelect: actions.onApplicationScopeSelect,
-    onFocusedControlUnavailable: () => {
-      root.querySelector<HTMLElement>(".brand")
-        ?.focus({ preventScroll: true });
-    },
-  });
   bindRovingTabs([
     ...root.querySelectorAll<HTMLButtonElement>("[data-subject-tab]"),
   ]);
@@ -463,7 +486,6 @@ export function bindScopeBar(
   bindItemActions(root, actions);
   return {
     disconnect() {
-      applicationBinding.disconnect();
       controller?.disconnect();
     },
     revealFocusTarget(target) {
@@ -473,70 +495,6 @@ export function bindScopeBar(
       return controller?.restoreOpenMenuFocus() ?? false;
     },
   };
-}
-
-export function bindApplicationScopeBar(
-  root: ParentNode,
-  actions: ApplicationScopeBarBindingActions,
-): ApplicationScopeBarBinding {
-  bindRovingTabs([
-    ...root.querySelectorAll<HTMLButtonElement>(
-      "[data-application-scope-tab]:not([disabled])"),
-  ]);
-  root.querySelectorAll<HTMLElement>("[data-application-scope]").forEach(
-    button => button.addEventListener("click", () => {
-      const applicationScope = button.dataset.applicationScope;
-      if (isApplicationScope(applicationScope)) {
-        actions.onApplicationScopeSelect(applicationScope);
-      }
-    }));
-  const region = actions.onFocusedControlUnavailable
-    && typeof ResizeObserver !== "undefined"
-    ? root.querySelector<HTMLElement>(".application-scope-region")
-    : null;
-  const observer = region
-    ? new ResizeObserver(() => {
-        const focused = region.querySelector<HTMLElement>(
-          "[data-application-scope]:focus");
-        if (!focused) return;
-        if (!applicationScopeMustYield(region)
-          && fullyRenderedWithin(focused, region)) return;
-        actions.onFocusedControlUnavailable?.();
-      })
-    : null;
-  if (region) {
-    observer?.observe(region);
-    observer?.observe(region.ownerDocument.documentElement);
-  }
-  return {
-    disconnect() {
-      observer?.disconnect();
-    },
-  };
-}
-
-function applicationScopeMustYield(region: HTMLElement): boolean {
-  return region.ownerDocument.defaultView
-    ?.getComputedStyle(region)
-    .getPropertyValue("--application-scope-yield")
-    .trim() === "1";
-}
-
-function fullyRenderedWithin(
-  element: HTMLElement,
-  clippingRegion: HTMLElement,
-): boolean {
-  const elementBounds = element.getBoundingClientRect();
-  const regionBounds = clippingRegion.getBoundingClientRect();
-  const viewport = element.ownerDocument.documentElement;
-  return elementBounds.width > 0
-    && elementBounds.height > 0
-    && elementBounds.left >= Math.max(regionBounds.left, 0)
-    && elementBounds.right <= Math.min(regionBounds.right, viewport.clientWidth)
-    && elementBounds.top >= Math.max(regionBounds.top, 0)
-    && elementBounds.bottom <= Math.min(
-      regionBounds.bottom,
-      viewport.clientHeight);
 }
 
 function subjectDefinitions(
@@ -607,6 +565,163 @@ function menuItem(
   return `<button type="button" class="adaptive-navigation-menu-item ${current ? "active" : ""}" ${itemAttributes(id, attribute, current, escapeHtml)} data-navigation-item="menuitem" role="menuitemradio" aria-checked="${current}" tabindex="-1" aria-label="${escapedLabel}" title="${escapedLabel}">${escapedLabel}</button>`;
 }
 
+function descriptorStateLabel(state: string): string {
+  const normalized = state.toLowerCase();
+  return normalized === "available"
+      || normalized === "current"
+      || normalized === "selectionrequired"
+    ? ""
+    : state;
+}
+
+function descriptorAttributes(
+  item: NavigationDescriptorBarItem,
+  escapeHtml: (value: unknown) => string,
+  group?: NavigationGroupName,
+): string {
+  const action = item.action === null
+    ? ""
+    : ` data-product-navigation-action="${escapeHtml(item.action)}"`;
+  const localAction = item.localAction === null
+    ? ""
+    : ` data-local-navigation-action="${item.localAction}"`;
+  const identity = item.identity === null
+    ? ""
+    : ` data-product-navigation-id="${escapeHtml(item.identity)}"`;
+  const groupAttribute = group
+    ? ` data-navigation-group="${group}"`
+    : "";
+  return `data-product-navigation-item${groupAttribute} data-navigation-id="${escapeHtml(item.key)}"${identity} data-navigation-current="${item.current}" data-navigation-state="${escapeHtml(item.state)}"${action}${localAction}`;
+}
+
+function descriptorLabel(
+  item: NavigationDescriptorBarItem,
+  escapeHtml: (value: unknown) => string,
+): string {
+  const status = descriptorStateLabel(item.state);
+  const evidence = item.evidence
+    ? `${status ? ": " : ""}${item.evidence}`
+    : "";
+  return `${escapeHtml(item.label)}${status || evidence
+    ? `<span class="navigation-status"> ${escapeHtml(status + evidence)}</span>`
+    : ""}`;
+}
+
+function descriptorAccessibleLabel(
+  item: NavigationDescriptorBarItem,
+  includeSummary: boolean,
+): string {
+  const description = [
+    includeSummary ? item.summary : null,
+    descriptorStateLabel(item.state),
+    item.evidence,
+  ].filter(value => value).join(". ");
+  return description ? `${item.label}: ${description}` : item.label;
+}
+
+interface DescriptorDescription {
+  readonly id: string;
+  readonly text: string;
+}
+
+function descriptorDescription(
+  items: readonly NavigationDescriptorBarItem[],
+  item: NavigationDescriptorBarItem,
+  index: number,
+  group: NavigationGroupName,
+  presentation: NavigationItemPresentation,
+): DescriptorDescription | null {
+  const sameTitle = items.filter(candidate => candidate.label === item.label);
+  if (sameTitle.length < 2) return null;
+
+  const sameSummary = sameTitle.filter(candidate =>
+    candidate.summary === item.summary);
+  const identity = sameSummary.length > 1
+    ? item.identity ?? item.key
+    : null;
+  const text = [item.summary, identity].filter(value => value).join(" · ");
+  return text
+    ? {
+        id: `${group}-${presentation}-${index}-navigation-description`,
+        text,
+      }
+    : null;
+}
+
+function descriptorDescriptionAttributes(
+  description: DescriptorDescription | null,
+  escapeHtml: (value: unknown) => string,
+): string {
+  return description
+    ? ` aria-describedby="${escapeHtml(description.id)}"`
+    : "";
+}
+
+function descriptorDescriptionElement(
+  description: DescriptorDescription | null,
+  escapeHtml: (value: unknown) => string,
+): string {
+  return description
+    ? `<span id="${escapeHtml(description.id)}" class="navigation-item-description">${escapeHtml(description.text)}</span>`
+    : "";
+}
+
+function descriptorTab(
+  item: NavigationDescriptorBarItem,
+  tabStop: boolean,
+  panelId: string,
+  memberChoicesPanelId: string,
+  group: NavigationGroupName,
+  description: DescriptorDescription | null,
+  escapeHtml: (value: unknown) => string,
+): string {
+  const label = descriptorLabel(item, escapeHtml);
+  const accessibleLabel = descriptorAccessibleLabel(item, description === null);
+  const disabled = item.action === null
+    && item.localAction === null
+    && !item.current;
+  const controls = item.localAction === "choose-member"
+    ? memberChoicesPanelId
+    : group === "inspector" && !item.current
+      ? null
+      : panelId;
+  const current = group === "subject" && item.current
+    ? ' aria-current="page"'
+    : "";
+  const title = description
+    ? `${item.label}: ${description.text}`
+    : accessibleLabel;
+  return `<button type="button" class="adaptive-navigation-tab ${group === "subject" ? "scope-seg" : "lens"} ${item.current ? "active" : ""}" ${descriptorAttributes(item, escapeHtml, group)} data-navigation-item="tab" ${group === "subject" ? "data-subject-tab" : "data-inspector-tab"} role="tab" aria-selected="${item.current}" aria-disabled="${disabled}" tabindex="${tabStop ? "0" : "-1"}"${item.current ? ` id="active-${group}-tab"` : ""}${current}${controls ? ` aria-controls="${escapeHtml(controls)}"` : ""} aria-label="${escapeHtml(accessibleLabel)}"${descriptorDescriptionAttributes(description, escapeHtml)} title="${escapeHtml(title)}"><span${group === "inspector" ? ' class="lens-label"' : ""}>${label}</span>${descriptorDescriptionElement(description, escapeHtml)}</button>`;
+}
+
+function descriptorMenuItem(
+  item: NavigationDescriptorBarItem,
+  memberChoicesPanelId: string,
+  group: NavigationGroupName,
+  description: DescriptorDescription | null,
+  escapeHtml: (value: unknown) => string,
+): string {
+  const accessibleLabel = descriptorAccessibleLabel(item, description === null);
+  const selectionRequired = item.localAction === "choose-member";
+  const disabled = item.action === null
+    && !selectionRequired
+    && !item.current;
+  const role = selectionRequired ? "menuitem" : "menuitemradio";
+  const checked = selectionRequired
+    ? ""
+    : ` aria-checked="${item.current}"`;
+  const controls = selectionRequired
+    ? ` aria-controls="${escapeHtml(memberChoicesPanelId)}"`
+    : "";
+  const current = group === "subject" && item.current
+    ? ' aria-current="page"'
+    : "";
+  const title = description
+    ? `${item.label}: ${description.text}`
+    : accessibleLabel;
+  return `<button type="button" class="adaptive-navigation-menu-item ${item.current ? "active" : ""}" ${descriptorAttributes(item, escapeHtml, group)} data-navigation-item="menuitem" role="${role}"${checked}${current} aria-disabled="${disabled}"${controls} tabindex="-1" aria-label="${escapeHtml(accessibleLabel)}"${descriptorDescriptionAttributes(description, escapeHtml)} title="${escapeHtml(title)}">${descriptorLabel(item, escapeHtml)}${descriptorDescriptionElement(description, escapeHtml)}</button>`;
+}
+
 function navigationGroup(options: {
   name: NavigationGroupName;
   label: string;
@@ -669,27 +784,66 @@ function navigationGroup(options: {
     </div>`;
 }
 
-export function renderApplicationScopeBar(
-  activeScope: ApplicationScope | null,
-  workspaceAvailable: boolean,
-  escapeHtml: (value: unknown) => string,
+export function renderNavigationDescriptorBar(
+  options: RenderNavigationDescriptorBarOptions,
 ): string {
-  const scopes = [
-    ["query", "Query"],
-    ["activity", "Activity"],
-    ["workspace", "Workspace"],
-  ] as const;
-  return `
-    <nav class="application-scope-strip"
-         data-application-scope-strip
-         aria-label="Application scopes">
-      ${scopes.map(([id, label]) => {
-        const active = activeScope === id;
-        const disabled = id === "workspace" && !workspaceAvailable;
-        const tabStop = active || (activeScope === null && id === "query");
-        return `<button id="application-scope-${id}" type="button" class="application-scope-item ${active ? "active" : ""}" data-application-scope="${id}" data-application-scope-tab${active ? ' aria-current="page"' : ""} tabindex="${tabStop ? "0" : "-1"}"${disabled ? " disabled" : ""} aria-label="${escapeHtml(label)}" title="${escapeHtml(disabled ? "No workspace is open" : label)}">${escapeHtml(label)}</button>`;
-      }).join("")}
-    </nav>`;
+  const {
+    subjects,
+    inspectors,
+    subjectLabel,
+    lensOutcome,
+    subjectPanelId = "subject-panel",
+    inspectorPanelId = "inspector-panel",
+    memberChoicesPanelId = "content-navigation-pane",
+    escapeHtml,
+  } = options;
+  const renderGroup = (
+    name: NavigationGroupName,
+    items: readonly NavigationDescriptorBarItem[],
+    panelId: string,
+  ) => {
+    if (items.length === 0) return "";
+    const current = items.find(item => item.current) ?? null;
+    const fallback = current ?? items[0]!;
+    return navigationGroup({
+      name,
+      label: name === "subject" ? "Subjects" : `${subjectLabel} lenses`,
+      chooserLabel: current?.label
+        ?? (name === "subject" ? "Choose subject" : "Choose inspector"),
+      key: items.map(item => item.key).join(","),
+      committedId: current?.key ?? null,
+      panelId,
+      tabHtml: items.map((item, index) =>
+        descriptorTab(
+          item,
+          item.key === fallback.key,
+          panelId,
+          memberChoicesPanelId,
+          name,
+          descriptorDescription(items, item, index, name, "tab"),
+          escapeHtml)).join(""),
+      menuHtml: items.map((item, index) =>
+        descriptorMenuItem(
+          item,
+          memberChoicesPanelId,
+          name,
+          descriptorDescription(items, item, index, name, "menuitem"),
+          escapeHtml)).join(""),
+      escapeHtml,
+    });
+  };
+
+  const subjectHtml = renderGroup("subject", subjects, subjectPanelId);
+  const inspectorHtml = renderGroup(
+    "inspector",
+    inspectors,
+    inspectorPanelId);
+  const lensOutcomeHtml = lensOutcome
+    ? `<span class="lens-context navigation-lens-outcome" role="status" aria-label="${escapeHtml(`${subjectLabel}: ${lensOutcome.status}${lensOutcome.evidence ? `: ${lensOutcome.evidence}` : ""}`)}">${escapeHtml(lensOutcome.status)}${lensOutcome.evidence ? `: ${escapeHtml(lensOutcome.evidence)}` : ""}</span>`
+    : "";
+  if (!subjectHtml && !inspectorHtml && !lensOutcomeHtml) return "";
+  const hasTrailingContent = Boolean(inspectorHtml || lensOutcomeHtml);
+  return `<nav class="lensbar" data-scope-bar aria-label="Subjects and inspectors">${subjectHtml}${subjectHtml && hasTrailingContent ? '<span class="lens-separator" aria-hidden="true"></span>' : ""}${inspectorHtml}${lensOutcomeHtml}</nav>`;
 }
 
 export function renderScopeBar<TId extends string>(
@@ -844,20 +998,14 @@ function groupItemId(item: HTMLElement | null): string | null {
   return item?.dataset.navigationId ?? null;
 }
 
-function firstEnabledItem(
-  items: readonly HTMLButtonElement[],
-): HTMLButtonElement | null {
-  return items.find(item => !item.disabled
-    && item.getAttribute("aria-disabled") !== "true") ?? null;
-}
-
 function committedOrFirst(
   group: AdaptiveNavigationGroup,
   items: readonly HTMLButtonElement[],
 ): HTMLButtonElement | null {
   return items.find(item =>
     groupItemId(item) === group.committedId)
-    ?? firstEnabledItem(items);
+    ?? items[0]
+    ?? null;
 }
 
 function syncGroupState(
@@ -939,7 +1087,6 @@ class ScopeBarController implements ScopeBarBinding {
   private readonly subject: AdaptiveNavigationGroup | null;
   private readonly inspector: AdaptiveNavigationGroup | null;
   private readonly separator: HTMLElement | null;
-  private readonly applicationScopeRegion: HTMLElement | null;
   private readonly observer: ResizeObserver | null;
   private readonly modalObserver: MutationObserver | null;
   private modalActive: boolean;
@@ -1009,9 +1156,6 @@ class ScopeBarController implements ScopeBarBinding {
     this.subject = readGroup(navigation, "subject", state.subject);
     this.inspector = readGroup(navigation, "inspector", state.inspector);
     this.separator = navigation.querySelector(".lens-separator");
-    this.applicationScopeRegion = navigation.closest(".titlebar")
-      ?.querySelector<HTMLElement>(".application-scope-region")
-      ?? null;
     this.modalActive = this.hasActiveModal();
     navigation.ownerDocument.addEventListener(
       "keydown",
@@ -1114,10 +1258,9 @@ class ScopeBarController implements ScopeBarBinding {
       ? target.value
       : target.kind === "scope"
         ? "subject"
-        : target.kind === "application-scope"
-          ? null
-          : "inspector";
-    if (!groupName) return;
+        : target.kind === "product-navigation"
+            ? target.group
+            : "inspector";
     const group = groupName === "subject" ? this.subject : this.inspector;
     if (!group) return;
     if (target.kind === "navigation-trigger") {
@@ -1173,11 +1316,12 @@ class ScopeBarController implements ScopeBarBinding {
         group.state.focusedId = groupItemId(item);
       });
       item.addEventListener("click", () => {
-        const activates = item.dataset.navigationCurrent !== "true"
-          && !item.disabled
-          && item.getAttribute("aria-disabled") !== "true";
+        if (navigationItemIsDisabled(item)) return;
+        const activates = item.dataset.navigationCurrent !== "true";
+        const localAction =
+          item.dataset.localNavigationAction !== undefined;
         this.closeMenu(group, !activates);
-        if (!activates) return;
+        if (!activates || localAction) return;
         const id = groupItemId(item);
         const target = id
           ? group.tabItems.find(tab => groupItemId(tab) === id)
@@ -1347,7 +1491,6 @@ class ScopeBarController implements ScopeBarBinding {
     const separatorAndGapsWidth = this.inspector
       ? (this.separator ? outerWidth(this.separator) : 0) + gap * 2
       : 0;
-    this.updateApplicationScopeYield(separatorAndGapsWidth);
     const width = availableWidth(this.navigation);
     const pinnedChooser = this.subject.state.open
       ? "subject"
@@ -1372,39 +1515,6 @@ class ScopeBarController implements ScopeBarBinding {
       pinnedChooser,
     });
     this.applyForms(pair, width, separatorAndGapsWidth);
-  }
-
-  private updateApplicationScopeYield(overhead: number): void {
-    const region = this.applicationScopeRegion;
-    const subject = this.subject;
-    const inspector = this.inspector;
-    if (!region || !subject) return;
-    delete region.dataset.applicationScopeYield;
-    const expandedPair = selectAdaptiveNavigationPair({
-      availableWidth: availableWidth(this.navigation),
-      separatorAndGapsWidth: overhead,
-      subjectTabsWidth: subject.tabsWidth,
-      subjectChooserWidth: subject.chooserWidth,
-      subjectCount: subject.tabItems.length,
-      subjectCommitted: subject.committedId !== null,
-      ...(inspector
-        ? {
-            inspectorTabsWidth: inspector.tabsWidth,
-            inspectorChooserWidth: inspector.chooserWidth,
-            inspectorCount: inspector.tabItems.length,
-            inspectorCommitted: inspector.committedId !== null,
-          }
-        : {}),
-    });
-    if (expandedPair.subject !== "tabs"
-      || (expandedPair.inspector !== null
-        && expandedPair.inspector !== "tabs")) {
-      if (region.contains(region.ownerDocument.activeElement)) {
-        region.ownerDocument.querySelector<HTMLElement>(".brand")
-          ?.focus({ preventScroll: true });
-      }
-      region.dataset.applicationScopeYield = "true";
-    }
   }
 
   private applyForms(

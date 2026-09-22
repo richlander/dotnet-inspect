@@ -99,6 +99,8 @@ internal static class NativePasses
     public static PatternGuardedShortCircuitPass PatternGuardedShortCircuit => new();
     [Native(NativeCategory.EmitArtifact, "a folded catch-entry store whose local lives outside the surviving clause un-folded back to a distinct catch variable plus the entry assignment (issue #2828)")]
     public static CatchVariableScopePass CatchVariableScope => new();
+    [Native(NativeCategory.EmitArtifact, "compiler pattern-test storage separated from the exact PDB local that begins at the successful branch target")]
+    public static PdbScopeEntryLocalPass PdbScopeEntryLocal => new();
     [Native(NativeCategory.EmitArtifact, "lexical blocks erased by codegen retained where PDB names and reconstructed uses establish disjoint declaration scopes")]
     public static PdbLocalScopePass PdbLocalScope => new();
     [Native(NativeCategory.EmitArtifact, "a spilled array allocation plus its later contiguous element-store run (e.g. a params array) folded back to one array-literal expression, placed at the fill run's position")]
@@ -129,6 +131,10 @@ internal static class NativePasses
     public static ParameterNameAllocationPass ParameterNameAllocation => new();
     [Native(NativeCategory.EmitArtifact, "decided synthetic stack slots (one testified type, all stores at it) materialized as typed locals, retiring their slot nodes from the printer")]
     public static SlotMaterializationPass SlotMaterialization => new();
+    [Native(NativeCategory.EmitArtifact, "reference-coalesce assignment testimony and no-IL object argument conversions decided before emission")]
+    public static ReferenceCoalesceBindingPass ReferenceCoalesceBinding => new();
+    [Native(NativeCategory.EmitArtifact, "reference-conditional arm assignment targets decided before emission without replacing storage admission")]
+    public static ReferenceConditionalBindingPass ReferenceConditionalBinding => new();
     [Native(NativeCategory.IlErasure, "bool marshalled as int (cgt against 0) normalized")]
     public static BoolToIntNormalizationPass BoolToIntNormalization => new();
     [Native(NativeCategory.IlErasure, "a bool operand of integer arithmetic (erased to i4 on the IL stack) materialized back to (cond ? 1 : 0) so the mix is not CS0019 int + bool")]

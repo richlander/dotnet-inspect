@@ -34,12 +34,21 @@ public sealed class DiffHistoryApiInspectionRequest
         PackageVersionCellApiInspectionRequest apiInspection,
         ApiDiffOptions? comparisonOptions = null,
         int matchAcceptanceThreshold = 100,
-        DiffHistoryPackageReplayContext? replayContext = null)
+        DiffHistoryPackageReplayContext? replayContext = null,
+        MemberTargetSelector? member = null)
     {
         if (!Enum.IsDefined(finding))
             throw new ArgumentOutOfRangeException(nameof(finding));
+        if (member is not null
+            && finding != DiffHistoryApiFindingKind.Members)
+        {
+            throw new ArgumentException(
+                "Only api.member History accepts an exact Member focus.",
+                nameof(member));
+        }
 
         Finding = finding;
+        Member = member;
         _request = new(
             population,
             evaluationPlan,
@@ -55,6 +64,8 @@ public sealed class DiffHistoryApiInspectionRequest
     }
 
     public DiffHistoryApiFindingKind Finding { get; }
+
+    public MemberTargetSelector? Member { get; }
 
     public PackageHouseVersionPopulationResult.Available Population =>
         _request.Population;
@@ -311,9 +322,14 @@ public sealed class DiffHistoryApiFindingDocument<T>
     public DiffHistoryEvaluationLimits EvaluationLimits { get; }
     public DiffHistoryEvaluationPlan EvaluationPlan { get; }
     public int? AuthorizedProbeCount =>
-        EvaluationPlan is DiffHistoryEvaluationPlan.AdaptiveBisect adaptive
-            ? adaptive.MaximumProbes
-            : null;
+        EvaluationPlan switch
+        {
+            DiffHistoryEvaluationPlan.AdaptiveBisect adaptive =>
+                adaptive.MaximumProbes,
+            DiffHistoryEvaluationPlan.RepresentativeSurvey =>
+                EvaluationPlan.ResolveAuthorizedEvaluationCount(Population),
+            _ => null,
+        };
     public int UsedProbeCount => Probes.Length;
     public PackageVersionCellWorkspaceLimits WorkspaceLimits { get; }
     public ApiSurfaceProjectionLimits ProjectionLimits { get; }
@@ -339,6 +355,83 @@ public sealed class DiffHistoryApiFindingDocument<T>
     {
         get;
     }
+}
+
+public enum DiffHistoryExactApiMemberSelectionState
+{
+    Selected,
+    SubjectAbsent,
+    MemberUnresolved,
+    Failed,
+}
+
+/// <summary>One source-cell resolution of an exact API Member focus.</summary>
+public sealed class DiffHistoryExactApiMemberSelection
+{
+    internal DiffHistoryExactApiMemberSelection(
+        MemberTargetSelector selector,
+        DiffHistoryExactApiMemberSelectionState state,
+        DiffHistoryApiFindingEvaluation<ApiMemberHandle> sourceEvaluation,
+        ApiMemberHandle? member = null,
+        FindingCorrelationKey? correlationKey = null,
+        MemberTargetDiagnostic? diagnostic = null)
+    {
+        Selector =
+            selector ?? throw new ArgumentNullException(nameof(selector));
+        if (!Enum.IsDefined(state))
+            throw new ArgumentOutOfRangeException(nameof(state));
+        if ((state == DiffHistoryExactApiMemberSelectionState.Selected)
+            != (member is not null && correlationKey is not null))
+        {
+            throw new ArgumentException(
+                "Only selected exact-Member evidence carries a Member and correlation key.",
+                nameof(member));
+        }
+
+        State = state;
+        SourceEvaluation = sourceEvaluation
+            ?? throw new ArgumentNullException(nameof(sourceEvaluation));
+        Member = member;
+        CorrelationKey = correlationKey;
+        Diagnostic = diagnostic;
+    }
+
+    public MemberTargetSelector Selector { get; }
+    public DiffHistoryExactApiMemberSelectionState State { get; }
+    public DiffHistoryApiFindingEvaluation<ApiMemberHandle> SourceEvaluation
+    {
+        get;
+    }
+    public ApiMemberHandle? Member { get; }
+    public FindingCorrelationKey? CorrelationKey { get; }
+    public MemberTargetDiagnostic? Diagnostic { get; }
+}
+
+/// <summary>Typed exact API Member content for Diff History.</summary>
+public sealed class DiffHistoryExactApiMemberDocument
+{
+    internal DiffHistoryExactApiMemberDocument(
+        DiffHistoryExactApiMemberSelection selection,
+        DiffHistoryApiFindingDocument<ApiMemberHandle> history,
+        FindingCorrelation<ApiMemberHandle> identity)
+    {
+        if (selection.State
+            != DiffHistoryExactApiMemberSelectionState.Selected)
+        {
+            throw new ArgumentException(
+                "An exact API Member document requires selected source evidence.",
+                nameof(selection));
+        }
+        Selection = selection;
+        History =
+            history ?? throw new ArgumentNullException(nameof(history));
+        Identity =
+            identity ?? throw new ArgumentNullException(nameof(identity));
+    }
+
+    public DiffHistoryExactApiMemberSelection Selection { get; }
+    public DiffHistoryApiFindingDocument<ApiMemberHandle> History { get; }
+    public FindingCorrelation<ApiMemberHandle> Identity { get; }
 }
 
 public abstract partial record DiffHistoryDocument
@@ -368,5 +461,17 @@ public abstract partial record DiffHistoryDocument
         {
             get;
         }
+    }
+
+    public sealed record ExactApiMember : DiffHistoryDocument
+    {
+        internal ExactApiMember(
+            DiffHistoryExactApiMemberDocument content)
+        {
+            Content =
+                content ?? throw new ArgumentNullException(nameof(content));
+        }
+
+        public DiffHistoryExactApiMemberDocument Content { get; }
     }
 }

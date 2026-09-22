@@ -1,4 +1,5 @@
 using DotnetInspect.Cli.Output;
+using DotnetInspector.Sections;
 
 namespace DotnetInspect.Cli.Sections;
 
@@ -17,18 +18,24 @@ internal static class LibraryOutputCapabilities
                         OutputCapabilityCatalog.StandardSectionFormats),
                     StringComparer.OrdinalIgnoreCase);
 
-        sections[SectionNames.ImplementationProfiles] =
+        sections[SectionNames.MemberMetrics] =
             SectionOutputCapabilities.Create(
                 OutputCapabilityCatalog.StandardSectionFormats
-                    .Where(format => format != OutputMode.Json));
+                    .Where(format =>
+                        format != DiscoveryOutputMode.Json));
+        sections[SectionNames.LibraryMetrics] =
+            SectionOutputCapabilities.Create(
+                OutputCapabilityCatalog.StandardSectionFormats
+                    .Where(format =>
+                        format != DiscoveryOutputMode.Json));
         sections[SectionNames.ReferenceHierarchy] =
             SectionOutputCapabilities.Create(
                 [
                     .. OutputCapabilityCatalog.StandardSectionFormats,
-                    OutputMode.Tree,
-                    OutputMode.Mermaid,
+                    DiscoveryOutputMode.Tree,
+                    DiscoveryOutputMode.Mermaid,
                 ],
-                [OutputMode.Json]);
+                [DiscoveryOutputMode.Json]);
 
         return new OutputCapabilityCatalog(
             sections,

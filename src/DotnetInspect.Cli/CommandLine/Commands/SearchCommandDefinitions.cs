@@ -4,7 +4,7 @@ using DotnetInspect.Cli.Commands;
 using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Output;
 using DotnetInspector.Queries;
-using DotnetInspector.RowSelection;
+using QuerySpace.Rows;
 using DotnetInspector.Sections;
 using DotnetInspector.Services;
 using DotnetInspect.Cli.Services;
@@ -128,7 +128,7 @@ public static class SearchCommandDefinitions
                 CommandError.Write(
                     "'find --literal' is no longer valid because Find returns "
                     + "Type results. Use 'package query <ID-or-prefix*> "
-                    + "--library-literal TEXT --tfm TFM'. Package Query selects "
+                    + "--where \"library-literal=TEXT\" --tfm TFM'. Package Query selects "
                     + "the latest eligible listed version for an exact ID, so "
                     + "this is not an equivalent replacement for an older "
                     + "ID@VERSION query.");
@@ -874,10 +874,9 @@ public static class SearchCommandDefinitions
                         return 1;
                     }
 
-                    if (string.Equals(
+                    if (EvidenceEnvelopeOutput.PathsMayIdentifySameFile(
                             evidenceEnvelopePath,
-                            outputPath,
-                            StringComparison.OrdinalIgnoreCase))
+                            outputPath))
                     {
                         CommandError.Write(
                             "--out and --evidence-envelope must name distinct files.");

@@ -1,8 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  alphabetizeLibrarySubjects,
   bindLibrarySubjectNav,
   librarySubjectDisplayLabels,
+  preferredLibrarySubjectId,
   renderLibrarySubjectNav,
 } from "../src/library-subject-nav.ts";
 import { fakeDom } from "./fake-dom.ts";
@@ -127,6 +129,37 @@ test("Library navigation renders the aggregate first and keeps empty Libraries",
   assert.match(html, /role="listbox"[\s\S]*aria-activedescendant=/);
 });
 
+test("Library subjects sort alphabetically and prefer a case-insensitive namesake", () => {
+  const libraries = [
+    {
+      id: "asset:zulu",
+      name: "Example.Zulu",
+      asset: "lib/net10.0/Example.Zulu.dll",
+    },
+    {
+      id: "asset:namesake",
+      name: "example.package",
+      asset: "lib/net10.0/example.package.dll",
+    },
+    {
+      id: "asset:alpha",
+      name: "Example.Alpha",
+      asset: "lib/net10.0/Example.Alpha.dll",
+    },
+  ];
+
+  assert.deepEqual(
+    alphabetizeLibrarySubjects(libraries).map(library => library.id),
+    ["asset:alpha", "asset:namesake", "asset:zulu"]);
+  assert.equal(
+    preferredLibrarySubjectId(libraries, "Example.Package"),
+    "asset:namesake");
+  assert.equal(
+    preferredLibrarySubjectId(libraries, "Missing.Package"),
+    "asset:alpha");
+  assert.equal(preferredLibrarySubjectId([], "Example.Package"), null);
+});
+
 test("Library navigation qualifies duplicate names with product-owned assets", () => {
   const libraries = [
     {
@@ -174,6 +207,45 @@ test("Library navigation qualifies duplicate names with product-owned assets", (
   assert.match(html, /Example\.Shared · lib\/net10\.0\/left\/Example\.Shared\.dll/);
   assert.match(html, /Example\.Shared · lib\/net10\.0\/right\/Example\.Shared\.dll/);
   assert.match(html, />Example\.Unique<\/span>/);
+});
+
+test("Library navigation lists every admitted Library and marks the selection", () => {
+  const libraries = [
+    {
+      id: "asset:left",
+      name: "Example.Shared",
+      asset: "lib/net10.0/left/Example.Shared.dll",
+      types: 1,
+      members: 2,
+    },
+    {
+      id: "asset:right",
+      name: "Example.Shared",
+      asset: "lib/net10.0/right/Example.Shared.dll",
+      types: 3,
+      members: 4,
+    },
+    {
+      id: "asset:other",
+      name: "Example.Other",
+      asset: "lib/net10.0/Example.Other.dll",
+      types: 5,
+      members: 6,
+    },
+  ];
+
+  const html = renderLibrarySubjectNav({
+    libraries,
+    selectedLibraryId: "asset:right",
+    escapeHtml,
+  });
+
+  assert.match(html, /All libraries/);
+  assert.match(
+    html,
+    /class="type-row library-subject-row selected active"[\s\S]*data-library-subject="asset:right"/);
+  assert.match(html, /data-library-subject="asset:left"/);
+  assert.match(html, /data-library-subject="asset:other"/);
 });
 
 test("Library navigation moves locally and commits only on Enter", () => {

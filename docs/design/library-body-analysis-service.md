@@ -19,7 +19,7 @@ The first typed-result migration breaks that compatibility pattern.
 `LibraryImplementationProfileAnalysisResult` values. The second adds
 `LibraryOptimizationAnalysisResult`, which owns completed optimization
 opportunities, opt-in lazy allocation fanout, and generated-framework type
-identities. The Library Unsafe Evidence, Implementation Profiles, and
+identities. The Library Unsafe Evidence, Member Metrics, and
 Optimization Opportunities queries consume those focused types directly. One
 service invocation may still coordinate several producers over one body
 acquisition; that does not make their answers one semantic type.
@@ -30,6 +30,21 @@ graph derivation, and catalog participation. Library Top Leverage and member
 call-graph composition consume those focused types. The compatibility index
 delegates its leverage and local graph members to the same results; it no
 longer owns a second implementation.
+
+The next call-graph adoption moves pairwise direct-use acquisition and bounded
+local root-path analysis to `LibraryCallGraphAnalysisResult`. Pairwise queries
+execute Analysis once per participant and consume the focused result directly;
+root-path analysis accepts that result rather than requiring the compatibility
+aggregate. Existing pair completion, path limits, diagnostics, and output
+remain unchanged.
+
+The group-wide call-census adoption uses the same focused execution boundary.
+`AssemblyContextCallCensusQuery` acquires every available participant from one
+admitted assembly group, while `CatalogCallGraphScope` owns exact member and
+static-call correspondence, physical occurrence retention, canonical ordering,
+unresolved physical occurrences, and graph diagnostics. Acquisition failures
+remain Query evidence beside the positive census; no compatibility index
+participates.
 
 The first Research adoption publishes `LibraryAllocationAnalysisResult`,
 extends `LibrarySafetyAnalysisResult` with its producer-owned occurrence map,
@@ -156,6 +171,15 @@ map, and generated-framework classification internally. This keeps the result
 types semantically separate without repeating retained evidence or
 whole-library classification.
 
+`LibraryImplementationProfileAnalysisResult` publishes an Analysis-issued
+implementation-profile population coverage receipt beside its profile rows.
+The receipt records whether profiles were requested, whether the execution
+covered the full method-evidence population, the declared methods, physical
+managed bodies, profiled physical bodies, unavailable physical bodies with
+their Analysis-owned reasons, and the shared diagnostics. Consumers that need a
+whole-library population use this receipt directly rather than inferring
+coverage from missing rows, display labels, or profile order.
+
 Common execution identity, coverage, and diagnostics may be published once in
 an execution receipt. A focused result refers to that common evidence through
 an explicit typed association; it does not infer correspondence from a path,
@@ -209,7 +233,7 @@ shared semantic input.
 
 | Sequence | Production consumer | Focused Analysis result |
 | --- | --- | --- |
-| 1 | Library Unsafe Evidence and Implementation Profiles sections | Safety evidence and implementation-profile results shaped from the existing internal producer outputs |
+| 1 | Library Unsafe Evidence and Member Metrics sections | Safety evidence and implementation-profile results shaped from the existing internal producer outputs |
 | 2 | Library Optimization Opportunities section | `LibraryOptimizationAnalysisResult`, with completed opportunities, lazy allocation fanout, and generated-framework identities |
 | 3 | Library Top Leverage and member call-graph composition | `LibraryLeverageAnalysisResult` for ranking and `LibraryCallGraphAnalysisResult` for detached local/catalog graph evidence |
 | 4 | Library Resource Triage section under #6731 | `LibraryResourceLifecycleAnalysisResult`, consuming `ResourceOccurrenceAnalysisResult` from #6730 |
@@ -228,7 +252,7 @@ Every slice:
    single-acquisition behavior.
 
 The first implementation slice migrated both Unsafe Evidence and
-Implementation Profiles because they already projected cohesive internal
+Member Metrics because they already projected cohesive internal
 result families and exercised the library section system directly. The second
 slice moves optimization completion from the index into
 `LibraryOptimizationAnalysisResult`. That result retains the exact
@@ -248,6 +272,20 @@ optional annotations. The existing `CallTreeNode`, `CallGraphProjection`, and
 Markout lowering remain the structured and rendered output path; the slice
 changes evidence ownership, not output shape or host rendering.
 
+The next call-graph slice moves `AssemblyPairCallUseQuery` participant
+acquisition and `LibraryBodyRootPathAnalysis` onto
+`LibraryCallGraphAnalysisResult`. `AssemblyPairClusterRootPathQuery` executes
+the service over its retained participant image and passes the focused result
+to the bounded path operation. The wider member Research projection retains
+its compatibility index for unrelated evidence but passes its associated
+call-graph result to root-path analysis.
+
+The following slice shares that participant-analysis path with
+`AssemblyContextCallCensusQuery`. Analysis publishes one generation-bound
+graph-wide census over the focused results; Queries projects its exact members,
+physical call occurrences, ordering keys, and graph diagnostics onto inert
+assembly-context subjects while retaining typed acquisition failures.
+
 The first sequence-5 slice moves member Research fact production from
 `LibraryBodyIndex` and `ResearchAssemblyContext` to four exact focused results:
 allocation occurrences, safety evidence and occurrences, call evidence and
@@ -263,6 +301,13 @@ execution prepares one token-scoped input; coordinate-file execution prepares
 one input for the union of selected physical MethodDef tokens. This preserves
 the existing point-fact output and typed failure boundary while removing both
 `AnalysisIndexCache` and `LibraryBodyIndex` from IL-offset production.
+
+The implementation-profile population slice adds the coverage receipt required
+by Library Metrics without changing existing Member Metrics rows. It preserves
+Analysis ownership of declared-method enumeration, managed-body enumeration,
+body-scope qualification, recoverable diagnostics, and unavailable-body
+classification so Research can later decide whether a whole-library report is
+available.
 
 The pathological graph cases remain explicit: bodiless declarations may still
 be selected as roots, async and lifted calls retain physical evidence
@@ -325,11 +370,12 @@ Inspect Web continues to receive owner-typed query exports. The browser host
 remains compiler-banned from calling the Analysis service directly; Workspace
 queries own service execution and project its evidence.
 The cluster root-path query follows the same request/service shape for
-`MethodEvidence`; its existing section and CLI continue to own composition and
-presentation. `MethodBodyInspectionSession` similarly translates command
-capability and scope policy into one request, delegates path or
-prefetched-image execution to the service, retains the returned execution for
-the command, and creates its detached compatibility index only when an
+`MethodEvidence` and passes the resulting `LibraryCallGraphAnalysisResult`
+directly to bounded path analysis; its existing section and CLI continue to own
+composition and presentation. `MethodBodyInspectionSession` similarly
+translates command capability and scope policy into one request, delegates path
+or prefetched-image execution to the service, retains the returned execution
+for the command, and creates its detached compatibility index only when an
 unmigrated consumer requests it.
 
 ## Evidence

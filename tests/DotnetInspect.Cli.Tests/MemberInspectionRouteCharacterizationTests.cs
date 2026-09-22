@@ -265,8 +265,9 @@ public sealed class MemberInspectionRouteCharacterizationTests : IDisposable
                 "package-single-library",
                 "schema-static-before-package-acquisition/"
                     + "effective-after-package-acquisition",
-                "Library[schema:133:CBA3C1F6F8A4]",
-                "focus=Library Info->Classified methods,"
+                "Library[schema:137:C24A9CDF35E9]",
+                "focus=Library Info->Assembly references,"
+                    + "Library Info->Classified methods,"
                     + "Library Info->Custom attributes,"
                     + "Library Info->Extension methods,Library Info->Resources,"
                     + "Library Info->Type forwarders;"
@@ -277,8 +278,9 @@ public sealed class MemberInspectionRouteCharacterizationTests : IDisposable
                 "package-all-libraries",
                 "schema-static-before-package-acquisition/"
                     + "render-after-package-acquisition",
-                "Library[schema:133:CBA3C1F6F8A4]",
-                "focus=Library Info->Classified methods,"
+                "Library[schema:137:C24A9CDF35E9]",
+                "focus=Library Info->Assembly references,"
+                    + "Library Info->Classified methods,"
                     + "Library Info->Custom attributes,"
                     + "Library Info->Extension methods,Library Info->Resources,"
                     + "Library Info->Type forwarders;discovery=none",
@@ -287,12 +289,14 @@ public sealed class MemberInspectionRouteCharacterizationTests : IDisposable
             new(
                 "direct-library",
                 "schema-static-without-target/effective-with-target",
-                "Library[schema:135:0B284A8E156E]",
-                "focus=Library Info->Classified methods,"
+                "Library[schema:139:0A3D09C334A8]",
+                "focus=Library Info->Assembly references,"
+                    + "Library Info->Classified methods,"
                     + "Library Info->Custom attributes,"
                     + "Library Info->Extension methods,Library Info->Resources,"
                     + "Library Info->Type forwarders;"
-                    + "discovery=Library Info->Classified methods,"
+                    + "discovery=Library Info->Assembly references,"
+                    + "Library Info->Classified methods,"
                     + "Library Info->Custom attributes,"
                     + "Library Info->Extension methods,Library Info->Resources,"
                     + "Library Info->Type forwarders,"
@@ -310,31 +314,31 @@ public sealed class MemberInspectionRouteCharacterizationTests : IDisposable
             new(
                 "type-member-list",
                 "schema-static/effective-deferred",
-                "ApiMember[schema:76:0ADF1F7B4824]",
+                "ApiMember[schema:79:095589655392]",
                 "focus=none;discovery=none",
                 "focus:pdb=True;source=False"),
             new(
                 "member-type-view",
                 "schema-static/effective-deferred",
-                "ApiMember[schema:76:0ADF1F7B4824]",
+                "ApiMember[schema:79:095589655392]",
                 "focus=none;discovery=none",
                 "focus:pdb=False;source=False"),
             new(
                 "overload-inventory",
                 "schema-static/effective-deferred/executed-multiple-overloads",
-                "ApiMemberOverload[schema:92:778FDEFB3A13]",
+                "ApiMemberOverload[schema:94:0F776B0EF07E]",
                 "focus=none;discovery=none",
                 "focus:pdb=False;source=False"),
             new(
                 "exact-member-detail",
                 "schema-static/effective-deferred",
-                "ApiMemberDetail[schema:70:D28A53F5A84F]",
+                "ApiMemberDetail[schema:72:24E2F5E0B8D2]",
                 "focus=none;discovery=none",
                 "focus:pdb=True;source=True"),
             new(
                 "hidden-router",
                 "schema-static-alternatives-before-router-rewrite",
-                "ApiType[schema:185:D680B3053711]",
+                "ApiType[schema:190:333C5803E1B0]",
                 "focus=none;discovery=none",
                 "focus:none"),
         ];
@@ -941,7 +945,8 @@ public sealed class MemberInspectionRouteCharacterizationTests : IDisposable
             if (marker < 0)
                 continue;
 
-            string node = line[(marker + 2)..].TrimEnd('\r');
+            string node = RemoveLibraryResourcePath(
+                line[(marker + 2)..].TrimEnd('\r'));
             if (marker == 1)
             {
                 currentCategory = node.EndsWith(
@@ -961,6 +966,17 @@ public sealed class MemberInspectionRouteCharacterizationTests : IDisposable
         return (
             categories.Order(StringComparer.Ordinal).ToArray(),
             edges.Order(StringComparer.Ordinal).ToArray());
+    }
+
+    private static string RemoveLibraryResourcePath(string node)
+    {
+        int marker = node.LastIndexOf(
+            " [library/",
+            StringComparison.Ordinal);
+        return marker >= 0
+            && node.EndsWith(']')
+                ? node[..marker]
+                : node;
     }
 
     private static string IdentifyCatalogFromRenderedSection(

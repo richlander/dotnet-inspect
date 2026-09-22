@@ -6,7 +6,7 @@ using System.Text;
 using System.Text.Json;
 using DotnetInspector.Packages;
 using DotnetInspector.Platforms;
-using DotnetInspector.PortableQueries;
+using QuerySpace;
 using DotnetInspector.SourceSelection;
 using ILInspector.Metadata;
 using NuGetFetch;
@@ -39,6 +39,7 @@ public static class WorkspaceSharePacketCodec
     public const int CurrentFormatVersion = 3;
 
     public const int Format4Version = 4;
+    public const int Format5Version = 5;
     public const int MaxFormat1EncodedLength = 16 * 1024;
     public const int MaxFormat1DecodedUtf8Length = 12 * 1024;
     public const int MaxFormat1JsonDepth = 16;
@@ -51,8 +52,10 @@ public static class WorkspaceSharePacketCodec
     public const int MaxFormat2Tabs = 12;
     public const int MaxFormat3Tabs = 64;
     public const int MaxFormat4Tabs = 64;
+    public const int MaxFormat5Tabs = 64;
     public const int MaxContexts = 24;
     public const int MaxRegistrations = 24;
+    public const int MaxPackageSources = 24;
     public const int MaxQueries = 24;
 
     private static readonly UTF8Encoding s_utf8Strict = new(
@@ -356,13 +359,15 @@ public static class WorkspaceSharePacketCodec
         if (version is not (LegacyFormatVersion
             or Format2Version
             or CurrentFormatVersion
-            or Format4Version))
+            or Format4Version
+            or Format5Version))
         {
             throw Failure(
                 WorkspaceSharePacketFailureKind.UnsupportedFormat,
                 $"Unsupported workspace share format {version}; expected "
                     + $"{LegacyFormatVersion}, {Format2Version}, "
-                    + $"{CurrentFormatVersion}, or {Format4Version}.");
+                    + $"{CurrentFormatVersion}, {Format4Version}, or "
+                    + $"{Format5Version}.");
         }
 
         return version;
@@ -379,6 +384,7 @@ public static class WorkspaceSharePacketCodec
                 root,
                 CurrentFormatVersion),
             Format4Version => BindFormat3Or4(root, Format4Version),
+            Format5Version => BindFormat3Or4(root, Format5Version),
             _ => throw new UnreachableException(),
         };
 
@@ -484,8 +490,15 @@ public static class WorkspaceSharePacketCodec
         JsonElement root,
         int formatVersion)
     {
-        ValidateProperties(root, "f", "t", "g", "r", "a", "x", "q", "v");
+        if (formatVersion == Format5Version)
+            ValidateProperties(root, "f", "s", "t", "g", "r", "a", "x", "q", "v");
+        else
+            ValidateProperties(root, "f", "t", "g", "r", "a", "x", "q", "v");
 
+        WorkspacePackageSourceDefinition[] packageSources =
+            formatVersion == Format5Version
+                ? ReadPackageSources(Required(root, "s"))
+                : [];
         WorkspaceShareTab[] tabs = ReadTabs(
             Required(root, "t"),
             formatVersion,
@@ -544,23 +557,34 @@ public static class WorkspaceSharePacketCodec
                         + "one context or registration.");
         }
 
-        return formatVersion == Format4Version
-            ? WorkspaceSharePacket.CreateV4(
+        return formatVersion switch
+        {
+            Format5Version => WorkspaceSharePacket.CreateV5(
+                tabs,
+                contexts,
+                registrations,
+                packageSources,
+                focusedTab,
+                selectedContext,
+                viewStates,
+                queries),
+            Format4Version => WorkspaceSharePacket.CreateV4(
                 tabs,
                 contexts,
                 registrations,
                 focusedTab,
                 selectedContext,
                 viewStates,
-                queries)
-            : new WorkspaceSharePacket(
+                queries),
+            _ => new WorkspaceSharePacket(
                 tabs,
                 contexts,
                 registrations,
                 focusedTab,
                 selectedContext,
                 viewStates,
-                queries);
+                queries),
+        };
     }
 
     private static void ValidateProperties(
@@ -785,8 +809,88 @@ public static class WorkspaceSharePacketCodec
             Format2Version => MaxFormat2Tabs,
             CurrentFormatVersion => MaxFormat3Tabs,
             Format4Version => MaxFormat4Tabs,
+            Format5Version => MaxFormat5Tabs,
             _ => throw new UnreachableException(),
         };
+
+    private static WorkspacePackageSourceDefinition[] ReadPackageSources(
+        JsonElement element)
+    {
+        if (element.ValueKind != JsonValueKind.Array
+            || element.GetArrayLength() == 0)
+        {
+            throw InvalidShape(
+                "Workspace share field 's' must be a nonempty array.");
+        }
+        if (element.GetArrayLength() > MaxPackageSources)
+        {
+            throw InvalidShape(
+                $"Workspace share field 's' permits at most {MaxPackageSources} entries.");
+        }
+
+        var sources =
+            new WorkspacePackageSourceDefinition[element.GetArrayLength()];
+        int index = 0;
+        foreach (JsonElement tuple in element.EnumerateArray())
+        {
+            if (tuple.ValueKind != JsonValueKind.Array
+                || tuple.GetArrayLength() is not (1 or 2))
+            {
+                throw InvalidShape(
+                    "Every Workspace package source must be [endpoint] or "
+                        + "[endpoint, \"a\"].");
+            }
+
+            JsonElement.ArrayEnumerator values = tuple.EnumerateArray();
+            string endpoint = RequiredString(
+                Next(ref values),
+                $"package source {index} endpoint");
+            WorkspacePackageSourceAuthentication authentication =
+                WorkspacePackageSourceAuthentication.Anonymous;
+            if (tuple.GetArrayLength() == 2)
+            {
+                if (!string.Equals(
+                        RequiredString(
+                            Next(ref values),
+                            $"package source {index} authentication"),
+                        "a",
+                        StringComparison.Ordinal))
+                {
+                    throw InvalidShape(
+                        $"Workspace package source {index} has an unknown authentication kind.");
+                }
+                authentication =
+                    WorkspacePackageSourceAuthentication.AuthenticationRequired;
+            }
+
+            try
+            {
+                sources[index] = new WorkspacePackageSourceDefinition(
+                    endpoint,
+                    authentication);
+            }
+            catch (ArgumentException ex)
+            {
+                throw InvalidShape(
+                    $"Workspace package source {index} is invalid.",
+                    ex);
+            }
+            index++;
+        }
+
+        try
+        {
+            WorkspacePackageSourceDefinition.ValidateSet(sources);
+        }
+        catch (ArgumentException ex)
+        {
+            throw InvalidShape(
+                "Workspace package source set is invalid.",
+                ex);
+        }
+
+        return sources;
+    }
 
     private static WorkspaceRegistration[] ReadRegistrations(
         JsonElement element)
@@ -1389,11 +1493,11 @@ public static class WorkspaceSharePacketCodec
         {
             "workspace" => new PortableSubjectRequest.Workspace(),
             "package" => new PortableSubjectRequest.Package(),
-            "library" when formatVersion == Format4Version =>
+            "library" when formatVersion is Format4Version or Format5Version =>
                 new PortableSubjectRequest.Library(),
-            "type" when formatVersion == Format4Version =>
+            "type" when formatVersion is Format4Version or Format5Version =>
                 new PortableSubjectRequest.Type(),
-            "member" when formatVersion == Format4Version =>
+            "member" when formatVersion is Format4Version or Format5Version =>
                 new PortableSubjectRequest.Member(),
             _ => throw InvalidShape(
                 $"Workspace share subject kind is not supported by format {formatVersion}."),
@@ -1693,6 +1797,9 @@ public static class WorkspaceSharePacketCodec
             Format4Version => WriteFormat3Or4CanonicalJson(
                 packet,
                 Format4Version),
+            Format5Version => WriteFormat3Or4CanonicalJson(
+                packet,
+                Format5Version),
             _ => throw Failure(
                 WorkspaceSharePacketFailureKind.UnsupportedFormat,
                 $"Unsupported workspace share format {packet.FormatVersion}."),
@@ -1848,6 +1955,30 @@ public static class WorkspaceSharePacketCodec
         var writer = new CanonicalWriter();
         writer.WriteAscii("{\"f\":"u8);
         writer.WriteInteger(formatVersion);
+        if (formatVersion == Format5Version)
+        {
+            if (packet.PackageSources.Count == 0)
+            {
+                throw InvalidShape(
+                    "Workspace share format 5 requires at least one package source.");
+            }
+            if (packet.PackageSources.Count > MaxPackageSources)
+            {
+                throw InvalidShape(
+                    $"Workspace share format 5 permits at most {MaxPackageSources} package sources.");
+            }
+
+            writer.WriteAscii(",\"s\":["u8);
+            for (int index = 0;
+                index < packet.PackageSources.Count;
+                index++)
+            {
+                if (index > 0)
+                    writer.WriteByte((byte)',');
+                WritePackageSource(writer, packet.PackageSources[index]);
+            }
+            writer.WriteByte((byte)']');
+        }
         writer.WriteAscii(",\"t\":["u8);
         WriteTabs(writer, packet.Tabs);
         writer.WriteAscii("],\"g\":["u8);
@@ -1980,6 +2111,26 @@ public static class WorkspaceSharePacketCodec
             throw InvalidShape(
                 "Every workspace share query-table entry must be referenced by a view state.");
         }
+    }
+
+    private static void WritePackageSource(
+        CanonicalWriter writer,
+        WorkspacePackageSourceDefinition source)
+    {
+        writer.WriteByte((byte)'[');
+        writer.WriteString(source.Endpoint);
+        if (source.Authentication
+            == WorkspacePackageSourceAuthentication.AuthenticationRequired)
+        {
+            writer.WriteAscii(",\"a\""u8);
+        }
+        else if (source.Authentication
+            != WorkspacePackageSourceAuthentication.Anonymous)
+        {
+            throw InvalidShape(
+                "Workspace package source authentication is unsupported.");
+        }
+        writer.WriteByte((byte)']');
     }
 
     private static void WriteRegistration(
@@ -2201,13 +2352,13 @@ public static class WorkspaceSharePacketCodec
                 PortableSubjectRequestKind.Workspace => "workspace",
                 PortableSubjectRequestKind.Package => "package",
                 PortableSubjectRequestKind.Library
-                    when formatVersion == Format4Version =>
+                    when formatVersion is Format4Version or Format5Version =>
                     "library",
                 PortableSubjectRequestKind.Type
-                    when formatVersion == Format4Version =>
+                    when formatVersion is Format4Version or Format5Version =>
                     "type",
                 PortableSubjectRequestKind.Member
-                    when formatVersion == Format4Version =>
+                    when formatVersion is Format4Version or Format5Version =>
                     "member",
                 _ => throw InvalidShape(
                     $"Workspace share format {formatVersion} does not support subject kind {state.Subject.Kind}."),

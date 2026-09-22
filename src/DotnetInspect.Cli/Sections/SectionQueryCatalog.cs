@@ -4,6 +4,7 @@ using DotnetInspect.Cli.Models;
 using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Planning;
 using DotnetInspect.Cli.Views;
+using DotnetInspector.Queries;
 using DotnetInspector.Sections;
 
 namespace DotnetInspect.Cli.Sections;
@@ -30,6 +31,7 @@ public sealed record SectionQueryCatalog(
         StructuralSchemaProjection[] projections = command switch
         {
             "library" => [Project(StructuralViewIdentity.DirectLibrary, InspectionCatalogIdentity.Library)],
+            "library query" => [],
             "type" =>
             [
                 Project(StructuralViewIdentity.Type, InspectionCatalogIdentity.ApiType),
@@ -55,6 +57,13 @@ public sealed record SectionQueryCatalog(
                 PackageProfileSections.Packages,
                 PackageQueryOptions.DiscoverySummary,
                 PackageQueryOptions.QueryKeys));
+        }
+        if (command == "library query")
+        {
+            queries.Add(new(
+                LibraryQuerySections.LibrariesName,
+                LibraryQueryOptions.DiscoverySummary,
+                LibraryQueryOptions.QueryKeys));
         }
         if (command == "package")
         {
@@ -157,8 +166,15 @@ public sealed record SectionQueryCatalog(
 
         ImmutableArray<string> sections = command switch
         {
-            "find" => ["Results", "Members"],
+            "find" =>
+            [
+                FindQueryOptions.Section(
+                    FindQueryRouteKind.TypeResults),
+                FindQueryOptions.Section(
+                    FindQueryRouteKind.MemberResults),
+            ],
             "package query" => [PackageProfileSections.Packages],
+            "library query" => [LibraryQuerySections.LibrariesName],
             "depends" =>
             [
                 DependsTypeSections.DependencyGraph,

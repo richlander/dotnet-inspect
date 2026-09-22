@@ -33,6 +33,7 @@ preview is display text, never a package coordinate or archive-entry handle.
 | --- | --- | --- |
 | Has dependencies / no dependencies | Distinct declared dependency IDs in the selected dependency scope, using ordinal case-insensitive identity | Up to three IDs, ordered ordinal case-insensitively, preserving the first declared spelling of each ID |
 | Depends on package | Distinct selected declaration tuples of manifest group, declared package ID, and version range | Up to three `group: ID range` values, ordered ordinally |
+| Depends on package prefix | Matching selected direct-declaration occurrences | Up to three distinct `group: ID range` values, ordered ordinally |
 | Transitively depends on package | Matching admitted declaration edges at depth 2 through the requested maximum | Up to three deterministic shortest root-path display previews built from declared ranges and resolved exact coordinates before the shared character budget is applied |
 | References assembly | Matching managed-library `AssemblyRef` occurrences across admitted `ref/` and `lib/` groups | Up to three `TFM: path -> reference` values, ordered ordinally |
 | Embedded SKILL.md | Distinct matching archive-entry paths, using ordinal path identity and the existing case-insensitive skill-document predicate | Up to three actual paths, ordered ordinally |
@@ -45,6 +46,12 @@ selection and retains requested-target and selected-group evidence separately.
 Zero dependencies is a known empty item set only for all groups, one selected
 empty group, or a manifest with no dependency groups; no matching requested
 target is not empty evidence.
+
+Dependency-prefix evidence uses the Source Selection owner's literal prefix
+semantics and NuGet package-ID case insensitivity. Its complete count includes
+each matching declaration occurrence in the selected scope; previews collapse
+identical display tuples and remain bounded independently. A trailing `.` in
+the retained term is how a caller requests a dot-delimited family boundary.
 
 Transitive dependency summaries are the exception: they consume the existing
 Package Dependency Traversal Query and describe its source-authorized

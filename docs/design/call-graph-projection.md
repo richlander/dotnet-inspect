@@ -35,13 +35,19 @@ Markout Graph → tree | edge table | Mermaid
 ```
 
 `ILInspector.Analysis` stays presentation-free: it owns the graph evidence and
-the bounded traversal (`LibraryBodyIndex.BuildCallerTree` /
-`BuildCallTree`) plus exact local root-to-destination witnesses
-(`LibraryBodyRootPathAnalysis.FindShortestPaths`). `ILInspector.CallGraph`
-turns `CallTreeNode` roots into a deterministic node/edge set. It knows nothing
-about Mermaid, Markdown, tables, or any other format, takes no dependency on
-Markout, the CLI, or inspected-assembly loading, and stays SRM-only,
-NativeAOT-friendly, and browser-Wasm compatible.
+the bounded traversal (`LibraryCallGraphAnalysisResult.BuildCallerTree` /
+`BuildCallTree`) plus exact local root-to-destination witnesses over the same
+focused result (`LibraryBodyRootPathAnalysis.FindShortestPaths`). For one fixed
+catalog population, `CatalogCallGraphScope.Census` additionally publishes every
+exact declared member and resolved physical `call`, `callvirt`, and `newobj`
+occurrence without traversal bounds. The census retains its catalog generation,
+physical evidence, unresolved physical occurrences, graph diagnostics, and
+owner-issued total ordering keys; it is session-bound until an explicit
+detachment operation issues durable occurrence references.
+`ILInspector.CallGraph` turns `CallTreeNode` roots into a deterministic
+node/edge set. It knows nothing about Mermaid, Markdown, tables, or any other
+format, takes no dependency on Markout, the CLI, or inspected-assembly loading,
+and stays SRM-only, NativeAOT-friendly, and browser-Wasm compatible.
 
 Each host owns its own rendering. `dotnet-inspect` lowers the projection to a
 Markout `Graph` in `CallGraphSectionAdapter`, which is where all call-graph

@@ -1571,6 +1571,81 @@ public class MemberCallGraphSectionTests
         Assert.DoesNotContain(boundSpelling, text);
     }
 
+    [Theory]
+    [InlineData("ConstructorGetterComputed", "value")]
+    [InlineData("ConstructorGetterAnnotationName", "arg")]
+    [InlineData("ConstructorGetterAnnotationName", "arg", SectionNames.DecompiledSource)]
+    [InlineData("ConstructorGetterAnnotationName", "arg", SectionNames.AnnotatedSource)]
+    [InlineData("ConstructorGetterAnnotationName", "arg", SectionNames.CostOverlay)]
+    [InlineData("ConstructorGetterAnnotationName", "arg", SectionNames.SemanticsOverlay)]
+    public async Task SelectedProperty_InitializerContextAgreesAcrossCSharpViews(
+        string typeName, string parameter, string? section = null)
+    {
+        var result = await ConsoleCapture.RunAsync(() => MemberCommand.ExecuteAsync(new MemberOptions
+        {
+            TypeName = $"ILInspector.Decompiler.Fixtures.{typeName}",
+            AssemblyPath = FixtureCatalog.DecompilerUnsafeLegacy.AssemblyPath(),
+            MemberFilter = ["Value"],
+            IncludeSections = section is not null ? [section] :
+            [
+                SectionNames.DecompiledSource,
+                SectionNames.AnnotatedSource,
+                SectionNames.CostOverlay,
+                SectionNames.SemanticsOverlay,
+            ],
+            TipLevel = TipLevel.Quiet,
+            Verbosity = Verbosity.Normal,
+        }));
+
+        Assert.Equal(0, result.ExitCode);
+        int count = section is null ? 4 : 1;
+        Assert.Equal(count, result.Output.Split($"struct {typeName}(int {parameter})", StringSplitOptions.None).Length - 1);
+        Assert.Equal(count, result.Output.Split($"}} = {parameter};", StringSplitOptions.None).Length - 1);
+        if (section is null or SectionNames.AnnotatedSource)
+            Assert.Contains("// IL_0000: ldarg.0", result.Output);
+        Assert.DoesNotContain("get_Value(", result.Output);
+        Assert.DoesNotContain("declaration formatting failed", result.Output);
+    }
+
+    [Fact]
+    public async Task SelectedProperty_InitializerImportsSurviveAlongsideBodyDocument()
+    {
+        var result = await ConsoleCapture.RunAsync(() => MemberCommand.ExecuteAsync(new MemberOptions
+        {
+            TypeName = "ILInspector.Decompiler.Fixtures.ConstructorGetterList<T>",
+            AssemblyPath = FixtureCatalog.DecompilerUnsafeLegacy.AssemblyPath(),
+            MemberFilter = ["Items"],
+            IncludeSections = [SectionNames.DecompiledSource, SectionNames.AnnotatedSourceDocument],
+            TipLevel = TipLevel.Quiet,
+        }));
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Contains("using System;", result.Output);
+        Assert.Contains("get => field ?? Array.Empty<T>();", result.Output);
+        Assert.Contains("} = items;", result.Output);
+    }
+
+    [Fact]
+    public async Task SelectedProperty_InitializerContextDoesNotReachBodyOnlyDocument()
+    {
+        var result = await ConsoleCapture.RunAsync(() => MemberCommand.ExecuteAsync(new MemberOptions
+        {
+            TypeName = "ILInspector.Decompiler.Fixtures.ConstructorGetterComputed",
+            AssemblyPath = FixtureCatalog.DecompilerUnsafeLegacy.AssemblyPath(),
+            MemberFilter = ["Value"],
+            IncludeSections = [SectionNames.AnnotatedSourceDocument],
+            JsonOutput = true,
+            TipLevel = TipLevel.Quiet,
+        }));
+
+        Assert.Equal(0, result.ExitCode);
+        using var document = System.Text.Json.JsonDocument.Parse(result.Output);
+        string text = document.RootElement.GetProperty("text").GetString()!;
+        Assert.Contains("this.Value + 1", text);
+        Assert.DoesNotContain("struct ", text);
+        Assert.DoesNotContain("= value;", text);
+    }
+
     [Fact]
     public async Task DecompiledSource_PropertyGetterRendersAccessorDeclaration()
     {
@@ -1578,7 +1653,7 @@ public class MemberCallGraphSectionTests
             typeof(MemberCallGraphFixture).FullName!, nameof(MemberCallGraphFixture.Descriptor), overloadIndex: null);
 
         Assert.Equal(0, result.ExitCode);
-        Assert.Contains("## Decompiled Source", result.Output);
+        Assert.DoesNotContain("## Decompiled Source", result.Output);
         Assert.Contains("public static string Descriptor =>", result.Output);
         Assert.DoesNotContain("get_Descriptor(", result.Output);
         Assert.DoesNotContain("set_Descriptor(", result.Output);
@@ -1591,7 +1666,7 @@ public class MemberCallGraphSectionTests
             typeof(MemberCallGraphFixture).FullName!, nameof(MemberCallGraphFixture.Descriptor), overloadIndex: 2);
 
         Assert.Equal(0, result.ExitCode);
-        Assert.Contains("## Decompiled Source", result.Output);
+        Assert.DoesNotContain("## Decompiled Source", result.Output);
         Assert.Contains("public static string Descriptor", result.Output);
         Assert.Contains("set =>", result.Output);
         Assert.DoesNotContain("void set_Descriptor(", result.Output);
@@ -1608,7 +1683,7 @@ public class MemberCallGraphSectionTests
             typeof(MemberCallGraphFixture).FullName!, nameof(MemberCallGraphFixture.Triggered), overloadIndex: null);
 
         Assert.Equal(0, result.ExitCode);
-        Assert.Contains("## Decompiled Source", result.Output);
+        Assert.DoesNotContain("## Decompiled Source", result.Output);
         Assert.Contains("void add_Triggered(", result.Output);
     }
 
@@ -1622,7 +1697,7 @@ public class MemberCallGraphSectionTests
             nameof(MemberAccessorModifierFixture.Label), overloadIndex: null);
 
         Assert.Equal(0, result.ExitCode);
-        Assert.Contains("## Decompiled Source", result.Output);
+        Assert.DoesNotContain("## Decompiled Source", result.Output);
         Assert.Contains("public virtual string Label { get; }", result.Output);
     }
 
@@ -1634,7 +1709,7 @@ public class MemberCallGraphSectionTests
             nameof(DerivedAccessorModifierFixture.Label), overloadIndex: null);
 
         Assert.Equal(0, result.ExitCode);
-        Assert.Contains("## Decompiled Source", result.Output);
+        Assert.DoesNotContain("## Decompiled Source", result.Output);
         Assert.Contains("public override string Label =>", result.Output);
     }
 
@@ -1647,7 +1722,7 @@ public class MemberCallGraphSectionTests
             nameof(MemberAccessorModifierFixture.State), overloadIndex: 2);
 
         Assert.Equal(0, result.ExitCode);
-        Assert.Contains("## Decompiled Source", result.Output);
+        Assert.DoesNotContain("## Decompiled Source", result.Output);
         Assert.Contains("private void set_State(bool value)", result.Output);
         Assert.DoesNotContain("public void set_State(", result.Output);
     }

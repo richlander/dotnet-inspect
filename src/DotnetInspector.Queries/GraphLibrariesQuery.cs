@@ -2,9 +2,9 @@ using System.Collections.Immutable;
 using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
 
-using DotnetInspector.PortableQueries;
-using DotnetInspector.QueryOperations;
-using DotnetInspector.RowSelection;
+using QuerySpace;
+using QuerySpace.Operations;
+using QuerySpace.Rows;
 
 namespace DotnetInspector.Queries;
 
@@ -45,7 +45,7 @@ public abstract record GraphLibrariesQueryPlanResult
 /// <summary>
 /// Portable query registration for the pair-wide Graph Libraries selector.
 /// </summary>
-public static class GraphLibrariesQuery
+public static partial class GraphLibrariesQuery
 {
     public const string OperationIdentity = "graph-libraries";
     public const string OperationRouteIdentity = "graph-libraries/default";

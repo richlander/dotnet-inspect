@@ -102,6 +102,7 @@ public static partial class ApiSurfaceExtractor
         AddText(ref count, member.DeclaringTypeCanonicalName);
         AddText(ref count, member.DeclaringTypeDefinitionName);
         AddText(ref count, member.EnumValueLiteral);
+        AddText(ref count, member.ConstantValueLiteral);
         AddText(ref count, member.JsonPropertyName);
         AddText(ref count, member.GetterAccessibility);
         AddText(ref count, member.SetterAccessibility);
@@ -358,23 +359,7 @@ public static partial class ApiSurfaceExtractor
         int _pendingObservedTextCharacters;
         long _decodeWork;
 
-        public int MetadataRows { get; private set; }
         public int RetainedTextCharacters => _retainedTextCharacters;
-
-        /// <summary>Refuses an image whose metadata shape exceeds the remaining walk budget.</summary>
-        public void AdmitMetadataRows(MetadataReader reader)
-        {
-            foreach (TableIndex table in Enum.GetValues<TableIndex>())
-            {
-                int rows = reader.GetTableRowCount(table);
-                if (rows > bounds.MaxMetadataRows - MetadataRows)
-                {
-                    throw new ExtractionBoundExceededException(
-                        ApiSurfaceExtractionBound.MetadataRows);
-                }
-                MetadataRows += rows;
-            }
-        }
 
         /// <summary>Starts work that may determine whether a type is retained.</summary>
         public void BeginTypeCandidate()

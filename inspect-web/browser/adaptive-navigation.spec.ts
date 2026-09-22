@@ -75,6 +75,31 @@ test("adaptive navigation preserves complete inventories and manual activation",
   await expect(metadata).toBeFocused();
 });
 
+test("local Navigation tab activation preserves destination focus", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto("/browser/workspace-titlebar.html?member=1");
+
+  const type = page.getByRole("tab", { name: "Type", exact: true });
+  const member = page.locator(".type-row");
+  await type.evaluate(element => {
+    if (!(element instanceof HTMLElement)) {
+      throw new Error("The Type Navigation tab is not an HTML element.");
+    }
+    delete element.dataset.scope;
+    element.dataset.localNavigationAction = "choose-member";
+    element.addEventListener("click", () => {
+      document.querySelector<HTMLElement>(".type-row")?.focus();
+    });
+  });
+
+  await type.focus();
+  await type.press("Enter");
+
+  await expect(member).toBeFocused();
+});
+
 test("adaptive navigation selects deterministic mixed and dual Chooser forms", async ({
   page,
 }) => {
@@ -114,7 +139,7 @@ test("adaptive navigation selects deterministic mixed and dual Chooser forms", a
     element.scrollWidth <= element.clientWidth)).toBe(true);
 });
 
-test("application scopes yield before complete navigation falls back", async ({
+test("product navigation remains available while complete navigation fits", async ({
   page,
 }) => {
   await page.goto("/browser/workspace-titlebar.html?member=1");
@@ -125,7 +150,7 @@ test("application scopes yield before complete navigation falls back", async ({
       subject: "tabs",
       inspector: "tabs",
     });
-    await expect(page.locator(".application-scope-region")).toBeHidden();
+    await expect(page.locator(".brand")).toBeVisible();
   }
 
   await page.setViewportSize({ width: 1440, height: 900 });
@@ -133,22 +158,22 @@ test("application scopes yield before complete navigation falls back", async ({
     subject: "tabs",
     inspector: "tabs",
   });
-  await expect(page.locator(".application-scope-region")).toBeVisible();
+  await expect(page.locator(".brand")).toBeVisible();
 });
 
-test("application scopes yield before a subject-only group falls back", async ({
+test("product navigation remains available when a subject-only group falls back", async ({
   page,
 }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.goto("/browser/workspace-titlebar.html?workspace=1");
-  await expect(page.locator(".application-scope-region")).toBeVisible();
+  await expect(page.locator(".brand")).toBeVisible();
   await expect.poll(() => forms(page)).toEqual({
     subject: "tabs",
     inspector: null,
   });
 
   await page.setViewportSize({ width: 260, height: 900 });
-  await expect(page.locator(".application-scope-region")).toBeHidden();
+  await expect(page.locator(".brand")).toBeVisible();
   await expect.poll(() => forms(page)).toEqual({
     subject: "chooser",
     inspector: null,
@@ -483,7 +508,31 @@ test("Workspace with no committed subject uses an honest focus origin", async ({
   const packageTab = page.getByRole("tab", { name: "Package" });
   await expect(packageTab).toBeFocused();
   await expect(packageTab).toHaveAttribute("aria-selected", "false");
-  await expect(page.locator("#subject-panel")).toHaveAttribute(
-    "aria-labelledby",
-    "application-scope-workspace");
+  await expect(page.locator("#subject-panel"))
+    .not.toHaveAttribute("aria-labelledby");
+});
+
+test("Chooser keeps a disabled owner-ordered item open on activation", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 220, height: 900 });
+  await page.goto("/browser/workspace-titlebar.html?workspace=1");
+
+  const trigger = page.locator("[data-navigation-trigger='subject']");
+  const menu = page.getByRole("menu", { name: "Subjects" });
+  const packageItem = page.locator(
+    "[data-navigation-menu='subject'] [data-scope='package']");
+  await packageItem.evaluate(element =>
+    element.setAttribute("aria-disabled", "true"));
+  await trigger.click();
+
+  await expect(packageItem).toBeFocused();
+  await packageItem.press("Enter");
+  await expect(menu).toBeVisible();
+  await expect(trigger).toHaveAttribute("aria-expanded", "true");
+  await expect(packageItem).toBeFocused();
+
+  await packageItem.click({ force: true });
+  await expect(menu).toBeVisible();
+  await expect(trigger).toHaveAttribute("aria-expanded", "true");
 });

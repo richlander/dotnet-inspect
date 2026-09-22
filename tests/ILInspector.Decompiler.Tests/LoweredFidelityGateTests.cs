@@ -158,9 +158,10 @@ public class LoweredFidelityGateTests
         // method-group conversion in both official C# views.
         "CachedStaticMethodGroup",
         "ExplicitStaticMethodGroupArgument",
-        // #3218: receiver-proven generic argument elision recompiles to the
-        // same Enumerable instantiations in the lowered C# view.
+        // #3218: receiver- and lambda-output-proven generic argument elision
+        // recompiles to the same Enumerable instantiations in the lowered C# view.
         "ReceiverInferredExtensionArguments",
+        "FluentResultInferredExtensionArgumentsAreOmitted",
         // #4281: the nested enumerator's region-exit leave now raises to a
         // side-effect-preserving break in both official C# views.
         "AllOuterMatchInner",

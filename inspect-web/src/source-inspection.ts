@@ -7,6 +7,7 @@ import {
 import type {
   BrowserMemberSource,
   BrowserSource,
+  BrowserTypeCodeView,
   BrowserTypeSourceResult,
 } from "./facades/inspect-web-source.d.ts";
 import type { MemberFocusSnapshot } from "./member-focus.ts";
@@ -37,6 +38,17 @@ export interface MemberSourceQuery extends SourceCoordinates {
 
 export interface TypeSourceQuery extends SourceCoordinates {
   taste: string;
+  view: TypeSourceView;
+}
+
+export type TypeSourceView = "source" | "api-declarations" | "all-declarations";
+
+export function typeSourceView(value: string): TypeSourceView | null {
+  return value === "source"
+    || value === "api-declarations"
+    || value === "all-declarations"
+    ? value
+    : null;
 }
 
 export interface GraphSourceRequest extends SourceCoordinates {
@@ -156,7 +168,7 @@ export function normalizeSourceResultSnapshot<TSource>(
 export interface SourceInspectionState
   extends SourceWorkbenchState {
   memberSource: SourceResultState<BrowserMemberSource>;
-  typeSource: SourceResultState;
+  typeSource: SourceResultState<BrowserTypeCodeView>;
   graphSource: GraphSourceState;
   taste: string[];
 }
@@ -211,10 +223,10 @@ export function createSourceInspectionCoordinator(
     preservedFocus: MemberFocusSnapshot | null;
   }
   type TypeSourceFeatureEvent =
-    OperationFeatureEvent<BrowserSource, unknown, never>;
+    OperationFeatureEvent<BrowserTypeCodeView, unknown, never>;
   type TypeSourceSession = OperationSession<
     TypeSourceLoadRequest,
-    BrowserSource,
+    BrowserTypeCodeView,
     unknown,
     never,
     never
@@ -311,7 +323,7 @@ export function createSourceInspectionCoordinator(
     });
   const typeSourceAdapter: OperationProducerAdapter<
     TypeSourceLoadRequest,
-    BrowserSource,
+    BrowserTypeCodeView,
     unknown,
     never,
     never

@@ -38,13 +38,15 @@
   </ItemGroup>
 
   <ItemGroup>
+    <Using Include="QuerySpace.Rows" />
     <Using Include="Xunit" />
   </ItemGroup>
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\DotnetInspector.PackageQueries\DotnetInspector.PackageQueries.csproj" />
     <ProjectReference Include="..\..\src\DotnetInspector.DocumentationHouse.Direct\DotnetInspector.DocumentationHouse.Direct.csproj" />
-    <ProjectReference Include="..\..\src\DotnetInspector.QueryEngine\DotnetInspector.QueryEngine.csproj" />
+    <ProjectReference Include="..\..\src\DotnetInspector.DocumentationHouse.Source\DotnetInspector.DocumentationHouse.Source.csproj" />
+    <ProjectReference Include="..\..\src\QuerySpace\QuerySpace.csproj" />
     <ProjectReference Include="..\..\src\DotnetInspector.Presentation\DotnetInspector.Presentation.csproj" />
     <ProjectReference Include="..\..\src\DotnetInspector.Queries\DotnetInspector.Queries.csproj" />
     <ProjectReference Include="..\..\src\DotnetInspector.SourceHouse\DotnetInspector.SourceHouse.csproj" />
@@ -74,6 +76,7 @@
     <ProjectReference Include="..\..\fixtures\shared\DotnetInspector.Fixtures\DotnetInspector.Fixtures.csproj" />
     <ProjectReference Include="..\DotnetInspector.FixtureInfrastructure\DotnetInspector.FixtureInfrastructure.csproj" />
     <ProjectReference Include="..\DotnetInspector.PackageManifestCorpus\DotnetInspector.PackageManifestCorpus.csproj" />
+    <ProjectReference Include="..\..\tools\SourceBuildAttestation\SourceBuildAttestation.csproj" />
   </ItemGroup>
 
   <ItemGroup>

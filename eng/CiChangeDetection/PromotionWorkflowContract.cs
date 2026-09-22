@@ -1787,7 +1787,7 @@ internal static class PromotionWorkflowContract
         [
             "InspectWebJsExportContext",
             "census.assemblies.map",
-            "assert.equal(census.assembly_count, 7)",
+            "assert.equal(census.assembly_count, 8)",
             "assert.ok(\n  census.js_export_method_count > 0,",
             "generated_source_file:",
             "generated_source_sha256:",
@@ -1808,6 +1808,7 @@ internal static class PromotionWorkflowContract
             "DotnetInspect.Web.Interop.Analysis",
             "DotnetInspect.Web.Interop.CallGraph",
             "DotnetInspect.Web.Interop.Catalog",
+            "DotnetInspect.Web.Interop.Library",
             "DotnetInspect.Web.Interop.Metadata",
             "DotnetInspect.Web.Interop.Package",
             "DotnetInspect.Web.Interop.Source",
@@ -1992,8 +1993,8 @@ internal static class PromotionWorkflowContract
               and .method == "InspectionEngine.AsyncLoweringCanary"
               and .lowering == "__LOWERING__"
               and .result == "inspect-web-async-lowering-ok"
-              and .facade_count == 7
-              and .assembly_count == 7
+              and .facade_count == 8
+              and .assembly_count == 8
               and .js_export_method_count > 0
               and .async_method_count > 0
               and __COMPILER_COUNT__
@@ -2007,6 +2008,7 @@ internal static class PromotionWorkflowContract
                 "DotnetInspect.Web.Interop.Analysis",
                 "DotnetInspect.Web.Interop.CallGraph",
                 "DotnetInspect.Web.Interop.Catalog",
+                "DotnetInspect.Web.Interop.Library",
                 "DotnetInspect.Web.Interop.Metadata",
                 "DotnetInspect.Web.Interop.Package",
                 "DotnetInspect.Web.Interop.Source"
@@ -2016,6 +2018,7 @@ internal static class PromotionWorkflowContract
                 "inspect-web-analysis",
                 "inspect-web-call-graph",
                 "inspect-web-catalog",
+                "inspect-web-library",
                 "inspect-web-metadata",
                 "inspect-web-package",
                 "inspect-web-source"

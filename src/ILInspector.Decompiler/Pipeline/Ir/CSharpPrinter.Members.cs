@@ -600,12 +600,16 @@ public sealed partial class CSharpPrinter
     /// </summary>
     string MethodGroupText(MethodRef method, IrExpression target, bool isVirtual)
     {
-        string name = CSharpNaming.SourceMethodName(method);
+        string methodName = CSharpNaming.SourceMethodName(method);
         // A raised local function is declared IN the host body, not on the type, so it
         // is referenced unqualified. Taking the static arm below would spell it
         // `Type.Name`, which is CS0117 — the shape #3631's method-group sibling hit.
         if (method.LocalFunctionRaise == LocalFunctionRaiseState.Raised)
-            return name;
+            return methodName;
+        string typeArguments = method.TypeArguments.IsEmpty
+            ? ""
+            : $"<{string.Join(", ", method.TypeArguments.Select(TypeText))}>";
+        string name = $"{methodName}{typeArguments}";
         if (target is Constant { Value: null })
             return $"{TypeQualifierText(method.DeclaringType)}.{name}";
         if (target is LoadArgument { Index: 0, Name: "this" })
@@ -631,16 +635,13 @@ public sealed partial class CSharpPrinter
                 return $"base.{name}";
             if (_options.QualifyMethodAccess)
             {
-                // A generic method GROUP (this.Make<int>) is deliberately not
-                // recorded: MethodGroupText renders only the bare name, dropping
-                // the type arguments (a pre-existing emit gap; AddressOfMethodText
-                // and CallText append them, this path does not). The emitted
-                // this.Make does not round-trip — delegate return-type inference
-                // cannot recover the type argument (CS0411) — so recording it as a
-                // byte-preserving opt-in would be a false positive. Suppressing is
-                // a safe under-record; fixing the emit is out of scope here.
-                if (method.TypeArguments.IsDefaultOrEmpty)
-                    RecordMethodQualificationIfTaste(name, method.Name, method.DeclaringType, 0, method.ParameterTypes);
+                RecordMethodQualificationIfTaste(
+                    methodName,
+                    method.Name,
+                    method.DeclaringType,
+                    method.TypeArguments.Length,
+                    method.ParameterTypes,
+                    method.DefinitionParameterTypes);
                 return $"this.{name}";
             }
             return name;
@@ -870,11 +871,20 @@ public sealed partial class CSharpPrinter
                 continue;
 
             IrExpression argument = call.Arguments[i];
-            if (argument is Lambda)
+            if (argument is Lambda lambda)
             {
-                if (!LambdaOutputPreservesGenericInference(parameter))
+                if (!LambdaOutputPreservesGenericInference(
+                    parameter,
+                    lambda,
+                    call.Callee.TypeArguments))
                     return false;
                 continue;
+            }
+
+            if (call.Callee.TypeArgumentElisionLambdaOutputs.Any(
+                output => output.ArgumentIndex == i))
+            {
+                return false;
             }
 
             if (argument is CollectionExpression collection)
@@ -979,7 +989,10 @@ public sealed partial class CSharpPrinter
         return parameterCount < 0 || lambda.Parameters.Length == parameterCount;
     }
 
-    static bool LambdaOutputPreservesGenericInference(TypeRef parameter)
+    static bool LambdaOutputPreservesGenericInference(
+        TypeRef parameter,
+        Lambda lambda,
+        ImmutableArray<TypeRef> typeArguments)
     {
         if (parameter.Kind != TypeRefKind.GenericInstance
             || parameter.ElementType is not { } definition)
@@ -991,7 +1004,10 @@ public sealed partial class CSharpPrinter
             && definition.Name == "Expression`1"
             && parameter.TypeArguments is [var delegateType])
         {
-            return LambdaOutputPreservesGenericInference(delegateType);
+            return LambdaOutputPreservesGenericInference(
+                delegateType,
+                lambda,
+                typeArguments);
         }
 
         if (definition.Assembly != TypeRef.CoreLibrary)
@@ -1002,10 +1018,22 @@ public sealed partial class CSharpPrinter
             return true;
         }
 
-        return definition.Namespace == "System"
-            && definition.Name.StartsWith("Func`", StringComparison.Ordinal)
-            && parameter.TypeArguments.Length > 0
-            && !ContainsMethodGenericParameter(parameter.TypeArguments[^1]);
+        if (definition.Namespace != "System"
+            || definition.Name != $"Func`{parameter.TypeArguments.Length}"
+            || parameter.TypeArguments.IsEmpty)
+        {
+            return false;
+        }
+
+        TypeRef output = parameter.TypeArguments[^1];
+        if (!ContainsMethodGenericParameter(output))
+            return true;
+
+        int index = output.GenericParameterIndex;
+        return output.Kind == TypeRefKind.MethodGenericParameter
+            && (uint)index < (uint)typeArguments.Length
+            && lambda.ExpressionBody is { } expression
+            && VarInfersDeclaredType(typeArguments[index], expression);
     }
 
     static bool ContainsMethodGenericParameter(TypeRef type)

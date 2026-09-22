@@ -18,6 +18,7 @@ export function assertNever(value: never, vocabulary: string): never {
 // runtime-pack filter. A direct export would be a way to skip it.
 const lenses = [
   ["api", "API"],
+  ["compare", "Compare"],
   ["metadata", "Metadata"],
   ["source", "Source"]
 ] as const;
@@ -42,6 +43,7 @@ export const libraryLenses = [
   ["references", "References"],
   ["integrations", "Integrations"],
   ["analysis", "Analysis"],
+  ["metrics", "Metrics"],
   ["metadata", "Metadata"]
 ] as const;
 
@@ -69,6 +71,7 @@ export const memberSectionDefinitions = [
   ["facts", "Facts"],
   ["source", "Source"],
   ["annotated", "Annotated source"],
+  ["compare", "Compare"],
 ] as const;
 
 export type MemberSection = (typeof memberSectionDefinitions)[number][0];
@@ -485,6 +488,15 @@ export function retainWorkspacePackage<T extends PackageIdentity>(
 
 export interface RemoveWorkspacePackageInput extends PackageIdentity {
   isRuntimePack?: boolean;
+  runtimeIdentifier?: string | null;
+}
+
+export function workspacePackageRemovalKey(
+  pkg: RemoveWorkspacePackageInput | null | undefined,
+): string {
+  const packageKey = packageIdentityKey(pkg);
+  if (!packageKey || !pkg?.runtimeIdentifier) return packageKey;
+  return `${packageKey}|${encodeURIComponent(pkg.runtimeIdentifier.toLowerCase())}`;
 }
 
 export interface RemoveWorkspacePackageResult<T> {
@@ -498,14 +510,15 @@ export function removeWorkspacePackage<T extends RemoveWorkspacePackageInput>(
   activePackage: T | null,
   packageKey: string,
 ): RemoveWorkspacePackageResult<T> {
-  const index = packages.findIndex(item => packageIdentityKey(item) === packageKey);
+  const index = packages.findIndex(item =>
+    workspacePackageRemovalKey(item) === packageKey);
   const closed = index >= 0 ? packages[index] : undefined;
   if (!closed || closed.isRuntimePack) {
     return { packages: [...packages], active: activePackage, closed: null };
   }
 
   const remaining = packages.filter((_, candidate) => candidate !== index);
-  const active = packageIdentityKey(activePackage) === packageKey
+  const active = workspacePackageRemovalKey(activePackage) === packageKey
     ? remaining[Math.min(index, remaining.length - 1)] ?? null
     : activePackage;
   return { packages: remaining, active, closed };
@@ -1285,6 +1298,7 @@ export interface CallGraphDiagnostics {
   incompleteEdges?: number;
   bindingIdentityConflicts?: number;
   hasAnalysisFailureBoundary?: boolean;
+  unavailableDependencyRoutes?: number;
 }
 
 export function callGraphDiagnosticsMessage(diagnostics: CallGraphDiagnostics | null | undefined): string {
@@ -1298,6 +1312,8 @@ export function callGraphDiagnosticsMessage(diagnostics: CallGraphDiagnostics | 
     evidence.push(`${diagnostics.bindingIdentityConflicts} binding identity conflict${diagnostics.bindingIdentityConflicts === 1 ? "" : "s"}`);
   if (diagnostics.hasAnalysisFailureBoundary)
     evidence.push("one or more method bodies could not be analyzed");
+  if ((diagnostics.unavailableDependencyRoutes ?? 0) > 0)
+    evidence.push(`${diagnostics.unavailableDependencyRoutes} unavailable dependency route${diagnostics.unavailableDependencyRoutes === 1 ? "" : "s"}`);
   if (!evidence.length) return "";
   const detail = evidence.length === 1
     ? evidence[0]
@@ -1573,7 +1589,7 @@ const allMemberSections: readonly MemberSection[] =
   memberSectionDefinitions.map(([id]) => id);
 
 const packageOnlyMemberSections: ReadonlySet<MemberSection> =
-  new Set<MemberSection>(["facts", "source", "annotated"]);
+  new Set<MemberSection>(["facts", "source", "annotated", "compare"]);
 
 export function memberSectionIdsFor(
   member: SectionableMember | null | undefined,
@@ -1582,7 +1598,9 @@ export function memberSectionIdsFor(
 ): MemberSection[] {
   if (["property", "field", "event", "constant"].includes(member?.kind ?? "")
     && !hasSelectedBody) {
-    return ["overview"];
+    // Compare is Diff-capable for every API member kind; only its Clone mode
+    // needs a method body, and the surface reports that itself.
+    return isRuntimePack ? ["overview"] : ["overview", "compare"];
   }
   const sections = isRuntimePack
     ? allMemberSections.filter(section => !packageOnlyMemberSections.has(section))
@@ -1594,10 +1612,13 @@ export function memberSectionIdsFor(
 }
 
 export function typeLensesFor(
-  pkg: { isRuntimePack?: boolean } | null | undefined,
+  pkg: { isRuntimePack?: boolean; source?: { kind: string } } | null | undefined,
 ): readonly (readonly [TypeLens, string])[] {
-  return pkg?.isRuntimePack
-    ? lenses.filter(([id]) => id === "api")
+  if (pkg?.isRuntimePack) return lenses.filter(([id]) => id === "api");
+  // Compare follows the Library rule: its Package-owned Diff baseline exists
+  // only for Gallery packages.
+  return pkg?.source !== undefined && pkg.source.kind !== "nuget.org"
+    ? lenses.filter(([id]) => id !== "compare")
     : lenses;
 }
 

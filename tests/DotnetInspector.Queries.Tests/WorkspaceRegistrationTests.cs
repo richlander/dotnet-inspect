@@ -15,6 +15,7 @@ public sealed class WorkspaceRegistrationTests
         WorkspaceRegistrationRevision initial = Current(first);
 
         Assert.Empty(initial.Registrations);
+        Assert.Empty(initial.EcosystemContributions);
         Assert.Same(first.Identity, initial.Workspace);
         Assert.Same(initial, Current(first));
         Assert.NotSame(initial.Workspace, Current(second).Workspace);
@@ -40,10 +41,19 @@ public sealed class WorkspaceRegistrationTests
         Assert.Same(library, Assert.Single(observed.ExactLibraries));
         Assert.Same(prefix, Assert.Single(observed.PackagePrefixes));
         Assert.Same(ecosystem, Assert.Single(observed.Ecosystems));
+        WorkspaceEcosystemContributionRelation initialContribution =
+            Assert.Single(observed.EcosystemContributions);
+        Assert.Same(workspace.Identity, initialContribution.Workspace);
+        Assert.Same(
+            ecosystem,
+            initialContribution.Ecosystem.Declaration);
         Assert.Equal("System.Text.Json", library.LibraryIdentity.Identity.Name);
         var replacement = Assert.IsType<WorkspaceRegistrationOperationResult.Committed>(
             WorkspaceRegistrationConsumer.Replace(workspace, observed.Revision, [initial[2], initial[0]]));
         Assert.Equal([initial[2], initial[0]], replacement.Revision.Registrations);
+        Assert.Same(
+            initialContribution,
+            Assert.Single(replacement.Revision.EcosystemContributions));
         Assert.NotSame(observed.Revision.Identity, replacement.Revision.Identity);
         Assert.Equal(initial, observed.Revision.Registrations);
         Assert.Same(replacement.Revision, Current(workspace));
@@ -117,6 +127,55 @@ public sealed class WorkspaceRegistrationTests
     }
 
     [Fact]
+    public async Task
+        EcosystemOccurrenceAndContributionFollowExactDeclarationAcrossRevisions()
+    {
+        WorkspaceEcosystemRegistrationDeclaration first = Platform();
+        WorkspaceEcosystemRegistrationDeclaration second = new(
+            WorkspaceEcosystemRegistrationId.Create("ecosystem.neighbor"),
+            ["Neighbor"], [],
+            [new WorkspaceEcosystemPopulationDeclaration.PackagePrefix(
+                new("Neighbor."))]);
+        await using var workspace = new InspectionWorkspace(
+            [
+                new WorkspaceRegistration.Ecosystem(first),
+                Prefix("Microsoft.Extensions."),
+                new WorkspaceRegistration.Ecosystem(second),
+            ]);
+        WorkspaceRegistrationRevision initial = Current(workspace);
+        Assert.Equal(2, initial.EcosystemContributions.Length);
+        WorkspaceEcosystemContributionRelation firstContribution =
+            initial.EcosystemContributions[0];
+        WorkspaceEcosystemContributionRelation secondContribution =
+            initial.EcosystemContributions[1];
+
+        var reordered =
+            Assert.IsType<WorkspaceRegistrationOperationResult.Committed>(
+                workspace.ReplaceRegistrations(
+                    initial,
+                    [
+                        new WorkspaceRegistration.Ecosystem(second),
+                        new WorkspaceRegistration.Ecosystem(first),
+                    ]));
+
+        Assert.Equal(
+            [secondContribution, firstContribution],
+            reordered.Revision.EcosystemContributions);
+        Assert.Same(
+            workspace.Identity,
+            firstContribution.Ecosystem.Workspace);
+        Assert.Same(
+            firstContribution.Workspace,
+            firstContribution.Identity.Workspace);
+        Assert.Same(
+            first,
+            firstContribution.Ecosystem.Declaration);
+        Assert.Equal(
+            [firstContribution, secondContribution],
+            initial.EcosystemContributions);
+    }
+
+    [Fact]
     public async Task SameEcosystemIdWithNewDeclarationReplacesIssuedCorrespondence()
     {
         WorkspaceEcosystemRegistrationDeclaration first = Platform();
@@ -125,12 +184,25 @@ public sealed class WorkspaceRegistrationTests
         Assert.Equal(first.NamespaceRoots, second.NamespaceRoots);
         await using var workspace = new InspectionWorkspace([new WorkspaceRegistration.Ecosystem(first)]);
         WorkspaceRegistrationRevision initial = Current(workspace);
+        WorkspaceEcosystemContributionRelation initialContribution =
+            Assert.Single(initial.EcosystemContributions);
         var changed = Assert.IsType<WorkspaceRegistrationOperationResult.Committed>(
             workspace.ReplaceRegistrations(initial, [new WorkspaceRegistration.Ecosystem(second)]));
+        WorkspaceEcosystemContributionRelation changedContribution =
+            Assert.Single(changed.Revision.EcosystemContributions);
 
         Assert.Same(second,
             Assert.IsType<WorkspaceRegistration.Ecosystem>(
                 Assert.Single(changed.Revision.Registrations)).Declaration);
+        Assert.NotSame(
+            initialContribution,
+            changedContribution);
+        Assert.NotSame(
+            initialContribution.Identity,
+            changedContribution.Identity);
+        Assert.NotSame(
+            initialContribution.Ecosystem.Identity,
+            changedContribution.Ecosystem.Identity);
         Assert.Same(first,
             Assert.IsType<WorkspaceRegistration.Ecosystem>(
                 Assert.Single(initial.Registrations)).Declaration);
@@ -139,6 +211,54 @@ public sealed class WorkspaceRegistrationTests
                 [new WorkspaceRegistration.Ecosystem(first), new WorkspaceRegistration.Ecosystem(second)]));
         Assert.Equal(WorkspaceRegistrationRejection.DuplicateIdentity, rejected.Reason);
         Assert.Same(changed.Revision, rejected.Revision);
+
+        var cleared =
+            Assert.IsType<WorkspaceRegistrationOperationResult.Committed>(
+                workspace.ReplaceRegistrations(changed.Revision, []));
+        var readded =
+            Assert.IsType<WorkspaceRegistrationOperationResult.Committed>(
+                workspace.ReplaceRegistrations(
+                    cleared.Revision,
+                    [new WorkspaceRegistration.Ecosystem(first)]));
+        WorkspaceEcosystemContributionRelation readdedContribution =
+            Assert.Single(readded.Revision.EcosystemContributions);
+        Assert.NotSame(initialContribution, readdedContribution);
+        Assert.NotSame(
+            initialContribution.Identity,
+            readdedContribution.Identity);
+        Assert.NotSame(
+            initialContribution.Ecosystem.Identity,
+            readdedContribution.Ecosystem.Identity);
+    }
+
+    [Fact]
+    public async Task ReusedPlanIssuesWorkspaceLocalEcosystemOccurrences()
+    {
+        WorkspaceEcosystemRegistrationDeclaration declaration = Platform();
+        var plan = new WorkspacePlan(
+            [new WorkspaceRegistration.Ecosystem(declaration)]);
+        await using var first = new InspectionWorkspace(plan);
+        await using var second = new InspectionWorkspace(plan);
+
+        WorkspaceEcosystemContributionRelation firstContribution =
+            Assert.Single(Current(first).EcosystemContributions);
+        WorkspaceEcosystemContributionRelation secondContribution =
+            Assert.Single(Current(second).EcosystemContributions);
+        Assert.Same(
+            declaration,
+            firstContribution.Ecosystem.Declaration);
+        Assert.Same(
+            declaration,
+            secondContribution.Ecosystem.Declaration);
+        Assert.NotSame(
+            firstContribution.Identity,
+            secondContribution.Identity);
+        Assert.NotSame(
+            firstContribution.Ecosystem.Identity,
+            secondContribution.Ecosystem.Identity);
+        Assert.NotSame(
+            firstContribution.Workspace,
+            secondContribution.Workspace);
     }
 
     [Fact]

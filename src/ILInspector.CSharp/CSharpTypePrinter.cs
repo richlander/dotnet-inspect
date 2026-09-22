@@ -794,6 +794,7 @@ public sealed class CSharpTypePrinter
         }
 
         var body = (CSharpPropertyBody)member.Body!;
+        string initializer = body.Initializer is { } expression ? $" = {expression};" : "";
         string declaration = propertyFormatter.FormatMemberWithBody(
             type.Type,
             member.Member,
@@ -809,7 +810,7 @@ public sealed class CSharpTypePrinter
                     member.Member,
                     SetterKeyword(member.Member)) + ";");
             return new RenderedFragment(
-                $"{PadDeclaration(declaration, pad)} {{ {string.Join(" ", accessors)} }}");
+                $"{PadDeclaration(declaration, pad)} {{ {string.Join(" ", accessors)} }}{initializer}");
         }
 
         var fragments = new List<RenderedFragment>
@@ -833,7 +834,7 @@ public sealed class CSharpTypePrinter
                     formatter,
                     indent + 1));
         }
-        fragments.Add(new RenderedFragment($"{pad}}}"));
+        fragments.Add(new RenderedFragment($"{pad}}}{initializer}"));
         return Join(fragments, "\n");
     }
 
@@ -887,12 +888,25 @@ public sealed class CSharpTypePrinter
         string head = formatter.FormatAccessorHead(declaringType, member, kind);
         if (body.Kind == CSharpAccessorBodyKind.Auto)
             return new RenderedFragment($"{pad}{head};");
+        if (body.Kind == CSharpAccessorBodyKind.Expression)
+            return RenderExpressionBody(body, indent).Wrap($"{pad}{head} ", "");
 
         string source = body.Kind == CSharpAccessorBodyKind.Throw
             ? "throw null;"
             : body.Source!;
         var block = RenderBodyBlock(source, indent, body.IsReplacementTarget);
         return block.Wrap($"{pad}{head}\n", "");
+    }
+
+    static RenderedFragment RenderExpressionBody(CSharpAccessorBody body, int indent)
+    {
+        string source = $"=> {body.Source};";
+        return body.IsReplacementTarget
+            ? new RenderedFragment(
+                source,
+                new CSharpSourceRange(0, source.Length),
+                new string(' ', indent * 4))
+            : new RenderedFragment(source);
     }
 
     static string RenderDelegate(PreparedType prepared, CSharpFormatter formatter, int indent)
@@ -1312,8 +1326,15 @@ public sealed class CSharpTypePrinter
                 $"Member body shape '{policy.Body?.GetType().Name}' is not valid for {member.Kind} '{member.Name}'.",
                 parameterName);
         }
+        bool isInterfaceConstantInitializer =
+            type.Kind == "interface"
+            && member.Kind == "field"
+            && member.IsConst
+            && policy.BodyPolicy == CSharpBodyPolicy.Full
+            && policy.Body is CSharpFieldInitializer;
         if (type.Kind == "interface"
-            && policy.BodyPolicy != CSharpBodyPolicy.Skeleton)
+            && policy.BodyPolicy != CSharpBodyPolicy.Skeleton
+            && !isInterfaceConstantInitializer)
         {
             throw new ArgumentException(
                 $"Interface member '{member.Name}' must use skeleton body policy.",

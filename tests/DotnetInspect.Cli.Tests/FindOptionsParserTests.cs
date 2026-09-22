@@ -3,6 +3,9 @@ using DotnetInspect.Cli.CommandLine;
 using DotnetInspect.Cli.Commands;
 using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Output;
+using DotnetInspector.Queries;
+using QuerySpace.Rows;
+using DotnetInspector.Sections;
 
 namespace DotnetInspect.Cli.Tests;
 
@@ -118,6 +121,65 @@ public class FindOptionsParserTests
             new FindOptions { Pattern = "JsonSerializer", Members = false }, "JsonSerializer");
 
         Assert.All(FindTipArgs(tips), args => Assert.DoesNotContain("--members", args));
+    }
+
+    [Theory]
+    [InlineData(false, FindQueryRouteKind.TypeResults)]
+    [InlineData(true, FindQueryRouteKind.MemberResults)]
+    public void QueryPlan_PreservesTheActiveLensAndOrderedRows(
+        bool members,
+        FindQueryRouteKind expectedRoute)
+    {
+        RowSelectionIntent<string> selection =
+            RowSelectionIntent<string>.Create(
+                [
+                    RowSelectionIntentOperation<string>.Window(2, 4),
+                    RowSelectionIntentOperation<string>.Head(1),
+                ]);
+
+        Assert.True(
+            FindQueryOptions.TryResolve(
+                expectedRoute,
+                selection,
+                out FindQueryPlan plan,
+                out string? error),
+            error);
+        var options = new FindOptions
+        {
+            Members = members,
+            QueryPlan = plan,
+        };
+
+        Assert.Equal(
+            expectedRoute,
+            options.QueryPlan.RouteKind);
+        Assert.Equal(
+            [
+                RowSelectionStageKind.Window,
+                RowSelectionStageKind.Head,
+            ],
+            options.EffectiveRowSelection!.Operations.Select(operation =>
+                operation.Kind));
+    }
+
+    [Fact]
+    public void QueryPlan_RejectsALensRouteMismatch()
+    {
+        Assert.True(
+            FindQueryOptions.TryResolve(
+                FindQueryRouteKind.MemberResults,
+                rowSelection: null,
+                out FindQueryPlan plan,
+                out string? error),
+            error);
+        var options = new FindOptions
+        {
+            Members = false,
+            QueryPlan = plan,
+        };
+
+        Assert.Throws<InvalidOperationException>(
+            () => options.EffectiveRowSelection);
     }
 
     [Theory]

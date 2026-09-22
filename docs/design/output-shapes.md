@@ -13,6 +13,12 @@ semantic
 [inspection Document](host-observable-content-kinds.md#document)
 may render through that shape, but the two terms are not equivalent.
 
+Default-renderer policy is owned by
+[Native type and source defaults](rendering-model.md#native-type-and-source-defaults).
+In particular, `type`/`member` source payloads do not require or accept
+`--bare`; other content owners retain their existing gestures. Shape selection
+and payload acquisition are unchanged by that presentation choice.
+
 The item-limit, projection-role, typed-L2 result, and multi-item print passages
 describe historical
 [#4677](https://github.com/richlander/dotnet-inspect/issues/4677) target
@@ -35,6 +41,8 @@ Related docs:
   retired umbrella target and an index of its focused owners
 - [Section-row shaping](section-row-shaping.md) — typed declared-row-set
   binding, projection roles, and terminal Count semantics
+- [Section cardinality](section-cardinality.md) — scalar sections expose
+  neither Rows nor Count; inventory sections expose both
 - [The package query CLI](package-query-cli.md) — a facet-matched package
   corpus row applying this ladder's "declared row unit" discipline, and the
   source of the item-limit design
@@ -109,6 +117,17 @@ JSON boundary, and rejects projected or unadopted Diff operations rather than
 silently ignoring the option. Rendered-line clipping is rejected for complete Content JSON.
 Share remains the service-issued `NonProjectable` at `comparison/endpoints`.
 
+Exact-pair Implementation Diff registers `implementation-diff` at schema
+version `1`. For one local Library on each endpoint, exact
+`-S "Implementation Diff"` selects the operation without projecting Content.
+`--json` and `--envelope.content` use the same
+`ImplementationDiffDocument` serializer and retain request selectors, endpoint
+assembly identity/MVID/provenance, member evidence, complexity, and coverage.
+Type and member selectors remain semantic request inputs. Package/platform
+sources, PDB Source, categories or additional sections, row/field/column
+projection, and alternate formats remain outside this complete transport.
+Share is `NonProjectable` at `comparison/endpoints`.
+
 Package Activity registers `ecosystem-change-report` at schema version `1`.
 Unprojected `--json` and `--envelope.content` share the owner-issued
 `EcosystemChangeReportDocument` serializer. Report scope, interval, security
@@ -117,13 +136,13 @@ row selection, discovery, section selection, and competing output formats are
 rejected with `--envelope`. Typed incomplete or failed Documents remain
 visible before the command returns a nonzero exit.
 
-Ordinary Package Query registers `package-query`, while `--library-literal`
-registers `package-assembly-semantic-query`, both at schema version `1`.
-Unprojected `--json` and `--envelope.content` share each owner's complete
-Document serializer. Query planning inputs remain admitted, while row
-selection, projection, section selection, Count, discovery, and competing
-output formats are rejected with `--envelope`. Typed incomplete or failed
-Documents remain visible before the command returns a nonzero exit.
+Package Query registers `package-query` at schema version `1`, including
+composable `library-literal` qualification. Unprojected `--json` and
+`--envelope.content` share the complete `PackageQueryDocument` serializer.
+Query planning inputs remain admitted, while row selection, projection,
+section selection, Count, discovery, and competing output formats are rejected
+with `--envelope`. Typed incomplete or failed Documents remain visible before
+the command returns a nonzero exit.
 
 Exact package-backed Type inspection registers `exact-type`, while exact
 package-backed Library API inspection registers `exact-library-api`, both at
@@ -142,6 +161,12 @@ unadopted. Library API Diff's complete Browser baseline transport is governed
 by its [Browser owner](inspect-web-library-api-diff.md#managed-composition).
 [#7703](https://github.com/richlander/dotnet-inspect/issues/7703) owns the
 remaining Diff command-family adoption.
+
+Target-bound Platform catalog routing separately materializes its query and
+route correspondence as primary Content in an internal host-neutral
+inspection envelope. The CLI consumes that envelope silently before entering
+the existing rich Type or member compatibility path. This does not adopt
+those downstream Type routes for public `--envelope` output.
 
 The adoption also closes two shared Content-serialization prerequisites.
 `AssemblyResolutionProvenance` serializes its six existing cases with owner
@@ -336,7 +361,6 @@ The registered adopter identities are:
 | `asset-dependencies` | `DependencyInspectionContent` |
 | `ecosystem-change-report` | `EcosystemChangeReportDocument` |
 | `package-query` | `PackageQueryDocument` |
-| `package-assembly-semantic-query` | `PackageAssemblySemanticQueryDocument` |
 | `exact-type` | `ExactTypeInspectionResult` |
 | `exact-library-api` | `ExactLibraryApiInspectionResult` |
 
@@ -569,25 +593,31 @@ descend to a Scalar by selecting a section, then columns, then collapsing.
 | **Vector** | one column: many rows of a single field | just the `Member` column |
 | **Scalar** | a single value, or a text/doc blob | `1234`, a README, a `///` summary |
 
-That descent describes one declared row-set outcome. Count reduces each
-declared row set independently: exactly one outcome reaches Scalar, while
-multiple exact outcomes reassemble as one ordered count Table. Count never
-collapses independent row sets into one request-wide scalar.
+[Section cardinality](section-cardinality.md) decides whether a resolved
+section enters the declared-row ladder at all. Inventory sections expose Rows
+and Count over owner-declared row sets; scalar sections already represent one
+typed value and expose neither. For an inventory, Count reduces each declared
+row set independently: exactly one outcome reaches Scalar, while multiple exact
+outcomes reassemble as one ordered count Table. Count never collapses
+independent row sets into one request-wide scalar.
 
 - **Document → Table.** A Document is a sequence of sections. Selecting one
   section leaves a single Table (or other single-section payload).
 - **Table → Vector.** A Table is columns × rows. Cell-projecting it to one
   column leaves a Vector — many rows of a single field. A field-set membership
   projection instead changes which field-entry rows reach this ladder.
-- **Vector → Scalar.** Within one declared row set, collapsing a Vector (count
-  it, or take one row) yields a Scalar. A Scalar is also the natural shape of a
-  non-tabular payload: one count, a single field value, or a
+- **Vector → Scalar.** Within one inventory row set, collapsing a Vector
+  (count it, or take one row) yields a Scalar. A Scalar is also the natural
+  shape of a non-tabular payload: one count, a single field value, or a
   text/documentation blob (a README, a decompiled `.cs` body, an XML-doc `///`
   comment).
 
-Most sections are Tables, but a section can also be a key-value field set, a
-list, a code/text blob, a tree, or a graph. Those are still "one section" — the
-Table rung — and each declared row set can collapse to a Scalar the same way.
+Most sections render as Tables, but a section can also be a key-value field
+set, a list, a code/text blob, a tree, or a graph. Rendering does not establish
+semantic cardinality. Single-assembly `Library Info` is a scalar record: its
+properties are not rows and their number is not Count. An inventory rendered
+through any of these forms instead declares its logical row unit before
+reaching this ladder.
 For a call graph, the declared row unit is a directed edge: `--count` counts
 relationships, `-n` limits them, and `--rows` selects an absolute range of the
 same ordered relationships whether the graph is rendered as a Markdown edge
@@ -683,6 +713,10 @@ shape, plus any mode that requires the section to be the complete selection.
 The command also declares any section family that forms one homogeneous Table
 when multiple members are selected.
 
+The shared `DiscoveryOutputMode` enum carries semantic mode identity in the
+host-neutral Discovery Document. Exact spellings such as `--tree` and
+`--mermaid` are CLI lowering owned by the host.
+
 Detailed structural discovery evaluates each listed section, or the complete
 expansion of a listed category, against that metadata. A category supports a
 mode only when every expanded member supports it and the complete selection
@@ -694,7 +728,9 @@ The resulting capability list describes the complete requested selection. It
 must not choose the first compatible section, remove incompatible members, or
 otherwise let a presentation modifier change semantic section selection.
 [`schema-query.md`](schema-query.md) owns the structural discovery surface that
-reports these owner-issued capabilities through `-D --details`.
+retains these capabilities in `DiscoveryDocument`. Library currently reports
+them through the temporary `-D --details` bridge; #7814 replaces that bridge
+with structural `explain`.
 
 ### Coordinate carriers sit before the ladder
 
@@ -1062,6 +1098,10 @@ L2 binds a successful Count or failure result. This document begins with that
 already-bound typed result and owns only its place on the shape ladder and its
 presentation.
 
+Only an inventory section can produce that typed result. A scalar section has
+no declared row set and rejects Count rather than reporting one, zero, its
+property count, or its rendered-line count.
+
 - A successful Count result containing one exact declared-row-set entry
   produces a culture-invariant decimal scalar. Markdown, plain text, pretty
   table, and TSV emit the same bare value; JSON emits one number; and JSONL
@@ -1399,9 +1439,11 @@ longer be exact. Every refused export is decided before opening its destination:
 an absent path stays absent, and an existing file remains byte-for-byte
 unchanged.
 
-Every command that exposes `--print` also exposes and wires unary `--bare` and
-`--out`; this makes the payload-only and exact-destination paths properties of
-the projection rather than accidents of its parent command. Structured
+The historical target gives `--print` unary `--bare` and `--out` companions;
+this is not a universal statement of implemented command options. In particular,
+the adopted `type`/`member` source paths use native payload output by default
+and explicit `--markdown` for document presentation, as defined by the rendering
+owner above. Structured
 multi-item `--out` is a different mode: after atomic preflight it may publish
 complete result records incrementally, including typed row failures, as
 described by the historical #4677 target. It remains pending focused L3
@@ -1543,7 +1585,7 @@ library MyLib.dll -S "Top Leverage" --fields Member --tsv
 # Scalar: collapse the table to a count …
 library MyLib.dll -S "Top Leverage" --count
 # … or render a blob payload without decoration
-member MyType Method:1 --library MyLib.dll -S "Decompiled Source" --bare > Method.cs
+member MyType Method:1 --library MyLib.dll -S "Decompiled Source" > Method.cs
 ```
 
 ### Case study: IL offset as a shape catalogue
@@ -1702,9 +1744,10 @@ for exact payload export.
 
 The stable vocabulary is:
 
-- `--count` is a terminal shape reduction over the logical rows surviving every
-  preceding semantic selection stage. One declared row set collapses to a
-  Scalar; multiple sets produce an ordered count Table.
+- `--count` is a terminal shape reduction available only to inventory
+  sections, over the logical rows surviving every preceding semantic selection
+  stage. One declared row set collapses to a Scalar; multiple sets produce an
+  ordered count Table. Scalar sections expose no Count terminal.
 - `-n N` / bare `-N` select the first N declared items per row set after
   filtering and ordering. `--head` names that direction explicitly and
   `--tail` reverses it when the producer can establish a truthful suffix.

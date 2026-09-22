@@ -4,8 +4,12 @@ import {
 } from "./package-controls.ts";
 import { renderBrand } from "./brand.ts";
 import type { KeybindingDescription } from "./keybinding-registry.ts";
+import { continueMenuButtonDocumentOrder } from "./menu-button.ts";
 
-export type ApplicationAction = "share" | "settings" | "keyboard-help";
+export type ApplicationAction =
+  | "share"
+  | "settings"
+  | "keyboard-help";
 
 export interface WorkbenchShellBindingActions {
   onApplicationAction: (action: ApplicationAction) => void;
@@ -25,6 +29,7 @@ export interface WorkbenchShellBinding {
 export interface HomeShellBindingActions {
   onDismissNotice: () => void;
   onOpenDemos: () => void;
+  onOpenLibrary: () => void;
   onToggleTheme: () => void;
 }
 
@@ -34,7 +39,6 @@ export interface LoadErrorShellBindingActions {
 }
 
 export interface WorkbenchShellHtmlOptions {
-  applicationScopeHtml: string;
   contextualActionsHtml?: string;
   inspectedTargetHtml: string;
   subjectInspectorHtml: string;
@@ -47,9 +51,6 @@ export function workbenchShellHtml(
   return `
       <header class="titlebar">
         ${renderBrand()}
-        <div class="application-scope-region">
-          ${options.applicationScopeHtml}
-        </div>
         <div class="subject-inspector-region">
           ${options.subjectInspectorHtml}
         </div>
@@ -256,31 +257,6 @@ function closeApplicationMenu(
   if (restoreFocus) button.focus();
 }
 
-function documentFocusableElements(document: Document): HTMLElement[] {
-  return [...document.querySelectorAll<HTMLElement>(
-    'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), '
-      + 'textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
-  )].filter(element =>
-    !element.hidden
-    && element.getClientRects().length > 0
-    && element.closest("#application-menu") === null);
-}
-
-function continueDocumentOrder(
-  button: HTMLElement,
-  menu: HTMLElement,
-  event: KeyboardEvent,
-): void {
-  const focusable = documentFocusableElements(button.ownerDocument);
-  const buttonIndex = focusable.indexOf(button);
-  const target = event.shiftKey
-    ? focusable[buttonIndex - 1]
-    : focusable[buttonIndex + 1];
-  event.preventDefault();
-  closeApplicationMenu(button, menu, false);
-  target?.focus();
-}
-
 function isNodeTarget(target: EventTarget | null): target is Node {
   return target !== null && "nodeType" in target;
 }
@@ -362,7 +338,11 @@ export function bindWorkbenchShell(
         event.preventDefault();
         closeApplicationMenu(menuButton, menu, true);
       } else if (event.key === "Tab") {
-        continueDocumentOrder(menuButton, menu, event);
+        continueMenuButtonDocumentOrder(
+          menuButton,
+          menu,
+          event,
+          () => closeApplicationMenu(menuButton, menu, false));
       } else if (event.key === "Home" || event.key === "End") {
         event.preventDefault();
         (event.key === "Home" ? items[0] : items.at(-1))?.focus();
@@ -487,6 +467,8 @@ export function bindHomeShell(
     ?.addEventListener("click", actions.onDismissNotice);
   root.querySelector("#home-demos")
     ?.addEventListener("click", actions.onOpenDemos);
+  root.querySelector("#home-open-library")
+    ?.addEventListener("click", actions.onOpenLibrary);
 }
 
 export function bindLoadErrorShell(

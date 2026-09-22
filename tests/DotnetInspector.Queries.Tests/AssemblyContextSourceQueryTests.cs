@@ -11,6 +11,7 @@ using DotnetInspector.Packages;
 using DotnetInspector.Fixtures;
 using DotnetInspector.Queries.EmbeddedFixtures;
 using DotnetInspector.Services;
+using DotnetInspector.SourceHouse;
 using ILInspector.Decompiler;
 using Inspector.Findings;
 using ILInspector.Metadata;
@@ -232,16 +233,23 @@ public sealed partial class AssemblyContextSourceQueryTests
                 host.Context,
                 TestContext.Current.CancellationToken);
 
+        var available =
+            Assert.IsType<AssemblyTypeSourceEntry.Available>(
+                result);
         var source =
             Assert.IsType<AssemblyTypeSource.Decompiled>(
-                Assert.IsType<AssemblyTypeSourceEntry.Available>(
-                        result)
-                    .Source);
+                available.Source);
+        var house =
+            Assert.IsType<SourceHouseDecompilationOutcome.Completed>(
+                available.DecompilationHouseOutcome);
         Assert.Contains(
             "interface BodylessSourceFixture",
             source.Text,
             StringComparison.Ordinal);
         Assert.False(source.PdbAttempt.IsComplete);
+        Assert.Same(source.Decompilation, house.Attempt);
+        Assert.IsType<SourceHouseTarget.TypeTarget>(
+            house.Request.Target);
         Assert.NotEmpty(host.SourceRequests);
     }
 
@@ -1173,6 +1181,16 @@ public sealed partial class AssemblyContextSourceQueryTests
         Assert.True(decompiled.Decompilation.IsAvailable);
         Assert.False(decompiled.Decompilation.PdbSupplied);
         Assert.NotEmpty(decompiled.Decompilation.BodyProjections);
+        var house =
+            Assert.IsType<SourceHouseDecompilationOutcome.Completed>(
+                available.DecompilationHouseOutcome);
+        Assert.Same(decompiled.Decompilation, house.Attempt);
+        Assert.Equal(
+            SourceHousePdbContributionKind.Unavailable,
+            house.PdbContribution.Kind);
+        Assert.Equal(
+            SourceHouseLibraryLeaseConsumer.SourceHouse,
+            house.LeaseSettlement.Consumer);
         var failed = Assert.IsType<FindingInspection<string>.Failed>(
             decompiled.PdbAttempt.Lines.Value);
         Assert.Contains("remains unresolved", failed.Error.Reason);
@@ -1205,6 +1223,10 @@ public sealed partial class AssemblyContextSourceQueryTests
             Assert.Null(attempt.Text);
             Assert.NotEmpty(attempt.Projection.Diagnostics);
         }
+        Assert.IsType<SourceHouseDecompilationOutcome.Completed>(
+            member.DecompilationHouseOutcome);
+        Assert.IsType<SourceHouseDecompilationOutcome.Completed>(
+            type.DecompilationHouseOutcome);
     }
 
     [Fact]
@@ -2679,11 +2701,10 @@ public sealed partial class AssemblyContextSourceQueryTests
                     assembly.TypeRequest(
                         typeof(SourceFixture).Name),
                     host.Context,
-                    assembly.TypeTarget(
-                        typeof(SourceFixture).Name),
                     retained,
                     assembly.Policy.Version,
-                    cancellation.Token));
+                    pdbEvidence: null,
+                    cancellationToken: cancellation.Token));
         }
         else
         {
@@ -3188,6 +3209,8 @@ public sealed partial class AssemblyContextSourceQueryTests
         Assert.NotNull(unavailable.PdbAttempt);
         Assert.NotNull(unavailable.DecompiledAttempt);
         Assert.False(unavailable.DecompiledAttempt!.IsAvailable);
+        Assert.IsType<SourceHouseDecompilationOutcome.Completed>(
+            unavailable.DecompilationHouseOutcome);
     }
 
     [Fact]

@@ -362,9 +362,15 @@ module-local declarations. The TypeScript consumer may map them into an
 application-owned model but may not establish equality by importing one
 facade's DTO as another facade's owner.
 
-`ProductionFacadeWireContexts_AreAssemblyLocal` gates that every JSON wire type
-reached by an export is declared and source-generated in the same export
-assembly. Existing serializer-to-completion authentication in
+Completed host-neutral [inspection envelopes](inspection-envelope.md) are
+owner-issued public contracts, not another host's DTOs. A local transport record
+may retain their content, Share, and diagnostics unchanged. Metadata retains its
+exact-type and type-dependency inspection contracts; Source retains the
+[Type API Declaration Inspection](type-api-declarations.md) contract.
+
+`ProductionFacadeWireContexts_AreAssemblyLocal` admits those completed contract
+closures and otherwise requires export DTOs to be declared and source-generated
+in the same export assembly. Existing serializer-to-completion authentication in
 `ILInspector.JsExportSurface` continues to gate the wire claim itself.
 
 ### Shared implementation services
@@ -606,7 +612,7 @@ numbers rather than converting malformed data into an empty or partial result.
 
 Page consumers await formerly synchronous managed behavior. Workspace packet
 encoding and decoding, demo resolution, Spotlight ranking, package-cache
-statistics, application-scope selection, Workspace occurrence clearing, saved
+statistics, product-destination selection, Workspace occurrence clearing, saved
 Workspace capture and restoration, and navigation publication all retain their
 own stale-result and transaction authority. Occurrence clear is a barrier for
 following occurrence queries and activation. Initial Workspace publication

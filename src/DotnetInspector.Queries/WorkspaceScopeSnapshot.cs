@@ -35,6 +35,8 @@ public sealed class WorkspacePackageDescriptor
         TargetFramework = SelectedTargetFramework ?? RequestedTargetFramework ?? Coordinate.Framework;
         RuntimeIdentifier = binding.Root.RequestedRuntimeIdentifier;
         SelectionStatus = binding.Root.AssetSelection.Status;
+        ContentGeneration = binding.ContentGenerationIdentity;
+        Selection = binding.SelectionIdentity;
     }
 
     public RealizedMemberCoordinate.Package Coordinate { get; }
@@ -45,6 +47,12 @@ public sealed class WorkspacePackageDescriptor
     public string? SelectedTargetFramework { get; }
     public string? RuntimeIdentifier { get; }
     public PackageCompileAssetSelectionStatus SelectionStatus { get; }
+    internal PackageContentGenerationIdentity ContentGeneration { get; }
+    internal PackageRootSelectionIdentity Selection { get; }
+
+    internal bool Matches(PackageRootBinding binding) =>
+        ReferenceEquals(ContentGeneration, binding.ContentGenerationIdentity)
+        && ReferenceEquals(Selection, binding.SelectionIdentity);
 }
 
 public sealed class WorkspacePackageOccurrence
@@ -324,8 +332,7 @@ public sealed class WorkspaceScopeSnapshot
     public WorkspaceScopePreparationDescriptor? Preparing { get; }
 
     /// <summary>
-    /// Finds the exact Scope-issued occurrence corresponding to one acquired
-    /// Package binding.
+    /// Finds the Scope-issued occurrence with the same logical Package request.
     /// </summary>
     public WorkspacePackageOccurrenceDescriptor? FindPackageOccurrence(
         PackageRootBinding binding)
@@ -355,6 +362,22 @@ public sealed class WorkspaceScopeSnapshot
         }
 
         return match;
+    }
+
+    /// <summary>
+    /// Finds the Scope-issued occurrence retaining the exact acquired Package
+    /// generation and selection.
+    /// </summary>
+    public WorkspacePackageOccurrenceDescriptor? FindExactPackageOccurrence(
+        PackageRootBinding binding)
+    {
+        WorkspacePackageOccurrenceDescriptor? occurrence =
+            FindPackageOccurrence(binding);
+        return occurrence is not null
+            && occurrence.Occurrence.Package.Matches(binding)
+            && binding.ReferencesRetainedContent()
+                ? occurrence
+                : null;
     }
 }
 

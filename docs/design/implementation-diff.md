@@ -295,7 +295,8 @@ less than or equal to this change's own. This is deliberately the local,
 per-request population issue #7696 calls for in diff analysis ("local
 comparison populations"), not a corpus-wide distribution across a package or
 assembly family - that broader population belongs to the separate
-library-report initiative and is intentionally out of scope here. A higher
+[Library Metrics](library-structural-report.md) initiative and is
+intentionally out of scope here. A higher
 percentile means a greater proportion of the population has an absolute delta
 less than or equal to this change's own. It does not by itself identify an
 unusual change: when all absolute deltas are equal, every change has a
@@ -2020,14 +2021,47 @@ replay or locate the row after the member is known:
 | Mechanism | Currency carrier | Native row coordinates |
 | --- | --- | --- |
 | MetadataDiff | row (`ApiChange` → `MemberAnchor` on `ApiChangeSubject`) | `ApiChangeSubjectKind`, old/new member handles, category |
-| C#Diff | row (`CSharpDiffRow` → `MemberAnchor` + `StableMemberKey`) | `ChangeId` / `CSharpDiffKind`, source line / `SourceCoordinate`, related IL offsets as evidence, fidelity |
+| C#Diff | row (`CSharpDiffRow` → API `MemberAnchor` + optional collision-only body anchor + `StableMemberKey`) | `ChangeId` / `CSharpDiffKind`, source line / `SourceCoordinate`, related IL offsets as evidence, fidelity |
 | ILDiff | wrapper (`ResearchSubjectKey` via `SubjectFromMethod`) | `HunkId`, `IlDiffKind` polarity, `CanonicalIlOperation`, IL offset (hint) |
 | Analysis/body-signal | wrapper (`ResearchSubjectKey` via `SubjectFromMethod`) | signal / shape, added/removed/changed kind, IL offset(s) as evidence |
 
+The API-facing `MemberAnchor` keeps the API selector grammar, where return type
+normally does not participate. When one body population contains multiple
+MethodDefs that share that API anchor but have distinct return types, body
+evidence additionally carries a producer-issued body anchor whose canonical
+signature includes return type. Research detects the same collision in IL and
+Analysis populations and issues the matching full-signature
+`ResearchSubjectKey`. Return-qualified identities use structural metadata
+spelling, including positional `!n` type parameters and `!!n` method
+parameters rather than source generic-parameter names, and exact `+`-separated
+nested metadata segments rather than display-oriented dotted nesting.
+Structured API return shapes are already canonical and are not reparsed as
+display text. Function pointers retain their parameter, return, and calling-
+convention structure rather than collapsing to an unsupported display label.
+Recognized optional core-library
+`System.Runtime.CompilerServices.CallConv*` modifiers are normalized into the
+ordered `unmanaged[...]` convention list; same-named types from another
+assembly, unsupported modifiers, and required modifiers remain explicit
+structural signature components rather than being erased. Identity-only
+function-pointer spelling also retains
+signature-header attributes, generic arity, and the required/optional parameter
+boundary. Non-default values appear between the convention and type list as
+`{calling=0xNN;flags=0xNN;generic=N;required=N}` with the raw calling-
+convention discriminator present only when ordinary convention spelling is
+lossy and other default-valued fields omitted; ordinary C# display spelling
+remains unchanged.
+Implementation Diff target resolution adds the same return-qualified alias
+from the resolved MethodDef identity while preserving the ordinary body
+identity used by other operations; API display text is not treated as a
+function-pointer identity source.
+Non-colliding members retain their API anchor currency, so API and body
+evidence continue to group without changing API selectors. Valid ECMA-335
+return-type-only overloads remain distinct.
+
 IL offsets, operation-array ordinals, and source spans are local evidence and
 display hints, never the durable selector. The durable selector is always the
-`MemberAnchor`-derived `StableSelector` / canonical signature / digest carried by
-the anchor-carrying row or supplied by the wrapper.
+body `MemberAnchor`-derived `StableSelector` / canonical signature / digest
+carried by the anchor-carrying row or supplied by the wrapper.
 
 ### ResearchDiff projection
 
@@ -2094,6 +2128,83 @@ carry this payload.
 Use `ImplementationDiff.UnifiedLines(change)` only at presentation boundaries.
 The durable model keeps the producer-owned typed display rows rather than a
 third implementation-specific row family.
+
+## Exact-pair document and inspection envelope
+
+`ILInspector.Research` owns `ImplementationDiffDocument`, the settled,
+resource-free result for one exact Library assembly on each endpoint. It is the
+authoritative multi-part content described by
+[Multi-part inspection documents](multi-part-inspection-documents.md), not a
+serialization of `ResearchComparison` and not a copy of the CLI's current row
+view.
+
+The document contains:
+
+- the requested C#, IL/body, and complexity mechanisms plus normalized type and
+  member selectors;
+- one Before and one After endpoint carrying exact assembly identity, MVID, and
+  a Research-owned source-kind projection of acquisition provenance. The
+  projection is constructed by an explicit case mapping and carries no
+  acquisition-layer strings, paths, streams, sessions, or resolver state;
+- changed members keyed by `ResearchSubjectKey`, with detached scalar
+  transition facts and the producer-owned C# and IL rows or typed failures that
+  support them. When the ordinary API anchor collides, return type participates
+  in the body currency so valid ECMA-335 return-type-only overloads remain
+  distinct. Each per-hunk IL change retains only its own hunk rows, while failure
+  changes retain only their directly associated typed failure; added and
+  removed methods additionally retain their one-sided typed IL Finding
+  comparison, including endpoint topology and canonical operations, because no
+  two-sided semantic IL hunk exists to project;
+- complexity changes with endpoint completeness and image-issued method
+  evidence coordinates plus the owner-issued local population context for
+  delta-bearing changes; and
+- per-mechanism coverage that distinguishes evaluated, exact, changed,
+  unavailable, incomplete, and failed work. Every `*SubjectCount` is the
+  distinct count of `Subject.Id` values in that category; a subject with
+  several physical evidence changes contributes once to each applicable
+  category. For C# and IL, a subject with typed unavailability or failure is
+  counted in that state instead of `ChangedSubjectCount`. Complexity additions
+  and removals are complete changes when their present endpoint completed;
+  expected absence on the other endpoint is not incomplete analysis.
+  `IsComplete` remains false when any requested mechanism is unavailable or has
+  unavailable, incomplete, or failed subjects.
+
+The exact-pair scope is deliberate. The legacy assembly-wide Research join uses
+member selectors that do not include assembly identity, so a document spanning
+several assembly pairs could not yet prove every member/evidence join
+unambiguous. Broader populations require an owner-issued assembly-pair currency
+before they can reuse this document contract.
+
+`DotnetInspector.ResearchQueries` exposes the exact-pair L1 query while
+preserving the broader `ImplementationComparisonQuery` for existing consumers.
+The optional L2 `DotnetInspector.ResearchSections` companion returns
+`InspectionEnvelope<ImplementationDiffDocument>`. The envelope has exactly that
+document as Content and initially reports Share as non-projectable at
+`comparison/endpoints`; Inspect Web does not yet have a route that can restore
+the ordered pair faithfully. Diagnostics remain envelope-level operation
+diagnostics, not a second home for member evidence.
+
+The first host adoption is complete CLI transport for
+`diff --library before.dll..after.dll -S "Implementation Diff" --json` and
+`--envelope`. Exact section selection selects this operation; it does not
+project or truncate Content. The command retains the selector resolver's exact
+section provenance when choosing this transport; a glob or category that
+resolves to the same section remains an ordinary rendered projection. Complete
+transport admission is checked again after section resolution so no
+post-resolution operation choice can silently discard a row or field
+projection. Type and member selectors remain semantic request inputs recorded
+in the document. Row windows, fields, columns, row formats, PDB Source
+enrichment, categories, and additional sections remain incompatible with
+complete transport. A pre-comparison admission or acquisition failure does not
+manufacture an envelope; per-member unavailable or failed evidence remains
+inside a successfully constructed document.
+
+This envelope-first adoption intentionally leaves ordinary Markdown, table,
+TSV, JSONL, and selected-section JSON on the existing projection. A subsequent
+focused adoption moves those formats to host-neutral lowering from
+`ImplementationDiffDocument`, adds endpoint and coverage sections plus an
+authored category, and then retires the duplicate CLI view. Complete Content
+lands first so format migration cannot redefine the semantic result.
 
 The `diff` command exposes this component through the explicit-only
 `Implementation Diff` section. The CLI projects one row per producer-owned

@@ -1,7 +1,7 @@
 using System.Text;
 using System.Text.Json;
 using DotnetInspector.Platforms;
-using DotnetInspector.PortableQueries;
+using QuerySpace;
 using DotnetInspector.Queries.Definitions;
 using DotnetInspector.SourceSelection;
 
@@ -632,7 +632,7 @@ public sealed class WorkspaceSharePacketCodecTests
             WorkspaceSharePacketFailureKind.InvalidShape);
         AssertFailure(
             EncodeJson(
-                """{"f":5,"t":[["P",null,"net10.0",null]],"g":[[0]],"a":0,"x":0}"""),
+                """{"f":6,"t":[["P",null,"net10.0",null]],"g":[[0]],"a":0,"x":0}"""),
             WorkspaceSharePacketFailureKind.UnsupportedFormat);
     }
 

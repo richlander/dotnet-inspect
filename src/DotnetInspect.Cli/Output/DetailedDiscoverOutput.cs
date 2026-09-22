@@ -2,30 +2,15 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Views;
+using DotnetInspector.Sections;
 using Markout;
 
 namespace DotnetInspect.Cli.Output;
 
 internal static class DetailedDiscoverOutput
 {
-    public static int Execute(
-        string[]? discover,
-        DocumentSchema schema,
-        IReadOnlyList<string> knownSections,
-        IReadOnlyDictionary<string, string[]> categories,
-        IReadOnlySet<string> catalogHiddenSections,
-        IReadOnlySet<string>? listedCategoryDoors,
-        OutputCapabilityCatalog capabilities,
-        DiscoveryOutputRequest request)
+    public static int Validate(DiscoveryOutputRequest request)
     {
-        if (discover is { Length: > 1 })
-        {
-            CommandError.Write(
-                "--details supports bare -D or one exact category or section "
-                + "selector in this Library adoption.");
-            return 1;
-        }
-
         if (request.Tree
             || request.Format == OutputFormat.Mermaid)
         {
@@ -49,17 +34,14 @@ internal static class DetailedDiscoverOutput
             return 1;
         }
 
-        List<DetailedDiscoveryRow>? rows =
-            ResolveRows(
-                discover,
-                schema,
-                knownSections,
-                categories,
-                catalogHiddenSections,
-                listedCategoryDoors,
-                capabilities);
-        if (rows is null)
-            return 1;
+        return 0;
+    }
+
+    public static int Write(
+        DiscoveryDocumentFactory.Projection projection,
+        DiscoveryOutputRequest request)
+    {
+        List<DetailedDiscoveryRow> rows = ResolveRows(projection);
 
         rows = [.. RowWindow.Apply(request.Rows, rows)];
         if (request.Count)
@@ -123,111 +105,56 @@ internal static class DetailedDiscoverOutput
         return 0;
     }
 
-    private static List<DetailedDiscoveryRow>? ResolveRows(
-        string[]? discover,
-        DocumentSchema schema,
-        IReadOnlyList<string> knownSections,
-        IReadOnlyDictionary<string, string[]> categories,
-        IReadOnlySet<string> catalogHiddenSections,
-        IReadOnlySet<string>? listedCategoryDoors,
-        OutputCapabilityCatalog capabilities)
+    private static List<DetailedDiscoveryRow> ResolveRows(
+        DiscoveryDocumentFactory.Projection projection)
     {
-        if (discover is null or { Length: 0 })
+        DiscoveryDocument document = projection.Document;
+        IReadOnlyDictionary<DiscoveryResourceIdentity, ResourcePath> paths =
+            projection.ResourcePaths.ToDictionary(
+                static registration => registration.Identity,
+                static registration => registration.Path);
+        if (document.Selection.IsCatalog)
         {
             return
             [
-                .. DiscoverOutput.GetTopLevelRows(
-                        schema,
-                        categories,
-                        catalogHiddenSections,
-                        listedCategoryDoors)
-                    .Select(row => CreateRow(
-                        row.Name,
-                        row.Kind,
-                        categories.TryGetValue(
-                            row.Name,
-                            out string[]? members)
-                            ? capabilities.FormatsForSelection(
-                                KnownMembers(members, knownSections))
-                            : capabilities.FormatsForSection(row.Name))),
+                .. document.Selection.Rows.Select(identity =>
+                    CreateRow(
+                        document.GetResource(identity),
+                        paths[identity])),
             ];
         }
 
-        string selector = discover[0];
-        if (SelectResolver.TryResolveCategory(
-                selector,
-                categories,
-                knownSections,
-                out string category,
-                out string[] members))
+        DiscoveryResourceIdentity addressed =
+            document.Selection.AddressedResources.Single();
+        DiscoveryResource resource = document.GetResource(addressed);
+        if (addressed.Kind == DiscoveryResourceKind.Category)
         {
-            string[] knownMembers =
-                KnownMembers(members, knownSections);
             return
             [
-                CreateRow(
-                    category,
-                    "category",
-                    capabilities.FormatsForSelection(knownMembers)),
-                .. knownMembers.Select(member => CreateRow(
-                    member,
-                    "section",
-                    capabilities.FormatsForSection(member))),
+                CreateRow(resource, paths[resource.Identity]),
+                .. document.Selection.Rows.Select(identity =>
+                    CreateRow(
+                        document.GetResource(identity),
+                        paths[identity])),
             ];
         }
 
-        var (matches, miss, isExact) =
-            SelectResolver.ResolveSingleWithProvenance(
-                selector,
-                knownSections);
-        if (miss is not null)
-        {
-            SelectOutput.WriteUnresolved(
-                new SelectResult(
-                    null,
-                    [miss]));
-            return null;
-        }
-
-        if (!isExact || matches.Count != 1)
-        {
-            CommandError.Write(
-                "--details requires an exact category or section selector; "
-                + "glob expansion is not supported.");
-            return null;
-        }
-
-        string section = matches[0];
-        return
-        [
-            CreateRow(
-                section,
-                "section",
-                capabilities.FormatsForSection(section)),
-        ];
+        return [CreateRow(resource, paths[resource.Identity])];
     }
 
-    private static string[] KnownMembers(
-        IEnumerable<string> members,
-        IReadOnlyList<string> knownSections) =>
-        [
-            .. members
-                .Where(member => knownSections.Contains(
-                    member,
-                    StringComparer.OrdinalIgnoreCase))
-                .OrderBy(
-                    member => member,
-                    StringComparer.OrdinalIgnoreCase),
-        ];
-
     private static DetailedDiscoveryRow CreateRow(
-        string name,
-        string kind,
-        IEnumerable<OutputMode> formats) =>
+        DiscoveryResource resource,
+        ResourcePath path) =>
         new(
-            name,
-            kind,
-            [.. formats.Select(OutputCapabilityCatalog.CliOption)]);
+            resource.Identity.Name,
+            resource.Identity.Kind == DiscoveryResourceKind.Item
+                ? resource.Identity.ItemKind!
+                : resource.Identity.Kind.ToString().ToLowerInvariant(),
+            path.Value,
+            [
+                .. resource.OutputModes.Select(
+                    OutputCapabilityCatalog.CliOption),
+            ]);
 }
 
 [JsonSerializable(typeof(List<DetailedDiscoveryRow>))]

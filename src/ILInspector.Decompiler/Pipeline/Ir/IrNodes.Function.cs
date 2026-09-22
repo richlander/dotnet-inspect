@@ -30,6 +30,7 @@ public sealed class IrFunction : IrNode
     public TypeRef DeclaringType { get; }
     public string? AssemblyPath { get; set; }
     public int MetadataToken { get; set; }
+    internal MetadataMethodAddress? SourceMethodAddress { get; init; }
     public TypeRef? BaseType { get; set; }
     public MethodSignature Signature { get; }
     internal Parameter? ReceiverParameter { get; }
@@ -144,6 +145,13 @@ public sealed class IrFunction : IrNode
                 bindings = bindings.Add(null);
             LocalDeclarationBindings = bindings.Add(null);
         }
+        if (!PdbLocalNameCandidates.IsDefaultOrEmpty)
+        {
+            var candidates = PdbLocalNameCandidates;
+            while (candidates.Length < index)
+                candidates = candidates.Add(null);
+            PdbLocalNameCandidates = candidates.Add(null);
+        }
         return index;
     }
 
@@ -181,7 +189,8 @@ public sealed class IrFunction : IrNode
         IReadOnlySet<int>? eliminatedSlots = null,
         ImmutableArray<string?> synthesizedNames = default,
         ImmutableArray<bool> declaredInNestedScope = default,
-        ImmutableArray<PdbLocalDeclaration?> declarationBindings = default)
+        ImmutableArray<PdbLocalDeclaration?> declarationBindings = default,
+        ImmutableArray<string?> pdbLocalNameCandidates = default)
     {
         Locals = locals;
         var aligned = names;
@@ -212,6 +221,15 @@ public sealed class IrFunction : IrNode
                 alignedBindings = alignedBindings.Add(null);
         }
         LocalDeclarationBindings = alignedBindings;
+        var alignedCandidates = pdbLocalNameCandidates.IsDefaultOrEmpty
+            ? ImmutableArray<string?>.Empty
+            : pdbLocalNameCandidates;
+        if (!alignedCandidates.IsEmpty)
+        {
+            while (alignedCandidates.Length < locals.Length)
+                alignedCandidates = alignedCandidates.Add(null);
+        }
+        PdbLocalNameCandidates = alignedCandidates;
         _eliminatedLocalSlots = eliminatedSlots switch
         {
             null => ImmutableHashSet<int>.Empty,
@@ -344,6 +362,12 @@ public sealed class IrFunction : IrNode
 
     /// <summary>Exact PDB row bound to each logical local; empty without symbols.</summary>
     public ImmutableArray<PdbLocalDeclaration?> LocalDeclarationBindings { get; set; } = [];
+
+    /// <summary>
+    /// Import-validated PDB slot labels available only as approximate display
+    /// candidates when exact declaration identity could not be bound.
+    /// </summary>
+    public ImmutableArray<string?> PdbLocalNameCandidates { get; set; } = [];
 
     /// <summary>Available identity that raw import could not safely bind.</summary>
     public ImmutableArray<DecompilerFidelityCause> LocalNameImportCauses { get; set; } = [];

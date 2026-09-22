@@ -1,9 +1,8 @@
 using System.Collections.Immutable;
 using System.Diagnostics.CodeAnalysis;
 using DotnetInspector.Packages;
-using DotnetInspector.PortableQueries;
-using DotnetInspector.RowSelection;
-using DotnetInspector.Sections;
+using QuerySpace;
+using QuerySpace.Rows;
 using DotnetInspector.SourceSelection;
 using InertText;
 using NuGetFetch;
@@ -14,11 +13,13 @@ public enum PackageQueryTermRole
 {
     Population,
     Inspection,
+    Context,
 }
 
 public enum PackageQueryTermControlKind
 {
     Input,
+    MultilineInput,
     Toggle,
     Choice,
 }
@@ -59,6 +60,7 @@ internal enum PackageQueryPredicateKind
     CrossPrefixDependencies,
     DependencyTarget,
     Depends,
+    DependsPrefix,
     DependsTransitive,
     DependencyDepth,
     DependsEcosystem,
@@ -69,6 +71,8 @@ internal enum PackageQueryPredicateKind
     ToolFormat,
     AssemblyReference,
     Skill,
+    LibraryLiteral,
+    LibraryTarget,
 }
 
 internal sealed record PackageQueryPredicate(
@@ -76,12 +80,14 @@ internal sealed record PackageQueryPredicate(
     string? Text = null,
     long Number = 0,
     bool Flag = false,
-    PackageQueryEcosystemMembershipDeclaration? EcosystemMembership = null)
+    PackageQueryEcosystemMembershipDeclaration? EcosystemMembership = null,
+    PackagePrefixDeclaration? PackagePrefix = null)
 {
     internal bool RequiresPackageContent =>
         Kind is PackageQueryPredicateKind.ToolFormat
             or PackageQueryPredicateKind.AssemblyReference
-            or PackageQueryPredicateKind.Skill;
+            or PackageQueryPredicateKind.Skill
+            or PackageQueryPredicateKind.LibraryLiteral;
 }
 
 internal sealed class PackageQueryKeyDeclaration(
@@ -167,6 +173,14 @@ internal sealed class PackageQueryVocabulary
                     {
                         return false;
                     }
+                    if (terms.Any(term =>
+                            term.Predicate.Kind
+                                == PackageQueryPredicateKind.LibraryLiteral)
+                        && maximum
+                            > PackageQuery.MaximumMetadataExpensiveCandidates)
+                    {
+                        return false;
+                    }
                     return maximum <= PackageQuery.MaximumPackageContentCandidates
                         || !terms.Any(term =>
                             term.Predicate.RequiresPackageContent);
@@ -243,7 +257,8 @@ internal sealed class PackageQueryVocabulary
             || firstKind is not (
                 PackageQueryPredicateKind.Downloads
                 or PackageQueryPredicateKind.DependencyDepth
-                or PackageQueryPredicateKind.Prerelease)
+                or PackageQueryPredicateKind.Prerelease
+                or PackageQueryPredicateKind.LibraryLiteral)
             || first.Predicate == second.Predicate;
     }
 

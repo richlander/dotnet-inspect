@@ -1,7 +1,9 @@
 using System.Collections.Immutable;
+using System.Text.Json.Serialization;
 
 using DotnetInspector.Packages;
 using DotnetInspector.Queries;
+using ILInspector.MetadataPrimitives;
 
 namespace DotnetInspector.PackageQueries;
 
@@ -10,9 +12,23 @@ public enum DiffHistoryEvaluationPolicy
     FullPopulation,
     ExplicitCheckpoints,
     AdaptiveBisect,
+    RepresentativeSurvey,
 }
 
 /// <summary>One evaluation policy over a settled Diff History population.</summary>
+[JsonPolymorphic(TypeDiscriminatorPropertyName = "plan")]
+[JsonDerivedType(
+    typeof(DiffHistoryEvaluationPlan.FullPopulation),
+    "fullPopulation")]
+[JsonDerivedType(
+    typeof(DiffHistoryEvaluationPlan.ExplicitCheckpoints),
+    "explicitCheckpoints")]
+[JsonDerivedType(
+    typeof(DiffHistoryEvaluationPlan.AdaptiveBisect),
+    "adaptiveBisect")]
+[JsonDerivedType(
+    typeof(DiffHistoryEvaluationPlan.RepresentativeSurvey),
+    "representativeSurvey")]
 public abstract record DiffHistoryEvaluationPlan
 {
     private protected DiffHistoryEvaluationPlan()
@@ -20,6 +36,48 @@ public abstract record DiffHistoryEvaluationPlan
     }
 
     public abstract DiffHistoryEvaluationPolicy Policy { get; }
+
+    public ImmutableArray<PackageVersionAddress> ResolveInitialSelection(
+        PackageVersionVector population)
+    {
+        ArgumentNullException.ThrowIfNull(population);
+        return this switch
+        {
+            FullPopulation => population.Addresses,
+            ExplicitCheckpoints explicitPlan =>
+            [
+                .. explicitPlan.Addresses.OrderBy(
+                    static address => address.Position),
+            ],
+            AdaptiveBisect when population.Addresses.Length >= 2 =>
+            [
+                population.Addresses[0],
+                population.Addresses[^1],
+            ],
+            AdaptiveBisect => throw new ArgumentException(
+                "Adaptive Diff History requires at least two population versions.",
+                nameof(population)),
+            RepresentativeSurvey survey =>
+                survey.ResolveSelection(population),
+            _ => throw new InvalidOperationException(
+                "Unknown Diff History evaluation plan."),
+        };
+    }
+
+    public int ResolveAuthorizedEvaluationCount(
+        PackageVersionVector population) =>
+        this is AdaptiveBisect adaptive
+            ? adaptive.MaximumProbes
+            : ResolveInitialSelection(population).Length;
+
+    public int ResolveMaximumRealizableEvaluationCount(
+        PackageVersionVector population)
+    {
+        ArgumentNullException.ThrowIfNull(population);
+        return Math.Min(
+            ResolveAuthorizedEvaluationCount(population),
+            population.Addresses.Length);
+    }
 
     public sealed record FullPopulation : DiffHistoryEvaluationPlan
     {
@@ -73,6 +131,92 @@ public abstract record DiffHistoryEvaluationPlan
 
         public int MaximumProbes { get; }
     }
+
+    public sealed record RepresentativeSurvey : DiffHistoryEvaluationPlan
+    {
+        public RepresentativeSurvey(
+            int samplePercent,
+            int? maximumProbes = null)
+        {
+            if (samplePercent is < 1 or > 100)
+            {
+                throw new ArgumentOutOfRangeException(
+                    nameof(samplePercent),
+                    "A Diff History survey percentage must be from 1 through 100.");
+            }
+            if (maximumProbes is < 2)
+            {
+                throw new ArgumentOutOfRangeException(
+                    nameof(maximumProbes),
+                    "A Diff History survey probe cap must be at least two.");
+            }
+
+            SamplePercent = samplePercent;
+            MaximumProbes = maximumProbes;
+        }
+
+        public override DiffHistoryEvaluationPolicy Policy =>
+            DiffHistoryEvaluationPolicy.RepresentativeSurvey;
+
+        public int SamplePercent { get; }
+
+        public int? MaximumProbes { get; }
+
+        internal ImmutableArray<PackageVersionAddress> ResolveSelection(
+            PackageVersionVector population)
+        {
+            int populationCount = population.Addresses.Length;
+            int percentageCount = checked((int)(
+                ((long)populationCount * SamplePercent + 99) / 100));
+            int minimumCount = populationCount >= 2 ? 2 : 1;
+            int selectedCount = Math.Min(
+                populationCount,
+                Math.Max(minimumCount, percentageCount));
+            if (MaximumProbes is { } maximumProbes)
+                selectedCount = Math.Min(selectedCount, maximumProbes);
+            if (selectedCount == populationCount)
+                return population.Addresses;
+
+            var selectedPositions = new List<int>(selectedCount)
+            {
+                0,
+            };
+            if (selectedCount > 1)
+                selectedPositions.Add(populationCount - 1);
+
+            while (selectedPositions.Count < selectedCount)
+            {
+                int source = -1;
+                int destination = -1;
+                int largestDistance = 0;
+                int[] ordered = [.. selectedPositions.Order()];
+                for (int i = 1; i < ordered.Length; i++)
+                {
+                    int distance = ordered[i] - ordered[i - 1];
+                    if (distance > largestDistance)
+                    {
+                        source = ordered[i - 1];
+                        destination = ordered[i];
+                        largestDistance = distance;
+                    }
+                }
+
+                if (largestDistance <= 1)
+                {
+                    throw new InvalidOperationException(
+                        "A Diff History survey could not select its requested probe count.");
+                }
+                selectedPositions.Add(
+                    source + ((destination - source) / 2));
+            }
+
+            return
+            [
+                .. selectedPositions.Select(position =>
+                    population.Addresses[position]),
+            ];
+        }
+    }
 }
 
 /// <summary>Replayable package-source context retained for typed actions.</summary>
@@ -82,7 +226,8 @@ public sealed class DiffHistoryPackageReplayContext
         IEnumerable<string>? sources = null,
         IEnumerable<string>? additionalSources = null,
         string? configFile = null,
-        string? configDirectory = null)
+        string? configDirectory = null,
+        bool includePrerelease = false)
     {
         Sources = Copy(sources, nameof(sources));
         AdditionalSources = Copy(
@@ -92,6 +237,7 @@ public sealed class DiffHistoryPackageReplayContext
         ConfigDirectory = Optional(
             configDirectory,
             nameof(configDirectory));
+        IncludePrerelease = includePrerelease;
     }
 
     public ImmutableArray<string> Sources { get; }
@@ -101,6 +247,8 @@ public sealed class DiffHistoryPackageReplayContext
     public string? ConfigFile { get; }
 
     public string? ConfigDirectory { get; }
+
+    public bool IncludePrerelease { get; }
 
     static ImmutableArray<string> Copy(
         IEnumerable<string>? values,
@@ -165,6 +313,7 @@ public enum DiffHistoryProbePurpose
     AdaptiveMidpoint,
     ExplicitCheckpoint,
     DenseCensus,
+    RepresentativeSample,
 }
 
 public enum DiffHistoryProbeLearningKind
@@ -262,6 +411,28 @@ public sealed record DiffHistoryApiMemberProbe
 }
 
 /// <summary>One settled terminal interpretation of completed History work.</summary>
+[JsonPolymorphic(TypeDiscriminatorPropertyName = "outcome")]
+[JsonDerivedType(
+    typeof(DiffHistoryTerminalOutcome.FullPopulationCompleted),
+    "fullPopulationCompleted")]
+[JsonDerivedType(
+    typeof(DiffHistoryTerminalOutcome.ExplicitCheckpointsCompleted),
+    "explicitCheckpointsCompleted")]
+[JsonDerivedType(
+    typeof(DiffHistoryTerminalOutcome.RepresentativeSurveyCompleted),
+    "representativeSurveyCompleted")]
+[JsonDerivedType(
+    typeof(DiffHistoryTerminalOutcome.BoundariesResolved),
+    "boundariesResolved")]
+[JsonDerivedType(
+    typeof(DiffHistoryTerminalOutcome.EqualEndpoints),
+    "equalEndpoints")]
+[JsonDerivedType(
+    typeof(DiffHistoryTerminalOutcome.BudgetExhausted),
+    "budgetExhausted")]
+[JsonDerivedType(
+    typeof(DiffHistoryTerminalOutcome.BlockedByFailure),
+    "blockedByFailure")]
 public abstract record DiffHistoryTerminalOutcome
 {
     private protected DiffHistoryTerminalOutcome()
@@ -272,6 +443,9 @@ public abstract record DiffHistoryTerminalOutcome
         DiffHistoryTerminalOutcome;
 
     public sealed record ExplicitCheckpointsCompleted :
+        DiffHistoryTerminalOutcome;
+
+    public sealed record RepresentativeSurveyCompleted :
         DiffHistoryTerminalOutcome;
 
     public sealed record BoundariesResolved : DiffHistoryTerminalOutcome
@@ -408,6 +582,11 @@ public abstract record DiffHistoryTerminalOutcome
 }
 
 /// <summary>One typed follow-up over the completed History evidence.</summary>
+[JsonPolymorphic(TypeDiscriminatorPropertyName = "action")]
+[JsonDerivedType(typeof(DiffHistoryNextAction.Probe), "probe")]
+[JsonDerivedType(
+    typeof(DiffHistoryNextAction.PairwiseDiff),
+    "pairwiseDiff")]
 public abstract record DiffHistoryNextAction
 {
     private protected DiffHistoryNextAction()
@@ -463,6 +642,8 @@ public abstract record DiffHistoryNextAction
             DiffHistoryInterval boundary,
             string packageId,
             string typeFullName,
+            MemberAnchor? member,
+            PackageCompileAsset? sourceAsset,
             string finding,
             ApiSurfaceScope scope,
             PackageHouseTargetContext targetContext,
@@ -478,12 +659,30 @@ public abstract record DiffHistoryNextAction
             }
             ArgumentException.ThrowIfNullOrWhiteSpace(packageId);
             ArgumentException.ThrowIfNullOrWhiteSpace(typeFullName);
+            if (member is not null
+                && !string.Equals(
+                    member.TypeFullName,
+                    typeFullName,
+                    StringComparison.Ordinal))
+            {
+                throw new ArgumentException(
+                    "A pairwise Diff Member must belong to the selected Type.",
+                    nameof(member));
+            }
+            if (sourceAsset is not null && member is null)
+            {
+                throw new ArgumentException(
+                    "A pairwise Diff source asset requires an exact Member.",
+                    nameof(sourceAsset));
+            }
             ArgumentException.ThrowIfNullOrWhiteSpace(finding);
             if (!Enum.IsDefined(scope))
                 throw new ArgumentOutOfRangeException(nameof(scope));
 
             PackageId = packageId;
             TypeFullName = typeFullName;
+            Member = member;
+            SourceAsset = sourceAsset;
             Finding = finding;
             Scope = scope;
             TargetContext = targetContext
@@ -496,6 +695,10 @@ public abstract record DiffHistoryNextAction
         public string PackageId { get; }
 
         public string TypeFullName { get; }
+
+        public MemberAnchor? Member { get; }
+
+        public PackageCompileAsset? SourceAsset { get; }
 
         public string Finding { get; }
 

@@ -3,7 +3,6 @@ import test from "node:test";
 import {
   bindScopeBar,
   captureScopeBarFocus,
-  renderApplicationScopeBar,
   renderScopeBar,
   restoreScopeBarFocus,
   selectAdaptiveNavigationPair,
@@ -13,6 +12,10 @@ import { fakeDom } from "./fake-dom.ts";
 
 class FakeElement {
   readonly dataset: Record<string, string | undefined>;
+  ownerDocument = {
+    querySelector: (_selector: string): FakeElement | null => null,
+  };
+  onFocus: (() => void) | null = null;
   focused = false;
   hidden = false;
   rendered = true;
@@ -35,6 +38,7 @@ class FakeElement {
 
   focus() {
     this.focused = true;
+    this.onFocus?.();
     this.dispatch("focus");
   }
 
@@ -77,8 +81,6 @@ class FakeRoot {
 
 function recordingActions(calls: string[]): ScopeBarBindingActions {
   return {
-    onApplicationScopeSelect: value =>
-      calls.push(`application:${value}`),
     onLibraryLensSelect: value => calls.push(`library:${value}`),
     onMemberSectionSelect: value => calls.push(`member:${value}`),
     onPackageLensSelect: value => calls.push(`package:${value}`),
@@ -181,26 +183,6 @@ test("adaptive subject and inspector groups choose one measured presentation", (
     subject: "tabs",
     inspector: null,
   });
-});
-
-test("application scopes render separately with honest selection", () => {
-  const workspace = renderApplicationScopeBar(
-    "workspace",
-    true,
-    escapeHtml);
-  const queryOnly = renderApplicationScopeBar("query", false, escapeHtml);
-  const inspection = renderApplicationScopeBar(null, true, escapeHtml);
-
-  assert.match(
-    workspace,
-    /data-application-scope="query"(?![^>]*aria-current)[^>]*>[\s\S]*data-application-scope="activity"(?![^>]*aria-current)[^>]*>[\s\S]*data-application-scope="workspace"[^>]*aria-current="page"/);
-  assert.match(
-    queryOnly,
-    /data-application-scope="query"[^>]*aria-current="page"[\s\S]*data-application-scope="activity"(?![^>]*aria-current)[\s\S]*data-application-scope="workspace"(?![^>]*aria-current)[^>]*disabled/);
-  assert.match(
-    inspection,
-    /data-application-scope="query"(?![^>]*aria-current)[^>]*tabindex="0"[\s\S]*data-application-scope="activity"(?![^>]*aria-current)[^>]*tabindex="-1"[\s\S]*data-application-scope="workspace"(?![^>]*aria-current)[^>]*tabindex="-1"/);
-  assert.doesNotMatch(workspace, /role="tab(?:list)?"/);
 });
 
 test("scope bar renders complete full-label Tabs and Chooser inventories", () => {
@@ -347,8 +329,6 @@ test("tab navigation moves focus without activation until Enter", () => {
   root.add("[data-library-lens]");
   root.add("[data-lens]");
   root.add("[data-member-section]");
-  root.add("[data-application-scope]");
-  root.add("[data-application-scope-tab]:not([disabled])");
   const calls: string[] = [];
 
   bindScopeBar(fakeDom.parentNode(root), recordingActions(calls));
@@ -361,6 +341,35 @@ test("tab navigation moves focus without activation until Enter", () => {
   assert.deepEqual(calls, []);
   assert.equal(library.dispatch("keydown", { key: "Enter" }), true);
   assert.deepEqual(calls, ["scope:library"]);
+});
+
+test("local Navigation tab activation preserves destination focus", async () => {
+  const root = new FakeRoot();
+  const memberChoice = new FakeElement();
+  const selectionRequired = new FakeElement({
+    localNavigationAction: "choose-member",
+    navigationId: "unavailable:Member",
+    navigationItem: "tab",
+  });
+  let focused = "";
+  memberChoice.onFocus = () => focused = "member-choice";
+  selectionRequired.onFocus = () => focused = "navigation";
+  selectionRequired.ownerDocument.querySelector = () => selectionRequired;
+  root.add("[data-subject-tab]", selectionRequired);
+  root.add("[data-inspector-tab]");
+  root.add("[data-scope]");
+  root.add("[data-package-lens]");
+  root.add("[data-library-lens]");
+  root.add("[data-lens]");
+  root.add("[data-member-section]");
+
+  bindScopeBar(fakeDom.parentNode(root), recordingActions([]));
+  selectionRequired.addEventListener("click", () => memberChoice.focus());
+
+  selectionRequired.dispatch("keydown", { key: "Enter" });
+  await Promise.resolve();
+
+  assert.equal(focused, "member-choice");
 });
 
 test("bindings dispatch typed tab and Chooser items but not current items", () => {
@@ -384,8 +393,6 @@ test("bindings dispatch typed tab and Chooser items but not current items", () =
   root.add("[data-library-lens]");
   root.add("[data-lens]", current, metadata, source);
   root.add("[data-member-section]");
-  root.add("[data-application-scope]");
-  root.add("[data-application-scope-tab]:not([disabled])");
   const calls: string[] = [];
 
   bindScopeBar(fakeDom.parentNode(root), recordingActions(calls));
@@ -428,34 +435,6 @@ test("typed focus records its presentation and restores the visible replacement"
   assert.equal(hiddenTab.focused, false);
 });
 
-test("application scope bindings dispatch independently of subjects", () => {
-  const root = new FakeRoot();
-  const query = new FakeElement({ applicationScope: "query" });
-  const activity = new FakeElement({ applicationScope: "activity" });
-  const workspace = new FakeElement({ applicationScope: "workspace" });
-  root.add("[data-subject-tab]");
-  root.add("[data-inspector-tab]");
-  root.add("[data-scope]");
-  root.add("[data-package-lens]");
-  root.add("[data-library-lens]");
-  root.add("[data-lens]");
-  root.add("[data-member-section]");
-  root.add("[data-application-scope]", query, activity, workspace);
-  root.add("[data-application-scope-tab]:not([disabled])");
-  const calls: string[] = [];
-
-  bindScopeBar(fakeDom.parentNode(root), recordingActions(calls));
-  query.dispatch("click");
-  activity.dispatch("click");
-  workspace.dispatch("click");
-
-  assert.deepEqual(calls, [
-    "application:query",
-    "application:activity",
-    "application:workspace",
-  ]);
-});
-
 test("scope bar binding tolerates absent navigation groups", () => {
   const root = new FakeRoot();
   root.add("[data-subject-tab]");
@@ -465,9 +444,6 @@ test("scope bar binding tolerates absent navigation groups", () => {
   root.add("[data-library-lens]");
   root.add("[data-lens]");
   root.add("[data-member-section]");
-  root.add("[data-application-scope]");
-  root.add("[data-application-scope-tab]:not([disabled])");
-
   assert.doesNotThrow(() => bindScopeBar(
     fakeDom.parentNode(root),
     recordingActions([])));

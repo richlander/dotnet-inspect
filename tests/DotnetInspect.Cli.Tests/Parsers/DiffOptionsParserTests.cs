@@ -31,6 +31,16 @@ public class DiffOptionsParserTests
         var frameworkOption = new Option<string?>("--framework");
         var tfmOption = new Option<string?>("--tfm");
         var allOption = new Option<bool>("--all");
+        var historyOption = new Option<bool>("--history");
+        var atOption = new Option<string[]>("--at")
+        {
+            AllowMultipleArgumentsPerToken = false
+        };
+        var maxProbesOption = new Option<int?>("--max-probes");
+        var samplePercentOption =
+            new Option<int?>("--sample-percent");
+        var prereleaseOption = new Option<bool>("--preview");
+        var countOption = new Option<bool>("--count");
         var typeFilterOption = new Option<string[]>("-t") { AllowMultipleArgumentsPerToken = false };
         typeFilterOption.Aliases.Add("--type");
         var memberFilterOption = new Option<string[]>("-m") { AllowMultipleArgumentsPerToken = false };
@@ -54,6 +64,12 @@ public class DiffOptionsParserTests
         diffCommand.Options.Add(frameworkOption);
         diffCommand.Options.Add(tfmOption);
         diffCommand.Options.Add(allOption);
+        diffCommand.Options.Add(historyOption);
+        diffCommand.Options.Add(atOption);
+        diffCommand.Options.Add(maxProbesOption);
+        diffCommand.Options.Add(samplePercentOption);
+        diffCommand.Options.Add(prereleaseOption);
+        diffCommand.Options.Add(countOption);
         diffCommand.Options.Add(typeFilterOption);
         diffCommand.Options.Add(memberFilterOption);
         opts.AddTableOptionsTo(diffCommand);
@@ -82,6 +98,7 @@ public class DiffOptionsParserTests
         var root = new RootCommand { diffCommand };
         var args = new DiffOptionsParser.DiffCommandArgs(
             argsArg, packageOption, platformOption, libraryOption, frameworkOption, tfmOption, allOption,
+            historyOption, atOption, maxProbesOption, samplePercentOption, prereleaseOption, countOption,
             typeFilterOption, memberFilterOption, opts.NoHeaders, nameOnlyOption, breakingOption, additiveOption,
             changedOption, allocRegressionsOption, pdbSourceOption, legacyAuthoredSourceOption, findingOption, legendOption, repoOption, compactOption);
 
@@ -110,6 +127,20 @@ public class DiffOptionsParserTests
             "--repo", @"C:\clone-b");
 
         Assert.Equal([@"C:\clone-a", @"C:\clone-b"], options.SourceRepositories);
+    }
+
+    [Fact]
+    public void SurveyOptionsPopulateEvaluationPolicyInputs()
+    {
+        DiffOptions options = ParseSuccess(
+            "diff",
+            "--history",
+            "--package", "Example@1.0.0..8.0.0",
+            "--sample-percent", "50",
+            "--max-probes", "10");
+
+        Assert.Equal(50, options.SamplePercent);
+        Assert.Equal(10, options.MaxProbes);
     }
 
     [Fact]

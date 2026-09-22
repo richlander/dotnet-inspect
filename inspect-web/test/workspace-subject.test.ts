@@ -9,6 +9,10 @@ import {
   restoreWorkspaceFocus,
   workspaceOccurrenceActionsAreVisible,
 } from "../src/workspace-subject.ts";
+import { workspacePackageRemovalKey } from "../src/data.ts";
+import type {
+  NavigationPackagePresentationItem,
+} from "../src/navigation-descriptor-presentation.ts";
 import type { PackageControlPackage } from "../src/package-controls.ts";
 import { setProductHomeDemoCatalog } from "../src/product-home-demos.ts";
 import { fakeDom } from "./fake-dom.ts";
@@ -44,6 +48,50 @@ test("Workspace navigation lists retained Workspaces and marks one active", () =
   assert.match(html, /data-workspace-switch="workspace-1"/);
   assert.match(html, /data-workspace-select="workspace-2"/);
   assert.match(html, /data-workspace-delete="workspace-1"/);
+});
+
+test("Workspace navigation exposes managed activation progress and failure", () => {
+  const html = renderWorkspaceSubject({
+    workspaces: [{
+      id: "workspace-pending",
+      label: "Pending Workspace",
+      packageCount: 1,
+      active: false,
+      status: "Activating",
+      deletionDisabled: true,
+    }, {
+      id: "workspace-failed",
+      label: "Failed Workspace",
+      packageCount: 0,
+      active: false,
+      status: "Activation failed",
+    }, {
+      id: "workspace-closing",
+      label: "Closing Workspace",
+      packageCount: 1,
+      active: true,
+      status: "Closing",
+      deletionDisabled: true,
+    }],
+    escapeHtml,
+  });
+
+  assert.match(
+    html,
+    /data-workspace-switch="workspace-pending"[\s\S]*disabled[\s\S]*Activating/,
+  );
+  assert.match(
+    html,
+    /data-workspace-delete="workspace-pending"[\s\S]*disabled/,
+  );
+  assert.match(
+    html,
+    /data-workspace-switch="workspace-failed"[\s\S]*Activation failed/,
+  );
+  assert.match(
+    html,
+    /data-workspace-select="workspace-closing"[\s\S]*disabled[\s\S]*Closing/,
+  );
 });
 
 test("Workspace occurrence actions are visible only in the rendered Workspace view", () => {
@@ -176,6 +224,54 @@ test("Workspace removal remains available while occurrence activation loads or f
   }
 });
 
+test("Workspace product rows do not expose compatibility mutation controls", () => {
+  const packages: NavigationPackagePresentationItem[] =
+    ["linux-x64", "win-x64"].map((runtimeIdentifier, order) => ({
+      order,
+      navigationId: `navigation-${order}`,
+      subject: {
+        key: `package-${order}`,
+        identity: `package-${order}`,
+        kind: "Package",
+        label: "Alpha",
+        summary: "Alpha package",
+        state: "Available",
+        current: order === 0,
+        retained: true,
+        action: null,
+        localAction: null,
+        evidence: null,
+      },
+      package: "Alpha",
+      version: "1.0.0",
+      framework: "net10.0",
+      runtimeIdentifier,
+      realization: "Ready",
+      realizationFailure: null,
+      detailFailure: null,
+      summary: {
+        selectedCompileFramework: "net10.0",
+        libraryCount: 1,
+        typeCount: 1,
+        memberCount: 1,
+        documentCount: 0,
+        hasInspectionNotices: false,
+      },
+    }));
+  const html = renderWorkspaceView({
+    navigationPackages: packages,
+    packages: [],
+    occurrences: [],
+    loading: false,
+    error: "",
+    escapeHtml,
+  });
+  assert.doesNotMatch(html, /data-workspace-remove=/);
+  assert.doesNotMatch(html, /data-workspace-add-package/);
+  assert.match(html, /Choose a package to inspect it\.<\/p>/);
+  assert.doesNotMatch(html, /adjacent close button/);
+});
+
 test("Workspace Add is offered independently of occurrence loading and disabled until ready", () => {
   const options = {
     packages: [], occurrences: [],
@@ -232,6 +328,27 @@ test("Workspace selection, switching, deletion, and occurrence activation dispat
     addEventListener: (name: string, listener: EventListener) =>
       listeners.set(`add:${name}`, listener),
   };
+  const removalKey = workspacePackageRemovalKey({
+    id: "Alpha",
+    version: "1.0.0",
+    activeFramework: "net10.0",
+    runtimeIdentifier: "linux-x64",
+  });
+  const remove = {
+    dataset: { workspaceRemove: removalKey },
+    addEventListener: (name: string, listener: EventListener) =>
+      listeners.set(`remove:${name}`, listener),
+  };
+  const productPackage = {
+    dataset: { productPackageAction: "package-navigation" },
+    addEventListener: (name: string, listener: EventListener) =>
+      listeners.set(`product-package:${name}`, listener),
+  };
+  const productPlatform = {
+    dataset: { productPlatformAction: "platform-navigation" },
+    addEventListener: (name: string, listener: EventListener) =>
+      listeners.set(`product-platform:${name}`, listener),
+  };
   const frameworkLibrary = {
     dataset: {
       workspaceFrameworkLibrary: "System.Text.Json",
@@ -255,7 +372,12 @@ test("Workspace selection, switching, deletion, and occurrence activation dispat
         : selector === "[data-workspace-delete]" ? [workspaceDelete]
         : selector === "[data-workspace-activate]"
         ? [activate]
-        : selector === "[data-workspace-demo]" ? [demo, invalidDemo] : [],
+        : selector === "[data-product-package-action]"
+          ? [productPackage]
+        : selector === "[data-product-platform-action]"
+          ? [productPlatform]
+        : selector === "[data-workspace-demo]" ? [demo, invalidDemo]
+          : selector === "[data-workspace-remove]" ? [remove] : [],
   };
   const calls: string[] = [];
 
@@ -270,6 +392,10 @@ test("Workspace selection, switching, deletion, and occurrence activation dispat
       onActivate: action => {
         calls.push(`activate:${action}`);
       },
+      onProductPackageAction: id =>
+        calls.push(`product-package:${id}`),
+      onProductPlatformAction: id =>
+        calls.push(`product-platform:${id}`),
       onDemo: id => {
         calls.push(`demo:${id}`);
       },
@@ -277,6 +403,7 @@ test("Workspace selection, switching, deletion, and occurrence activation dispat
         calls.push("retry");
       },
       onAddPackage: () => { calls.push("add"); },
+      onRemove: key => { calls.push(`remove:${key}`); },
       onFrameworkLibrary: (assembly, pack, framework, version) => {
         calls.push(`framework-library:${assembly}:${pack}:${framework}:${version}`);
       },
@@ -286,19 +413,25 @@ test("Workspace selection, switching, deletion, and occurrence activation dispat
   listeners.get("switch:click")?.(fakeDom.event());
   listeners.get("delete:click")?.(fakeDom.event());
   listeners.get("activate:click")?.(fakeDom.event());
+  listeners.get("product-package:click")?.(fakeDom.event());
+  listeners.get("product-platform:click")?.(fakeDom.event());
   listeners.get("demo:click")?.(fakeDom.event());
   listeners.get("invalid-demo:click")?.(fakeDom.event());
   listeners.get("retry:click")?.(fakeDom.event());
   listeners.get("add:click")?.(fakeDom.event());
+  listeners.get("remove:click")?.(fakeDom.event());
   listeners.get("framework-library:click")?.(fakeDom.event());
   assert.deepEqual(calls, [
     "select:workspace-1",
     "switch:workspace-2",
     "delete:workspace-2",
     "activate:opaque-action",
+    "product-package:package-navigation",
+    "product-platform:platform-navigation",
     "demo:stj-serializer",
     "retry",
     "add",
+    `remove:${removalKey}`,
     "framework-library:System.Text.Json:netcore.app:net11.0:11.0.0",
   ]);
 });

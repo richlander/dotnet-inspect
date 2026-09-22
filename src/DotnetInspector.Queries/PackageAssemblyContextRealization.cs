@@ -1095,6 +1095,17 @@ public sealed class PackageRootRealization
 
     internal IPackageContent Content => _content;
 
+    /// <summary>
+    /// Uses the already-admitted package content without transferring its
+    /// lifetime beyond the caller's operation.
+    /// </summary>
+    public TResult UseContent<TResult>(
+        Func<IPackageContent, TResult> operation)
+    {
+        ArgumentNullException.ThrowIfNull(operation);
+        return operation(_content);
+    }
+
     public bool ReferencesContent(IPackageContent content)
     {
         ArgumentNullException.ThrowIfNull(content);

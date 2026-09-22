@@ -1,9 +1,8 @@
 using System.Collections.Immutable;
 using System.Runtime.CompilerServices;
 using DotnetInspector.Packages;
-using DotnetInspector.PortableQueries;
-using DotnetInspector.RowSelection;
-using DotnetInspector.Sections;
+using QuerySpace;
+using QuerySpace.Rows;
 using DotnetInspector.SourceSelection;
 using InertText;
 using NuGetFetch;
@@ -28,7 +27,8 @@ public static partial class PackageQuery
         int maximumCandidates = DefaultMaximumCandidates,
         int? maximumMatches = DefaultMaximumMatches,
         bool includePrerelease = false,
-        RowSelectionIntent<string>? rowSelection = null)
+        RowSelectionIntent<string>? rowSelection = null,
+        string? targetFramework = null)
         => PlanInputCore(
             text,
             terms,
@@ -36,6 +36,7 @@ public static partial class PackageQuery
             maximumMatches,
             includePrerelease,
             rowSelection,
+            targetFramework,
             ecosystemMemberships: null);
 
     public static PackageQueryPlanResult PlanInput(
@@ -45,7 +46,8 @@ public static partial class PackageQuery
         int maximumCandidates = DefaultMaximumCandidates,
         int? maximumMatches = DefaultMaximumMatches,
         bool includePrerelease = false,
-        RowSelectionIntent<string>? rowSelection = null)
+        RowSelectionIntent<string>? rowSelection = null,
+        string? targetFramework = null)
     {
         ArgumentNullException.ThrowIfNull(ecosystemMemberships);
         return PlanInputCore(
@@ -55,6 +57,7 @@ public static partial class PackageQuery
             maximumMatches,
             includePrerelease,
             rowSelection,
+            targetFramework,
             ecosystemMemberships);
     }
 
@@ -65,6 +68,7 @@ public static partial class PackageQuery
         int? maximumMatches,
         bool includePrerelease,
         RowSelectionIntent<string>? rowSelection,
+        string? targetFramework,
         PackageQueryEcosystemMembershipCatalog? ecosystemMemberships)
     {
         ArgumentNullException.ThrowIfNull(text);
@@ -106,11 +110,28 @@ public static partial class PackageQuery
             return Rejected(PackageQueryRequestFailureReason.InvalidCandidateLimit);
         if (maximumMatches is <= 0 or > MaximumCandidates)
             return Rejected(PackageQueryRequestFailureReason.InvalidMatchLimit);
-        if (terms is { Count: > MaximumInspectionTerms })
+        bool hasLibraryLiteral = terms?.Any(term =>
+            term.Key == LibraryLiteralTermKey) == true;
+        int contextualTermCount = hasLibraryLiteral ? 1 : 0;
+        if (terms is { } suppliedTerms
+            && suppliedTerms.Count + contextualTermCount
+                > MaximumInspectionTerms)
         {
             return Rejected(
                 PackageQueryRequestFailureReason.TooManyTerms,
-                value: terms.Count);
+                value: suppliedTerms.Count);
+        }
+        if (hasLibraryLiteral && string.IsNullOrWhiteSpace(targetFramework))
+        {
+            return Rejected(
+                PackageQueryRequestFailureReason.LibraryLiteralRequiresTarget,
+                [LibraryLiteralTermKey, LibraryTargetTermKey]);
+        }
+        if (!hasLibraryLiteral && targetFramework is not null)
+        {
+            return Rejected(
+                PackageQueryRequestFailureReason.LibraryTargetRequiresLiteral,
+                [LibraryTargetTermKey, LibraryLiteralTermKey]);
         }
         if (populationKey == PackageTermKey)
             maximumCandidates = 1;
@@ -128,6 +149,24 @@ public static partial class PackageQuery
         };
         if (terms is not null)
             intentTerms.AddRange(terms);
+        if (hasLibraryLiteral)
+        {
+            try
+            {
+                PackageHouseTargetContext target =
+                    PackageHouseTargetContext.Exact(targetFramework!);
+                intentTerms.Add(new(
+                    LibraryTargetTermKey,
+                    PortableQueryOperator.Equal,
+                    target.RequestedFramework!));
+            }
+            catch (ArgumentException)
+            {
+                return Rejected(
+                    PackageQueryRequestFailureReason.InvalidTermValue,
+                    [LibraryTargetTermKey]);
+            }
+        }
 
         var bounds = new List<PortableQueryBound>
         {
@@ -143,36 +182,12 @@ public static partial class PackageQuery
         PortableQueryIntent intent = PortableQueryIntent.Create(
             intentTerms,
             bounds,
-            ToPortableStages(rowSelection),
+            PortableQueryRowSelection.ToStages(rowSelection),
             []);
         return ecosystemMemberships is null
             ? ResolveIntent(intent)
             : ResolveIntent(intent, ecosystemMemberships);
     }
-
-    private static IReadOnlyList<PortableQueryStage> ToPortableStages(
-        RowSelectionIntent<string>? rowSelection) =>
-        rowSelection is null
-            ? []
-            :
-            [
-                .. rowSelection.Operations.Select(operation =>
-                    operation.Kind switch
-                    {
-                        RowSelectionStageKind.Head =>
-                            PortableQueryStage.Head(operation.Count),
-                        RowSelectionStageKind.Tail =>
-                            PortableQueryStage.Tail(operation.Count),
-                        RowSelectionStageKind.Window =>
-                            PortableQueryStage.Window(
-                                operation.Start,
-                                operation.End),
-                        RowSelectionStageKind.Top =>
-                            PortableQueryStage.Top(operation.Count),
-                        _ => throw new InvalidOperationException(
-                            "Unknown row-selection stage."),
-                    }),
-            ];
 
     static void AddScopeEvidence(
         PackageQueryPlan plan,

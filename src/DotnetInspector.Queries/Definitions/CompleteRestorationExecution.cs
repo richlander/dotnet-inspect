@@ -146,6 +146,35 @@ public abstract record CompleteRestorationResolvedState
                     : throw new ArgumentOutOfRangeException(
                         nameof(ActiveStateIndex));
     }
+
+    public sealed record Version5(
+        CommittedScenarioDefinitionSet Definitions,
+        ImmutableArray<CompleteRestorationResolvedViewState> States,
+        int? ActiveStateIndex)
+        : CompleteRestorationResolvedState
+    {
+        public CommittedScenarioDefinitionSet Definitions { get; } =
+            Definitions
+            ?? throw new ArgumentNullException(nameof(Definitions));
+
+        public ImmutableArray<CompleteRestorationResolvedViewState> States
+        {
+            get;
+        } = !States.IsDefault
+            && States.All(static state => state is not null)
+                ? States
+                : throw new ArgumentException(
+                    "Resolved states must be an initialized immutable array.",
+                    nameof(States));
+
+        public int? ActiveStateIndex { get; } =
+            (ActiveStateIndex is null && States.IsEmpty)
+                || (ActiveStateIndex is >= 0
+                    && ActiveStateIndex < States.Length)
+                    ? ActiveStateIndex
+                    : throw new ArgumentOutOfRangeException(
+                        nameof(ActiveStateIndex));
+    }
 }
 
 public sealed record CompleteRestorationResolvedViewState
@@ -225,6 +254,8 @@ public static class CompleteRestorationProjections
                     version3.Definitions,
                 CompleteRestorationResolvedState.Version4 version4 =>
                     version4.Definitions,
+                CompleteRestorationResolvedState.Version5 version5 =>
+                    version5.Definitions,
                 _ => throw new InvalidOperationException(
                     "Unknown complete restoration resolved state."),
             };
@@ -366,6 +397,8 @@ public sealed record CompleteWorkspaceActivation
                 version3.Definitions,
             CompleteRestorationResolvedState.Version4 version4 =>
                 version4.Definitions,
+            CompleteRestorationResolvedState.Version5 version5 =>
+                version5.Definitions,
             _ => throw new InvalidOperationException(
                 "Unknown complete-restoration resolved state."),
         };
@@ -801,6 +834,8 @@ public static class CompleteRestorationCoordinator
                 version3.Definitions,
             CompleteRestorationRecipe.Version4 version4 =>
                 version4.Definitions,
+            CompleteRestorationRecipe.Version5 version5 =>
+                version5.Definitions,
             _ => throw new InvalidOperationException(
                 "Unknown complete restoration recipe."),
         };
@@ -970,7 +1005,7 @@ public static class CompleteRestorationCoordinator
                 }
             }
             WorkspaceScopeOperationResult scopeResult =
-                await workspace.ReplaceScopeAsync(
+                await workspace.AddPackagesAsync(
                     available.Snapshot.Revision,
                     roots,
                     options.ScopeDeadline,
@@ -1371,6 +1406,9 @@ public static class CompleteRestorationCoordinator
                 CompleteRestorationRecipe.Version4 version4 =>
                     (version4.Definitions,
                         InspectionDefinitionSchema.Version4),
+                CompleteRestorationRecipe.Version5 version5 =>
+                    (version5.Definitions,
+                        InspectionDefinitionSchema.Version5),
                 _ => throw new InvalidOperationException(
                     "Unknown complete restoration recipe."),
             };
@@ -1546,6 +1584,11 @@ public static class CompleteRestorationCoordinator
                     detachedActiveStateIndex),
             InspectionDefinitionSchema.Version4 =>
                 new CompleteRestorationResolvedState.Version4(
+                    resolution.Definitions,
+                    detachedStates,
+                    detachedActiveStateIndex),
+            InspectionDefinitionSchema.Version5 =>
+                new CompleteRestorationResolvedState.Version5(
                     resolution.Definitions,
                     detachedStates,
                     detachedActiveStateIndex),

@@ -2,6 +2,8 @@ using System.IO.Compression;
 using System.Runtime.Versioning;
 using System.Text.Json;
 using DotnetInspect.Web.Interop.Source;
+using DotnetInspector.Sections;
+using ILInspector.Metadata;
 using TsJsExport;
 
 namespace DotnetInspect.Web.Tests;
@@ -190,20 +192,105 @@ public sealed class BrowserTypeSourceOperationTests(ITestOutputHelper output)
         const string packageId = "Type.Source.Bridge.Success";
         await RegisterSourcePackageAsync(packageId);
         string id = Guid.NewGuid().ToString();
-        BrowserTypeSourceResult result = Read(await DotnetInspect.Web.Interop.Source.SourceExports.QueryTypeSource(
+        string json = await DotnetInspect.Web.Interop.Source.SourceExports.QueryTypeSource(
             id, packageId, "1.0.0", "net11.0", "TsJsExport.Contracts.dll",
-            "TsJsExport.JsExportRootAttribute", "[]"));
+            "TsJsExport.JsExportRootAttribute", "[]");
+        output.WriteLine(json);
+        BrowserTypeSourceResult result = Read(json);
 
         Assert.Equal(1, result.Version);
         Assert.Equal(BrowserTypeSourceResultKind.Succeeded, result.Kind);
         Assert.NotNull(result.Value);
-        Assert.Equal("decompiled", result.Value.Provider);
-        Assert.Contains("JsExportRootAttribute", result.Value.Text);
-        Assert.Contains(packageId, result.Value.Provenance.ToString());
-        Assert.Null(result.Value.Url);
-        Assert.NotNull(result.Value.PdbSourceLimitation);
+        var sourceView =
+            Assert.IsType<BrowserTypeCodeView.Source>(result.Value);
+        BrowserSource source = sourceView.Value;
+        Assert.Equal("decompiled", source.Provider);
+        Assert.Contains("JsExportRootAttribute", source.Text);
+        Assert.Contains(packageId, source.Provenance.ToString());
+        Assert.Null(source.Url);
+        Assert.NotNull(source.PdbSourceLimitation);
+        Assert.IsType<InspectionShare.NonProjectable>(
+            sourceView.Share);
+        InspectionDiagnostic diagnostic =
+            Assert.Single(sourceView.Diagnostics);
+        Assert.StartsWith(
+            "type-source.portable-pdb.",
+            diagnostic.Code,
+            StringComparison.Ordinal);
         await AssertReleased(id, packageId);
     }
+
+#if DEBUG
+    [Fact]
+    public async Task
+        EvidenceExport_PreservesInspectionAndSerializesPdbAcquisition()
+    {
+        const string packageId = "Type.Source.Bridge.Evidence";
+        await RegisterSourcePackageAsync(packageId);
+        string id = Guid.NewGuid().ToString();
+        string json = await SourceExports.QueryTypeSourceEvidence(
+            id,
+            packageId,
+            "1.0.0",
+            "net11.0",
+            "TsJsExport.Contracts.dll",
+            "TsJsExport.JsExportRootAttribute",
+            "[]");
+        BrowserTypeSourceEvidenceResult result =
+            JsonSerializer.Deserialize(
+                json,
+                BrowserSourceJsonContext.Default
+                    .BrowserTypeSourceEvidenceResult)!;
+
+        Assert.Equal(
+            BrowserTypeSourceResultKind.Succeeded,
+            result.Kind);
+        BrowserTypeSourceEvidenceAttachment attachment =
+            Assert.IsType<
+                BrowserTypeSourceEvidenceAttachment>(
+                    result.Value);
+        InspectionDiagnostic diagnostic =
+            Assert.Single(
+                attachment.Inspection.Diagnostics);
+        switch (attachment.Evidence.Disposition)
+        {
+            case "Unavailable":
+                Assert.Equal(
+                    "type-source.portable-pdb.unavailable",
+                    diagnostic.Code);
+                Assert.Equal(
+                    "Unavailable",
+                    attachment.Evidence.ExternalAcquisition.Outcome);
+                break;
+            case "PreferenceWindowElapsed":
+                Assert.Equal(
+                    "type-source.portable-pdb.preference-window-elapsed",
+                    diagnostic.Code);
+                Assert.Equal(
+                    "Canceled",
+                    attachment.Evidence.ExternalAcquisition.Outcome);
+                break;
+            case "AcquisitionFailed":
+                Assert.Equal(
+                    "type-source.portable-pdb.acquisition-failed",
+                    diagnostic.Code);
+                Assert.Equal(
+                    "Failed",
+                    attachment.Evidence.ExternalAcquisition.Outcome);
+                break;
+            default:
+                Assert.Fail(
+                    $"Unexpected PDB disposition "
+                    + $"{attachment.Evidence.Disposition}.");
+                break;
+        }
+        Assert.Contains(
+            "\"externalAcquisition\"",
+            json,
+            StringComparison.Ordinal);
+        await AssertReleased(id, packageId);
+    }
+#endif
 
     [Fact]
     public async Task MissingType_IsExpectedFailureAndReleasesScope()
@@ -252,6 +339,107 @@ public sealed class BrowserTypeSourceOperationTests(ITestOutputHelper output)
         await BrowserPackageWorkspace.RemoveScopeAsync(scope);
         await lease.DisposeAsync();
         Assert.False(BrowserPackageWorkspace.IsScopeRetained(scope));
+    }
+
+    // PR-fast: one real platform type through the public Browser export and shared operation.
+    [Theory]
+    [InlineData("api-declarations", TypeApiDeclarationScope.ApiVisible)]
+    [InlineData("all-declarations", TypeApiDeclarationScope.All)]
+    public async Task ApiDeclarations_PreserveSharedEnvelopeFromReferenceOnlyPackage(
+        string view,
+        TypeApiDeclarationScope declarationScope)
+    {
+        string packageId = $"Type.Declarations.{declarationScope}";
+        await RegisterDeclarationPackageAsync(packageId);
+        string id = Guid.NewGuid().ToString();
+        BrowserTypeSourceResult result = Read(await SourceExports.QueryTypeSource(
+            id, packageId, "1.0.0", "net11.0", "System.Text.Json.dll",
+            "System.Text.Json.JsonNamingPolicy", "[]", view));
+
+        Assert.Equal(BrowserTypeSourceResultKind.Succeeded, result.Kind);
+        var declarations = Assert.IsType<BrowserTypeCodeView.ApiDeclarations>(result.Value);
+        Assert.Equal(TypeApiDeclarationOutcome.Available, declarations.Inspection.Content.Outcome);
+        Assert.Equal(declarationScope, declarations.Inspection.Content.Scope);
+        Assert.Contains("protected JsonNamingPolicy();", declarations.Inspection.Content.Text);
+        Assert.Contains("ConvertName(string name);", declarations.Inspection.Content.Text);
+        Assert.DoesNotContain("throw ", declarations.Inspection.Content.Text);
+        Assert.IsType<InspectionShare.NonProjectable>(declarations.Inspection.Share);
+
+        await using (BrowserScopeLease<BrowserInspectionScope> lease =
+            await BrowserPackageWorkspace.OpenScopeAsync(
+                packageId, "1.0.0", "net11.0",
+                cancellationToken: TestContext.Current.CancellationToken))
+        {
+            var coordinate = lease.Scope.Coordinates[0];
+            var participant = lease.Scope.SurfaceParticipant(
+                coordinate, coordinate.CompileAsset("System.Text.Json.dll"));
+            MetadataTypeDefinitionName type = Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
+                MetadataTypeDefinitionName.ParseSerialized("System.Text.Json.JsonNamingPolicy")).Name;
+            var expected = lease.Scope.UseSurfaceParticipant(
+                participant,
+                (group, member) => TypeApiDeclarationInspection.Execute(
+                    group, member, type, declarationScope, BrowserApiSurfacePolicy.Limits,
+                    TestContext.Current.CancellationToken));
+            Assert.Equal(
+                JsonSerializer.Serialize(expected, TypeApiDeclarationInspectionJsonContext.Default.InspectionEnvelopeTypeApiDeclarationResult),
+                JsonSerializer.Serialize(declarations.Inspection, TypeApiDeclarationInspectionJsonContext.Default.InspectionEnvelopeTypeApiDeclarationResult));
+        }
+        await AssertReleased(id, packageId);
+    }
+
+    // PR-fast: declaration absence remains an explicit shared result, not source fallback.
+    [Fact]
+    public async Task ApiDeclarations_MissingTypePreservesUnavailableEvidence()
+    {
+        const string packageId = "Type.Declarations.Missing";
+        await RegisterDeclarationPackageAsync(packageId);
+        string id = Guid.NewGuid().ToString();
+        BrowserTypeSourceResult result = Read(await SourceExports.QueryTypeSource(
+            id, packageId, "1.0.0", "net11.0", "System.Text.Json.dll",
+            "System.Text.Json.MissingType", "[]", "api-declarations"));
+
+        Assert.Equal(BrowserTypeSourceResultKind.Succeeded, result.Kind);
+        var declarations = Assert.IsType<BrowserTypeCodeView.ApiDeclarations>(result.Value);
+        Assert.Equal(TypeApiDeclarationOutcome.NotFound, declarations.Inspection.Content.Outcome);
+        Assert.Null(declarations.Inspection.Content.Text);
+        Assert.NotEmpty(declarations.Inspection.Diagnostics);
+        Assert.IsType<InspectionShare.NonProjectable>(declarations.Inspection.Share);
+        await AssertReleased(id, packageId);
+    }
+
+    // PR-fast: real enum constants survive the shared declaration envelope and Browser transport.
+    [Theory]
+    [InlineData("api-declarations")]
+    [InlineData("all-declarations")]
+    public async Task ApiDeclarations_PreserveEnumValuesFromReferenceOnlyPackage(string view)
+    {
+        string packageId = $"Type.Declarations.Constants.{view}";
+        await RegisterDeclarationPackageAsync(packageId);
+        string id = Guid.NewGuid().ToString();
+        BrowserTypeSourceResult result = Read(await SourceExports.QueryTypeSource(
+            id, packageId, "1.0.0", "net11.0", "System.Text.Json.dll",
+            "System.Text.Json.JsonValueKind", "[]", view));
+
+        Assert.Equal(BrowserTypeSourceResultKind.Succeeded, result.Kind);
+        var declarations = Assert.IsType<BrowserTypeCodeView.ApiDeclarations>(result.Value);
+        Assert.Equal(TypeApiDeclarationOutcome.Available, declarations.Inspection.Content.Outcome);
+        Assert.Contains("True = 5", declarations.Inspection.Content.Text);
+        Assert.Contains("Null = 7", declarations.Inspection.Content.Text);
+        Assert.Empty(declarations.Inspection.Content.Failures);
+        Assert.Empty(declarations.Inspection.Diagnostics);
+        await AssertReleased(id, packageId);
+    }
+
+    static async Task RegisterDeclarationPackageAsync(string packageId)
+    {
+        using var bytes = new MemoryStream();
+        using (var archive = new ZipArchive(bytes, ZipArchiveMode.Create, leaveOpen: true))
+        {
+            using Stream entry = archive.CreateEntry("ref/net11.0/System.Text.Json.dll").Open();
+            entry.Write(File.ReadAllBytes(typeof(JsonNamingPolicy).Assembly.Location));
+        }
+        await BrowserPackageWorkspace.RegisterAcquiredPackageAsync(
+            new BrowserPackage(packageId, "1.0.0", bytes.ToArray(), fromCache: false));
     }
 
     static Task<string> Query(string id) => DotnetInspect.Web.Interop.Source.SourceExports.QueryTypeSource(

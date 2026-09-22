@@ -9,11 +9,20 @@ namespace DotnetInspector.Queries.Definitions;
 public sealed record WorkspacePackageCoordinateReplacementRequest
 {
     public WorkspacePackageCoordinateReplacementRequest(
-        string navigation,
+        string component,
+        string? version = null,
+        string? framework = null)
+        : this(ParseComponent(component), version, framework)
+    {
+    }
+
+    public WorkspacePackageCoordinateReplacementRequest(
+        WorkspacePackageComponentPath component,
         string? version = null,
         string? framework = null)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(navigation);
+        Component = component
+            ?? throw new ArgumentNullException(nameof(component));
         if (version is not null && string.IsNullOrWhiteSpace(version))
             throw new ArgumentException("Version must not be blank.", nameof(version));
         if (framework is not null && string.IsNullOrWhiteSpace(framework))
@@ -28,16 +37,28 @@ public sealed record WorkspacePackageCoordinateReplacementRequest
                 "At least one destination Version or Framework is required.");
         }
 
-        Navigation = navigation;
         Version = version;
         Framework = framework;
     }
 
-    public string Navigation { get; }
+    public WorkspacePackageComponentPath Component { get; }
 
     public string? Version { get; }
 
     public string? Framework { get; }
+
+    private static WorkspacePackageComponentPath ParseComponent(
+        string component)
+    {
+        if (!WorkspacePackageComponentPath.TryCreate(
+                component,
+                out WorkspacePackageComponentPath? path,
+                out string? error))
+        {
+            throw new ArgumentException(error, nameof(component));
+        }
+        return path!;
+    }
 }
 
 public enum WorkspacePortableCoordinateReplacementFailureKind
@@ -53,9 +74,10 @@ public enum WorkspacePortableCoordinateReplacementFailureKind
     DuplicateDestinationNavigationSource,
     InputRestorationFailed,
     DestinationAcquisitionFailed,
-    NavigationAdmissionRefused,
-    ScopeOperationFailed,
-    NavigationCompletionFailed,
+    DestinationScopeUnavailable,
+    DestinationAdmissionFailed,
+    NavigationSuccessorFailed,
+    NavigationSuccessorNotPrepared,
     DerivedDefinitionInvalid,
     DerivedDefinitionNonProjectable,
     Cancelled,
@@ -84,7 +106,10 @@ public sealed record WorkspacePortableCoordinateReplacementResult
         CommittedScenarioDefinitionSet? definitions,
         WorkspacePortableCoordinateReplacementFailure? failure,
         WorkspaceScopeOperationResult? scopeResult,
-        NavigationOperationResult? navigationResult)
+        NavigationOperationResult? navigationResult,
+        NavigationCoordinateRetentionResult? coordinateRetention,
+        NavigationRestorationPreparationResult? navigationPreparation,
+        NavigationCoordinateSuccessorFailure? navigationSuccessorFailure)
     {
         if ((definitions is null) == (failure is null))
         {
@@ -92,16 +117,32 @@ public sealed record WorkspacePortableCoordinateReplacementResult
                 "A replacement result requires exactly one of Definitions or Failure.");
         }
         if (definitions is not null
-            && (scopeResult is null || navigationResult is null))
+            && (scopeResult is null
+                || navigationResult is null
+                || coordinateRetention is null))
         {
             throw new ArgumentException(
-                "A successful replacement requires its actual Scope and Navigation results.");
+                "A successful replacement requires its actual destination Scope, Navigation, and retention results.");
+        }
+        if (navigationPreparation is NavigationRestorationPreparationResult.Prepared)
+        {
+            throw new ArgumentException(
+                "A portable replacement result cannot retain live destination Navigation state.");
+        }
+        if (navigationPreparation is not null
+            && navigationSuccessorFailure is not null)
+        {
+            throw new ArgumentException(
+                "A replacement result cannot contain both Navigation non-preparation and failure.");
         }
 
         Definitions = definitions;
         Failure = failure;
         ScopeResult = scopeResult;
         NavigationResult = navigationResult;
+        CoordinateRetention = coordinateRetention;
+        NavigationPreparation = navigationPreparation;
+        NavigationSuccessorFailure = navigationSuccessorFailure;
     }
 
     public CommittedScenarioDefinitionSet? Definitions { get; }
@@ -112,24 +153,47 @@ public sealed record WorkspacePortableCoordinateReplacementResult
 
     public NavigationOperationResult? NavigationResult { get; }
 
+    public NavigationCoordinateRetentionResult? CoordinateRetention { get; }
+
+    public NavigationRestorationPreparationResult? NavigationPreparation { get; }
+
+    public NavigationCoordinateSuccessorFailure? NavigationSuccessorFailure
+    {
+        get;
+    }
+
     public bool Succeeded => Definitions is not null;
 
     internal static WorkspacePortableCoordinateReplacementResult Success(
         CommittedScenarioDefinitionSet definitions,
         WorkspaceScopeOperationResult scopeResult,
-        NavigationOperationResult navigationResult) =>
-        new(definitions, null, scopeResult, navigationResult);
+        NavigationOperationResult navigationResult,
+        NavigationCoordinateRetentionResult coordinateRetention) =>
+        new(
+            definitions,
+            null,
+            scopeResult,
+            navigationResult,
+            coordinateRetention,
+            null,
+            null);
 
     internal static WorkspacePortableCoordinateReplacementResult Refused(
         WorkspacePortableCoordinateReplacementFailureKind kind,
         string detail,
         WorkspaceScopeOperationResult? scopeResult = null,
-        NavigationOperationResult? navigationResult = null) =>
+        NavigationOperationResult? navigationResult = null,
+        NavigationCoordinateRetentionResult? coordinateRetention = null,
+        NavigationRestorationPreparationResult? navigationPreparation = null,
+        NavigationCoordinateSuccessorFailure? navigationSuccessorFailure = null) =>
         new(
             null,
             new WorkspacePortableCoordinateReplacementFailure(kind, detail),
             scopeResult,
-            navigationResult);
+            navigationResult,
+            coordinateRetention,
+            navigationPreparation,
+            navigationSuccessorFailure);
 }
 
 public static class WorkspacePortableCoordinateReplacement
@@ -232,7 +296,10 @@ public static class WorkspacePortableCoordinateReplacement
                 WorkspacePortableCoordinateReplacementFailureKind.CleanupFailed,
                 cleanup.Message,
                 operationResult?.ScopeResult,
-                operationResult?.NavigationResult);
+                operationResult?.NavigationResult,
+                operationResult?.CoordinateRetention,
+                operationResult?.NavigationPreparation,
+                operationResult?.NavigationSuccessorFailure);
         }
         if (operationResult is not null)
             return operationResult;
@@ -282,22 +349,38 @@ public static class WorkspacePortableCoordinateReplacement
                 "Query-bearing committed state is not supported by portable Package-coordinate replacement.");
         }
 
-        NavigationTabDefinition? tab = navigation.Tabs.FirstOrDefault(
-            candidate => candidate.Id == request.Navigation);
-        if (tab is null)
+        NavigationTabDefinition[] matchingTabs =
+        [
+            .. navigation.Tabs.Where(candidate =>
+                candidate.Coordinate
+                    is DefinitionMemberCoordinate.PackageCoordinate package
+                && WorkspacePackageComponentPath.Create(package)
+                    == request.Component),
+        ];
+        if (matchingTabs.Length == 0)
         {
             return Failed(
                 WorkspacePortableCoordinateReplacementFailureKind
                     .NavigationSourceMissing,
-                $"Navigation row '{request.Navigation}' is absent.");
+                $"Workspace Package component '{request.Component}' is absent.");
         }
+        if (matchingTabs.Length != 1)
+        {
+            return Failed(
+                WorkspacePortableCoordinateReplacementFailureKind
+                    .NavigationSourceAmbiguous,
+                $"Workspace Package component '{request.Component}' matches "
+                    + $"{matchingTabs.Length} Navigation rows.");
+        }
+        NavigationTabDefinition tab = matchingTabs[0];
         if (tab.Coordinate
             is not DefinitionMemberCoordinate.PackageCoordinate tabPackage)
         {
             return Failed(
                 WorkspacePortableCoordinateReplacementFailureKind
                     .NavigationSourceNotDirectPackage,
-                $"Navigation row '{request.Navigation}' is not a direct Package source.");
+                $"Workspace Package component '{request.Component}' is not a "
+                    + "direct Package source.");
         }
 
         IReadOnlyList<PackageNavigationSource> positions =
@@ -315,8 +398,10 @@ public static class WorkspacePortableCoordinateReplacement
                     : WorkspacePortableCoordinateReplacementFailureKind
                         .NavigationSourceAmbiguous,
                 positions.Count == 0
-                    ? $"Navigation row '{request.Navigation}' has no direct Package member position."
-                    : $"Navigation row '{request.Navigation}' matches {positions.Count} direct Package member positions.");
+                    ? $"Workspace Package component '{request.Component}' has "
+                        + "no direct Package member position."
+                    : $"Workspace Package component '{request.Component}' "
+                        + $"matches {positions.Count} direct Package member positions.");
         }
 
         PackageNavigationSource source = positions[0];
@@ -325,7 +410,8 @@ public static class WorkspacePortableCoordinateReplacement
             return Failed(
                 WorkspacePortableCoordinateReplacementFailureKind
                     .FloatingSourceUnsupported,
-                $"Navigation row '{request.Navigation}' selects a floating Package source.");
+                $"Workspace Package component '{request.Component}' selects "
+                    + "a floating Package source.");
         }
 
         string destinationVersion =
@@ -378,7 +464,7 @@ public static class WorkspacePortableCoordinateReplacement
                 definitions.NavigationTargetMatchMode);
             NavigationTabDefinition destinationTab =
                 destinationNavigation.Tabs.Single(
-                    candidate => candidate.Id == request.Navigation);
+                    candidate => candidate.Id == tab.Id);
             if (InspectionDefinitionRegistry
                     .ResolvePackageNavigationSourcePositions(
                         destinationWorkspace,
@@ -403,7 +489,7 @@ public static class WorkspacePortableCoordinateReplacement
         return new(
             new DefinitionMutationPreparation(
                 definitions,
-                request.Navigation,
+                tab.Id,
                 source,
                 frameworkChanged
                     || !string.Equals(
@@ -459,7 +545,8 @@ public static class WorkspacePortableCoordinateReplacement
             workspace.Title,
             workspace.Description,
             workspace.Groups,
-            workspace.Registrations);
+            workspace.Registrations,
+            workspace.PackageSources);
     }
 
     private static CommittedNavigationDefinition ReplaceNavigationCoordinate(
@@ -597,8 +684,6 @@ public static class WorkspacePortableCoordinateReplacement
             CompleteRestorationExecutionOptions options,
             CancellationToken cancellationToken)
     {
-        WorkspaceScopeOperationResult? scopeResult = null;
-        NavigationOperationResult? navigationResult = null;
         try
         {
             if (!invocation.PackageRequests.TryGetValue(
@@ -726,140 +811,246 @@ public static class WorkspacePortableCoordinateReplacement
                         ? destinationBinding
                         : root);
             }
-            WorkspaceScopeRequest scopeRequest =
-                workspace.IssueReplaceScopeRequest(
-                    activation.Snapshot.Scope.Revision,
-                    roots.MoveToImmutable(),
-                    options.ScopeDeadline,
-                    workspace.CreateScopePackageTarget(destinationBinding));
-            NavigationTransition accepted =
-                NavigationTransitions.AcceptScopeOperation(
-                    preparedSource.Initialization.State,
-                    scopeRequest.Association);
-            if (accepted.ScopeWork is null)
-            {
-                return WorkspacePortableCoordinateReplacementResult.Refused(
-                    WorkspacePortableCoordinateReplacementFailureKind
-                        .NavigationAdmissionRefused,
-                    accepted.AdmissionRefusal?.Message
-                        ?? "Navigation refused the protected Scope operation.");
-            }
 
-            NavigationScopeEvaluationResult evaluation =
-                await NavigationScopeOperations
-                    .EvaluateCoordinateReplacementAsync(
-                        workspace,
-                        accepted.ScopeWork,
-                        scopeRequest,
-                        sourceBinding,
-                        options.Facets,
-                        options.FacetAvailability,
-                        cancellationToken).ConfigureAwait(false);
-            NavigationTransition completed =
-                NavigationTransitions.CompleteScopeOperation(
-                    accepted.State,
-                    accepted.ScopeWork,
-                    evaluation);
-            scopeResult = evaluation.Settlement;
-            navigationResult = completed.Result;
-            if (navigationResult is null)
-            {
-                return WorkspacePortableCoordinateReplacementResult.Refused(
-                    WorkspacePortableCoordinateReplacementFailureKind
-                        .NavigationCompletionFailed,
-                    completed.Rejection is { } rejection
-                        ? $"Navigation rejected correlated completion: {rejection}."
-                        : "Navigation produced no correlated completion result.",
-                    scopeResult);
-            }
-            if (scopeResult is not (
-                    WorkspaceScopeOperationResult.Committed
-                    or WorkspaceScopeOperationResult.NoEffect))
-            {
-                return WorkspacePortableCoordinateReplacementResult.Refused(
-                    WorkspacePortableCoordinateReplacementFailureKind
-                        .ScopeOperationFailed,
-                    $"Workspace Scope settled the replacement as {scopeResult.GetType().Name}.",
-                    scopeResult,
-                    navigationResult);
-            }
-            if (!mutation.CoordinateChanged
-                && navigationResult.CoordinateRetention is null)
-            {
-                return WorkspacePortableCoordinateReplacementResult.Success(
-                    mutation.SourceDefinitions,
-                    scopeResult,
-                    navigationResult);
-            }
-            if (navigationResult.CoordinateRetention is null)
-            {
-                return WorkspacePortableCoordinateReplacementResult.Refused(
-                    WorkspacePortableCoordinateReplacementFailureKind
-                        .NavigationCompletionFailed,
-                    navigationResult.Consumer.Outcome.Message
-                        ?? "Navigation did not apply the completed replacement.",
-                    scopeResult,
-                    navigationResult);
-            }
-
-            CommittedScenarioDefinitionSet derived;
-            try
-            {
-                derived = BuildDerivedDefinitions(
-                    mutation,
-                    completed.State.CurrentSnapshot);
-                ValidateDerivedDefinitions(derived);
-            }
-            catch (Exception failure)
-                when (failure is InspectionDefinitionException
-                    or ArgumentException
-                    or InvalidOperationException)
-            {
-                return WorkspacePortableCoordinateReplacementResult.Refused(
-                    WorkspacePortableCoordinateReplacementFailureKind
-                        .DerivedDefinitionInvalid,
-                    failure.Message,
-                    scopeResult,
-                    navigationResult);
-            }
-
-            WorkspaceSharePacketProjectionResult projection =
-                WorkspaceSharePacketTransposer.ToPacket(
-                    derived,
-                    cancellationToken);
-            if (!projection.Succeeded)
-            {
-                WorkspaceSharePacketProjectionFailure failure =
-                    projection.Failure
-                    ?? throw new InvalidOperationException(
-                        "A failed derived projection requires a reason.");
-                return WorkspacePortableCoordinateReplacementResult.Refused(
-                    failure.Kind
-                        == WorkspaceSharePacketProjectionFailureKind
-                            .NonProjectable
-                        ? WorkspacePortableCoordinateReplacementFailureKind
-                            .DerivedDefinitionNonProjectable
-                        : WorkspacePortableCoordinateReplacementFailureKind
-                            .DerivedDefinitionInvalid,
-                    failure.Message,
-                    scopeResult,
-                    navigationResult);
-            }
-
-            return WorkspacePortableCoordinateReplacementResult.Success(
-                derived,
-                scopeResult,
-                navigationResult);
+            return await ExecuteInSuccessorWorkspaceAsync(
+                workspace,
+                preparedSource,
+                sourceBinding,
+                destinationBinding,
+                roots.MoveToImmutable(),
+                mutation,
+                options,
+                cancellationToken).ConfigureAwait(false);
         }
         catch (OperationCanceledException)
         {
             return WorkspacePortableCoordinateReplacementResult.Refused(
                 WorkspacePortableCoordinateReplacementFailureKind.Cancelled,
-                "Portable Package-coordinate replacement was cancelled.",
-                scopeResult,
-                navigationResult);
+                "Portable Package-coordinate replacement was cancelled.");
         }
     }
+
+    private static async ValueTask<WorkspacePortableCoordinateReplacementResult>
+        ExecuteInSuccessorWorkspaceAsync(
+            InspectionWorkspace sourceWorkspace,
+            NavigationRestorationPreparationResult.Prepared preparedSource,
+            PackageRootBinding sourceBinding,
+            PackageRootBinding destinationBinding,
+            ImmutableArray<PackageRootBinding> destinationRoots,
+            DefinitionMutationPreparation mutation,
+            CompleteRestorationExecutionOptions options,
+            CancellationToken cancellationToken)
+    {
+        WorkspacePlan plan =
+            InspectionDefinitionRegistry.CreateCompleteRestorationWorkspacePlan(
+                mutation.DestinationWorkspace);
+        var destinationWorkspace = new InspectionWorkspace(plan);
+        WorkspacePortableCoordinateReplacementResult operationResult;
+        try
+        {
+            operationResult = await PopulateAndPrepareSuccessorAsync(
+                sourceWorkspace,
+                preparedSource,
+                sourceBinding,
+                destinationWorkspace,
+                destinationBinding,
+                destinationRoots,
+                mutation,
+                options,
+                cancellationToken).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException)
+        {
+            operationResult = WorkspacePortableCoordinateReplacementResult.Refused(
+                WorkspacePortableCoordinateReplacementFailureKind.Cancelled,
+                "Portable Package-coordinate replacement was cancelled.");
+        }
+        catch
+        {
+            await destinationWorkspace.CloseAsync().ConfigureAwait(false);
+            throw;
+        }
+
+        InspectionWorkspaceCloseReport close =
+            await destinationWorkspace.CloseAsync().ConfigureAwait(false);
+        if (!close.Succeeded)
+        {
+            return WorkspacePortableCoordinateReplacementResult.Refused(
+                WorkspacePortableCoordinateReplacementFailureKind
+                    .CleanupFailed,
+                "The successor Workspace did not close cleanly.",
+                operationResult.ScopeResult,
+                operationResult.NavigationResult,
+                operationResult.CoordinateRetention,
+                operationResult.NavigationPreparation,
+                operationResult.NavigationSuccessorFailure);
+        }
+
+        return operationResult;
+    }
+
+    private static async ValueTask<WorkspacePortableCoordinateReplacementResult>
+        PopulateAndPrepareSuccessorAsync(
+            InspectionWorkspace sourceWorkspace,
+            NavigationRestorationPreparationResult.Prepared preparedSource,
+            PackageRootBinding sourceBinding,
+            InspectionWorkspace destinationWorkspace,
+            PackageRootBinding destinationBinding,
+            ImmutableArray<PackageRootBinding> destinationRoots,
+            DefinitionMutationPreparation mutation,
+            CompleteRestorationExecutionOptions options,
+            CancellationToken cancellationToken)
+    {
+        WorkspaceScopeReadResult initial =
+            await destinationWorkspace.GetScopeSnapshotAsync()
+                .ConfigureAwait(false);
+        if (initial is not WorkspaceScopeReadResult.Available available)
+        {
+            return WorkspacePortableCoordinateReplacementResult.Refused(
+                WorkspacePortableCoordinateReplacementFailureKind
+                    .DestinationScopeUnavailable,
+                "The successor Workspace's initial Scope was unavailable.");
+        }
+
+        WorkspaceScopeOperationResult scopeResult =
+            await destinationWorkspace.AddPackagesAsync(
+                available.Snapshot.Revision,
+                destinationRoots,
+                options.ScopeDeadline,
+                cancellationToken).ConfigureAwait(false);
+        WorkspaceScopeSnapshot? destinationScope = scopeResult switch
+        {
+            WorkspaceScopeOperationResult.Committed committed =>
+                committed.Snapshot,
+            WorkspaceScopeOperationResult.NoEffect noEffect =>
+                noEffect.Snapshot,
+            _ => null,
+        };
+        if (destinationScope is null)
+        {
+            return WorkspacePortableCoordinateReplacementResult.Refused(
+                WorkspacePortableCoordinateReplacementFailureKind
+                    .DestinationAdmissionFailed,
+                $"The successor Workspace settled Package admission as {scopeResult.GetType().Name}.",
+                scopeResult);
+        }
+
+        NavigationCoordinateSuccessorPreparationResult successor =
+            await NavigationCoordinateSuccessorQuery.PrepareAsync(
+                sourceWorkspace,
+                preparedSource.Initialization.State,
+                sourceBinding,
+                destinationWorkspace,
+                destinationScope,
+                destinationBinding,
+                options.Facets,
+                options.FacetAvailability,
+                cancellationToken).ConfigureAwait(false);
+        if (successor
+            is NavigationCoordinateSuccessorPreparationResult.Failed failed)
+        {
+            return WorkspacePortableCoordinateReplacementResult.Refused(
+                WorkspacePortableCoordinateReplacementFailureKind
+                    .NavigationSuccessorFailed,
+                failed.Failure.Detail,
+                scopeResult,
+                navigationSuccessorFailure: failed.Failure);
+        }
+        if (successor
+            is NavigationCoordinateSuccessorPreparationResult.NotPrepared
+                notPrepared)
+        {
+            return WorkspacePortableCoordinateReplacementResult.Refused(
+                WorkspacePortableCoordinateReplacementFailureKind
+                    .NavigationSuccessorNotPrepared,
+                NavigationPreparationDetail(notPrepared.Preparation),
+                scopeResult,
+                coordinateRetention: notPrepared.Retention,
+                navigationPreparation: notPrepared.Preparation);
+        }
+
+        var prepared =
+            (NavigationCoordinateSuccessorPreparationResult.Prepared)successor;
+        NavigationOperationResult navigationResult =
+            prepared.Initialization.Result;
+        NavigationCoordinateRetentionResult coordinateRetention =
+            prepared.Retention;
+        if (!mutation.CoordinateChanged)
+        {
+            return WorkspacePortableCoordinateReplacementResult.Success(
+                mutation.SourceDefinitions,
+                scopeResult,
+                navigationResult,
+                coordinateRetention);
+        }
+
+        CommittedScenarioDefinitionSet derived;
+        try
+        {
+            derived = BuildDerivedDefinitions(
+                mutation,
+                prepared.Initialization.State.CurrentSnapshot);
+            ValidateDerivedDefinitions(derived);
+        }
+        catch (Exception failure)
+            when (failure is InspectionDefinitionException
+                or ArgumentException
+                or InvalidOperationException)
+        {
+            return WorkspacePortableCoordinateReplacementResult.Refused(
+                WorkspacePortableCoordinateReplacementFailureKind
+                    .DerivedDefinitionInvalid,
+                failure.Message,
+                scopeResult,
+                navigationResult,
+                coordinateRetention);
+        }
+
+        WorkspaceSharePacketProjectionResult projection =
+            WorkspaceSharePacketTransposer.ToPacket(
+                derived,
+                cancellationToken);
+        if (!projection.Succeeded)
+        {
+            WorkspaceSharePacketProjectionFailure failure =
+                projection.Failure
+                ?? throw new InvalidOperationException(
+                    "A failed derived projection requires a reason.");
+            return WorkspacePortableCoordinateReplacementResult.Refused(
+                failure.Kind
+                    == WorkspaceSharePacketProjectionFailureKind
+                        .NonProjectable
+                    ? WorkspacePortableCoordinateReplacementFailureKind
+                        .DerivedDefinitionNonProjectable
+                    : WorkspacePortableCoordinateReplacementFailureKind
+                        .DerivedDefinitionInvalid,
+                failure.Message,
+                scopeResult,
+                navigationResult,
+                coordinateRetention);
+        }
+
+        return WorkspacePortableCoordinateReplacementResult.Success(
+            derived,
+            scopeResult,
+            navigationResult,
+            coordinateRetention);
+    }
+
+    private static string NavigationPreparationDetail(
+        NavigationRestorationPreparationResult preparation) =>
+        preparation switch
+        {
+            NavigationRestorationPreparationResult.Unavailable unavailable =>
+                unavailable.Message,
+            NavigationRestorationPreparationResult.Failed failed =>
+                failed.Message,
+            NavigationRestorationPreparationResult.Rejected rejected =>
+                rejected.Message,
+            _ => throw new ArgumentOutOfRangeException(
+                nameof(preparation),
+                "A successor non-preparation result must be unavailable, failed, or rejected."),
+        };
 
     private static CommittedScenarioDefinitionSet BuildDerivedDefinitions(
         DefinitionMutationPreparation mutation,
@@ -879,22 +1070,40 @@ public static class WorkspacePortableCoordinateReplacement
                 "The selected navigation row has no committed view state.");
         }
 
-        PortableSubjectRequest subject = ToPortableSubject(destination);
-        PortableRetainedSubjectContext? context =
-            ToPortableContext(destination.RetainedContext);
-        if (subject is PortableSubjectRequest.Workspace
-            && context is PortableRetainedSubjectContext.Package)
+        CommittedViewStateDefinition sourceState = states[stateIndex];
+        if (sourceState.Subject is null)
         {
-            context = null;
+            states[stateIndex] =
+                new CommittedViewStateDefinition(mutation.NavigationId);
         }
-        states[stateIndex] = new CommittedViewStateDefinition(
-            mutation.NavigationId,
-            subject,
-            context,
-            destination.LensOutcome.Basis
-                is NavigationLensEvaluationBasis.ExactRequest exact
-                    ? exact.Request.Facet.Value
-                    : null);
+        else if (sourceState.Subject is PortableSubjectRequest.Workspace
+            && sourceState.Context is null)
+        {
+            states[stateIndex] = new CommittedViewStateDefinition(
+                mutation.NavigationId,
+                sourceState.Subject,
+                sourceState.Context,
+                sourceState.Facet);
+        }
+        else
+        {
+            PortableSubjectRequest subject = ToPortableSubject(destination);
+            PortableRetainedSubjectContext? context =
+                ToPortableContext(destination.RetainedContext);
+            if (subject is PortableSubjectRequest.Workspace
+                && context is PortableRetainedSubjectContext.Package)
+            {
+                context = null;
+            }
+            states[stateIndex] = new CommittedViewStateDefinition(
+                mutation.NavigationId,
+                subject,
+                context,
+                destination.LensOutcome.Basis
+                    is NavigationLensEvaluationBasis.ExactRequest exact
+                        ? exact.Request.Facet.Value
+                        : null);
+        }
         var destinationView = new CommittedViewDefinition(
             view.SchemaVersion,
             view.Id,
@@ -985,6 +1194,8 @@ public static class WorkspacePortableCoordinateReplacement
                 version3.States,
             CompleteRestorationResolvedState.Version4 version4 =>
                 version4.States,
+            CompleteRestorationResolvedState.Version5 version5 =>
+                version5.States,
             _ => throw new InvalidOperationException(
                 "Unknown complete restoration state version."),
         };

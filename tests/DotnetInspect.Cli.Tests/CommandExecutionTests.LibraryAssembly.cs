@@ -181,15 +181,19 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task DiffHelp_UsesPdbSourceAndHidesLegacyAuthoredSourceFlag()
+    public async Task DiffHelp_ExposesHistoryAndPdbSourceWithoutLegacyAuthoredSource()
     {
         var (exit, output, error) = await RunAppAsync("diff", "--help");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
         Assert.Contains("--pdb-source", output);
+        Assert.Contains("--history", output);
+        Assert.Contains("--at", output);
+        Assert.Contains("--max-probes", output);
+        Assert.Contains("--sample-percent", output);
+        Assert.Contains("--count", output);
         Assert.DoesNotContain("--authored-source", output);
-        Assert.DoesNotContain("--count", output);
     }
 
     [Fact]
@@ -284,6 +288,258 @@ public partial class CommandExecutionTests
     }
 
     // ── library command ─────────────────────────────────────────────
+
+    [Fact]
+    public async Task
+        Library_DirectEnvelope_EmitsHostNeutralOverview()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "library",
+            TestAssemblyPath,
+            "--envelope",
+            "--compact",
+            "--tips",
+            "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.DoesNotContain('\n', output.TrimEnd());
+        using JsonDocument json = JsonDocument.Parse(output);
+        JsonElement root = json.RootElement;
+        Assert.Equal(
+            "library-overview",
+            root.GetProperty("result_kind").GetString());
+        Assert.Equal(
+            "available",
+            root.GetProperty("content")
+                .GetProperty("kind")
+                .GetString());
+        JsonElement document =
+            root.GetProperty("content")
+                .GetProperty("document");
+        Assert.Equal(
+            "DotnetInspect.Cli.Tests",
+            document.GetProperty("assembly")
+                .GetProperty("name")
+                .GetString());
+        Assert.True(
+            document.GetProperty("publicTypeCount")
+                .GetInt32() > 0);
+        Assert.Equal(
+            "nonProjectable",
+            root.GetProperty("share")
+                .GetProperty("kind")
+                .GetString());
+        Assert.Empty(
+            root.GetProperty("diagnostics")
+                .EnumerateArray());
+    }
+
+    [Fact]
+    public async Task
+        Library_DirectEnvelope_OutPublishesAfterCompletion()
+    {
+        string outputPath =
+            Path.Combine(
+                Path.GetTempPath(),
+                $"library-overview-{Guid.NewGuid():N}.json");
+        try
+        {
+            var (exit, output, error) = await RunAppAsync(
+                "library",
+                TestAssemblyPath,
+                "--envelope",
+                "--compact",
+                "--out",
+                outputPath,
+                "--tips",
+                "q");
+
+            Assert.Equal(0, exit);
+            Assert.Empty(output);
+            Assert.Empty(error);
+            string payload =
+                await File.ReadAllTextAsync(
+                    outputPath,
+                    TestContext.Current.CancellationToken);
+            Assert.DoesNotContain('\n', payload.TrimEnd());
+            using JsonDocument json =
+                JsonDocument.Parse(payload);
+            Assert.Equal(
+                "library-overview",
+                json.RootElement
+                    .GetProperty("result_kind")
+                    .GetString());
+        }
+        finally
+        {
+            File.Delete(outputPath);
+        }
+    }
+
+    [Fact]
+    public async Task
+        Library_EnvelopeRejectsNonFileBeforeSourceAcquisition()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "library",
+            "Definitely.Not.A.Local.Library",
+            "--envelope",
+            "--tips",
+            "q");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains(
+            "direct Library file does not exist",
+            error,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "NuGet",
+            error,
+            StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task
+        Library_EnvelopeRejectsLegacyRoutesBeforeAcquisition()
+    {
+        var section = await RunAppAsync(
+            "library",
+            "missing.dll",
+            "--envelope",
+            "-S",
+            SectionNames.References,
+            "--tips",
+            "q");
+        var package = await RunAppAsync(
+            "library",
+            "missing.dll",
+            "--envelope",
+            "--package",
+            "Definitely.No.Such.Package",
+            "--tips",
+            "q");
+        var count = await RunAppAsync(
+            "library",
+            "missing.dll",
+            "--envelope",
+            "--count",
+            "--tips",
+            "q");
+        var rows = await RunAppAsync(
+            "library",
+            "missing.dll",
+            "--envelope",
+            "--rows",
+            "1",
+            "--tips",
+            "q");
+        var source = await RunAppAsync(
+            "library",
+            "missing.dll",
+            "--envelope",
+            "--source",
+            "https://example.invalid/v3/index.json",
+            "--tips",
+            "q");
+        var addSource = await RunAppAsync(
+            "library",
+            "missing.dll",
+            "--envelope",
+            "--add-source",
+            "https://example.invalid/v3/index.json",
+            "--tips",
+            "q");
+        var nugetConfig = await RunAppAsync(
+            "library",
+            "missing.dll",
+            "--envelope",
+            "--nugetconfig",
+            "missing.nuget.config",
+            "--tips",
+            "q");
+        var row = await RunAppAsync(
+            "library",
+            "missing.dll",
+            "--envelope",
+            "--row",
+            "5",
+            "--tips",
+            "q");
+        var where = await RunAppAsync(
+            "library",
+            "missing.dll",
+            "--envelope",
+            "--where",
+            "integration=integration.dependency-injection",
+            "--tips",
+            "q");
+        var existingWhere = await RunAppAsync(
+            "library",
+            TestAssemblyPath,
+            "--envelope",
+            "--where",
+            "integration=integration.dependency-injection",
+            "--tips",
+            "q");
+
+        Assert.Equal(1, section.Exit);
+        Assert.Empty(section.Output);
+        Assert.Contains(
+            "does not accept section selection",
+            section.Error,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "does not exist",
+            section.Error,
+            StringComparison.Ordinal);
+
+        Assert.Equal(1, package.Exit);
+        Assert.Empty(package.Output);
+        Assert.Contains(
+            "--envelope cannot be combined with --package",
+            package.Error,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "does not exist",
+            package.Error,
+            StringComparison.Ordinal);
+
+        Assert.Equal(1, count.Exit);
+        Assert.Empty(count.Output);
+        Assert.Contains(
+            "--envelope cannot be combined with --count",
+            count.Error,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "does not exist",
+            count.Error,
+            StringComparison.Ordinal);
+
+        foreach (var (result, option) in new[]
+        {
+            (source, "--source"),
+            (addSource, "--add-source"),
+            (nugetConfig, "--nugetconfig"),
+            (row, "--row"),
+            (rows, "--rows"),
+            (where, "--where"),
+            (existingWhere, "--where"),
+        })
+        {
+            Assert.Equal(1, result.Exit);
+            Assert.Empty(result.Output);
+            Assert.Contains(
+                $"--envelope cannot be combined with {option}",
+                result.Error,
+                StringComparison.Ordinal);
+            Assert.DoesNotContain(
+                "does not exist",
+                result.Error,
+                StringComparison.Ordinal);
+        }
+    }
 
     [Fact]
     public async Task Assembly_PlatformLibrary_ShowsInfo()
@@ -1241,10 +1497,13 @@ public partial class CommandExecutionTests
         Assert.Equal(0, exit);
         Assert.Empty(error);
         Assert.Contains(
-            "| @Dependencies | category | --markdown, --plaintext |",
+            "| @Dependencies | category "
+            + "| library/categories/dependencies "
+            + "| --markdown, --plaintext |",
             output);
         Assert.Contains(
-            "| References | section | --markdown, --plaintext, --json, --table, --tsv, --jsonl |",
+            "| References | section | library/sections/references "
+            + "| --markdown, --plaintext, --json, --table, --tsv, --jsonl |",
             output);
         Assert.DoesNotContain("File not found", output);
     }
@@ -1268,13 +1527,19 @@ public partial class CommandExecutionTests
         Assert.Equal(0, exit);
         Assert.Empty(error);
         Assert.Contains(
-            "| @Dependencies | category | --markdown, --plaintext |",
+            "| @Dependencies | category "
+            + "| library/categories/dependencies "
+            + "| --markdown, --plaintext |",
             output);
         Assert.Contains(
-            "| Reference Hierarchy | section | --markdown, --plaintext, --json, --table, --tsv, --jsonl, --tree, --mermaid |",
+            "| Reference Hierarchy | section "
+            + "| library/sections/reference-hierarchy "
+            + "| --markdown, --plaintext, --json, --table, --tsv, "
+            + "--jsonl, --tree, --mermaid |",
             output);
         Assert.Contains(
-            "| References | section | --markdown, --plaintext, --json, --table, --tsv, --jsonl |",
+            "| References | section | library/sections/references "
+            + "| --markdown, --plaintext, --json, --table, --tsv, --jsonl |",
             output);
         Assert.DoesNotContain("File not found", output);
     }
@@ -1308,6 +1573,9 @@ public partial class CommandExecutionTests
         Assert.Equal(
             "section",
             row.GetProperty("kind").GetString());
+        Assert.Equal(
+            "library/sections/reference-hierarchy",
+            row.GetProperty("path").GetString());
         Assert.Equal(
             [
                 "--markdown",
@@ -1376,8 +1644,12 @@ public partial class CommandExecutionTests
     [Theory]
     [InlineData(new string[] { "--details" }, "--details requires -D/--discover")]
     [InlineData(new string[] { "-D", "References", "-D", "Signals", "--details" }, "expects a single argument")]
+    [InlineData(new string[] { "-D", "NoSuchSection", "--details" }, "Select value 'NoSuchSection' not found.")]
+    [InlineData(new string[] { "-D", "@NoSuchCategory", "--details" }, "Select value '@NoSuchCategory' not found.")]
     [InlineData(new string[] { "-D", "Reference*", "--details" }, "--details requires an exact category or section selector")]
     [InlineData(new string[] { "-D", "References", "--details", "--tree" }, "Tree and Mermaid are reported capabilities")]
+    [InlineData(new string[] { "-D", "NoSuchSection", "--details", "--tree" }, "Tree and Mermaid are reported capabilities")]
+    [InlineData(new string[] { "-D", "NoSuchSection", "--details", "--fields", "Name" }, "--details cannot be combined with print, shape, field, or column projections")]
     [InlineData(new string[] { "-D", "References", "--details", "-S", "References" }, "--details cannot be combined with -S/--select")]
     [InlineData(new string[] { "-D", "References", "--details", "--effective" }, "--effective cannot be combined with --schema")]
     [InlineData(new string[] { "-D", "References", "--formats" }, "Unrecognized command or argument '--formats'")]
@@ -2098,6 +2370,9 @@ public partial class CommandExecutionTests
         Assert.Equal(0, exit);
         Assert.Contains("@Audit (category)", output);
         Assert.Contains("@Performance (category)", output);
+        Assert.Contains(
+            "   ├─ References\n   │  ├─ Name (column)",
+            output.ReplaceLineEndings("\n"));
         Assert.DoesNotContain("(opt-in)", output);
         Assert.DoesNotContain("(verbose)", output);
         Assert.DoesNotContain("@All", output);
@@ -2113,13 +2388,15 @@ public partial class CommandExecutionTests
         // SourceLink document — network-free. Newtonsoft's PDB is external (snupkg), so warm the
         // symbol cache first with an explicit render; discovery then resolves it cache-only.
         var (warmExit, _, _) = await RunAppAsync(
-            "library", "--package", "Newtonsoft.Json", "-S", "SourceLink: Availability", "--tips", "q");
+            "library", "--package", "Newtonsoft.Json", "--namesake-library",
+            "-S", "SourceLink: Availability", "--tips", "q");
         Assert.Equal(0, warmExit);
 
         // Full effective discovery is the explicit larger-budget gesture that may open the warmed
         // PDB. SourceLink members stay behind their domain door, never in the flat base catalog.
         var (exit, output, error) = await RunAppAsync(
-            "library", "--package", "Newtonsoft.Json", "-D", "--effective",
+            "library", "--package", "Newtonsoft.Json", "--namesake-library",
+            "-D", "--effective",
             "--table", "--tips", "q");
 
         Assert.Equal(0, exit);
@@ -2132,7 +2409,8 @@ public partial class CommandExecutionTests
         Assert.DoesNotContain("@Hidden", output);
 
         var (sourceExit, sourceOutput, sourceError) = await RunAppAsync(
-            "library", "--package", "Newtonsoft.Json", "-D", "@SourceLink", "--table", "--tips", "q");
+            "library", "--package", "Newtonsoft.Json", "--namesake-library",
+            "-D", "@SourceLink", "--table", "--tips", "q");
 
         Assert.Equal(0, sourceExit);
         Assert.DoesNotContain("Tip:", sourceError);
@@ -2334,6 +2612,28 @@ public partial class CommandExecutionTests
         Assert.Contains("| Shape | filterable |", output);
         Assert.Contains("| RootReach | sortable |", output);
         Assert.Contains("| OncePaths | sortable |", output);
+    }
+
+    [Fact]
+    public async Task LibraryCommand_DiscoverPerformanceTree_ListsOnlyRenderableItems()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "library",
+            TestAssemblyPath,
+            "-D",
+            "Performance: Boxing",
+            "--tree",
+            "--tips",
+            "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains("Member (column)", output);
+        Assert.Contains("Confidence (column)", output);
+        Assert.DoesNotContain("(default-order)", output);
+        Assert.DoesNotContain("(order-step)", output);
+        Assert.DoesNotContain("(filterable)", output);
+        Assert.DoesNotContain("(sortable)", output);
     }
 
     [Fact]
@@ -2601,6 +2901,9 @@ public partial class CommandExecutionTests
         Assert.Equal(0, treeExit);
         Assert.Empty(treeError);
         Assert.Contains("└─ @Performance", treeOutput);
+        Assert.DoesNotContain("(column)", treeOutput);
+        Assert.DoesNotContain("(filterable)", treeOutput);
+        Assert.DoesNotContain("(sortable)", treeOutput);
 
         Assert.Equal(0, countExit);
         Assert.Empty(countError);
@@ -2630,7 +2933,7 @@ public partial class CommandExecutionTests
     public async Task LibraryCommand_SourceFilesSection_TypeFilterAndPreferRenderedUrls()
     {
         var (exit, output, error) = await RunAppAsync(
-            "library", "--package", "Newtonsoft.Json",
+            "library", "--package", "Newtonsoft.Json", "--namesake-library",
             "-S", "Source Files", "-t", "JsonConvert", "--prefer-rendered-urls", "--tsv", "--no-headers", "--tips", "q");
 
         Assert.Equal(0, exit);
@@ -2843,6 +3146,25 @@ public partial class CommandExecutionTests
             "| Health Checks | `Npgsql.NpgsqlConnection` | IHealthChecksBuilder registration |",
             output);
         Assert.DoesNotContain("Tip:", error);
+    }
+
+    [Fact]
+    public async Task
+        LibraryCommand_NpgsqlPackage_PreservesMeasuredEcosystemDependencyRows()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "package",
+            "Npgsql@8.0.4",
+            "--library",
+            "-S",
+            SectionNames.EcosystemDependencies,
+            "--count",
+            "--tips",
+            "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Equal("31", output.Trim());
     }
 
     [Fact]
@@ -3084,7 +3406,8 @@ public partial class CommandExecutionTests
     public async Task LibraryCommand_DiscoverIntegrationsCategory_ListsUnifiedSection()
     {
         var (exit, output, error) = await RunAppAsync(
-            "library", "--package", "Microsoft.Extensions.AI", "-D", "@Integrations",
+            "library", "--package", "Microsoft.Extensions.AI",
+            "--namesake-library", "-D", "@Integrations",
             "--effective", "--table");
 
         Assert.Equal(0, exit);
@@ -3495,7 +3818,7 @@ public partial class CommandExecutionTests
     public async Task LibraryCommand_AspNetCoreSection_ForAzureDataProtectionBlobs_ShowsDataProtectionCurrency()
     {
         var (exit, output, error) = await RunAppAsync(
-            "package", "Azure.Extensions.AspNetCore.DataProtection.Blobs@1.5.3", "--all-libraries", "-S", "Integrations", "--rows", "20");
+            "package", "Azure.Extensions.AspNetCore.DataProtection.Blobs@1.5.3", "--library", "-S", "Integrations", "--rows", "20");
 
         Assert.Equal(0, exit);
         Assert.Contains("## Integrations", output);
@@ -3508,7 +3831,7 @@ public partial class CommandExecutionTests
     public async Task LibraryCommand_AspNetCoreSection_ForAzureDataProtectionKeys_ShowsDataProtectionCurrency()
     {
         var (exit, output, error) = await RunAppAsync(
-            "package", "Azure.Extensions.AspNetCore.DataProtection.Keys@1.6.3", "--all-libraries", "-S", "Integrations", "--rows", "20");
+            "package", "Azure.Extensions.AspNetCore.DataProtection.Keys@1.6.3", "--library", "-S", "Integrations", "--rows", "20");
 
         Assert.Equal(0, exit);
         Assert.Contains("## Integrations", output);

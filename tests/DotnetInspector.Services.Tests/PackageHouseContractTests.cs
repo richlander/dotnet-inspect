@@ -89,6 +89,20 @@ public sealed class PackageHouseContractTests
     }
 
     [Fact]
+    public void PackageVersionPrecedenceUsesNuGetSemantics()
+    {
+        Assert.True(PackageVersionPrecedence.Compare(
+            "8.8.0",
+            "7.2.4") > 0);
+        Assert.True(PackageVersionPrecedence.Compare(
+            "8.8.0",
+            "8.8.0-preview.1") > 0);
+        Assert.Equal(0, PackageVersionPrecedence.Compare(
+            "8.8.0+build.1",
+            "8.8.0+build.2"));
+    }
+
+    [Fact]
     public void VersionResolutionSelectsEachRequestForm()
     {
         PackageVersionDiscoveryResult allVersions = VersionDiscovery(

@@ -546,8 +546,8 @@ dotnet run --project tests/ILInspector.Decompiler.Tests -c Release -- \
 DOTNET_INSPECT_DECOMPILER_TEST_RECEIPT=/tmp/execution.jsonl \
   dotnet run --project tests/ILInspector.Decompiler.Tests -c Release -- \
   --gate pre-merge --pre-enumerate-theories on --no-ansi \
-  --auto-reporters off --report-xunit \
-  --report-xunit-filename gates.xml --results-directory /tmp
+  --auto-reporters off --report-xunit-xml \
+  --report-xunit-xml-filename gates.xml --results-directory /tmp
 dotnet run eng/check-decompiler-gate.cs -- \
   /tmp/gates.xml \
   /tmp/execution.jsonl \

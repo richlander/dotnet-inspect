@@ -47,7 +47,73 @@ sees Basic. See
 
 ## The credential sources
 
-Two, described in full below: a `nuget.config` entry, and a credential provider.
+Ordinary package commands use two credential sources described below: a
+`nuget.config` entry and a credential provider. A portable schema-version-5
+Workspace instead registers each exact HTTPS source with one construction-time
+requirement: anonymous or authentication required.
+
+### Portable Workspace source authentication
+
+A Workspace packet carries only the exact HTTPS endpoint and its authentication
+requirement. It contains no source alias, username, credential, or host
+mechanism. The CLI authoring options are typed constructors:
+
+```bash
+--nuget-source-anonymous HTTPS-URL
+--nuget-source-auth-required HTTPS-URL
+```
+
+The endpoint is source identity; it is not a template or a credential-binding
+alias. For GitHub Packages, the endpoint owner and authenticating username may
+be different:
+
+```bash
+--nuget-source-auth-required \
+  https://nuget.pkg.github.com/dotnet/index.json
+```
+
+An anonymous source uses a credential-free client and cannot invoke a plugin.
+For an authentication-required source, a complete explicit endpoint-bound
+username and PAT wins; otherwise the CLI uses a discovered noninteractive
+NuGet credential provider for that declared origin. An explicitly rejected
+credential never falls back to a provider. If neither explicit credentials nor
+a provider are available, realization fails visibly.
+
+The explicit form binds the exact endpoint and Basic username to one
+noninteractive secret input:
+
+```bash
+dotnet-inspect workspace --packet "$packet" \
+  --pat-for https://nuget.pkg.github.com/dotnet/index.json \
+  richlander env:GITHUB_TOKEN
+
+printf '%s\n' "$GITHUB_TOKEN" |
+  dotnet-inspect workspace --packet "$packet" \
+  --pat-for https://nuget.pkg.github.com/dotnet/index.json \
+  richlander stdin
+
+dotnet-inspect workspace --packet "$packet" \
+  --pat-for https://nuget.pkg.github.com/dotnet/index.json \
+  richlander file:/run/secrets/github-pat
+```
+
+The secret-input grammar deliberately has no literal-secret form. Standard input
+must already be redirected; the command never prompts or calls
+`Console.ReadLine`. Files are caller-owned and remain unchanged. Missing,
+duplicate, unexpected, and partially specified bindings fail before source
+authorization or network access. Explicit bindings must cover every
+authentication-required endpoint on one origin or none, so a rejected explicit
+identity cannot acquire a different identity through provider fallback. The
+credential may remain in process memory for that realization but is never
+written to a Workspace packet, generated file, log, diagnostic, or telemetry
+event.
+
+The PAT route is separate from NuGet's
+`NuGetPackageSourceCredentials_<name>` convention, which remains unsupported.
+Inspect Web uses the same endpoint-bound username/PAT contract with page-session
+memory and never writes credentials to browser storage. Browser/Wasm does not
+run NuGet credential-provider plugins, so an authentication-required Workspace
+source without an explicit credential is rejected before network work.
 
 ### `nuget.config`
 
@@ -680,10 +746,10 @@ without changing every one of them. Instead
 [`FeedFailureTelemetry`](../../src/NuGetFetch/FeedFailureTelemetry.cs) uses an
 ambient scope opened at each command boundary that turns those nullable
 results into an operator-facing answer. Package acquisition opens one around
-each acquisition hop; direct `--version`, `Package@latest --version`, and
-`--versions` queries open one around the complete query. Nested async work records into the
-same collector, and the "nothing resolved" path consults it before choosing a
-message.
+each acquisition hop; explicit `package Package --latest-version` and
+`--versions` queries open one around the complete query. Nested async work
+records into the same collector, and the "nothing resolved" path consults it
+before choosing a message.
 
 The scope is opened per *hop*, inside the tool-wrapper redirect loop, rather than once around
 the whole traversal. Each hop resolves a different package id, so a shared collector would let

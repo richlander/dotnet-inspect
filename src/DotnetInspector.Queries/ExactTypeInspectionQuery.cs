@@ -397,6 +397,36 @@ internal static class ExactTypeInspectionQuery
         ExactTypeInspectionRequest request,
         ApiSurfaceProjectionLimits? projectionLimits = null)
     {
+        ArgumentNullException.ThrowIfNull(authority);
+        using WorkspaceRealizationOperationUse operation =
+            authority.EnterUse();
+        return Execute(
+            operation.Realization,
+            context,
+            request,
+            projectionLimits);
+    }
+
+    internal static ExactTypeInspectionResult Execute(
+        InspectionWorkspace workspace,
+        ExactTypeInspectionContext context,
+        ExactTypeInspectionRequest request,
+        ApiSurfaceProjectionLimits? projectionLimits = null)
+    {
+        ArgumentNullException.ThrowIfNull(workspace);
+        return Execute(
+            workspace.Identity,
+            context,
+            request,
+            projectionLimits);
+    }
+
+    static ExactTypeInspectionResult Execute(
+        InspectionWorkspaceIdentity realization,
+        ExactTypeInspectionContext context,
+        ExactTypeInspectionRequest request,
+        ApiSurfaceProjectionLimits? projectionLimits)
+    {
         ArgumentNullException.ThrowIfNull(context);
         ArgumentNullException.ThrowIfNull(request);
         WorkspaceContextLoadOutcome.Loaded loaded = context.Context;
@@ -410,7 +440,7 @@ internal static class ExactTypeInspectionQuery
         }
 
         return ExecuteCore(
-            authority,
+            realization,
             context,
             request.Type,
             request.SelectionKind,
@@ -430,6 +460,39 @@ internal static class ExactTypeInspectionQuery
         ApiSurfaceProjectionLimits? projectionLimits = null)
     {
         ArgumentNullException.ThrowIfNull(authority);
+        using WorkspaceRealizationOperationUse operation =
+            authority.EnterUse();
+        return ExecuteSelectedContext(
+            operation.Realization,
+            context,
+            request,
+            scope,
+            projectionLimits);
+    }
+
+    internal static ExactTypeInspectionExecution ExecuteSelectedContext(
+        InspectionWorkspace workspace,
+        WorkspaceDeclarationContext context,
+        SelectedContextExactTypeInspectionRequest request,
+        ApiSurfaceScope scope = ApiSurfaceScope.PublicWithNonPublicTypes,
+        ApiSurfaceProjectionLimits? projectionLimits = null)
+    {
+        ArgumentNullException.ThrowIfNull(workspace);
+        return ExecuteSelectedContext(
+            workspace.Identity,
+            context,
+            request,
+            scope,
+            projectionLimits);
+    }
+
+    static ExactTypeInspectionExecution ExecuteSelectedContext(
+        InspectionWorkspaceIdentity realization,
+        WorkspaceDeclarationContext context,
+        SelectedContextExactTypeInspectionRequest request,
+        ApiSurfaceScope scope,
+        ApiSurfaceProjectionLimits? projectionLimits)
+    {
         ArgumentNullException.ThrowIfNull(context);
         ArgumentNullException.ThrowIfNull(request);
         if (context.ContextLoadOutcome
@@ -474,7 +537,7 @@ internal static class ExactTypeInspectionQuery
             ImmutableArray.CreateBuilder<ExactTypeDefiningSource>();
         ExactTypeInspectionTarget? target = null;
         ExactTypeInspectionResult result = ExecuteCore(
-            authority,
+            realization,
             new ExactTypeInspectionContext(loaded),
             request.Type,
             request.SelectionKind,
@@ -500,7 +563,7 @@ internal static class ExactTypeInspectionQuery
     }
 
     static ExactTypeInspectionResult ExecuteCore(
-        WorkspaceRealizationOperationLease authority,
+        InspectionWorkspaceIdentity realization,
         ExactTypeInspectionContext context,
         string requestedType,
         ExactTypeSelectionKind selectionKind,
@@ -512,18 +575,13 @@ internal static class ExactTypeInspectionQuery
         ApiSurfaceScope scope,
         ApiSurfaceProjectionLimits? projectionLimits)
     {
-        ArgumentNullException.ThrowIfNull(authority);
+        ArgumentNullException.ThrowIfNull(realization);
         ArgumentNullException.ThrowIfNull(context);
         ArgumentException.ThrowIfNullOrWhiteSpace(requestedType);
-        using WorkspaceRealizationOperationUse operation =
-            authority.EnterUse();
-        if (!ReferenceEquals(operation.Realization, context.Realization)
-            || !ReferenceEquals(
-                operation.Definition.Workspace,
-                context.Realization))
+        if (!ReferenceEquals(realization, context.Realization))
         {
             throw new ArgumentException(
-                "The exact Type context does not belong to the admitted realization.",
+                "The exact Type context does not belong to the supplied Workspace.",
                 nameof(context));
         }
 

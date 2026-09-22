@@ -31,16 +31,21 @@ member Source and CLI Source Diff through `MemberSourceInspection` under #7497.
 Shared [type acquisition](type-source-acquisition.md) supplies Browser Type
 Source through `TypeSourceInspection` under #7522, CLI type-document printing
 under #7546, and member Source Locations document printing under #7679. CLI
-ordinary PDB Source adopts the shared member operation under #7819. Broader CLI
-enrichment and the full source-policy contract remain later adoption.
+ordinary PDB Source adopts the shared member operation under #7819, and
+ordinary selected-member Decompiled Source adopts decompiled-only settlement
+under #7918. Exact-type decompilation and Browser Type Source fallback adopt
+the same settlement under #7953. Ordinary CLI whole-type Decompiled Source
+adopts the decompiled-only type operation under #7963. Broader CLI enrichment
+and the full source-policy contract remain later adoption.
 The tracker contains 12 ordered steps from this specification through both
 host adoptions and retirement of the current duplicated composition.
 
 The current production orchestrator is `AssemblyContextSourceQuery`, which
 resolves an exact member or type and applies authored-first fallback.
-Type/member authored acquisition, selected-member pairs, and exact-member
-decompilation use SourceHouse. Type decompilation still invokes
-`CSharpDecompilerService` directly; `PdbSourceHouse` retains broader enrichment
+Type/member authored acquisition, selected-member pairs, and exact member/type
+decompilation use SourceHouse. Browser Type Source consumes the completed
+shared query result with authored-first preference; its explicit authored
+document requests never decompile. `PdbSourceHouse` retains broader enrichment
 ordering. SourceLinkService owns checksum verification and decoding.
 Query-owned fallback ordering remains migration evidence, not the target
 public House policy boundary.
@@ -343,16 +348,34 @@ gates authored edits from two independently bound fixture assemblies, with
 their endpoint order reversed, through the production batch and output
 projection. This is a focused PR-fast case, not an exhaustive assembly sweep.
 
-#### Shared member decompilation settlement
+#### Shared exact-target decompilation settlement
 
 The focused #7885 delivery settles decompiled C# for one exact MethodDef
 member target through SourceHouse and adopts that operation in
-`MemberSourceInspection`. SourceHouse resolves the Metadata-issued type,
-member anchor, and token against its own detached selected-assembly snapshot,
-then invokes `CSharpDecompilerService.ProduceMember` with the consumer's
-printer options, finite body-projection limit, explicit binding policy, and
-either the selected Library companion or embedded PDB contribution or no PDB.
-It performs no ambient path, adjacent-file, or network discovery.
+`MemberSourceInspection`. The focused #7953 delivery extends the same operation
+to one exact type and adopts it for ordinary shared type fallback and Browser
+Type Source. SourceHouse resolves the Metadata-issued type, or type plus member
+anchor and MethodDef token, against its own detached selected-assembly
+snapshot, then invokes `CSharpDecompilerService.ProduceType` or
+`CSharpDecompilerService.ProduceMember` with the consumer's printer options,
+finite body-projection limit, explicit binding policy, and either the selected
+Library companion or embedded PDB contribution or no PDB. It performs no
+ambient path, adjacent-file, or network discovery. An authored-document
+selector is not a decompilation target.
+
+Structured whole-Type adoption uses the same exact-Type request, detached
+assembly and PDB snapshots, finite work, and lease settlement with the
+`StructuredTypeDocument` product. That product invokes
+`CSharpDecompilerService.ProduceTypeDocument` instead of scalar
+`ProduceType`; exact-member requests cannot select it. The completed House
+outcome preserves the native `CSharpTypeDocumentOutcome` and its attempted-body
+work charge without replacing or duplicating the scalar source-text path.
+
+An exact type target always composes the complete selected type from
+SourceHouse's own bounded detached metadata model, including non-public
+members. A caller's API listing projection is not decompilation input and
+cannot truncate full-type source. Exact-member settlement remains independently
+narrow: it composes only the selected MethodDef or accessor target.
 
 The decompiled result remains a native `CSharpDecompilationAttempt`, including
 its status, text, imports, fidelity, diagnostics, method-addressed body
@@ -361,22 +384,78 @@ adds exact request correspondence, selected Library content, detached PDB
 contribution evidence, and terminal operation-lease settlement without
 relabeling the result as authored source.
 
-The assembly-context adapter keeps one admitted Library alive while the shared
-member operation performs its authorized authored and decompiled work. Each
-House operation receives a fresh lease; the adapter retires the Library only
-after all requested operations settle. Authored-only member requests never
-invoke decompilation. Authored failure, absence, checksum rejection, or finite
-authored bounds do not suppress an independently authorized decompiled
-fallback, while an invalid owner-issued PDB companion remains a visible
-Library admission failure rather than a successful no-PDB retry.
+For the structured product, the result remains the native
+`CSharpTypeDocumentOutcome`, including an available or incomplete immutable
+document, exact Type and physical-body provenance, producer diagnostics,
+detached serialization boundary, and unavailable or rejected outcome. Queries
+preserve that outcome beside the House settlement, and Sections publishes it
+as `InspectionEnvelope<CSharpTypeDocumentOutcome>` with operation diagnostics
+and a typed Share result.
+
+The focused #7918 delivery exposes that work through
+`MemberSourceInspection.DecompileAsync`. The operation admits the exact
+selected participant as a Library, invokes no authored-source acquisition or
+comparison, and preserves terminal Library admission as typed unavailable
+evidence. A host may explicitly supply an already-authorized adjacent or
+acquired Portable PDB; otherwise the House may use the admitted assembly's
+embedded PDB and performs no ambient discovery. The query publishes its
+completed envelope only after Library and artifact retirement, then revalidates
+caller cancellation and the participant binding-policy version.
+
+The focused #7963 delivery exposes the exact-type counterpart through
+`TypeSourceInspection.DecompileAsync`. It uses the same typed admission,
+operation lease, native attempt, terminal Library evidence, retirement order,
+and post-retirement cancellation and binding-currency checks without invoking
+the authored-first `TypeSourceInspection.ExecuteAsync` operation.
+`AssemblyTypeSourceRequest.From(ApiType)` retains exact type identity and
+printer options, not the caller's listing member collection. Browser fallback
+and ordinary CLI full-type decompilation therefore share the same complete-type
+settlement regardless of default or `--all` listing accessibility. The CLI
+does not rediscover members from display text or filter completed C#.
+
+CLI ordinary selected-member Decompiled Source consumes the exact contributing
+`CSharpBodyProjection`, not the aggregate composed-member text. The native
+projection retains the MethodDef address, body result, contribution status, and
+selected property-accessor declaration evidence needed by the existing CLI
+formatter. Aggregate failed or incomplete status remains authoritative even
+when a body projection exists. Fidelity Causes, Applied Taste, and Research
+views still use their independently requested direct IR paths; co-selection
+does not make those paths the producer of the displayed ordinary Decompiled
+Source.
+
+The assembly-context adapter keeps one admitted Library alive while a shared
+member or ordinary type operation performs its authorized authored and
+decompiled work. Each House operation receives a fresh lease; the adapter
+retires the Library and then its Artifact session before publication, followed
+by final caller-cancellation and binding-currency checks. Authored-only member
+and explicit authored-document type requests never invoke decompilation.
+Authored failure, absence, checksum rejection, deadline, or finite authored
+bounds do not suppress an independently authorized decompiled fallback, while
+an invalid owner-issued PDB companion remains a visible Library admission
+failure rather than a successful no-PDB retry.
 
 CLI same-member Source Diff consumes this path through
 `MemberSourceInspection.CompareAsync`. Browser ordinary member Source consumes
 it through `MemberSourceInspection.ExecuteAsync`, with the existing
 `queryMemberSource` worker and `loadMemberSource` TypeScript call site.
-Ordinary CLI Decompiled Source, Implementation Diff's C# lane,
-cross-version authored member pairs, and type decompilation remain separate
-consumers and are not migrated by this delivery.
+CLI ordinary selected-member Decompiled Source consumes it through
+`MemberSourceInspection.DecompileAsync`. Browser ordinary Type Source consumes
+the type path through `TypeSourceInspection.ExecuteAsync`, retaining its
+source-failure visibility and viewer. Its existing source value is wrapped in
+the code-view union used by [Type API Declaration Inspection](type-api-declarations.md);
+that separate declaration arm does not change SourceHouse settlement. CLI ordinary
+whole-type Decompiled Source consumes the decompiled-only path through
+`TypeSourceInspection.DecompileAsync`; it renders only an available native
+attempt, treats failed or incomplete settlement as a visible command failure,
+and passes true absence to the selected renderer without fabricating text.
+The CLI's [native source default](rendering-model.md#native-type-and-source-defaults)
+does not change that shared settlement. This intentionally
+changes the earlier CLI behavior that omitted non-public members by default.
+The [Type API Declaration Inspection](type-api-declarations.md) view,
+`type ... -S "API Declarations" [--all] [--markdown]`, is a separate
+metadata declaration contract, not SourceHouse implementation-source settlement.
+Implementation Diff's C# lane and
+cross-version authored member pairs remain separate consumers.
 
 ## Authority and exact claim
 
@@ -403,6 +482,8 @@ The owner defines:
 - the host-authorized source operation plan;
 - the House-facing contribution contracts for `SourceLinkService` and
   `CSharpDecompilerService`;
+- complete selected-type decompilation independent of API listing
+  accessibility, beside narrow exact-member decompilation;
 - authored-source candidate ordering over owner-issued local, repository, and
   remote capabilities;
 - producer ordering, short-circuiting, and fallback;
@@ -1017,7 +1098,11 @@ broader CLI enrichment, and remaining callers stay tracked by the twelve steps
 above. CLI ordinary PDB Source (#7819) consumes that completed member operation
 with authored-only declaration demand and retires its duplicated acquisition,
 verification, and slicing path without changing Source Diff or PDB-assisted
-decompilation.
+decompilation. Exact-member decompilation (#7885 and #7918) and exact-type
+decompilation with Browser fallback adoption (#7953) use the same Library
+handoff and native producer attempt. Ordinary CLI whole-type decompilation
+adopts the completed decompiled-only type envelope under #7963 and retires its
+direct `MemberBodyProducer.Project` composition.
 
 Step 2 is the design correction tracked by
 [#6934](https://github.com/richlander/dotnet-inspect/issues/6934). SourceHouse
@@ -1050,6 +1135,36 @@ post-mapping expiry from earlier stops.
 
 These cases gate the authored-only delivery, not production-host parity,
 external PDB acquisition or decompiled fallback.
+
+### Implemented exact-target decompilation gate
+
+Run
+`dotnet run --project tests/DotnetInspector.SourceHouse.Tests -c Release -- --filter-method '*Decompilation*'`.
+The PR-fast cases cover exact member and nested generic type identity,
+no/supplied/embedded PDB contribution, invalid supplied PDB preservation,
+finite assembly and body-projection bounds, target rejection, native
+body-address evidence, fresh operation leases, and cancellation settlement.
+
+Run
+`dotnet run --project tests/DotnetInspector.Queries.Tests -c Release -- --filter-class DotnetInspector.Queries.Tests.AssemblyContextSourceQueryTests`.
+The focused type-source and decompiled-only cases cover authored-first
+short-circuiting, ordinary fallback through the House outcome,
+explicit-document non-substitution, supplied/no-PDB decompiled-only operation,
+native incomplete status, terminal Library admission, binding-currency
+rejection, authored deadline and source-bound fallback, existing cancellation
+and disposal outcomes, and the unchanged completed envelope used by Browser
+Type Source.
+
+Run the focused `DotnetInspect.Cli.Tests` whole-type Decompiled Source and
+`TypeWholeTypeDecompilerAcquisition_*` cases. They cover the production CLI's
+selected supplier, explicit/adjacent symbol input, generic and enum listings,
+bare and ordinary Markout output, memory-safety diagnostics, terminal selected
+input failure, absent completed-inspection rejection, complete-type parity
+across default and `--all`, and lazy ordinary and discovery paths. The real
+`System.Text.Json@10.0.5` `JsonNamingPolicy` baseline gates inclusion of its
+protected instance constructor and static constructor in both modes. A focused
+fixture separately proves that ordinary member listings still apply
+accessibility while exact-member source remains one selected method.
 
 ### Remaining full-composition evidence
 

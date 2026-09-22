@@ -339,6 +339,31 @@ public sealed class InspectionEnvelopeOutputTests
             Directory.EnumerateFileSystemEntries(directory.FullName));
     }
 
+    [Theory]
+    [InlineData(@"C:\work\result.json", @"C:\work\result.json")]
+    [InlineData(@"\\?\C:\work\result.json", @"C:\work\result.json")]
+    [InlineData(@"\\.\C:\work\result.json", @"C:\work\result.json")]
+    [InlineData(
+        @"\\?\UNC\server\share\result.json",
+        @"\\server\share\result.json")]
+    [InlineData(@"\\server\share\result.json", @"\\server\share\result.json")]
+    public void WindowsPathNormalizationCollapsesEquivalentFileNamespaces(
+        string path,
+        string expected)
+    {
+        Assert.Equal(
+            expected,
+            EvidenceEnvelopeOutput.NormalizeWindowsPath(path));
+    }
+
+    [Fact]
+    public void WindowsPathNormalizationRefusesUnsupportedDeviceNamespaces()
+    {
+        Assert.Null(
+            EvidenceEnvelopeOutput.NormalizeWindowsPath(
+                @"\\?\Volume{00000000-0000-0000-0000-000000000000}\result.json"));
+    }
+
     private static EnvelopeTestContent Content() =>
         new EnvelopeTestContent.Available(
             "owner value",

@@ -10,8 +10,8 @@ using ILInspector.Metadata;
 namespace DotnetInspector.Ecosystems;
 
 /// <summary>
-/// Produces detached Package ecosystem-dependency recognition from one exact
-/// PackageHouse compile realization.
+/// Produces detached Package ecosystem-dependency recognition from admitted
+/// Package content and its exact compile realization.
 /// </summary>
 public static class PackageEcosystemDependencyRecognitionInspection
 {
@@ -27,6 +27,73 @@ public static class PackageEcosystemDependencyRecognitionInspection
             PackageHouseRootContributionAdapter.Create(settlement);
         RealizedMemberCoordinate.Package subjectCoordinate =
             SubjectCoordinate(settlement, rootOutcome);
+        PackageHouseRootContribution? contribution =
+            (rootOutcome as PackageHouseRootContributionOutcome.Contributed)
+                ?.Contribution;
+        PackageCompileAssetSelectionReceipt? receipt =
+            contribution?.SelectionReceipt;
+        string? effectiveFramework =
+            receipt?.RequestedTargetFramework
+            ?? receipt?.Selection.TargetFramework
+            ?? subjectCoordinate.Framework;
+        return await ExecuteCoreAsync(
+                settlement.Payload.Content,
+                contribution?.Binding,
+                receipt,
+                subjectCoordinate,
+                effectiveFramework,
+                cancellationToken)
+            .ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Produces detached Package ecosystem-dependency recognition from one
+    /// already-admitted Package Root.
+    /// </summary>
+    public static Task<
+        InspectionEnvelope<EcosystemDependencyRecognitionOutcome>> ExecuteAsync(
+            PackageRootBinding root,
+            string? effectiveTargetFramework = null,
+            CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(root);
+        cancellationToken.ThrowIfCancellationRequested();
+        string? framework =
+            effectiveTargetFramework
+            ?? root.Root.RequestedTargetFramework
+            ?? root.Root.AssetSelection.TargetFramework;
+        return root.Root.UseContent(content =>
+        {
+            PackageCompileAssetSelectionReceipt receipt =
+                PackageCompileAssetSelector.RetainSelection(
+                    content,
+                    root.Root.PackageId,
+                    framework is null
+                        ? PackageCompileAssetSelectionPolicy.HighestAvailable
+                        : PackageCompileAssetSelectionPolicy.ExplicitTarget,
+                    root.Root.AssetSelection,
+                    framework,
+                    root.Root.RequestedRuntimeIdentifier);
+            return ExecuteCoreAsync(
+                content,
+                root,
+                receipt,
+                root.Coordinate,
+                framework,
+                cancellationToken);
+        });
+    }
+
+    private static async Task<
+        InspectionEnvelope<EcosystemDependencyRecognitionOutcome>>
+        ExecuteCoreAsync(
+            IPackageContent content,
+            PackageRootBinding? root,
+            PackageCompileAssetSelectionReceipt? receipt,
+            RealizedMemberCoordinate.Package subjectCoordinate,
+            string? effectiveFramework,
+            CancellationToken cancellationToken)
+    {
         var subject = new EcosystemDependencySubject.Package(
             subjectCoordinate);
         var issues = ImmutableArray.CreateBuilder<
@@ -40,8 +107,9 @@ public static class PackageEcosystemDependencyRecognitionInspection
 
         PackageDependencyProjection dependencies =
             await ProjectDependenciesAsync(
-                    settlement,
+                    content,
                     subjectCoordinate,
+                    effectiveFramework,
                     issues,
                     diagnostics,
                     nextIssue,
@@ -56,7 +124,8 @@ public static class PackageEcosystemDependencyRecognitionInspection
 
         PackageCompileProjection compile =
             await ProjectCompileLibrariesAsync(
-                    rootOutcome,
+                    root,
+                    receipt,
                     subjectCoordinate,
                     issues,
                     diagnostics,
@@ -220,23 +289,17 @@ public static class PackageEcosystemDependencyRecognitionInspection
 
     private static async Task<PackageDependencyProjection>
         ProjectDependenciesAsync(
-            PackageHouseSettlement.Acquired settlement,
+            IPackageContent content,
             RealizedMemberCoordinate.Package subject,
+            string? effectiveFramework,
             ImmutableArray<EcosystemDependencyInputIssue>.Builder issues,
             ImmutableArray<InspectionDiagnostic>.Builder diagnostics,
             int nextIssue,
             CancellationToken cancellationToken)
     {
-        PackageCompileAssetSelectionReceipt? compile =
-            (settlement.Result.Evidence.Realization
-                as PackageHouseRealizationReceipt.Compile)?.Receipt;
-        string? effectiveFramework =
-            compile?.RequestedTargetFramework
-            ?? compile?.Selection.TargetFramework
-            ?? subject.Framework;
         PackageDependencyGroupsResult result =
             await PackageDependencyGroupsQuery.ExecuteAsync(
-                    settlement.Payload.Content,
+                    content,
                     subject.PackageId,
                     subject.Version,
                     effectiveFramework,
@@ -387,7 +450,8 @@ public static class PackageEcosystemDependencyRecognitionInspection
 
     private static async Task<PackageCompileProjection>
         ProjectCompileLibrariesAsync(
-            PackageHouseRootContributionOutcome rootOutcome,
+            PackageRootBinding? root,
+            PackageCompileAssetSelectionReceipt? receipt,
             RealizedMemberCoordinate.Package subject,
             ImmutableArray<EcosystemDependencyInputIssue>.Builder issues,
             ImmutableArray<InspectionDiagnostic>.Builder diagnostics,
@@ -395,9 +459,7 @@ public static class PackageEcosystemDependencyRecognitionInspection
             int nextObservation,
             CancellationToken cancellationToken)
     {
-        if (rootOutcome
-            is not PackageHouseRootContributionOutcome.Contributed
-                contributed)
+        if (root is null || receipt is null)
         {
             EcosystemDependencyInputIssueIdentity issue =
                 AddIssue(
@@ -417,8 +479,6 @@ public static class PackageEcosystemDependencyRecognitionInspection
                 nextIssue);
         }
 
-        PackageCompileAssetSelectionReceipt receipt =
-            contributed.Contribution.SelectionReceipt;
         if (receipt.Selection.Status is not (
                 PackageCompileAssetSelectionStatus.Selected
                 or PackageCompileAssetSelectionStatus.NoCompileAssets
@@ -461,7 +521,7 @@ public static class PackageEcosystemDependencyRecognitionInspection
             {
                 realization =
                     await workspace.RealizePackageAssemblyContextRolesAsync(
-                            contributed.Contribution.Binding,
+                            root,
                             cancellationToken: cancellationToken)
                         .ConfigureAwait(false);
             }

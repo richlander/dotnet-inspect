@@ -22,26 +22,29 @@
     "inspect-web-typescript-semantic-facts": "node --test test/typescript-semantic-facts.test.ts test/typescript-semantic-facts-artifact.test.ts",
     "typecheck": "npm run facades && npm run typecheck:authored",
     "typecheck:authored": "tsc --noEmit && tsc --noEmit -p test/tsconfig.json && tsc --noEmit -p tsconfig.node.json",
-    "lint": "npm run facades && node scripts/verify-analysis-host.ts && oxlint --no-ignore --disable-nested-config src test browser scripts multi-facade-canary/coordinator.ts multi-facade-canary/exercise.ts multi-facade-canary/facades managed-operation-bridge-canary/initialize.ts managed-operation-bridge-canary/exercise.ts managed-operation-bridge-canary/facades DotnetInspect.Web/facades src/facades/inspect-web-host.d.ts src/facades/inspect-web-package.d.ts src/facades/inspect-web-metadata.d.ts src/facades/inspect-web-analysis.d.ts src/facades/inspect-web-source.d.ts src/facades/inspect-web-call-graph.d.ts src/facades/inspect-web-catalog.d.ts DotnetInspect.Web/wwwroot/inspect-web-host.js DotnetInspect.Web/wwwroot/inspect-web-package.js DotnetInspect.Web/wwwroot/inspect-web-metadata.js DotnetInspect.Web/wwwroot/inspect-web-analysis.js DotnetInspect.Web/wwwroot/inspect-web-source.js DotnetInspect.Web/wwwroot/inspect-web-call-graph.js DotnetInspect.Web/wwwroot/inspect-web-catalog.js DotnetInspect.Web/wwwroot/runtime-loader.js vite.config.ts playwright.config.ts playwright.worker.config.ts playwright.worker-cpu.config.ts playwright.package-adoption.config.ts playwright.published-benchmark.config.ts playwright.source-comparison.config.ts && html-validate --config .htmlvalidate.json \"**/*.{html,htm,xhtml}\"",
+    "lint": "npm run facades && node scripts/verify-analysis-host.ts && oxlint --no-ignore --disable-nested-config src test browser scripts multi-facade-canary/coordinator.ts multi-facade-canary/exercise.ts multi-facade-canary/facades managed-operation-bridge-canary/initialize.ts managed-operation-bridge-canary/exercise.ts managed-operation-bridge-canary/facades DotnetInspect.Web/facades src/facades/inspect-web-host.d.ts src/facades/inspect-web-package.d.ts src/facades/inspect-web-library.d.ts src/facades/inspect-web-metadata.d.ts src/facades/inspect-web-analysis.d.ts src/facades/inspect-web-source.d.ts src/facades/inspect-web-call-graph.d.ts src/facades/inspect-web-catalog.d.ts DotnetInspect.Web/wwwroot/inspect-web-host.js DotnetInspect.Web/wwwroot/inspect-web-package.js DotnetInspect.Web/wwwroot/inspect-web-library.js DotnetInspect.Web/wwwroot/inspect-web-metadata.js DotnetInspect.Web/wwwroot/inspect-web-analysis.js DotnetInspect.Web/wwwroot/inspect-web-source.js DotnetInspect.Web/wwwroot/inspect-web-call-graph.js DotnetInspect.Web/wwwroot/inspect-web-catalog.js DotnetInspect.Web/wwwroot/runtime-loader.js vite.config.ts playwright.config.ts playwright.worker.config.ts playwright.worker-cpu.config.ts playwright.package-adoption.config.ts playwright.published-benchmark.config.ts playwright.source-comparison.config.ts && html-validate --config .htmlvalidate.json \"**/*.{html,htm,xhtml}\"",
     "analyze": "npm run lint && knip"
   },
   "devDependencies": {
-    "@playwright/test": "^1.62.1",
-    "@types/node": "^26.5.1",
+    "@playwright/test": "^1.63.0",
+    "@types/node": "^26.6.1",
     "@types/prismjs": "^1.26.6",
-    "html-validate": "^11.15.0",
-    "knip": "^6.35.1",
-    "oxc-parser": "^0.149.0",
-    "oxlint": "^1.82.0",
-    "oxlint-tsgolint": "7.0.2001",
-    "type-fest": "5.8.0",
+    "html-validate": "^11.16.0",
+    "knip": "^6.36.0",
+    "oxc-parser": "^0.150.0",
+    "oxlint": "^1.83.0",
+    "oxlint-tsgolint": "7.0.2002",
+    "type-fest": "5.10.0",
     "typescript": "7.0.2",
     "vite": "^8.3.0"
   },
   "dependencies": {
     "dompurify": "3.4.15",
-    "marked": "18.0.12",
-    "mermaid": "11.17.2",
+    "marked": "18.0.13",
+    "mermaid": "12.0.0",
     "prismjs": "1.30.0"
+  },
+  "overrides": {
+    "lodash-es": "4.18.1"
   }
 }
