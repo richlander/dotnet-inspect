@@ -1538,6 +1538,18 @@ must validate any explicit bindings and install exactly the packet-declared
 source set. It must not import ambient `nuget.config` sources or persisted
 credentials when a version-5 source set exists.
 
+`WorkspacePackageSourceBinding` is the host-neutral construction boundary for
+that step. It accepts the declared source set plus explicit endpoint-bound
+Basic credentials and returns ordered `PackageSource` values together with the
+authentication-required declarations left unbound. Both CLI and Browser use
+this result. The CLI may assign provider authority to the remaining origins;
+Browser/Wasm must reject any remaining requirement before network work.
+`WorkspacePackageSourceBindingTests` gate declaration order, credential
+attachment, unbound requirements, unexpected credentials, same-origin partial
+binding, and incomplete credentials. This shared construction boundary is
+slice 1 of 2 in the CLI-and-Browser production adoption tracked by
+[#8154](https://github.com/richlander/dotnet-inspect/issues/8154).
+
 For an authentication-required endpoint, one complete explicit Basic
 credential wins. If none is supplied, a host that supports noninteractive
 NuGet credential providers may query one for that declared origin. An explicit
