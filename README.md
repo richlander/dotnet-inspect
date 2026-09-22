@@ -834,6 +834,25 @@ while registration options retain their authored cross-kind order. A
 scanner-bearing Ecosystem fails visibly as non-projectable; the command never
 drops its scanner to manufacture a packet.
 
+Declare an authentication-required package source to author a credential-free
+format-5 Inspect Web URL for a private-feed Workspace:
+
+```bash
+dotnet-inspect workspace \
+  --package Private.Package@1.2.3 \
+  --tfm net10.0 \
+  --nuget-source-auth-required \
+    https://nuget.pkg.github.com/example/index.json \
+  --share url
+```
+
+Inspect Web prompts once per exact authentication-required endpoint for a
+username and personal access token. Credentials remain activation-local: they
+are not placed in the packet or URL, retained definition, browser storage,
+logs, diagnostics, or telemetry. Reloading prompts again; cancelling or failed
+activation leaves the prior visible Workspace intact. Source declarations that
+do not require authentication activate without a prompt.
+
 Add `--make-package-dependencies-explicit` to acquire every direct Package
 member, resolve its exact direct dependencies for the member's effective
 target, and append those dependencies to the same context before emitting the
