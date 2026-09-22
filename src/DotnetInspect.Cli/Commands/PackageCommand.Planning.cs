@@ -591,6 +591,7 @@ public partial class PackageCommand
     internal static List<string> GetMultiPackageConflicts(InspectionOptions options)
     {
         List<string> conflicts = [];
+        if (options.ExplicitVersion != null) conflicts.Add("--version");
         if (options.ListVersions) conflicts.Add("--versions/--version");
         if (options.ListLayout) conflicts.Add("--layout");
         if (options.ListTfms) conflicts.Add("--tfms");

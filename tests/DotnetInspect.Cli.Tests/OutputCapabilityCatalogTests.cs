@@ -77,11 +77,15 @@ public class OutputCapabilityCatalogTests
     }
 
     [Fact]
-    public void LibraryImplementationProfilesExcludesDocumentJson()
+    public void LibraryMetricsSectionsExcludeDocumentJson()
     {
         Assert.DoesNotContain(
             DiscoveryOutputMode.Json,
             LibraryOutputCapabilities.Catalog.FormatsForSection(
                 SectionNames.MemberMetrics));
+        Assert.DoesNotContain(
+            DiscoveryOutputMode.Json,
+            LibraryOutputCapabilities.Catalog.FormatsForSection(
+                SectionNames.LibraryMetrics));
     }
 }

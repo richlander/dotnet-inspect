@@ -240,6 +240,10 @@ authenticated JSON root with one exact declared parameter position. Only those
 bindings establish typed facade inputs. Unpositioned roots, conflicted roots,
 transformed arguments, and neighboring string parameters remain raw strings;
 the emitter does not infer attribution from a name, type, or relative position.
+Compiler-hoisted parameters retain that association only when Analysis proves
+one exact reachable store from the declared string parameter to the loaded
+field; an alias, additional store, unresolved store, or transformed value keeps
+the public parameter raw.
 
 Wire DTOs are producer-owned snapshots. Their properties are readonly, arrays
 use `ReadonlyArray<T>`, and string-keyed dictionaries use

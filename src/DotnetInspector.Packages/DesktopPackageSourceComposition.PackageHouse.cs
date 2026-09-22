@@ -18,6 +18,24 @@ public sealed partial class DesktopPackageSourceComposition
                 packageId, AuthorizeSourcesFor(packageId, sourceOptions)),
             log: log);
 
+    /// <summary>
+    /// Supplies a payload-realizing House whose per-package authorization is
+    /// evaluated by this composition.
+    /// </summary>
+    public PackageHouse CreateDependencySettlementHouse(
+        PackageStoreProvider createStore,
+        NuGetSourceOptions? sourceOptions = null,
+        Action<string>? log = null)
+    {
+        ArgumentNullException.ThrowIfNull(createStore);
+        return new PackageHouse(
+            new CompositionAuthorization(this, sourceOptions),
+            new PackagePayloadAcquisitionPlan(
+                createStore,
+                log: log),
+            log);
+    }
+
     /// <summary>Issues the source-owned operation consumed by a shared inspection.</summary>
     public PackageSourceOperationLease IssueSettlementOperation(
         CancellationToken cancellationToken = default) =>
@@ -591,5 +609,17 @@ public sealed partial class DesktopPackageSourceComposition
 
             return _authorization;
         }
+    }
+
+    private sealed class CompositionAuthorization(
+        DesktopPackageSourceComposition composition,
+        NuGetSourceOptions? sourceOptions)
+        : IPackageSourceAuthorization
+    {
+        public PackageSourceAuthorization AuthorizeSourcesFor(
+            string packageId) =>
+            composition.AuthorizeSourcesFor(
+                packageId,
+                sourceOptions);
     }
 }

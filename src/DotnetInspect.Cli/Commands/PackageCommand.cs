@@ -89,6 +89,7 @@ public partial class PackageCommand
         ArgumentNullException.ThrowIfNull(options);
         ArgumentNullException.ThrowIfNull(context);
         var packageArgs = options.PackageArgs;
+        var explicitVersion = options.ExplicitVersion;
         var catalog = PackageSectionDescriptors.CreateCatalog();
         var sectionCatalog = catalog.Sections;
         var pipeline = catalog.Pipeline;
@@ -1059,7 +1060,9 @@ public partial class PackageCommand
 
         PackageReferenceTarget target =
             options.DeclaredPackageTarget
-            ?? PackageExtractor.ParsePackageTarget(packageArgs[0]);
+            ?? PackageExtractor.ParsePackageTarget(
+                packageArgs[0],
+                explicitVersion);
         string packageName = target.PackageName;
         string version = target.Version;
         if (target.IsLocalFile)
