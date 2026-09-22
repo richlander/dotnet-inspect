@@ -23,7 +23,9 @@ public sealed record DetailedDiscoveryRow(
     string Name,
     string Kind,
     string Path,
-    List<string> Formats)
+    List<string> Formats,
+    string? Shape = null,
+    List<string>? Terminals = null)
 {
     public string Name { get; init; } =
         LibraryViewText.Contain(Name);
@@ -37,6 +39,20 @@ public sealed record DetailedDiscoveryRow(
     [MarkoutJoin(", ")]
     public List<string> Formats { get; init; } =
         [.. Formats.Select(format => LibraryViewText.Contain(format))];
+
+    [MarkoutSkipNull]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? Shape { get; init; } =
+        Shape is null ? null : LibraryViewText.Contain(Shape);
+
+    [MarkoutSkipNull]
+    [MarkoutJoin(", ")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public List<string>? Terminals { get; init; } =
+        Terminals is null
+            ? null
+            : [.. Terminals.Select(
+                terminal => LibraryViewText.Contain(terminal))];
 }
 
 /// <summary>
@@ -63,7 +79,18 @@ public class DiscoveryListView
 public sealed class DetailedDiscoveryView
 {
     [MarkoutSection(Headless = true)]
+    [MarkoutIgnoreColumnWhen(
+        nameof(CardinalityEmpty),
+        nameof(DetailedDiscoveryRow.Shape))]
+    [MarkoutIgnoreColumnWhen(
+        nameof(CardinalityEmpty),
+        nameof(DetailedDiscoveryRow.Terminals))]
     public List<DetailedDiscoveryRow> Items { get; set; } = [];
+
+    public static bool CardinalityEmpty(
+        List<DetailedDiscoveryRow>? rows) =>
+        rows is null
+        || rows.All(static row => row.Shape is null);
 }
 
 /// <summary>

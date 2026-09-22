@@ -20,11 +20,11 @@ public static class SearchCommandDefinitions
     {
         var findCommand = new Command(
             FindCommand.Name,
-            "Search types or members across packages and libraries");
+            "Search API type or member symbols across packages and libraries");
 
         var patternArg = new Argument<string?>("pattern")
         {
-            Description = "Type name or glob pattern. Comma-separated for multiple (e.g., \"Option*,Argument*,Command*\")",
+            Description = "API type or member name/glob. Does not search package IDs. Comma-separated for multiple.",
             Arity = ArgumentArity.ZeroOrOne
         };
 
@@ -147,22 +147,26 @@ public static class SearchCommandDefinitions
                         "find Chat* --extensions                   # Microsoft.Extensions packages",
                         "find Chat* --aspnetcore                   # ASP.NET Core packages",
                         "find Chat* --package Newtonsoft.Json       # specific package",
-                        "find Chat* --platform --extensions         # combine scopes");
+                        "find Chat* --platform --extensions         # combine scopes",
+                        "package query 'Newtonsoft.*'               # discover package IDs");
 
                 case FindOptionsParser.Success success:
-                    var exitCode = await FindCommand.ExecuteAsync(
+                    var execution = await FindCommand.ExecuteWithResultAsync(
                         success.Options,
                         ct);
 
-                    if (exitCode == 0
+                    if (execution.ExitCode == 0
                         && !success.Options.FormatExplicitlySet
                         && !success.Options.IsRawOutput)
                     {
-                        var tips = FindOptionsParser.BuildTips(success.Options, success.Options.Pattern);
+                        var tips = FindOptionsParser.BuildTips(
+                            success.Options,
+                            success.Options.Pattern,
+                            execution.RowCount);
                         Hints.WriteTips(success.TipLevel, [.. tips]);
                     }
 
-                    return exitCode;
+                    return execution.ExitCode;
 
                 default:
                     return 1;

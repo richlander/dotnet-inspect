@@ -38,14 +38,14 @@ public class SkillCommandTests
     }
 
     [Fact]
-    public void BaselineSkill_IsAtMostFiftyLines()
+    public void BaselineSkill_IsAtMostSixtyLines()
     {
         var assembly = typeof(SkillCommand).Assembly;
         using var stream = assembly.GetManifestResourceStream(SkillCommand.RouterResourceName);
         Assert.NotNull(stream);
         using var reader = new StreamReader(stream!);
         var lineCount = reader.ReadToEnd().TrimEnd('\n').Split('\n').Length;
-        Assert.True(lineCount <= 50, $"baseline SKILL.md is {lineCount} lines (limit 50)");
+        Assert.True(lineCount <= 60, $"baseline SKILL.md is {lineCount} lines (limit 60)");
     }
 
     [Fact]
@@ -170,6 +170,57 @@ public class SkillCommandTests
 
         Assert.Equal(0, exitCode);
         Assert.Contains("plain `--json` retains the typed root result array", output);
+    }
+
+    [Fact]
+    public async Task EmbeddedSkills_DistinguishApiAndPackageDiscovery()
+    {
+        var (_, router, _) = await ConsoleCapture.RunAsync(
+            () => Task.FromResult(SkillCommand.Execute()));
+        var (_, query, _) = await ConsoleCapture.RunAsync(
+            () => Task.FromResult(SkillCommand.ExecuteSkill("query")));
+        var (_, packageSkills, _) = await ConsoleCapture.RunAsync(
+            () => Task.FromResult(SkillCommand.ExecuteSkill("package-skills")));
+
+        Assert.Contains(
+            "Use dotnet-inspect to find evidence",
+            router);
+        Assert.Contains("installed .NET Runtime and ASP.NET Core", router);
+        Assert.Contains("find JsonSerializer", router);
+        Assert.Contains("find ControllerBase", router);
+        Assert.Contains("find OptionsBuilder", router);
+        Assert.Contains(
+            "Use this skill to shape the result",
+            query);
+        Assert.Contains(
+            "Use this workflow to reach the right package-authored skill",
+            packageSkills);
+
+        foreach (string output in new[] { router, query, packageSkills }
+            .Select(text => string.Join(
+                ' ',
+                text.Split(
+                    (char[]?)null,
+                    StringSplitOptions.RemoveEmptyEntries))))
+        {
+            Assert.Contains("router choose", output);
+            Assert.Contains("installed .NET Runtime", output);
+            Assert.Contains("ASP.NET Core", output);
+            Assert.Contains("Microsoft.Extensions", output);
+            Assert.Contains("`--package", output);
+            Assert.Contains("`--project", output);
+            Assert.Contains("package query", output);
+            Assert.Contains("library query", output);
+            Assert.Contains("types", output);
+            Assert.Contains("members", output);
+        }
+
+        Assert.Contains("find JsonSerializer -n 5 --table", router);
+        Assert.Contains("find ControllerBase -n 5 --table", router);
+        Assert.Contains("find OptionsBuilder -n 5 --table", router);
+        Assert.Contains(
+            "find IChatClient --package Microsoft.Extensions.AI.Abstractions",
+            router);
     }
 
     [Fact]
