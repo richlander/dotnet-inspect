@@ -47,6 +47,11 @@ internal sealed class TypeNodeProvider : ISignatureTypeProvider<TypeNode, Generi
         IDisposable?>? _typeSpecificationScope;
     readonly Action<RelationshipTraversalRejection>?
         _nameBudgetRejected;
+    readonly Action<RelationshipTraversalRejection>?
+        _relationshipRejected;
+    readonly Action<EntityHandle>? _beforeRelationshipFollow;
+    readonly Func<MetadataReader, MetadataTypeDefinitionIndex>?
+        _getLocalTypeDefinitions;
     readonly ConditionalWeakTable<MetadataReader, ReaderNameCache> _readerNames = new();
 
     public TypeNodeProvider(
@@ -78,7 +83,12 @@ internal sealed class TypeNodeProvider : ISignatureTypeProvider<TypeNode, Generi
             TypeSpecificationHandle,
             IDisposable?>? typeSpecificationScope = null,
         Action<RelationshipTraversalRejection>?
-            nameBudgetRejected = null)
+            nameBudgetRejected = null,
+        Action<RelationshipTraversalRejection>?
+            relationshipRejected = null,
+        Action<EntityHandle>? beforeRelationshipFollow = null,
+        Func<MetadataReader, MetadataTypeDefinitionIndex>?
+            getLocalTypeDefinitions = null)
     {
         _beforeRetain = beforeRetain;
         _beforeMaterialize = beforeMaterialize;
@@ -103,6 +113,9 @@ internal sealed class TypeNodeProvider : ISignatureTypeProvider<TypeNode, Generi
         _beforeTypeReferenceResolve = beforeTypeReferenceResolve;
         _typeSpecificationScope = typeSpecificationScope;
         _nameBudgetRejected = nameBudgetRejected;
+        _relationshipRejected = relationshipRejected;
+        _beforeRelationshipFollow = beforeRelationshipFollow;
+        _getLocalTypeDefinitions = getLocalTypeDefinitions;
     }
 
     // Delegate to existing SignatureDecoder for name resolution to avoid duplication.
@@ -152,10 +165,30 @@ internal sealed class TypeNodeProvider : ISignatureTypeProvider<TypeNode, Generi
             handle,
             observeName,
             out string? name,
-            out RelationshipTraversalRejection? rejection);
-        MetadataTypeNameParts? metadataName = resolved
-            ? WithTrustedArity(reader, handle, TypeResolver.GetTypeNamePartsFromDefinition(reader, handle))
-            : null;
+            out RelationshipTraversalRejection? rejection,
+            beforeRelationshipFollow:
+                _beforeRelationshipFollow);
+        if (!resolved)
+        {
+            return ReadNamedType(
+                new(
+                    Resolved: false,
+                    Name: null,
+                    Rejection: rejection,
+                    MetadataName: null,
+                    AssemblyIdentity: null,
+                    ExactScope: null,
+                    MaterializationWork: materializationWork),
+                rawTypeKind);
+        }
+        MetadataTypeNameParts metadataName = WithTrustedArity(
+            reader,
+            handle,
+            TypeResolver.GetTypeNamePartsFromDefinition(
+                reader,
+                handle,
+                _beforeRelationshipFollow),
+            _beforeRelationshipFollow);
         ApiAssemblyIdentity? assemblyIdentity =
             CurrentAssemblyIdentity(
                 reader,
@@ -198,11 +231,13 @@ internal sealed class TypeNodeProvider : ISignatureTypeProvider<TypeNode, Generi
     static MetadataTypeNameParts WithTrustedArity(
         MetadataReader reader,
         TypeDefinitionHandle handle,
-        MetadataTypeNameParts metadataName)
+        MetadataTypeNameParts metadataName,
+        Action<EntityHandle>? beforeRelationshipFollow)
         => metadataName.WithIntroducedTypeParameterCounts(
             MetadataDeclarationQuery.GetIntroducedTypeParameterCounts(
                 reader,
-                handle));
+                handle,
+                beforeRelationshipFollow));
 
     public TypeNode GetTypeFromReference(MetadataReader reader, TypeReferenceHandle handle, byte rawTypeKind)
     {
@@ -238,13 +273,30 @@ internal sealed class TypeNodeProvider : ISignatureTypeProvider<TypeNode, Generi
             handle,
             observeName,
             out string? name,
-            out RelationshipTraversalRejection? rejection);
-        MetadataTypeNameParts? metadataName = resolved
-            ? WithTrustedLocalReferenceArity(
+            out RelationshipTraversalRejection? rejection,
+            beforeRelationshipFollow:
+                _beforeRelationshipFollow);
+        if (!resolved)
+        {
+            return ReadNamedType(
+                new(
+                    Resolved: false,
+                    Name: null,
+                    Rejection: rejection,
+                    MetadataName: null,
+                    AssemblyIdentity: null,
+                    ExactScope: null,
+                    MaterializationWork: materializationWork),
+                rawTypeKind);
+        }
+        MetadataTypeNameParts? metadataName =
+            WithTrustedLocalReferenceArity(
                 reader,
                 handle,
-                TypeResolver.GetTypeNamePartsFromReference(reader, handle))
-            : null;
+                TypeResolver.GetTypeNamePartsFromReference(
+                    reader,
+                    handle,
+                    _beforeRelationshipFollow));
         ApiAssemblyIdentity? assemblyIdentity =
             ReferencedAssemblyIdentity(
                 reader,
@@ -294,14 +346,11 @@ internal sealed class TypeNodeProvider : ISignatureTypeProvider<TypeNode, Generi
         Span<TypeReferenceHandle> chain =
             stackalloc TypeReferenceHandle[
                 MetadataSafetyPolicy.MaxRelationshipNodes];
-        if (!MetadataRelationshipTraversal
-                .TryWalkTypeReferenceResolutionScope(
-                    reader,
-                    handle,
-                    chain,
-                    out _,
-                    out EntityHandle terminal,
-                    out _))
+        if (!TryWalkTypeReferenceResolutionScope(
+                reader,
+                handle,
+                chain,
+                out EntityHandle terminal))
         {
             return null;
         }
@@ -316,10 +365,12 @@ internal sealed class TypeNodeProvider : ISignatureTypeProvider<TypeNode, Generi
             return null;
         }
         MetadataTypeDefinitionIndex definitions =
-            LocalTypeDefinitions.GetValue(
-                reader,
-                static _ => new ReaderTypeDefinitionIndexCache())
-            .GetOrCreate(reader, _beforeMaterialize);
+            _getLocalTypeDefinitions is null
+                ? LocalTypeDefinitions.GetValue(
+                    reader,
+                    static _ => new ReaderTypeDefinitionIndexCache())
+                    .GetOrCreate(reader, _beforeMaterialize)
+                : _getLocalTypeDefinitions(reader);
         if (!definitions.TryGetUniqueDefinition(
                 valid.Name,
                 out TypeDefinitionHandle definition))
@@ -330,7 +381,8 @@ internal sealed class TypeNodeProvider : ISignatureTypeProvider<TypeNode, Generi
         return WithTrustedArity(
             reader,
             definition,
-            metadataName);
+            metadataName,
+            _beforeRelationshipFollow);
     }
 
     TypeNode ReadNamedType(
@@ -352,6 +404,7 @@ internal sealed class TypeNodeProvider : ISignatureTypeProvider<TypeNode, Generi
         }
 
         ArgumentNullException.ThrowIfNull(read.Rejection);
+        _relationshipRejected?.Invoke(read.Rejection);
         if (read.Rejection.Kind == RelationshipTraversalRejectionKind.NameBudget)
         {
             _nameBudgetRejected?.Invoke(read.Rejection);
@@ -417,7 +470,7 @@ internal sealed class TypeNodeProvider : ISignatureTypeProvider<TypeNode, Generi
                 beforePublicKeyMaterialize)
             : null;
 
-    static ApiAssemblyIdentity? ReferencedAssemblyIdentity(
+    ApiAssemblyIdentity? ReferencedAssemblyIdentity(
         MetadataReader reader,
         TypeReferenceHandle handle,
         Action<int>? beforeMaterialize,
@@ -428,14 +481,11 @@ internal sealed class TypeNodeProvider : ISignatureTypeProvider<TypeNode, Generi
         Span<TypeReferenceHandle> chain =
             stackalloc TypeReferenceHandle[
                 MetadataSafetyPolicy.MaxRelationshipNodes];
-        if (!MetadataRelationshipTraversal
-                .TryWalkTypeReferenceResolutionScope(
-                    reader,
-                    handle,
-                    chain,
-                    out _,
-                    out EntityHandle terminal,
-                    out _))
+        if (!TryWalkTypeReferenceResolutionScope(
+                reader,
+                handle,
+                chain,
+                out EntityHandle terminal))
         {
             return null;
         }
@@ -490,7 +540,7 @@ internal sealed class TypeNodeProvider : ISignatureTypeProvider<TypeNode, Generi
                 : null);
     }
 
-    static MetadataTypeScopeDescriptor? ReferencedScopeIdentity(
+    MetadataTypeScopeDescriptor? ReferencedScopeIdentity(
         MetadataReader reader,
         TypeReferenceHandle handle,
         ApiAssemblyIdentity? assemblyIdentity,
@@ -501,14 +551,11 @@ internal sealed class TypeNodeProvider : ISignatureTypeProvider<TypeNode, Generi
         Span<TypeReferenceHandle> chain =
             stackalloc TypeReferenceHandle[
                 MetadataSafetyPolicy.MaxRelationshipNodes];
-        if (!MetadataRelationshipTraversal
-                .TryWalkTypeReferenceResolutionScope(
-                    reader,
-                    handle,
-                    chain,
-                    out _,
-                    out EntityHandle terminal,
-                    out _))
+        if (!TryWalkTypeReferenceResolutionScope(
+                reader,
+                handle,
+                chain,
+                out EntityHandle terminal))
         {
             return null;
         }
@@ -551,6 +598,70 @@ internal sealed class TypeNodeProvider : ISignatureTypeProvider<TypeNode, Generi
                     beforeNameMaterialize),
             _ => null,
         };
+    }
+
+    bool TryWalkTypeReferenceResolutionScope(
+        MetadataReader reader,
+        TypeReferenceHandle handle,
+        Span<TypeReferenceHandle> chain,
+        out EntityHandle terminal)
+    {
+        RelationshipTraversalRejection? rejection;
+        int consumedNodes;
+        bool completed;
+        if (_beforeRelationshipFollow is null)
+        {
+            completed = MetadataRelationshipTraversal
+                .TryWalkTypeReferenceResolutionScope(
+                    reader,
+                    handle,
+                    chain,
+                    out consumedNodes,
+                    out terminal,
+                    out rejection);
+        }
+        else
+        {
+            completed = MetadataRelationshipTraversal
+                .TryWalkTypeReferenceResolutionScope(
+                    reader,
+                    handle,
+                    chain,
+                    out consumedNodes,
+                    out terminal,
+                    out rejection,
+                    _beforeRelationshipFollow);
+        }
+
+        if (!completed)
+            return RejectRelationship(rejection!);
+
+        if (!terminal.IsNil
+            && terminal.Kind == HandleKind.ModuleDefinition
+            && (MetadataTokens.GetRowNumber(terminal) != 1
+                || reader.GetTableRowCount(TableIndex.Module) != 1))
+        {
+            int row = MetadataTokens.GetRowNumber(terminal);
+            return RejectRelationship(
+                new RelationshipTraversalRejection(
+                    RelationshipTraversalRejectionKind
+                        .MalformedMetadata,
+                    $"The TypeReference resolution scope refers to invalid "
+                        + $"Module row {row}; the current module is row 1.",
+                    terminal,
+                    consumedNodes));
+        }
+
+        return true;
+    }
+
+    bool RejectRelationship(
+        RelationshipTraversalRejection rejection)
+    {
+        _relationshipRejected?.Invoke(rejection);
+        throw new BadImageFormatException(
+            $"Metadata relationship traversal rejected ({rejection.Kind}): "
+            + rejection.Detail);
     }
 
     Action<int>? CreateNameMaterializationObserver(

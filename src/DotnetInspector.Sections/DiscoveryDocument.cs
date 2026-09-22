@@ -64,11 +64,13 @@ public sealed record DiscoveryResource
     public DiscoveryResource(
         DiscoveryResourceIdentity identity,
         IEnumerable<DiscoveryResourceIdentity>? members = null,
-        IEnumerable<DiscoveryOutputMode>? outputModes = null)
+        IEnumerable<DiscoveryOutputMode>? outputModes = null,
+        SectionCardinalityDeclaration? cardinality = null)
         : this(
             identity,
             (members ?? []).ToImmutableArray(),
-            (outputModes ?? []).ToImmutableArray())
+            (outputModes ?? []).ToImmutableArray(),
+            cardinality)
     {
     }
 
@@ -76,7 +78,8 @@ public sealed record DiscoveryResource
     public DiscoveryResource(
         DiscoveryResourceIdentity identity,
         ImmutableArray<DiscoveryResourceIdentity> members,
-        ImmutableArray<DiscoveryOutputMode> outputModes)
+        ImmutableArray<DiscoveryOutputMode> outputModes,
+        SectionCardinalityDeclaration? cardinality = null)
     {
         Identity =
             identity ?? throw new ArgumentNullException(nameof(identity));
@@ -87,9 +90,17 @@ public sealed record DiscoveryResource
                 "Item resources cannot contain members.",
                 nameof(members));
         }
+        if (identity.Kind != DiscoveryResourceKind.Section
+            && cardinality is not null)
+        {
+            throw new ArgumentException(
+                "Only section resources can declare semantic cardinality.",
+                nameof(cardinality));
+        }
 
         Members = members.IsDefault ? [] : members;
         OutputModes = outputModes.IsDefault ? [] : outputModes;
+        Cardinality = cardinality;
         if (Members.Distinct().Count() != Members.Length)
         {
             throw new ArgumentException(
@@ -110,6 +121,9 @@ public sealed record DiscoveryResource
     public ImmutableArray<DiscoveryResourceIdentity> Members { get; }
 
     public ImmutableArray<DiscoveryOutputMode> OutputModes { get; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public SectionCardinalityDeclaration? Cardinality { get; }
 }
 
 public sealed record DiscoverySelection

@@ -1,4 +1,6 @@
+using System.Text.Json;
 using DotnetInspect.Cli.Output;
+using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Planning;
 using DotnetInspect.Cli.Sections;
 using DotnetInspector.Sections;
@@ -8,6 +10,128 @@ namespace DotnetInspect.Cli.Tests;
 
 public class DiscoveryDocumentFactoryTests
 {
+    [Fact]
+    public void SectionCardinality_ProjectsBesideFormatCapabilities()
+    {
+        var schema = new DocumentSchema()
+            .Add("Scalar", "column", "Value")
+            .Add("Inventory", "column", "Name");
+        OutputCapabilityCatalog capabilities =
+            MarkdownCapabilities("Scalar", "Inventory");
+        var cardinalities =
+            new Dictionary<string, SectionCardinalityDeclaration>
+            {
+                ["Scalar"] = SectionCardinalityDeclaration.Scalar,
+                ["Inventory"] =
+                    SectionCardinalityDeclaration.Inventory,
+            };
+        DiscoveryDocumentFactory.Projection projection =
+            CreateSyntheticProjection(
+                schema,
+                capabilities,
+                cardinalities);
+
+        DiscoveryResource scalar = projection.Document.GetResource(
+            Section("Scalar"));
+        Assert.Equal(
+            SectionSemanticShape.Scalar,
+            scalar.Cardinality?.Shape);
+        Assert.Empty(scalar.Cardinality!.Terminals);
+        Assert.Equal(
+            [DiscoveryOutputMode.Markdown],
+            scalar.OutputModes);
+
+        DiscoveryResource inventory = projection.Document.GetResource(
+            Section("Inventory"));
+        Assert.Equal(
+            SectionSemanticShape.Inventory,
+            inventory.Cardinality?.Shape);
+        Assert.Equal(
+            [
+                SectionTerminalCapability.Rows,
+                SectionTerminalCapability.Count,
+            ],
+            inventory.Cardinality!.Terminals);
+        Assert.Equal(
+            [DiscoveryOutputMode.Markdown],
+            inventory.OutputModes);
+
+        string path = Path.Combine(
+            Path.GetTempPath(),
+            $"dotnet-inspect-cardinality-{Guid.NewGuid():N}.json");
+        try
+        {
+            int exitCode = DetailedDiscoverOutput.Write(
+                projection,
+                new DiscoveryOutputRequest
+                {
+                    Format = OutputFormat.Json,
+                    OutputPath = path,
+                });
+
+            Assert.Equal(0, exitCode);
+            using JsonDocument document =
+                JsonDocument.Parse(File.ReadAllText(path));
+            JsonElement[] rows =
+                [.. document.RootElement.EnumerateArray()];
+            JsonElement scalarRow = Assert.Single(
+                rows,
+                row => row.GetProperty("name").GetString() == "Scalar");
+            Assert.Equal(
+                "scalar",
+                scalarRow.GetProperty("shape").GetString());
+            Assert.Empty(
+                scalarRow.GetProperty("terminals").EnumerateArray());
+            Assert.Equal(
+                ["--markdown"],
+                scalarRow.GetProperty("formats")
+                    .EnumerateArray()
+                    .Select(item => item.GetString()));
+
+            JsonElement inventoryRow = Assert.Single(
+                rows,
+                row => row.GetProperty("name").GetString() == "Inventory");
+            Assert.Equal(
+                "inventory",
+                inventoryRow.GetProperty("shape").GetString());
+            Assert.Equal(
+                ["rows", "count"],
+                inventoryRow.GetProperty("terminals")
+                    .EnumerateArray()
+                    .Select(item => item.GetString()));
+            Assert.Equal(
+                ["--markdown"],
+                inventoryRow.GetProperty("formats")
+                    .EnumerateArray()
+                    .Select(item => item.GetString()));
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public void SectionCardinality_RejectsUnknownSection()
+    {
+        var schema = new DocumentSchema()
+            .Add("Known", "column", "Value");
+
+        ArgumentException error = Assert.Throws<ArgumentException>(() =>
+            CreateSynthetic(
+                schema,
+                new Dictionary<string, string[]>(),
+                MarkdownCapabilities("Known"),
+                discover: null,
+                new Dictionary<string, SectionCardinalityDeclaration>
+                {
+                    ["Unknown"] =
+                        SectionCardinalityDeclaration.Inventory,
+                }));
+
+        Assert.Contains("does not name a section", error.Message);
+    }
+
     [Fact]
     public void Catalog_ExposesCategoryAndSectionResourcesInStableOrder()
     {
@@ -299,7 +423,10 @@ public class DiscoveryDocumentFactoryTests
         DocumentSchema schema,
         IReadOnlyDictionary<string, string[]> categories,
         OutputCapabilityCatalog capabilities,
-        string[]? discover) =>
+        string[]? discover,
+        IReadOnlyDictionary<
+            string,
+            SectionCardinalityDeclaration>? cardinalities = null) =>
         DiscoveryDocumentFactory.Create(
             "synthetic",
             discover,
@@ -309,9 +436,31 @@ public class DiscoveryDocumentFactoryTests
             listedCategoryDoors: null,
             sectionCostAnnotations: null,
             exactOnlySections: null,
-            capabilities)
+            capabilities,
+            sectionCardinalities: cardinalities)
         ?? throw new InvalidOperationException(
             "Expected synthetic discovery construction to succeed.");
+
+    private static DiscoveryDocumentFactory.Projection
+        CreateSyntheticProjection(
+            DocumentSchema schema,
+            OutputCapabilityCatalog capabilities,
+            IReadOnlyDictionary<
+                string,
+                SectionCardinalityDeclaration> cardinalities) =>
+        DiscoveryDocumentFactory.CreateProjection(
+            "synthetic",
+            discover: null,
+            schema,
+            sectionCategories: null,
+            catalogHiddenSections: null,
+            listedCategoryDoors: null,
+            sectionCostAnnotations: null,
+            exactOnlySections: null,
+            capabilities,
+            sectionCardinalities: cardinalities)
+        ?? throw new InvalidOperationException(
+            "Expected synthetic discovery projection to succeed.");
 
     private static OutputCapabilityCatalog MarkdownCapabilities(
         params string[] sections) =>
