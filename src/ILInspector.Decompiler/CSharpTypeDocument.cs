@@ -1264,6 +1264,19 @@ static class CSharpTypeDocumentValidator
                     part.FullText,
                     $"Declaration {declaration.Id} owned body {reference.BodyId}",
                     allowEmpty: true);
+                if (reference.FullRange.Length == 0
+                    && (body.Outcome != CSharpTypeBodyOutcome.Available
+                        || !body.HasManagedBody
+                        || part.ImplementationKind
+                            != CSharpTypeImplementationKind.Body
+                        || part.FullText != part.SkeletonText
+                        || !IsEmptyBodyAlternative(
+                            part.FullText,
+                            reference.FullRange.Start)))
+                {
+                    throw new ArgumentException(
+                        $"Declaration {declaration.Id} owned body {reference.BodyId} requires non-empty evidence unless it is an available empty body with identical alternatives.");
+                }
             }
 
             var contributed = new HashSet<(int BodyId, CSharpTypeBodyContributionRole Role, int Start, int Length)>();
@@ -1366,6 +1379,29 @@ static class CSharpTypeDocumentValidator
         }
         if ((!allowEmpty && range.Length == 0) || end > text.Length)
             throw new ArgumentOutOfRangeException(nameof(range), $"{owner} range is outside its full alternative.");
+    }
+
+    static bool IsEmptyBodyAlternative(string text, int bodyPosition)
+    {
+        int index = 0;
+        while (index < text.Length && char.IsWhiteSpace(text[index]))
+            index++;
+        if (index >= text.Length || text[index] != '{')
+            return false;
+
+        int contentStart = ++index;
+        while (index < text.Length && char.IsWhiteSpace(text[index]))
+            index++;
+        int contentEnd = index;
+        if (index >= text.Length || text[index] != '}')
+            return false;
+
+        index++;
+        while (index < text.Length && char.IsWhiteSpace(text[index]))
+            index++;
+        return index == text.Length
+            && bodyPosition >= contentStart
+            && bodyPosition <= contentEnd;
     }
 
     static void ValidateFingerprint(string fingerprint, string owner)
