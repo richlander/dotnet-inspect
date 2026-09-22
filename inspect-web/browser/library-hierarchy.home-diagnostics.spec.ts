@@ -4,6 +4,7 @@ import {
   installFacades,
   releaseFacade,
   root,
+  openProductDestination,
   type DiagnosticsFixture,
 } from "./library-hierarchy.support.ts";
 
@@ -363,12 +364,15 @@ test("Diagnostics opens from Settings and the data bar without entering Spotligh
   await expect(page.locator(".data-bar")).toHaveCount(0);
   await expect(page.getByRole("button", { name: "Back to previous page" }))
     .toBeVisible();
+  await expect(page.locator("#diagnostics-product"))
+    .toHaveAccessibleName("dotnet-inspect navigation");
   await page.screenshot({
     path: testInfo.outputPath("diagnostics-wide.png"),
     fullPage: true,
   });
 
   await page.locator("#diagnostics-product").click();
+  await page.locator('[data-product-destination="home"]').click();
   await expect(page).toHaveURL("/");
   await expect(page.locator("main h1")).toBeFocused();
 
@@ -394,6 +398,30 @@ test("Diagnostics opens from Settings and the data bar without entering Spotligh
   await page.keyboard.press("Escape");
   await expect(page.locator("#spotlight-input")).toHaveCount(0);
   await expect(page).toHaveURL(/package=Example\.Package/);
+});
+
+test("Diagnostics leaves retained Workspace available without marking it current", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await installDiagnosticsFacades(page);
+  await page.goto(root);
+  await openProductDestination(page, "workspace");
+  await expect(page.locator("#inspector-panel h1")).toHaveText("Workspace");
+
+  await page.locator("#application-menu-button").click();
+  await page.locator('[data-application-action="settings"]').click();
+  await page.locator("#settings-diagnostics-open").click();
+  await expect(page).toHaveURL(/\/diagnostics$/);
+
+  await page.locator("#diagnostics-product").click();
+  const workspace =
+    page.locator('[data-product-destination="workspace"]');
+  await expect(workspace).not.toHaveAttribute("aria-current", "page");
+  await workspace.click();
+
+  await expect(page).not.toHaveURL(/\/diagnostics$/);
+  await expect(page.locator("#inspector-panel h1")).toHaveText("Workspace");
 });
 
 test("Diagnostics retains its route geometry while Build evidence loads on a narrow viewport", async ({
@@ -538,6 +566,53 @@ test("Diagnostics cache refresh does not reclaim relinquished heading focus", as
   await releaseFacade(page, "finish-package-cache-stats");
   await expect(page.locator("#diagnostics-back")).toBeFocused();
   await expect(page.locator(".diagnostics-inline-loading")).toHaveCount(0);
+});
+
+test("Diagnostics cache refresh returns product-menu focus to the replacement brand", async ({
+  page,
+}) => {
+  await installDiagnosticsFacades(page, { cachePending: true });
+  await page.goto("/diagnostics");
+
+  await expect(page.locator("html"))
+    .toHaveAttribute("data-package-cache-stats-pending", "true");
+  await page.locator("#diagnostics-product").click();
+  await expect(page.locator('[data-product-destination="home"]'))
+    .toBeFocused();
+
+  await releaseFacade(page, "finish-package-cache-stats");
+
+  await expect(page.locator(".diagnostics-inline-loading")).toHaveCount(0);
+  await expect(page.locator(".product-navigation-menu")).toBeHidden();
+  await expect(page.locator("#diagnostics-product")).toBeFocused();
+});
+
+test("Diagnostics parks recognized focus before refresh replacement", async ({
+  page,
+}) => {
+  await installDiagnosticsFacades(page, { cachePending: true });
+  await page.goto("/diagnostics");
+
+  await expect(page.locator("html"))
+    .toHaveAttribute("data-package-cache-stats-pending", "true");
+  await page.locator("#diagnostics-back").focus();
+  await page.evaluate(() => {
+    const app = document.querySelector("#app");
+    if (!app) throw new Error("Missing application root");
+    const observer = new MutationObserver(() => {
+      const active = document.activeElement;
+      document.documentElement.dataset.diagnosticsReplacementFocus =
+        `${active?.tagName ?? ""}#${active?.id ?? ""}`;
+      observer.disconnect();
+    });
+    observer.observe(app, { childList: true });
+  });
+
+  await releaseFacade(page, "finish-package-cache-stats");
+
+  await expect(page.locator("html"))
+    .toHaveAttribute("data-diagnostics-replacement-focus", "DIV#app");
+  await expect(page.locator("#diagnostics-back")).toBeFocused();
 });
 
 test("Diagnostics treats a refreshed history entry as direct", async ({
