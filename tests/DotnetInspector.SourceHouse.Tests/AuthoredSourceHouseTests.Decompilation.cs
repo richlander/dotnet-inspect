@@ -1,4 +1,6 @@
+using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
+using System.Reflection.PortableExecutable;
 
 using DotnetInspector.Libraries;
 using DotnetInspector.Services;
@@ -832,6 +834,50 @@ public sealed partial class AuthoredSourceHouseTests
 
     [Fact]
     public async Task
+        TypeDocumentDecompilation_LateMalformedBodyPreservesAttemptedWork()
+    {
+        string assemblyPath =
+            typeof(DecompilationFixture.SurfaceSelection)
+                .Assembly.Location;
+        SourceHouseTarget.TypeTarget target = TypeTarget(
+            assemblyPath,
+            typeof(DecompilationFixture.SurfaceSelection)
+                .FullName!
+                .Replace('+', '.'));
+        byte[] assembly = MalformSecondManagedBody(
+            assemblyPath,
+            nameof(DecompilationFixture.SurfaceSelection));
+        await using LibraryFixture library =
+            await LibraryFixture.CreateAsync(
+                assembly,
+                ReadAssemblyIdentity(assembly));
+
+        SourceHouseDecompilationOutcome.Completed completed =
+            Assert.IsType<SourceHouseDecompilationOutcome.Completed>(
+                await SourceHouse.ExecuteDecompilationAsync(
+                    DecompilationRequest(
+                        library,
+                        target,
+                        assemblyPath,
+                        maximumBodyProjections: 1,
+                        product: SourceHouseDecompilationProduct
+                            .StructuredTypeDocument),
+                    library.IssueOperation(),
+                    TestContext.Current.CancellationToken));
+
+        var unavailable =
+            Assert.IsType<CSharpTypeDocumentOutcome.Unavailable>(
+                completed.TypeDocument);
+        Assert.Contains(
+            nameof(BadImageFormatException),
+            unavailable.Reason,
+            StringComparison.Ordinal);
+        Assert.Equal(1, unavailable.BodyProjectionsAttempted);
+        Assert.Equal(1, completed.Work.BodyProjectionsAttempted);
+    }
+
+    [Fact]
+    public async Task
         TypeDocumentDecompilation_AssemblyLimitIsIncompleteAndSettlesLease()
     {
         string assemblyPath =
@@ -969,6 +1015,54 @@ public sealed partial class AuthoredSourceHouseTests
                     maximumPortablePdbBytes,
                 maxMapBytes: 16 * 1024 * 1024,
                 maxMappings: 100_000));
+
+    private static byte[] MalformSecondManagedBody(
+        string assemblyPath,
+        string typeName)
+    {
+        byte[] assembly = File.ReadAllBytes(assemblyPath);
+        int bodyOffset;
+        using (var stream =
+            new MemoryStream(assembly, writable: false))
+        using (var pe = new PEReader(stream))
+        {
+            MetadataReader reader = pe.GetMetadataReader();
+            TypeDefinitionHandle typeHandle = Assert.Single(
+                reader.TypeDefinitions,
+                handle =>
+                    reader.GetString(
+                        reader.GetTypeDefinition(handle).Name)
+                    == typeName);
+            MethodDefinitionHandle[] managedBodies =
+            [
+                .. reader.GetTypeDefinition(typeHandle)
+                    .GetMethods()
+                    .Where(handle =>
+                        reader.GetMethodDefinition(handle)
+                            .RelativeVirtualAddress != 0),
+            ];
+            Assert.True(managedBodies.Length >= 2);
+            int bodyRva = reader
+                .GetMethodDefinition(managedBodies[1])
+                .RelativeVirtualAddress;
+            SectionHeader section = Assert.Single(
+                pe.PEHeaders.SectionHeaders,
+                candidate =>
+                    bodyRva >= candidate.VirtualAddress
+                    && bodyRva
+                        < candidate.VirtualAddress
+                            + Math.Max(
+                                candidate.VirtualSize,
+                                candidate.SizeOfRawData));
+            bodyOffset =
+                bodyRva
+                - section.VirtualAddress
+                + section.PointerToRawData;
+        }
+
+        assembly[bodyOffset] = 0;
+        return assembly;
+    }
 
     private static SourceHouseTarget.MemberTarget AccessorTarget(
         string assemblyPath,
