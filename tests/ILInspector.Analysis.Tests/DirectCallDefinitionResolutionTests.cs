@@ -2343,7 +2343,8 @@ public sealed partial class DirectCallDefinitionResolutionTests
         bool invalidOnlyInterfaceImpl = false,
         bool wrappedTypeParameter = false,
         string assemblyName = "InterfaceDirectCalls",
-        Version? assemblyVersion = null)
+        Version? assemblyVersion = null,
+        byte[]? assemblyPublicKey = null)
     {
         assemblyVersion ??= new Version(1, 0, 0, 0);
         addPublicDecoy |= addSwappedGenericDecoy;
@@ -2362,8 +2363,12 @@ public sealed partial class DirectCallDefinitionResolutionTests
             metadata.GetOrAddString(assemblyName),
             assemblyVersion,
             default,
-            default,
-            default,
+            assemblyPublicKey is null
+                ? default
+                : metadata.GetOrAddBlob(assemblyPublicKey),
+            assemblyPublicKey is null
+                ? default
+                : AssemblyFlags.PublicKey,
             AssemblyHashAlgorithm.Sha1);
         AssemblyReferenceHandle systemRuntime =
             metadata.AddAssemblyReference(
@@ -2850,7 +2855,11 @@ public sealed partial class DirectCallDefinitionResolutionTests
                     ?? throw new InvalidOperationException(
                         "Version-two fixture identity is unversioned."),
                 default,
-                default,
+                versionTwo.Participant.Assembly.Identity.PublicKeyToken
+                    is string publicKeyToken
+                    ? metadata.GetOrAddBlob(
+                        Convert.FromHexString(publicKeyToken))
+                    : default,
                 default,
                 default);
         TypeReferenceHandle implementationType =
@@ -3107,5 +3116,32 @@ public sealed partial class DirectCallDefinitionResolutionTests
                         AssemblyBindingSelection.Found(assembly),
                     _ => AssemblyBindingSelection.NotFound(),
                 });
+    }
+
+    sealed class ScopePolicy(
+        ResolvedAssemblyReference anyAssembly,
+        ResolvedAssemblyReference platformAssembly)
+        : IAssemblyBindingPolicy
+    {
+        public List<AssemblyBindingRequest> Requests { get; } = [];
+
+        public AssemblyBindingPolicyVersion Version { get; } = new();
+
+        public AssemblyBindingSelectionSnapshot Select(
+            AssemblyBindingRequest request)
+        {
+            Requests.Add(request);
+            return new(
+                Version,
+                request.Target
+                    is AssemblyBindingTarget.AssemblyReference reference
+                    && reference.Identity == anyAssembly.Identity
+                        ? AssemblyBindingSelection.Found(
+                            request.Scope
+                                == AssemblyResolutionScope.Platform
+                                    ? platformAssembly
+                                    : anyAssembly)
+                        : AssemblyBindingSelection.NotFound());
+        }
     }
 }

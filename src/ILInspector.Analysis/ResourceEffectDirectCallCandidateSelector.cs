@@ -142,7 +142,7 @@ internal sealed class ResourceEffectDirectCallCandidateSelector
             AssemblyBindingTarget.Reference(identity),
             AssemblyBindingOrigin.FromAssembly(
                 participant.Assembly),
-            AssemblyResolutionScope.Any);
+            TypeResolutionRequestFactory.Scope(identity));
         AssemblyBindingSelectionSnapshot snapshot =
             _bindingPolicy!.Select(request);
         if (!ReferenceEquals(

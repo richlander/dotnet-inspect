@@ -746,6 +746,61 @@ public sealed partial class DirectCallDefinitionResolutionTests
     }
 
     [Fact]
+    public void InterfaceCandidateSelectionUsesDefinitionResolutionScope()
+    {
+        byte[] platformPublicKey =
+            typeof(object).Assembly.GetName().GetPublicKey()
+            ?? throw new InvalidOperationException(
+                "The platform assembly has no public key.");
+        const string AssemblyName = "PlatformScopedInterfaceTarget";
+        var version = new Version(2, 0, 0, 0);
+        SyntheticParticipant platformAsset =
+            CreateInterfaceParticipant(
+                explicitImplementation: true,
+                includeInterfaceCall: false,
+                assemblyName: AssemblyName,
+                assemblyVersion: version,
+                assemblyPublicKey: platformPublicKey);
+        SyntheticParticipant anyAsset =
+            CreateInterfaceParticipant(
+                includeInterfaceCall: false,
+                assemblyName: AssemblyName,
+                assemblyVersion: version,
+                assemblyPublicKey: platformPublicKey);
+        Assert.Equal(
+            anyAsset.Participant.Assembly.Identity,
+            platformAsset.Participant.Assembly.Identity);
+        SyntheticParticipant caller =
+            CreateVersionSplitInterfaceCaller(platformAsset);
+        var policy = new ScopePolicy(
+            anyAsset.Participant.Assembly,
+            platformAsset.Participant.Assembly);
+        ResourceEffectAdmission admission = AdmitModels(
+            Model(
+                "example.platform-scoped-interface-candidate",
+                InterfaceTarget(platformAsset),
+                new ResourceEffect.Operation(
+                    ResourceOperationBoundary.Ordinary,
+                    ResourceOperationThrows.Possible,
+                    Guard: null)));
+        var selector =
+            new ResourceEffectDirectCallCandidateSelector(
+                admission,
+                policy);
+        DirectCall explicitCall = Assert.Single(
+            caller.Participant.CallGraph.DirectCalls,
+            call => call.Callee.Name == "ExplicitTarget");
+
+        Assert.True(
+            selector.Includes(
+                caller.Participant,
+                explicitCall));
+        Assert.Equal(
+            AssemblyResolutionScope.Platform,
+            Assert.Single(policy.Requests).Scope);
+    }
+
+    [Fact]
     public void InterfaceApplicationReceiptTracksGeneration()
     {
         SyntheticParticipant participant = CreateInterfaceParticipant();
