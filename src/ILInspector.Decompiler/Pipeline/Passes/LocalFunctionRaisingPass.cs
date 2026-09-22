@@ -425,6 +425,7 @@ public sealed class LocalFunctionRaisingPass : IIrPass
                     method,
                     body.UsesUpdatedMemorySafetyRules))
             {
+                SourceMethodAddress = body.SourceMethodAddress,
                 SynthesizedLocalNames = body.SynthesizedLocalNames,
                 LocalDeclaredInNestedScope = body.LocalDeclaredInNestedScope,
                 LocalDeclarationBindings = body.LocalDeclarationBindings,
