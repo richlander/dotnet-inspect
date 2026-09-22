@@ -72,6 +72,50 @@ public sealed class MetadataDeclarationSession : IDisposable
             .Relate(type, body, token);
     }
 
+    public MetadataInterfaceImplementationResult Relate(
+        MetadataTypeDefinitionAddress type,
+        MetadataTypeIdentity interfaceType,
+        CancellationToken token = default)
+    {
+        EnsureAccess();
+        token.ThrowIfCancellationRequested();
+        MetadataOperationContext operationContext = _operationContext!;
+        if (_imageAdmission is MetadataImageAdmissionResult.Rejected rejected)
+        {
+            var request =
+                new MetadataInterfaceImplementationRequest(
+                    type,
+                    interfaceType);
+            return new MetadataInterfaceImplementationResult.Rejected(
+                new MetadataInterfaceImplementationFailure(
+                    request,
+                    MetadataInterfaceImplementationFailureReason
+                        .BudgetExceeded,
+                    MetadataInterfaceImplementationStage
+                        .RequestValidation,
+                    MetadataInterfaceImplementationMechanism
+                        .ImageAdmission,
+                    "The metadata image was not admitted by the operation policy.",
+                    RelevantRow: null,
+                    RelevantHandle: default,
+                    BudgetDimension:
+                        MetadataOperationDimension.MetadataRows,
+                    BudgetLimit:
+                        rejected.Failure.MaxMetadataRows,
+                    AttemptedCharge:
+                        rejected.Failure.ImageMetadataRows),
+                operationContext.Counters);
+        }
+
+        MetadataReader reader =
+            _assemblySession!.GetMetadataReaderForDeclarationSession();
+        return new MetadataInterfaceImplementationEvidenceOperation(
+            reader,
+            operationContext,
+            GetOrCreateTypeDefinitionIndex)
+            .Relate(type, interfaceType, token);
+    }
+
     MetadataTypeDefinitionIndex GetOrCreateTypeDefinitionIndex(
         Action beforeAccess,
         Action<TypeDefinitionHandle> beforeRelationshipFollow,

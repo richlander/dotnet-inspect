@@ -79,7 +79,9 @@
   navigation (#8051).
 - Moves Inspect Web product navigation into the `dotnet-inspect` brand menu,
   keeping Home, Query, Workspace, and Activity durable without competing with
-  inspected-subject navigation (#8047).
+  inspected-subject navigation. The persistent `Open Library…` action follows
+  those routed destinations, while the Application menu remains focused on
+  utilities (#8047, #8253).
 - Adds focus-first `library coordinate <coordinate>` and bounded
   `library coordinate --file <path>` for exact IL and metadata-heap inspection,
   retaining source context and typed malformed-record evidence. File mode
@@ -149,8 +151,9 @@
 - Adds an explicit `Library Metrics` section for whole-library structural
   metrics. QuerySpace and metadata-backed count paths reduce allocation and
   startup cost for Graph Libraries and installed-Platform Type inventories,
-  while retaining fallback when compact evidence is unavailable (#8183,
-  #8186, #8207, #8221).
+  while retaining fallback when compact evidence is unavailable. Inspect Web
+  exposes the same Research-owned report through a Metrics lens for exact
+  package and platform libraries (#8183, #8186, #8207, #8221, #8230).
 - Adds complete JSON and `InspectionEnvelope<ImplementationDiffDocument>`
   transport for one exact local Implementation Diff pair while preserving
   ordinary rendered output (#7876).
@@ -162,6 +165,9 @@
 
 ### Output, discovery, and safety
 
+- Keeps Inspect Web on Mermaid 12 while overriding Chevrotain's vulnerable
+  exact `lodash-es` transitive pin with patched 4.18.1. The production
+  dependency audit reports no known advisories (#8257).
 - Extends schema-versioned envelopes and owner-issued Content to Package Query,
   package-version listing and counts, exact Type/Library API inspection,
   positional `depends`, API Diff, and Package Activity. Typed incomplete or
