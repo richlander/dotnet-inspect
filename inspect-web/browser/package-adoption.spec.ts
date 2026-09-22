@@ -2609,8 +2609,15 @@ test.describe("bounded network-backed two-host demo", () => {
     await expect(page).toHaveURL(/\/activity$/);
     await expect(page.locator("#package-changes-heading"))
       .toHaveText("Package Activity");
+    const productNavigationButton =
+      page.locator("[data-product-navigation-button]");
+    await productNavigationButton.click();
+    await page.locator('[data-product-destination="workspace"]').focus();
+    await expect(page.locator(".product-navigation-menu")).toBeVisible();
     await page.evaluate(() => history.back());
     await expect.poll(() => page.url()).toBe(managedUrl);
+    await expect(page.locator(".product-navigation-menu")).toBeHidden();
+    await expect(productNavigationButton).toBeFocused();
     await expect(page.locator("[data-navigation-order]"))
       .toContainText("System.Text.Json");
     await expect(page.locator("#package-changes-heading")).toHaveCount(0);

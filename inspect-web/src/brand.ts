@@ -329,12 +329,15 @@ export function bindProductNavigation(
         ? focused.closest<HTMLElement>("[data-product-destination]")
         : null;
       const destination = item?.dataset.productDestination;
-      const currentDestination = actions.currentDestination();
+      const currentDestination = menu.querySelector<HTMLElement>(
+        '[data-product-destination][aria-current="page"]')
+        ?.dataset.productDestination;
       if (!button?.id
         || !item
         || !menu.contains(item)
         || !isProductDestination(destination)
-        || currentDestination === null) {
+        || !isProductDestination(currentDestination)
+        || actions.currentDestination() !== currentDestination) {
         return;
       }
       replacement = {
