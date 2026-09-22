@@ -404,6 +404,81 @@ function deferred<T>() {
   return { promise, resolve };
 }
 
+interface PromptTestElement {
+  readonly listeners: Map<string, EventListenerOrEventListenerObject>;
+  readonly testChildren: Map<string, PromptTestElement>;
+  value: string;
+  innerHTML?: string;
+  content?: { firstElementChild: PromptTestElement };
+  addEventListener(
+    type: string,
+    listener: EventListenerOrEventListenerObject | null,
+  ): void;
+  querySelector(selectors: string): PromptTestElement | null;
+  focus(): void;
+  remove(): void;
+}
+
+function promptTestElement(): PromptTestElement {
+  const listeners =
+    new Map<string, EventListenerOrEventListenerObject>();
+  const testChildren = new Map<string, PromptTestElement>();
+  return {
+    listeners,
+    testChildren,
+    value: "",
+    addEventListener(eventType, listener) {
+      if (listener) listeners.set(eventType, listener);
+    },
+    querySelector(selectors) {
+      return testChildren.get(selectors) ?? null;
+    },
+    focus() {},
+    remove() {},
+  };
+}
+
+function createPromptTestDocument() {
+  let backdrop: PromptTestElement | null = null;
+  return {
+    document: {
+      querySelector(): PromptTestElement | null {
+        return backdrop;
+      },
+      createElement(): PromptTestElement {
+        backdrop = promptTestElement();
+        const form = promptTestElement();
+        form.testChildren.set(
+          "#workspace-source-username-0",
+          promptTestElement());
+        form.testChildren.set(
+          "#workspace-source-pat-0",
+          promptTestElement());
+        backdrop.testChildren.set(
+          "#workspace-credential-form",
+          form);
+        backdrop.testChildren.set(
+          "#workspace-credential-dialog",
+          promptTestElement());
+        backdrop.testChildren.set(
+          "#workspace-credential-cancel",
+          promptTestElement());
+        return {
+          ...promptTestElement(),
+          content: { firstElementChild: backdrop },
+        };
+      },
+      body: { append() {} },
+    },
+    form(): PromptTestElement {
+      const form = backdrop?.testChildren.get(
+        "#workspace-credential-form");
+      assert.ok(form);
+      return form;
+    },
+  };
+}
+
 function createCoordinatorHarness(
   client: WorkspaceTestClient,
   events: string[],
@@ -429,6 +504,7 @@ function createCoordinatorHarness(
     beginNavigation: () => ++navigationSequence,
     hasVisibleWorkspace: () => visible.length > 0,
     captureRollback: () => visible,
+    cloneRollback: rollback => rollback,
     restoreRollback(restored) {
       events.push("restore");
       visible = restored;
@@ -705,6 +781,7 @@ test("anonymous source activation publishes before committing browser history", 
     beginNavigation: () => 8,
     hasVisibleWorkspace: () => false,
     captureRollback: () => ({ id: "rollback" }),
+    cloneRollback: structuredClone,
     restoreRollback() {
       throw new Error("Successful activation must not roll back.");
     },
@@ -897,6 +974,10 @@ test("superseding a published activation preserves its committed incumbent", asy
       harness.sequence,
       true),
     true);
+  assert.equal(harness.coordinator.blocksUrlSynchronization, true);
+  assert.equal(
+    harness.coordinator.captureCommittedRollback(),
+    "incumbent");
   completion.resolve(true);
   assert.equal(await opening, true);
 
@@ -908,6 +989,8 @@ test("superseding a published activation preserves its committed incumbent", asy
     harness.failure ?? "",
     /awaiting consumer completion/);
   assert.equal(harness.coordinator.activeUrl, null);
+  assert.equal(harness.coordinator.blocksUrlSynchronization, false);
+  assert.equal(harness.coordinator.captureCommittedRollback(), null);
 });
 
 test("a committed successor retires a published activation rollback", async () => {
@@ -934,6 +1017,8 @@ test("a committed successor retires a published activation rollback", async () =
   await completionStarted.promise;
   harness.advance("committed-successor");
   harness.coordinator.clearActiveUrl();
+  assert.equal(harness.coordinator.blocksUrlSynchronization, false);
+  assert.equal(harness.coordinator.captureCommittedRollback(), null);
   completion.resolve(true);
   assert.equal(await opening, true);
 
@@ -943,6 +1028,131 @@ test("a committed successor retires a published activation rollback", async () =
   assert.equal(events.includes("push"), false);
   assert.equal(events.includes("complete:false"), true);
   assert.equal(harness.coordinator.activeUrl, null);
+});
+
+test("dismissing a submitted prompt preserves its committed rollback", async () => {
+  const htmlElement = Object.getOwnPropertyDescriptor(
+    globalThis,
+    "HTMLElement");
+  Object.defineProperty(globalThis, "HTMLElement", {
+    configurable: true,
+    value: Object,
+  });
+  try {
+    const events: string[] = [];
+    let navigationSequence = 1;
+    let visible = "committed-incumbent";
+    const completion = deferred<boolean>();
+    const completionStarted = deferred<boolean>();
+    const completionSettled = deferred<boolean>();
+    const client = createWorkspaceTestClient(events);
+    client.describeWorkspacePackageSources = () => ({
+      succeeded: true,
+      sources: [{
+        endpoint: "https://packages.example.test/v3/index.json",
+        authentication: "AuthenticationRequired",
+      }],
+      failure: null,
+    });
+    const complete =
+      client.completeRetainedWorkspaceActivation.bind(client);
+    client.completeRetainedWorkspaceActivation =
+      async (receipt, succeeded, failure) => {
+        if (succeeded) {
+          completionStarted.resolve(true);
+          await completion.promise;
+          throw new Error("Consumer completion could not be delivered.");
+        }
+        const result = await complete(receipt, succeeded, failure);
+        completionSettled.resolve(true);
+        return result;
+      };
+    const promptDocument = createPromptTestDocument();
+    const coordinator = createWorkspaceFeedActivationCoordinator({
+      client,
+      // @ts-expect-error This fixture supplies only the DOM members the prompt uses.
+      document: promptDocument.document,
+      applicationRoot: { inert: false },
+      maxVisibleModels: 8,
+      isCurrent: sequence => sequence === navigationSequence,
+      beginNavigation: () => ++navigationSequence,
+      hasVisibleWorkspace: () => true,
+      captureRollback: () => visible,
+      cloneRollback: rollback => rollback,
+      restoreRollback(restored) {
+        events.push(`restore:${restored}`);
+        visible = restored;
+      },
+      releaseRollback(released) {
+        events.push(`release:${released}`);
+      },
+      publish(activationPosting) {
+        visible = activationPosting.canonicalLocation;
+        events.push(`publish:${visible}`);
+      },
+      setLoading() {},
+      pushLocation() {},
+      reportFailure(message) {
+        events.push(`failure:${message}`);
+      },
+      reportPredecessorFailure(error) {
+        assert.fail(String(error));
+      },
+      observe() {},
+      errorMessage: String,
+      escapeHtml: String,
+      trapModalTab() {},
+    });
+
+    await coordinator.tryOpen(
+      new URL("https://example.test/?w=private-A"),
+      navigationSequence,
+      true);
+    const form = promptDocument.form();
+    const username = form.querySelector(
+      "#workspace-source-username-0");
+    const pat = form.querySelector(
+      "#workspace-source-pat-0");
+    assert.ok(username);
+    assert.ok(pat);
+    username.value = "example";
+    pat.value = "page-session-pat";
+    const submit = form.listeners.get("submit");
+    if (typeof submit !== "function") {
+      assert.fail("The credential form did not bind submission.");
+    }
+    submit(new Event("submit"));
+    await completionStarted.promise;
+
+    navigationSequence++;
+    coordinator.cancelPrompt(false);
+    await coordinator.tryOpen(
+      new URL("https://example.test/?w=private-B"),
+      navigationSequence,
+      false);
+    assert.equal(
+      coordinator.captureCommittedRollback(),
+      "committed-incumbent");
+    assert.equal(coordinator.blocksUrlSynchronization, true);
+    completion.resolve(true);
+    await completionSettled.promise;
+    await new Promise<void>(resolve => setImmediate(resolve));
+
+    assert.equal(visible, "committed-incumbent");
+    assert.equal(
+      events.includes("release:committed-incumbent"),
+      false);
+    assert.equal(
+      events.includes("restore:committed-incumbent"),
+      true);
+    coordinator.cancelPrompt();
+  } finally {
+    if (htmlElement) {
+      Object.defineProperty(globalThis, "HTMLElement", htmlElement);
+    } else {
+      Reflect.deleteProperty(globalThis, "HTMLElement");
+    }
+  }
 });
 
 test("superseded abandoned-definition recovery cannot restart activation", async () => {

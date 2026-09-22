@@ -119,6 +119,7 @@ const hostNames = new Set([
   "parseWorkspaceHref", "beginDemoNavigation", "stageDemoNavigation",
   "commitDemoNavigation", "cancelDemoNavigation", "commitRestoredWorkspaceNavigation",
   "captureCanonicalWorkspaceRestoreSnapshot", "restoreCanonicalWorkspaceRestoreSnapshot",
+  "captureWorkspaceNavigationRollback", "openFreshWorkspaceLink",
   "captureCanonicalWorkspaceUrl", "projectCurrentWorkspaceUrl",
   "normalizeWorkspaceAsyncSnapshotState", "settleInterruptedPlatformStatus",
   "cloneCanonicalWorkspaceSnapshotForRetention",
@@ -1399,6 +1400,7 @@ test("failed same-coordinate navigation preserves the source Workspace URL", asy
     cancelWorkspaceCredentialPrompt: () => {},
     tryOpenSourceBearingWorkspace: async () => false,
     workspaceFeedActivation: {
+      captureCommittedRollback: () => null,
       clearActiveUrl() {
         sourceCleared = true;
       },
@@ -1430,6 +1432,43 @@ test("failed same-coordinate navigation preserves the source Workspace URL", asy
   assert.ok(share instanceof URL);
   assert.equal(share.href, sourceUrl);
   assert.match(h.state.queryNotice, /shared library is unavailable/);
+});
+
+test("failed ordinary navigation restores the committed source incumbent", async () => {
+  const h = harness();
+  const committed: unknown = runInNewContext(
+    "captureCanonicalWorkspaceRestoreSnapshot()",
+    h.context);
+  const tentative = {
+    ...structuredClone(sourcePackage),
+    id: "Example.Package",
+  };
+  h.state.packages = [tentative];
+  h.state.package = tentative;
+  h.state.workspaceFeedUrl = "https://inspect.test/?w=source-A";
+  h.context.activeWorkspaceUrl = h.state.workspaceFeedUrl;
+  Object.assign(h.context, {
+    workspaceFeedActivation: {
+      captureCommittedRollback: () => committed,
+    },
+    loadPackage: async () => null,
+    focusWorkbenchSearchOrHeading: () => true,
+  });
+  const loc = parseWorkspaceLocation(
+    new URL(
+      "https://inspect.test/?package=Missing.Package"
+      + "&version=1.0.0&framework=net10.0#pkg"),
+    () => assert.fail("An ordinary URL must not decode a Workspace packet."));
+  const navigationSeq = h.navigationSequence.begin();
+
+  await runInNewContext(
+    "openFreshWorkspaceLink(loc, navigationSeq)",
+    { ...h.context, loc, navigationSeq });
+  await h.settle();
+
+  assert.equal(h.state.package?.id, sourcePackage.id);
+  assert.equal(h.state.workspaceFeedUrl, null);
+  assert.match(h.state.queryNotice, /Couldn’t load Missing.Package/);
 });
 
 for (const failure of ["acquisition", "selection"] as const) {

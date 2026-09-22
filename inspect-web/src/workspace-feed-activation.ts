@@ -73,6 +73,7 @@ export interface WorkspaceFeedActivationDependencies<TRollback> {
   beginNavigation(): number;
   hasVisibleWorkspace(): boolean;
   captureRollback(): TRollback;
+  cloneRollback(rollback: TRollback): TRollback;
   restoreRollback(rollback: TRollback): void;
   releaseRollback(rollback: TRollback): void;
   publish(
@@ -89,9 +90,10 @@ export interface WorkspaceFeedActivationDependencies<TRollback> {
   trapModalTab(dialog: HTMLElement, event: KeyboardEvent): void;
 }
 
-export interface WorkspaceFeedActivationCoordinator {
+export interface WorkspaceFeedActivationCoordinator<TRollback = never> {
   readonly activeUrl: string | null;
   readonly blocksUrlSynchronization: boolean;
+  captureCommittedRollback(): TRollback | null;
   tryOpen(
     url: URL,
     navigationSequence: number,
@@ -115,7 +117,7 @@ interface PendingWorkspaceCredentialPrompt {
 
 export function createWorkspaceFeedActivationCoordinator<TRollback>(
   dependencies: WorkspaceFeedActivationDependencies<TRollback>,
-): WorkspaceFeedActivationCoordinator {
+): WorkspaceFeedActivationCoordinator<TRollback> {
   let controller: RetainedWorkspaceActivationController | null = null;
   let prompt: PendingWorkspaceCredentialPrompt | null = null;
   let posted: {
@@ -229,13 +231,7 @@ export function createWorkspaceFeedActivationCoordinator<TRollback>(
       packet);
     if (!dependencies.isCurrent(navigationSequence)) return false;
     pendingNavigationSequence = navigationSequence;
-    const pendingPublishedRollback = posted !== null
-      && posted.published
-      && !deliveredDefinitionIds.has(posted.value.retainedDefinitionId)
-      && rollback?.retainedDefinitionId
-        === posted.value.retainedDefinitionId
-      && rollback.navigationSequence === posted.navigationSequence;
-    if (!pendingPublishedRollback) {
+    if (!ownsTentativeVisibleProjection()) {
       releaseRollback();
       rollback = {
         retainedDefinitionId,
@@ -323,10 +319,14 @@ export function createWorkspaceFeedActivationCoordinator<TRollback>(
   function cancelPrompt(showFailure = true): void {
     const current = prompt;
     if (current === null) return;
-    activationController().cancelPending();
-    releaseRollback(
-      current.retainedDefinitionId,
-      current.navigationSequence);
+    const preserveCommittedRollback =
+      ownsTentativeVisibleProjection();
+    const cancelled = activationController().cancelPending();
+    if (cancelled && !preserveCommittedRollback) {
+      releaseRollback(
+        current.retainedDefinitionId,
+        current.navigationSequence);
+    }
     clearPendingNavigation(current.navigationSequence);
     prompt = null;
     dependencies.document
@@ -633,13 +633,28 @@ export function createWorkspaceFeedActivationCoordinator<TRollback>(
     rollback = null;
   }
 
+  function ownsTentativeVisibleProjection(): boolean {
+    return posted !== null
+      && posted.published
+      && !deliveredDefinitionIds.has(posted.value.retainedDefinitionId)
+      && rollback?.retainedDefinitionId
+        === posted.value.retainedDefinitionId
+      && rollback.navigationSequence === posted.navigationSequence;
+  }
+
   return {
     get activeUrl() {
       return activeUrl;
     },
     get blocksUrlSynchronization() {
-      return pendingNavigationSequence !== null
-        && dependencies.isCurrent(pendingNavigationSequence);
+      return ownsTentativeVisibleProjection()
+        || (pendingNavigationSequence !== null
+          && dependencies.isCurrent(pendingNavigationSequence));
+    },
+    captureCommittedRollback() {
+      return ownsTentativeVisibleProjection() && rollback !== null
+        ? dependencies.cloneRollback(rollback.state)
+        : null;
     },
     tryOpen,
     cancelPrompt,

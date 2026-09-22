@@ -1311,7 +1311,9 @@ let retainedWorkspaces =
   createRetainedWorkspaceCollection<CanonicalWorkspaceRestoreSnapshot>();
 let activeWorkspaceUrl: string | null = null;
 let workspaceFeedActivation:
-  WorkspaceFeedActivationCoordinator | null = null;
+  WorkspaceFeedActivationCoordinator<
+    CanonicalWorkspaceRestoreSnapshot
+  > | null = null;
 let pendingWorkspaceConstruction: {
   navigationSeq: number;
   supersessionSnapshot: CanonicalWorkspaceRestoreSnapshot;
@@ -1673,7 +1675,7 @@ function restoreRetainedWorkspaceSnapshot(
 }
 
 function captureWorkspaceConstructionSnapshots(navigationSeq: number) {
-  const supersessionSnapshot = captureCanonicalWorkspaceRestoreSnapshot();
+  const supersessionSnapshot = captureWorkspaceNavigationRollback();
   const hasActiveWorkspace = retainedWorkspaces.activeWorkspaceId !== null;
   const retainedSnapshot = hasActiveWorkspace
     ? cloneCanonicalWorkspaceSnapshotForRetention(supersessionSnapshot)
@@ -1695,7 +1697,7 @@ function captureWorkspaceConstructionSnapshots(navigationSeq: number) {
 function captureWorkspaceMutationSnapshot(
   navigationSeq: number,
 ): CanonicalWorkspaceRestoreSnapshot {
-  const snapshot = captureCanonicalWorkspaceRestoreSnapshot();
+  const snapshot = captureWorkspaceNavigationRollback();
   pendingWorkspaceConstruction = {
     navigationSeq,
     supersessionSnapshot: snapshot,
@@ -1704,6 +1706,12 @@ function captureWorkspaceMutationSnapshot(
   setWorkspaceConstructionPending(true);
   invalidateWorkspaceAsyncOwners();
   return snapshot;
+}
+
+function captureWorkspaceNavigationRollback():
+CanonicalWorkspaceRestoreSnapshot {
+  return workspaceFeedActivation?.captureCommittedRollback()
+    ?? captureCanonicalWorkspaceRestoreSnapshot();
 }
 
 function setWorkspaceConstructionPending(pending: boolean): void {
@@ -17208,7 +17216,9 @@ function applyLocationView(loc: ParsedLocation) {
 }
 
 function workspaceFeedActivationCoordinator():
-  WorkspaceFeedActivationCoordinator {
+  WorkspaceFeedActivationCoordinator<
+    CanonicalWorkspaceRestoreSnapshot
+  > {
   workspaceFeedActivation ??= createWorkspaceFeedActivationCoordinator({
       client: engineClient.catalog,
       document,
@@ -17219,6 +17229,7 @@ function workspaceFeedActivationCoordinator():
       hasVisibleWorkspace: () =>
         state.package !== null || state.platformSelection !== null,
       captureRollback: captureCanonicalWorkspaceRestoreSnapshot,
+      cloneRollback: cloneCanonicalWorkspaceSnapshotForRetention,
       restoreRollback(snapshot) {
         restoreCanonicalWorkspaceRestoreSnapshot(snapshot);
         activeWorkspaceUrl = snapshot.url;
@@ -17656,7 +17667,7 @@ async function navigateWithinCurrentWorkspace(
     return;
   }
   const canonicalSnapshot = loc.hasWorkspaceState
-    ? captureCanonicalWorkspaceRestoreSnapshot()
+    ? captureWorkspaceNavigationRollback()
     : null;
   state.credits = false;
   resetLocationFilters();

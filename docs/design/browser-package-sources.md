@@ -1190,7 +1190,12 @@ retained host projection, and ordinary navigation preserves the incumbent
 source-bearing URL until its replacement commits. Navigation supersession
 alone does not retire the last committed incumbent while a visibly published
 activation still awaits consumer completion; only a committed replacement
-retires that rollback. An identical active
+retires that rollback. Dismissing a prompt cannot retire the rollback when its
+posting has already committed, and concurrent ordinary restoration uses a
+clone of the coordinator-owned committed incumbent rather than snapshotting
+the tentative projection. URL synchronization remains blocked while that
+tentative projection owns visible state even after another navigation becomes
+current. An identical active
 definition may reuse its posting only after that posting completed consumer
 delivery; an abandoned posting is deactivated and prepared again.
 Credential retry performs the same recovery while preserving its fresh

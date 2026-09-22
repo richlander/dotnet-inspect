@@ -397,7 +397,10 @@ test("source-bearing Workspace URLs use page-session retained activation", () =>
 
   assert.match(
     appSource,
-    /createWorkspaceFeedActivationCoordinator\(\{[\s\S]*client: engineClient\.catalog,[\s\S]*publish: publishSourceBearingWorkspace/);
+    /createWorkspaceFeedActivationCoordinator\(\{[\s\S]*client: engineClient\.catalog,[\s\S]*cloneRollback: cloneCanonicalWorkspaceSnapshotForRetention,[\s\S]*publish: publishSourceBearingWorkspace/);
+  assert.match(
+    appSource,
+    /function captureWorkspaceNavigationRollback\(\):[\s\S]*workspaceFeedActivation\?\.captureCommittedRollback\(\)[\s\S]*captureCanonicalWorkspaceRestoreSnapshot\(\)/);
   assert.match(
     initialRestore,
     /tryOpenSourceBearingWorkspace\([\s\S]*new URL\(location\.href\)[\s\S]*return;[\s\S]*preflight\.resolve\(\)/);
@@ -429,6 +432,12 @@ test("source-bearing Workspace URLs use page-session retained activation", () =>
   assert.match(
     workspaceFeedActivationSource,
     /await retainDefinition\([\s\S]*if \(!dependencies\.isCurrent\(navigationSequence\)\) return false;[\s\S]*pendingNavigationSequence = navigationSequence/);
+  assert.match(
+    workspaceFeedActivationSource,
+    /const preserveCommittedRollback =\s*ownsTentativeVisibleProjection\(\);[\s\S]*if \(cancelled && !preserveCommittedRollback\) \{[\s\S]*releaseRollback/);
+  assert.match(
+    workspaceFeedActivationSource,
+    /get blocksUrlSynchronization\(\) \{\s*return ownsTentativeVisibleProjection\(\)/);
   assert.doesNotMatch(
     workspaceFeedActivationSource,
     /localStorage|sessionStorage|console\.(?:log|info|warn|error)/);
