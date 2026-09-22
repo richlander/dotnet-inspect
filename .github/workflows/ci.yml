@@ -1110,8 +1110,8 @@ jobs:
           results="$results_dir/$results_name"
           dotnet run --project tests/DotnetInspect.Cli.Tests -c Release --no-build -- \
             --filter-method '*Package_Manifest_RendersToolManifestRows*' \
-            --report-xunit \
-            --report-xunit-filename "$results_name" \
+            --report-xunit-xml \
+            --report-xunit-xml-filename "$results_name" \
             --results-directory "$results_dir"
           if ! grep -Eq '<assembly[^>]+skipped="0"' "$results"; then
             echo "::error::Package fixture test skipped authenticated execution." >&2
@@ -1289,8 +1289,8 @@ jobs:
             --filter-method '*Build_ProducesEqualWireFactsAcrossAsyncLoweringsForSerializerStoredAcrossSuspension*' \
             --filter-method '*Build_RejectsConditionalSerializerStoreAcrossAsyncLowerings*' \
             --filter-method '*RuntimeAsync*' \
-            --report-xunit \
-            --report-xunit-filename "$results_name" \
+            --report-xunit-xml \
+            --report-xunit-xml-filename "$results_name" \
             --results-directory "$results_dir"
           if ! grep -Eq 'total="[1-9][0-9]*"' "$results"; then
             echo "::error::JSExport runtime-async wire test filters selected no tests." >&2
@@ -1321,8 +1321,8 @@ jobs:
             --filter-class 'ILInspector.JsExportSurface.Tests.TypeScriptFacadeEmitterTests' \
             --filter-class 'ILInspector.JsExportSurface.Tests.TsJsExportContractsTests' \
             --filter-class 'ILInspector.JsExportSurface.Tests.TsJsExportCommandTests' \
-            --report-xunit \
-            --report-xunit-filename "$results_name" \
+            --report-xunit-xml \
+            --report-xunit-xml-filename "$results_name" \
             --results-directory "$results_dir"
           for class in \
             ILInspector.JsExportSurface.Tests.JsonNamingPoliciesTests \
@@ -1343,8 +1343,8 @@ jobs:
             --filter-method '*Emit_DoesNotApplyDictionarySemanticsToLookalikeType*' \
             --filter-method '*Emit_RejectsUnresolvedStructuredProducerWithIntrinsicSpelling*' \
             --filter-method '*GeneratorLoader_ReadsOneImageForMetadataAndBodyEvidence*' \
-            --report-xunit \
-            --report-xunit-filename "$negative_results_name" \
+            --report-xunit-xml \
+            --report-xunit-xml-filename "$negative_results_name" \
             --results-directory "$results_dir"
           for method in \
             Emit_DoesNotApplyDictionarySemanticsToLookalikeType \
@@ -1596,8 +1596,8 @@ jobs:
         run: |
           dotnet run --project tests/ILInspector.Decompiler.Tests -c Release --no-build -- \
             --gate pre-merge --pre-enumerate-theories on --no-ansi \
-            --auto-reporters off --report-xunit \
-            --report-xunit-filename decompiler-gates.xml \
+            --auto-reporters off --report-xunit-xml \
+            --report-xunit-xml-filename decompiler-gates.xml \
             --results-directory "$RUNNER_TEMP"
 
       - name: Compare against pinned known-red

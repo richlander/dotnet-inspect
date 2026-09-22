@@ -50,7 +50,7 @@
 //   DOTNET_INSPECT_DECOMPILER_TEST_RECEIPT=execution.jsonl \
 //       dotnet run --project tests/ILInspector.Decompiler.Tests -c Release --no-build -- \
 //       --gate pre-merge --pre-enumerate-theories on --no-ansi \
-//       --auto-reporters off --report-xunit --report-xunit-filename results.xml
+//       --auto-reporters off --report-xunit-xml --report-xunit-xml-filename results.xml
 //
 // --partial suppresses the dead-pin, expected-class, and completeness checks,
 // for developers running a subset of the gate classes locally. CI always runs
