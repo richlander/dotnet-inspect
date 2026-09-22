@@ -1,4 +1,5 @@
 using System.Text.Json;
+using Microsoft.Testing.Platform.Extensions;
 using Microsoft.Testing.Platform.Extensions.Messages;
 using Microsoft.Testing.Platform.Extensions.TestHost;
 
@@ -59,8 +60,6 @@ internal sealed class MtpGateReceiptConsumer : IDataConsumer
             return "failed";
         if (properties.Any<SkippedTestNodeStateProperty>())
             return "skipped";
-        if (properties.Any<CancelledTestNodeStateProperty>())
-            return "cancelled";
         if (properties.Any<ErrorTestNodeStateProperty>())
             return "error";
         if (properties.Any<TimeoutTestNodeStateProperty>())

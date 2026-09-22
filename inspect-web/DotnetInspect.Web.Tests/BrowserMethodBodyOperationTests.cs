@@ -89,7 +89,7 @@ public sealed class BrowserMethodBodyOperationTests
         int implementation = typeof(Left).GetMethod(nameof(Left.Compute), [typeof(int)])!.MetadataToken;
         Assert.NotEqual(fixture.Launch.MetadataToken, implementation);
         Assert.Equal(implementation, targets.Before.MetadataToken);
-        Assert.Equal(typeof(Left).Module.ModuleVersionId.ToString("D"), targets.ModuleVersionId);
+        Assert.Equal(fixture.ImplementationModuleVersionId, targets.ModuleVersionId);
         BrowserMethodBodySelection getter = Assert.Single(targets.Methods, method => method.MemberName == "get_Value");
         BrowserMethodBodySelection setter = Assert.Single(targets.Methods, method => method.MemberName == "set_Value");
         var result = await Compare(Request(targets, setter) with { Before = getter });
@@ -365,15 +365,29 @@ public sealed class BrowserMethodBodyOperationTests
         }
     }
 
-    sealed class Fixture(string packageId, BrowserInspectionScope scope, BrowserMethodBodySelection launch) : IAsyncDisposable
+    sealed class Fixture(
+        string packageId,
+        BrowserInspectionScope scope,
+        BrowserMethodBodySelection launch,
+        string implementationModuleVersionId) : IAsyncDisposable
     {
         internal BrowserInspectionScope Scope => scope;
         internal BrowserMethodBodySelection Launch => launch;
+        internal string ImplementationModuleVersionId =>
+            implementationModuleVersionId;
 
         internal static async Task<Fixture> Open(
             bool reference = false, bool brokenBody = false, string? packageId = null)
         {
             byte[] implementation = File.ReadAllBytes(FixtureCatalog.InspectWebMethodBodies.AssemblyPath());
+            string implementationModuleVersionId;
+            using (var pe = new PEReader(new MemoryStream(implementation, writable: false)))
+            {
+                MetadataReader reader = pe.GetMetadataReader();
+                implementationModuleVersionId =
+                    reader.GetGuid(reader.GetModuleDefinition().Mvid)
+                        .ToString("D");
+            }
             if (brokenBody)
             {
                 using var pe = new PEReader(new MemoryStream(implementation, writable: false));
@@ -413,7 +427,8 @@ public sealed class BrowserMethodBodyOperationTests
                 member => member.Name == nameof(Left.Compute) && member.SignatureModel?.Parameters.Count == 1);
             CallGraphMemberBodySelector body = Assert.Single(CallGraphMemberResolver.CreateBodySelectors(type, method));
             return new(id, scope, new(type.DefinitionName!.ToEscapedFullName(),
-                body.MemberName, body.SelectorKey, body.BodyToken, "Launch"));
+                body.MemberName, body.SelectorKey, body.BodyToken, "Launch"),
+                implementationModuleVersionId);
         }
 
         internal async Task<BrowserMethodBodyTargetsResult> TargetsResult() =>
