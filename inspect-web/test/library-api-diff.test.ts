@@ -917,7 +917,9 @@ test("Member Diff presents the exact Member relation evidence and no Explore act
   assert.match(html, /<h2>Before<\/h2>\s*<p><code>Run\(int\)<\/code>/);
   assert.match(html, /<h2>After<\/h2>\s*<p><code>Run\(long\)<\/code>/);
   assert.match(html, /<dt>Digest<\/dt><dd><code>digest-run<\/code>/);
-  assert.match(html, /Correspondence identifier <code>relation-changed<\/code>/);
+  // The relation's document identifier is transport and envelope data, not
+  // Member-page content.
+  assert.doesNotMatch(html, /relation-changed|Correspondence identifier/);
   assert.doesNotMatch(html, /Explore/);
 
   const removed = renderLibraryApiDiff(readyState(withMembers()), String, {
