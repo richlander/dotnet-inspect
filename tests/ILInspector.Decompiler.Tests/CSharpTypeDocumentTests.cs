@@ -736,6 +736,8 @@ public class CSharpTypeDocumentTests
         Assert.Single(skeleton.Diagnostics);
         Assert.Equal(0, bodies.Diagnostics[0].BodyId);
         Assert.Equal(0, skeleton.Diagnostics[0].BodyId);
+        Assert.Equal(2, bodies.Diagnostics[0].DeclarationId);
+        Assert.Equal(2, skeleton.Diagnostics[0].DeclarationId);
     }
 
     [Fact]

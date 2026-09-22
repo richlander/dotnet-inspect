@@ -332,7 +332,6 @@ public static class CSharpTypeDocumentProjector
             AddUnavailableBodyDiagnostics(
                 document,
                 part,
-                declarationId: null,
                 diagnostics,
                 diagnosedBodies);
         }
@@ -390,7 +389,6 @@ public static class CSharpTypeDocumentProjector
         AddUnavailableBodyDiagnostics(
             document,
             part,
-            declaration.Id,
             diagnostics,
             diagnosedBodies);
     }
@@ -514,7 +512,6 @@ public static class CSharpTypeDocumentProjector
     static void AddUnavailableBodyDiagnostics(
         CSharpTypeDocument document,
         CSharpTypeRenderPart part,
-        int? declarationId,
         ImmutableArray<CSharpTypeProjectionDiagnostic>.Builder diagnostics,
         HashSet<int> diagnosedBodies)
     {
@@ -529,6 +526,12 @@ public static class CSharpTypeDocumentProjector
             {
                 continue;
             }
+            CSharpTypeArtifactRepresentation representation =
+                document.Artifacts[body.ArtifactId].Representation;
+            int? declarationId = representation.Kind
+                    == CSharpTypeArtifactRepresentationKind.Declaration
+                ? representation.TargetId
+                : null;
             diagnostics.Add(new(
                 CSharpTypeProjectionDiagnosticKind.BodyUnavailable,
                 $"Physical body {bodyId} is {body.Outcome}.",
