@@ -809,19 +809,21 @@ Implementation proceeds as focused owner adoptions:
 6. Extend Source Delegation through a separate focused continuation-receipt
    design and implementation.
 7. Rework #7944 onto the shared `depends starts-with VALUE` operator model.
-8. Use #7945 as the focused Library Query operation adoption, then restack the
-   Browser work from #7872 onto its settled query space.
-9. Add the References row space and Assembly Reference Prefixes summary over
+8. Use #7945 as the focused Library Query operation adoption, then use #8201
+   to add its query-space binding and restack the Browser work from #7872.
+9. Use #8200 to adopt Platform type catalog lookup as one QuerySpace operation,
+   then use #8202 to route the Browser/Wasm Platform consumer through it.
+10. Add the References row space and Assembly Reference Prefixes summary over
    owner-issued assembly-reference evidence.
-10. Rebase Inspect Web result demand on the shared execution/continuation
+11. Rebase Inspect Web result demand on the shared execution/continuation
    boundary without moving scroll or virtualization policy into the substrate;
    migrate `-Q` to the descriptor while leaving future `explain` adoption with
    its owning effort.
-11. Add one small non-CLI .NET consumer, including descriptor enumeration and
-    owner-issued value-vocabulary and result-contract links, before enabling
-    supported package publication.
-12. Evaluate source generation after the first three explicit query-space
-    adopters establish repeated boilerplate.
+12. Add one small non-CLI .NET consumer, including descriptor enumeration and
+   owner-issued value-vocabulary and result-contract links, before enabling
+   supported package publication.
+13. Evaluate source generation after the first three explicit query-space
+   adopters establish repeated boilerplate.
 
 Each step names one adopting owner and retains every other owner's contract.
 

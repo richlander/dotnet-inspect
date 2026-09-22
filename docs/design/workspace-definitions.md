@@ -715,7 +715,7 @@ version populations or ranges, Package discovery, or a Package child command.
 
 The first slice requires one positional canonical NuGet Package ID. The
 `ID@VERSION` form may additionally require one exact effective version. Bare
-`--version`, `--versions`,
+`--version VERSION`, `--latest-version`, `--versions`,
 `--versions-with-feed`, range selection, and multi-Package execution remain
 outside this route. ID and version comparison use their existing Package-owned
 canonical semantics; packet adoption does not add prefix, fuzzy, display-text,

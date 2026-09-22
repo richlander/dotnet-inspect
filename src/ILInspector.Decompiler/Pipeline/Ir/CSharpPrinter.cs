@@ -1278,21 +1278,7 @@ public sealed partial class CSharpPrinter
         if (value is Constant { Value: null })
             return IsReferenceLike(target);
         if (value is Conditional conditional)
-            // A conditional unifies to a target its arms each satisfy — e.g.
-            // `cond ? null : value` (null + string) is assignable to `string`,
-            // even though its IL-merged ResultType widened to `object`. Without
-            // this the slot's object-typed store and string-typed load get
-            // different names (S_1 vs S_1_1) and the consumer reads an unassigned
-            // local (#1767). Restricted to reference-like targets: a non-reference
-            // target (char/numeric) needs per-arm target rendering that the
-            // conditional printer only does for immediate constant arms, so a
-            // nested conditional would unify to `char` yet render an `int` ternary
-            // (CS0266). The char/enum arm-cast path and the merged-ResultType
-            // fallback remain.
             return CanRenderConditionalForTarget(conditional, target)
-                || (IsProvenReference(target)
-                    && CanAssignTo(conditional.WhenTrue, target)
-                    && CanAssignTo(conditional.WhenFalse, target))
                 || (conditional.ResultType is { } condType && CanAssignType(condType, target));
         if (value is Constant { Value: int or long } constant
             && target.DeclaredValueTypeHint == ValueTypeHint.ValueType
@@ -1300,19 +1286,6 @@ public sealed partial class CSharpPrinter
             return true;
         return value.AssignmentType is { } source && CanAssignType(source, target);
     }
-
-    /// <summary>
-    /// A type known to be a reference WITHOUT resolution — a stack-O family
-    /// (object/string/array), a signature-declared class, or a same-assembly
-    /// reference shape. Unlike <see cref="IsReferenceLike"/> this excludes the
-    /// optimistic "a bare cross-assembly definition is probably a class" fallback:
-    /// narrowing a slot to an UNPROVEN target would print `MaybeStruct S = a ? null
-    /// : value`, which is CS0037 if the type resolves to a struct. Used to gate the
-    /// conditional arm-assignability unification so it only narrows to a target a
-    /// null arm is provably assignable to.
-    /// </summary>
-    bool IsProvenReference(TypeRef type)
-        => CoercionRendering.IsProvenReference(type, _function.TypeShapes);
 
     bool CanAssignType(TypeRef source, TypeRef target)
     {
@@ -1327,19 +1300,6 @@ public sealed partial class CSharpPrinter
 
     bool IsReferenceLike(TypeRef type)
         => CoercionRendering.IsReferenceLike(type, _function.TypeShapes);
-
-    bool IsKnownReferenceLike(TypeRef type)
-    {
-        if (type.Kind is TypeRefKind.ByRef or TypeRefKind.Pointer or TypeRefKind.FunctionPointer)
-            return false;
-        if (TypeFamilies.Of(type) == StackFamily.O)
-            return true;
-        if (type.DeclaredValueTypeHint == ValueTypeHint.ReferenceType)
-            return true;
-        if (_function.TypeShapes.GetValueOrDefault(NamedDefinition(type)) == TypeShape.Reference)
-            return true;
-        return type.Kind is TypeRefKind.SzArray or TypeRefKind.Array;
-    }
 
     static bool IsCoreObject(TypeRef type)
         => type is { Kind: TypeRefKind.Definition, Assembly: TypeRef.CoreLibrary, Namespace: "System", Name: "Object" };

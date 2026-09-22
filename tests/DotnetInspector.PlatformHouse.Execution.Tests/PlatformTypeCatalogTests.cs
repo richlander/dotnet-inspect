@@ -2,10 +2,15 @@ using System.Reflection;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
+using DotnetInspector.DocumentationHouse;
 using DotnetInspector.LibraryMetadata;
 using DotnetInspector.Libraries;
 using DotnetInspector.PlatformQueries;
+using DotnetInspector.Queries;
 using ILInspector.Metadata;
+using QuerySpace;
+using QuerySpace.Composition;
+using QuerySpace.Operations;
 
 namespace DotnetInspector.PlatformHouse.Tests;
 
@@ -176,6 +181,7 @@ public partial class PlatformLibraryRealizationTests
                 typeof(PlatformTypeCatalogQueryOutcome.Missing));
             AssertResourceFree(
                 typeof(PlatformTypeCatalogQueryOutcome.Rejected));
+            AssertResourceFree(typeof(PlatformTypeCatalogQueryPlan));
 
             await RetireCatalogPopulationAsync(
                 population,
@@ -209,6 +215,284 @@ public partial class PlatformLibraryRealizationTests
                     cancellationToken);
             }
         }
+    }
+
+    [Fact]
+    public void TypeCatalogQuery_ExposesExactQuerySpaceContract()
+    {
+        QuerySpaceDescriptor descriptor =
+            PlatformTypeCatalogQuery.QuerySpace.Descriptor;
+
+        Assert.Equal(
+            PlatformTypeCatalogQuery.QuerySpaceIdentity,
+            descriptor.Identity);
+        Assert.Equal(
+            PlatformTypeCatalogQuery.OperationIdentity,
+            descriptor.Operation.Operation);
+        Assert.Equal(
+            PlatformTypeCatalogQuery.OperationRouteIdentity,
+            descriptor.Operation.Identity);
+        Assert.Equal(
+            PlatformTypeCatalogQuery.OperationSubjectRole,
+            descriptor.Operation.SubjectRole);
+        Assert.Equal(
+            PlatformTypeCatalogQuery.OperationResultGrain,
+            descriptor.Operation.ResultGrain);
+        Assert.Equal(
+            PlatformTypeCatalogQuery.OperationProfileIdentity,
+            descriptor.Operation.Profile);
+        Assert.Equal(
+            PlatformTypeCatalogQuery.OperationVocabularyIdentity,
+            descriptor.Operation.QueryVocabulary);
+        Assert.Equal(
+            [PlatformTypeCatalogQuery.DeclarationsRowSet],
+            descriptor.Operation.RowSets);
+        QuerySpaceOperationTermDescriptor term =
+            Assert.Single(descriptor.Operation.Terms);
+        Assert.Equal(
+            PlatformTypeCatalogQuery.PatternTermKey,
+            term.Key);
+        Assert.Equal(
+            QueryOperationTermRole.OperationSelector,
+            term.Role);
+        Assert.Equal([PortableQueryOperator.Equal], term.Operators);
+        Assert.Empty(descriptor.Operation.Dimensions);
+
+        QuerySpaceRowScopeDescriptor rowScope =
+            Assert.Single(descriptor.RowScopes);
+        Assert.Equal(
+            PlatformTypeCatalogQuery.DeclarationRowScopeIdentity,
+            rowScope.Identity);
+        Assert.Equal(
+            PlatformTypeCatalogQuery.DeclarationRowVocabularyIdentity,
+            rowScope.QueryVocabulary);
+        Assert.Equal(
+            [PlatformTypeCatalogQuery.DeclarationsRowSet],
+            rowScope.RowSets);
+        Assert.Empty(rowScope.Facets);
+        Assert.Empty(rowScope.Orders);
+        Assert.Empty(rowScope.Stages);
+        Assert.Equal(
+            [QuerySpaceTerminalRequirement.Rows],
+            descriptor.Terminals);
+        Assert.False(descriptor.AcceptsContinuation);
+        QuerySpaceResultContractDescriptor resultContract =
+            Assert.Single(descriptor.ResultContracts);
+        Assert.Equal(
+            QuerySpaceTerminalRequirement.Rows,
+            resultContract.Terminal);
+        Assert.Equal(
+            PlatformTypeCatalogQuery.ResultContractIdentity,
+            resultContract.Identity);
+
+        QuerySpaceRequest request =
+            PlatformTypeCatalogQuery.CreateRequest(
+                " Nested.Outer<T>.Inner<TKey, TValue> ");
+        var accepted = Assert.IsType<
+            PlatformTypeCatalogQueryRequestResult.Accepted>(
+                PlatformTypeCatalogQuery.ResolveRequest(
+                    request,
+                    TestContext.Current.CancellationToken));
+        Assert.Same(request, accepted.Plan.Request);
+        Assert.Equal(
+            " Nested.Outer<T>.Inner<TKey, TValue> ",
+            accepted.Plan.Pattern);
+        Assert.Equal(
+            "Nested.Outer`1.Inner`2",
+            accepted.Plan.NormalizedPattern);
+        Assert.True(accepted.Plan.HasExplicitGenericNotation);
+        Assert.Equal(
+            accepted.Plan.Pattern,
+            Assert.Single(accepted.Plan.Intent.Terms).Value);
+    }
+
+    [Fact]
+    public void
+        TypeCatalogQuery_RejectsMalformedStructuralRequestsBeforeExecution()
+    {
+        CancellationToken cancellationToken =
+            TestContext.Current.CancellationToken;
+        QuerySpaceDescriptor descriptor =
+            PlatformTypeCatalogQuery.QuerySpace.Descriptor;
+        PortableQueryIntent emptyIntent =
+            PortableQueryIntent.Create([], [], [], []);
+
+        QuerySpaceRequest missingPattern = QuerySpaceRequest.Create(
+            descriptor,
+            emptyIntent,
+            [PlatformTypeCatalogQuery.DeclarationsRowSet],
+            [],
+            QuerySpaceTerminalRequirement.Rows);
+        Assert.Equal(
+            PortableQueryFailureReason.RequiredTermFamilyMissing,
+            Assert.IsType<
+                    PlatformTypeCatalogQueryRequestResult.IntentRejected>(
+                    PlatformTypeCatalogQuery.ResolveRequest(
+                        missingPattern,
+                        cancellationToken))
+                .Failure.Reason);
+
+        QuerySpaceRequest duplicatePattern = QuerySpaceRequest.Create(
+            descriptor,
+            PortableQueryIntent.Create(
+                [
+                    new(
+                        PlatformTypeCatalogQuery.PatternTermKey,
+                        PortableQueryOperator.Equal,
+                        "System.String"),
+                    new(
+                        PlatformTypeCatalogQuery.PatternTermKey,
+                        PortableQueryOperator.Equal,
+                        "System.Object"),
+                ],
+                [],
+                [],
+                []),
+            [PlatformTypeCatalogQuery.DeclarationsRowSet],
+            [],
+            QuerySpaceTerminalRequirement.Rows);
+        Assert.Equal(
+            PortableQueryFailureReason.TermsIncompatible,
+            Assert.IsType<
+                    PlatformTypeCatalogQueryRequestResult.IntentRejected>(
+                    PlatformTypeCatalogQuery.ResolveRequest(
+                        duplicatePattern,
+                        cancellationToken))
+                .Failure.Reason);
+
+        QuerySpaceRequest invalidPattern =
+            PlatformTypeCatalogQuery.CreateRequest(" ");
+        Assert.Equal(
+            PortableQueryFailureReason.ValueRejected,
+            Assert.IsType<
+                    PlatformTypeCatalogQueryRequestResult.IntentRejected>(
+                    PlatformTypeCatalogQuery.ResolveRequest(
+                        invalidPattern,
+                        cancellationToken))
+                .Failure.Reason);
+
+        QuerySpaceRequest rowIntent = QuerySpaceRequest.Create(
+            descriptor,
+            PlatformTypeCatalogQuery.CreateRequest(
+                "System.String").Operation,
+            [PlatformTypeCatalogQuery.DeclarationsRowSet],
+            [
+                new(
+                    PlatformTypeCatalogQuery.DeclarationRowScopeIdentity,
+                    emptyIntent,
+                    [PlatformTypeCatalogQuery.DeclarationsRowSet]),
+            ],
+            QuerySpaceTerminalRequirement.Rows);
+        Assert.Equal(
+            PlatformTypeCatalogQueryRequestRejectionKind
+                .RowIntentNotSupported,
+            Assert.IsType<
+                    PlatformTypeCatalogQueryRequestResult.Rejected>(
+                    PlatformTypeCatalogQuery.ResolveRequest(
+                        rowIntent,
+                        cancellationToken))
+                .Kind);
+
+        QuerySpaceRequest foreign =
+            DocumentationQuery.CreateRequest(
+                DocumentationDemand.CompiledXml);
+        Assert.Equal(
+            PlatformTypeCatalogQueryRequestRejectionKind.QuerySpaceMismatch,
+            Assert.IsType<
+                    PlatformTypeCatalogQueryRequestResult.Rejected>(
+                    PlatformTypeCatalogQuery.ResolveRequest(
+                        foreign,
+                        cancellationToken))
+                .Kind);
+
+        QuerySpaceBinding foreignRows = QuerySpaceBinding.Create(
+            PlatformTypeCatalogQuery.QuerySpaceIdentity,
+            DocumentationQuery.OperationRoute,
+            [DocumentationQuery.DocumentationRowScope],
+            [QuerySpaceTerminalRequirement.Rows],
+            acceptsContinuation: false,
+            [
+                new(
+                    QuerySpaceTerminalRequirement.Rows,
+                    PlatformTypeCatalogQuery.ResultContractIdentity),
+            ]);
+        QuerySpaceRequest wrongRows = QuerySpaceRequest.Create(
+            foreignRows.Descriptor,
+            DocumentationQuery.CreateIntent(
+                DocumentationDemand.CompiledXml),
+            [DocumentationQuery.DocumentationRowSet],
+            [],
+            QuerySpaceTerminalRequirement.Rows);
+        Assert.Equal(
+            PlatformTypeCatalogQueryRequestRejectionKind
+                .ParticipatingRowSetsMismatch,
+            Assert.IsType<
+                    PlatformTypeCatalogQueryRequestResult.Rejected>(
+                    PlatformTypeCatalogQuery.ResolveRequest(
+                        wrongRows,
+                        cancellationToken))
+                .Kind);
+
+        QuerySpaceBinding countBinding = QuerySpaceBinding.Create(
+            PlatformTypeCatalogQuery.QuerySpaceIdentity,
+            PlatformTypeCatalogQuery.OperationRoute,
+            [PlatformTypeCatalogQuery.DeclarationRowScope],
+            [
+                QuerySpaceTerminalRequirement.Rows,
+                QuerySpaceTerminalRequirement.Count,
+            ],
+            acceptsContinuation: false,
+            [
+                new(
+                    QuerySpaceTerminalRequirement.Rows,
+                    PlatformTypeCatalogQuery.ResultContractIdentity),
+                new(
+                    QuerySpaceTerminalRequirement.Count,
+                    "platform-type-catalog-query/count/v1"),
+            ]);
+        QuerySpaceRequest countRequest = QuerySpaceRequest.Create(
+            countBinding.Descriptor,
+            PlatformTypeCatalogQuery.CreateRequest(
+                "System.String").Operation,
+            [PlatformTypeCatalogQuery.DeclarationsRowSet],
+            [],
+            QuerySpaceTerminalRequirement.Count);
+        Assert.Equal(
+            PlatformTypeCatalogQueryRequestRejectionKind.TerminalMismatch,
+            Assert.IsType<
+                    PlatformTypeCatalogQueryRequestResult.Rejected>(
+                    PlatformTypeCatalogQuery.ResolveRequest(
+                        countRequest,
+                        cancellationToken))
+                .Kind);
+
+        QuerySpaceBinding wrongResultBinding = QuerySpaceBinding.Create(
+            PlatformTypeCatalogQuery.QuerySpaceIdentity,
+            PlatformTypeCatalogQuery.OperationRoute,
+            [PlatformTypeCatalogQuery.DeclarationRowScope],
+            [QuerySpaceTerminalRequirement.Rows],
+            acceptsContinuation: false,
+            [
+                new(
+                    QuerySpaceTerminalRequirement.Rows,
+                    "platform-type-catalog-query/foreign-outcome/v1"),
+            ]);
+        QuerySpaceRequest wrongResult = QuerySpaceRequest.Create(
+            wrongResultBinding.Descriptor,
+            PlatformTypeCatalogQuery.CreateRequest(
+                "System.String").Operation,
+            [PlatformTypeCatalogQuery.DeclarationsRowSet],
+            [],
+            QuerySpaceTerminalRequirement.Rows);
+        Assert.Equal(
+            PlatformTypeCatalogQueryRequestRejectionKind
+                .ResultContractMismatch,
+            Assert.IsType<
+                    PlatformTypeCatalogQueryRequestResult.Rejected>(
+                    PlatformTypeCatalogQuery.ResolveRequest(
+                        wrongResult,
+                        cancellationToken))
+                .Kind);
     }
 
     [Fact]
