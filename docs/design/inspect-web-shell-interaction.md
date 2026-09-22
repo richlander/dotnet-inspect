@@ -401,9 +401,9 @@ session-local Library. Activation also detaches from any active retained
 Workspace: the prior packaged Workspace is retained at its canonical address,
 while the uploaded Library receives no retained identity or snapshot. A later
 Workspace construction may use the upload only as its failure rollback; it
-cannot publish the upload as the prior Workspace. In-memory history matches uploaded views with the
-digest-backed assembly identity, so replacing an upload cannot expose the new
-image through an older same-name/version history entry.
+cannot publish the upload as the prior Workspace. In-memory history matches
+uploaded views with the digest-backed assembly identity, so replacing an upload
+cannot expose the new image through an older same-name/version history entry.
 
 ### Settings
 
