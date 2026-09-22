@@ -103,10 +103,10 @@ type Source uses the owner's PDB-latency-hedged operation; CLI type Source stays
 serial. The scheduling distinction does not authorize a host-owned fallback
 algorithm.
 
-PR #8163 introduces the structured C# Type document core without changing
+PR #8163 introduced the structured C# Type document core without changing
 production source construction. Integration with that document is a separate
 follow-up in #8083, after the relevant producer and SourceHouse adoption.
-This slice does not depend on the unmerged PR or introduce an alternative
+This slice does not adopt the new core types or introduce an alternative
 structured C# document.
 
 The analogous implementations are the existing Browser consumers and the
@@ -128,6 +128,9 @@ selection, native/Markdown/structured printing, and unsupported targets.
 provider views. `DefaultTypeListingDoesNotAcquireSource` gates ordinary listing
 output, while section pipeline and planning tests enforce explicit-only Source
 selection, capabilities, and the exact-name versus `@Source` distinction.
+`MemberInspectionRouteCharacterizationTests.CurrentRoutes_HaveOneCompletePlanningMatrix`
+records the updated discovery catalogs alongside unchanged producer-demand and
+authorization expectations.
 `SourceForwarderResolutionTests.TypeSourceAcquisition_ReportsSelectedOpenFailure`
 gates retained selected-image authority, including a forwarded target.
 
