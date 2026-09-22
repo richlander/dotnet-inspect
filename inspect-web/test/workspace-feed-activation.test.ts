@@ -1030,6 +1030,44 @@ test("a committed successor retires a published activation rollback", async () =
   assert.equal(harness.coordinator.activeUrl, null);
 });
 
+test("a successor can transfer rollback ownership before it commits", async () => {
+  const events: string[] = [];
+  const completion = deferred<boolean>();
+  const completionStarted = deferred<boolean>();
+  const client = createWorkspaceTestClient(events);
+  const complete = client.completeRetainedWorkspaceActivation.bind(client);
+  client.completeRetainedWorkspaceActivation =
+    async (receipt, succeeded, failure) => {
+      if (succeeded) {
+        completionStarted.resolve(true);
+        await completion.promise;
+        throw new Error("Consumer completion could not be delivered.");
+      }
+      return complete(receipt, succeeded, failure);
+    };
+  const harness = createCoordinatorHarness(client, events);
+
+  const opening = harness.coordinator.tryOpen(
+    new URL("https://example.test/?w=first"),
+    harness.sequence,
+    true);
+  await completionStarted.promise;
+  harness.advance("successor-under-construction");
+
+  assert.equal(
+    harness.coordinator.transferCommittedRollback(),
+    "incumbent");
+  assert.equal(harness.coordinator.captureCommittedRollback(), null);
+  assert.equal(harness.coordinator.blocksUrlSynchronization, false);
+
+  completion.resolve(true);
+  assert.equal(await opening, true);
+  assert.equal(harness.visible, "successor-under-construction");
+  assert.equal(events.includes("restore"), false);
+  assert.equal(events.includes("release"), true);
+  assert.equal(events.includes("complete:false"), true);
+});
+
 test("dismissing a submitted prompt preserves its committed rollback", async () => {
   const htmlElement = Object.getOwnPropertyDescriptor(
     globalThis,

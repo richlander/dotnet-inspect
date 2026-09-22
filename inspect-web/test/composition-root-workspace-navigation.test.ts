@@ -402,7 +402,10 @@ test("source-bearing Workspace URLs use page-session retained activation", () =>
     /createWorkspaceFeedActivationCoordinator\(\{[\s\S]*client: engineClient\.catalog,[\s\S]*cloneRollback: cloneCanonicalWorkspaceSnapshotForRetention,[\s\S]*publish: publishSourceBearingWorkspace/);
   assert.match(
     appSource,
-    /function captureWorkspaceNavigationRollback\(\):[\s\S]*workspaceFeedActivation\?\.captureCommittedRollback\(\)[\s\S]*captureCanonicalWorkspaceRestoreSnapshot\(\)/);
+    /function captureWorkspaceNavigationRollback\(\):[\s\S]*workspaceFeedActivation\?\.transferCommittedRollback\(\)[\s\S]*captureCanonicalWorkspaceRestoreSnapshot\(\)/);
+  assert.match(
+    appSource,
+    /function activateRetainedWorkspaceProjection\([\s\S]*workspaceFeedActivation\?\.transferCommittedRollback\(\)[\s\S]*restoreRetainedWorkspaceSnapshot\([\s\S]*retainedWorkspaces = transition\.collection;[\s\S]*workspaceFeedActivation\?\.clearActiveUrl\(\)/);
   assert.match(
     initialRestore,
     /tryOpenSourceBearingWorkspace\([\s\S]*new URL\(location\.href\)[\s\S]*return;[\s\S]*preflight\.resolve\(\)/);

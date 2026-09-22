@@ -94,6 +94,7 @@ export interface WorkspaceFeedActivationCoordinator<TRollback = never> {
   readonly activeUrl: string | null;
   readonly blocksUrlSynchronization: boolean;
   captureCommittedRollback(): TRollback | null;
+  transferCommittedRollback(): TRollback | null;
   tryOpen(
     url: URL,
     navigationSequence: number,
@@ -655,6 +656,13 @@ export function createWorkspaceFeedActivationCoordinator<TRollback>(
       return ownsTentativeVisibleProjection() && rollback !== null
         ? dependencies.cloneRollback(rollback.state)
         : null;
+    },
+    transferCommittedRollback() {
+      if (!ownsTentativeVisibleProjection() || rollback === null) return null;
+      const transferred = dependencies.cloneRollback(rollback.state);
+      releaseRollback();
+      posted = null;
+      return transferred;
     },
     tryOpen,
     cancelPrompt,

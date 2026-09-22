@@ -1830,7 +1830,7 @@ function captureWorkspaceMutationSnapshot(
 
 function captureWorkspaceNavigationRollback():
 CanonicalWorkspaceRestoreSnapshot {
-  return workspaceFeedActivation?.captureCommittedRollback()
+  return workspaceFeedActivation?.transferCommittedRollback()
     ?? captureCanonicalWorkspaceRestoreSnapshot();
 }
 
@@ -2700,15 +2700,36 @@ function activateRetainedWorkspaceProjection(
   workspaceId: string,
   restoreUrl = true,
 ): boolean {
-  const currentSnapshot = captureRetainedWorkspaceSnapshot();
-  const transition = activateRetainedWorkspaceState(
-    retainedWorkspaces,
-    workspaceId,
-    currentSnapshot);
-  if (!transition.activatedSnapshot) return false;
-  retainedWorkspaces = transition.collection;
-  restoreRetainedWorkspaceSnapshot(transition.activatedSnapshot, restoreUrl);
-  return true;
+  const sourceRollback =
+    workspaceFeedActivation?.transferCommittedRollback() ?? null;
+  const currentSnapshot =
+    sourceRollback ?? captureRetainedWorkspaceSnapshot();
+  if (sourceRollback !== null) invalidateWorkspaceAsyncOwners();
+  const priorCollection = retainedWorkspaces;
+  try {
+    const transition = activateRetainedWorkspaceState(
+      retainedWorkspaces,
+      workspaceId,
+      currentSnapshot);
+    if (!transition.activatedSnapshot) {
+      if (sourceRollback !== null) {
+        restoreRetainedWorkspaceSnapshot(sourceRollback, false);
+      }
+      return false;
+    }
+    restoreRetainedWorkspaceSnapshot(
+      transition.activatedSnapshot,
+      restoreUrl);
+    retainedWorkspaces = transition.collection;
+    workspaceFeedActivation?.clearActiveUrl();
+    return true;
+  } catch (error) {
+    retainedWorkspaces = priorCollection;
+    if (sourceRollback !== null) {
+      restoreRetainedWorkspaceSnapshot(sourceRollback, false);
+    }
+    throw error;
+  }
 }
 
 function rebindActiveWorkspaceHistory(): void {

@@ -34,6 +34,11 @@ import {
   createPackageAcquisition,
   type PackageAcquisitionDependencies,
 } from "../src/package-acquisition.ts";
+import {
+  activateRetainedWorkspace as activateRetainedWorkspaceState,
+  createRetainedWorkspaceCollection,
+  publishRetainedWorkspace,
+} from "../src/retained-workspaces.ts";
 import { retainDiagnosticDetail } from "../src/failure-detail.ts";
 import { workspaceDependencyKey } from "../src/package-inspection.ts";
 import {
@@ -156,6 +161,21 @@ const loadPackageSource = appSource.slice(
   loadPackageDeclaration.start,
   loadPackageDeclaration.end,
 );
+const retainedSelectorNames = new Set([
+  "selectRetainedWorkspace",
+  "activateRetainedWorkspaceProjection",
+]);
+const retainedSelectorSource = app.program.body
+  .filter(node =>
+    node.type === "FunctionDeclaration"
+    && retainedSelectorNames.has(node.id?.name ?? ""))
+  .map(node => appSource.slice(node.start, node.end))
+  .join("\n");
+assert.equal(
+  app.program.body.filter(node =>
+    node.type === "FunctionDeclaration"
+    && retainedSelectorNames.has(node.id?.name ?? "")).length,
+  retainedSelectorNames.size);
 
 interface Package extends ComparisonPackage {
   isRuntimePack?: boolean;
@@ -1374,6 +1394,7 @@ test("failed same-coordinate navigation preserves the source Workspace URL", asy
     tryOpenSourceBearingWorkspace: async () => false,
     workspaceFeedActivation: {
       captureCommittedRollback: () => null,
+      transferCommittedRollback: () => null,
       clearActiveUrl() {
         sourceCleared = true;
       },
@@ -1423,6 +1444,7 @@ test("failed ordinary navigation restores the committed source incumbent", async
   Object.assign(h.context, {
     workspaceFeedActivation: {
       captureCommittedRollback: () => committed,
+      transferCommittedRollback: () => committed,
     },
     loadPackage: async () => null,
     focusWorkbenchSearchOrHeading: () => true,
@@ -1442,6 +1464,129 @@ test("failed ordinary navigation restores the committed source incumbent", async
   assert.equal(h.state.package?.id, sourcePackage.id);
   assert.equal(h.state.workspaceFeedUrl, null);
   assert.match(h.state.queryNotice, /Couldn’t load Missing.Package/);
+});
+
+test("retained selection commits over a tentative source publication", () => {
+  let collection = publishRetainedWorkspace(
+    createRetainedWorkspaceCollection<string>(),
+    null);
+  collection = publishRetainedWorkspace(collection, "C");
+  collection = activateRetainedWorkspaceState(
+    collection,
+    "workspace-1",
+    "D").collection;
+  let visible = "A";
+  let transferred = false;
+  let sourceCleared = false;
+  const context = {
+    retainedWorkspaces: collection,
+    retainedWorkspaceActivation: null,
+    activeWorkspaceUrl: "https://inspect.test/C",
+    navigationSequence: { begin() {} },
+    workspaceFeedActivation: {
+      transferCommittedRollback() {
+        transferred = true;
+        return "C";
+      },
+      clearActiveUrl() {
+        sourceCleared = true;
+      },
+    },
+    captureRetainedWorkspaceSnapshot: () => "A",
+    invalidateWorkspaceAsyncOwners() {},
+    activateRetainedWorkspaceState,
+    restoreRetainedWorkspaceSnapshot(snapshot: string) {
+      visible = snapshot;
+      context.activeWorkspaceUrl = `https://inspect.test/${snapshot}`;
+    },
+    openDefaultWorkspace() {
+      assert.fail("The target Workspace must be inactive.");
+    },
+    workspaceLocation: { push() {} },
+    history: { state: null },
+    withPlatformRootParentHistory: (value: unknown) => value,
+    navigationSnapshotHasPlatformRootParent: () => false,
+    navigationHistory: { snapshot: () => ({}) },
+    render() {},
+    restartRestoredWorkspaceSelectionData() {},
+    showToast(message: string) {
+      assert.fail(message);
+    },
+    errorMessage: String,
+  };
+  runInNewContext(stripTypeScriptTypes(retainedSelectorSource), context);
+
+  runInNewContext('selectRetainedWorkspace("workspace-2")', context);
+  if (!transferred) visible = "C";
+
+  assert.equal(visible, "D");
+  assert.equal(context.retainedWorkspaces.activeWorkspaceId, "workspace-2");
+  assert.equal(
+    context.retainedWorkspaces.workspaces[0]?.snapshot,
+    "C");
+  assert.equal(transferred, true);
+  assert.equal(sourceCleared, true);
+});
+
+test("successful ordinary navigation excludes a late source rollback", async () => {
+  const h = harness();
+  const committed: unknown = runInNewContext(
+    "captureCanonicalWorkspaceRestoreSnapshot()",
+    h.context);
+  const tentative = {
+    ...structuredClone(sourcePackage),
+    id: "Tentative.Source",
+  };
+  h.state.packages = [tentative];
+  h.state.package = tentative;
+  const acquisition = deferred<void>();
+  const acquiring = deferred<void>();
+  let transferred = false;
+  h.controls.acquisition = async () => {
+    acquiring.resolve();
+    await acquisition.promise;
+    return true;
+  };
+  Object.assign(h.context, {
+    workspaceFeedActivation: {
+      captureCommittedRollback: () => committed,
+      transferCommittedRollback() {
+        transferred = true;
+        return committed;
+      },
+      clearActiveUrl() {},
+    },
+    focusWorkbenchSearchOrHeading: () => true,
+  });
+  const loc = parseWorkspaceLocation(
+    new URL(
+      "https://inspect.test/?package=Replacement.B"
+      + "&version=1.0.0&framework=net10.0#pkg"),
+    () => assert.fail("An ordinary URL must not decode a Workspace packet."));
+  const navigationSeq = h.navigationSequence.begin();
+  const ordinaryResult: unknown = runInNewContext(
+    "openFreshWorkspaceLink(loc, navigationSeq)",
+    { ...h.context, loc, navigationSeq });
+  const ordinary = Promise.resolve(ordinaryResult);
+  await Promise.race([
+    acquiring.promise,
+    ordinary.then(
+      () => assert.fail("Ordinary navigation settled before acquisition.")),
+  ]);
+  if (!transferred) {
+    runInNewContext(
+      "restoreCanonicalWorkspaceRestoreSnapshot(committed)",
+      { ...h.context, committed });
+  }
+  acquisition.resolve();
+  await ordinary;
+  await h.settle();
+
+  assert.equal(transferred, true);
+  assert.deepEqual(
+    Array.from(h.state.packages, pkg => pkg.id),
+    ["Replacement.B"]);
+  assert.equal(h.state.package?.id, "Replacement.B");
 });
 
 for (const failure of ["acquisition", "selection"] as const) {
