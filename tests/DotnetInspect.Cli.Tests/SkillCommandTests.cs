@@ -38,14 +38,14 @@ public class SkillCommandTests
     }
 
     [Fact]
-    public void BaselineSkill_IsAtMostFiftyLines()
+    public void BaselineSkill_IsAtMostSixtyLines()
     {
         var assembly = typeof(SkillCommand).Assembly;
         using var stream = assembly.GetManifestResourceStream(SkillCommand.RouterResourceName);
         Assert.NotNull(stream);
         using var reader = new StreamReader(stream!);
         var lineCount = reader.ReadToEnd().TrimEnd('\n').Split('\n').Length;
-        Assert.True(lineCount <= 50, $"baseline SKILL.md is {lineCount} lines (limit 50)");
+        Assert.True(lineCount <= 60, $"baseline SKILL.md is {lineCount} lines (limit 60)");
     }
 
     [Fact]

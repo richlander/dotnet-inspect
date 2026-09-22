@@ -6,7 +6,13 @@ description: Find and share evidence instead of guessing about .NET packages, li
 
 # dotnet-inspect
 
-Use dotnet-inspect to find evidence about compiled .NET APIs, packages, libraries, dependencies, source, and version changes. Start by identifying what kind of result the user needs. If the intent or result space is unclear, use bare `dnx dotnet-inspect -y -- <target>` and let the router choose. Otherwise, enter the matching space directly; `-y` skips confirmation and `--` passes arguments to dotnet-inspect.
+Use dotnet-inspect to find evidence about compiled .NET APIs, packages,
+libraries, dependencies, source, and version changes.
+
+Run `dnx dotnet-inspect -y -- <command-or-target>`. `-y` skips confirmation,
+and `--` passes the remaining arguments to dotnet-inspect. Start by identifying
+the kind of result needed. If the intent or result space is unclear, use a bare
+target and let the router choose. Otherwise, enter the matching space directly.
 
 ## Common starts
 
