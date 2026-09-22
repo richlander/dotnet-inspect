@@ -140,6 +140,10 @@
   #7741, #7773, #7774, #7781, #7793, #7813, #7849, #7856, #7866, #7902,
   #7906, #7911, #7947, #7948, #7973, #7994, #8008, #8032, #8033, #8050,
   #8078, #8087, #8131).
+- Preserves expression-bodied lambdas' own exact Portable PDB local names and
+  resolves fallback-name collisions against enclosing binders. Receiver
+  temporary ownership now settles before presentation without changing the
+  emitted Humanizer witness (#8246).
 
 ### Analysis, graphs, and diffs
 
