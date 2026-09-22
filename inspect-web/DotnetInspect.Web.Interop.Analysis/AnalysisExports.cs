@@ -606,6 +606,14 @@ public static partial class AnalysisExports
 
         BrowserWorkspaceParticipant participant =
             scope.LibraryParticipant(coordinate, assemblyName);
+        if (!scope.ImplementationParticipants.Contains(participant))
+        {
+            return UnavailableLibraryMetrics(
+                "unavailable",
+                "The selected library has no managed implementation assembly.",
+                compileLibrary);
+        }
+
         AssemblyContextEntry<LibraryMetricsResult> entry =
             scope.UseImplementationParticipant(
                 participant,
