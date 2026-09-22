@@ -6,7 +6,23 @@ description: Find and share evidence instead of guessing about .NET packages, li
 
 # dotnet-inspect
 
-Use dotnet-inspect to find evidence about compiled .NET APIs, packages, libraries, dependencies, source, and version changes. Start by identifying what kind of result the user needs. If the intent or result space is unclear, use bare `dnx dotnet-inspect -y -- <target>` and let the router choose. Otherwise, enter the matching space directly; `-y` skips confirmation and `--` passes arguments to dotnet-inspect.
+Use dotnet-inspect to find evidence about compiled .NET APIs, packages, libraries, dependencies, source, and version changes.
+
+Run the tool:
+
+```bash
+dnx dotnet-inspect -y -- <target>
+```
+
+`-y` skips confirmation and `--` passes arguments to dotnet-inspect.
+
+Start by identifying what kind of result the user needs. If the intent or result space is unclear, use bare `dnx dotnet-inspect -y -- <target>` and let the router choose.
+
+Three most common commands:
+
+- `package` -- inspect a package: `package Microsoft.Extensions.AI`.
+- `library` -- inspects a library: `library --package Microsoft.Extensions.AI` inspects one or more libraries within a package, `library --platform System.Text.Json`, `library Foo.dll` inspects local libraries.
+- `find` -- finds types within specified libraries and package: `find HttpClient` locates reporting their containing assembly
 
 ## Common starts
 
