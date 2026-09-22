@@ -22,7 +22,7 @@ test("Platform Workspace entry preserves the catalog for Back and Forward", asyn
   await openPlatform(page);
   const catalogLocation = page.url();
   const predecessor = await currentWorkspaceHistoryState(page);
-  await page.locator('[data-application-scope="workspace"]').click();
+  await openProductDestination(page, "workspace");
   await expect(page.locator("#inspector-panel h1")).toHaveText("Workspace");
   await expect(page.locator("[data-workspace-select]")).toBeFocused();
   await expect(page).not.toHaveURL(catalogLocation);
@@ -44,13 +44,15 @@ test("pending Platform Workspace entry retains the catalog and newer Search focu
   await openPlatform(page);
   const catalogLocation = page.url();
   await releaseFacade(page, "hold-workspace-encode");
-  await page.locator('[data-application-scope="workspace"]').click();
+  await openProductDestination(page, "workspace");
   await expect(page.locator("html"))
     .toHaveAttribute("data-workspace-encode-pending", "true");
   await expect(page).toHaveURL(catalogLocation);
   await expect(subjectTab(page, "platform")).toHaveAttribute("aria-selected", "true");
-  await expect(page.locator('[data-application-scope="workspace"]'))
+  await page.locator("[data-product-navigation-button]").click();
+  await expect(page.locator('[data-product-destination="workspace"]'))
     .not.toHaveAttribute("aria-current", "page");
+  await page.keyboard.press("Escape");
   const search = page.locator("#open-search");
   await search.focus();
 
@@ -66,7 +68,7 @@ test("failed Platform Workspace entry retains the catalog and focused control", 
   const historyLength = await page.evaluate(() => history.length);
   await releaseFacade(page, "hold-workspace-encode");
   await releaseFacade(page, "fail-workspace-encode");
-  await page.locator('[data-application-scope="workspace"]').click();
+  await openProductDestination(page, "workspace");
   await expect(page.locator("html"))
     .toHaveAttribute("data-workspace-encode-pending", "true");
   const search = page.locator("#open-search");
@@ -85,10 +87,10 @@ test("superseded Platform Workspace entry leaves Query and its focus current", a
   await page.setViewportSize({ width: 1440, height: 900 });
   await openPlatform(page);
   await releaseFacade(page, "hold-workspace-encode");
-  await page.locator('[data-application-scope="workspace"]').click();
+  await openProductDestination(page, "workspace");
   await expect(page.locator("html"))
     .toHaveAttribute("data-workspace-encode-pending", "true");
-  await page.locator('[data-application-scope="query"]').click();
+  await openProductDestination(page, "query");
   await expect(page).toHaveURL(/\/query$/);
   await releaseFacade(page, "finish-workspace-encode");
   await page.waitForTimeout(100);
