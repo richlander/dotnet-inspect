@@ -242,9 +242,14 @@ public static class PackageRoleMemberCallGraphQuery
             Analysis.TypeRef? definition =
                 DeclaringTypeDefinition(member.DeclaringType);
             AssemblyReferenceIdentity? identity =
-                (definition?.Resolution?.Origin
-                        as Analysis.TypeReferenceOrigin.AssemblyReference)
-                    ?.Assembly;
+                definition?.Resolution?.Origin switch
+                {
+                    Analysis.TypeReferenceOrigin.AssemblyReference
+                        reference => reference.Assembly,
+                    Analysis.TypeReferenceOrigin.CurrentAssembly
+                        current => current.Assembly,
+                    _ => null,
+                };
             string? assemblyName =
                 identity?.Name
                 ?? definition?.Assembly

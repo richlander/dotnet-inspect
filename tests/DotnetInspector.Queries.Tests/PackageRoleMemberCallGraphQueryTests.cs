@@ -31,10 +31,13 @@ public sealed class PackageRoleMemberCallGraphQueryTests
         PackageRootBinding target = PackageBinding(
             "callgraph.target",
             TargetPath);
+        PackageRootBinding versionSkewedTarget = PackageBinding(
+            "callgraph.target.v2",
+            TargetV2Path);
         (InspectionGraphDocument document,
             ImmutableArray<PackageRoleMemberCallGraphNodePackage>
                 nodePackages) =
-            await ExecuteAsync(caller, target);
+            await ExecuteAsync(caller, target, versionSkewedTarget);
         InspectionGraphEdge edge = Assert.Single(document.Edges);
         Assert.Equal(
             ("RunAcrossBoundary", "Forward"),
