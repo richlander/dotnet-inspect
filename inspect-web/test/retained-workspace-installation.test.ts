@@ -117,6 +117,7 @@ function retainedWorkspaceInstallationHarness(options: {
     isCurrent: (candidate: number) => candidate === sequence,
     begin: () => ++sequence,
   };
+  const activationNavigationSeq = navigationSequence.current();
   const updateFailure = (
     presentation: TestPresentation,
     navigationId: string,
@@ -225,6 +226,7 @@ function retainedWorkspaceInstallationHarness(options: {
     },
     posting,
     locationIntent,
+    activationNavigationSeq,
     newerNavigationId,
   };
   const declarations = [
@@ -271,9 +273,28 @@ function retainedWorkspaceInstallationHarness(options: {
     )),
     completePresentation: () => {
       runInNewContext(
-        "completeRetainedActivationPresentation({ posting }, locationIntent)",
+        "completeRetainedActivationPresentation({ posting }, locationIntent, activationNavigationSeq)",
         context,
       );
+    },
+    returnToWorkspaceFromHistory: () => {
+      runInNewContext(`
+        navigationSequence.begin();
+        location.href = posting.canonicalLocation;
+        const browserIntent = retainedLocationIntents.selectBrowserEntry({
+          url: location.href,
+          historyState: history.state,
+          retainedDefinitionId: posting.retainedDefinitionId,
+          incumbent: installedRetainedLocation,
+        });
+        const effect = retainedLocationIntents.classify(browserIntent, {
+          outcome: "applied",
+          synchronization: "current",
+          association: installedRetainedLocation,
+          browserRestoration: "exact",
+        });
+        retainedLocationIntents.publish(effect, history);
+      `, context);
     },
     activatePackage: () => Promise.resolve(runInNewContext(
       "activateRetainedPackageAction(newerNavigationId)",
@@ -291,6 +312,33 @@ function retainedWorkspaceInstallationHarness(options: {
     },
   };
 }
+
+test("exact canonical completion renders and focuses once", async () => {
+  const initial = deferred<{ surface: TestPackage }>();
+  const harness = retainedWorkspaceInstallationHarness({
+    activeKind: "package",
+    initial,
+    newer: () => Promise.reject(new Error("unused")),
+  });
+
+  harness.post();
+  const installation = harness.install();
+  initial.resolve({
+    surface: {
+      id: "initial-package",
+      isRuntimePack: false,
+      source: { kind: "package" },
+    },
+  });
+  await installation;
+
+  assert.equal(harness.presentationCurrent(), true);
+  const rendersBeforeCompletion = harness.renders();
+  harness.completePresentation();
+  assert.equal(harness.renders(), rendersBeforeCompletion + 1);
+  assert.equal(harness.focusSchedules(), 1);
+  assert.equal(harness.workspaceFocuses(), 1);
+});
 
 test("stale initial Package detail cannot replace a newer row selection", async () => {
   const initial = deferred<{ surface: TestPackage }>();
@@ -327,9 +375,9 @@ test("stale initial Package detail cannot replace a newer row selection", async 
   assert.equal(harness.presentationCurrent(), true);
   const rendersBeforeCompletion = harness.renders();
   harness.completePresentation();
-  assert.equal(harness.renders(), rendersBeforeCompletion + 1);
-  assert.equal(harness.focusSchedules(), 1);
-  assert.equal(harness.workspaceFocuses(), 1);
+  assert.equal(harness.renders(), rendersBeforeCompletion);
+  assert.equal(harness.focusSchedules(), 0);
+  assert.equal(harness.workspaceFocuses(), 0);
 });
 
 test("stale initial Platform detail preserves a newer row failure", async () => {
@@ -468,6 +516,36 @@ for (const route of ["home", "credits"] as const) {
     assert.deepEqual(harness.historyWrites(), []);
     assert.equal(harness.presentationCurrent(), false);
     assert.equal(harness.initialAdmissions(), 0);
+    const rendersBeforeCompletion = harness.renders();
+    harness.completePresentation();
+    assert.equal(harness.renders(), rendersBeforeCompletion);
+    assert.equal(harness.focusSchedules(), 0);
+    assert.equal(harness.workspaceFocuses(), 0);
+  });
+
+  test(`focus-neutral Back from ${route} does not reauthorize delayed Saved Open focus`, async () => {
+    const initial = deferred<{ surface: TestPackage }>();
+    const harness = retainedWorkspaceInstallationHarness({
+      activeKind: "package",
+      initial,
+      newer: () => Promise.reject(new Error("unused")),
+    });
+
+    harness.post();
+    const installation = harness.install();
+    initial.resolve({
+      surface: {
+        id: "initial-package",
+        isRuntimePack: false,
+        source: { kind: "package" },
+      },
+    });
+    await installation;
+    if (route === "home") harness.goHome();
+    else harness.openCredits();
+    harness.returnToWorkspaceFromHistory();
+
+    assert.equal(harness.presentationCurrent(), true);
     const rendersBeforeCompletion = harness.renders();
     harness.completePresentation();
     assert.equal(harness.renders(), rendersBeforeCompletion);

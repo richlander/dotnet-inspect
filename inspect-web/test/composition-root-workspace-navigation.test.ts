@@ -1422,13 +1422,13 @@ test("managed Saved Open keeps compact rows, packet fidelity, and focus ownershi
     /function retainedLocationPresentationCurrent\([\s\S]*retainedLocationIntents\.currentIntentId === intent\.id[\s\S]*retainedLocationIntents\.currentIntentId === null[\s\S]*installedRetainedLocation\?\.canonicalLocation === canonicalLocation[\s\S]*location\.href === canonicalLocation/);
   assert.match(
     appSource,
-    /function completeRetainedActivationPresentation\([\s\S]*result\.posting === null[\s\S]*retainedLocationPresentationCurrent\(\s*locationIntent,\s*result\.posting\.canonicalLocation,[\s\S]*render\(\{ synchronizeUrl: false \}\);\s*afterCurrentNavigationFrame\(focusWorkspaceOrHeading\)/);
+    /function completeRetainedActivationPresentation\([\s\S]*navigationSeq: number[\s\S]*result\.posting === null[\s\S]*!navigationSequence\.isCurrent\(navigationSeq\)[\s\S]*retainedLocationPresentationCurrent\(\s*locationIntent,\s*result\.posting\.canonicalLocation,[\s\S]*render\(\{ synchronizeUrl: false \}\);\s*afterCurrentNavigationFrame\(focusWorkspaceOrHeading\)/);
   assert.match(
     appSource,
-    /async function openSavedWorkspaceEntry\([\s\S]*result\.status === "activated" \|\| result\.status === "noEffect"[\s\S]*completeRetainedActivationPresentation\(result, locationIntent\)/);
+    /async function openSavedWorkspaceEntry\([\s\S]*const activationNavigationSeq = navigationSequence\.begin\(\)[\s\S]*result\.status === "activated" \|\| result\.status === "noEffect"[\s\S]*completeRetainedActivationPresentation\(\s*result,\s*locationIntent,\s*activationNavigationSeq,\s*\)/);
   assert.match(
     appSource,
-    /async function activateManagedRetainedWorkspace\([\s\S]*result\.status === "activated" \|\| result\.status === "noEffect"[\s\S]*completeRetainedActivationPresentation\(result, locationIntent\)/);
+    /async function activateManagedRetainedWorkspace\([\s\S]*const activationNavigationSeq = navigationSequence\.current\(\)[\s\S]*result\.status === "activated" \|\| result\.status === "noEffect"[\s\S]*completeRetainedActivationPresentation\(\s*result,\s*locationIntent,\s*activationNavigationSeq,\s*\)/);
   assert.match(
     packageAction,
     /catch \(error\) \{[\s\S]*withNavigationPackageDetailFailure\([\s\S]*render\(\{ synchronizeUrl: false \}\);[\s\S]*return;/);

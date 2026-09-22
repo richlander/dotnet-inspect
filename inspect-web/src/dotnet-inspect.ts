@@ -2162,8 +2162,10 @@ async function installRetainedWorkspacePosting(
 function completeRetainedActivationPresentation(
   result: BrowserRetainedWorkspaceActivationResult,
   locationIntent: LocationIntentDeclaration,
+  navigationSeq: number,
 ): void {
   if (result.posting === null
+    || !navigationSequence.isCurrent(navigationSeq)
     || !retainedLocationPresentationCurrent(
       locationIntent,
       result.posting.canonicalLocation,
@@ -2581,6 +2583,7 @@ async function activateManagedRetainedWorkspace(
       installedRetainedLocation,
       history,
     );
+    const activationNavigationSeq = navigationSequence.current();
     let result: BrowserRetainedWorkspaceActivationResult;
     try {
       const activation = controller.activate(
@@ -2612,7 +2615,11 @@ async function activateManagedRetainedWorkspace(
     }
     if (result.status === "activated" || result.status === "noEffect") {
       failedManagedRetainedDefinitionId = null;
-      completeRetainedActivationPresentation(result, locationIntent);
+      completeRetainedActivationPresentation(
+        result,
+        locationIntent,
+        activationNavigationSeq,
+      );
     }
 }
 
@@ -13316,7 +13323,7 @@ async function openSavedWorkspaceEntry(entry: SavedWorkspace): Promise<void> {
   if (!canPublishRetainedWorkspace()) {
     throw new Error(retainedWorkspaceCapacityMessage());
   }
-  navigationSequence.begin();
+  const activationNavigationSeq = navigationSequence.begin();
   const controller = requireRetainedWorkspaceActivation();
   if (controller.state.activeDefinitionId === null
     && retainedWorkspaces.activeWorkspaceId !== null) {
@@ -13369,7 +13376,11 @@ async function openSavedWorkspaceEntry(entry: SavedWorkspace): Promise<void> {
   }
   if (result.status === "activated" || result.status === "noEffect") {
     failedManagedRetainedDefinitionId = null;
-    completeRetainedActivationPresentation(result, locationIntent);
+    completeRetainedActivationPresentation(
+      result,
+      locationIntent,
+      activationNavigationSeq,
+    );
   }
 }
 
