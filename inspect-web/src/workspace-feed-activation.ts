@@ -588,6 +588,39 @@ export function createWorkspaceFeedActivationCoordinator<TRollback>(
       projected = true;
     }
 
+    async function restoreOwnedRollback(): Promise<boolean> {
+      if (rollbackRestoration === null) return true;
+      posted = null;
+      try {
+        await restoreStagedRollback();
+        return true;
+      } catch (recoveryError) {
+        const restoration = rollbackRestoration;
+        if (restoration === null) return false;
+        const recoveryMessage =
+          `The prior Workspace could not be restored: ${
+            dependencies.errorMessage(recoveryError)
+          }`;
+        if (prompt !== null) {
+          rollback = {
+            ...restoration.rollback,
+            retainedDefinitionId: prompt.retainedDefinitionId,
+            navigationSequence: prompt.navigationSequence,
+            recoveryFailure: restoration.failure
+              ?? dependencies.errorMessage(recoveryError),
+          };
+          rollbackRestoration = null;
+          prompt.error = recoveryMessage;
+          mountPrompt();
+          return false;
+        }
+        dependencies.reportBlockingFailure(
+          recoveryMessage,
+          () => retry(canonicalLocation, commitHistory));
+        return false;
+      }
+    }
+
     try {
       const result = await currentController.activate(
         retainedDefinitionId,
@@ -638,7 +671,16 @@ export function createWorkspaceFeedActivationCoordinator<TRollback>(
         ?? currentController.state.lastFailure
         ?? "The shared Workspace could not be opened.";
       if (prompt === null) {
-        releaseRollback(retainedDefinitionId, navigationSequence);
+        if (rollback?.retainedDefinitionId === retainedDefinitionId
+          && rollback.navigationSequence === navigationSequence
+          && rollback.transfer !== null) {
+          stageRollbackRestoration(
+            retainedDefinitionId,
+            navigationSequence);
+          if (!await restoreOwnedRollback()) return false;
+        } else {
+          releaseRollback(retainedDefinitionId, navigationSequence);
+        }
         dependencies.reportFailure(
           lastFailure,
           () => retry(canonicalLocation, commitHistory));
@@ -647,44 +689,18 @@ export function createWorkspaceFeedActivationCoordinator<TRollback>(
     } catch (error) {
       lastFailure = dependencies.errorMessage(error);
       if (rollbackRestoration === null
-        && publicationAttempted
-        && posted?.value.retainedDefinitionId === retainedDefinitionId
-        && posted.navigationSequence === navigationSequence) {
+        && ((publicationAttempted
+          && posted?.value.retainedDefinitionId === retainedDefinitionId
+          && posted.navigationSequence === navigationSequence)
+          || (rollback?.retainedDefinitionId === retainedDefinitionId
+            && rollback.navigationSequence === navigationSequence
+            && rollback.transfer !== null))) {
         stageRollbackRestoration(retainedDefinitionId, navigationSequence);
       }
-      if (rollbackRestoration !== null) {
-        posted = null;
-        try {
-          await restoreStagedRollback();
-        } catch (recoveryError) {
-          const restoration = rollbackRestoration;
-          if (restoration === null) {
-            return false;
-          }
-          const recoveryMessage =
-            `The prior Workspace could not be restored: ${
-              dependencies.errorMessage(recoveryError)
-            }`;
-          if (prompt !== null) {
-            rollback = {
-              ...restoration.rollback,
-              retainedDefinitionId: prompt.retainedDefinitionId,
-              navigationSequence: prompt.navigationSequence,
-              recoveryFailure: restoration.failure
-                ?? dependencies.errorMessage(recoveryError),
-            };
-            rollbackRestoration = null;
-            prompt.error = recoveryMessage;
-            mountPrompt();
-            return false;
-          }
-          dependencies.reportBlockingFailure(
-            recoveryMessage,
-            () => retry(canonicalLocation, commitHistory));
-          return false;
-        }
-      } else if (!dependencies.isCurrent(navigationSequence)
-        || prompt === null) {
+      if (!await restoreOwnedRollback()) return false;
+      if (rollbackRestoration === null
+        && (!dependencies.isCurrent(navigationSequence)
+        || prompt === null)) {
         releaseRollback(retainedDefinitionId, navigationSequence);
       }
       if (!dependencies.isCurrent(navigationSequence)) return false;
