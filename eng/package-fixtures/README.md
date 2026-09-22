@@ -103,12 +103,15 @@ count, and representative raw metadata values.
 
 ## Consumption
 
-CI runs the hosted manifest test in a dedicated step with `packages: read` and
-passes its repository `GITHUB_TOKEN` only to that step. The test supplies the
-GitHub Packages endpoint explicitly, writes a temporary source configuration,
-and starts dotnet-inspect with an isolated cache. Its positive `linux-x64` row
-proves authenticated fixture access; its negative `win-x64` row proves the
-deliberately absent sibling remains visible.
+CI runs the hosted manifest test in the `host-policy` matrix entry. The `test`
+job grants each matrix entry a `GITHUB_TOKEN` with `packages: read`; GitHub
+Actions permissions are job-scoped, not step-scoped. The fixture step places
+its token in the test process environment, requires at least one selected test,
+and rejects skipped execution. The test supplies the GitHub Packages endpoint
+explicitly, writes a temporary source configuration, and starts dotnet-inspect
+with an isolated cache. Its positive `linux-x64` row proves authenticated
+fixture access; its negative `win-x64` row proves the deliberately absent
+sibling remains visible.
 
 Ordinary local runs skip the hosted test. To opt in, provide a classic personal
 access token with `read:packages` without placing it on the command line:
