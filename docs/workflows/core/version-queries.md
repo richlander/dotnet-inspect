@@ -325,7 +325,7 @@ What is the latest 9.0.x version of System.Text.Json?
 ```
 
 ```bash
-dotnet-inspect package System.Text.Json --version '9.0.*' -v:q
+dotnet-inspect package 'System.Text.Json@9.0.*' -v:q
 ```
 
 ```expect
@@ -340,7 +340,7 @@ grep -oE 'Version: 9\.0\.[0-9]+'
 ### 6b. Preview wildcard
 
 ```bash
-dotnet-inspect package System.Text.Json --version '11.0.0-preview*' -v:q
+dotnet-inspect package 'System.Text.Json@11.0.0-preview*' -v:q
 ```
 
 ```expect
@@ -359,7 +359,7 @@ grep -oE 'Version: 11\.0\.0-preview[^ |]+'
 ### 7a. Add a feed for preview packages
 
 ```bash
-dotnet-inspect package System.Text.Json --version '11.0.0-preview*' --add-source 'https://pkgs.dev.azure.com/dnceng/public/_packaging/dotnet11/nuget/v3/index.json' -v:q
+dotnet-inspect package 'System.Text.Json@11.0.0-preview*' --add-source 'https://pkgs.dev.azure.com/dnceng/public/_packaging/dotnet11/nuget/v3/index.json' -v:q
 ```
 
 ```expect
