@@ -59,6 +59,8 @@ unverified until its named gate lands.
 
 Related designs:
 
+- [Section cardinality](section-cardinality.md) owns the scalar-or-inventory
+  classification and the rule that only inventories expose Rows and Count.
 - [Output shapes](output-shapes.md) owns declared row units and the
   Document-to-Scalar shape ladder.
 - [Row query and ordering](row-query-order.md) owns typed predicates, effective
@@ -78,6 +80,10 @@ Related designs:
 L2 `DotnetInspector.Sections` is the authority that binds resolved row-shaping
 intent to owner-declared logical row sets and returns typed row or reduction
 outcomes.
+
+L2 consumes only sections classified as inventories by
+[Section cardinality](section-cardinality.md). A scalar section has no declared
+row set and never reaches L2 as an empty or singleton sequence.
 
 `RowSelectionIntent` is physically carried by `QuerySpace` because
 `RowQueryIntent` embeds it and row-query resolution consumes it.
@@ -144,8 +150,10 @@ than redefining their meaning.
 
 ## Declared row sets
 
-A declared row set is one ordered logical sequence to which row-query and
-semantic-selection operations apply independently. Its owner supplies:
+An inventory section declares one or more ordered logical sequences to which
+row-query and semantic-selection operations apply independently. A scalar
+section declares none; its properties, rendered fields, and JSON members do
+not become row sets. Each declared row-set owner supplies:
 
 - a stable typed row-set identity;
 - its row-schema identity;

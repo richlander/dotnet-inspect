@@ -729,8 +729,14 @@ public sealed partial class CSharpPrinter
     {
         var sb = new StringBuilder();
         _labelTargets = CollectBranchTargets(function);
+        CollectInlineReceiverTempStores(function);
         _localDeclarationPlan =
-            LocalDeclarationPlan.Create(function, function.Locals.Length);
+            LocalDeclarationPlan.Create(
+                function,
+                function.Locals.Length,
+                _options,
+                _reservedScopeNames,
+                _inlineReceiverTempLocals);
         _usingLocals.UnionWith(_localDeclarationPlan.UsingLocals);
         _foreachLocals.UnionWith(_localDeclarationPlan.ForeachLocals);
         _isPatternLocals.UnionWith(_localDeclarationPlan.PatternLocals);
@@ -745,8 +751,27 @@ public sealed partial class CSharpPrinter
         _scopedLocals.UnionWith(_localDeclarationPlan.ScopedLocals);
         _declaringStores.UnionWith(
             _localDeclarationPlan.DeclaringNodes);
+        foreach (var binding in _localDeclarationPlan.Bindings)
+        {
+            if (binding.Provenance
+                != LocalBindingNameProvenance.ApproximatePdb)
+            {
+                continue;
+            }
+
+            AddDecision(
+                "approximate-pdb-local-name",
+                DecompilerDecisionCategories.Taste,
+                $"V_{binding.LocalIndex}",
+                $"Used Portable PDB name '{binding.PreferredIdentifier}' as an approximate display name "
+                    + $"for physical local slot {binding.LocalIndex}; exact row/scope identity remains "
+                    + "unrepresented and fidelity is unchanged "
+                    + "(dotnet_inspect_style_approximate_pdb_local_names).",
+                newValue: binding.Identifier,
+                dedupDiscriminator:
+                    $"{_labelScopeSuffix}\0{binding.LocalIndex.ToString(CultureInfo.InvariantCulture)}");
+        }
         CollectResidualStackSlotDeclaringStores(function);
-        CollectInlineReceiverTempStores(function);
         CollectStackSlotNames(function);
         foreach (var fixedNode in function.DescendantsOutsideNestedFunctions.OfType<Fixed>())
         {
@@ -5901,159 +5926,22 @@ public sealed partial class CSharpPrinter
 
     HashSet<string>? _localScopeNames;
 
-    string[]? _localDisplayNames;
-    HashSet<int>? _retainedLocalSlots;
-
     IReadOnlySet<int> RetainedLocalSlots()
-    {
-        if (_retainedLocalSlots is null)
-        {
-            _retainedLocalSlots =
-                ExactLocalNameAllocation.RetainedLocalSlots(
-                    _function,
-                    _function.Locals.Length,
-                    _function.EliminatedLocalSlots);
-            _retainedLocalSlots.ExceptWith(_inlineReceiverTempLocals);
-        }
-
-        return _retainedLocalSlots;
-    }
+        => _localDeclarationPlan?.RetainedLocalSlots
+            ?? throw new InvalidOperationException(
+                "Local bindings are unavailable before declaration planning.");
 
     /// <summary>
     /// The display name for local slot <paramref name="index"/>: the PDB source
-    /// name when present, printer-usable, and admitted by the exact-local
-    /// collision plan; otherwise the synthetic <c>V_index</c>. Resolved once per
-    /// function so every reference to a slot — declaration, load, address,
-    /// shadow test — spells it identically.
+    /// name issued by the finalized declaration and binding plan. Every
+    /// reference to a slot — declaration, load, address, shadow test — spells
+    /// the same planned identifier.
     /// </summary>
     string LocalName(int index)
-    {
-        if (_localDisplayNames is null)
-        {
-            int count = _function.Locals.Length;
-            var display = new string[count];
-            var assigned = new bool[count];
-            for (int i = 0; i < count; i++)
-                display[i] = $"V_{i}";
-
-            var names = _function.LocalNames;
-            var taken = CurrentReservedNames();
-            var retainedLocalSlots = RetainedLocalSlots();
-            for (var i = 0; i < count; i++)
-                assigned[i] = !retainedLocalSlots.Contains(i);
-            var exact = ExactLocalNameAllocation.Allocate(
-                _function,
-                count,
-                names,
-                taken,
-                retainedLocalSlots,
-                _localDeclarationPlan?.DeclarationScopes);
-            for (var i = 0; i < count; i++)
-            {
-                if (exact.Dispositions[i]
-                        == ExactLocalNameDisposition.Preserved
-                    && exact.DisplayNames[i] is { } name)
-                {
-                    display[i] = name;
-                    assigned[i] = true;
-                }
-            }
-            taken.UnionWith(exact.DisplayNames.OfType<string>());
-
-            // Exact source names may legally shadow non-captured enclosing or
-            // descendant binders. Approximate and generated names remain
-            // conservative so they do not introduce avoidable shadowing.
-            taken.UnionWith(_reservedScopeNames);
-            AddDescendantBinderNames(taken);
-
-            if (_options.ApproximatePdbLocalNames)
-            {
-                for (int i = 0; i < count; i++)
-                {
-                    if (assigned[i]
-                        || ApproximatePdbLocalName(
-                            i,
-                            names,
-                            exact) is not { } candidate)
-                    {
-                        continue;
-                    }
-
-                    string approximate = ReserveName(candidate, taken);
-                    display[i] = approximate;
-                    assigned[i] = true;
-                    AddDecision(
-                        "approximate-pdb-local-name",
-                        DecompilerDecisionCategories.Taste,
-                        $"V_{i}",
-                        $"Used Portable PDB name '{candidate}' as an approximate display name "
-                            + $"for physical local slot {i}; exact row/scope identity remains "
-                            + "unrepresented and fidelity is unchanged "
-                            + "(dotnet_inspect_style_approximate_pdb_local_names).",
-                        newValue: approximate,
-                        dedupDiscriminator:
-                            $"{_labelScopeSuffix}\0{i.ToString(CultureInfo.InvariantCulture)}");
-                }
-            }
-
-            var synthesizedNames = _function.SynthesizedLocalNames;
-            for (int i = 0; i < count && i < synthesizedNames.Length; i++)
-            {
-                if (assigned[i] || synthesizedNames[i] is not { } synthesized)
-                    continue;
-                display[i] = ReserveName(synthesized, taken);
-                assigned[i] = true;
-            }
-
-            // When enabled, a local with no usable source name gets a synthesized
-            // name from IR evidence (its type, loop-counter role), collision-
-            // resolved against names already taken. The library default remains
-            // off; the CLI enables this for user-facing source.
-            if (_options.ReadableLocalNames)
-            {
-                var counters = LoopCounterLocals();
-                for (int i = 0; i < count; i++)
-                {
-                    if (assigned[i])
-                        continue;
-                    var type = i < _function.Locals.Length ? _function.Locals[i] : null;
-                    if (LocalNameSynthesizer.Synthesize(type, counters.Contains(i), taken) is { } synthesized)
-                    {
-                        display[i] = synthesized;
-                        taken.Add(synthesized);
-                        assigned[i] = true;
-                    }
-                }
-            }
-            for (int i = 0; i < count; i++)
-            {
-                if (assigned[i])
-                    continue;
-                display[i] = ReserveName(display[i], taken);
-            }
-            _localDisplayNames = display;
-        }
-        return index >= 0 && index < _localDisplayNames.Length ? _localDisplayNames[index] : $"V_{index}";
-    }
-
-    string? ApproximatePdbLocalName(
-        int index,
-        ImmutableArray<string?> exactNames,
-        ExactLocalNameAllocation exact)
-    {
-        if (index < exact.Dispositions.Length
-            && exact.Dispositions[index] == ExactLocalNameDisposition.Collision
-            && index < exactNames.Length
-            && exactNames[index] is { } collided
-            && CSharpNaming.IsUsableIdentifier(collided))
-        {
-            return collided;
-        }
-
-        return index < _function.PdbLocalNameCandidates.Length
-            ? _function.PdbLocalNameCandidates[index]
-            : null;
-    }
+        => _localDeclarationPlan is { } plan
+            && (uint)index < (uint)plan.Bindings.Length
+                ? plan.Bindings[index].Identifier
+                : $"V_{index}";
 
     static string ReserveName(string baseName, HashSet<string> taken)
     {
@@ -6065,26 +5953,6 @@ public sealed partial class CSharpPrinter
             if (taken.Add(candidate))
                 return candidate;
         }
-    }
-
-    /// <summary>
-    /// Locals written by a <see cref="ForLoop"/>'s increment — the induction
-    /// variables that earn the conventional <c>i</c>/<c>j</c>/<c>k</c> name in the
-    /// readable-names mode. Evidence from the structured tree, not a guess.
-    /// </summary>
-    HashSet<int> LoopCounterLocals()
-    {
-        var counters = new HashSet<int>();
-        foreach (var loop in _function.DescendantsOutsideNestedFunctions.OfType<ForLoop>())
-        {
-            var increment = loop.Increment;
-            if (increment is StoreLocal direct)
-                counters.Add(direct.Index);
-            foreach (var node in increment.Descendants)
-                if (node is StoreLocal store)
-                    counters.Add(store.Index);
-        }
-        return counters;
     }
 
     /// <summary>
