@@ -44,7 +44,7 @@ behavior, and user-visible limitations.
 
 | Surface | Owns | Update when |
 | --- | --- | --- |
-| [`README.md`](../README.md) | Product landing page: canonical acquisition, three website channels, and only daily-driver or distinctive demo capabilities. Every featured capability has a runnable CLI example and production website link; the file stays at or below 120 lines. | Canonical acquisition or website links change, or a capability earns or loses landing-page discovery. |
+| [`README.md`](../README.md) | Product landing page: canonical acquisition, three website channels, and only daily-driver or delightful demo capabilities. Every featured capability has a runnable CLI example and a production packet URL for the same view; the file stays at or below 120 lines. | Canonical acquisition or website links change, or a capability earns or loses landing-page discovery. |
 | [`docs/cli-reference.md`](cli-reference.md) | Detailed CLI behavior, command and capability inventory, examples, requirements, and user-visible limitations. | A documented command, workflow, requirement, or limitation changes. |
 | [`docs/README.md`](README.md) | User and contributor landing page: minimal acquisition and agent guidance, website channels, curated documentation routes, and the boundaries in this table. | Canonical acquisition, skill guidance, website channels, a high-value route, or an entrypoint's role changes. |
 | [`docs/overview.md`](overview.md) | Subsystem topology and the map from cross-subsystem composition to normative owners. | A subsystem boundary, owner, or cross-subsystem relationship changes. |

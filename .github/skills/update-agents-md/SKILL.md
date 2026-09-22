@@ -22,10 +22,11 @@ rules. Read this before any edit to AGENTS.md, not just during a cleanup pass.
   AGENTS.md.
 - **Protect the root README boundary.** If an AGENTS edit changes documentation
   entrypoint guidance, preserve `README.md` as a product landing page of 120
-  lines or fewer. It features only daily-driver and distinctive demo
+  lines or fewer. It features only daily-driver and delightful demo
   capabilities; every featured capability has a runnable CLI command and a
-  link to `https://dotnet-inspect.net`. Detailed behavior belongs in
-  `docs/cli-reference.md`, a focused guide, or a product skill.
+  `https://dotnet-inspect.net/?w=...` packet URL for the same view. Detailed
+  behavior belongs in `docs/cli-reference.md`, a focused guide, or a product
+  skill.
 - **Protect operator templates.** The theme/status reminder, tmux command and
   state block, round report, and their invocation rules must remain directly
   in `AGENTS.md`. Never remove, shorten to a pointer, or move them to meet the
