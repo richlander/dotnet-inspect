@@ -147,8 +147,18 @@ accounting, completion, or result semantics.
 
 ## Browser/Wasm adoption
 
-Inspect Web supplies the exact Library roster admitted by the current package
-surface as typed `LibraryQueryParticipant` values. The Browser returns the
+No website surface consumes this operation. Inspect Web's Library navigation
+pane carried a Direct reference control that narrowed the rendered
+exact-Library candidates; that control is withdrawn because narrowing a
+population belongs to the Query experience rather than to a navigation pane.
+The package export and its Worker transport survive without a consumer and are
+retired in a following slice. Nothing in the product presents Browser Library
+Query as a supported experience meanwhile.
+
+The export retains the contract below for the duration of that carry.
+
+A Browser caller supplies the exact Library roster admitted by the current
+package surface as typed `LibraryQueryParticipant` values. It returns the
 product-issued asset IDs from that rendered roster to the package export, which
 validates each ID against the opened scope before constructing participants.
 Assemblies omitted by API-surface extraction or transport bounds do not enter
@@ -167,15 +177,6 @@ product-issued asset ID for navigation. It joins a returned row to that ID by
 the exact asset path supplied with the participant, never by assembly display
 name. The Browser uses the product default candidate limit.
 
-The Direct reference control is available only in package-backed Library
-navigation. Loading and top-level operation failure leave the full admitted
-Library inventory visible. A settled result filters exact Library candidates
-to the returned asset IDs; a settled zero-match result therefore supplies an
-empty match set. `All libraries` always remains visible, and a selected
-nonmatching exact Library remains visible as the current selection. Filtering
-does not change the committed subject, Package Overview, aggregate
-composition, history, or restoration state.
-
 ## Validation
 
 Release gates cover:
@@ -186,8 +187,7 @@ Release gates cover:
   in `DotnetInspect.Cli.Tests`;
 - directory execution, row selection versus candidate bounds, Count, and
   malformed-reference visibility in `DotnetInspect.Cli.Tests`; and
-- participant-backed execution, exact Browser asset-ID projection, Worker
-  transport, Library navigation filtering, and Package Overview exclusion in
-  `DotnetInspector.Queries.Tests`, `DotnetInspect.Web.Tests`, and Inspect Web
-  tests; and
+- participant-backed execution, exact Browser asset-ID projection, and Worker
+  transport in `DotnetInspector.Queries.Tests` and `DotnetInspect.Web.Tests`;
+  and
 - a Release solution build plus real directory and runtime-pack demos.
