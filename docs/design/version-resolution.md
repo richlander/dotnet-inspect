@@ -245,6 +245,8 @@ implementation-ready syntax.
 
 To print the freshly discovered coordinate, compose the existing operations as
 `Name@latest --version`. There is no separate latest-version option.
+`--version` is a zero-argument scalar lens, not a Package selector; exact,
+latest, range, and wildcard selection use the `Name@version` coordinate.
 
 ### Pinned (`Name@version`)
 

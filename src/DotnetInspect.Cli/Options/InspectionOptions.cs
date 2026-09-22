@@ -20,11 +20,6 @@ public record InspectionOptions : IProjectionOptions
     internal PackageReferenceTarget? DeclaredPackageTarget { get; init; }
 
     /// <summary>
-    /// Explicit version override (from --version option).
-    /// </summary>
-    public string? ExplicitVersion { get; init; }
-
-    /// <summary>
     /// Canonical Workspace packet supplying the selected Package context.
     /// </summary>
     public string? WorkspacePacket { get; init; }

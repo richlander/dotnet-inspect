@@ -582,7 +582,7 @@ public static class ArgumentPreprocessor
             StringComparer.Ordinal);
     private static readonly HashSet<string> PackageOptionsWithOptionalFollowingValue =
         new(
-            ["--path", "--library", "--version"],
+            ["--path", "--library"],
             StringComparer.Ordinal);
     private static readonly string[] AtCategoryOptionAliases = [.. SelectAliases, "-D", "--discover", "-Q", "--query-help"];
     private static readonly HashSet<string> SearchScopeCommands = new(StringComparer.OrdinalIgnoreCase)
