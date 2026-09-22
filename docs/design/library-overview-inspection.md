@@ -3,8 +3,9 @@
 ## Status
 
 Status: **implemented** by
-[#8112](https://github.com/richlander/dotnet-inspect/issues/8112);
-production-host adoption remains tracked by #8088.
+[#8112](https://github.com/richlander/dotnet-inspect/issues/8112).
+Production-host adoption remains tracked by #8088, with scalar declaration,
+admission, and discovery staged under #8228.
 
 This design owns
 [issue #8089](https://github.com/richlander/dotnet-inspect/issues/8089).
@@ -63,10 +64,10 @@ enough to exercise meaningful type and member accounting, and the same managed
 Library is available through package, Platform, and direct-file gestures.
 
 The initial production consumers are the ordinary CLI `library` overview and
-the Inspect Web Library overview. The CLI adopts a direct-file route first;
-package and Platform routes follow after their existing House handoffs are
-wired into the same operation. Inspect Web consumes the same envelope and may
-compose navigation or interaction state outside it.
+the Inspect Web Library overview. Both ultimately consume this same operation
+and envelope; neither host independently reconstructs the overview or its
+cardinality. Inspect Web may compose navigation or interaction state outside
+the envelope.
 
 ## Boundary
 
@@ -315,23 +316,28 @@ shortened or empty Document.
 
 ## Production adoption
 
-The complete initial operation adoption has six owner-scoped steps:
+The complete initial operation adoption is staged through focused slices:
 
 1. Lock this focused operation design.
 2. Implement the request, portable outcome and Document, envelope assembly,
    required non-projectable Share, diagnostics, and lease settlement in
    `DotnetInspector.Sections`.
-3. Adopt the operation for one direct-file CLI scalar Library-overview
-   envelope through direct-Library realization and an ephemeral Workspace.
-   Reject section selection, Count, semantic row selection, predicates,
-   package, Platform, Workspace, trace, and NuGet-source controls that cannot
-   affect this direct-file-only envelope path rather than silently ignoring
-   them. Ordinary `library` section cardinality and rendered-line behavior
-   remain with #8228; structural cardinality declaration remains with #8227.
-4. Adopt the same operation for the PackageHouse CLI route.
-5. Adopt the same operation for the PlatformHouse CLI route.
-6. Consume the same envelope in Inspect Web's Library overview, then retire
-   the covered CLI-owned overview construction and direct serialization.
+3. Under #8228, associate the operation-owned scalar declaration with exact
+   Library routes, associate the independently inventory-shaped declaration
+   with aggregate all-libraries routes, publish both through structural
+   Discovery, and reject exact Count or Rows before direct or package
+   acquisition.
+4. Before content cutover, settle the compatibility boundary between the
+   current narrow `LibraryOverviewDocument`, the broader ordinary CLI
+   `Library Info` field set, and the Browser overview's current eager API
+   inventory. The declaration/admission slice does not replace either host's
+   content path or present the narrower Document as a compatible substitute.
+5. Adopt one complete host-neutral overview operation and envelope for direct,
+   PackageHouse, and PlatformHouse CLI routes while preserving supported
+   fields, projections, Share, diagnostics, and rendered output.
+6. Consume that same envelope in Inspect Web's Library overview, preserve its
+   navigation and typed failure behavior, then retire the covered eager or
+   host-owned overview construction.
 
 The remaining ordinary Library sections migrate under #8088 by their own
 semantic owners. This design does not make their legacy implementation
@@ -385,8 +391,9 @@ provides Release gates for:
 
 `DotnetInspect.Cli.Tests.CommandExecutionTests` provides production-host gates
 for the direct-file envelope, publication after cleanup, and parser admission.
-Unsupported section, Count, row, predicate, source, package, Platform,
-Workspace, and trace controls fail before direct-file acquisition.
+The #8228 declaration/admission slice additionally gates exact scalar
+Discovery, pre-acquisition Count/Rows rejection for direct and package routes,
+and preservation of aggregate library-row Count and Rows.
 
 The production-adoption claims remain **unverified** until their later Release
 gates prove:

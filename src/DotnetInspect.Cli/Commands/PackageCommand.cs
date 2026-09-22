@@ -489,6 +489,20 @@ public partial class PackageCommand
             CommandError.Write(libraryModeError);
             return 1;
         }
+        if (options.PackageLibrary is not null
+            && LibrarySectionCardinality.ValidateExactTerminals(
+                options.Select,
+                options.SelectDefault,
+                options.IncludeSections,
+                fixedOverview: false,
+                options.Verbosity,
+                options.Count,
+                options.Rows is not null,
+                options.Discover is not null) is { } cardinalityError)
+        {
+            CommandError.Write(cardinalityError);
+            return 1;
+        }
 
         if (options.WorkspacePacket is not null)
         {

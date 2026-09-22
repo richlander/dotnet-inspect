@@ -391,6 +391,65 @@ public partial class CommandExecutionTests
         }
     }
 
+    [Theory]
+    [InlineData("--count")]
+    [InlineData("--rows", "1")]
+    public async Task
+        PackageCommand_ExactLibraryInfoRejectsSemanticTerminalBeforeAcquisition(
+            params string[] terminal)
+    {
+        string package =
+            $"Definitely.Missing.Package.{Guid.NewGuid():N}";
+        string[] args =
+        [
+            "package",
+            package,
+            "--library",
+            "Missing.dll",
+            "-S",
+            SectionNames.LibraryInfo,
+            .. terminal,
+            "--tips",
+            "q",
+        ];
+
+        var (exit, output, error) = await RunAppAsync(args);
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains(
+            $"Section '{SectionNames.LibraryInfo}' is scalar",
+            error);
+        Assert.Contains(terminal[0], error);
+        Assert.DoesNotContain(package, error);
+    }
+
+    [Fact]
+    public async Task
+        PackageCommand_ExactLibraryFixedOverviewRejectsCountBeforeAcquisition()
+    {
+        string package =
+            $"Definitely.Missing.Package.{Guid.NewGuid():N}";
+
+        var (exit, output, error) = await RunAppAsync(
+            "package",
+            package,
+            "--library",
+            "Missing.dll",
+            "-S",
+            "--count",
+            "--tips",
+            "q");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains(
+            $"Section '{SectionNames.LibraryInfo}' is scalar",
+            error);
+        Assert.Contains("--count", error);
+        Assert.DoesNotContain(package, error);
+    }
+
     [Fact]
     public async Task
         PackageCommand_AllLibraries_UnsupportedArtifactRoleShapePreservesLegacyOutput()
@@ -1036,8 +1095,21 @@ public partial class CommandExecutionTests
                 Assert.True(
                     renderedCount > 0,
                     $"{section} must render rows in this fixture.");
+                int semanticCount =
+                    section.Equals(
+                        SectionNames.LibraryInfo,
+                        StringComparison.OrdinalIgnoreCase)
+                        ? renderOutput
+                            .ReplaceLineEndings("\n")
+                            .Split(
+                                '\n',
+                                StringSplitOptions.RemoveEmptyEntries)
+                            .Count(line => line.StartsWith(
+                                "## Library Info (",
+                                StringComparison.Ordinal))
+                        : renderedCount;
                 Assert.Equal(
-                    renderedCount,
+                    semanticCount,
                     mapped[section]);
             }
 
@@ -1253,6 +1325,83 @@ public partial class CommandExecutionTests
             Assert.Contains("## Library Info (lib/net10.0/Latest.Two.dll)", output);
             Assert.DoesNotContain("## Library Info (lib/net8.0/Older.dll)", output);
             Assert.DoesNotContain("Tip:", error);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task AggregateLibraryInfoCountsLibraries()
+    {
+        var (packagePath, tempDir) = CreateLocalLibPackage();
+        try
+        {
+            var count = await RunAppAsync(
+                "package",
+                packagePath,
+                "--library",
+                "-S",
+                SectionNames.LibraryInfo,
+                "--count",
+                "--tips",
+                "q");
+            var rows = await RunAppAsync(
+                "package",
+                packagePath,
+                "--library",
+                "-S",
+                SectionNames.LibraryInfo,
+                "--rows",
+                "1",
+                "--tips",
+                "q");
+            var windowedCount = await RunAppAsync(
+                "package",
+                packagePath,
+                "--library",
+                "-S",
+                SectionNames.LibraryInfo,
+                "--rows",
+                "1",
+                "--count",
+                "--tips",
+                "q");
+            var jsonRows = await RunAppAsync(
+                "package",
+                packagePath,
+                "--library",
+                "-S",
+                SectionNames.LibraryInfo,
+                "--rows",
+                "1",
+                "--json",
+                "--tips",
+                "q");
+
+            Assert.Equal(0, count.Exit);
+            Assert.Empty(count.Error);
+            Assert.Equal(
+                2,
+                int.Parse(
+                    count.Output.Trim(),
+                    CultureInfo.InvariantCulture));
+            Assert.Equal(0, rows.Exit);
+            Assert.DoesNotContain("Tip:", rows.Error);
+            Assert.Single(
+                rows.Output.Split('\n'),
+                line => line.StartsWith(
+                        "## Library Info (",
+                        StringComparison.Ordinal));
+            Assert.Equal(0, windowedCount.Exit);
+            Assert.Empty(windowedCount.Error);
+            Assert.Equal("1", windowedCount.Output.Trim());
+            Assert.Equal(0, jsonRows.Exit);
+            Assert.DoesNotContain("Tip:", jsonRows.Error);
+            using JsonDocument jsonDocument =
+                JsonDocument.Parse(jsonRows.Output);
+            Assert.Single(jsonDocument.RootElement.EnumerateArray());
         }
         finally
         {
@@ -1951,13 +2100,11 @@ public partial class CommandExecutionTests
     }
 
     /// <summary>
-    /// Singular all-libraries sections remain one table per library for row selection even when a
-    /// row format flattens them into one provenance-bearing stream. The count is the independent
-    /// Markdown oracle: two rows from each of two selected libraries must produce four rows in
-    /// every representation.
+    /// Library Info is an inventory of Libraries, even when a row format lowers each selected
+    /// scalar Library value to multiple provenance-bearing field rows.
     /// </summary>
     [Fact]
-    public async Task PackageCommand_AllLibraries_RowFormats_WindowPerLibraryLikeMarkdownCount()
+    public async Task PackageCommand_AllLibraries_RowFormats_WindowLibrariesBeforeFieldLowering()
     {
         var (packagePath, tempDir) = CreateLocalLibPackage();
         try
@@ -1999,33 +2146,29 @@ public partial class CommandExecutionTests
             Assert.Equal(0, countExit);
             Assert.Equal(0, tsvExit);
             Assert.Equal(0, jsonlExit);
-            Assert.Equal(4, int.Parse(
+            Assert.Equal(2, int.Parse(
                 countOutput.Trim(),
                 CultureInfo.InvariantCulture));
 
             var tsvRows = SplitOutputLines(tsvOutput).Skip(1).ToArray();
-            Assert.Equal(4, tsvRows.Length);
+            Assert.True(tsvRows.Length > 4);
             Assert.Equal(
-                [2, 2],
+                2,
                 tsvRows
                     .GroupBy(row => row.Split('\t')[2])
-                    .Select(group => group.Count())
-                    .Order()
-                    .ToArray());
+                    .Count());
 
             var jsonlRows = SplitOutputLines(jsonlOutput)
                 .Select(line => JsonDocument.Parse(line))
                 .ToArray();
-            Assert.Equal(4, jsonlRows.Length);
+            Assert.Equal(tsvRows.Length, jsonlRows.Length);
             Assert.Equal(
-                [2, 2],
+                2,
                 jsonlRows
                     .GroupBy(document => document.RootElement
                         .GetProperty("library")
                         .GetString())
-                    .Select(group => group.Count())
-                    .Order()
-                    .ToArray());
+                    .Count());
             Assert.DoesNotContain("Tip:", countError);
             Assert.DoesNotContain("Tip:", tsvError);
             Assert.DoesNotContain("Tip:", jsonlError);
@@ -2052,7 +2195,7 @@ public partial class CommandExecutionTests
                 "-S",
                 "Library Info",
                 "--rows",
-                "2",
+                "1",
                 "--tail",
                 "--tips",
                 "q");
@@ -2063,7 +2206,7 @@ public partial class CommandExecutionTests
                 "-S",
                 "Library Info",
                 "--rows",
-                "2",
+                "1",
                 "--tail",
                 "--tsv",
                 "--tips",
@@ -2075,7 +2218,7 @@ public partial class CommandExecutionTests
                 "-S",
                 "Library Info",
                 "--rows",
-                "2",
+                "1",
                 "--tail",
                 "--jsonl",
                 "--tips",
@@ -2085,28 +2228,46 @@ public partial class CommandExecutionTests
             Assert.Equal(0, tsvExit);
             Assert.Equal(0, jsonlExit);
 
+            Assert.Contains(
+                "## Library Info (lib/net10.0/Latest.Two.dll)",
+                markdownOutput);
+            Assert.DoesNotContain(
+                "## Library Info (lib/net10.0/Latest.One.dll)",
+                markdownOutput);
             var markdownFields = SplitOutputLines(markdownOutput)
-                .Where(line =>
-                    line.StartsWith("| Union Types |", StringComparison.Ordinal)
-                    || line.StartsWith("| Version |", StringComparison.Ordinal))
+                .Where(line => line.StartsWith("| ", StringComparison.Ordinal))
+                .Skip(2)
                 .Select(line => line.Split('|')[1].Trim())
                 .ToArray();
-            var tsvFields = SplitOutputLines(tsvOutput)
+            string[][] tsvRows = SplitOutputLines(tsvOutput)
                 .Skip(1)
-                .Select(line => line.Split('\t')[4])
+                .Select(line => line.Split('\t'))
+                .ToArray();
+            Assert.All(
+                tsvRows,
+                row => Assert.Equal(
+                    "lib/net10.0/Latest.Two.dll",
+                    row[2]));
+            var tsvFields = tsvRows
+                .Select(row => row[4])
                 .ToArray();
             var jsonlRows = SplitOutputLines(jsonlOutput)
                 .Select(line => JsonDocument.Parse(line))
                 .ToArray();
+            Assert.All(
+                jsonlRows,
+                document => Assert.Equal(
+                    "lib/net10.0/Latest.Two.dll",
+                    document.RootElement
+                        .GetProperty("library")
+                        .GetString()));
             var jsonlFields = jsonlRows
                 .Select(document => document.RootElement
                     .GetProperty("field")
                     .GetString())
                 .ToArray();
 
-            Assert.Equal(
-                ["Union Types", "Version", "Union Types", "Version"],
-                markdownFields);
+            Assert.NotEmpty(markdownFields);
             Assert.Equal(markdownFields, tsvFields);
             Assert.Equal(markdownFields, jsonlFields);
             Assert.DoesNotContain("Tip:", markdownError);
@@ -2925,7 +3086,7 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Package_AllLibraries_LibraryInfoWindowsPerLibraryBeforeCombining()
+    public async Task Package_AllLibraries_LibraryInfoWindowsLibrariesBeforeFieldLowering()
     {
         var (package, directory) = CreateLocalLibPackage();
         try
@@ -2974,20 +3135,30 @@ public partial class CommandExecutionTests
             string[] all = allRows.Output.Split(
                 '\n',
                 StringSplitOptions.RemoveEmptyEntries);
-            Assert.Equal(
-                all.Length.ToString(CultureInfo.InvariantCulture),
-                allCount.Output.Trim());
+            Assert.Equal("2", allCount.Output.Trim());
+            Assert.True(all.Length > 2);
             Assert.Contains(
                 all,
                 row => row.Contains(
                     "\"field\":\"Union Types\"",
                     StringComparison.Ordinal));
-            Assert.Equal(
-                2,
-                rows.Output.Split(
+            JsonDocument[] windowedRows = rows.Output
+                .Split(
                     '\n',
-                    StringSplitOptions.RemoveEmptyEntries).Length);
-            Assert.Equal("2", count.Output.Trim());
+                    StringSplitOptions.RemoveEmptyEntries)
+                .Select(line => JsonDocument.Parse(line))
+                .ToArray();
+            Assert.True(windowedRows.Length > 2);
+            Assert.Single(
+                windowedRows
+                    .Select(document => document.RootElement
+                        .GetProperty("library")
+                        .GetString())
+                    .Distinct(StringComparer.Ordinal));
+            Assert.Equal("1", count.Output.Trim());
+
+            foreach (JsonDocument document in windowedRows)
+                document.Dispose();
         }
         finally
         {
