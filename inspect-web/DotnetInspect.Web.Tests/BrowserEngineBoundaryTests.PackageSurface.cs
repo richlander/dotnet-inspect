@@ -42,6 +42,7 @@ using BrowserPackageOpportunities = DotnetInspect.Web.Interop.Analysis.BrowserPa
 using BrowserPackagePerformance = DotnetInspect.Web.Interop.Analysis.BrowserPackagePerformance;
 using BrowserPerformanceMember = DotnetInspect.Web.Interop.Analysis.BrowserPerformanceMember;
 using BrowserOpportunityItem = DotnetInspect.Web.Interop.Analysis.BrowserOpportunityItem;
+using BrowserLibraryMetrics = DotnetInspect.Web.Interop.Analysis.BrowserLibraryMetrics;
 using BrowserSource = DotnetInspect.Web.Interop.Source.BrowserSource;
 using BrowserCallGraph = DotnetInspect.Web.Interop.CallGraph.BrowserCallGraph;
 using BrowserCallGraphTarget = DotnetInspect.Web.Interop.CallGraph.BrowserCallGraphTarget;
@@ -2060,6 +2061,17 @@ public sealed partial class BrowserEngineBoundaryTests
         BrowserWorkspaceParticipant surface = Assert.Single(scope.SurfaceParticipants);
         Assert.Same(surface, scope.LibraryParticipant(coordinate, surface.Asset.Id));
         Assert.Empty(scope.ImplementationParticipants);
+
+        BrowserLibraryMetrics metrics = Assert.IsType<BrowserLibraryMetrics>(
+            JsonSerializer.Deserialize(
+                await DotnetInspect.Web.Interop.Analysis.AnalysisExports.QueryPackageLibraryMetrics(
+                    packageId, "1.0.0", "net11.0", surface.Asset.Id),
+                BrowserAnalysisJsonContext.Default.BrowserLibraryMetrics));
+        Assert.Equal("unavailable", metrics.Outcome);
+        Assert.Contains("no managed implementation assembly", metrics.Failure);
+        Assert.Equal(
+            BrowserAnalysisCompileLibraryStatus.Selected,
+            metrics.CompileLibrary.Status);
 
         BrowserPackageIntegrations integrations = Assert.IsType<BrowserPackageIntegrations>(
             JsonSerializer.Deserialize(

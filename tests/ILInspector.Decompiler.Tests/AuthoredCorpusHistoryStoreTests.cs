@@ -549,7 +549,7 @@ public class AuthoredCorpusHistoryStoreTests
         IReadOnlyList<HistoryRun> runs =
             AuthoredCorpusHistoryStore.ParseAndVerify(File.ReadAllText(path), new TrackedRepository());
 
-        Assert.Equal(13, runs.Count);
+        Assert.Equal(14, runs.Count);
     }
 
     static AuthoredCorpusBenchmark.Report Report()
@@ -778,8 +778,11 @@ public class AuthoredCorpusHistoryStoreTests
             "96be1b3d695cb5d1286938c6df95cc38ec5f3a30",
         ];
 
-        const string VersionFourCommit =
-            "fc4d29f010601a8e9d2f555a6680c3706c418f71";
+        static readonly HashSet<string> VersionFourCommits =
+        [
+            "fc4d29f010601a8e9d2f555a6680c3706c418f71",
+            "d52e17b04e1c9621e0e3c96b832e7d4f6d54a31b",
+        ];
 
         public string ResolveCommit(string commit) => commit;
 
@@ -787,7 +790,7 @@ public class AuthoredCorpusHistoryStoreTests
 
         public int MethodologyAt(string commit)
         {
-            if (commit == VersionFourCommit)
+            if (VersionFourCommits.Contains(commit))
                 return 4;
 
             if (VersionThreeCommits.Contains(commit))
