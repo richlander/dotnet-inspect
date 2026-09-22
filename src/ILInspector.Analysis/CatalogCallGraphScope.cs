@@ -236,6 +236,22 @@ public sealed class CatalogCallGraphScope : IDisposable
     public CatalogCallGraphDiagnostics Diagnostics => Graph.Diagnostics;
 
     /// <summary>
+    /// Publishes every exact declared member and resolved physical
+    /// <c>call</c>, <c>callvirt</c>, and <c>newobj</c> occurrence in this
+    /// scope without traversal bounds.
+    /// </summary>
+    public CatalogCallCensus Census() =>
+        Graph.Census(
+        [
+            .. _participants
+                .OrderBy(participant =>
+                    new CatalogCallCensusMethodOrderingKey(
+                        participant.Assembly.Identity,
+                        participant.CallGraph.ModuleIdentity.ModuleVersionId,
+                        MetadataToken: 0)),
+        ]);
+
+    /// <summary>
     /// Enumerates exact call sites from one participant to another without
     /// applying traversal depth or node bounds.
     /// </summary>
@@ -559,6 +575,266 @@ public sealed class CatalogCallGraphScope : IDisposable
             _incompleteEdges;
         internal ImmutableArray<GraphBindingIdentityConflictEvidence>
             BindingIdentityConflicts => _bindingIdentityConflicts;
+
+        internal CatalogCallCensus Census(
+            ImmutableArray<CatalogCallGraphParticipant> population)
+        {
+            ImmutableArray<CatalogCallCensusMember> members =
+            [
+                .. _definitions
+                    .Select(definition =>
+                    {
+                        CatalogCallCensusMethodOrderingKey orderingKey =
+                            MethodOrderingKey(
+                                definition.Participant,
+                                definition.Method);
+                        return new CatalogCallCensusMember(
+                            definition.Participant,
+                            definition.Method,
+                            definition.Evidence,
+                            definition.HasBody,
+                            definition.Diagnostic,
+                            orderingKey);
+                    })
+                    .OrderBy(member => member.OrderingKey),
+            ];
+
+            Dictionary<string, StoredDefinition[]> definitionsByName =
+                _definitions
+                    .GroupBy(
+                        definition => definition.Method.Name,
+                        StringComparer.Ordinal)
+                    .ToDictionary(
+                        group => group.Key,
+                        group => group.ToArray(),
+                        StringComparer.Ordinal);
+            var occurrences =
+                ImmutableArray.CreateBuilder<CatalogCallCensusOccurrence>();
+            foreach (StoredEdge edge in _edges)
+            {
+                if (!IsCensusCall(edge.Call.Kind)
+                    || !definitionsByName.TryGetValue(
+                        edge.Call.Callee.Name,
+                        out StoredDefinition[]? candidates))
+                {
+                    continue;
+                }
+
+                StoredDefinition[] matches =
+                [
+                    .. candidates.Where(definition =>
+                        CorrespondsTo(
+                            edge.Callee,
+                            definition,
+                            definition.Participant.Assembly.Identity)),
+                ];
+                if (matches.Length != 1)
+                    continue;
+
+                StoredDefinition target = matches[0];
+                CatalogCallCensusMethodOrderingKey sourceOrderingKey =
+                    MethodOrderingKey(
+                        edge.Caller.Participant,
+                        edge.Caller.Method);
+                CatalogCallCensusMethodOrderingKey targetOrderingKey =
+                    MethodOrderingKey(
+                        target.Participant,
+                        target.Method);
+                DirectCall call = edge.Call with
+                {
+                    ExactTarget = IsResolvedExactTarget(
+                        edge.Call.Kind,
+                        target.Method),
+                };
+                occurrences.Add(
+                    new CatalogCallCensusOccurrence(
+                        edge.Caller.Participant,
+                        edge.Caller.Method,
+                        sourceOrderingKey,
+                        target.Participant,
+                        target.Method,
+                        targetOrderingKey,
+                        call,
+                        edge.Callee.Evidence,
+                        new CatalogCallCensusOccurrenceOrderingKey(
+                            MethodOrderingKey(
+                                edge.Caller.Participant,
+                                edge.Call.EvidenceMethod),
+                            edge.Call.ILOffset,
+                            edge.Call.OperandToken,
+                            edge.Call.Kind)));
+            }
+
+            ImmutableArray<CatalogCallCensusOccurrence> orderedOccurrences =
+            [
+                .. occurrences
+                    .OrderBy(occurrence => occurrence.OrderingKey)
+                    .ThenBy(occurrence => occurrence.SourceOrderingKey)
+                    .ThenBy(occurrence => occurrence.TargetOrderingKey),
+            ];
+            HashSet<GraphNodeStorageKey> resolvedCallSites =
+            [
+                .. orderedOccurrences.Select(
+                    occurrence => occurrence.CallSiteEvidence.Storage),
+            ];
+            ImmutableArray<CatalogCallCensusUnresolvedOccurrence>
+                unresolvedOccurrences =
+            [
+                .. _callSites
+                    .Where(callSite =>
+                        IsCensusCall(callSite.Call.Kind)
+                        && !resolvedCallSites.Contains(
+                            callSite.Evidence.Storage))
+                    .Select(callSite =>
+                    {
+                        CatalogCallCensusMethodOrderingKey sourceOrderingKey =
+                            MethodOrderingKey(
+                                callSite.Participant,
+                                callSite.Call.Caller);
+                        return new CatalogCallCensusUnresolvedOccurrence(
+                            callSite.Participant,
+                            callSite.Call.Caller,
+                            sourceOrderingKey,
+                            callSite.Call,
+                            callSite.Evidence,
+                            new CatalogCallCensusOccurrenceOrderingKey(
+                                MethodOrderingKey(
+                                    callSite.Participant,
+                                    callSite.Call.EvidenceMethod),
+                                callSite.Call.ILOffset,
+                                callSite.Call.OperandToken,
+                                callSite.Call.Kind));
+                    })
+                    .OrderBy(occurrence => occurrence.OrderingKey)
+                    .ThenBy(occurrence =>
+                        occurrence.SourceOrderingKey),
+            ];
+            Dictionary<string, ImmutableArray<AssemblyReferenceIdentity>>
+                identitiesByName =
+                    new(StringComparer.OrdinalIgnoreCase);
+            foreach (IGrouping<string, AssemblyReferenceIdentity> group
+                in population
+                    .Select(participant =>
+                        participant.Assembly.Identity)
+                    .GroupBy(
+                        identity => identity.Name,
+                        StringComparer.OrdinalIgnoreCase))
+            {
+                identitiesByName.Add(
+                    group.Key,
+                    [
+                        .. group
+                            .Distinct()
+                            .OrderBy(identity =>
+                                new CatalogCallCensusMethodOrderingKey(
+                                    identity,
+                                    Guid.Empty,
+                                    MetadataToken: 0)),
+                    ]);
+            }
+            var versionSkewedBindings = ImmutableArray.CreateBuilder<
+                CatalogCallCensusVersionSkewEvidence>();
+            foreach (CatalogCallCensusOccurrence occurrence
+                in orderedOccurrences)
+            {
+                TypeRef declaringType =
+                    GenericMemberIdentity.OpenDeclaringType(
+                        occurrence.Call.Callee.DeclaringType);
+                if (declaringType.Resolution?.Origin
+                        is not TypeReferenceOrigin.AssemblyReference requested
+                    || !identitiesByName.TryGetValue(
+                        occurrence.Target.Assembly.Identity.Name,
+                        out ImmutableArray<AssemblyReferenceIdentity>
+                            identities))
+                {
+                    continue;
+                }
+
+                ImmutableArray<AssemblyReferenceIdentity> alternatives =
+                [
+                    .. identities.Where(identity =>
+                        !identity.IsEquivalentTo(
+                            occurrence.Target.Assembly.Identity)),
+                ];
+                if (alternatives.IsEmpty)
+                    continue;
+
+                versionSkewedBindings.Add(
+                    new CatalogCallCensusVersionSkewEvidence(
+                        occurrence.CallSiteEvidence,
+                        requested.Assembly,
+                        occurrence.Target.Assembly.Identity,
+                        alternatives));
+            }
+            ImmutableArray<GraphNodeEvidence> incompleteNodes =
+            [
+                .. _definitions
+                    .Select(definition => definition.Evidence)
+                    .Concat(
+                        _callSites
+                            .Where(callSite =>
+                                IsCensusCall(callSite.Call.Kind))
+                            .Select(callSite => callSite.Evidence))
+                    .Where(evidence =>
+                        evidence.Kind
+                            == GraphCorrespondenceKind.Incomplete),
+            ];
+            ImmutableArray<GraphEdgeEvidence> incompleteEdges =
+            [
+                .. _edges
+                    .Where(edge =>
+                        IsCensusCall(edge.Call.Kind)
+                        && (edge.Caller.Evidence.Kind
+                                == GraphCorrespondenceKind.Incomplete
+                            || edge.Callee.Evidence.Kind
+                                == GraphCorrespondenceKind.Incomplete))
+                    .Select(edge => new GraphEdgeEvidence(
+                        edge.Caller.Evidence,
+                        edge.Callee.Evidence,
+                        edge.Call.Kind,
+                        edge.Call.InLoop)),
+            ];
+            var graphDiagnostics = new CatalogCallGraphDiagnostics(
+                incompleteNodes.Length,
+                incompleteEdges.Length,
+                BindingIdentityConflictCount: 0);
+            var diagnostics = new CatalogCallCensusDiagnostics(
+                graphDiagnostics,
+                unresolvedOccurrences.Length,
+                versionSkewedBindings.Count);
+            var receipt = new CatalogCallCensusReceipt(
+                Catalog,
+                Generation,
+                population.Length,
+                members.Length,
+                orderedOccurrences.Length,
+                unresolvedOccurrences.Length,
+                versionSkewedBindings.Count);
+            return new(
+                receipt,
+                population,
+                members,
+                orderedOccurrences,
+                unresolvedOccurrences,
+                versionSkewedBindings.ToImmutable(),
+                diagnostics,
+                incompleteNodes,
+                incompleteEdges);
+        }
+
+        static CatalogCallCensusMethodOrderingKey MethodOrderingKey(
+            CatalogCallGraphParticipant participant,
+            MethodIdentity method) =>
+            new(
+                participant.Assembly.Identity,
+                method.ModuleVersionId,
+                method.MetadataToken);
+
+        static bool IsCensusCall(CallKind kind) =>
+            kind is
+                CallKind.Call
+                or CallKind.CallVirtual
+                or CallKind.NewObject;
 
         static ImmutableArray<GraphBindingIdentityConflictEvidence>
             FindBindingIdentityConflicts(
@@ -1314,13 +1590,12 @@ public sealed class CatalogCallGraphScope : IDisposable
                         callProjection
                 && definition.Evidence.Correspondence
                     is CatalogMemberJoinProjection.Issued
-                        definitionProjection
-                && definition.Plan.CorrespondsTo(
+                        definitionProjection)
+            {
+                return definition.Plan.CorrespondsTo(
                     callSite.Plan,
                     definitionProjection,
-                    callProjection))
-            {
-                return true;
+                    callProjection);
             }
 
             TypeRef declaringType =
