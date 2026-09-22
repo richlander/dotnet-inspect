@@ -549,8 +549,10 @@ public class CSharpPrinterTests
 
         RunStoreElementReceiverInlining(function);
         string output = CSharpPrinter.Print(function).Output!.ReplaceLineEndings("\n").TrimEnd();
+        var facts = CSharpPrinter.CollectDataflowFacts(function);
 
         Assert.Equal("items[i] = MemoryExtensions.Trim(item).ToString();", output);
+        Assert.Equal(["V_0 (eliminated)"], facts.LocalNames);
         Assert.DoesNotContain(
             0,
             LocalDeclarationPlan.Create(function, 1)

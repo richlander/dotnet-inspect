@@ -822,7 +822,10 @@ public sealed partial class CSharpPrinter
         }
         _readBeforeAssign = DefiniteAssignment.Compute(function, _labelTargets, _facts);
         if (_facts is not null)
-            _facts.LocalNames = [.. Enumerable.Range(0, function.Locals.Length).Select(LocalName)];
+            _facts.LocalNames = [
+                .. Enumerable.Range(0, function.Locals.Length)
+                    .Select(LocalFactLabel),
+            ];
     }
 
     static bool NeedsUnsupportedFallbackReturn(IrFunction function)
@@ -5817,6 +5820,18 @@ public sealed partial class CSharpPrinter
                 $"Eliminated local {index} has no presentation binding.");
         }
         return binding.Identifier;
+    }
+
+    string LocalFactLabel(int index)
+    {
+        if (_localDeclarationPlan is { } plan
+            && (uint)index < (uint)plan.Bindings.Length
+            && plan.Bindings[index].Provenance
+                == LocalBindingNameProvenance.Eliminated)
+        {
+            return $"V_{index} (eliminated)";
+        }
+        return LocalName(index);
     }
 
     static string ReserveName(string baseName, HashSet<string> taken)

@@ -163,7 +163,8 @@ failure result and degrades visibly.
 
 Eliminated locals have no emitted declaration and no presentation name. Their
 absence is established by the transformation that eliminated them, not inferred
-from an empty planner result.
+from an empty planner result. A slot-indexed diagnostic may label the physical
+slot `V_N (eliminated)` without turning that label into a presentation binding.
 
 The final pre-presentation
 `StoreElementReceiverInliningPass` owns the #1911 single-use address-receiver
