@@ -17,7 +17,6 @@ import {
 } from "../src/navigation-descriptor-presentation.ts";
 import {
   captureScopeBarFocus,
-  renderApplicationScopeBar,
   renderNavigationDescriptorBar,
 } from "../src/scope-bar.ts";
 import { renderWorkspaceView } from "../src/workspace-subject.ts";
@@ -393,17 +392,9 @@ test("failed hierarchy items render only their exact descriptor evidence", () =>
     /Choose a member<span class="navigation-status">[^<]*(?:decode|metadata)/);
 });
 
-test("Workspace entry and Package rows render product labels, order, and status", () => {
+test("Package rows render product labels, order, and status", () => {
   const descriptorPresentation =
     createNavigationDescriptorPresentation(posting());
-  const application = renderApplicationScopeBar(
-    null,
-    true,
-    escapeHtml,
-    {
-      ...descriptorPresentation.workspace,
-      label: "Product Workspace",
-    });
   const workspace = renderWorkspaceView({
     occurrences: [],
     navigationPackages: descriptorPresentation.packages,
@@ -419,9 +410,6 @@ test("Workspace entry and Package rows render product labels, order, and status"
     escapeHtml,
   });
 
-  assert.match(
-    application,
-    /data-application-scope="workspace"[^>]*data-product-navigation-action="workspace-action"[^>]*>Product Workspace</);
   assert.match(
     workspace,
     /data-navigation-order="10"[\s\S]*Second[\s\S]*data-navigation-order="20"[\s\S]*First/);

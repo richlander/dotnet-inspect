@@ -778,7 +778,7 @@ test("multiple semantic answers render as distinct list items", () => {
   assert.doesNotMatch(html, /<span class="query-answer">MIT<\/span><span/);
 });
 
-test("the query header keeps home and Back without Query or Workspace buttons", () => {
+test("the query header keeps product navigation collapsed beside Back", () => {
   const html = renderPackageQueryView({
     state: initialQueryState(),
     availablePresets: FACETS,
@@ -789,7 +789,7 @@ test("the query header keeps home and Back without Query or Workspace buttons", 
   assert.match(html, /id="package-query-back" type="button">Back<\/button>/);
   assert.match(
     html,
-    /id="package-query-product" class="brand" href="\/" aria-label="dotnet inspect home"/);
+    /id="package-query-product" class="brand" type="button"[\s\S]*data-product-destination="home"[\s\S]*data-product-destination="query"[\s\S]*data-product-destination="workspace"[\s\S]*data-product-destination="activity"/);
 });
 
 test("a packageId cannot break out of the row's HTML attribute context via a quote", () => {
