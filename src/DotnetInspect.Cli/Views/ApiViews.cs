@@ -1239,6 +1239,9 @@ public class MemberCodeView
     [MarkoutSection(Name = SectionNames.ApiDeclarations)]
     public CodeSection ApiDeclarationsCode { get; set; }
 
+    [MarkoutSection(Name = SectionNames.Source)]
+    public CodeSection SourceCode { get; set; }
+
     [MarkoutSection(Name = "Decompiled Source")]
     public CodeSection DecompiledSourceCode { get; set; }
 

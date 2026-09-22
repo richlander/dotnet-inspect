@@ -3353,14 +3353,18 @@ public class SourceForwarderResolutionTests
     }
 
     [Theory]
-    [InlineData(SectionNames.SourceFiles)]
-    [InlineData(SectionNames.DecompiledSource)]
-    public async Task TypeSourceAcquisition_ReportsSelectedOpenFailure(string section)
+    [InlineData(SectionNames.SourceFiles, false)]
+    [InlineData(SectionNames.DecompiledSource, false)]
+    [InlineData(SectionNames.Source, false)]
+    [InlineData(SectionNames.Source, true)]
+    public async Task TypeSourceAcquisition_ReportsSelectedOpenFailure(
+        string section,
+        bool isForwarded)
     {
         int opens = 0;
         var fixture = CreateTypeSourceFixture(
             AssemblyResolutionProvenance.Local("failed-opening"),
-            isForwarded: false,
+            isForwarded,
             () =>
             {
                 opens++;
@@ -3389,7 +3393,10 @@ public class SourceForwarderResolutionTests
 
             Assert.Equal(1, exit);
             Assert.Empty(output);
-            Assert.Contains("Selected source image could not be opened.", error);
+            Assert.Contains(
+                "image could not be",
+                error,
+                StringComparison.OrdinalIgnoreCase);
             Assert.Equal(1, opens);
             Assert.Empty(handler.RequestUris);
         }
