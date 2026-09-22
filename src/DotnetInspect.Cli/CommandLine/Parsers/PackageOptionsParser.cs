@@ -208,12 +208,14 @@ public static class PackageOptionsParser
                 "--version requires an exact Package version.");
         }
 
+        PackageReferenceTarget? selectedTarget =
+            packageArgs is [var selectedPackageReference]
+                ? PackageExtractor.ParsePackageTarget(
+                    selectedPackageReference)
+                : null;
         if (explicitVersion is not null
-            && packageArgs is [var selectedPackageReference])
+            && selectedTarget is not null)
         {
-            PackageReferenceTarget selectedTarget =
-                PackageExtractor.ParsePackageTarget(
-                    selectedPackageReference);
             if (selectedTarget.IsLocalFile)
             {
                 return new InvalidArguments(
@@ -225,6 +227,13 @@ public static class PackageOptionsParser
                 return new InvalidArguments(
                     "--version cannot be combined with a versioned Package coordinate.");
             }
+        }
+        if (showLatestVersion
+            && selectedTarget is
+                { IsLocalFile: false, Version.Length: > 0 })
+        {
+            return new InvalidArguments(
+                "--latest-version cannot be combined with a versioned Package coordinate.");
         }
 
         bool namesakeLibrary =

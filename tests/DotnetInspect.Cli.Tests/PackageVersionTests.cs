@@ -780,6 +780,31 @@ public class PackageVersionTests
             StringComparison.OrdinalIgnoreCase);
     }
 
+    [Theory]
+    [InlineData("ThisQueryMustNotReachTheNetwork@1.0.0")]
+    [InlineData("ThisQueryMustNotReachTheNetwork@latest")]
+    [InlineData("ThisQueryMustNotReachTheNetwork@1.*")]
+    [InlineData("ThisQueryMustNotReachTheNetwork@1.0.0..2.0.0")]
+    public async Task VersionedCoordinateAndLatestVersionRejectBeforeAcquisition(
+        string package)
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "package",
+            package,
+            "--latest-version");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains(
+            "--latest-version cannot be combined with a versioned Package coordinate",
+            error,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "not found",
+            error,
+            StringComparison.OrdinalIgnoreCase);
+    }
+
     [Fact]
     public async Task LocalPackageAndVersionOptionRejectBeforeAcquisition()
     {
