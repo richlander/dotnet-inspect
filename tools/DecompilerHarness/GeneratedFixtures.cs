@@ -1484,7 +1484,7 @@ internal static class GeneratedFixtureCatalog
                 FidelityCheck.CompileBackStatus.Exact,
                 ExpectedTargetBodyFragments:
                 [
-                    "return this.FeatureType;",
+                    "return field;",
                 ]),
         ],
         ["rts", "attribute", "shell", "return-to-sender"]);
