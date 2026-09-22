@@ -88,6 +88,15 @@ test("the top shell row separates product navigation from inspection subjects", 
     .toBeFocused();
   await expect(page.locator("[data-product-destination]"))
     .toHaveText(["Home", "Query", "Workspace", "Activity"]);
+  await expect(page.locator("[data-product-action='open-library']"))
+    .toHaveText("Open Library…");
+  await expect(page.locator(".product-navigation-menu [role='separator']"))
+    .toHaveCount(1);
+  await page.locator("[data-product-action='open-library']").click();
+  await expect(page.locator("body"))
+    .toHaveAttribute("data-open-library", "true");
+  await expect(page.locator(".product-navigation-menu")).toBeHidden();
+  await page.locator(".titlebar .brand").click();
   await expect(page.locator("[data-product-destination='home']"))
     .not.toHaveAttribute("aria-current", "page");
   await expect(page.locator("[data-product-destination='query']"))
@@ -1682,13 +1691,14 @@ test("the Application menu owns global actions and modal focus return", async ({
   await page.keyboard.press("ArrowDown");
   const items = page.getByRole("menuitem");
   await expect(items).toHaveText([
-    "Open Library…",
     "Share",
     "Settings",
     "Keyboard help",
   ]);
   await expect(items.first()).toBeFocused();
-  await expect(page.getByRole("separator")).toHaveCount(2);
+  await expect(
+    page.locator("#application-menu [role='separator']"),
+  ).toHaveCount(1);
   await expect(page.locator("#application-menu-overlay > #application-menu"))
     .toBeVisible();
   const popup = await box(page, "#application-menu");
@@ -1899,20 +1909,21 @@ test("application and contextual actions preserve focus across responsive layout
   await expect(menuButton).toBeFocused();
 });
 
-test("application menu returns focus to its replacement shell identity", async ({
+test("brand menu returns focus to its replacement shell identity", async ({
   page,
 }) => {
   await page.goto("/browser/workspace-titlebar.html?member=1");
-  const button = page.locator("#application-menu-button");
+  const button = page.locator("[data-product-navigation-button]");
   await button.click();
+  await page.keyboard.press("End");
   await expect(
     page.getByRole("menuitem", { name: "Open Library…", exact: true }),
   ).toBeFocused();
 
-  await page.evaluate(() => window.rerenderApplicationMenuProbe());
+  await page.evaluate(() => window.rerenderProductNavigationProbe());
 
   await expect(button).toBeFocused();
-  await expect(page.locator("#application-menu")).toBeHidden();
+  await expect(page.locator(".product-navigation-menu")).toBeHidden();
 });
 
 test("the inspected target occupies the second row and package selectors stay in content", async ({
