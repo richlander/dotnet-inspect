@@ -83,6 +83,8 @@ type AnalysisOperationName =
   | "queryPackageOpportunities"
   | "queryPlatformOpportunities"
   | "queryPackagePerformance"
+  | "queryPackageLibraryMetrics"
+  | "queryPlatformLibraryMetrics"
   | "queryPlatformPerformance";
 
 type SourceOperationName =
@@ -1215,6 +1217,22 @@ export const engineWorkerOrdinaryOperations = {
         ...args: Parameters<AnalysisFacade["queryPackagePerformance"]>
       ) => facades.analysis.queryPackagePerformance(...args),
     ),
+    queryPackageLibraryMetrics: valueOperation(
+      "ordinary-analysis-query-package-library-metrics",
+      4,
+      (
+        facades,
+        ...args: Parameters<AnalysisFacade["queryPackageLibraryMetrics"]>
+      ) => facades.analysis.queryPackageLibraryMetrics(...args),
+    ),
+    queryPlatformLibraryMetrics: valueOperation(
+      "ordinary-analysis-query-platform-library-metrics",
+      4,
+      (
+        facades,
+        ...args: Parameters<AnalysisFacade["queryPlatformLibraryMetrics"]>
+      ) => facades.analysis.queryPlatformLibraryMetrics(...args),
+    ),
     queryPlatformPerformance: valueOperation(
       "ordinary-analysis-query-platform-performance",
       4,
@@ -1770,6 +1788,14 @@ export function bindEngineWorkerOrdinaryClient(
       queryPackagePerformance: bind(
         engineWorkerOrdinaryOperations.analysis
           .queryPackagePerformance,
+      ),
+      queryPackageLibraryMetrics: bind(
+        engineWorkerOrdinaryOperations.analysis
+          .queryPackageLibraryMetrics,
+      ),
+      queryPlatformLibraryMetrics: bind(
+        engineWorkerOrdinaryOperations.analysis
+          .queryPlatformLibraryMetrics,
       ),
       queryPlatformPerformance: bind(
         engineWorkerOrdinaryOperations.analysis

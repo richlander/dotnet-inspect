@@ -560,6 +560,152 @@ public static partial class AnalysisExports
             BrowserAnalysisJsonContext.Default.BrowserPackagePerformance);
     }
 
+    /// <summary>
+    /// Research-owned structural metrics for one exact package library. The
+    /// Browser host receives the typed Research document projected into its
+    /// local wire contract; it does not recompute distributions.
+    /// </summary>
+    [JSExport]
+    public static async Task<string> QueryPackageLibraryMetrics(
+        string packageId,
+        string version,
+        string targetFramework,
+        string assemblyName)
+    {
+        BrowserLibraryMetrics metrics =
+            await PackageLibraryMetricsAsync(
+                packageId, version, targetFramework, assemblyName);
+        return JsonSerializer.Serialize(
+            metrics,
+            BrowserAnalysisJsonContext.Default.BrowserLibraryMetrics);
+    }
+
+    static async Task<BrowserLibraryMetrics> PackageLibraryMetricsAsync(
+        string packageId,
+        string version,
+        string targetFramework,
+        string assemblyName)
+    {
+        await using BrowserScopeLease<BrowserInspectionScope> scopeLease =
+            await BrowserPackageWorkspace.OpenScopeAsync(
+                packageId,
+                version,
+                targetFramework);
+        BrowserInspectionScope scope = scopeLease.Scope;
+        BrowserPackageCoordinate coordinate = scope.Coordinates[0];
+        BrowserCompileLibraryAvailability compileLibrary =
+            BrowserAnalysisWireProjection.Project(
+                BrowserCompileLibraryProjection.Project(coordinate.Selection));
+        if (!coordinate.Selection.IsSelected)
+        {
+            return UnavailableLibraryMetrics(
+                "unavailable",
+                $"The package has no selected compile library ({compileLibrary.Status}).",
+                compileLibrary);
+        }
+
+        BrowserWorkspaceParticipant participant =
+            scope.LibraryParticipant(coordinate, assemblyName);
+        AssemblyContextEntry<LibraryMetricsResult> entry =
+            scope.UseImplementationParticipant(
+                participant,
+                AssemblyContextLibraryMetricsQuery.ExecuteParticipant);
+        return ProjectLibraryMetrics(entry, compileLibrary);
+    }
+
+    static BrowserLibraryMetrics ProjectLibraryMetrics(
+        AssemblyContextEntry<LibraryMetricsResult> entry,
+        BrowserCompileLibraryAvailability compileLibrary) =>
+        entry switch
+        {
+            AssemblyContextEntry<LibraryMetricsResult>.Available available =>
+                ProjectLibraryMetrics(available.Value, compileLibrary),
+            AssemblyContextEntry<LibraryMetricsResult>.Rejected rejected =>
+                UnavailableLibraryMetrics(
+                    "unavailable",
+                    $"{rejected.Subject.Identity.Name}: "
+                        + $"{rejected.Failure.Kind} ({rejected.Failure.Detail})",
+                    compileLibrary),
+            AssemblyContextEntry<LibraryMetricsResult>.Failed failed =>
+                UnavailableLibraryMetrics(
+                    "failed",
+                    $"{failed.Subject.Identity.Name}: {failed.Error.Message}",
+                    compileLibrary),
+            _ => throw new InvalidOperationException(
+                "Unknown Library Metrics assembly-context result."),
+        };
+
+    static BrowserLibraryMetrics ProjectLibraryMetrics(
+        LibraryMetricsResult result,
+        BrowserCompileLibraryAvailability compileLibrary) =>
+        result switch
+        {
+            LibraryMetricsResult.Available available =>
+                new(
+                    "available",
+                    available.Document.MethodologyVersion,
+                    new(
+                        available.Document.Population.PhysicalEvidenceBodyCount,
+                        available.Document.Population.ProfiledPhysicalEvidenceBodyCount,
+                        available.Document.Population.LogicalOwnerCount,
+                        available.Document.Population.CompleteProfileCount,
+                        available.Document.Population.IncompleteProfileCount),
+                    [
+                        .. available.Document.Distributions.Select(
+                            distribution => new BrowserLibraryMetricsDistribution(
+                                distribution.Metric.ToString(),
+                                distribution.CompleteBodyCount,
+                                distribution.Minimum,
+                                distribution.P50,
+                                distribution.P90,
+                                distribution.P95,
+                                distribution.P99,
+                                distribution.Maximum)),
+                    ],
+                    new(
+                        available.Document.AsyncStateMachinePresence.Name,
+                        available.Document.AsyncStateMachinePresence.CompleteBodyCount,
+                        available.Document.AsyncStateMachinePresence.PresentCount,
+                        available.Document.AsyncStateMachinePresence.AbsentCount),
+                    [
+                        .. available.Document.Diagnostics.Select(
+                            diagnostic => diagnostic.Message),
+                    ],
+                    null,
+                    compileLibrary),
+            LibraryMetricsResult.Unavailable unavailable =>
+                UnavailableLibraryMetrics(
+                    "unavailable",
+                    unavailable.Outcome.Message,
+                    compileLibrary),
+            LibraryMetricsResult.NoMetadata =>
+                UnavailableLibraryMetrics(
+                    "unavailable",
+                    "The library contains no managed metadata.",
+                    compileLibrary),
+            LibraryMetricsResult.Failed failed =>
+                UnavailableLibraryMetrics(
+                    "failed",
+                    failed.Error.Message,
+                    compileLibrary),
+            _ => throw new InvalidOperationException(
+                "Unknown Library Metrics result."),
+        };
+
+    static BrowserLibraryMetrics UnavailableLibraryMetrics(
+        string outcome,
+        string failure,
+        BrowserCompileLibraryAvailability compileLibrary) =>
+        new(
+            outcome,
+            null,
+            null,
+            [],
+            null,
+            [],
+            failure,
+            compileLibrary);
+
     static async Task<BrowserPackagePerformance> PackagePerformanceAsync(
         string packageId,
         string version,

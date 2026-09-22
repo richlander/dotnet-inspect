@@ -142,6 +142,7 @@ import {
   createPackageInspectionCoordinator,
   resolvePackagePerformanceMember,
   workspaceDependencyKey,
+  type PackageLibraryMetrics,
   type PackagePerformance,
 } from "./package-inspection.ts";
 import {
@@ -277,6 +278,7 @@ import {
   type IntegrationMode,
 } from "./integration-inspector.ts";
 import { renderLibraryAnalysisSurface } from "./library-analysis.ts";
+import { renderLibraryMetricsSurface } from "./library-metrics.ts";
 import {
   captureMemberFocus,
   createMemberFocusRestorer,
@@ -735,6 +737,10 @@ let inspectPackageOpportunities:
   EngineClient["analysis"]["queryPackageOpportunities"];
 let inspectPackagePerformance:
   EngineClient["analysis"]["queryPackagePerformance"];
+let inspectPackageLibraryMetrics:
+  EngineClient["analysis"]["queryPackageLibraryMetrics"];
+let inspectPlatformLibraryMetrics:
+  EngineClient["analysis"]["queryPlatformLibraryMetrics"];
 let inspectPlatformIntegrations:
   EngineClient["analysis"]["queryPlatformIntegrations"];
 let inspectPlatformOpportunities:
@@ -882,6 +888,8 @@ async function loadEngineModule() {
       queryPackageIntegrations: inspectPackageIntegrations,
       queryPackageOpportunities: inspectPackageOpportunities,
       queryPackagePerformance: inspectPackagePerformance,
+      queryPackageLibraryMetrics: inspectPackageLibraryMetrics,
+      queryPlatformLibraryMetrics: inspectPlatformLibraryMetrics,
       queryPlatformIntegrations: inspectPlatformIntegrations,
       queryPlatformOpportunities: inspectPlatformOpportunities,
       queryPlatformPerformance: inspectPlatformPerformance,
@@ -1161,6 +1169,10 @@ const initialState = {
   packagePerformanceLoading: false,
   packagePerformanceError: "",
   packagePerformanceKey: "",
+  packageLibraryMetrics: null,
+  packageLibraryMetricsLoading: false,
+  packageLibraryMetricsError: "",
+  packageLibraryMetricsKey: "",
   packageMetadata: null,
   packageMetadataLoading: false,
   packageMetadataError: "",
@@ -5335,6 +5347,7 @@ function libraryLensRequiresExactLibrary(lens: LibraryLens) {
     case "references":
     case "integrations":
     case "analysis":
+    case "metrics":
     case "metadata": return true;
     default: return assertNever(lens, "library lens");
   }
@@ -6582,6 +6595,8 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
     libraryIntegrationsWorkingSurface && state.integrationMode === "opportunities";
   const libraryAnalysisWorkingSurface =
     activeScope === "library" && state.libraryLens === "analysis";
+  const libraryMetricsWorkingSurface =
+    activeScope === "library" && state.libraryLens === "metrics";
   const memberOverloadPicker =
     currentMember !== undefined
     && currentMember.overloads.length > 1
@@ -6627,6 +6642,7 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
     || libraryIntegrationsWorkingSurface
     || libraryOpportunitiesWorkingSurface
     || libraryAnalysisWorkingSurface
+    || libraryMetricsWorkingSurface
     || memberWorkingSurface;
 
   if (scopeBarOwnsFocus) {
@@ -6827,6 +6843,7 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
     maybeAutoLoadPackageIntegrations();
     maybeAutoLoadPackageOpportunities();
     maybeAutoLoadPackagePerformance();
+    maybeAutoLoadPackageLibraryMetrics();
     maybeAutoLoadPackageMetadata();
   }
   if (scope() === "member"
@@ -7302,6 +7319,7 @@ function renderLibraryView() {
     || state.libraryLens === "references"
     || state.libraryLens === "integrations"
     || state.libraryLens === "analysis"
+    || state.libraryLens === "metrics"
     || state.libraryLens === "metadata") return body;
   return `${libraryHeading()}${body}`;
 }
@@ -7399,6 +7417,7 @@ function libraryLensBody() {
       ? renderPackageOpportunities()
       : renderPackageIntegrations();
     case "analysis": return renderPackagePerformance();
+    case "metrics": return renderPackageLibraryMetrics();
     case "metadata": return renderPackageMetadata();
     default: return assertNever(state.libraryLens, "library lens");
   }
@@ -7841,6 +7860,12 @@ const packageInspection = createPackageInspectionCoordinator({
     packageModel.version,
     packageModel.activeFramework,
     library),
+  queryPackageLibraryMetrics: (packageModel, library) =>
+    inspectPackageLibraryMetrics(
+      packageModel.id,
+      packageModel.version,
+      packageModel.activeFramework,
+      library),
   queryPlatformPerformance: async (
     framework,
     platformVersion,
@@ -7853,6 +7878,17 @@ const packageInspection = createPackageInspectionCoordinator({
         platformVersion,
         assemblyFileName,
         pack)),
+  queryPlatformLibraryMetrics: (
+    framework,
+    platformVersion,
+    assemblyFileName,
+    pack,
+  ) =>
+    inspectPlatformLibraryMetrics(
+      framework,
+      platformVersion,
+      assemblyFileName,
+      pack),
   queryPackageMetadata: (packageModel, library) =>
     inspectPackageMetadata(
       packageModel.id,
@@ -8046,6 +8082,31 @@ function renderPackagePerformance() {
   });
 }
 
+function renderPackageLibraryMetrics() {
+  const pkg = currentPackage();
+  const library = selectedLibrary();
+  const scopedLib = scopedPlatformLibrary();
+  const current = packageScopeSignature();
+  return renderLibraryMetricsSurface({
+    libraryName: library?.name ?? "",
+    assemblyIdentity: library ? libraryIdentity(library) : "No library selected",
+    assetPath: library?.asset ?? "",
+    coordinate: `${pkg.activeFramework} · ${pkg.id}@${pkg.version}`,
+    requireLibrary: pkg.isRuntimePack && !scopedLib,
+    pickerHtml: pkg.isRuntimePack
+      ? platformLibrarySelectHtml({
+          dataAttr: "data-platform-metrics-library",
+          selected: scopedLib || "",
+        })
+      : "",
+    fresh: state.packageLibraryMetricsKey === current,
+    loading: state.packageLibraryMetricsLoading,
+    error: state.packageLibraryMetricsError,
+    data: state.packageLibraryMetrics,
+    escapeHtml,
+  });
+}
+
 async function loadPackagePerformance() {
   const pkg = currentPackage();
   const scopedLib = selectedLibraryRequest() || null;
@@ -8061,6 +8122,23 @@ function maybeAutoLoadPackagePerformance() {
   if (Boolean(state.package?.isRuntimePack) && !scopedPlatformLibrary()) return;
   if (state.packagePerformanceKey === packageScopeSignature()) return;
   observeAsync(loadPackagePerformance(), "Loading package analysis");
+}
+
+function loadPackageLibraryMetrics() {
+  const pkg = currentPackage();
+  const scopedLib = selectedLibraryRequest() || null;
+  return packageInspection.loadLibraryMetrics(
+    pkg,
+    packageScopeSignature(),
+    scopedLib);
+}
+
+function maybeAutoLoadPackageLibraryMetrics() {
+  if (!state.atLibraryRoot || state.libraryLens !== "metrics") return;
+  if (aggregateLibrarySubjectIsActive()) return;
+  if (Boolean(state.package?.isRuntimePack) && !scopedPlatformLibrary()) return;
+  if (state.packageLibraryMetricsKey === packageScopeSignature()) return;
+  observeAsync(loadPackageLibraryMetrics(), "Loading library metrics");
 }
 
 // The Library Metadata lens describes one image-level container: metadata format version,
