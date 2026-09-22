@@ -3226,9 +3226,7 @@ public partial class LibraryCommand
     }
 
     private static bool IsAllTfmPackageSelection(LibraryOptions options)
-        => string.IsNullOrEmpty(options.PlatformAssembly)
-            && !string.IsNullOrEmpty(options.PackagePath)
-            && string.Equals(options.Tfm, "all", StringComparison.OrdinalIgnoreCase);
+        => LibrarySectionCardinality.IsAllTfmPackageSelection(options);
 
     private static int WriteLibraryShapeProjection(LibraryInspection inspection, LibraryOptions options)
     {
@@ -3854,7 +3852,7 @@ public partial class LibraryCommand
             resourceCatalog: "library",
             resourceCapabilities: LibraryOutputCapabilities.Catalog,
             sectionCardinalities:
-                LibrarySectionCardinality.ExactDeclarations);
+                LibrarySectionCardinality.ExactDeclarationsFor(options));
         return Math.Max(
             Math.Max(discoveryExitCode, inspectionFailureExitCode),
             IntegrityExitCode(
@@ -4045,7 +4043,7 @@ public partial class LibraryCommand
             resourceCatalog: "library",
             resourceCapabilities: LibraryOutputCapabilities.Catalog,
             sectionCardinalities:
-                LibrarySectionCardinality.ExactDeclarations);
+                LibrarySectionCardinality.ExactDeclarationsFor(options));
     }
 
     /// <summary>

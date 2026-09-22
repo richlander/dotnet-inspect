@@ -1065,6 +1065,15 @@ public static class StructuralViewRegistry
         request = normalizedRequest;
         StructuralSchemaProjection projection = Project(route, outputShape);
         DocumentSchema schema = projection.Schema;
+        IReadOnlyDictionary<
+            string,
+            SectionCardinalityDeclaration>? sectionCardinalities =
+                route.Catalog == InspectionCatalogIdentity.Library
+                && request.Projection is LibraryOptions libraryOptions
+                && LibrarySectionCardinality.IsAllTfmPackageSelection(
+                    libraryOptions)
+                    ? null
+                    : projection.SectionCardinalities;
         if (request.Details)
         {
             if (request.Discover is { Length: > 1 })
@@ -1116,7 +1125,7 @@ public static class StructuralViewRegistry
                     projection.OutputCapabilities,
                     requireExactSelection: true,
                     sectionCardinalities:
-                        projection.SectionCardinalities);
+                        sectionCardinalities);
             if (detailedProjection is null)
                 return 1;
 
@@ -1172,7 +1181,7 @@ public static class StructuralViewRegistry
                 projection.OutputCapabilities,
                 sectionCardinalities:
                     FilterCardinalities(
-                        projection.SectionCardinalities,
+                        sectionCardinalities,
                         schema.SectionNames));
             if (discoveryProjection is null)
                 return 1;

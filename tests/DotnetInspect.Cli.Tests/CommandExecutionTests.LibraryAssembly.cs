@@ -4504,7 +4504,20 @@ public partial class CommandExecutionTests
             var (jsonExit, jsonOutput, jsonError) = await RunAppAsync(
                 "library", "System.Runtime.dll", "--package", packagePath, "--tfm", "all",
                 "-S", SectionNames.LibraryInfo, "--json", "--tips", "q");
-
+            var discovery = await RunAppAsync(
+                "library",
+                "System.Runtime.dll",
+                "--package",
+                packagePath,
+                "--tfm",
+                "all",
+                "-D",
+                SectionNames.LibraryInfo,
+                "--schema",
+                "--details",
+                "--json",
+                "--tips",
+                "q");
             Assert.Equal(0, markdownExit);
             Assert.Contains("## Libraries", markdownOutput);
             Assert.Empty(markdownError);
@@ -4513,6 +4526,16 @@ public partial class CommandExecutionTests
             Assert.Equal(JsonValueKind.Array, document.RootElement.ValueKind);
             Assert.Single(document.RootElement.EnumerateArray());
             Assert.Empty(jsonError);
+            Assert.Equal(0, discovery.Exit);
+            Assert.Empty(discovery.Error);
+            using (JsonDocument discoveryDocument =
+                   JsonDocument.Parse(discovery.Output))
+            {
+                JsonElement row = Assert.Single(
+                    discoveryDocument.RootElement.EnumerateArray());
+                Assert.False(row.TryGetProperty("shape", out _));
+                Assert.False(row.TryGetProperty("terminals", out _));
+            }
         }
         finally
         {

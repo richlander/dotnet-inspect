@@ -326,7 +326,8 @@ The complete initial operation adoption is staged through focused slices:
    Library routes, associate the independently inventory-shaped declaration
    with aggregate all-libraries routes, publish both through structural
    Discovery, and reject exact Count or Rows before direct or package
-   acquisition.
+   acquisition. The legacy multi-TFM package gesture remains undeclared until
+   it receives its own aggregate row-unit contract.
 4. Before content cutover, settle the compatibility boundary between the
    current narrow `LibraryOverviewDocument`, the broader ordinary CLI
    `Library Info` field set, and the Browser overview's current eager API

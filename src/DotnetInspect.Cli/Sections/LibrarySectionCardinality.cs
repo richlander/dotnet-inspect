@@ -26,6 +26,23 @@ internal static class LibrarySectionCardinality
                 SectionCardinalityDeclaration.Inventory,
         };
 
+    public static IReadOnlyDictionary<
+        string,
+        SectionCardinalityDeclaration>? ExactDeclarationsFor(
+        LibraryOptions options) =>
+        IsAllTfmPackageSelection(options)
+            ? null
+            : ExactDeclarations;
+
+    public static bool IsAllTfmPackageSelection(
+        LibraryOptions options) =>
+        string.IsNullOrEmpty(options.PlatformAssembly)
+        && !string.IsNullOrEmpty(options.PackagePath)
+        && string.Equals(
+            options.Tfm,
+            "all",
+            StringComparison.OrdinalIgnoreCase);
+
     public static string? ValidateExactTerminals(
         string[]? select,
         bool selectDefault,
