@@ -583,27 +583,62 @@ internal sealed class TypeNodeProvider : ISignatureTypeProvider<TypeNode, Generi
         Span<TypeReferenceHandle> chain,
         out EntityHandle terminal)
     {
+        RelationshipTraversalRejection? rejection;
+        int consumedNodes;
+        bool completed;
         if (_beforeRelationshipFollow is null)
         {
-            return MetadataRelationshipTraversal
+            completed = MetadataRelationshipTraversal
                 .TryWalkTypeReferenceResolutionScope(
                     reader,
                     handle,
                     chain,
-                    out _,
+                    out consumedNodes,
                     out terminal,
-                    out _);
+                    out rejection);
+        }
+        else
+        {
+            completed = MetadataRelationshipTraversal
+                .TryWalkTypeReferenceResolutionScope(
+                    reader,
+                    handle,
+                    chain,
+                    out consumedNodes,
+                    out terminal,
+                    out rejection,
+                    _beforeRelationshipFollow);
         }
 
-        return MetadataRelationshipTraversal
-            .TryWalkTypeReferenceResolutionScope(
-                reader,
-                handle,
-                chain,
-                out _,
-                out terminal,
-                out _,
-                _beforeRelationshipFollow);
+        if (!completed)
+            return RejectRelationship(rejection!);
+
+        if (!terminal.IsNil
+            && terminal.Kind == HandleKind.ModuleDefinition
+            && (MetadataTokens.GetRowNumber(terminal) != 1
+                || reader.GetTableRowCount(TableIndex.Module) != 1))
+        {
+            int row = MetadataTokens.GetRowNumber(terminal);
+            return RejectRelationship(
+                new RelationshipTraversalRejection(
+                    RelationshipTraversalRejectionKind
+                        .MalformedMetadata,
+                    $"The TypeReference resolution scope refers to invalid "
+                        + $"Module row {row}; the current module is row 1.",
+                    terminal,
+                    consumedNodes));
+        }
+
+        return true;
+    }
+
+    bool RejectRelationship(
+        RelationshipTraversalRejection rejection)
+    {
+        _relationshipRejected?.Invoke(rejection);
+        throw new BadImageFormatException(
+            $"Metadata relationship traversal rejected ({rejection.Kind}): "
+            + rejection.Detail);
     }
 
     Action<int>? CreateNameMaterializationObserver(

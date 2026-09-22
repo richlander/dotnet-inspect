@@ -295,6 +295,86 @@ public sealed class MetadataInterfaceImplementationEvidenceTests
     }
 
     [Fact]
+    public void CurrentModuleTypeReferenceUsesTheUniqueModuleRow()
+    {
+        using AuthoredFixture fixture =
+            AuthoredFixture.CreateTypeReferenceScope(moduleRow: 1);
+
+        AssertRelated(
+            Run(fixture, fixture.InterfaceIdentity));
+    }
+
+    [Theory]
+    [InlineData(2)]
+    [InlineData(99)]
+    public void InvalidModuleTypeReferenceScopeRejects(
+        int moduleRow)
+    {
+        using AuthoredFixture fixture =
+            AuthoredFixture.CreateTypeReferenceScope(moduleRow);
+
+        MetadataInterfaceImplementationResult.Rejected rejected =
+            Assert.IsType<
+                MetadataInterfaceImplementationResult.Rejected>(
+                    Run(fixture, fixture.InterfaceIdentity));
+
+        Assert.Equal(
+            MetadataInterfaceImplementationFailureReason
+                .MalformedMetadata,
+            rejected.Failure.Reason);
+        Assert.Equal(
+            MetadataInterfaceImplementationMechanism
+                .RelationshipTraversal,
+            rejected.Failure.Mechanism);
+        Assert.Equal(
+            HandleKind.ModuleDefinition,
+            rejected.Failure.RelevantHandle.Kind);
+        Assert.Equal(
+            moduleRow,
+            MetadataTokens.GetRowNumber(
+                rejected.Failure.RelevantHandle));
+    }
+
+    [Fact]
+    public void TypeReferenceCycleRemainsTheFirstDecisiveRejection()
+    {
+        using AuthoredFixture fixture =
+            AuthoredFixture.CreateTypeReferenceScope(
+                moduleRow: 1,
+                cycle: true);
+
+        MetadataInterfaceImplementationResult.Rejected unbounded =
+            Assert.IsType<
+                MetadataInterfaceImplementationResult.Rejected>(
+                    Run(fixture, fixture.InterfaceIdentity));
+        MetadataInterfaceImplementationResult.Rejected limited =
+            Assert.IsType<
+                MetadataInterfaceImplementationResult.Rejected>(
+                    Run(
+                        fixture,
+                        fixture.InterfaceIdentity,
+                        Policy(
+                            MetadataOperationDimension.RelationshipEdges,
+                            4)));
+
+        foreach (MetadataInterfaceImplementationResult.Rejected rejected
+            in new[] { unbounded, limited })
+        {
+            Assert.Equal(
+                MetadataInterfaceImplementationFailureReason.Cycle,
+                rejected.Failure.Reason);
+            Assert.Equal(
+                MetadataInterfaceImplementationMechanism
+                    .RelationshipTraversal,
+                rejected.Failure.Mechanism);
+            Assert.Equal(
+                HandleKind.TypeReference,
+                rejected.Failure.RelevantHandle.Kind);
+        }
+        Assert.True(limited.Counters.RelationshipEdges <= 4);
+    }
+
+    [Fact]
     public void InvalidIdentityAndForeignTypeRejectBeforeScan()
     {
         string path =
@@ -1393,6 +1473,92 @@ public sealed class MetadataInterfaceImplementationEvidenceTests
                         Text("Contracts"),
                         [.. segments.Select(Text)],
                         [.. segments.Select(_ => 0)]),
+                    IsValueType: false);
+            return new(
+                path,
+                MetadataTypeDefinitionAddress.FromHandle(
+                    reader,
+                    target),
+                identity);
+        }
+
+        internal static AuthoredFixture CreateTypeReferenceScope(
+            int moduleRow,
+            bool cycle = false)
+        {
+            Guid mvid = Guid.NewGuid();
+            var metadata = new MetadataBuilder();
+            metadata.AddModule(
+                generation: 0,
+                metadata.GetOrAddString("reference-scope.dll"),
+                metadata.GetOrAddGuid(mvid),
+                default,
+                default);
+            metadata.AddAssembly(
+                metadata.GetOrAddString("ReferenceScopeFixture"),
+                new Version(1, 0, 0, 0),
+                default,
+                default,
+                (AssemblyFlags)0,
+                AssemblyHashAlgorithm.None);
+            metadata.AddTypeDefinition(
+                TypeAttributes.NotPublic,
+                default,
+                metadata.GetOrAddString("<Module>"),
+                default,
+                MetadataTokens.FieldDefinitionHandle(1),
+                MetadataTokens.MethodDefinitionHandle(1));
+            metadata.AddTypeDefinition(
+                TypeAttributes.Interface
+                    | TypeAttributes.Abstract
+                    | TypeAttributes.Public,
+                metadata.GetOrAddString("Contracts"),
+                metadata.GetOrAddString("IContract"),
+                default,
+                MetadataTokens.FieldDefinitionHandle(1),
+                MetadataTokens.MethodDefinitionHandle(1));
+            TypeDefinitionHandle target =
+                metadata.AddTypeDefinition(
+                    TypeAttributes.Public,
+                    metadata.GetOrAddString("Samples"),
+                    metadata.GetOrAddString("Target"),
+                    default,
+                    MetadataTokens.FieldDefinitionHandle(1),
+                    MetadataTokens.MethodDefinitionHandle(1));
+            EntityHandle scope = cycle
+                ? MetadataTokens.TypeReferenceHandle(1)
+                : MetadataTokens.EntityHandle(moduleRow);
+            TypeReferenceHandle reference =
+                metadata.AddTypeReference(
+                    scope,
+                    metadata.GetOrAddString("Contracts"),
+                    metadata.GetOrAddString("IContract"));
+            metadata.AddInterfaceImplementation(
+                target,
+                reference);
+
+            string path = System.IO.Path.Combine(
+                System.IO.Path.GetTempPath(),
+                $"interfaceimpl-reference-scope-{Guid.NewGuid():N}.dll");
+            File.WriteAllBytes(path, Serialize(metadata));
+            using var stream = File.OpenRead(path);
+            using var pe = new PEReader(stream);
+            MetadataReader reader = pe.GetMetadataReader();
+            var identity =
+                new MetadataTypeIdentity.Named(
+                    new MetadataNamedTypeIdentity(
+                        new MetadataTypeScopeIdentity(
+                            MetadataTypeScopeKind.CurrentModule,
+                            mvid,
+                            Text("reference-scope.dll"),
+                            new MetadataAssemblyIdentity(
+                                Text("ReferenceScopeFixture"),
+                                new Version(1, 0, 0, 0),
+                                Culture: null,
+                                PublicKeyToken: null)),
+                        Text("Contracts"),
+                        [Text("IContract")],
+                        [0]),
                     IsValueType: false);
             return new(
                 path,

@@ -105,11 +105,17 @@ public static class TypeResolver
         bool enforceCharacterBudget = true,
         Action<EntityHandle>? beforeRelationshipFollow = null)
     {
-        ObserveTypeReferenceName(
-            reader,
-            handle,
-            beforeMaterialize,
-            beforeRelationshipFollow);
+        if (ObserveTypeReferenceName(
+                reader,
+                handle,
+                beforeMaterialize,
+                beforeRelationshipFollow)
+            is { } observedRejection)
+        {
+            name = null;
+            rejection = observedRejection;
+            return false;
+        }
         try
         {
             var typeRef = reader.GetTypeReference(handle);
@@ -280,11 +286,17 @@ public static class TypeResolver
         bool enforceCharacterBudget = true,
         Action<EntityHandle>? beforeRelationshipFollow = null)
     {
-        ObserveTypeDefinitionName(
-            reader,
-            handle,
-            beforeMaterialize,
-            beforeRelationshipFollow);
+        if (ObserveTypeDefinitionName(
+                reader,
+                handle,
+                beforeMaterialize,
+                beforeRelationshipFollow)
+            is { } observedRejection)
+        {
+            name = null;
+            rejection = observedRejection;
+            return false;
+        }
         try
         {
             var typeDef = reader.GetTypeDefinition(handle);
@@ -316,7 +328,7 @@ public static class TypeResolver
             .TryComplete(out name, out rejection);
     }
 
-    static void ObserveTypeReferenceName(
+    static RelationshipTraversalRejection? ObserveTypeReferenceName(
         MetadataReader reader,
         TypeReferenceHandle handle,
         Action<int>? beforeMaterialize,
@@ -324,11 +336,12 @@ public static class TypeResolver
     {
         if (beforeMaterialize is null
             && beforeRelationshipFollow is null)
-            return;
+            return null;
 
         Span<TypeReferenceHandle> rootToLeaf =
             stackalloc TypeReferenceHandle[MetadataSafetyPolicy.MaxRelationshipNodes];
         int consumedNodes;
+        RelationshipTraversalRejection? rejection;
         bool completed = beforeRelationshipFollow is null
             ? MetadataRelationshipTraversal
                 .TryWalkTypeReferenceResolutionScope(
@@ -337,7 +350,7 @@ public static class TypeResolver
                     rootToLeaf,
                     out consumedNodes,
                     out _,
-                    out _)
+                    out rejection)
             : MetadataRelationshipTraversal
                 .TryWalkTypeReferenceResolutionScope(
                     reader,
@@ -345,10 +358,10 @@ public static class TypeResolver
                     rootToLeaf,
                     out consumedNodes,
                     out _,
-                    out _,
+                    out rejection,
                     beforeRelationshipFollow);
         if (!completed)
-            return;
+            return rejection;
 
         foreach (TypeReferenceHandle current in rootToLeaf[..consumedNodes])
         {
@@ -358,9 +371,10 @@ public static class TypeResolver
             beforeMaterialize?.Invoke(
                 reader.GetBlobReader(type.Name).Length);
         }
+        return null;
     }
 
-    static void ObserveTypeDefinitionName(
+    static RelationshipTraversalRejection? ObserveTypeDefinitionName(
         MetadataReader reader,
         TypeDefinitionHandle handle,
         Action<int>? beforeMaterialize,
@@ -368,7 +382,7 @@ public static class TypeResolver
     {
         if (beforeMaterialize is null
             && beforeRelationshipFollow is null)
-            return;
+            return null;
 
         Span<TypeDefinitionHandle> rootToLeaf =
             stackalloc TypeDefinitionHandle[MetadataSafetyPolicy.MaxRelationshipNodes];
@@ -379,9 +393,9 @@ public static class TypeResolver
                     rootToLeaf,
                     out int consumedNodes,
                     out _,
-                    out _,
+                    out RelationshipTraversalRejection? rejection,
                     beforeRelationshipFollow))
-            return;
+            return rejection;
 
         foreach (TypeDefinitionHandle current in rootToLeaf[..consumedNodes])
         {
@@ -391,6 +405,7 @@ public static class TypeResolver
             beforeMaterialize?.Invoke(
                 reader.GetBlobReader(type.Name).Length);
         }
+        return null;
     }
 
     /// <summary>
