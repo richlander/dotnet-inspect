@@ -850,7 +850,13 @@ test("ordinary transport preserves sync, async DTO, void, null, and arguments", 
     "Example",
     "1.0.0",
     "net10.0",
-    "{\"schemaVersion\":1}",
+    {
+      schemaVersion: 1,
+      family: "netcoreapp",
+      targetFramework: "net10.0",
+      platformVersion: "10.0.0",
+      supplies: [],
+    },
   );
   const libraryDiff = state.client.metadata.queryLibraryApiDiff(
     "operation-1",
@@ -917,7 +923,13 @@ test("ordinary transport preserves sync, async DTO, void, null, and arguments", 
     "Example",
     "1.0.0",
     "net10.0",
-    "{\"schemaVersion\":1}",
+    {
+      schemaVersion: 1,
+      family: "netcoreapp",
+      targetFramework: "net10.0",
+      platformVersion: "10.0.0",
+      supplies: [],
+    },
   ]);
   assert.deepEqual(await libraryDiff, {
     schemaVersion: 1,
@@ -1444,7 +1456,9 @@ test("malformed and oversized inputs are rejected before facade invocation", asy
   );
   await assert.rejects(
     state.client.package.queryWorkspacePackageOccurrences(
-      "x".repeat(engineWorkerOrdinaryMaximumJsonCharacters),
+      contractViolation(
+        "x".repeat(engineWorkerOrdinaryMaximumJsonCharacters),
+      ),
     ),
     new RegExp(
       `exceeds ${engineWorkerOrdinaryMaximumJsonCharacters} characters`,

@@ -17,6 +17,7 @@ import type {
   BrowserPackageChangesResult,
   BrowserPackageQueryEvent,
   BrowserPackageQueryResult,
+  BrowserPackageQueryTerm,
 } from "./facades/inspect-web-package.d.ts";
 import { typeSourceView, type TypeSourceLoadRequest } from "./source-inspection.ts";
 import { createBrowserWorkerRuntimeHost } from "./worker-runtime-browser.ts";
@@ -217,7 +218,7 @@ function registerEngineWorkerCanaryAdapter(host: EngineWorkerHost) {
 
 function packageQueryRequest(
   searchText: string,
-  termsJson: string,
+  terms: readonly BrowserPackageQueryTerm[],
   targetFramework: string | null,
   maximumCandidates: number,
   maximumMatches: number,
@@ -228,31 +229,6 @@ function packageQueryRequest(
     throw new Error(
       `Package Query initial credit must be ${PACKAGE_QUERY_INITIAL_MATCH_CREDIT}.`);
   }
-  const rawTerms: unknown = JSON.parse(termsJson);
-  if (!Array.isArray(rawTerms)) {
-    throw new TypeError(
-      "Package Query terms must be a JSON term array.");
-  }
-  const terms = rawTerms.map((value: unknown, index) => {
-    if (typeof value !== "object" || value === null) {
-      throw new TypeError(
-        `Package Query term ${index} must be an object.`);
-    }
-    if (!("key" in value)
-      || !("operator" in value)
-      || !("value" in value)
-      || typeof value.key !== "string"
-      || typeof value.operator !== "string"
-      || typeof value.value !== "string") {
-      throw new TypeError(
-        `Package Query term ${index} must contain text key, operator, and value fields.`);
-    }
-    return {
-      key: value.key,
-      operator: value.operator,
-      value: value.value,
-    };
-  });
   return {
     scopeQuery: searchText,
     presets: [],
@@ -619,21 +595,13 @@ export function bindPackageChangesFacade(
     cancelPackageActivity(operationId, reason) {
       active.get(operationId)?.handle.cancel(operationCancelReason(reason));
     },
-    async runPackageActivity(operationId, requestJson, eventSink) {
+    async runPackageActivity(operationId, request, eventSink) {
       if (active.has(operationId)) {
         throw new Error(
           `Package Activity operation '${operationId}' is already active.`);
       }
-      let rawRequest: unknown;
-      try {
-        rawRequest = JSON.parse(requestJson);
-      } catch (error: unknown) {
-        throw new TypeError("Package Activity request JSON is invalid.", {
-          cause: error,
-        });
-      }
       const decodedRequest =
-        engineWorkerPackageChangesInput.decode(rawRequest);
+        engineWorkerPackageChangesInput.decode(request);
       if (decodedRequest.kind === "rejected") {
         throw new TypeError(decodedRequest.message, {
           cause: decodedRequest.cause,

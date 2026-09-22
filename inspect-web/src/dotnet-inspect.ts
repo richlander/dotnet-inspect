@@ -3894,12 +3894,13 @@ function workspaceOccurrenceRequest() {
 
 function ensureWorkspaceOccurrenceView() {
   if (!state.engineReady) return;
-  const signature = JSON.stringify(workspaceOccurrenceRequest());
+  const request = workspaceOccurrenceRequest();
+  const signature = JSON.stringify(request);
   if (state.workspaceOccurrenceLoading) return;
   if (signature === state.workspaceOccurrenceSignature) return;
 
   state.workspaceOccurrenceSignature = signature;
-  void queryWorkspaceOccurrenceView();
+  void queryWorkspaceOccurrenceView(request, signature);
 }
 
 let workspaceOccurrenceRevision = 0;
@@ -3916,15 +3917,17 @@ async function awaitWorkspaceOccurrenceClear(): Promise<void> {
   }
 }
 
-async function queryWorkspaceOccurrenceView() {
-  const signature = state.workspaceOccurrenceSignature;
+async function queryWorkspaceOccurrenceView(
+  request: ReturnType<typeof workspaceOccurrenceRequest>,
+  signature: string,
+) {
   const revision = workspaceOccurrenceRevision;
   let superseded = false;
   state.workspaceOccurrenceLoading = true;
   state.workspaceOccurrenceError = "";
   try {
     await awaitWorkspaceOccurrenceClear();
-    const view = await inspectQueryWorkspacePackageOccurrences(signature);
+    const view = await inspectQueryWorkspacePackageOccurrences(request);
     superseded = view.superseded;
     if (!superseded
       && revision === workspaceOccurrenceRevision
@@ -6805,13 +6808,13 @@ const packageInspection = createPackageInspectionCoordinator({
       packageModel.id,
       packageModel.version,
       packageModel.activeFramework,
-      JSON.stringify({
+      {
         schemaVersion: 1,
         family,
         targetFramework: target.tfm,
         platformVersion: target.version,
         supplies: requirePlatformPackageSupplies(target),
-      }));
+      });
   },
   queryPackageIntegrations: (packageModel, library) => inspectPackageIntegrations(
     packageModel.id,
