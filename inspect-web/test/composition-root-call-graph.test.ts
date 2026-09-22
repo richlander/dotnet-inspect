@@ -1382,7 +1382,7 @@ test("navigable call graph targets share mouse and keyboard activation", () => {
     /disposition === "package" && packageCoordinate[\s\S]*?openPackageGraphMember\([\s\S]*?packageCoordinate,[\s\S]*?target,[\s\S]*?loadedSection,[\s\S]*?failureSurface/);
   assert.match(
     appSource,
-    /async function openPackageGraphMember\([\s\S]*?canPublishRetainedWorkspace\(\)[\s\S]*?loadPackage\(\s*coordinate\.id,\s*coordinate\.version,\s*coordinate\.framework\)[\s\S]*?navigateToUnprojectedGraphMember/);
+    /async function openPackageGraphMember\([\s\S]*?retainedWorkspaces\.activeWorkspaceId === null[\s\S]*?!canPublishRetainedWorkspace\(\)[\s\S]*?loadPackage\(\s*coordinate\.id,\s*coordinate\.version,\s*coordinate\.framework\)[\s\S]*?navigateToUnprojectedGraphMember/);
   assert.match(
     graphInteractionsSource,
     /node\.setAttribute\("tabindex", "0"\);[\s\S]*node\.setAttribute\("role", "button"\);[\s\S]*node\.setAttribute\("aria-label", binding\.label\)/);

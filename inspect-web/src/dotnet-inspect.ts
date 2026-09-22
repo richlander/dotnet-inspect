@@ -16556,7 +16556,8 @@ async function openPackageGraphMember(
   failureSurface: GraphNavigationFailureSurface,
 ) {
   closeGraphExplorerForNavigation();
-  if (!canPublishRetainedWorkspace()) {
+  if (retainedWorkspaces.activeWorkspaceId === null
+      && !canPublishRetainedWorkspace()) {
     showGraphMemberNavigationError(
       target,
       retainedWorkspaceCapacityMessage(),
