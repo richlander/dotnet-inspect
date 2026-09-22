@@ -30,6 +30,12 @@ const typeSourceResult: BrowserTypeSourceResult = {
       pdbSourceLimitation: null,
       text: "class Example {}",
     },
+    share: {
+      kind: "available",
+      fullUrl: "https://example.test/type-source",
+      packet: "type-source",
+    },
+    diagnostics: [],
   },
   failureKind: null,
   error: null,

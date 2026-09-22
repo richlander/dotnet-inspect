@@ -366,6 +366,109 @@ public sealed record TypeSourceLatencyHedgeEvidence(
         DecompilationLibraryFailure { get; init; }
 }
 
+public enum TypeSourcePortablePdbDisposition
+{
+    NotAttempted,
+    Available,
+    Unavailable,
+    PreferenceWindowElapsed,
+    AcquisitionFailed,
+}
+
+public sealed record TypeSourcePdbAcquisitionEvidence(
+    TypeSourcePortablePdbDisposition Disposition,
+    bool UsedForAuthoredSource,
+    bool UsedForDecompilation,
+    SourceHousePdbContributionKind? AuthoredContribution,
+    SourceHousePdbContributionKind? DecompilationContribution,
+    bool? PdbReadyBeforeDecompilation,
+    bool DecompilationStarted,
+    TypeSourceLatencyHedgeSelection? Selection,
+    PortablePdbAcquisitionEvidenceDocument ExternalAcquisition)
+{
+    internal static TypeSourcePdbAcquisitionEvidence Create(
+        AssemblyTypeSourceEntry content,
+        PortablePdbAcquisitionEvidenceDocument externalAcquisition)
+    {
+        ArgumentNullException.ThrowIfNull(content);
+        ArgumentNullException.ThrowIfNull(externalAcquisition);
+
+        TypeSourcePortablePdbDisposition disposition =
+            Classify(content);
+        SourceHousePdbContributionKind? authoredContribution =
+            content.HouseOutcome?.PdbContribution.Kind;
+        SourceHousePdbContributionKind? decompilationContribution =
+            content.DecompilationHouseOutcome?.PdbContribution.Kind;
+        bool Used(SourceHousePdbContributionKind? contribution) =>
+            contribution
+                is SourceHousePdbContributionKind.SuppliedCompanion
+                or SourceHousePdbContributionKind.Embedded;
+
+        return new(
+            disposition,
+            UsedForAuthoredSource:
+                content is AssemblyTypeSourceEntry.Available
+                {
+                    Source: AssemblyTypeSource.Pdb,
+                }
+                || Used(authoredContribution),
+            UsedForDecompilation:
+                content.LatencyHedgeEvidence?.DecompilationUsedPdb
+                ?? Used(decompilationContribution),
+            authoredContribution,
+            decompilationContribution,
+            content.LatencyHedgeEvidence
+                ?.PdbReadyBeforeDecompilation,
+            content.LatencyHedgeEvidence
+                ?.DecompilationStarted
+                ?? content.DecompilationHouseOutcome is not null,
+            content.LatencyHedgeEvidence?.Selection,
+            externalAcquisition);
+    }
+
+    internal static TypeSourcePortablePdbDisposition Classify(
+        AssemblyTypeSourceEntry content)
+    {
+        ArgumentNullException.ThrowIfNull(content);
+        PdbTypeSourceInspection? attempt = content switch
+        {
+            AssemblyTypeSourceEntry.Available
+            {
+                Source: AssemblyTypeSource.Pdb pdb,
+            } => pdb.Inspection,
+            AssemblyTypeSourceEntry.Available
+            {
+                Source: AssemblyTypeSource.Decompiled decompiled,
+            } => decompiled.PdbAttempt,
+            AssemblyTypeSourceEntry.Unavailable unavailable =>
+                unavailable.PdbAttempt,
+            _ => null,
+        };
+        return Classify(attempt);
+    }
+
+    private static TypeSourcePortablePdbDisposition Classify(
+        PdbTypeSourceInspection? attempt) =>
+        attempt?.Outcome switch
+        {
+            null =>
+                TypeSourcePortablePdbDisposition.NotAttempted,
+            PdbTypeSourceOutcome.PortablePdbUnavailable =>
+                TypeSourcePortablePdbDisposition.Unavailable,
+            PdbTypeSourceOutcome.PortablePdbPreferenceWindowElapsed =>
+                TypeSourcePortablePdbDisposition
+                    .PreferenceWindowElapsed,
+            PdbTypeSourceOutcome.PortablePdbAcquisitionFailed =>
+                TypeSourcePortablePdbDisposition.AcquisitionFailed,
+            _ when attempt?.PortablePdbAvailable is false =>
+                TypeSourcePortablePdbDisposition.Unavailable,
+            _ when attempt?.PortablePdbAvailable is null =>
+                TypeSourcePortablePdbDisposition.NotAttempted,
+            _ =>
+                TypeSourcePortablePdbDisposition.Available,
+        };
+}
+
 public abstract record AssemblyMemberSourceEntry(
     AssemblyContextSubject Subject,
     AssemblyMemberSourceRequest Request)
@@ -741,6 +844,7 @@ public static partial class AssemblyContextSourceQuery
             request,
             context,
             executionPlan: null,
+            pdbEvidence: null,
             cancellationToken);
 
     /// <summary>
@@ -765,7 +869,40 @@ public static partial class AssemblyContextSourceQuery
             context,
             new TypeSourceExecutionPlan.Pdb(
                 latencyHedge),
+            pdbEvidence: null,
             cancellationToken);
+    }
+
+    internal static async Task<(
+        AssemblyTypeSourceEntry Content,
+        TypeSourcePdbAcquisitionEvidence Evidence)>
+        ExecuteTypeWithPdbLatencyHedgeAndEvidenceAsync(
+            AssemblyContextGroup group,
+            AssemblyContextParticipant participant,
+            AssemblyTypeSourceRequest request,
+            AssemblyContextSourceQueryContext context,
+            TypeSourcePdbLatencyHedge latencyHedge,
+            CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(latencyHedge);
+        var evidence =
+            new PortablePdbAcquisitionEvidenceCollector();
+        AssemblyTypeSourceEntry content =
+            await ExecuteTypeCoreAsync(
+                    group,
+                    participant,
+                    request,
+                    context,
+                    new TypeSourceExecutionPlan.Pdb(
+                        latencyHedge),
+                    evidence,
+                    cancellationToken)
+                .ConfigureAwait(false);
+        return (
+            content,
+            TypeSourcePdbAcquisitionEvidence.Create(
+                content,
+                evidence.ToDocument()));
     }
 
     static async Task<AssemblyTypeSourceEntry> ExecuteTypeCoreAsync(
@@ -774,6 +911,7 @@ public static partial class AssemblyContextSourceQuery
         AssemblyTypeSourceRequest request,
         AssemblyContextSourceQueryContext context,
         TypeSourceExecutionPlan? executionPlan,
+        PortablePdbAcquisitionEvidenceCollector? pdbEvidence,
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(group);
@@ -847,6 +985,7 @@ public static partial class AssemblyContextSourceQuery
                             available.Value.Retained,
                             bindingPolicyVersion,
                             pdb.LatencyHedge,
+                            pdbEvidence,
                             cancellationToken)
                         .ConfigureAwait(false);
                 }
@@ -860,6 +999,7 @@ public static partial class AssemblyContextSourceQuery
                 context,
                 available.Value.Retained,
                 bindingPolicyVersion,
+                pdbEvidence,
                 cancellationToken)
                 .ConfigureAwait(false);
         }
@@ -1243,6 +1383,7 @@ public static partial class AssemblyContextSourceQuery
         AssemblyContextSourceQueryContext context,
         ResolvedAssemblyReference retained,
         AssemblyBindingPolicyVersion bindingPolicyVersion,
+        PortablePdbAcquisitionEvidenceCollector? pdbEvidence,
         CancellationToken cancellationToken)
     {
         TypePdbInspection pdb =
@@ -1255,7 +1396,8 @@ public static partial class AssemblyContextSourceQuery
                     bindingPolicyVersion,
                     context.TypeSourceLimits,
                     context.TypeSourceTimeout,
-                    cancellationToken)
+                    cancellationToken,
+                    pdbEvidence: pdbEvidence)
                 .ConfigureAwait(false);
         Exception? primaryFailure = null;
         AssemblyTypeSourceEntry result;
@@ -1371,10 +1513,12 @@ public static partial class AssemblyContextSourceQuery
         return result;
     }
 
-    static Task AcquirePdbAsync(
+    static Task<PortablePdbAcquisitionResult?>
+        AcquirePdbAsync(
         SourceLinkService source,
         ResolvedAssemblyReference retained,
         AssemblyContextSourceQueryContext context,
+        PortablePdbAcquisitionEvidenceCollector? pdbEvidence,
         CancellationToken cancellationToken)
         => PdbAcquisitionService.AcquireAsync(
             source.Context,
@@ -1388,11 +1532,23 @@ public static partial class AssemblyContextSourceQuery
             cancellationToken,
             context.SymbolAcquisitionLimits,
             context.PdbFallbackPackage?.PackageId,
-            context.PdbFallbackPackage?.Version);
+            context.PdbFallbackPackage?.Version,
+            pdbEvidence);
+
+    internal static Task<SourceLinkOpenResult> OpenSourceLinkAsync(
+        ResolvedAssemblyReference retained,
+        AssemblyContextSourceQueryContext context,
+        CancellationToken cancellationToken) =>
+        OpenSourceLinkAsync(
+            retained,
+            context,
+            pdbEvidence: null,
+            cancellationToken);
 
     internal static async Task<SourceLinkOpenResult> OpenSourceLinkAsync(
         ResolvedAssemblyReference retained,
         AssemblyContextSourceQueryContext context,
+        PortablePdbAcquisitionEvidenceCollector? pdbEvidence,
         CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
@@ -1431,12 +1587,20 @@ public static partial class AssemblyContextSourceQuery
             try
             {
                 LoadAdjacentPdb(source, retained, context, cancellationToken);
-                await AcquirePdbAsync(
+                PortablePdbAcquisitionResult? acquisition =
+                    await AcquirePdbAsync(
                         source,
                         retained,
                         context,
+                        pdbEvidence,
                         cancellationToken)
                     .ConfigureAwait(false);
+                if (acquisition?.AcquisitionFailure
+                    is { } acquisitionFailure)
+                {
+                    throw new PdbExternalAcquisitionException(
+                        acquisitionFailure);
+                }
             }
             catch (Exception ex) when (IsPdbAcquisitionFailure(ex))
             {
