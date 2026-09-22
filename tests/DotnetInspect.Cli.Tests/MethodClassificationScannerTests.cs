@@ -162,8 +162,15 @@ public class MethodClassificationScannerTests
     [Fact]
     public void Scan_RealTestAssemblyWithMtpSurfaceStaysWithinBudget()
     {
-        using var stream = File.OpenRead(
-            typeof(MethodClassificationScannerTests).Assembly.Location);
+        const long LargeAssemblyThresholdBytes = 8L * 1024 * 1024;
+        string assemblyPath =
+            typeof(MethodClassificationScannerTests).Assembly.Location;
+        long assemblyLength = new FileInfo(assemblyPath).Length;
+        Assert.True(
+            assemblyLength > LargeAssemblyThresholdBytes,
+            $"Expected the MTP test assembly to exceed 8 MiB; actual size was {assemblyLength:N0} bytes.");
+
+        using var stream = File.OpenRead(assemblyPath);
 
         var results = MethodClassificationScanner.Scan(stream);
 
