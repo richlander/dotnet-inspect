@@ -1267,10 +1267,11 @@ public static class CommandLineBuilder
                 ? TipLevel.Quiet : ParseTipLevel(parseResult.GetValue(rootTipsOption), parseResult.GetResult(rootTipsOption) != null);
             Hints.WriteTips(tipLevel,
                 new Tip(PackageCommand.Name, "<package>", "inspect a NuGet package"),
+                new Tip("package query", "<ID-or-prefix*>", "discover NuGet package IDs"),
                 new Tip("-T:d", "", "show more tips per command"),
                 new Tip(TypeCommand.Name, "--package <package>", "discover types in package"),
                 new Tip(MemberCommand.Name, "JsonSerializer --package System.Text.Json", "inspect type members"),
-                new Tip(FindCommand.Name, "<pattern> --package <package>", "search package types"),
+                new Tip(FindCommand.Name, "<pattern> --package <package>", "search API symbols in a known package"),
                 new Tip(ProjectCommand.Name, "-S Skills", "index package skills for a project"),
                 new Tip(FindCommand.Name, "<pattern> --platform", "search platform libraries"));
             return 0;

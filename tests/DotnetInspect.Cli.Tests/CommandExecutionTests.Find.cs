@@ -11,6 +11,8 @@ namespace DotnetInspect.Cli.Tests;
 
 public partial class CommandExecutionTests
 {
+    private const string MissingPackageLikeApiSymbol =
+        "Definitely.NoSuch.Package.ForFindDiscovery";
 
     [Fact]
     public async Task Find_SimpleGlob_FindsDotSpelledNestedPlatformTypes()
@@ -27,6 +29,54 @@ public partial class CommandExecutionTests
         Assert.Contains("LinkedList", output);
         Assert.Contains("Enumerator", output);
         Assert.Empty(error);
+    }
+
+    [Fact]
+    public async Task Find_ZeroImplicitTypeResults_SuggestsPackageQueryOnStderr()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "find",
+            MissingPackageLikeApiSymbol,
+            "--tips",
+            "m");
+
+        Assert.Equal(0, exit);
+        Assert.DoesNotContain("package query", output);
+        Assert.Contains(
+            $"package query {MissingPackageLikeApiSymbol}",
+            error);
+        Assert.Contains("find searches API symbols", error);
+    }
+
+    [Fact]
+    public async Task Find_ZeroStructuredResults_DoNotEmitHumanGuidance()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "find",
+            MissingPackageLikeApiSymbol,
+            "--json",
+            "--tips",
+            "d");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        using var document = JsonDocument.Parse(output);
+        Assert.Equal(JsonValueKind.Array, document.RootElement.ValueKind);
+        Assert.Empty(document.RootElement.EnumerateArray().ToArray());
+    }
+
+    [Fact]
+    public async Task Find_MissingPattern_HelpRoutesPackageDiscovery()
+    {
+        var (exit, output, error) = await RunAppAsync("find");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains("Search pattern required.", error);
+        Assert.Contains(
+            "package query 'Newtonsoft.*'",
+            error);
+        Assert.Contains("discover package IDs", error);
     }
 
     [Fact]

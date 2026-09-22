@@ -173,6 +173,27 @@ public class SkillCommandTests
     }
 
     [Fact]
+    public async Task EmbeddedSkills_DistinguishApiAndPackageDiscovery()
+    {
+        var (_, router, _) = await ConsoleCapture.RunAsync(
+            () => Task.FromResult(SkillCommand.Execute()));
+        var (_, query, _) = await ConsoleCapture.RunAsync(
+            () => Task.FromResult(SkillCommand.ExecuteSkill("query")));
+        var (_, packageSkills, _) = await ConsoleCapture.RunAsync(
+            () => Task.FromResult(SkillCommand.ExecuteSkill("package-skills")));
+
+        foreach (string output in new[] { router, query, packageSkills })
+        {
+            Assert.Contains("desired result", output);
+            Assert.Contains("package query", output);
+            Assert.Contains("package IDs", output);
+            Assert.Contains("library query", output);
+            Assert.Contains("types", output);
+            Assert.Contains("members", output);
+        }
+    }
+
+    [Fact]
     public async Task ExecuteSkill_QueryDocumentsLegacyRowsLineComposition()
     {
         var (exitCode, output, _) = await ConsoleCapture.RunAsync(
