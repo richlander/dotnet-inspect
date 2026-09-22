@@ -147,7 +147,7 @@ public sealed class BrowserLibraryApiDiffOperationTests
             value.Types,
             type => type.Display
                 == "LibraryApiDiffFixture.ProjectionExtensions");
-        Assert.Equal(2, receiver.ChangedMemberCount);
+        Assert.Equal(1, receiver.ChangedMemberCount);
         Assert.Equal(1, extensions.ChangedMemberCount);
         BrowserLibraryApiDiffMember receiverMoved = Assert.Single(
             receiver.Members,
@@ -185,7 +185,7 @@ public sealed class BrowserLibraryApiDiffOperationTests
         Assert.NotEmpty(receiverMoved.After.CanonicalSignature);
         Assert.Equal(10, receiverMoved.After.Fingerprint.Length);
         Assert.Equal(
-            new BrowserLibraryApiDiffAggregate(7, 1, 1, 10, 4, 2, 0),
+            new BrowserLibraryApiDiffAggregate(7, 1, 1, 9, 4, 2, 0),
             value.Aggregate);
     }
 

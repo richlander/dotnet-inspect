@@ -51,6 +51,45 @@ public sealed class WorkspaceLibraryOccurrence
 }
 
 /// <summary>
+/// Opaque process-local identity for one Workspace-to-Library admission
+/// relation.
+/// </summary>
+public sealed class WorkspaceLibraryAdmissionRelationIdentity
+{
+    internal WorkspaceLibraryAdmissionRelationIdentity(
+        InspectionWorkspaceIdentity workspace)
+    {
+        Workspace = workspace;
+    }
+
+    public InspectionWorkspaceIdentity Workspace { get; }
+}
+
+/// <summary>
+/// Resource-free evidence that one Workspace directly admits one exact
+/// Library occurrence.
+/// </summary>
+public sealed class WorkspaceLibraryAdmissionRelation
+{
+    internal WorkspaceLibraryAdmissionRelation(
+        WorkspaceLibraryAdmissionRelationIdentity identity,
+        WorkspaceLibraryOccurrence library)
+    {
+        Identity = identity;
+        Library = library;
+    }
+
+    public WorkspaceLibraryAdmissionRelationIdentity Identity { get; }
+
+    public InspectionWorkspaceIdentity Workspace => Identity.Workspace;
+
+    public WorkspaceLibraryAdmissionIdentity Admission =>
+        Library.Admission;
+
+    public WorkspaceLibraryOccurrence Library { get; }
+}
+
+/// <summary>
 /// Resource-free receipt for one atomically accepted session-backed Library
 /// batch.
 /// </summary>
@@ -64,6 +103,15 @@ public sealed class WorkspaceLibraryAdmissionReceipt
         RegistrationRevision = registrationRevision;
         Identity = identity;
         Occurrences = occurrences;
+        LibraryRelations =
+        [
+            .. occurrences.Select(
+                occurrence =>
+                    new WorkspaceLibraryAdmissionRelation(
+                        new(
+                            occurrence.Identity.WorkspaceIdentity),
+                        occurrence)),
+        ];
     }
 
     public InspectionWorkspaceIdentity Workspace =>
@@ -80,6 +128,10 @@ public sealed class WorkspaceLibraryAdmissionReceipt
     {
         get;
     }
+
+    public ImmutableArray<WorkspaceLibraryAdmissionRelation>
+        LibraryRelations
+    { get; }
 }
 
 public enum WorkspaceLibraryAdmissionRejection
