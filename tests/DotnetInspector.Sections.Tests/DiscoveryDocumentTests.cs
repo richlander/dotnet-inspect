@@ -1,10 +1,125 @@
 using System.Collections.Immutable;
+using System.Text.Json;
 using DotnetInspector.Sections;
 
 namespace DotnetInspector.Sections.Tests;
 
 public class DiscoveryDocumentTests
 {
+    [Fact]
+    public void SectionCapabilitiesPairRowsAndCount()
+    {
+        SectionCardinalityDeclaration scalar =
+            SectionCardinalityDeclaration.Scalar;
+        SectionCardinalityDeclaration inventory =
+            SectionCardinalityDeclaration.Inventory;
+
+        Assert.Equal(SectionSemanticShape.Scalar, scalar.Shape);
+        Assert.Empty(scalar.Terminals);
+        Assert.Equal(SectionSemanticShape.Inventory, inventory.Shape);
+        Assert.Equal(
+            [
+                SectionTerminalCapability.Rows,
+                SectionTerminalCapability.Count,
+            ],
+            inventory.Terminals);
+
+        Assert.Throws<ArgumentException>(() =>
+            new SectionCardinalityDeclaration(
+                SectionSemanticShape.Inventory,
+                [SectionTerminalCapability.Rows]));
+        Assert.Throws<ArgumentException>(() =>
+            new SectionCardinalityDeclaration(
+                SectionSemanticShape.Inventory,
+                [SectionTerminalCapability.Count]));
+        Assert.Throws<ArgumentException>(() =>
+            new SectionCardinalityDeclaration(
+                SectionSemanticShape.Scalar,
+                [
+                    SectionTerminalCapability.Rows,
+                    SectionTerminalCapability.Count,
+                ]));
+        Assert.Throws<ArgumentException>(() =>
+            new SectionCardinalityDeclaration(
+                SectionSemanticShape.Inventory,
+                []));
+    }
+
+    [Fact]
+    public void Cardinality_RoundTripsForScalarAndInventoryDiscovery()
+    {
+        DiscoveryResourceIdentity scalar = Section("Library Info");
+        DiscoveryResourceIdentity inventory = Section("References");
+        var document = new DiscoveryDocument(
+            "library",
+            [
+                new DiscoveryResource(
+                    scalar,
+                    outputModes: [DiscoveryOutputMode.Markdown],
+                    cardinality: SectionCardinalityDeclaration.Scalar),
+                new DiscoveryResource(
+                    inventory,
+                    outputModes:
+                    [
+                        DiscoveryOutputMode.Markdown,
+                        DiscoveryOutputMode.Json,
+                    ],
+                    cardinality: SectionCardinalityDeclaration.Inventory),
+            ],
+            [scalar, inventory],
+            new DiscoverySelection(
+                isCatalog: true,
+                addressedResources: [],
+                rows: [scalar, inventory]));
+
+        string json = JsonSerializer.Serialize(document);
+        DiscoveryDocument roundTrip =
+            JsonSerializer.Deserialize<DiscoveryDocument>(json)
+            ?? throw new InvalidOperationException(
+                "Expected Discovery Document round trip.");
+
+        DiscoveryResource scalarResource =
+            roundTrip.GetResource(scalar);
+        Assert.Equal(
+            SectionSemanticShape.Scalar,
+            scalarResource.Cardinality?.Shape);
+        Assert.Empty(scalarResource.Cardinality!.Terminals);
+        Assert.Equal(
+            [DiscoveryOutputMode.Markdown],
+            scalarResource.OutputModes);
+
+        DiscoveryResource inventoryResource =
+            roundTrip.GetResource(inventory);
+        Assert.Equal(
+            SectionSemanticShape.Inventory,
+            inventoryResource.Cardinality?.Shape);
+        Assert.Equal(
+            [
+                SectionTerminalCapability.Rows,
+                SectionTerminalCapability.Count,
+            ],
+            inventoryResource.Cardinality!.Terminals);
+        Assert.Equal(
+            [
+                DiscoveryOutputMode.Markdown,
+                DiscoveryOutputMode.Json,
+            ],
+            inventoryResource.OutputModes);
+    }
+
+    [Fact]
+    public void Constructor_RejectsCardinalityOnNonSectionResource()
+    {
+        Assert.Throws<ArgumentException>(() =>
+            new DiscoveryResource(
+                Category("@Library"),
+                cardinality: SectionCardinalityDeclaration.Inventory));
+        Assert.Throws<ArgumentException>(() =>
+            new DiscoveryResource(
+                Item("References", "Name", "column"),
+                cardinality: SectionCardinalityDeclaration.Inventory));
+    }
+
     [Fact]
     public void Constructor_AcceptsSharedSectionAcrossCategories()
     {
@@ -43,6 +158,10 @@ public class DiscoveryDocumentTests
             2,
             document.Resources.Count(resource =>
                 resource.Members.Contains(section)));
+        Assert.DoesNotContain(
+            "\"Cardinality\"",
+            JsonSerializer.Serialize(document),
+            StringComparison.Ordinal);
     }
 
     [Fact]
