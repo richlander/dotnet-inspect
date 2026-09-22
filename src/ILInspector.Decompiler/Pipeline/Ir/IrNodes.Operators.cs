@@ -272,11 +272,21 @@ public sealed class Conditional : IrExpression
         AddChild(condition);
         AddChild(whenTrue);
         AddChild(whenFalse);
+        BindReferenceAssignments(ImmutableDictionary<TypeRef, TypeShape>.Empty);
     }
 
     public IrExpression Condition => (IrExpression)Children[0];
     public IrExpression WhenTrue => (IrExpression)Children[1];
     public IrExpression WhenFalse => (IrExpression)Children[2];
+
+    internal ReferenceAssignmentTargets ReferenceAssignments { get; private set; }
+
+    public bool CanAssignReferenceArmsTo(
+        TypeRef target, IReadOnlyDictionary<TypeRef, TypeShape> shapes)
+        => ReferenceAssignments.Contains(target, shapes);
+
+    internal void BindReferenceAssignments(IReadOnlyDictionary<TypeRef, TypeShape> shapes)
+        => ReferenceAssignments = ReferenceAssignmentTargets.ForArms(this, shapes);
 
     /// <summary>
     /// The merged slot type the importer computed for the join the two arms
