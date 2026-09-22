@@ -1082,10 +1082,21 @@ The Metadata-issued subject and token identify the selected API assembly.
 Before creating an authored-source operation, Queries locates that subject's
 exact compiler XML identity on the Library's implementation assembly and emits
 the implementation-issued type identity, member anchor, and MethodDef token.
-The browser never transfers an API token onto distinct implementation content.
+The source-neutral operation binding retains that implementation subject
+separately from the API documentation subject, so SourceHouse validates the
+implementation target without requiring its anchor to equal the API anchor.
+The browser never transfers an API token or anchor onto distinct
+implementation content.
 This correspondence is motivated by the split reference and implementation
 assets in `Microsoft.Build.Framework`, where the same public compiler XML
 identity has different MethodDef tokens.
+
+Implementation correspondence is a closed bounded outcome. No exact match
+becomes authored declaration unavailability, multiple exact compiler XML
+matches become authored ambiguity, and implementation-surface bound exhaustion
+becomes authored incompleteness. Each terminal outcome settles the transferred
+Library lease locally inside the authored operation so valid compiled XML
+remains independently available.
 
 The package member-detail consumer selects display values from the deterministic
 field settlement, preferring the first contribution in requested-channel order
@@ -1120,7 +1131,8 @@ Implementation and adoption slices own these Release gates:
 | Explicit authorization | No SourceHouse, source/PDB discovery or acquisition, repository, content-store, or network work occurs without authored demand and a pre-authorized deferred operation. Snapshots of already-realized XML require compiled demand and the transferred Library lease. |
 | Cheap-first ordering | Operation construction starts no source work; combined demand reaches a terminal detached compiled-XML attempt and ends every borrow before the operation receives the lease once, and XML availability does not suppress the requested source attempt. |
 | Exact XML lookup | Compiled XML uses the Metadata-issued compiler ID and associated contribution. |
-| Split implementation targeting | A build-attested package with distinct `ref` and `lib` assemblies assigns different MethodDef tokens to the same compiler XML identity; the authored channel resolves and uses the implementation-issued target. |
+| Split implementation targeting | A build-attested package with distinct `ref` and `lib` assemblies assigns different MethodDef tokens and member anchors to the same compiler XML identity; the authored channel resolves and uses the implementation-issued target. |
+| Implementation resolution settlement | Missing, duplicate, or over-bound implementation correspondence becomes typed authored unavailability, ambiguity, or incompleteness while compiled XML remains available and the operation settles its Library lease. |
 | Bounded repeated lookup | A multi-subject request scans each selected compiled-XML companion once per matching read policy, retains only that policy's requested exact IDs under independent per-request retained-text budgets, rechecks the latest matching request deadline between snapshot and parse, and reports actual parsing work once. |
 | Authoritative absence | XML absence requires complete readable companion evidence for the exact subject. |
 | Independent channels | Success, absence, failure, or incompleteness in one channel does not rewrite the other. |
@@ -1269,6 +1281,17 @@ and deliberately differing compiled summary. It executes the capability-aware
 test host over the same package composition and serialization core and requires
 both channels to be available plus the ordered compiled-then-authored summary
 conflict. It does not claim production capability provisioning.
+`BrowserEngineBoundaryTests.QueryMemberDocumentation_SplitAssembliesUseImplementationTarget`
+uses distinct build-attested `ref` and `lib` assemblies whose matching member
+has different MethodDef tokens and nullability-sensitive anchors. It requires
+the implementation-issued target to reach authored availability rather than
+being rejected against the API anchor.
+`DocumentationQueryTests.ImplementationSubjectResolver_ReportsAmbiguousAndBounded`
+gates duplicate exact compiler XML matches and bounded implementation-surface
+extraction as closed resolution outcomes.
+`DocumentationQueryTests.ImplementationResolutionTerminal_PreservesCompiledChannel`
+requires both terminal outcomes to retain compiled availability while
+publishing typed authored ambiguity or implementation-surface incompleteness.
 `BrowserEngineBoundaryTests.QueryMemberDocumentation_MissingCompanionIsAuthoritativeAbsence`
 gates the neighboring package-without-companion case as typed authoritative
 `absent` evidence rather than empty browser documentation.

@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
@@ -10,14 +11,29 @@ using ILInspector.MetadataPrimitives;
 
 namespace DotnetInspector.Queries;
 
-public sealed record DocumentationImplementationSubject(
-    MetadataTypeDefinitionName TypeIdentity,
-    MemberAnchor MemberIdentity,
-    int MetadataToken);
+public abstract record DocumentationImplementationSubjectResolution
+{
+    private protected DocumentationImplementationSubjectResolution()
+    {
+    }
+
+    public sealed record Resolved(
+        DocumentationImplementationSubjectReference Subject)
+        : DocumentationImplementationSubjectResolution;
+
+    public sealed record Unavailable
+        : DocumentationImplementationSubjectResolution;
+
+    public sealed record Ambiguous(int MatchCount)
+        : DocumentationImplementationSubjectResolution;
+
+    public sealed record Incomplete(ApiSurfaceExtractionBound Bound)
+        : DocumentationImplementationSubjectResolution;
+}
 
 public static class DocumentationImplementationSubjectResolver
 {
-    public static DocumentationImplementationSubject? Resolve(
+    public static DocumentationImplementationSubjectResolution Resolve(
         LibraryReference library,
         LibraryContentOwner owner,
         DocumentationSubjectReference subject,
@@ -38,15 +54,16 @@ public static class DocumentationImplementationSubjectResolver
         if (subject.MemberIdentity is null
             || library.ImplementationAssembly is not { } implementation)
         {
-            return null;
+            return new DocumentationImplementationSubjectResolution
+                .Unavailable();
         }
         if (ReferenceEquals(library.ApiAssembly, implementation)
             && subject.MetadataToken is { } metadataToken)
         {
-            return new(
-                subject.TypeIdentity,
-                subject.MemberIdentity,
-                metadataToken);
+            return new DocumentationImplementationSubjectResolution
+                .Resolved(
+                    DocumentationImplementationSubjectReference
+                        .FromApiSubject(subject));
         }
 
         using LibraryOperationLease operation =
@@ -68,7 +85,27 @@ public static class DocumentationImplementationSubjectResolver
             cancellationToken);
     }
 
-    private static DocumentationImplementationSubject? Resolve(
+    public static IDocumentationAuthoredSourceOperation
+        CreateTerminalOperation(
+            DocumentationAuthoredSourceOperationBinding binding,
+            DocumentationImplementationSubjectResolution resolution)
+    {
+        ArgumentNullException.ThrowIfNull(binding);
+        ArgumentNullException.ThrowIfNull(resolution);
+        if (resolution
+            is DocumentationImplementationSubjectResolution.Resolved)
+        {
+            throw new ArgumentException(
+                "A resolved implementation subject requires a SourceHouse operation.",
+                nameof(resolution));
+        }
+
+        return new ImplementationResolutionOperation(
+            binding,
+            resolution);
+    }
+
+    private static DocumentationImplementationSubjectResolution Resolve(
         Stream content,
         LibraryContentReference implementation,
         ResolutionState state,
@@ -107,14 +144,14 @@ public static class DocumentationImplementationSubjectResolver
         if (extraction
             is ApiSurfaceExtractionResult.Exceeded exceeded)
         {
-            throw new InvalidOperationException(
-                "The selected Library implementation surface exceeded "
-                    + $"the {exceeded.Bound} bound.");
+            return new DocumentationImplementationSubjectResolution
+                .Incomplete(exceeded.Bound);
         }
 
         ApiSurface surface =
             ((ApiSurfaceExtractionResult.Extracted)extraction).Surface;
-        DocumentationImplementationSubject? resolved = null;
+        DocumentationImplementationSubjectReference? resolved = null;
+        int matchCount = 0;
         foreach (ApiType type in surface.Types)
         {
             if (type.DefinitionName != state.Subject.TypeIdentity)
@@ -135,23 +172,25 @@ public static class DocumentationImplementationSubjectResolver
                     continue;
                 }
 
-                var candidate =
-                    new DocumentationImplementationSubject(
+                matchCount++;
+                resolved ??=
+                    new DocumentationImplementationSubjectReference(
                         type.DefinitionName!,
                         ApiMemberIdentity.GetMemberAnchor(type, member),
-                        metadataToken);
-                if (resolved is not null)
-                {
-                    throw new InvalidOperationException(
-                        "The selected Library implementation has multiple "
-                            + $"subjects '{xmlIdentity.Value}'.");
-                }
-
-                resolved = candidate;
+                        metadataToken,
+                        xmlIdentity);
             }
         }
 
-        return resolved;
+        return matchCount switch
+        {
+            0 => new DocumentationImplementationSubjectResolution
+                .Unavailable(),
+            1 => new DocumentationImplementationSubjectResolution
+                .Resolved(resolved!),
+            _ => new DocumentationImplementationSubjectResolution
+                .Ambiguous(matchCount),
+        };
     }
 
     private static LibraryOperationLease IssueOperation(
@@ -172,4 +211,138 @@ public static class DocumentationImplementationSubjectResolver
         DocumentationSubjectReference Subject,
         ApiSurfaceExtractionScope Scope,
         ApiSurfaceExtractionBounds Bounds);
+
+    private sealed class ImplementationResolutionOperation
+        : IDocumentationAuthoredSourceOperation
+    {
+        private static readonly
+            DocumentationAuthoredSourceOperationWorkCharge s_emptyWork =
+                new(0, 0, 0, 0, DocumentationWork: null);
+
+        private readonly DocumentationAuthoredSourceOperationBinding
+            _binding;
+        private readonly DocumentationImplementationSubjectResolution
+            _resolution;
+        private int _invoked;
+
+        internal ImplementationResolutionOperation(
+            DocumentationAuthoredSourceOperationBinding binding,
+            DocumentationImplementationSubjectResolution resolution)
+        {
+            _binding = binding;
+            _resolution = resolution;
+        }
+
+        public ValueTask<DocumentationAuthoredSourceOperationOutcome>
+            InvokeAsync(
+                DocumentationAuthoredSourceOperationInvocation invocation,
+                LibraryOperationLease operationLease,
+                CancellationToken cancellationToken = default)
+        {
+            ArgumentNullException.ThrowIfNull(invocation);
+            ArgumentNullException.ThrowIfNull(operationLease);
+            DocumentationAuthoredSourceOperationOutcome outcome;
+            if (Interlocked.Exchange(ref _invoked, 1) != 0)
+            {
+                outcome = Rejected(
+                    invocation,
+                    DocumentationAuthoredRejectionKind.AlreadyInvoked);
+            }
+            else if (!ReferenceEquals(invocation.Binding, _binding))
+            {
+                outcome = Rejected(
+                    invocation,
+                    DocumentationAuthoredRejectionKind.BindingMismatch);
+            }
+            else if (!ReferenceEquals(
+                    operationLease.Reference,
+                    _binding.Library))
+            {
+                outcome = Rejected(
+                    invocation,
+                    DocumentationAuthoredRejectionKind
+                        .LeaseReferenceMismatch);
+            }
+            else
+            {
+                operationLease.Dispose();
+                cancellationToken.ThrowIfCancellationRequested();
+                outcome = DateTimeOffset.UtcNow >= invocation.Deadline
+                    ? Incomplete(
+                        invocation,
+                        DocumentationAuthoredIncompleteBoundary.Deadline,
+                        "ImplementationResolutionDeadline")
+                    : ResolutionOutcome(invocation);
+                return ValueTask.FromResult(outcome);
+            }
+
+            operationLease.Dispose();
+            return ValueTask.FromResult(outcome);
+        }
+
+        private DocumentationAuthoredSourceOperationOutcome
+            ResolutionOutcome(
+                DocumentationAuthoredSourceOperationInvocation invocation) =>
+            _resolution switch
+            {
+                DocumentationImplementationSubjectResolution.Unavailable =>
+                    new DocumentationAuthoredSourceOperationOutcome
+                        .Unavailable(
+                            invocation,
+                            DocumentationAuthoredUnavailableKind
+                                .DeclarationNotFound,
+                            s_emptyWork,
+                            Settlement(),
+                            new("ImplementationSubjectUnavailable")),
+                DocumentationImplementationSubjectResolution.Ambiguous
+                    ambiguous =>
+                    new DocumentationAuthoredSourceOperationOutcome
+                        .Unavailable(
+                            invocation,
+                            DocumentationAuthoredUnavailableKind
+                                .DeclarationAmbiguous,
+                            s_emptyWork,
+                            Settlement(),
+                            new(
+                                "ImplementationSubjectAmbiguous",
+                                ambiguous.MatchCount.ToString(
+                                    CultureInfo.InvariantCulture))),
+                DocumentationImplementationSubjectResolution.Incomplete
+                    incomplete =>
+                    Incomplete(
+                        invocation,
+                        DocumentationAuthoredIncompleteBoundary
+                            .ImplementationSurface,
+                        "ImplementationSurfaceBoundExceeded",
+                        incomplete.Bound.ToString()),
+                _ => throw new InvalidOperationException(
+                    "A terminal implementation resolution operation cannot contain a resolved subject."),
+            };
+
+        private static DocumentationAuthoredSourceOperationOutcome
+            Rejected(
+                DocumentationAuthoredSourceOperationInvocation invocation,
+                DocumentationAuthoredRejectionKind rejection) =>
+            new DocumentationAuthoredSourceOperationOutcome.Rejected(
+                invocation,
+                rejection,
+                s_emptyWork,
+                Settlement());
+
+        private static DocumentationAuthoredSourceOperationOutcome
+            Incomplete(
+                DocumentationAuthoredSourceOperationInvocation invocation,
+                DocumentationAuthoredIncompleteBoundary boundary,
+                string code,
+                string? detail = null) =>
+            new DocumentationAuthoredSourceOperationOutcome.Incomplete(
+                invocation,
+                boundary,
+                s_emptyWork,
+                Settlement(),
+                new(code, detail));
+
+        private static DocumentationAuthoredLeaseSettlement Settlement() =>
+            new(DocumentationAuthoredLeaseConsumer.Operation);
+    }
 }

@@ -1,3 +1,6 @@
+using System.Reflection.Metadata;
+using System.Reflection.Metadata.Ecma335;
+
 using CSharpText;
 using DotnetInspector.Libraries;
 using DotnetInspector.LibraryMetadata;
@@ -199,6 +202,56 @@ public sealed class DocumentationSubjectReference
         }
 
         return surface;
+    }
+}
+
+public sealed class DocumentationImplementationSubjectReference
+{
+    public DocumentationImplementationSubjectReference(
+        MetadataTypeDefinitionName typeIdentity,
+        MemberAnchor? memberIdentity,
+        int? metadataToken,
+        XmlDocMemberIdentity compiledXmlIdentity)
+    {
+        ArgumentNullException.ThrowIfNull(typeIdentity);
+        ArgumentNullException.ThrowIfNull(compiledXmlIdentity);
+        if (memberIdentity is null && metadataToken is not null)
+        {
+            throw new ArgumentException(
+                "A type implementation subject cannot carry a member token.",
+                nameof(metadataToken));
+        }
+        if (memberIdentity is not null
+            && (metadataToken is not { } token
+                || MetadataTokens.EntityHandle(token).Kind
+                    != HandleKind.MethodDefinition))
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(metadataToken),
+                "A member implementation subject requires one exact MethodDef token.");
+        }
+
+        TypeIdentity = typeIdentity;
+        MemberIdentity = memberIdentity;
+        MetadataToken = metadataToken;
+        CompiledXmlIdentity = compiledXmlIdentity;
+    }
+
+    public MetadataTypeDefinitionName TypeIdentity { get; }
+    public MemberAnchor? MemberIdentity { get; }
+    public int? MetadataToken { get; }
+    public bool IsMember => MemberIdentity is not null;
+    public XmlDocMemberIdentity CompiledXmlIdentity { get; }
+
+    public static DocumentationImplementationSubjectReference FromApiSubject(
+        DocumentationSubjectReference subject)
+    {
+        ArgumentNullException.ThrowIfNull(subject);
+        return new(
+            subject.TypeIdentity,
+            subject.MemberIdentity,
+            subject.IsMember ? subject.MetadataToken : null,
+            subject.CompiledXmlIdentity);
     }
 }
 

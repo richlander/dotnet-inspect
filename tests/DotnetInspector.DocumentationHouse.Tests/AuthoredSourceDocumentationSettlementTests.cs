@@ -194,7 +194,8 @@ public sealed partial class CompiledXmlDocumentationHouseTests
             planIdentity,
             policy,
             subject,
-            library.Reference.ImplementationAssembly!);
+            library.Reference.ImplementationAssembly!,
+            implementationSubject: null);
         var operation = new NeverInvokedOperation();
         var plan = new DocumentationHouseOperationPlan(
             planIdentity,
@@ -473,7 +474,8 @@ public sealed partial class CompiledXmlDocumentationHouseTests
                         invocation.Binding.OperationPlan,
                         invocation.Binding.PolicyGeneration,
                         invocation.Binding.Subject,
-                        invocation.Binding.ImplementationContent);
+                        invocation.Binding.ImplementationContent,
+                        invocation.Binding.ImplementationSubject);
                 return new DocumentationAuthoredSourceOperationOutcome
                     .Produced(
                         invocation,
@@ -570,7 +572,8 @@ public sealed partial class CompiledXmlDocumentationHouseTests
             planIdentity,
             policy,
             subject,
-            library.Reference.ImplementationAssembly!);
+            library.Reference.ImplementationAssembly!,
+            implementationSubject: null);
         var plan = new DocumentationHouseOperationPlan(
             planIdentity,
             policy,
@@ -746,7 +749,8 @@ public sealed partial class CompiledXmlDocumentationHouseTests
             planIdentity,
             policy,
             subject,
-            library.Reference.ImplementationAssembly!);
+            library.Reference.ImplementationAssembly!,
+            implementationSubject: null);
         var operation = new ScriptedOperation(outcome);
         var plan = new DocumentationHouseOperationPlan(
             planIdentity,

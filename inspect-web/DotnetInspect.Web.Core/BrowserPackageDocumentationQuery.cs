@@ -60,7 +60,8 @@ internal static class BrowserPackageDocumentationQuery
                 queryLimits.ApiSurfaceScope,
                 queryLimits.ApiSurface,
                 cancellationToken)[documentationId];
-        DocumentationImplementationSubject? implementationSubject =
+        DocumentationImplementationSubjectResolution
+            implementationSubject =
             DocumentationImplementationSubjectResolver.Resolve(
                 completed.Receipt.Library,
                 completed.Owner,
@@ -125,14 +126,14 @@ internal static class BrowserPackageDocumentationQuery
             DocumentationHouseOperationPlanIdentity planIdentity,
             DocumentationHousePolicyGeneration policyGeneration,
             DocumentationSubjectReference subject,
-            DocumentationImplementationSubject? implementationSubject,
+            DocumentationImplementationSubjectResolution
+                implementationResolution,
             LibraryReference library,
             IReadOnlyList<ISourceHouseSourceCapability> sourceCapabilities,
             DateTimeOffset deadline)
     {
-        if (implementationSubject is not { } implementationMember
-            || library.ImplementationAssembly
-                is not { } implementation)
+        if (library.ImplementationAssembly
+            is not { } implementation)
         {
             return null;
         }
@@ -144,39 +145,52 @@ internal static class BrowserPackageDocumentationQuery
         SourceHouseLimits sourceLimits = DocumentationSourceLimits(
             sourceContext.MemberSourceLimits,
             documentationLimits);
-        var sourceRequest = new SourceHouseAuthoredRequest(
-            SourceHouseRequestIdentity.Create(
-                "inspect-web-package-documentation"),
-            library,
-            implementation,
-            new SourceHouseTarget.MemberTarget(
-                implementationMember.TypeIdentity,
-                implementationMember.MemberIdentity,
-                implementationMember.MetadataToken,
-                SourceHouseMemberSourceForm.DocumentParts),
-            new SourceHouseOperationPlan(
-                SourceHouseOperationPlanIdentity.Create(
-                    "inspect-web-package-documentation"),
-                SourceHousePolicyGeneration.Create(
-                    "inspect-web-package-documentation-v1"),
-                sourceLimits,
-                deadline,
-                sourceCapabilities));
+        DocumentationImplementationSubjectReference?
+            implementationSubject =
+                (implementationResolution
+                    as DocumentationImplementationSubjectResolution
+                        .Resolved)
+                    ?.Subject;
         var binding = new DocumentationAuthoredSourceOperationBinding(
             requestIdentity,
             planIdentity,
             policyGeneration,
             subject,
-            implementation);
+            implementation,
+            implementationSubject);
+        IDocumentationAuthoredSourceOperation operation =
+            implementationSubject is not null
+                ? SourceHouseDocumentationHouseAdapter.CreateOperation(
+                    binding,
+                    new SourceHouseAuthoredRequest(
+                        SourceHouseRequestIdentity.Create(
+                            "inspect-web-package-documentation"),
+                        library,
+                        implementation,
+                        new SourceHouseTarget.MemberTarget(
+                            implementationSubject.TypeIdentity,
+                            implementationSubject.MemberIdentity!,
+                            implementationSubject.MetadataToken!.Value,
+                            SourceHouseMemberSourceForm.DocumentParts),
+                        new SourceHouseOperationPlan(
+                            SourceHouseOperationPlanIdentity.Create(
+                                "inspect-web-package-documentation"),
+                            SourceHousePolicyGeneration.Create(
+                                "inspect-web-package-documentation-v1"),
+                            sourceLimits,
+                            deadline,
+                            sourceCapabilities)))
+                : DocumentationImplementationSubjectResolver
+                    .CreateTerminalOperation(
+                        binding,
+                        implementationResolution);
         return new(
             binding,
             new(
                 sourceLimits.MaximumDocuments,
                 sourceLimits.MaximumSourceBytes,
                 documentationLimits),
-            SourceHouseDocumentationHouseAdapter.CreateOperation(
-                binding,
-                sourceRequest));
+            operation);
     }
 
     private static SourceHouseLimits DocumentationSourceLimits(

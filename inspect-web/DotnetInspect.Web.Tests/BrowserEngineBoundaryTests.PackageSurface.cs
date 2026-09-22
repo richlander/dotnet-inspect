@@ -609,12 +609,12 @@ public sealed partial class BrowserEngineBoundaryTests
 
     [Fact]
     public async Task
-        QueryMemberDocumentation_SplitAssembliesUseImplementationToken()
+        QueryMemberDocumentation_SplitAssembliesUseImplementationTarget()
     {
         const string assemblyName =
             "InspectWebSplitDocumentationFixture";
         const string documentationId =
-            "M:InspectWeb.SplitDocumentation.Subject.Target";
+            "M:InspectWeb.SplitDocumentation.Subject.Target(System.String)";
         SourceHouseBuildAttestation api =
             EmitBrowserDocumentationAttestation(
                 assemblyName,
@@ -622,12 +622,13 @@ public sealed partial class BrowserEngineBoundaryTests
                     new(
                         "Api.cs",
                         """
+                        #nullable enable
                         namespace InspectWeb.SplitDocumentation;
 
                         public static class Subject
                         {
                             public static void Neighbor() { }
-                            public static void Target() { }
+                            public static void Target(string value) { }
                         }
                         """u8.ToArray()),
                 ],
@@ -639,12 +640,13 @@ public sealed partial class BrowserEngineBoundaryTests
                     new(
                         "Implementation.cs",
                         """
+                        #nullable enable
                         namespace InspectWeb.SplitDocumentation;
 
                         public static class Subject
                         {
                             /// <summary>authored-split-summary</summary>
-                            public static void Target() { }
+                            public static void Target(string? value) { }
                             public static void Neighbor() { }
                         }
                         """u8.ToArray()),

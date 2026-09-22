@@ -392,6 +392,10 @@ public static partial class DocumentationQuery
         DocumentationAuthoredIncompleteBoundary boundary) =>
         boundary switch
         {
+            DocumentationAuthoredIncompleteBoundary
+                .ImplementationSurface =>
+                AuthoredDocumentationIncompleteReason
+                    .ImplementationSurface,
             DocumentationAuthoredIncompleteBoundary.Deadline =>
                 AuthoredDocumentationIncompleteReason.Deadline,
             DocumentationAuthoredIncompleteBoundary.SourceDocuments =>

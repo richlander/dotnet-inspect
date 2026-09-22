@@ -101,6 +101,7 @@ public enum AuthoredDocumentationFailureReason
 public enum AuthoredDocumentationIncompleteReason
 {
     DeclarationUncertain,
+    ImplementationSurface,
     Deadline,
     SourceDocuments,
     SourceBytes,

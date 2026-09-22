@@ -290,7 +290,7 @@ public sealed class DocumentationQueryTests
         ImplementationSubjectResolver_UsesImplementationIssuedToken()
     {
         const string identity =
-            "M:DocumentationQuery.Split.Subject.Target";
+            "M:DocumentationQuery.Split.Subject.Target(System.String)";
         SourceHouseBuildAttestation api =
             EmitDocumentationQueryAttestation(
                 "DocumentationQuerySplitFixture",
@@ -298,12 +298,13 @@ public sealed class DocumentationQueryTests
                     new(
                         "Api.cs",
                         """
+                        #nullable enable
                         namespace DocumentationQuery.Split;
 
                         public static class Subject
                         {
                             public static void Neighbor() { }
-                            public static void Target() { }
+                            public static void Target(string value) { }
                         }
                         """u8.ToArray()),
                 ],
@@ -315,11 +316,12 @@ public sealed class DocumentationQueryTests
                     new(
                         "Implementation.cs",
                         """
+                        #nullable enable
                         namespace DocumentationQuery.Split;
 
                         public static class Subject
                         {
-                            public static void Target() { }
+                            public static void Target(string? value) { }
                             public static void Neighbor() { }
                         }
                         """u8.ToArray()),
@@ -339,21 +341,211 @@ public sealed class DocumentationQueryTests
                 s_documentationQueryApiSurfaceBounds,
                 TestContext.Current.CancellationToken)[identity];
 
-        DocumentationImplementationSubject? resolved =
-            DocumentationImplementationSubjectResolver.Resolve(
-                library.Reference,
-                library.Owner,
-                subject,
-                ApiSurfaceExtractionScope.Public,
-                s_documentationQueryApiSurfaceBounds,
-                TestContext.Current.CancellationToken);
+        var resolved = Assert.IsType<
+            DocumentationImplementationSubjectResolution.Resolved>(
+                DocumentationImplementationSubjectResolver.Resolve(
+                    library.Reference,
+                    library.Owner,
+                    subject,
+                    ApiSurfaceExtractionScope.Public,
+                    s_documentationQueryApiSurfaceBounds,
+                    TestContext.Current.CancellationToken));
 
-        Assert.NotNull(resolved);
-        Assert.NotEqual(subject.MetadataToken, resolved.MetadataToken);
+        Assert.NotEqual(
+            subject.MetadataToken,
+            resolved.Subject.MetadataToken);
         Assert.Equal(
             MethodToken(implementation.PeImage, "Target"),
-            resolved.MetadataToken);
-        Assert.Equal(subject.TypeIdentity, resolved.TypeIdentity);
+            resolved.Subject.MetadataToken);
+        Assert.Equal(
+            subject.TypeIdentity,
+            resolved.Subject.TypeIdentity);
+        Assert.NotEqual(
+            subject.MemberIdentity,
+            resolved.Subject.MemberIdentity);
+    }
+
+    [Fact]
+    public async Task
+        ImplementationSubjectResolver_ReportsAmbiguousAndBounded()
+    {
+        const string assemblyName =
+            "DocumentationQueryAmbiguousFixture";
+        const string identity =
+            "M:DocumentationQuery.Ambiguous.Subject.Target";
+        SourceHouseBuildAttestation api =
+            EmitDocumentationQueryAttestation(
+                assemblyName,
+                [
+                    new(
+                        "Api.cs",
+                        """
+                        namespace DocumentationQuery.Ambiguous;
+
+                        public static class Subject
+                        {
+                            public static void Target() { }
+                        }
+                        """u8.ToArray()),
+                ],
+                "documentation-query-ambiguous-api");
+        byte[] implementation = DuplicateTargetAssembly(assemblyName);
+        await using LibraryFixture library =
+            await LibraryFixture.CreateSplitSourceAsync(
+                api.PeImage.ToArray(),
+                implementation,
+                api.PortablePdbImage.ToArray());
+        DocumentationSubjectReference subject =
+            CompiledDocumentationSubjectResolver.Resolve(
+                library.Reference,
+                library.Owner,
+                [identity],
+                ApiSurfaceExtractionScope.Public,
+                s_documentationQueryApiSurfaceBounds,
+                TestContext.Current.CancellationToken)[identity];
+
+        var ambiguous = Assert.IsType<
+            DocumentationImplementationSubjectResolution.Ambiguous>(
+                DocumentationImplementationSubjectResolver.Resolve(
+                    library.Reference,
+                    library.Owner,
+                    subject,
+                    ApiSurfaceExtractionScope.Public,
+                    s_documentationQueryApiSurfaceBounds,
+                    TestContext.Current.CancellationToken));
+        Assert.Equal(2, ambiguous.MatchCount);
+
+        var incomplete = Assert.IsType<
+            DocumentationImplementationSubjectResolution.Incomplete>(
+                DocumentationImplementationSubjectResolver.Resolve(
+                    library.Reference,
+                    library.Owner,
+                    subject,
+                    ApiSurfaceExtractionScope.Public,
+                    new(
+                        maxTypes: 0,
+                        maxMembers: 100,
+                        maxInspectionFailures: 10,
+                        maxTypeForwarders: 10,
+                        maxMetadataRows: 1_000,
+                        maxRetainedTextCharacters: 10_000),
+                    TestContext.Current.CancellationToken));
+        Assert.Equal(
+            ApiSurfaceExtractionBound.Types,
+            incomplete.Bound);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task
+        ImplementationResolutionTerminal_PreservesCompiledChannel(
+            bool incomplete)
+    {
+        SourceHouseBuildAttestation attestation =
+            s_documentationQueryBuildAttestation.Value;
+        var capability = new DocumentationQueryAttestationCapability(
+            attestation);
+        string identity;
+        await using (LibraryFixture probe =
+            await LibraryFixture.CreateSourceAsync(
+                attestation.PeImage.ToArray(),
+                attestation.PortablePdbImage.ToArray()))
+        {
+            identity = DocumentationQueryAuthoredScenario
+                .Create(probe, capability)
+                .Binding
+                .Subject
+                .CompiledXmlIdentity
+                .Value;
+        }
+
+        byte[] xml = QueryXml(identity, "compiled-terminal-summary");
+        await using LibraryFixture library =
+            await LibraryFixture.CreateSourceAsync(
+                attestation.PeImage.ToArray(),
+                attestation.PortablePdbImage.ToArray(),
+                xml);
+        DocumentationQueryAuthoredScenario scenario =
+            DocumentationQueryAuthoredScenario.Create(
+                library,
+                capability);
+        var binding = new DocumentationAuthoredSourceOperationBinding(
+            scenario.Binding.Request,
+            scenario.Binding.OperationPlan,
+            scenario.Binding.PolicyGeneration,
+            scenario.Binding.Subject,
+            scenario.Binding.ImplementationContent,
+            implementationSubject: null);
+        DocumentationImplementationSubjectResolution resolution =
+            incomplete
+                ? new DocumentationImplementationSubjectResolution
+                    .Incomplete(ApiSurfaceExtractionBound.Types)
+                : new DocumentationImplementationSubjectResolution
+                    .Ambiguous(2);
+        IDocumentationAuthoredSourceOperation authoredOperation =
+            DocumentationImplementationSubjectResolver
+                .CreateTerminalOperation(binding, resolution);
+        var operationPlan = new DocumentationHouseOperationPlan(
+            binding.OperationPlan,
+            binding.PolicyGeneration,
+            DocumentationQueryHouseLimits(),
+            scenario.Invocation.Deadline,
+            [
+                QueryCandidate(
+                    library,
+                    binding.Subject,
+                    xmlIndex: 0),
+            ],
+            new(
+                binding,
+                scenario.Invocation.RemainingLimits,
+                authoredOperation));
+        DocumentationQueryPlan query =
+            Assert.IsType<DocumentationQueryRequestResult.Accepted>(
+                DocumentationQuery.ResolveRequest(
+                    DocumentationQuery.CreateRequest(
+                        DocumentationDemand
+                            .CompiledXmlAndAuthoredSourceDocumentation),
+                    TestContext.Current.CancellationToken))
+                .Plan;
+
+        DocumentationQueryResult result =
+            await DocumentationQuery.ExecuteAsync(
+                query,
+                binding.Request,
+                binding.Subject,
+                operationPlan,
+                library.IssueOperation(),
+                TestContext.Current.CancellationToken);
+
+        var content =
+            Assert.IsType<DocumentationQueryOutcome.Completed>(
+                result.Content);
+        Assert.Equal(
+            "compiled-terminal-summary",
+            Assert.IsType<CompiledDocumentationOutcome.Available>(
+                    content.CompiledXml)
+                .Documentation
+                .Summary);
+        if (incomplete)
+        {
+            Assert.Equal(
+                AuthoredDocumentationIncompleteReason
+                    .ImplementationSurface,
+                Assert.IsType<AuthoredDocumentationOutcome.Incomplete>(
+                        content.AuthoredSource)
+                    .Reason);
+        }
+        else
+        {
+            Assert.Equal(
+                AuthoredDocumentationAmbiguityReason
+                    .DeclarationAmbiguous,
+                Assert.IsType<AuthoredDocumentationOutcome.Ambiguous>(
+                        content.AuthoredSource)
+                    .Reason);
+        }
     }
 
     [Fact]
@@ -731,7 +923,8 @@ public sealed class DocumentationQueryTests
             planIdentity,
             policy,
             subject,
-            library.Reference.ImplementationAssembly!);
+            library.Reference.ImplementationAssembly!,
+            implementationSubject: null);
         var operation = new DocumentationQueryScriptedOperation(
             invocation => ScriptedOutcome(invocation, scenario));
         DateTimeOffset deadline = DateTimeOffset.UtcNow.AddMinutes(1);
@@ -958,6 +1151,81 @@ public sealed class DocumentationQueryTests
         return MetadataTokens.GetToken(method);
     }
 
+    private static byte[] DuplicateTargetAssembly(
+        string assemblyName)
+    {
+        var metadata = new MetadataBuilder();
+        metadata.AddModule(
+            generation: 0,
+            metadata.GetOrAddString($"{assemblyName}.dll"),
+            metadata.GetOrAddGuid(Guid.NewGuid()),
+            encId: default,
+            encBaseId: default);
+        metadata.AddAssembly(
+            metadata.GetOrAddString(assemblyName),
+            new Version(0, 0, 0, 0),
+            culture: default,
+            publicKey: default,
+            flags: default,
+            hashAlgorithm: default);
+        metadata.AddTypeDefinition(
+            default,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            baseType: default,
+            fieldList: MetadataTokens.FieldDefinitionHandle(1),
+            methodList: MetadataTokens.MethodDefinitionHandle(1));
+        metadata.AddTypeDefinition(
+            TypeAttributes.Public
+                | TypeAttributes.Abstract
+                | TypeAttributes.Sealed,
+            metadata.GetOrAddString(
+                "DocumentationQuery.Ambiguous"),
+            metadata.GetOrAddString("Subject"),
+            baseType: default,
+            fieldList: MetadataTokens.FieldDefinitionHandle(1),
+            methodList: MetadataTokens.MethodDefinitionHandle(1));
+
+        var signature = new BlobBuilder();
+        new BlobEncoder(signature)
+            .MethodSignature(isInstanceMethod: false)
+            .Parameters(
+                parameterCount: 0,
+                returnType => returnType.Void(),
+                parameters => { });
+        BlobHandle signatureHandle =
+            metadata.GetOrAddBlob(signature);
+        var methodBodies = new BlobBuilder();
+        var instructions = new BlobBuilder();
+        new InstructionEncoder(instructions)
+            .OpCode(ILOpCode.Ret);
+        int body = new MethodBodyStreamEncoder(methodBodies)
+            .AddMethodBody(
+                new InstructionEncoder(instructions),
+                maxStack: 0);
+        for (int index = 0; index < 2; index++)
+        {
+            metadata.AddMethodDefinition(
+                MethodAttributes.Public | MethodAttributes.Static,
+                MethodImplAttributes.IL,
+                metadata.GetOrAddString("Target"),
+                signatureHandle,
+                body,
+                MetadataTokens.ParameterHandle(1));
+        }
+
+        var pe = new ManagedPEBuilder(
+            PEHeaderBuilder.CreateLibraryHeader(),
+            new MetadataRootBuilder(
+                metadata,
+                suppressValidation: true),
+            methodBodies,
+            flags: CorFlags.ILOnly);
+        var image = new BlobBuilder();
+        pe.Serialize(image);
+        return image.ToArray();
+    }
+
     private static CSharpBuildSource[] DocumentationQueryBuildSources()
     {
         string directory = Path.Combine(
@@ -1142,7 +1410,9 @@ public sealed class DocumentationQueryTests
                 DocumentationHousePolicyGeneration.Create(
                     "documentation-query-policy"),
                 subject,
-                library.Reference.ImplementationAssembly!);
+                library.Reference.ImplementationAssembly!,
+                DocumentationImplementationSubjectReference
+                    .FromApiSubject(subject));
             var invocation =
                 new DocumentationAuthoredSourceOperationInvocation(
                     binding,

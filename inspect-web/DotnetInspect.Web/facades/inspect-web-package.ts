@@ -10,7 +10,7 @@ export type AuthoredDocumentationAmbiguityReason = "PhysicalDeclarationConflict"
 
 export type AuthoredDocumentationFailureReason = "SourceFailed" | "PhysicalDeclarationFailed" | "MalformedDocumentation" | number;
 
-export type AuthoredDocumentationIncompleteReason = "DeclarationUncertain" | "Deadline" | "SourceDocuments" | "SourceBytes" | "SourceCharacters" | "SourceHouse" | "PhysicalDeclaration" | "Documentation" | number;
+export type AuthoredDocumentationIncompleteReason = "DeclarationUncertain" | "ImplementationSurface" | "Deadline" | "SourceDocuments" | "SourceBytes" | "SourceCharacters" | "SourceHouse" | "PhysicalDeclaration" | "Documentation" | number;
 
 export type AuthoredDocumentationRejectionReason = "OperationEvidenceMismatch" | "AlreadyInvoked" | "BindingMismatch" | "LeaseReferenceMismatch" | "SourceRejected" | "SourceEvidenceMismatch" | "PhysicalDeclarationRejected" | number;
 
