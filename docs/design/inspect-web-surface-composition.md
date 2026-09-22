@@ -36,7 +36,7 @@ This owner defines:
 - package-source presentation placement (feed tabs absence, producer-label
   display);
 - the placement and allocation of the two persistent shell rows, including the
-  application-scope and subject/inspector regions, inspected target,
+  product-navigation and subject/inspector regions, inspected target,
   shell-owned Application menu, and contextual working-surface actions;
 - contextual working-surface action placement and responsive continuity;
 - responsive composition across viewport sizes; and
@@ -119,11 +119,10 @@ This document consumes, without redefining:
   [Inspect Web Navigation
   Presentation](inspect-web-navigation-presentation.md#slideable-subject-strip);
   and
-- the Query/Activity/Workspace application-scope inventory, selection, and
-  interaction
-  owned by
-  [Inspect Web Navigation
-  Presentation](inspect-web-navigation-presentation.md#application-scope-strip).
+- the Home/Query/Workspace/Activity product-navigation inventory, selection,
+  and interaction owned by
+  [Inspect Web Shell
+  Interaction](inspect-web-shell-interaction.md#product-navigation-menu).
 
 ## Home inspection entry
 
@@ -180,28 +179,26 @@ contain its own horizontal scope-control pressure.
 The persistent shell is two non-wrapping page-level rows:
 
 ```text
-row one: [product] [Query | Activity | Workspace] [subject and inspector region]
+row one: [product navigation] [subject and inspector region]
          [Back | Forward] [Search] [Application menu]
 row two: [inspected target: minmax(0, 1fr)]
          [working-surface actions, when supplied]
 ```
 
-Row one contains navigation and the stable application-action home. The product
-control and Application menu occupy non-shrinking slots. The
-Navigation Presentation-owned application-scope strip precedes the
-subject/inspector region, which receives the primary flexible allocation. The
-Shell Interaction-owned history and Search cluster follows it. Search
-progresses from its full label to its compact label and then disappears;
-the application-scope strip yields next, while history remains available until
-a narrower width. History then disappears before the subject and inspector
+Row one contains navigation and the stable application-action home. The
+brand-triggered product-navigation control and Application menu occupy
+non-shrinking slots. The subject/inspector region receives the primary flexible
+allocation between product navigation and the Shell Interaction-owned history
+and Search cluster. Search progresses from its full label to its compact label
+and then disappears. History then disappears before the subject and inspector
 groups adapt from complete tablists to their current-label choosers.
 
-The application-scope strip uses a distinct quiet treatment and may be removed
-at constrained widths only after focus has left it. Query and Activity remain
-reachable through Spotlight's global keyboard entry, and Workspace through
-hierarchical drill-out or a return action. The standalone `/query` and
-`/activity` surfaces do not render this strip; their visible headings and
-route-specific Back actions orient them.
+The product-navigation popover contains Home, Query, Workspace, and Activity
+at every supported width. It opens from the brand without reserving a separate
+horizontal strip or changing the allocation available to Subject and Inspector
+navigation. The standalone `/query` and `/activity` surfaces retain their
+visible headings and route-specific Back actions while exposing the same
+brand-triggered product navigation.
 
 The subject and inspector region has `min-width: 0`. Its preferred allocation
 is large enough to expose complete common inventories, but exact pixel
@@ -1236,10 +1233,9 @@ Consumer](inspect-web-navigation-consumer.md#package-query-entry-and-return)
 owns this route's browser-history entry and return-focus behavior, including
 its visible `Back` action.
 
-The page header contains the product home link and `Back`, not the
-`Query`/`Workspace` application-scope buttons. This placement is independent of
-viewport width and whether a workspace is retained in the session; the
-workspace shell keeps its application-scope strip.
+The page header contains the brand-triggered product-navigation control and
+`Back`. This placement is independent of viewport width and whether a
+Workspace is retained in the session.
 
 The route renders one visible level-one `Package query` heading followed by an
 editable `Package ID prefix` input and `Run query` action.
@@ -1280,9 +1276,9 @@ has no package tab, peer-mode selector, or active inspection coordinate.
 product-issued package-set scope, interval, progressive rows, cancellation,
 typed completion, bounded DOM, and session-local state.
 
-The page header contains the product home link and `Back`, not the
-`Query`/`Activity`/`Workspace` application-scope buttons. Its level-one heading
-is `Package Activity`; direct load and refresh start from the session-local
+The page header contains the brand-triggered product-navigation control and
+`Back`. Its level-one heading is `Package Activity`; direct load and refresh
+start from the session-local
 initial state. In-app entry, Back, and Forward use the same route-history and
 focus pattern as Package Query without merging the two surfaces.
 

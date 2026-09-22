@@ -15,7 +15,7 @@ This owner defines:
 
 - the persistent shell's visible `Search` and `Open` actions, one stable
   Application menu for `Share`, `Settings`, and `Keyboard help`, and the
-  `dotnet-inspect` Home control;
+  `dotnet-inspect` product-navigation control;
 - the identities, accessible behavior, and responsive visible states of the
   row-one Home, history, Search, and Application menu controls;
 - the generic modal-dialog contract (accessible name, initial focus, inert
@@ -74,14 +74,14 @@ This document consumes, without redefining:
 Surface Composition owns the two-row placement:
 
 ```text
-row one: dotnet-inspect  Subject  Inspectors  Back Forward  Search  Application
+row one: dotnet-inspect menu  Subject  Inspectors  Back Forward  Search  Application
 row two: [package icon] Package > Type > Member          contextual actions
 ```
 
 This document owns the row-one shell controls rather than the page-level
 allocation:
 
-1. `dotnet-inspect` is the stable product and Home control.
+1. `dotnet-inspect` is the stable product-navigation control.
 2. Compact Back and Forward controls occupy one quiet paired container.
 3. Search follows history and opens Spotlight.
 4. The Application menu is the stable inline-end action home.
@@ -113,6 +113,16 @@ arrows alone, to no visible history/Search controls before the Subject and
 Inspector region starts reducing active identity. These states do not change
 the controls' interaction semantics.
 
+The brand-triggered product-navigation menu exposes:
+
+```text
+dotnet-inspect
+  Home
+  Query
+  Workspace
+  Activity
+```
+
 The separate Application menu exposes:
 
 ```text
@@ -138,7 +148,8 @@ The shell may land before adjacent redesign owners. During that transition:
   Application menu is available;
 - Open remains absent rather than appearing disabled or committing a
   success-shaped placeholder action;
-- the `dotnet-inspect` root control is the sole persistent Home affordance;
+- the `dotnet-inspect` product-navigation menu is the sole persistent Home
+  affordance, with Home as its first item;
 - existing direct Share, Settings, and keyboard Help controls may remain in the
   shell until
   [Surface Composition's placement contract](inspect-web-surface-composition.md#shell-navigation-and-application-actions)
@@ -169,12 +180,43 @@ The Application menu starts from three established patterns:
   application menu bar or user-editable keybinding system
   ([VS Code keyboard shortcuts](https://code.visualstudio.com/docs/configure/keybindings)).
 
-The deliberate divergence is that this menu remains small and non-navigational.
-It contains only the shell-owned Share, Settings, and Keyboard help actions.
-Search, Open, browser history, subjects, inspectors, coordinates, and
-contextual working-surface actions keep their existing dedicated owners and
-locations. The button is the canonical action home at every supported width,
-not an overflow fallback whose inventory changes when space becomes scarce.
+The deliberate divergence is that the separate Application menu remains small
+and non-navigational. It contains only the shell-owned Share, Settings, and
+Keyboard help actions. Home, Query, Workspace, and Activity instead live in
+the brand-triggered product-navigation menu, where they remain prominent
+without competing horizontally with Subject and Inspector navigation. Search,
+Open, browser history, subjects, inspectors, coordinates, and contextual
+working-surface actions keep their existing dedicated owners and locations.
+Neither menu is an overflow fallback whose inventory changes when space
+becomes scarce.
+
+## Product navigation menu
+
+The visible `dotnet-inspect` wordmark and product mark form one button with a
+disclosure indicator. Activation opens a vertically stacked navigation
+popover containing Home, Query, Workspace, and Activity in that order. The
+current routed destination is marked with `aria-current="page"`; ordinary
+inspection has no falsely selected destination. Workspace remains visible but
+is `aria-disabled` with an accessible reason when no Workspace is available.
+Query and Activity likewise remain visible but are `aria-disabled` with an
+accessible reason while runtime startup, inspection loading, or an inspection
+error prevents their route handlers from entering those destinations.
+Unavailable items remain in managed Arrow-key focus so keyboard and
+assistive-technology users can discover the reason, while activation has no
+effect.
+
+The product-navigation popover is viewport-constrained and renders above the
+shell without reflowing or clipping the Subject and Inspector region. Down or
+Up Arrow on the trigger opens it at the first or last available destination;
+Arrow keys, Home, and End move through destinations; Escape closes it and
+returns focus to the trigger. Tab follows ordinary document order. Outside
+pointer or focus movement closes it without stealing focus.
+
+Home, Query, Activity, and Workspace continue to use their existing routed
+navigation outcomes, browser-history classification, retained Workspace
+state, and destination-focus behavior. Returning from Query or Activity to an
+inspection focuses the current rendered product-navigation trigger rather
+than a destroyed menu item.
 
 ## Application menu
 
@@ -509,9 +551,9 @@ outcomes.
 
 ### Workspace title bar
 
-1. Confirm that row one contains the `dotnet-inspect` Home control, Subject and
-   Inspector navigation, Back and Forward, Search, and the Application menu,
-   with no Package coordinate controls.
+1. Confirm that row one contains the `dotnet-inspect` product-navigation
+   control, Subject and Inspector navigation, Back and Forward, Search, and
+   the Application menu, with no Package coordinate controls.
 2. Confirm that row one contains no workspace tabs, numeric workspace
    selectors, separate Platform workspace, or reconstructed inspected target.
 3. Open Workspace and confirm that retained coordinates move into its working

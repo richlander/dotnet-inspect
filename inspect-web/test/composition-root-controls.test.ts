@@ -835,7 +835,7 @@ test("keyboard help projects available global and current graph bindings", () =>
     ?? "";
   assert.match(
     catalogRenderer,
-    /applicationScopeHtml: renderApplicationScopeBar\(\s*"workspace",\s*true,\s*escapeHtml\)[\s\S]*<main id="subject-panel" class="workspace" role="tabpanel" aria-labelledby="application-scope-workspace">/);
+    /workbenchShellHtml\(\{[\s\S]*<main id="subject-panel" class="workspace">/);
   assert.match(
     appSource,
     /function drillIn\(\) \{\s*if \(scope\(\) === "workspace"\) \{\s*if \(!state\.package\) return;/);
