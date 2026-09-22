@@ -983,16 +983,14 @@ test.describe("Package Query website over real Wasm", () => {
     await literal.fill("\\r\n");
     await expect(literal).toHaveValue("\\r\n");
     await literal.fill("marker");
-    await literal.press("Control+A");
-    await literal.press("Backspace");
+    await literal.fill("");
     await expect(literal).toBeVisible();
     await expect(literal).toBeFocused();
     await expect(literal).toHaveValue("");
     await expect(packageInput).toHaveValue(literalCoordinate.packageId);
 
     const targetFramework = page.locator("#package-query-library-tfm");
-    await targetFramework.press("Control+A");
-    await page.keyboard.type("net8.0");
+    await targetFramework.fill("net8.0");
     await expect(targetFramework).toBeVisible();
     await expect(targetFramework).toBeFocused();
     await expect(targetFramework).toHaveValue("net8.0");
@@ -1008,8 +1006,7 @@ test.describe("Package Query website over real Wasm", () => {
     const firstTerm = dependsForm.locator("[data-query-term-value]");
     await firstTerm.fill("Unapplied.Old.Dependency");
     await literal.fill("marker");
-    await literal.press("Control+A");
-    await literal.press("Backspace");
+    await literal.fill("");
     await firstTerm.fill("New.Dependency");
     await dependsForm.getByRole("button", { name: "Apply" }).click();
     await expect(firstTerm).toHaveValue("New.Dependency");
