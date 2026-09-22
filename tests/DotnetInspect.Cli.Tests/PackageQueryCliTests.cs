@@ -1389,6 +1389,9 @@ public class PackageQueryCliTests
         int categoryIndex = catalog.Output.IndexOf(
             SectionCategoryNames.Query,
             StringComparison.Ordinal);
+        int literalsIndex = catalog.Output.IndexOf(
+            PackageQuerySections.LiteralStringsName,
+            StringComparison.Ordinal);
         int packagesIndex = catalog.Output.IndexOf(
             PackageProfileSections.Packages,
             StringComparison.Ordinal);
@@ -1396,7 +1399,8 @@ public class PackageQueryCliTests
             PackageQuerySections.QuerySummaryName,
             StringComparison.Ordinal);
         Assert.True(categoryIndex >= 0);
-        Assert.True(categoryIndex < packagesIndex);
+        Assert.True(categoryIndex < literalsIndex);
+        Assert.True(literalsIndex < packagesIndex);
         Assert.True(packagesIndex < summaryIndex);
         Assert.DoesNotContain("@All", catalog.Output);
         Assert.DoesNotContain("@Default", catalog.Output);
@@ -1405,7 +1409,25 @@ public class PackageQueryCliTests
         Assert.Equal(0, category.ExitCode);
         Assert.Empty(category.Error);
         Assert.Contains(PackageProfileSections.Packages, category.Output);
+        Assert.Contains(PackageQuerySections.LiteralStringsName, category.Output);
         Assert.Contains(PackageQuerySections.QuerySummaryName, category.Output);
+    }
+
+    [Fact]
+    public async Task LiteralStringsSectionRequiresLibraryLiteralQuery()
+    {
+        var result = await Run(
+            "package",
+            "query",
+            "Microsoft.Identity.Client",
+            "-S",
+            PackageQuerySections.LiteralStringsName);
+
+        Assert.Equal(1, result.ExitCode);
+        Assert.Empty(result.Output);
+        Assert.Contains(
+            "requires --where \"library-literal=TEXT\" and --tfm TFM",
+            result.Error);
     }
 
     [Fact]
@@ -1892,6 +1914,84 @@ public class PackageQueryCliTests
         Assert.Contains(libraryPath, markdown.Output);
         Assert.Contains("/IL_", markdown.Output);
         Assert.Contains(rootToken, markdown.Output);
+    }
+
+    [Fact]
+    [Trait("Speed", "Slow")]
+    public async Task CliLiteralStringQueryItemizesDistinctWholeUrlStrings()
+    {
+        string[] arguments =
+        [
+            "package",
+            "query",
+            "Microsoft.Identity.Client",
+            "--where",
+            "library-literal=https://",
+            "--tfm",
+            "net8.0",
+        ];
+        var content = await Run([.. arguments, "--json", "--compact"]);
+        var projected = await Run(
+            [
+                .. arguments,
+                "-S",
+                PackageQuerySections.LiteralStringsName,
+                "--json",
+                "--compact",
+            ]);
+
+        Assert.Equal(0, content.ExitCode);
+        Assert.Equal(0, projected.ExitCode);
+        Assert.Empty(content.Error);
+        Assert.Empty(projected.Error);
+
+        using JsonDocument contentDocument = JsonDocument.Parse(content.Output);
+        string[] occurrences =
+        [
+            .. contentDocument.RootElement
+                .GetProperty("results")[0]
+                .GetProperty("libraryLiteral")
+                .GetProperty("occurrences")
+                .EnumerateArray()
+                .Select(occurrence =>
+                    occurrence.GetProperty("literalText").GetString()
+                    ?? throw new InvalidOperationException(
+                        "Expected a decoded literal string.")),
+        ];
+        string[] expected =
+        [
+            .. occurrences.Distinct(StringComparer.Ordinal),
+        ];
+
+        using JsonDocument projectedDocument =
+            JsonDocument.Parse(projected.Output);
+        JsonElement[] rows =
+        [
+            .. projectedDocument.RootElement
+                .GetProperty("literal_strings")
+                .EnumerateArray(),
+        ];
+        string[] actual =
+        [
+            .. rows.Select(row =>
+                row.GetProperty("literal").GetString()
+                ?? throw new InvalidOperationException(
+                    "Expected a projected literal string.")),
+        ];
+
+        Assert.True(occurrences.Length > expected.Length);
+        Assert.Equal(expected, actual);
+        Assert.All(rows, row => Assert.Single(row.EnumerateObject()));
+        Assert.Contains(
+            actual,
+            literal => literal.StartsWith(
+                "https://",
+                StringComparison.Ordinal));
+        Assert.Contains(
+            actual,
+            literal =>
+                !literal.StartsWith("https://", StringComparison.Ordinal)
+                && literal.Contains("https://", StringComparison.Ordinal));
     }
 
     [Theory]

@@ -880,6 +880,12 @@ document specifies:
   of being flattened into an `Evidence` column. The query layer retrieves
   values, facts, and counts; hosts render any explanation from those typed
   values without re-deriving semantic identity.
+- **Literal strings are an explicit evidence projection.** For a
+  `library-literal` query, `-S "Literal Strings"` renders one one-column row for
+  each distinct full retained matching literal across the selected package
+  Results. Exact duplicate values collapse in first-occurrence order. The
+  projection does not extract the operand or URL-shaped substrings and does not
+  change package-grain `-n`, `--rows`, or `--count` semantics.
 - **Denormalization is a per-term decision, not a generic mechanism.** A
   term whose answer is inherently per-sub-item (for example, "which of this
   package's target frameworks are out of support" when a package targets
