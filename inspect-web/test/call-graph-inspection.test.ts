@@ -42,6 +42,7 @@ function graph(mermaid: string): BrowserCallGraph {
       bindingIdentityConflicts: 0,
       hasUnexploredTraversalBoundary: false,
       hasAnalysisFailureBoundary: false,
+      unavailableDependencyRoutes: 0,
       isIncomplete: false,
     },
     noBody: false,

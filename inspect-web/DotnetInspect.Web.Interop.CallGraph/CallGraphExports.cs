@@ -66,7 +66,8 @@ public static partial class CallGraphExports
         BrowserCallGraph graph =
             BrowserCallGraphWireProjection.Project(
                 BrowserCallGraphProjection.Project(
-                    available.Document));
+                    available.Document),
+                envelope.Diagnostics);
 
         // Keep JSON return provenance outside async cleanup for the generated typed facade.
         return JsonSerializer.Serialize(

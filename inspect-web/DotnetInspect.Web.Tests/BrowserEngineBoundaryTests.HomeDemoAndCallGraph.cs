@@ -628,6 +628,19 @@ public sealed partial class BrowserEngineBoundaryTests
                 && target.MemberName == "Invoke");
         Assert.Contains("Example.Worker.Run", projected.Mermaid);
         Assert.Equal("CrossLibrary", projected.Scope.CalleeScope);
+
+        BrowserCallGraph wire = BrowserCallGraphWireProjection.Project(
+            projected,
+            [
+                new InspectionDiagnostic(
+                    "package-dependency-member-call-graph.route-unavailable",
+                    InspectionDiagnosticSeverity.Warning,
+                    "A dependency route was unavailable."),
+            ]);
+        Assert.Equal(
+            1,
+            wire.Diagnostics.UnavailableDependencyRoutes);
+        Assert.True(wire.Diagnostics.IsIncomplete);
     }
 
     [Fact]

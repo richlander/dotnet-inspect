@@ -54,6 +54,13 @@ test("call graph diagnostics distinguish failures from expected bounds", () => {
   })), "Partial call graph: one or more method bodies could not be analyzed.");
   assert.equal(callGraphDiagnosticsMessage(engineCallGraphDiagnostics({
     isIncomplete: true,
+    incompleteNodes: 0,
+    incompleteEdges: 0,
+    bindingIdentityConflicts: 0,
+    unavailableDependencyRoutes: 2
+  })), "Partial call graph: 2 unavailable dependency routes.");
+  assert.equal(callGraphDiagnosticsMessage(engineCallGraphDiagnostics({
+    isIncomplete: true,
     incompleteNodes: 1,
     incompleteEdges: 0,
     bindingIdentityConflicts: 0,

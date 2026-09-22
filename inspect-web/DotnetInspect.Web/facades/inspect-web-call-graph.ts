@@ -16,6 +16,7 @@ export interface BrowserCallGraphDiagnostics {
   readonly bindingIdentityConflicts: number;
   readonly hasUnexploredTraversalBoundary: boolean;
   readonly hasAnalysisFailureBoundary: boolean;
+  readonly unavailableDependencyRoutes: number;
   readonly isIncomplete: boolean;
 }
 
