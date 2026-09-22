@@ -399,13 +399,25 @@ test("source-bearing Workspace URLs use page-session retained activation", () =>
 
   assert.match(
     appSource,
-    /createWorkspaceFeedActivationCoordinator\(\{[\s\S]*client: engineClient\.catalog,[\s\S]*cloneRollback: cloneCanonicalWorkspaceSnapshotForRetention,[\s\S]*publish: publishSourceBearingWorkspace/);
+    /createWorkspaceFeedActivationCoordinator\(\{[\s\S]*client: engineClient\.catalog,[\s\S]*activationController: requireRetainedWorkspaceActivation\(\),[\s\S]*cloneRollback: cloneCanonicalWorkspaceSnapshotForRetention,[\s\S]*publish: publishSourceBearingWorkspace/);
+  assert.match(
+    appSource,
+    /function publishSourceBearingWorkspace\([\s\S]*activeRetainedWorkspacePosting = posting;[\s\S]*retainedWorkspacePresentation =\s*createNavigationDescriptorPresentation\(posting\)/);
+  assert.match(
+    appSource,
+    /function clearWorkspaceFeedIdentity\(\): void \{[\s\S]*workspaceFeedActivation\?\.ownsRetainedDefinition\([\s\S]*activeRetainedWorkspacePosting = null;[\s\S]*retainedWorkspacePresentation = null;[\s\S]*workspaceFeedActivation\?\.clearActiveUrl\(\)/);
+  assert.match(
+    appSource,
+    /state\.definitions\s*\.filter\(definition =>\s*workspaceFeedActivation\?\.ownsRetainedDefinition\(definition\.id\) !== true\)/);
   assert.match(
     appSource,
     /function captureWorkspaceNavigationRollback\(\):[\s\S]*workspaceFeedActivation\?\.transferCommittedRollback\(\)[\s\S]*captureCanonicalWorkspaceRestoreSnapshot\(\)/);
   assert.match(
     appSource,
     /function activateRetainedWorkspaceProjection\([\s\S]*workspaceFeedActivation\?\.transferCommittedRollback\(\)[\s\S]*restoreRetainedWorkspaceSnapshot\([\s\S]*retainedWorkspaces = transition\.collection;[\s\S]*workspaceFeedActivation\?\.clearActiveUrl\(\)/);
+  assert.match(
+    appSource,
+    /activeManagedDefinitionId[\s\S]*workspaceFeedActivation\?\.ownsRetainedDefinition\([\s\S]*!== true[\s\S]*activateCompatibilityRetainedWorkspace/);
   assert.match(
     initialRestore,
     /tryOpenSourceBearingWorkspace\([\s\S]*new URL\(location\.href\)[\s\S]*return;[\s\S]*preflight\.resolve\(\)/);
@@ -520,7 +532,7 @@ test("canonical restoration is atomic and history adopts the active packet basis
     /if \(\(state\.loading[\s\S]*!loadingPackageContent[\s\S]*!retainedWorkspacePostingVisible\)[\s\S]*\|\| state\.error\) \{[\s\S]*return;\s*\}\s*retainFailedWorkspaceUrl\(\);\s*if \(state\.workspaceSubjectOpen && isProductHomeDemosPath\(location\.pathname\)\)/);
   assert.match(
     appSource,
-    /navigation: navigationHistory\.snapshot\(\),\s*failedWorkspaceUrlState: failedWorkspaceUrlState[\s\S]*structuredClone\(failedWorkspaceUrlState\)[\s\S]*navigationHistory\.restore\(snapshot\.navigation\);[\s\S]*failedWorkspaceUrlState = snapshot\.failedWorkspaceUrlState[\s\S]*structuredClone\(snapshot\.failedWorkspaceUrlState\)/);
+    /navigation: navigationHistory\.snapshot\(\),[\s\S]*failedWorkspaceUrlState: failedWorkspaceUrlState[\s\S]*structuredClone\(failedWorkspaceUrlState\)[\s\S]*navigationHistory\.restore\(snapshot\.navigation\);[\s\S]*failedWorkspaceUrlState = snapshot\.failedWorkspaceUrlState[\s\S]*structuredClone\(snapshot\.failedWorkspaceUrlState\)/);
   assert.match(
     appSource,
     /captureCanonicalWorkspaceRestoreSnapshot\(\)[\s\S]*sourceInspection\.cancelCurrentRequest\(\);\s*libraryApiDiff\.cancelCurrentRequest\(\);\s*cancelFindingCensusRequest\(state\)[\s\S]*structuredClone\(state\.packages\)/);

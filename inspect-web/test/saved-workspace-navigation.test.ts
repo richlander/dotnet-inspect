@@ -48,6 +48,9 @@ import type { SavedWorkspace } from "../src/saved-workspaces.ts";
 import type { SpotlightPackageResult } from "../src/spotlight.ts";
 import type { WorkspaceFocusTarget } from "../src/workspace-subject.ts";
 import {
+  renderWorkspaceView as renderWorkspaceViewPure,
+} from "../src/workspace-subject.ts";
+import {
   browserCreatedCallGraphTabIds,
   createNavigationHistory,
   createNavigationSequence,
@@ -533,6 +536,9 @@ function harness() {
     pendingWorkspaceConstruction: null,
     retainedWorkspaceActivation: null,
     activeRetainedWorkspacePosting: null,
+    retainedWorkspacePresentation: null,
+    retainedWorkspaceInitialDetailAuthority: null,
+    installedRetainedLocation: null,
     packageContentLoadingSequence: null as number | null,
     activeWorkspaceUrl: null as string | null,
     workspaceFeedActivation: null,
@@ -1480,10 +1486,18 @@ test("retained selection commits over a tentative source publication", () => {
   let sourceCleared = false;
   const context = {
     retainedWorkspaces: collection,
-    retainedWorkspaceActivation: null,
+    retainedWorkspaceActivation: {
+      state: {
+        definitions: [],
+        activeDefinitionId: "source-definition",
+      },
+    },
     activeWorkspaceUrl: "https://inspect.test/C",
     navigationSequence: { begin() {} },
     workspaceFeedActivation: {
+      ownsRetainedDefinition(id: string) {
+        return id === "source-definition";
+      },
       transferCommittedRollback() {
         transferred = true;
         return "C";
@@ -1587,6 +1601,119 @@ test("successful ordinary navigation excludes a late source rollback", async () 
     Array.from(h.state.packages, pkg => pkg.id),
     ["Replacement.B"]);
   assert.equal(h.state.package?.id, "Replacement.B");
+});
+
+test("mixed source publication keeps its inactive Platform visible", () => {
+  const h = harness();
+  const declaration = app.program.body.find(node =>
+    node.type === "FunctionDeclaration"
+    && node.id?.name === "publishSourceBearingWorkspace");
+  assert.ok(declaration);
+  Object.assign(h.context, {
+    createNavigationDescriptorPresentation: () => ({
+      packages: [],
+      platforms: [{
+        order: 0,
+        navigationId: "platform-tab",
+        family: "netcore.app",
+        version: "10.0.10",
+        framework: "net10.0",
+        runtimeIdentifier: null,
+        current: false,
+        detailFailure: null,
+        summary: {},
+      }],
+    }),
+    platformPackages: new Map(),
+    platformTargetKey: (target: {
+      tfm: string;
+      version: string;
+    }) => `${target.tfm}/${target.version}`,
+    defaultVisibleTypeId: () => "",
+    resetMemberSectionState() {},
+    renderWorkspaceViewPure,
+    render() {},
+  });
+  runInNewContext(
+    stripTypeScriptTypes(
+      appSource.slice(declaration.start, declaration.end)),
+    h.context);
+
+  const packageModel = structuredClone(h.state.package!);
+  const platformModel = {
+    ...structuredClone(packageModel),
+    id: "Microsoft.NETCore.App",
+    version: "10.0.10",
+    activeFramework: "net10.0",
+    source: { kind: "platform" as const },
+    producerLabel: "Platform",
+    isRuntimePack: true,
+  };
+  const posting = {
+    retainedDefinitionId: "workspace-definition-1",
+    realizationId: "realization-1",
+    canonicalLocation: "https://inspect.test/?w=source-mixed",
+    definition: {
+      activeTabId: "package-tab",
+      tabs: [
+        { id: "platform-tab", kind: "group", source: ":Platform" },
+        {
+          id: "package-tab",
+          kind: "package",
+          source: packageModel.id,
+          version: packageModel.version,
+          framework: packageModel.activeFramework,
+        },
+      ],
+    },
+    navigation: {
+      snapshot: { activePackage: "package-subject" },
+    },
+  };
+  const models = {
+    packages: [{
+      navigationId: "package-tab",
+      contextIndex: 0,
+      consumerPackageSubjectId: "package-subject",
+      packageModel,
+    }],
+    platforms: [{
+      navigationId: "platform-tab",
+      contextIndex: 0,
+      family: "netcore.app",
+      runtimeIdentifier: null,
+      packageModel: platformModel,
+    }],
+  };
+  Object.assign(h.context, { posting, models });
+
+  runInNewContext(
+    "publishSourceBearingWorkspace(posting, models)",
+    h.context);
+
+  const presentation: unknown = runInNewContext(
+    "retainedWorkspacePresentation",
+    h.context);
+  assert.ok(presentation);
+  const html: unknown = runInNewContext(
+    `renderWorkspaceViewPure({
+      occurrences: [],
+      navigationPackages: retainedWorkspacePresentation.packages,
+      navigationPlatforms: retainedWorkspacePresentation.platforms,
+      packages: [],
+      platform: null,
+      loading: false,
+      error: "",
+      escapeHtml: String,
+    })`,
+    h.context);
+  if (typeof html !== "string") {
+    assert.fail("The Workspace renderer must return HTML.");
+  }
+  assert.equal(h.state.package?.id, packageModel.id);
+  assert.equal(h.state.platformSelection, null);
+  assert.match(html, /<h2>Platform<\/h2>/);
+  assert.match(html, /data-product-platform-action="platform-tab"/);
 });
 
 for (const failure of ["acquisition", "selection"] as const) {

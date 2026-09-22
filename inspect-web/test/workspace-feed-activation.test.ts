@@ -15,6 +15,10 @@ import {
 } from "../src/workspace-feed-activation.ts";
 import type {
   RetainedWorkspaceActivationClient,
+  RetainedWorkspaceActivationController,
+} from "../src/retained-workspace-activation.ts";
+import {
+  createRetainedWorkspaceActivationController,
 } from "../src/retained-workspace-activation.ts";
 
 function type(id: string): BrowserTypeSurface {
@@ -483,12 +487,14 @@ function createCoordinatorHarness(
   client: WorkspaceTestClient,
   events: string[],
   initialVisible = "incumbent",
+  activationController?: RetainedWorkspaceActivationController,
 ) {
   let navigationSequence = 1;
   let visible = initialVisible;
   let failure: string | null = null;
   const coordinator = createWorkspaceFeedActivationCoordinator({
     client,
+    ...(activationController ? { activationController } : {}),
     document: {
       querySelector() {
         return null;
@@ -548,6 +554,91 @@ function createCoordinatorHarness(
     },
   };
 }
+
+test("source and Saved Workspaces share one retained activation authority", async () => {
+  const hooks = {
+    post() {},
+    clear() {},
+    predecessorSettled() {},
+    predecessorObservationFailed() {},
+  };
+
+  {
+    const events: string[] = [];
+    const client = createWorkspaceTestClient(events, {
+      noEffectWhenActive: true,
+    });
+    const controller =
+      createRetainedWorkspaceActivationController(client, hooks);
+    const saved = controller.retain({
+      label: "Saved",
+      canonicalLocation: "https://example.test/?w=saved",
+      canonicalPacket: "saved",
+    });
+    await controller.activate(saved.id);
+    const source = createCoordinatorHarness(
+      client,
+      events,
+      "Saved",
+      controller);
+
+    assert.equal(
+      await source.coordinator.tryOpen(
+        new URL("https://example.test/?w=source"),
+        source.sequence,
+        true),
+      true);
+    assert.equal(source.visible, "https://example.test/?w=source");
+    assert.equal(source.failure, null);
+    assert.notEqual(controller.state.activeDefinitionId, saved.id);
+    assert.equal(
+      controller.state.definitions.some(definition =>
+        definition.id === saved.id),
+      true);
+    assert.equal(
+      source.coordinator.ownsRetainedDefinition(
+        controller.state.activeDefinitionId!),
+      true);
+  }
+
+  {
+    const events: string[] = [];
+    const client = createWorkspaceTestClient(events, {
+      noEffectWhenActive: true,
+    });
+    const savedPosting: {
+      value: BrowserRetainedWorkspacePosting | null;
+    } = { value: null };
+    const controller = createRetainedWorkspaceActivationController(client, {
+      ...hooks,
+      post(posted) {
+        savedPosting.value = posted;
+      },
+    });
+    const source = createCoordinatorHarness(
+      client,
+      events,
+      "incumbent",
+      controller);
+    await source.coordinator.tryOpen(
+      new URL("https://example.test/?w=source"),
+      source.sequence,
+      true);
+    const saved = controller.retain({
+      label: "Saved",
+      canonicalLocation: "https://example.test/?w=saved",
+      canonicalPacket: "saved",
+    });
+
+    const result = await controller.activate(saved.id);
+
+    assert.equal(result.status, "activated");
+    assert.equal(savedPosting.value?.canonicalLocation,
+      "https://example.test/?w=saved");
+    assert.equal(controller.state.activeDefinitionId, saved.id);
+    assert.equal(source.coordinator.ownsRetainedDefinition(saved.id), false);
+  }
+});
 
 test("credential prompt names endpoints without retaining credential fields", () => {
   const html = workspaceCredentialPromptHtml({

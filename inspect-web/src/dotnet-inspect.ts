@@ -1406,6 +1406,14 @@ interface CanonicalWorkspaceRestoreSnapshot {
   hasWorkspace: boolean;
   url: string;
   navigation: NavigationHistorySnapshot<WorkspaceView>;
+  activeRetainedWorkspacePosting: BrowserRetainedWorkspacePosting | null;
+  retainedWorkspacePresentation: NavigationDescriptorPresentation | null;
+  retainedWorkspaceInitialDetailAuthority: {
+    realizationId: string;
+    navigationSeq: number;
+    presentationCurrent: boolean;
+  } | null;
+  installedRetainedLocation: InstalledLocationAssociation | null;
   failedWorkspaceUrlState: FailedWorkspaceUrlState | null;
   platformLibraryRetry: RetryAction;
   platformCatalogRetry: RetryAction;
@@ -1520,6 +1528,10 @@ CanonicalWorkspaceRestoreSnapshot {
       || retainedWorkspaces.activeWorkspaceId !== null,
     url: captureCanonicalWorkspaceUrl(),
     navigation: navigationHistory.snapshot(),
+    activeRetainedWorkspacePosting,
+    retainedWorkspacePresentation,
+    retainedWorkspaceInitialDetailAuthority,
+    installedRetainedLocation,
     failedWorkspaceUrlState: failedWorkspaceUrlState
       ? structuredClone(failedWorkspaceUrlState)
       : null,
@@ -1649,6 +1661,11 @@ function restoreCanonicalWorkspaceRestoreSnapshot(
   state.workspaceOccurrences = null;
   state.workspaceOccurrenceError = "";
   navigationHistory.restore(snapshot.navigation);
+  activeRetainedWorkspacePosting = snapshot.activeRetainedWorkspacePosting;
+  retainedWorkspacePresentation = snapshot.retainedWorkspacePresentation;
+  retainedWorkspaceInitialDetailAuthority =
+    snapshot.retainedWorkspaceInitialDetailAuthority;
+  installedRetainedLocation = snapshot.installedRetainedLocation;
   failedWorkspaceUrlState = snapshot.failedWorkspaceUrlState
     ? structuredClone(snapshot.failedWorkspaceUrlState)
     : null;
@@ -1691,6 +1708,12 @@ function cloneCanonicalWorkspaceSnapshotForRetention(
     hasWorkspace: snapshot.hasWorkspace,
     url: snapshot.url,
     navigation: structuredClone(snapshot.navigation),
+    activeRetainedWorkspacePosting:
+      snapshot.activeRetainedWorkspacePosting,
+    retainedWorkspacePresentation: snapshot.retainedWorkspacePresentation,
+    retainedWorkspaceInitialDetailAuthority:
+      snapshot.retainedWorkspaceInitialDetailAuthority,
+    installedRetainedLocation: snapshot.installedRetainedLocation,
     failedWorkspaceUrlState: snapshot.failedWorkspaceUrlState
       ? structuredClone(snapshot.failedWorkspaceUrlState)
       : null,
@@ -2399,7 +2422,10 @@ function retainedWorkspaceItems() {
       active: workspace.id === retainedWorkspaces.activeWorkspaceId,
     };
   });
-  const managed = retainedWorkspaceActivation?.state.definitions.map(
+  const managed = retainedWorkspaceActivation?.state.definitions
+    .filter(definition =>
+      workspaceFeedActivation?.ownsRetainedDefinition(definition.id) !== true)
+    .map(
     definition => ({
       id: definition.id,
       label: definition.label,
@@ -2559,8 +2585,12 @@ function selectRetainedWorkspace(workspaceId: string): void {
     );
     return;
   }
+  const activeManagedDefinitionId =
+    retainedWorkspaceActivation?.state.activeDefinitionId ?? null;
   if (retainedWorkspaceActivation !== null
-    && retainedWorkspaceActivation.state.activeDefinitionId !== null) {
+    && activeManagedDefinitionId !== null
+    && workspaceFeedActivation?.ownsRetainedDefinition(
+      activeManagedDefinitionId) !== true) {
     observeAsync(
       activateCompatibilityRetainedWorkspace(workspaceId),
       "Activating compatibility Workspace",
@@ -2584,6 +2614,24 @@ function selectRetainedWorkspace(workspaceId: string): void {
   } catch (error) {
     showToast(`Could not activate Workspace: ${errorMessage(error)}`);
   }
+}
+
+async function deleteActiveManagedWorkspace(
+  controller: RetainedWorkspaceActivationController,
+  retainedDefinitionId: string,
+  completeDeactivation: () => void | Promise<void>,
+): Promise<void> {
+  if (workspaceFeedActivation?.ownsRetainedDefinition(
+    retainedDefinitionId)) {
+    await workspaceFeedActivation.deactivateRetainedDefinition(
+      retainedDefinitionId,
+      completeDeactivation);
+    return;
+  }
+  await controller.delete(retainedDefinitionId, {
+    successorDefinitionId: null,
+    completeDeactivation,
+  });
 }
 
 async function activateCompatibilityRetainedWorkspace(
@@ -2611,9 +2659,10 @@ async function activateCompatibilityRetainedWorkspace(
         installedRetainedLocation,
         history,
       );
-    await controller.delete(activeDefinitionId, {
-      successorDefinitionId: null,
-      completeDeactivation: () => {
+    await deleteActiveManagedWorkspace(
+      controller,
+      activeDefinitionId,
+      () => {
         if (!activateRetainedWorkspaceProjection(workspaceId, false)) {
           throw new Error("The compatibility Workspace is no longer available.");
         }
@@ -2634,7 +2683,8 @@ async function activateCompatibilityRetainedWorkspace(
         installedRetainedLocation = null;
         render({ synchronizeUrl: false });
       },
-    });
+    );
+    clearWorkspaceFeedIdentity();
     retainedWorkspacePostings.delete(activeDefinitionId);
 }
 
@@ -2693,6 +2743,7 @@ async function activateManagedRetainedWorkspace(
         locationIntent,
         activationNavigationSeq,
       );
+      clearWorkspaceFeedIdentity();
     }
 }
 
@@ -13494,10 +13545,12 @@ async function openSavedWorkspaceEntry(entry: SavedWorkspace): Promise<void> {
       await openSavedWorkspaceCore(entry);
       return;
     }
-    await controller.delete(activeDefinitionId, {
-      successorDefinitionId: null,
-      completeDeactivation: () => openSavedWorkspaceCore(entry),
-    });
+    await deleteActiveManagedWorkspace(
+      controller,
+      activeDefinitionId,
+      () => openSavedWorkspaceCore(entry),
+    );
+    clearWorkspaceFeedIdentity();
     retainedWorkspacePostings.delete(activeDefinitionId);
     return;
   }
@@ -13563,6 +13616,7 @@ async function openSavedWorkspaceEntry(entry: SavedWorkspace): Promise<void> {
       locationIntent,
       activationNavigationSeq,
     );
+    clearWorkspaceFeedIdentity();
   }
 }
 
@@ -18768,6 +18822,7 @@ function workspaceFeedActivationCoordinator():
   > {
   workspaceFeedActivation ??= createWorkspaceFeedActivationCoordinator({
       client: engineClient.catalog,
+      activationController: requireRetainedWorkspaceActivation(),
       document,
       applicationRoot: app,
       maxVisibleModels: MAX_WORKSPACE_PACKAGES,
@@ -18836,6 +18891,14 @@ function cancelWorkspaceCredentialPrompt(showFailure = true): void {
 }
 
 function clearWorkspaceFeedIdentity(): void {
+  if (activeRetainedWorkspacePosting !== null
+    && workspaceFeedActivation?.ownsRetainedDefinition(
+      activeRetainedWorkspacePosting.retainedDefinitionId)) {
+    activeRetainedWorkspacePosting = null;
+    retainedWorkspacePresentation = null;
+    retainedWorkspaceInitialDetailAuthority = null;
+    installedRetainedLocation = null;
+  }
   workspaceFeedActivation?.clearActiveUrl();
   state.workspaceFeedUrl = null;
 }
@@ -18854,6 +18917,11 @@ function publishSourceBearingWorkspace(
 
   clearWorkspacePackages();
   for (const packageModel of allModels) retainPackageModel(packageModel);
+  activeRetainedWorkspacePosting = posting;
+  retainedWorkspacePresentation =
+    createNavigationDescriptorPresentation(posting);
+  retainedWorkspaceInitialDetailAuthority = null;
+  installedRetainedLocation = null;
   const activeTab = posting.definition.activeTabId === null
     ? null
     : posting.definition.tabs.find(

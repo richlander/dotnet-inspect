@@ -1184,6 +1184,8 @@ or consumer-completion failure restores the pre-activation snapshot. An
 in-application link enters browser history only after publication and
 acknowledgement; the active source-bearing packet remains the share and refresh
 URL rather than being rewritten through the format-1 encoder.
+Every admitted Package and Platform remains a visible, selectable top-level
+Workspace member even when another member is active.
 URL synchronization remains suspended for the complete source-activation
 lifecycle. History restoration performs source preflight before switching the
 retained host projection, and ordinary navigation preserves the incumbent
@@ -1208,6 +1210,12 @@ The production coordinator reuses an identical retained definition and removes
 only settled inactive definitions before retaining a distinct URL, so canceled
 prompts and prior URLs do not consume the controller's bounded definition
 capacity.
+Source-bearing and Saved Workspace definitions share one page-local retained
+activation controller and identity sequence because they address the same
+managed activation owner. Source cleanup removes only source-owned definitions;
+it cannot prune a Saved Workspace definition. Switching between either kind
+therefore cannot alias one definition to another or reuse the active posting
+for a different packet.
 
 Browser/Wasm supports anonymous sources and explicit page-session credentials.
 It cannot launch a NuGet credential-provider plugin, so an

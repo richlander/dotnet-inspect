@@ -16,6 +16,7 @@ import {
   createRetainedWorkspaceActivationController,
   type RetainedWorkspaceActivationClient,
   type RetainedWorkspaceActivationController,
+  type RetainedWorkspaceActivationHooks,
 } from "./retained-workspace-activation.ts";
 
 export interface RetainedWorkspaceSurfaceClient {
@@ -62,6 +63,7 @@ export interface WorkspaceCredentialPromptModel {
 export interface WorkspaceFeedActivationDependencies<TRollback> {
   readonly client:
     RetainedWorkspaceActivationClient & RetainedWorkspaceSurfaceClient;
+  readonly activationController?: RetainedWorkspaceActivationController;
   readonly document: {
     querySelector(selectors: string): Element | null;
     createElement(localName: "template"): HTMLTemplateElement;
@@ -95,6 +97,11 @@ export interface WorkspaceFeedActivationCoordinator<TRollback = never> {
   readonly blocksUrlSynchronization: boolean;
   captureCommittedRollback(): TRollback | null;
   transferCommittedRollback(): TRollback | null;
+  ownsRetainedDefinition(retainedDefinitionId: string): boolean;
+  deactivateRetainedDefinition(
+    retainedDefinitionId: string,
+    completeDeactivation: () => void | Promise<void>,
+  ): Promise<void>;
   tryOpen(
     url: URL,
     navigationSequence: number,
@@ -119,7 +126,7 @@ interface PendingWorkspaceCredentialPrompt {
 export function createWorkspaceFeedActivationCoordinator<TRollback>(
   dependencies: WorkspaceFeedActivationDependencies<TRollback>,
 ): WorkspaceFeedActivationCoordinator<TRollback> {
-  let controller: RetainedWorkspaceActivationController | null = null;
+  let controller = dependencies.activationController ?? null;
   let prompt: PendingWorkspaceCredentialPrompt | null = null;
   let posted: {
     readonly value: BrowserRetainedWorkspacePosting;
@@ -133,41 +140,44 @@ export function createWorkspaceFeedActivationCoordinator<TRollback>(
     readonly sourceUrl: string | null;
   } | null = null;
   const activationSequences = new Map<string, number>();
+  const retainedDefinitionIds = new Set<string>();
   const deliveredDefinitionIds = new Set<string>();
   let activeUrl: string | null = null;
   let lastFailure: string | null = null;
   let pendingNavigationSequence: number | null = null;
 
+  const activationHooks: RetainedWorkspaceActivationHooks = {
+    post(posting) {
+      const navigationSequence =
+        activationSequences.get(posting.retainedDefinitionId);
+      if (navigationSequence === undefined) {
+        throw new Error(
+          "The retained Workspace posting has no activation owner.");
+      }
+      posted = {
+        value: posting,
+        navigationSequence,
+        published: false,
+      };
+    },
+    clear() {
+      if (posted !== null) {
+        reconcileRollback(
+          posted.value.retainedDefinitionId,
+          posted.navigationSequence);
+      }
+      posted = null;
+    },
+    predecessorSettled() {},
+    predecessorObservationFailed(_observation, error) {
+      dependencies.reportPredecessorFailure(error);
+    },
+  };
+
   function activationController(): RetainedWorkspaceActivationController {
     controller ??= createRetainedWorkspaceActivationController(
       dependencies.client,
-      {
-        post(posting) {
-          const navigationSequence =
-            activationSequences.get(posting.retainedDefinitionId);
-          if (navigationSequence === undefined) {
-            throw new Error(
-              "The retained Workspace posting has no activation owner.");
-          }
-          posted = {
-            value: posting,
-            navigationSequence,
-            published: false,
-          };
-        },
-        clear() {
-          if (posted !== null) {
-            reconcileRollback(
-              posted.value.retainedDefinitionId,
-              posted.navigationSequence);
-          }
-          posted = null;
-        },
-        predecessorSettled() {},
-        predecessorObservationFailed(_observation, error) {
-          dependencies.reportPredecessorFailure(error);
-        },
-      },
+      activationHooks,
     );
     return controller;
   }
@@ -178,7 +188,8 @@ export function createWorkspaceFeedActivationCoordinator<TRollback>(
   ): Promise<string> {
     const currentController = activationController();
     const existing = currentController.state.definitions.find(definition =>
-      definition.canonicalLocation === canonicalLocation
+      retainedDefinitionIds.has(definition.id)
+      && definition.canonicalLocation === canonicalLocation
       && definition.canonicalPacket === canonicalPacket);
     if (existing !== undefined) {
       if (currentController.state.activeDefinitionId !== existing.id
@@ -187,7 +198,9 @@ export function createWorkspaceFeedActivationCoordinator<TRollback>(
       }
       await currentController.delete(existing.id, {
         successorDefinitionId: null,
+        hooks: activationHooks,
       });
+      retainedDefinitionIds.delete(existing.id);
       deliveredDefinitionIds.delete(existing.id);
     }
 
@@ -197,17 +210,23 @@ export function createWorkspaceFeedActivationCoordinator<TRollback>(
       ...currentController.state.unsettledDefinitionIds,
     ]);
     for (const definition of currentController.state.definitions) {
-      if (!protectedIds.has(definition.id)) {
-        await currentController.delete(definition.id);
+      if (retainedDefinitionIds.has(definition.id)
+        && !protectedIds.has(definition.id)) {
+        await currentController.delete(definition.id, {
+          hooks: activationHooks,
+        });
+        retainedDefinitionIds.delete(definition.id);
         deliveredDefinitionIds.delete(definition.id);
       }
     }
 
-    return currentController.retain({
+    const definition = currentController.retain({
       label: "Shared Workspace",
       canonicalLocation,
       canonicalPacket,
-    }).id;
+    });
+    retainedDefinitionIds.add(definition.id);
+    return definition.id;
   }
 
   async function tryOpen(
@@ -495,6 +514,8 @@ export function createWorkspaceFeedActivationCoordinator<TRollback>(
           }
         },
         credentials,
+        undefined,
+        activationHooks,
       );
       if (!dependencies.isCurrent(navigationSequence)) {
         releaseRollback(retainedDefinitionId, navigationSequence);
@@ -663,6 +684,29 @@ export function createWorkspaceFeedActivationCoordinator<TRollback>(
       releaseRollback();
       posted = null;
       return transferred;
+    },
+    ownsRetainedDefinition(retainedDefinitionId) {
+      return retainedDefinitionIds.has(retainedDefinitionId);
+    },
+    async deactivateRetainedDefinition(
+      retainedDefinitionId,
+      completeDeactivation,
+    ) {
+      if (!retainedDefinitionIds.has(retainedDefinitionId)) {
+        throw new Error(
+          `Retained Workspace definition '${retainedDefinitionId}' is not source-owned.`,
+        );
+      }
+      await activationController().delete(retainedDefinitionId, {
+        successorDefinitionId: null,
+        completeDeactivation,
+        hooks: activationHooks,
+      });
+      retainedDefinitionIds.delete(retainedDefinitionId);
+      deliveredDefinitionIds.delete(retainedDefinitionId);
+      if (posted?.value.retainedDefinitionId === retainedDefinitionId) {
+        posted = null;
+      }
     },
     tryOpen,
     cancelPrompt,
