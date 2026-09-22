@@ -250,6 +250,7 @@ public static class PackageDependencyMemberCallGraphOperation
                 .WorkspaceNotCommitted(notCommitted.ScopeOperation);
         }
 
+        cancellationToken.ThrowIfCancellationRequested();
         var completedRoutes =
             (PackageDependencyWorkspaceRouteOutcome.Completed)
                 routeOutcome;
@@ -260,7 +261,9 @@ public static class PackageDependencyMemberCallGraphOperation
         PackageAssemblyContextCompletionOperation contextOperation =
             request.Workspace.PreparePackageAssemblyContextCompletion(
                 graphBindings,
-                request.RealizationOptions);
+                request.RealizationOptions,
+                () => YieldAndObserveCancellationAsync(
+                    cancellationToken));
         PackageAssemblyContextCompletion completion =
             await contextOperation.ExecuteAsync(
                     contextOperation.Identity)
@@ -271,17 +274,20 @@ public static class PackageDependencyMemberCallGraphOperation
         PackageAssemblyContextProjection? projection = null;
         try
         {
+            cancellationToken.ThrowIfCancellationRequested();
             projection = completion.CreateProjection(graphBindings);
             PackageRootIdentity root =
                 request.RootBindings[
                     request.Focus.RootOccurrenceIndex].Root.Identity;
-            graphOutcome = PackageRoleMemberCallGraphQuery.Execute(
+            graphOutcome =
+                PackageRoleMemberCallGraphQuery.ExecuteWithCancellation(
                 projection,
                 new PackageRoleMemberCallGraphFocus(
                     root,
                     request.Focus.ModuleVersionId,
                     request.Focus.MethodToken),
-                request.Graph);
+                request.Graph,
+                cancellationToken);
         }
         finally
         {
@@ -305,6 +311,7 @@ public static class PackageDependencyMemberCallGraphOperation
                 Cleanup: cleanup);
         }
 
+        cancellationToken.ThrowIfCancellationRequested();
         if (graphOutcome
             is PackageRoleMemberCallGraphOutcome.Unavailable unavailable)
         {
@@ -318,12 +325,21 @@ public static class PackageDependencyMemberCallGraphOperation
         InspectionGraphDocument graph =
             ((PackageRoleMemberCallGraphOutcome.Available)graphOutcome!)
                 .Document;
+        cancellationToken.ThrowIfCancellationRequested();
         return new PackageDependencyMemberCallGraphOutcome.Completed(
             request.Traversal.TraversalTargetPolicy,
             request.Traversal.Summary,
             completedRoutes.Scope.Revision.Identity,
             DetachRoutes(completedRoutes),
             graph);
+    }
+
+    private static async ValueTask YieldAndObserveCancellationAsync(
+        CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        await Task.Yield();
+        cancellationToken.ThrowIfCancellationRequested();
     }
 
     private static ImmutableArray<

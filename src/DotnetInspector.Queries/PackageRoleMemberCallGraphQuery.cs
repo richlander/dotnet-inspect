@@ -84,11 +84,35 @@ public static class PackageRoleMemberCallGraphQuery
     public static PackageRoleMemberCallGraphOutcome Execute(
         PackageAssemblyContextProjection projection,
         PackageRoleMemberCallGraphFocus focus,
-        MemberCallGraphCalleeNeighborhoodRequest request)
+        MemberCallGraphCalleeNeighborhoodRequest request) =>
+        ExecuteCore(
+            projection,
+            focus,
+            request,
+            CancellationToken.None);
+
+    internal static PackageRoleMemberCallGraphOutcome
+        ExecuteWithCancellation(
+        PackageAssemblyContextProjection projection,
+        PackageRoleMemberCallGraphFocus focus,
+        MemberCallGraphCalleeNeighborhoodRequest request,
+        CancellationToken cancellationToken) =>
+        ExecuteCore(
+            projection,
+            focus,
+            request,
+            cancellationToken);
+
+    private static PackageRoleMemberCallGraphOutcome ExecuteCore(
+        PackageAssemblyContextProjection projection,
+        PackageRoleMemberCallGraphFocus focus,
+        MemberCallGraphCalleeNeighborhoodRequest request,
+        CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(projection);
         ArgumentNullException.ThrowIfNull(focus);
         ArgumentNullException.ThrowIfNull(request);
+        cancellationToken.ThrowIfCancellationRequested();
 
         PackageAssemblyContextRoleProjection role =
             projection.ImplementationRole
@@ -102,6 +126,7 @@ public static class PackageRoleMemberCallGraphQuery
             foreach (PackageAssemblyRoleParticipant participant
                 in role.Participants)
             {
+                cancellationToken.ThrowIfCancellationRequested();
                 if (!ReferenceEquals(
                         participant.Package,
                         focus.Package))
@@ -135,6 +160,7 @@ public static class PackageRoleMemberCallGraphQuery
                     "The exact root package implementation module identifies more than one package-role participant.");
             }
 
+            cancellationToken.ThrowIfCancellationRequested();
             PackageAssemblyRoleParticipant selected = candidates[0];
             bool? hasBody;
             try
@@ -167,12 +193,15 @@ public static class PackageRoleMemberCallGraphQuery
                     "The selected implementation MethodDef has no managed body.");
             }
 
+            cancellationToken.ThrowIfCancellationRequested();
             using var session = new MemberCallGraphSession(
                 group,
                 selected.Participant.Assembly,
                 focus.MethodToken);
             return new PackageRoleMemberCallGraphOutcome.Available(
-                session.CrossLibraryCalleeNeighborhood(request));
+                session.CrossLibraryCalleeNeighborhoodWithCancellation(
+                    request,
+                    cancellationToken));
         });
     }
 

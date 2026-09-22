@@ -793,7 +793,8 @@ public sealed partial class PackageHouseExecutionTests
 
     private sealed class CancelAfterOpenPackageContent(
         InMemoryPackageContent inner,
-        CancellationTokenSource cancellation)
+        CancellationTokenSource cancellation,
+        Func<string, bool>? cancelWhen = null)
         : IPackageContent, IPackageContentEntryManifest
     {
         public int OpenedStreamCount { get; private set; }
@@ -840,7 +841,10 @@ public sealed partial class PackageHouseExecutionTests
                     () => DisposedStreamCount++);
             }
             OpenedStreamCount++;
-            cancellation.Cancel();
+            if (cancelWhen?.Invoke(relativePath) ?? true)
+            {
+                cancellation.Cancel();
+            }
             return true;
         }
 

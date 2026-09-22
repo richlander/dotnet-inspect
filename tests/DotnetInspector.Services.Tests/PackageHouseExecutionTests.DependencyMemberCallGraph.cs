@@ -579,6 +579,106 @@ public sealed partial class PackageHouseExecutionTests
 
     [Fact]
     public async Task
+        DependencyMemberCallGraphCancellationAfterPublicationPreventsGraph()
+    {
+        await using HouseEnvironment environment =
+            HouseEnvironment.CreateForAnyPackage(
+                new SourceBehavior(
+                    [RouteVersion],
+                    PayloadContentEntries:
+                    [
+                        (
+                            "lib/net11.0/ILInspector.Analysis.CallerGraphTarget.dll",
+                            File.ReadAllBytes(CallGraphTargetPath)),
+                    ]));
+        using var cancellation = new CancellationTokenSource();
+        CancelAfterOpenPackageContent? cancelingContent = null;
+        bool cancellationArmed = false;
+        PackageRootBinding rootBinding = CallGraphRootBinding(
+            content =>
+                cancelingContent = new(
+                    content,
+                    cancellation,
+                    relativePath =>
+                        cancellationArmed
+                        && relativePath.EndsWith(
+                            ".dll",
+                            StringComparison.OrdinalIgnoreCase)),
+            (CallGraphTargetPackage, RouteVersion));
+        RealizedPackageDependencyContext rootContext =
+            await RouteRootContextAsync(rootBinding);
+        PackageDependencyTraversalOutcome traversal =
+            await RouteTraversalAsync(
+                environment,
+                new PackageDependencyTraversalRootOccurrence(
+                    rootContext,
+                    PackageDependencyTraversalExpansionAuthority
+                        .RecursiveSources));
+        PackageDependencyEdgeRealizationExecution execution =
+            PackageDependencyEdgeRealizationQuery.Execute(
+                new PackageDependencyEdgeRealizationRequest(
+                    traversal,
+                    rootOccurrenceIndex: 0,
+                    edgeIndex: 0,
+                    PackageHouseOperation.Create(
+                        PackageHouseOperationProfile.Realize),
+                    PackageHouseTargetContext.Exact("net12.0")));
+
+        await using var workspace = new InspectionWorkspace();
+        WorkspaceScopeSnapshot empty = await CurrentScopeAsync(workspace);
+        WorkspaceScopeSnapshot rooted =
+            Assert.IsType<WorkspaceScopeOperationResult.Committed>(
+                await workspace.AddPackagesAsync(
+                    empty.Revision,
+                    empty.PublicationBase,
+                    [rootBinding],
+                    DateTimeOffset.UtcNow.AddMinutes(1),
+                    TestContext.Current.CancellationToken)).Snapshot;
+        var request = new PackageDependencyMemberCallGraphRequest(
+            workspace,
+            rooted,
+            traversal,
+            [rootBinding],
+            [execution],
+            new PackageDependencyMemberCallGraphFocus(
+                rootOccurrenceIndex: 0,
+                ModuleVersionId(CallGraphCallerPath),
+                MethodToken(
+                    CallGraphCallerPath,
+                    "Entry",
+                    "RunAcrossBoundary")),
+            new(
+                maxDepth: 2,
+                maxNodes: 10),
+            DateTimeOffset.UtcNow.AddMinutes(1));
+        cancellationArmed = true;
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(
+            () =>
+                PackageDependencyMemberCallGraphOperation.ExecuteAsync(
+                    request,
+                    environment.CreateHouse(
+                        (_, _) => new InMemoryPackageStore()),
+                    environment.IssueOperation(
+                        execution.Request,
+                        cancellation.Token)));
+
+        Assert.NotNull(cancelingContent);
+        Assert.True(cancelingContent.OpenedStreamCount > 0);
+        Assert.Equal(
+            cancelingContent.OpenedStreamCount,
+            cancelingContent.DisposedStreamCount);
+        Assert.Equal(
+            [CallGraphTargetPackage],
+            environment.Clients[0].PayloadPackageIds);
+        Assert.Equal(
+            2,
+            (await CurrentScopeAsync(workspace)).Packages.Length);
+        await environment.AssertRootSettledAsync();
+    }
+
+    [Fact]
+    public async Task
         DependencyMemberCallGraphRejectsForeignCandidatesBeforeSourceWork()
     {
         SourceBehavior behavior =
@@ -770,8 +870,16 @@ public sealed partial class PackageHouseExecutionTests
     }
 
     private static PackageRootBinding CallGraphRootBinding(
+        params (string PackageId, string Version)[] dependencies) =>
+        CallGraphRootBinding(
+            static content => content,
+            dependencies);
+
+    private static PackageRootBinding CallGraphRootBinding(
+        Func<InMemoryPackageContent, IPackageContent> contentFactory,
         params (string PackageId, string Version)[] dependencies)
     {
+        ArgumentNullException.ThrowIfNull(contentFactory);
         string dependencyXml = string.Join(
             Environment.NewLine,
             dependencies.Select(
@@ -810,14 +918,15 @@ public sealed partial class PackageHouseExecutionTests
             assembly.Write(File.ReadAllBytes(CallGraphCallerPath));
         }
 
+        var content = new InMemoryPackageContent(
+            stream.ToArray(),
+            fromCache: false,
+            producerKey: "tests");
         var payload = new AcquiredPackageSourcePayload(
             PackageSourceCoordinate.Create(
                 CallGraphRootPackage,
                 RouteVersion),
-            new InMemoryPackageContent(
-                stream.ToArray(),
-                fromCache: false,
-                producerKey: "tests"),
+            contentFactory(content),
             "tests",
             PackagePayloadOrigin.Download);
         return PackageRootBinding.CreateFromSource(

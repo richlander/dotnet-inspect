@@ -121,9 +121,12 @@ acquisition, cancellation, or timeout failure stops execution. Later edges do
 not run and Workspace publication does not begin.
 
 The operation owns disposal of the supplied source lease immediately after the
-last source step. Workspace publication and graph analysis retain the caller
-cancellation token but do not unnecessarily pin the Package Source generation.
-No source lease or active Package Source work escapes.
+last source step. Workspace publication, package-context preparation, and
+graph analysis retain and observe the caller cancellation token but do not
+unnecessarily pin the Package Source generation. Cancellation after
+publication still releases every acquired package-role resource and cannot
+produce completed graph output. No source lease or active Package Source work
+escapes.
 
 ## Workspace publication
 
@@ -262,7 +265,9 @@ Release gates cover:
 1. all admitted edge executions are validated before the first source call;
 2. several resolved edges execute serially in root-occurrence then edge order;
 3. execution failure, caller cancellation, or source timeout prevents
-   Workspace publication and graph construction;
+   Workspace publication and graph construction, while cancellation after
+   publication still releases package-role resources and prevents completed
+   graph output;
 4. Package contributions publish once while supplied-root, Platform, and
    unavailable routes preserve their typed outcomes;
 5. root selection and the independent default or explicit traversal TFM
