@@ -39,6 +39,8 @@ public partial class PackageQueryTests
                 ("tool-format", 510),
                 ("references", 550),
                 ("skill", 600),
+                ("library-literal", 650),
+                ("library-target", 660),
             ],
             PackageQuery.Terms.Select(term =>
                 (term.Key, term.Weight)));
@@ -60,6 +62,8 @@ public partial class PackageQueryTests
                 PackageQueryTermRole.Inspection,
                 PackageQueryTermRole.Inspection,
                 PackageQueryTermRole.Inspection,
+                PackageQueryTermRole.Inspection,
+                PackageQueryTermRole.Context,
             ],
             PackageQuery.Terms.Select(term => term.Role));
         Assert.Equal(
@@ -109,13 +113,17 @@ public partial class PackageQueryTests
                 ("tool-format", PackageQueryAcquisitionTier.PackageContent, PackageQueryExecutionClass.PackageContent),
                 ("references", PackageQueryAcquisitionTier.PackageContent, PackageQueryExecutionClass.Metadata),
                 ("skill", PackageQueryAcquisitionTier.PackageContent, PackageQueryExecutionClass.PackageContent),
+                ("library-literal", PackageQueryAcquisitionTier.PackageContent, PackageQueryExecutionClass.MetadataExpensive),
+                ("library-target", PackageQueryAcquisitionTier.PackageContent, PackageQueryExecutionClass.MetadataExpensive),
             ],
             PackageQuery.Terms.Select(term =>
                 (term.Key, term.Tier, term.ExecutionClass)));
-        Assert.DoesNotContain(
-            PackageQuery.Terms,
-            term => term.ExecutionClass
-                == PackageQueryExecutionClass.MetadataExpensive);
+        Assert.Equal(
+            [PackageQuery.LibraryLiteralTermKey, PackageQuery.LibraryTargetTermKey],
+            PackageQuery.Terms
+                .Where(term => term.ExecutionClass
+                    == PackageQueryExecutionClass.MetadataExpensive)
+                .Select(term => term.Key));
         Assert.Equal(
             [
                 "search-metadata",
@@ -174,6 +182,16 @@ public partial class PackageQueryTests
         Assert.Equal(
             ["none", "cross-prefix"],
             dependencies.Options.Select(option => option.Value));
+        PackageQueryTermDescriptor libraryLiteral =
+            PackageQuery.Terms.Single(term =>
+                term.Key == PackageQuery.LibraryLiteralTermKey);
+        Assert.Equal(
+            PackageQueryTermControlKind.MultilineInput,
+            libraryLiteral.ControlKind);
+        PackageQueryTermDescriptor libraryTarget =
+            PackageQuery.Terms.Single(term =>
+                term.Key == PackageQuery.LibraryTargetTermKey);
+        Assert.Equal(PackageQueryTermRole.Context, libraryTarget.Role);
         Assert.Equal(
             "dependencies",
             dependencies.SelectionGroupId);
@@ -695,6 +713,31 @@ public partial class PackageQueryTests
         Assert.Equal(
             exclusiveNormalized.Intent.Terms,
             reverseExclusiveNormalized.Intent.Terms);
+
+        var literal = Term(
+            PackageQuery.LibraryLiteralTermKey,
+            "shared-literal-use-marker");
+        PackageQueryPlan literalNormalized = Accepted(
+            PackageQuery.PlanInput(
+                "Contoso.Package",
+                terms: [literal, literal],
+                targetFramework: "net10.0"));
+        Assert.Single(
+            literalNormalized.Terms,
+            term => term.Key == PackageQuery.LibraryLiteralTermKey);
+
+        Assert.Equal(
+            PackageQueryRequestFailureReason.IncompatibleTerms,
+            Rejected(PackageQuery.PlanInput(
+                "Contoso.Package",
+                terms:
+                [
+                    literal,
+                    Term(
+                        PackageQuery.LibraryLiteralTermKey,
+                        "different-literal"),
+                ],
+                targetFramework: "net10.0")).Reason);
 
         PackageQueryPlan structuralNormalized = Accepted(
             PackageQuery.PlanInput(

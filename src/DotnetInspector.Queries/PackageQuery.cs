@@ -9,6 +9,7 @@ using QuerySpace;
 using DotnetInspector.Queries.Definitions;
 using DotnetInspector.Services;
 using DotnetInspector.SourceSelection;
+using ILInspector.Analysis;
 using ILInspector.Metadata;
 using InertText;
 using NuGet.Frameworks;
@@ -43,7 +44,8 @@ public sealed record PackageQueryRequest(
     int MaximumCandidates = PackageQuery.DefaultMaximumCandidates,
     int? MaximumMatches = PackageQuery.DefaultMaximumMatches,
     bool IncludePrerelease = false,
-    RowSelectionIntent<string>? RowSelection = null);
+    RowSelectionIntent<string>? RowSelection = null,
+    string? TargetFramework = null);
 
 public enum PackageQueryDependencyTargetKind
 {
@@ -101,6 +103,8 @@ public enum PackageQueryRequestFailureReason
     TransitiveDependencyRequiresTarget,
     TransitiveDependencyRequiresDepth,
     DependencyDepthRequiresTransitiveDependency,
+    LibraryLiteralRequiresTarget,
+    LibraryTargetRequiresLiteral,
 }
 
 /// <summary>
@@ -136,7 +140,8 @@ public sealed record PackageQueryRequestFailure
         PackageQueryRequestFailureReason.InvalidCandidateLimit =>
             $"The package-query candidate limit must be between 1 and {PackageQuery.MaximumCandidates}; "
             + $"package-content terms admit at most {PackageQuery.MaximumPackageContentCandidates} candidates "
-            + $"and nuspec-expensive terms admit at most {PackageQuery.MaximumNuspecExpensiveCandidates}.",
+            + $"nuspec-expensive terms admit at most {PackageQuery.MaximumNuspecExpensiveCandidates}, "
+            + $"and metadata-expensive terms admit at most {PackageQuery.MaximumMetadataExpensiveCandidates}.",
         PackageQueryRequestFailureReason.InvalidMatchLimit =>
             $"The package-query match limit must be between 1 and {PackageQuery.MaximumCandidates}.",
         PackageQueryRequestFailureReason.TooManyTerms =>
@@ -178,6 +183,10 @@ public sealed record PackageQueryRequestFailure
             "depends-transitive requires dependency-depth=2, 3, or 4.",
         PackageQueryRequestFailureReason.DependencyDepthRequiresTransitiveDependency =>
             "dependency-depth requires at least one depends-transitive term.",
+        PackageQueryRequestFailureReason.LibraryLiteralRequiresTarget =>
+            "library-literal requires one exact target framework.",
+        PackageQueryRequestFailureReason.LibraryTargetRequiresLiteral =>
+            "library-target requires a library-literal term.",
         _ => "The package-query request is invalid.",
     };
 }
@@ -236,6 +245,17 @@ public sealed class PackageQueryPlan
     public SourceSelector PackageInput { get; }
     public bool RequiresPackageContent =>
         BoundTerms.Any(term => term.Predicate.RequiresPackageContent);
+    public bool RequiresLibraryLiteralEvaluation =>
+        BoundTerms.Any(term =>
+            term.Predicate.Kind == PackageQueryPredicateKind.LibraryLiteral);
+    public string? LibraryLiteral =>
+        BoundTerms.SingleOrDefault(term =>
+            term.Predicate.Kind == PackageQueryPredicateKind.LibraryLiteral)
+            ?.Predicate.Text;
+    public string? LibraryTargetFramework =>
+        BoundTerms.SingleOrDefault(term =>
+            term.Predicate.Kind == PackageQueryPredicateKind.LibraryTarget)
+            ?.Predicate.Text;
     public bool RequiresDependencyTraversal =>
         BoundTerms.Any(term =>
             term.Predicate.Kind == PackageQueryPredicateKind.DependsTransitive);
@@ -275,6 +295,42 @@ public sealed class PackageQueryPlan
             IncludePrerelease,
             RowSelection,
             PackageInput);
+
+    public PackageQueryPlan CreatePrequalificationPlan()
+    {
+        ImmutableArray<BoundPackageQueryTerm> terms =
+        [
+            .. BoundTerms.Where(term =>
+                term.Predicate.Kind is not (
+                    PackageQueryPredicateKind.LibraryLiteral
+                    or PackageQueryPredicateKind.LibraryTarget)),
+        ];
+        PortableQueryIntent intent = PortableQueryIntent.Create(
+            [
+                .. Intent.Terms.Where(term =>
+                    term.Key is not (
+                        PackageQuery.LibraryLiteralTermKey
+                        or PackageQuery.LibraryTargetTermKey)),
+            ],
+            [
+                new PortableQueryBound(
+                    PackageQueryVocabulary.CandidatesDimension,
+                    MaximumCandidates),
+            ],
+            [],
+            []);
+        return new(
+            intent,
+            Prefix,
+            terms,
+            DependencyTarget,
+            DependencyDepth,
+            MaximumCandidates,
+            maximumMatches: null,
+            IncludePrerelease,
+            RowSelectionIntent<string>.Create([]),
+            PackageInput);
+    }
 }
 
 /// <summary>Whether evidence describes the query input or an inspected package.</summary>
@@ -332,6 +388,70 @@ public sealed record PackageQueryMatch(
         : this(new PackageQueryPackage(Package), Tier, Answers, Evidence)
     {
     }
+
+    public PackageQueryLibraryLiteralResult? LibraryLiteral { get; init; }
+}
+
+public sealed record PackageQueryLibraryLiteralSelectedAsset(
+    InertString PathText,
+    InertString AssemblyNameText,
+    InertString TargetFrameworkText,
+    int UnevaluatedSiblings)
+{
+    public string Path => PathText.ToString();
+    public string AssemblyName => AssemblyNameText.ToString();
+    public string TargetFramework => TargetFrameworkText.ToString();
+}
+
+public sealed record PackageQueryLibraryLiteralResult(
+    PackageRootReacquisitionRequest RootRequest,
+    PackageQueryLibraryLiteralSelectedAsset SelectedAsset,
+    ImmutableArray<StringLiteralUseOccurrence> Occurrences);
+
+public enum PackageQueryLibraryLiteralAssessmentKind
+{
+    Matched,
+    NoMatch,
+    NotApplicable,
+    Failure,
+    NotEvaluated,
+}
+
+public enum PackageQueryLibraryLiteralNotApplicableReason
+{
+    NoCompileAssets,
+    NoMatchingTargetFramework,
+    EmptyCompileGroup,
+    NoImplementationCounterpart,
+}
+
+public enum PackageQueryLibraryLiteralFailureKind
+{
+    Acquisition,
+    Evaluation,
+}
+
+public enum PackageQueryLibraryLiteralNonEvaluationKind
+{
+    OperationDeadline,
+}
+
+public sealed record PackageQueryLibraryLiteralAssessment(
+    int CandidateOrdinal,
+    string PackageId,
+    string Version,
+    PackageSourceResultIdentity Source,
+    PackageQueryLibraryLiteralAssessmentKind Kind)
+{
+    public PackageRootReacquisitionRequest? RootRequest { get; init; }
+    public PackageQueryLibraryLiteralSelectedAsset? SelectedAsset { get; init; }
+    public PackageQueryLibraryLiteralNotApplicableReason? NotApplicableReason
+        { get; init; }
+    public PackageQueryLibraryLiteralFailureKind? FailureKind { get; init; }
+    public string? FailureStage { get; init; }
+    public PackageQueryLibraryLiteralNonEvaluationKind? NonEvaluationKind
+        { get; init; }
+    public string? Message { get; init; }
 }
 
 /// <summary>The stage at which one package-query item failed.</summary>
@@ -345,6 +465,9 @@ public enum PackageQueryFailureKind
     PackageContentAcquisition,
     PackageContentEvaluation,
     DependencyTraversal,
+    AssemblyAcquisition,
+    AssemblyEvaluation,
+    AssemblyNotEvaluated,
 }
 
 /// <summary>One visible package-query failure.</summary>
@@ -380,6 +503,13 @@ public sealed record PackageQuerySummary(
     PackageQueryCompletionKind Completion)
 {
     public int? SourceCandidates { get; init; }
+    public int? EvaluatedCandidates { get; init; }
+    public int? NotEvaluatedCandidates { get; init; }
+    public int? SemanticMatches { get; init; }
+    public int? Occurrences { get; init; }
+    public int? SemanticMisses { get; init; }
+    public int? NotApplicable { get; init; }
+    public string? Scope { get; init; }
 }
 
 /// <summary>
@@ -391,6 +521,8 @@ public sealed record PackageQueryDocument(
     PackageQuerySummary Summary)
 {
     public bool HasPackages => !Results.IsEmpty;
+    public ImmutableArray<PackageQueryLibraryLiteralAssessment>
+        LibraryLiteralAssessments { get; init; } = [];
 }
 
 /// <summary>A bounded checkpoint in package-query work.</summary>
@@ -406,6 +538,7 @@ public enum PackageQueryProgressPhase
     Manifest,
     PackageContent,
     DependencyTraversal,
+    Assembly,
 }
 
 /// <summary>One event from a package-query stream.</summary>
@@ -546,6 +679,7 @@ public static partial class PackageQuery
     public const int MaximumCandidates = 1_000;
     public const int MaximumPackageContentCandidates = 20;
     public const int MaximumNuspecExpensiveCandidates = 5;
+    public const int MaximumMetadataExpensiveCandidates = 5;
     public const int MaximumDependencyTraversalDepth = 4;
     public const int MaximumDependencyTraversalManifestProjections = 32;
     public const int MaximumDependencyTraversalDeclarationResolutions = 128;
@@ -578,6 +712,8 @@ public static partial class PackageQuery
     public const string ToolFormatTermKey = "tool-format";
     public const string ReferencesTermKey = "references";
     public const string SkillTermKey = "skill";
+    public const string LibraryLiteralTermKey = "library-literal";
+    public const string LibraryTargetTermKey = "library-target";
     public const string ToolReplacementGroupId =
         "package.query.replacement.dotnet-tool";
     public const string ToolDisplayGroupId = "package.query.display.dotnet-tool";
@@ -887,6 +1023,30 @@ public static partial class PackageQuery
                     "The package contains a skill document."),
             ],
         },
+        new(
+            LibraryLiteralTermKey,
+            "library literal",
+            "Downloads the package and matches decoded string-literal uses in the selected primary implementation library.",
+            650,
+            PackageQueryAcquisitionTier.PackageContent,
+            PackageQueryExecutionClass.MetadataExpensive,
+            EqualityOperator,
+            "decoded UTF-16 text",
+            "Microsoft.Extensions.",
+            PackageQueryTermRole.Inspection,
+            PackageQueryTermControlKind.MultilineInput),
+        new(
+            LibraryTargetTermKey,
+            "library target",
+            "Records the exact target framework used to select the primary implementation library.",
+            660,
+            PackageQueryAcquisitionTier.PackageContent,
+            PackageQueryExecutionClass.MetadataExpensive,
+            EqualityOperator,
+            "NuGet target framework",
+            "net10.0",
+            PackageQueryTermRole.Context,
+            PackageQueryTermControlKind.Input),
     ];
 
     /// <summary>The complete ordered Package Query vocabulary.</summary>
@@ -919,6 +1079,8 @@ public static partial class PackageQuery
         Key(ReferencesTermKey, BindAssemblyReference),
         Key(SkillTermKey, static (op, value) =>
             BindBoolean(op, value, PackageQueryPredicateKind.Skill)),
+        Key(LibraryLiteralTermKey, BindLibraryLiteral),
+        Key(LibraryTargetTermKey, BindLibraryTarget),
     ]);
 
     public static string VocabularyIdentity => Vocabulary.Identity;
@@ -1021,6 +1183,20 @@ public static partial class PackageQuery
                     .DependencyDepthRequiresTransitiveDependency,
                 [DependencyDepthTermKey, DependsTransitiveTermKey]);
         }
+        if (plan.RequiresLibraryLiteralEvaluation
+            && plan.LibraryTargetFramework is null)
+        {
+            return Rejected(
+                PackageQueryRequestFailureReason.LibraryLiteralRequiresTarget,
+                [LibraryLiteralTermKey, LibraryTargetTermKey]);
+        }
+        if (!plan.RequiresLibraryLiteralEvaluation
+            && plan.LibraryTargetFramework is not null)
+        {
+            return Rejected(
+                PackageQueryRequestFailureReason.LibraryTargetRequiresLiteral,
+                [LibraryTargetTermKey, LibraryLiteralTermKey]);
+        }
 
         return ecosystemMemberships is null
             ? new PackageQueryPlanResult.Accepted(plan)
@@ -1036,7 +1212,8 @@ public static partial class PackageQuery
             request.MaximumCandidates,
             request.MaximumMatches,
             request.IncludePrerelease,
-            request.RowSelection);
+            request.RowSelection,
+            request.TargetFramework);
     }
 
     public static PackageQueryPlanResult Plan(
@@ -1052,7 +1229,8 @@ public static partial class PackageQuery
             request.MaximumCandidates,
             request.MaximumMatches,
             request.IncludePrerelease,
-            request.RowSelection);
+            request.RowSelection,
+            request.TargetFramework);
     }
 
     public static PackageQueryPlanResult BindEcosystemMemberships(
@@ -1379,6 +1557,40 @@ public static partial class PackageQuery
                 Normalize(value))
             : PortableQueryBinding<PackageQueryPredicate>.Rejected;
 
+    private static PortableQueryBinding<PackageQueryPredicate>
+        BindLibraryLiteral(
+            PortableQueryOperator @operator,
+            string value) =>
+        @operator == PortableQueryOperator.Equal
+        && value.Length is > 0 and <= StringLiteralUseOperand.MaximumLength
+            ? Bound(
+                PackageQueryPredicateKind.LibraryLiteral,
+                value,
+                value)
+            : PortableQueryBinding<PackageQueryPredicate>.Rejected;
+
+    private static PortableQueryBinding<PackageQueryPredicate>
+        BindLibraryTarget(
+            PortableQueryOperator @operator,
+            string value)
+    {
+        if (@operator != PortableQueryOperator.Equal)
+            return PortableQueryBinding<PackageQueryPredicate>.Rejected;
+        try
+        {
+            PackageHouseTargetContext target =
+                PackageHouseTargetContext.Exact(value);
+            return Bound(
+                PackageQueryPredicateKind.LibraryTarget,
+                target.RequestedFramework!,
+                target.RequestedFramework!);
+        }
+        catch (ArgumentException)
+        {
+            return PortableQueryBinding<PackageQueryPredicate>.Rejected;
+        }
+    }
+
     private static PortableQueryBinding<PackageQueryPredicate> Bound(
         PackageQueryPredicateKind kind,
         string value,
@@ -1415,6 +1627,10 @@ public static partial class PackageQuery
             PackageQueryPredicateKind.AssemblyReference =>
                 ReferencesTermKey,
             PackageQueryPredicateKind.Skill => SkillTermKey,
+            PackageQueryPredicateKind.LibraryLiteral =>
+                LibraryLiteralTermKey,
+            PackageQueryPredicateKind.LibraryTarget =>
+                LibraryTargetTermKey,
             _ => throw new InvalidOperationException(
                 "Unknown Package Query predicate kind."),
         };
@@ -1526,6 +1742,11 @@ public static partial class PackageQuery
     {
         ArgumentNullException.ThrowIfNull(source);
         ArgumentNullException.ThrowIfNull(plan);
+        if (plan.RequiresLibraryLiteralEvaluation)
+        {
+            throw new InvalidOperationException(
+                "Library-literal plans require the host-neutral Package Query inspection operation.");
+        }
         EnsureEcosystemMembershipsBound(plan);
         bool requiresPackageContent = plan.BoundTerms.Any(term =>
             term.Predicate.RequiresPackageContent);

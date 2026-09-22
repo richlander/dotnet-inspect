@@ -446,13 +446,16 @@ internal sealed class SourceHouseDocumentationOperation
         DocumentationAuthoredSourceOperationBinding binding,
         SourceHouseAuthoredRequest request)
     {
+        DocumentationImplementationSubjectReference? implementation =
+            binding.ImplementationSubject;
         if (!ReferenceEquals(request.Library, binding.Library)
             || !ReferenceEquals(
                 request.SelectedAssembly,
                 binding.ImplementationContent)
+            || implementation is null
             || !Equals(
                 request.Target.Type,
-                binding.Subject.TypeIdentity))
+                implementation.TypeIdentity))
         {
             return false;
         }
@@ -460,10 +463,12 @@ internal sealed class SourceHouseDocumentationOperation
         return request.Target switch
         {
             SourceHouseTarget.TypeTarget =>
-                !binding.Subject.IsMember,
+                !implementation.IsMember,
             SourceHouseTarget.MemberTarget member =>
-                binding.Subject.MemberIdentity is { } identity
+                implementation.MemberIdentity is { } identity
                 && Equals(member.Member, identity)
+                && member.MetadataToken
+                    == implementation.MetadataToken
                 && member.SourceForm
                     == SourceHouseMemberSourceForm.DocumentParts,
             _ => false,

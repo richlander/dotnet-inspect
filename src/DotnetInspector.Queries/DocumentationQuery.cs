@@ -1,5 +1,3 @@
-using System.Collections.Immutable;
-
 using CSharpText;
 using DotnetInspector.DocumentationHouse;
 using DotnetInspector.Libraries;
@@ -199,60 +197,64 @@ public static partial class DocumentationQuery
                                 parameter.Key,
                                 Snapshot(parameter.Value))),
             ],
-            Snapshot<XmlDocumentationException,
-                CompiledDocumentationException>(
-                fields.Exceptions,
-                static exceptions =>
-                [
-                    .. exceptions.Select(
-                        static exception =>
-                            new CompiledDocumentationException(
-                                exception.Cref,
-                                exception.Description)),
-                ]),
-            Snapshot<XmlDocumentationSampleReference,
-                CompiledDocumentationSample>(
-                fields.Samples,
-                static samples =>
-                [
-                    .. samples.Select(
-                        static sample =>
-                            new CompiledDocumentationSample(
-                                sample.Source,
-                                sample.Title,
-                                sample.Region)),
-                ]));
+                SnapshotExceptions(fields.Exceptions),
+                SnapshotSamples(fields.Samples));
 
-    private static DocumentationQueryFieldEvidence<string> Snapshot(
-        DocumentationFieldEvidence<string> field) =>
-        new(
-            Snapshot(field.Kind),
-            [.. field.RequestedChannels.Select(Snapshot)],
-            [
-                .. field.Contributions.Select(
-                    static contribution =>
-                        new DocumentationQueryFieldContribution<string>(
-                            Snapshot(contribution.Channel),
-                            contribution.Value)),
+    private static DocumentationQueryTextFieldEvidence Snapshot(
+            DocumentationFieldEvidence<string> field) =>
+            new(
+                Snapshot(field.Kind),
+                [.. field.RequestedChannels.Select(Snapshot)],
+                [
+                    .. field.Contributions.Select(
+                        static contribution =>
+                            new DocumentationQueryTextFieldContribution(
+                                Snapshot(contribution.Channel),
+                                contribution.Value)),
+                ]);
+
+    private static DocumentationQueryExceptionFieldEvidence
+            SnapshotExceptions(
+                DocumentationFieldEvidence<
+                    IReadOnlyList<XmlDocumentationException>> field) =>
+            new(
+                Snapshot(field.Kind),
+                [.. field.RequestedChannels.Select(Snapshot)],
+                [
+                    .. field.Contributions.Select(
+                        static contribution =>
+                            new DocumentationQueryExceptionFieldContribution(
+                                Snapshot(contribution.Channel),
+                                [
+                                    .. contribution.Value.Select(
+                                        static exception =>
+                                            new CompiledDocumentationException(
+                                                exception.Cref,
+                                                exception.Description)),
+                                ])),
             ]);
 
-    private static DocumentationQueryFieldEvidence<
-        ImmutableArray<TSnapshot>> Snapshot<TSource, TSnapshot>(
-            DocumentationFieldEvidence<IReadOnlyList<TSource>> field,
-            Func<IReadOnlyList<TSource>, ImmutableArray<TSnapshot>> snapshot)
-        where TSource : notnull
-        where TSnapshot : notnull =>
-        new(
-            Snapshot(field.Kind),
-            [.. field.RequestedChannels.Select(Snapshot)],
-            [
-                .. field.Contributions.Select(
-                    contribution =>
-                        new DocumentationQueryFieldContribution<
-                            ImmutableArray<TSnapshot>>(
-                            Snapshot(contribution.Channel),
-                            snapshot(contribution.Value))),
-            ]);
+    private static DocumentationQuerySampleFieldEvidence
+            SnapshotSamples(
+                DocumentationFieldEvidence<
+                    IReadOnlyList<XmlDocumentationSampleReference>> field) =>
+            new(
+                Snapshot(field.Kind),
+                [.. field.RequestedChannels.Select(Snapshot)],
+                [
+                    .. field.Contributions.Select(
+                        static contribution =>
+                            new DocumentationQuerySampleFieldContribution(
+                                Snapshot(contribution.Channel),
+                                [
+                                    .. contribution.Value.Select(
+                                        static sample =>
+                                            new CompiledDocumentationSample(
+                                                sample.Source,
+                                                sample.Title,
+                                                sample.Region)),
+                                ])),
+                ]);
 
     private static DocumentationQueryChannel Snapshot(
         DocumentationChannel channel) =>
@@ -390,6 +392,10 @@ public static partial class DocumentationQuery
         DocumentationAuthoredIncompleteBoundary boundary) =>
         boundary switch
         {
+            DocumentationAuthoredIncompleteBoundary
+                .ImplementationSurface =>
+                AuthoredDocumentationIncompleteReason
+                    .ImplementationSurface,
             DocumentationAuthoredIncompleteBoundary.Deadline =>
                 AuthoredDocumentationIncompleteReason.Deadline,
             DocumentationAuthoredIncompleteBoundary.SourceDocuments =>

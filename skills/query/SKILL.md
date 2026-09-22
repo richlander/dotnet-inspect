@@ -54,7 +54,7 @@ Workspace coordinate replacement is the exception: request
 | `depends <type>` | Carries complete dependency Content, semantic relationship selection, diagnostics, and an available Share for an exact projectable NuGet.org package/TFM request. |
 | Single-Library API `diff` | Carries the complete typed comparison outcome and diagnostics; ordered comparison endpoints currently make Share non-projectable. |
 | `package activity` | Carries the complete ecosystem change report and diagnostics; Share may be non-projectable. |
-| `package query` | Carries complete ordinary or assembly-semantic query Content and diagnostics; Package Query Share is currently non-projectable. |
+| `package query` | Carries one complete `PackageQueryDocument`, including selected-library semantic context when `library-literal` is active, plus diagnostics; Package Query Share is currently non-projectable. |
 | `library query` | Carries complete Library-grain query Content, population/evaluation failures, and completion; Library Query Share is currently non-projectable. |
 | Exact package-backed Type or Library API `type` | Carries the complete `exact-type` or `exact-library-api` Content and diagnostics; quiet/minimal output is admitted. |
 | Online package version population | Unlike projected version JSON, carries the complete directed population Document and source/completion evidence; `--count --envelope` uses the scalar Count as Content. |

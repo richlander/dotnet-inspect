@@ -68,6 +68,7 @@ const catalog: BrowserPackageQueryCatalog = {
     operators: ["eq"],
     valueKind: "package-id",
     example: "Microsoft.Extensions.Hosting",
+    multiline: false,
   }],
 };
 const packageSets: BrowserPackageChangesPackageSetCatalog = {

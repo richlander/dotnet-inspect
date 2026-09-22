@@ -270,6 +270,14 @@ public sealed class BrowserTypeSourceOperationTests(ITestOutputHelper output)
                     "Canceled",
                     attachment.Evidence.ExternalAcquisition.Outcome);
                 break;
+            case "AcquisitionFailed":
+                Assert.Equal(
+                    "type-source.portable-pdb.acquisition-failed",
+                    diagnostic.Code);
+                Assert.Equal(
+                    "Failed",
+                    attachment.Evidence.ExternalAcquisition.Outcome);
+                break;
             default:
                 Assert.Fail(
                     $"Unexpected PDB disposition "
