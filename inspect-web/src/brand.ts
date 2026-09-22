@@ -312,16 +312,18 @@ export function bindProductNavigation(
         ? focused.closest<HTMLElement>("[data-product-destination]")
         : null;
       const destination = item?.dataset.productDestination;
+      const currentDestination = actions.currentDestination();
       if (!button?.id
         || !item
         || !menu.contains(item)
-        || !isProductDestination(destination)) {
+        || !isProductDestination(destination)
+        || currentDestination === null) {
         return;
       }
       replacement = {
         buttonId: button.id,
         destination,
-        currentDestination: actions.currentDestination(),
+        currentDestination,
       };
     },
     afterRender() {

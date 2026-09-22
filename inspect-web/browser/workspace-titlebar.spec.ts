@@ -177,7 +177,7 @@ test("product navigation preserves its focused action across maintenance replace
   page,
 }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
-  await page.goto("/browser/workspace-titlebar.html?type=1");
+  await page.goto("/browser/workspace-titlebar.html?workspace=1");
 
   await page.locator("[data-product-navigation-button]").click();
   const activity =
