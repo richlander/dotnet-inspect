@@ -123,6 +123,42 @@ public class FindOptionsParserTests
         Assert.All(FindTipArgs(tips), args => Assert.DoesNotContain("--members", args));
     }
 
+    [Fact]
+    public void BuildTips_ZeroImplicitTypeResults_SuggestsPackageDiscovery()
+    {
+        var tips = FindOptionsParser.BuildTips(
+            new FindOptions { Pattern = "Newtonsoft.Json" },
+            "Newtonsoft.Json",
+            rowCount: 0);
+
+        var tip = Assert.Single(
+            tips,
+            tip => tip.Subcommand == "package query");
+        Assert.Equal("Newtonsoft.Json", tip.Args);
+        Assert.Contains("find searches API symbols", tip.Comment);
+    }
+
+    [Theory]
+    [InlineData(true, 0)]
+    [InlineData(false, 1)]
+    public void BuildTips_PackageDiscoverySuggestion_IsLimitedToZeroTypeResults(
+        bool members,
+        int rowCount)
+    {
+        var tips = FindOptionsParser.BuildTips(
+            new FindOptions
+            {
+                Pattern = "Newtonsoft.Json",
+                Members = members,
+            },
+            "Newtonsoft.Json",
+            rowCount);
+
+        Assert.DoesNotContain(
+            tips,
+            tip => tip.Subcommand == "package query");
+    }
+
     [Theory]
     [InlineData(false, FindQueryRouteKind.TypeResults)]
     [InlineData(true, FindQueryRouteKind.MemberResults)]

@@ -68,7 +68,11 @@
   #7509, #7542, #7615, #7756, #7836, #7873, #7909, #7949, #8011).
   Retained-Workspace package-source credentials now keep a typed C#/TypeScript
   contract through the generated facade while preserving the private string
-  ABI and page-session-only credential constraints (#8238).
+  ABI and page-session-only credential constraints. Inspect Web activates
+  credential-free source-bearing Workspace URLs, prompts once per exact
+  authentication-required endpoint, preserves the prior visible Workspace on
+  cancellation or failure before publication, and enters a blocking retry
+  state if post-cutover incumbent recovery fails (#8167, #8238).
 - Adds canonical Workspace component paths and immutable
   `workspace package add|update|remove` editing, plus nested packet
   encode/decode commands. Inspect Web now saves and reopens complete Workspace

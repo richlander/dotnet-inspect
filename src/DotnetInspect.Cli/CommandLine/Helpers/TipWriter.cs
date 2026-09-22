@@ -40,7 +40,7 @@ public static class TipWriter
 
         tips.Add(new("library", packageName, "inspect library"));
         tips.Add(new(TypeCommand.Name, $"--package {packageName}", "discover types in package"));
-        tips.Add(new(FindCommand.Name, $"<pattern> --package {packageName}", "search for types"));
+        tips.Add(new(FindCommand.Name, $"<pattern> --package {packageName}", "search API symbols"));
         tips.Add(new(DiffCommand.Name, $"--package {packageName}@<prev>..<cur>", "diff versions"));
         tips.Add(new(PackageCommand.Name, $"{packageName} -S \"Package README file\" --print", "view README"));
         tips.Add(new(PackageCommand.Name, $"{packageName} --path /", "list package files"));
@@ -61,7 +61,7 @@ public static class TipWriter
 
         tips.Add(new(PackageCommand.Name, assemblyName, "inspect as NuGet package"));
         tips.Add(new(TypeCommand.Name, $"--platform {assemblyName}", "discover types"));
-        tips.Add(new(FindCommand.Name, $"<pattern> --platform {assemblyName}", "search for types"));
+        tips.Add(new(FindCommand.Name, $"<pattern> --platform {assemblyName}", "search API symbols"));
 
         Hints.WriteTips(tipLevel, [.. tips]);
     }
