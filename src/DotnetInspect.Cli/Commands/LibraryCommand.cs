@@ -611,6 +611,13 @@ public partial class LibraryCommand
                     "Document --json cannot represent Member Metrics analysis. "
                     + "Use --jsonl, --tsv, or --table.");
             }
+            else if (options.IncludeSections.Contains(
+                    SectionNames.LibraryMetrics))
+            {
+                CommandError.Write(
+                    "Document --json cannot represent Library Metrics analysis. "
+                    + "Use --jsonl, --tsv, or --table.");
+            }
             else
             {
                 CommandError.Write(

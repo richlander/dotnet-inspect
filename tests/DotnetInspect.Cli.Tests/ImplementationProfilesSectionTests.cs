@@ -603,6 +603,27 @@ public class MetricSectionTests
 
     [Fact]
     public async Task
+        LibraryMetrics_RejectsDocumentJson()
+    {
+        var result = await ConsoleCapture.RunAsync(
+            () => LibraryCommand.ExecuteAsync(new LibraryOptions
+            {
+                AssemblyName =
+                    FixtureCatalog.AnalysisCallerLoop.AssemblyPath(),
+                IncludeSections =
+                    [SectionNames.LibraryMetrics],
+                JsonOutput = true,
+            }));
+
+        Assert.Equal(1, result.ExitCode);
+        Assert.Empty(result.Output);
+        Assert.Contains(
+            "Document --json cannot represent Library Metrics analysis.",
+            result.Error);
+    }
+
+    [Fact]
+    public async Task
         LibraryImplementationProfiles_CountComposesWithJson()
     {
         var result = await ConsoleCapture.RunAsync(
