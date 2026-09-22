@@ -151,7 +151,7 @@ function stateMatchesSelection(
   });
 }
 
-function request(
+function createRequest(
   input: LibraryApiDiffOperationInput,
 ): BrowserLibraryApiDiffRequest {
   return {
@@ -853,7 +853,7 @@ export function createLibraryApiDiffCoordinator(
           activate: () => {
             let query: Promise<unknown>;
             try {
-              query = dependencies.query(identity.id, request(input));
+              query = dependencies.query(identity.id, createRequest(input));
             } catch (error: unknown) {
               return boundaryFailure(error);
             }
