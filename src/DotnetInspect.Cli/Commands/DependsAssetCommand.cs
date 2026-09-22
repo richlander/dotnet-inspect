@@ -837,6 +837,16 @@ public partial class DependsCommand
             CancellationToken cancellationToken,
             DependencyEvidenceAcquisitionBatch? suppliedAcquisition = null)
     {
+        if (sharePreparation is null && suppliedAcquisition is null)
+        {
+            sharePreparation =
+                await DependsShareProjection.PrepareAssetAsync(
+                    options,
+                    context.HttpClient,
+                    context.Logger,
+                    cancellationToken).ConfigureAwait(false);
+        }
+
         DependencyEvidenceAcquisitionOptions evidenceOptions =
             EvidenceOptions(options);
         DependencyEvidenceAcquisitionBatch? acquisition = null;

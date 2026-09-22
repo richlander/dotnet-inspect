@@ -114,7 +114,8 @@ internal static class DependsShareProjection
                 StringComparison.OrdinalIgnoreCase))
         {
             return NonProjectableAssetPreparation(
-                "--share requires an exact NuGet.org package coordinate; "
+                "The package dependency portable projection requires an exact "
+                + "NuGet.org package coordinate; "
                 + "local package archives cannot be restored by the published Browser.");
         }
 
@@ -123,7 +124,8 @@ internal static class DependsShareProjection
         if (!PackageCoordinateResolver.IsCanonicalPackageId(packageId))
         {
             return NonProjectableAssetPreparation(
-                "--share requires a valid NuGet package id.");
+                "The package dependency portable projection requires a valid "
+                + "NuGet package id.");
         }
         if (string.Equals(
                 packageId,
@@ -131,7 +133,8 @@ internal static class DependsShareProjection
                 StringComparison.OrdinalIgnoreCase))
         {
             return NonProjectableAssetPreparation(
-                $"--share cannot project NuGet package '{packageId}' because "
+                "The package dependency portable projection cannot project "
+                + $"NuGet package '{packageId}' because "
                 + "the published Browser reserves that id for the .NET Platform.");
         }
         if (!TryNormalizeFramework(
@@ -139,7 +142,8 @@ internal static class DependsShareProjection
                 out string? framework))
         {
             return NonProjectableAssetPreparation(
-                "--share requires one valid target framework with --tfm.");
+                "The package dependency portable projection requires one valid "
+                + "target framework.");
         }
 
         PackageSourceAuthorization sourceAuthorization =
@@ -148,14 +152,16 @@ internal static class DependsShareProjection
         if (sourceAuthorization.DenialReason is { } denialReason)
         {
             return NonProjectableAssetPreparation(
-                "--share could not apply the effective package source policy: "
+                "The package dependency portable projection could not apply "
+                + "the effective package source policy: "
                 + denialReason);
         }
         if (sourceAuthorization.Sources.Count != 1
             || !sourceAuthorization.Sources[0].IsNuGetOrg)
         {
             return NonProjectableAssetPreparation(
-                "--share requires the effective package source policy to "
+                "The package dependency portable projection requires the "
+                + "effective package source policy to "
                 + "authorize exactly one NuGet.org source because the "
                 + "published Browser cannot preserve another source selection.");
         }
@@ -175,9 +181,9 @@ internal static class DependsShareProjection
                     framework),
                 sourceAuthorization.Sources,
                 logger.Log,
-                includePrerelease: false,
+                includePrerelease: options.IncludePrerelease,
                 useVersionCache: false,
-                requireStableFloating: false,
+                requireStableFloating: true,
                 cancellationToken).ConfigureAwait(false);
         if (resolution
             is not PackageCoordinateResolution.Resolved resolved)
@@ -202,7 +208,8 @@ internal static class DependsShareProjection
                 new InspectionPortableProjection.NonProjectable(
                     reason,
                     location: "package-coordinate",
-                    explanation: "--share could not resolve an exact NuGet.org "
+                    explanation: "The package dependency portable projection "
+                        + "could not resolve an exact NuGet.org "
                         + $"package coordinate: {message}"));
         }
         string normalizedVersion = resolved.Coordinate.Version;

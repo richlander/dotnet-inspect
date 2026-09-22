@@ -22,6 +22,7 @@ using DotnetInspector.Services;
 using InertText;
 using NuGet.Versioning;
 using NuGetFetch;
+using QuerySpace;
 
 namespace DotnetInspect.Cli.Tests;
 
@@ -133,6 +134,49 @@ public partial class DependsAssetCommandTests
         Assert.Empty(projection.Content.Dependencies);
         Assert.Empty(projection.Content.Pruning);
         Assert.Empty(projection.Content.Failures);
+    }
+
+    [Fact]
+    public async Task PackageSubjectProjectionDoesNotRequirePresentationFlags()
+    {
+        DotnetInspector.Networking.HttpClientFactory.Initialize(
+            new HttpClientFactoryOptions { Offline = true });
+        DotnetInspector.Networking.HttpClientFactory
+            .ResetSharedForTesting();
+        try
+        {
+            DependencyQueryPlan plan =
+                Assert.IsType<DependencyQueryPlanResult.Accepted>(
+                    DependencyQuery.ResolveIntent(
+                        DependencyQueryRouteKind.PackageHierarchy,
+                        PortableQueryIntent.Empty,
+                        TestContext.Current.CancellationToken)).Plan;
+            DependsAssetProjection projection =
+                await DependsCommand.AcquirePackageSubjectProjectionAsync(
+                    "System.Text.Json@10.0.0",
+                    "net10.0",
+                    includePrerelease: false,
+                    sourceOptions: null,
+                    plan,
+                    new CommandContext(verbose: false),
+                    TestContext.Current.CancellationToken);
+
+            var portableProjection =
+                Assert.IsType<InspectionPortableProjection.Available>(
+                    projection.Inspection.PortableProjection);
+            Assert.StartsWith(
+                WorkspaceShareOutput.UrlPrefix,
+                portableProjection.FullUrl,
+                StringComparison.Ordinal);
+            Assert.NotEmpty(portableProjection.Packet);
+        }
+        finally
+        {
+            DotnetInspector.Networking.HttpClientFactory.Initialize(
+                new HttpClientFactoryOptions());
+            DotnetInspector.Networking.HttpClientFactory
+                .ResetSharedForTesting();
+        }
     }
 
     [Fact]
