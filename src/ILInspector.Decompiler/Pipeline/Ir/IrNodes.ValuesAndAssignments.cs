@@ -134,6 +134,14 @@ public sealed class LoadLocal : IrExpression
     public override string Describe() => $"LoadLocal {Index} ({Type.ToDisplayString()})";
 }
 
+/// <summary>
+/// Owner-issued result of the carrier-to-logical-local storage proof. Final
+/// declaration planning consumes this provenance without repeating that proof.
+/// </summary>
+internal sealed record PdbScopeEntryLocalProjection(
+    int CarrierIndex,
+    PdbLocalDeclaration Declaration);
+
 public sealed class StoreLocal : ScalarStore
 {
     public StoreLocal(int index, TypeRef type, IrExpression value)
@@ -145,6 +153,7 @@ public sealed class StoreLocal : ScalarStore
 
     public int Index { get; }
     public TypeRef Type { get; }
+    internal PdbScopeEntryLocalProjection? PdbScopeEntryProjection { get; init; }
     public override IrExpression Value => (IrExpression)Children[0];
     public override IEnumerable<TypeRef> DirectTypes => [Type];
 

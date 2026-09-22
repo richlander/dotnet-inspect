@@ -20,6 +20,7 @@ internal sealed class LocalDeclarationPlan
     readonly HashSet<int> _outArgumentLocals = [];
     readonly HashSet<LoadLocalAddress> _outVariableDeclarations = [];
     readonly HashSet<int> _scopedLocals = [];
+    readonly Dictionary<int, StoreLocal> _scopeEntryProjections = [];
     readonly List<(int Local, IrNode Owner, LoadLocalAddress Address)>
         _verifiedOutDeclarations = [];
     readonly Dictionary<int, IrNode> _declarationScopes = [];
@@ -49,6 +50,8 @@ internal sealed class LocalDeclarationPlan
     public IReadOnlySet<LoadLocalAddress> OutVariableDeclarations
         => _outVariableDeclarations;
     public IReadOnlySet<int> ScopedLocals => _scopedLocals;
+    public IReadOnlyDictionary<int, StoreLocal> ScopeEntryProjections
+        => _scopeEntryProjections;
     public IReadOnlyDictionary<int, IrNode> DeclarationScopes
         => _declarationScopes;
 
@@ -230,6 +233,8 @@ internal sealed class LocalDeclarationPlan
                 case StoreLocal store
                     when !seenLocals.Contains(store.Index):
                     seenLocals.Add(store.Index);
+                    if (store.PdbScopeEntryProjection is not null)
+                        _scopeEntryProjections.Add(store.Index, store);
                     if (entryStatements.Contains(store)
                         && !ReferencesLocal(store.Value, store.Index)
                         && !HasBranchTargetAfterStatement(store))
