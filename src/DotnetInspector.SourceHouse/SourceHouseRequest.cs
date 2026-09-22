@@ -532,6 +532,12 @@ public sealed class SourceHouseDecompilationPlan
     public int MaximumBodyProjections { get; }
 }
 
+public enum SourceHouseDecompilationProduct
+{
+    SourceText,
+    StructuredTypeDocument,
+}
+
 public sealed class SourceHouseDecompilationRequest
 {
     public SourceHouseDecompilationRequest(
@@ -539,13 +545,20 @@ public sealed class SourceHouseDecompilationRequest
         LibraryReference library,
         LibraryContentReference selectedAssembly,
         SourceHouseTarget target,
-        SourceHouseDecompilationPlan plan)
+        SourceHouseDecompilationPlan plan,
+        SourceHouseDecompilationProduct product =
+            SourceHouseDecompilationProduct.SourceText)
     {
         ArgumentNullException.ThrowIfNull(identity);
         ArgumentNullException.ThrowIfNull(library);
         ArgumentNullException.ThrowIfNull(selectedAssembly);
         ArgumentNullException.ThrowIfNull(target);
         ArgumentNullException.ThrowIfNull(plan);
+        if (!Enum.IsDefined(product))
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(product));
+        }
         if (target is SourceHouseTarget.TypeTarget
             {
                 OriginalDocumentPath: not null,
@@ -555,12 +568,21 @@ public sealed class SourceHouseDecompilationRequest
                 "An authored document selection is not a decompilation target.",
                 nameof(target));
         }
+        if (product
+                == SourceHouseDecompilationProduct.StructuredTypeDocument
+            && target is not SourceHouseTarget.TypeTarget)
+        {
+            throw new ArgumentException(
+                "A structured Type document requires an exact Type target.",
+                nameof(target));
+        }
 
         Identity = identity;
         Library = library;
         SelectedAssembly = selectedAssembly;
         Target = target;
         Plan = plan;
+        Product = product;
     }
 
     public SourceHouseRequestIdentity Identity { get; }
@@ -568,6 +590,7 @@ public sealed class SourceHouseDecompilationRequest
     public LibraryContentReference SelectedAssembly { get; }
     public SourceHouseTarget Target { get; }
     public SourceHouseDecompilationPlan Plan { get; }
+    public SourceHouseDecompilationProduct Product { get; }
 }
 
 internal static class SourceHouseContractName

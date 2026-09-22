@@ -666,6 +666,7 @@ test("typed library controls own library and Platform picker bindings", () => {
   for (const lens of [
     "integrations",
     "analysis",
+    "metrics",
     "metadata",
   ]) {
     assert.match(
@@ -702,12 +703,15 @@ test("typed library controls own library and Platform picker bindings", () => {
   assert.match(
     binding,
     /onPlatformLensLibrarySelect: \(lens, name, pack\) =>\s*observeAsync\(\s*openPlatformLensLibrary\(lens, name, pack\),\s*"Opening a platform library"\)/);
+  assert.match(
+    appSource,
+    /else if \(lens === "metrics"\) await loadPackageLibraryMetrics\(\)/);
   assert.doesNotMatch(
     workspaceBinding,
-    /\[data-(?:library-chip|access-chip|platform-(?:library-select|integrations-library|opportunities-library|analysis-library|metadata-library))\]|#library-jump/);
+    /\[data-(?:library-chip|access-chip|platform-(?:library-select|integrations-library|opportunities-library|analysis-library|metrics-library|metadata-library))\]|#library-jump/);
   assert.doesNotMatch(
     appSource,
-    /\[data-(?:library-chip|access-chip|platform-(?:library-select|integrations-library|opportunities-library|analysis-library|metadata-library))\]|#library-jump/);
+    /\[data-(?:library-chip|access-chip|platform-(?:library-select|integrations-library|opportunities-library|analysis-library|metrics-library|metadata-library))\]|#library-jump/);
   assert.doesNotMatch(appSource, /bindPlatformLensPicker/);
 });
 

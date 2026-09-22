@@ -14,6 +14,7 @@ public sealed record SourceHouseDecompilationRequestEvidence
         Target = request.Target;
         OperationPlan = request.Plan.Identity;
         PolicyGeneration = request.Plan.PolicyGeneration;
+        Product = request.Product;
     }
 
     public SourceHouseRequestIdentity Identity { get; }
@@ -22,6 +23,7 @@ public sealed record SourceHouseDecompilationRequestEvidence
     public SourceHouseTarget Target { get; }
     public SourceHouseOperationPlanIdentity OperationPlan { get; }
     public SourceHousePolicyGeneration PolicyGeneration { get; }
+    public SourceHouseDecompilationProduct Product { get; }
     public SourceHouseSourcePolicy SourcePolicy =>
         SourceHouseSourcePolicy.DecompiledOnly;
     public SourceHousePdbAcquisitionPolicy PdbAcquisitionPolicy =>
@@ -32,6 +34,37 @@ public sealed record SourceHouseDecompilationWorkCharge(
     long AssemblyBytesObserved,
     long PortablePdbBytesObserved,
     int BodyProjectionsAttempted);
+
+public abstract record SourceHouseDecompilationContent
+{
+    private SourceHouseDecompilationContent()
+    {
+    }
+
+    public sealed record SourceText : SourceHouseDecompilationContent
+    {
+        public SourceText(CSharpDecompilationAttempt attempt)
+        {
+            Attempt = attempt
+                ?? throw new ArgumentNullException(nameof(attempt));
+        }
+
+        public CSharpDecompilationAttempt Attempt { get; }
+    }
+
+    public sealed record StructuredTypeDocument
+        : SourceHouseDecompilationContent
+    {
+        public StructuredTypeDocument(
+            CSharpTypeDocumentOutcome outcome)
+        {
+            Outcome = outcome
+                ?? throw new ArgumentNullException(nameof(outcome));
+        }
+
+        public CSharpTypeDocumentOutcome Outcome { get; }
+    }
+}
 
 public abstract class SourceHouseDecompilationOutcome
 {
@@ -57,15 +90,69 @@ public abstract class SourceHouseDecompilationOutcome
         internal Completed(
             SourceHouseDecompilationRequestEvidence request,
             SourceHousePdbContribution pdbContribution,
-            CSharpDecompilationAttempt attempt,
+            SourceHouseDecompilationContent content,
             SourceHouseDecompilationWorkCharge work,
             SourceHouseLibraryLeaseSettlement leaseSettlement)
             : base(request, pdbContribution, work, leaseSettlement)
         {
-            Attempt = attempt;
+            Content = content
+                ?? throw new ArgumentNullException(nameof(content));
+            bool matchesProduct =
+                (request.Product, content) switch
+                {
+                    (
+                        SourceHouseDecompilationProduct.SourceText,
+                        SourceHouseDecompilationContent.SourceText) =>
+                        true,
+                    (
+                        SourceHouseDecompilationProduct
+                            .StructuredTypeDocument,
+                        SourceHouseDecompilationContent
+                            .StructuredTypeDocument) =>
+                        true,
+                    _ => false,
+                };
+            if (!matchesProduct)
+            {
+                throw new ArgumentException(
+                    "Completed decompilation content must match the requested product.",
+                    nameof(content));
+            }
+            int expectedBodyProjections = content switch
+            {
+                SourceHouseDecompilationContent.SourceText source =>
+                    source.Attempt.BodyProjectionsAttempted,
+                SourceHouseDecompilationContent.StructuredTypeDocument
+                    document =>
+                    document.Outcome.BodyProjectionsAttempted,
+                _ => throw new InvalidOperationException(
+                    "Unknown completed decompilation content."),
+            };
+            if (work.BodyProjectionsAttempted
+                != expectedBodyProjections)
+            {
+                throw new ArgumentException(
+                    "Completed decompilation work must match the producer work charge.",
+                    nameof(work));
+            }
         }
 
-        public CSharpDecompilationAttempt Attempt { get; }
+        public SourceHouseDecompilationContent Content { get; }
+
+        public CSharpDecompilationAttempt Attempt =>
+            Content
+                is SourceHouseDecompilationContent.SourceText source
+            ? source.Attempt
+            : throw new InvalidOperationException(
+                "The completed decompilation contains a structured Type document.");
+
+        public CSharpTypeDocumentOutcome TypeDocument =>
+            Content
+                is SourceHouseDecompilationContent.StructuredTypeDocument
+                    document
+            ? document.Outcome
+            : throw new InvalidOperationException(
+                "The completed decompilation contains source text.");
     }
 
     public sealed class Rejected : SourceHouseDecompilationOutcome
