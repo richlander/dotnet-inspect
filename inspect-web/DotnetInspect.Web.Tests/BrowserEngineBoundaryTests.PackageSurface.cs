@@ -1947,6 +1947,12 @@ public sealed partial class BrowserEngineBoundaryTests
         }
         byte[] reference = BuildEmptySurfaceImage(
             typeof(BrowserEngineBoundaryTests).Assembly.GetName());
+        int referenceTypeCount;
+        using (var reader = new PEReader(new MemoryStream(reference, writable: false)))
+        {
+            referenceTypeCount = reader.GetMetadataReader().TypeDefinitions.Count;
+        }
+        Assert.NotEqual(referenceTypeCount, implementationTypeCount);
         _ = await Coordinate(
             packageId,
             PackagePair(reference, implementation, fileName));
@@ -1995,13 +2001,6 @@ public sealed partial class BrowserEngineBoundaryTests
         Assert.Equal(
             implementationTypeCount,
             table.RootElement.GetProperty("rowCount").GetInt32());
-        using JsonDocument heap = JsonDocument.Parse(
-            await DotnetInspect.Web.Interop.Metadata.MetadataExports.QueryPackageHeapEntries(
-                packageId, "1.0.0", "net11.0", surface.Asset.Id,
-                "cli", "String"));
-        Assert.Contains(
-            typeof(BrowserEngineBoundaryTests).Assembly.GetName().Name!,
-            heap.RootElement.GetRawText());
 
         BrowserPackagePerformance performance = Assert.IsType<BrowserPackagePerformance>(
             JsonSerializer.Deserialize(

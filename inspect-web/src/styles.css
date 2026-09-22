@@ -5183,3 +5183,23 @@ button.library-api-diff-row[aria-current="true"] { background: var(--panel-raise
   .library-api-diff-change-section h2 { margin-inline: 12px; }
   .library-api-diff-change { grid-template-columns: 1fr; gap: 6px; }
 }
+
+/* Compare: moved-Member correspondence. */
+.library-api-diff-moved { color: var(--muted); font: 10px/1.5 var(--mono); }
+.library-api-diff-counterpart {
+  display: inline-block;
+  margin: 0 12px 12px 110px;
+  padding: 3px 8px;
+  border: 1px solid var(--line-strong);
+  border-radius: 3px;
+  background: var(--panel-raised);
+  color: var(--muted);
+  font: 10px var(--mono);
+  cursor: pointer;
+}
+.library-api-diff-counterpart:hover { color: var(--text); }
+.library-api-diff-counterpart:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.library-api-diff-correspondence { margin-top: 0; color: var(--muted); }
+@media (max-width: 640px) {
+  .library-api-diff-counterpart { margin-left: 10px; }
+}
