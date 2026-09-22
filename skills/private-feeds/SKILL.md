@@ -43,6 +43,31 @@ Version discovery combines all eligible sources and chooses the highest
 semantic version; source order is not precedence. Pin `Package@Version` when
 the exact coordinate matters.
 
+## Share a private-feed Workspace with Inspect Web
+
+Author a credential-free format-5 URL that declares an
+authentication-required source:
+
+```bash
+dnx dotnet-inspect -y -- workspace \
+  --package Private.Package@1.2.3 \
+  --tfm net10.0 \
+  --nuget-source-auth-required \
+    https://nuget.pkg.github.com/example/index.json \
+  --share url
+```
+
+Inspect Web prompts once per exact endpoint for a username and personal access
+token. Credentials remain in page-session memory only: activation-local copies
+are cleared after settlement, while the active realization or
+incumbent-recovery binding may retain them until replacement or disposal. They
+are not placed in the packet or URL, retained Workspace definition, browser
+storage, logs, diagnostics, or telemetry. Reloading prompts again. Cancellation
+or failure before publication preserves the prior visible Workspace; if
+recovery after cutover also fails, Inspect Web enters a blocking retry state
+rather than exposing the failed tentative Workspace. Declared anonymous
+sources activate without a prompt.
+
 ### Query versions from a folder feed
 
 Online version queries support NuGet V2/V3 folder feeds, specified as a
