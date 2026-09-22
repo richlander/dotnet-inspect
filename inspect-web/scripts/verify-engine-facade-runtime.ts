@@ -23,6 +23,8 @@ const typeSourceResult: BrowserTypeSourceResult = {
   kind: "Succeeded",
   value: {
     kind: "source",
+    resourcePath: "type-source",
+    contentKind: "outcome",
     value: {
       provider: "decompiled",
       provenance: inertString("facade transport probe"),
@@ -30,6 +32,12 @@ const typeSourceResult: BrowserTypeSourceResult = {
       pdbSourceLimitation: null,
       text: "class Example {}",
     },
+    portableProjection: {
+      kind: "available",
+      fullUrl: "https://example.test/type-source",
+      packet: "type-source",
+    },
+    diagnostics: [],
   },
   failureKind: null,
   error: null,

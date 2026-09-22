@@ -547,7 +547,11 @@ export interface ApiDeclarations {
 
 export interface Source {
   readonly kind: "source";
+  readonly resourcePath: string;
+  readonly contentKind: InspectionContentKind;
   readonly value: BrowserSource;
+  readonly portableProjection: InspectionPortableProjection;
+  readonly diagnostics: ReadonlyArray<InspectionDiagnostic>;
 }
 
 export type BrowserTypeCodeView = Source | ApiDeclarations;
@@ -886,4 +890,3 @@ export async function queryTypeSource(operationId: string, packageId: string, ve
   const $parsed: unknown = JSON.parse($result);
   return $parsed as BrowserTypeSourceResult;
 }
-

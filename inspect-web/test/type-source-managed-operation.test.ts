@@ -88,9 +88,21 @@ function fixture() {
 function succeeded(text: string): BrowserTypeSourceResult {
   return {
     version: 1, kind: "Succeeded",
-    value: { kind: "source", value: {
-      provider: "pdb", provenance: inertStringFixture("verified"), url: null,
-      pdbSourceLimitation: null, text } },
+    value: {
+      kind: "source",
+      resourcePath: "type-source",
+      contentKind: "outcome",
+      value: {
+        provider: "pdb", provenance: inertStringFixture("verified"), url: null,
+        pdbSourceLimitation: null, text,
+      },
+      portableProjection: {
+        kind: "available",
+        fullUrl: "https://example.test/type-source",
+        packet: "type-source",
+      },
+      diagnostics: [],
+    },
     failureKind: null, error: null, diagnostic: null, reason: null,
   };
 }

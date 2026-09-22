@@ -1317,6 +1317,8 @@ test("type PDB source renders code above provenance once loaded", () => {
       signature: "sig",
       source: {
         kind: "source",
+        resourcePath: "type-source",
+        contentKind: "outcome",
         value: {
           provider: "pdb",
           provenance: inertStringFixture("SourceLink"),
@@ -1324,6 +1326,12 @@ test("type PDB source renders code above provenance once loaded", () => {
           pdbSourceLimitation: null,
           text: "class JsonSerializer {}",
         },
+        portableProjection: {
+          kind: "available",
+          fullUrl: "https://example.test/type-source",
+          packet: "type-source",
+        },
+        diagnostics: [],
       },
     },
     escapeHtml,
@@ -1635,6 +1643,8 @@ test("decompiled type source discloses an escaped PDB-source limitation", () => 
       signature: "sig",
       source: {
         kind: "source",
+        resourcePath: "type-source",
+        contentKind: "outcome",
         value: {
           provider: "decompiled",
           provenance: inertStringFixture("decompiled from IL"),
@@ -1642,6 +1652,16 @@ test("decompiled type source discloses an escaped PDB-source limitation", () => 
           pdbSourceLimitation: "<checksum mismatch>",
           text: "class JsonSerializer {}",
         },
+        portableProjection: {
+          kind: "nonProjectable",
+          fullUrl: null,
+          packet: null,
+          reason: "notSupported",
+          location: null,
+          explanation:
+            "Type Source requests do not yet have a canonical Workspace Share projection.",
+        },
+        diagnostics: [],
       },
     },
     escapeHtml,

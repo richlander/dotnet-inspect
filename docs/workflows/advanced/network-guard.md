@@ -1,19 +1,24 @@
 ---
 id: network-guard
-description: DEBUG-only network guard that asserts no unexpected HTTP requests
+description: Observe Debug network traffic and enforce offline execution
 commands: [library]
 areas: [network, debugging, performance]
 ---
 
-# Network Guard
+# Network observation
 
-> DEBUG builds include a network guard that throws on unexpected HTTP requests. This catches code paths that accidentally depend on the network. Some commands legitimately need network access (e.g., `-v:d` for PDB/SourceLink), so those are exempted from the guard. The guard is compiled out in Release builds (zero overhead).
+> The historical Debug network guard has been retired. Debug CLI builds log
+> managed HTTP request starts with their traffic kind; `--offline` is the
+> supported enforcement mechanism when a workflow must prove that no HTTP
+> request can proceed.
 
 ## Background
 
-The tool downloads PDB symbols from Microsoft Symbol Server (MSDL) to enable SourceLink resolution. This can add ~700ms latency to cold starts. For quick queries (`-v:q`, `-v:m`), network access is not required since SourceLink information isn't displayed.
-
-The network guard is automatically enabled in DEBUG builds and will throw if any HTTP request is made unexpectedly. This catches violations during development.
+The tool may download packages, PDB symbols, and SourceLink content. Debug
+builds publish credential-redacted request-start observations such as
+`symbol-download` and `source-fetch` to stderr. These observations are useful
+for diagnosing latency and unexpected routing, but they do not block requests
+and do not report response status or completion.
 
 ## Preconditions
 
@@ -41,9 +46,9 @@ test "$("$INSPECT" --version)" = "$DOTNET_INSPECT_WORKFLOW_VERSION"
 "$INSPECT" --flavor | grep -q '^CoreCLR;'
 ```
 
-## 1. Quiet verbosity passes guard (apphost)
+## 1. Observe quiet verbosity (apphost)
 
-> Goal: `-v:q` completes without network access, run via the apphost.
+> Goal: inspect whether `-v:q` starts any managed HTTP request.
 
 ```bash
 $INSPECT library System.Text.Json -v:q
@@ -54,13 +59,11 @@ $INSPECT library System.Text.Json -v:q
 Source: Platform
 ```
 
-```expect-not
-Network guard violation
-```
+No `Network traffic [...]` line is expected for a warm platform query.
 
-## 2. Minimal verbosity passes guard (apphost)
+## 2. Observe minimal verbosity (apphost)
 
-> Goal: `-v:m` completes without network access, run via the apphost.
+> Goal: inspect whether `-v:m` starts any managed HTTP request.
 
 ```bash
 $INSPECT library System.Text.Json -v:m
@@ -71,13 +74,11 @@ $INSPECT library System.Text.Json -v:m
 ## Library Info
 ```
 
-```expect-not
-Network guard violation
-```
+No `Network traffic [...]` line is expected for a warm platform query.
 
-## 3. Detailed verbosity allows network
+## 3. Observe detailed source traffic
 
-> Goal: `-v:d` is exempted from the guard because it legitimately fetches PDB/SourceLink data from MSDL.
+> Goal: a cold detailed query may report symbol and source request starts.
 
 ```bash
 $INSPECT library System.Text.Json -v:d
@@ -89,16 +90,17 @@ $INSPECT library System.Text.Json -v:d
 ## Symbols
 ```
 
-```expect-not
-Network guard violation
+```expect
+Network traffic [symbol-download]:
 ```
 
-## 4. Quiet verbosity via dotnet run
+## 4. Enforce no network
 
-> Goal: Same guard behavior works through `dotnet run`.
+> Goal: use the production offline capability when no HTTP request may proceed.
 
 ```bash
-dotnet run --project src/DotnetInspect.Cli/DotnetInspect.Cli.csproj -- library System.Text.Json -v:q
+dotnet run --project src/DotnetInspect.Cli/DotnetInspect.Cli.csproj -- \
+  library System.Text.Json -v:q --offline
 ```
 
 ```expect
@@ -106,10 +108,8 @@ dotnet run --project src/DotnetInspect.Cli/DotnetInspect.Cli.csproj -- library S
 Source: Platform
 ```
 
-```expect-not
-Network guard violation
-```
-
 ## Implementation and background
 
-See the [network guard skill](../../../skills/workflow-scenarios/network-guard.md) for implementation details, `dotnet run` usage, and the distinction between the network guard and `--offline` mode.
+See the [network observation skill](../../../skills/workflow-scenarios/network-guard.md)
+for implementation details and the
+[offline workflow](offline-usage.md) for deterministic enforcement.

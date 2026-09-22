@@ -35,7 +35,18 @@ function typeSource(text: string): BrowserTypeSourceResult {
   return {
     version: 1,
     kind: "Succeeded",
-    value: { kind: "source", value: source(text) },
+    value: {
+      kind: "source",
+      resourcePath: "type-source",
+      contentKind: "outcome",
+      value: source(text),
+      portableProjection: {
+        kind: "available",
+        fullUrl: "https://example.test/type-source",
+        packet: "type-source",
+      },
+      diagnostics: [],
+    },
     failureKind: null,
     error: null,
     diagnostic: null,

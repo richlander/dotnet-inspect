@@ -3,6 +3,9 @@ import type {
   BrowserTypeCodeView,
   BrowserTypeSourceCancellation,
   BrowserTypeSourceResult,
+  InspectionContentKind,
+  InspectionDiagnostic,
+  InspectionPortableProjection,
 } from "./facades/inspect-web-source.d.ts";
 import {
   typeSourceView,
@@ -265,11 +268,40 @@ export const engineWorkerTypeSourceValue: BoundedPayloadDecoder<BrowserTypeCodeV
     if (candidate === null)
       return rejected("Expected a Type Source code view.");
     const kind = ownData(candidate, "kind");
-    if (kind === "source" && hasExactData(candidate, ["kind", "value"])) {
+    if (kind === "source" && hasExactData(candidate, [
+      "kind",
+      "resourcePath",
+      "contentKind",
+      "value",
+      "portableProjection",
+      "diagnostics",
+    ])) {
+      if (ownData(candidate, "resourcePath") !== "type-source"
+        || ownData(candidate, "contentKind") !== "outcome") {
+        return rejected("Expected a completed Type Source inspection.");
+      }
       const source = sourcePayloadValue.decode(ownData(candidate, "value"));
-      return source.kind === "rejected"
-        ? source
-        : { kind: "decoded", value: { kind, value: source.value } };
+      if (source.kind === "rejected") return source;
+      const envelope = decodeEngineWorkerJsonValue<{
+        readonly portableProjection: InspectionPortableProjection;
+        readonly diagnostics: ReadonlyArray<InspectionDiagnostic>;
+      }>({
+        portableProjection: ownData(candidate, "portableProjection"),
+        diagnostics: ownData(candidate, "diagnostics"),
+      });
+      return envelope.kind === "rejected"
+        ? envelope
+        : {
+          kind: "decoded",
+          value: {
+            kind,
+            resourcePath: "type-source",
+            contentKind: "outcome" satisfies InspectionContentKind,
+            value: source.value,
+            portableProjection: envelope.value.portableProjection,
+            diagnostics: envelope.value.diagnostics,
+          },
+        };
     }
     if (kind === "apiDeclarations" && hasExactData(candidate, ["kind", "inspection"])) {
       const inspection = dataRecord(ownData(candidate, "inspection"));
