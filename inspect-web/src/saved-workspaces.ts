@@ -1,6 +1,7 @@
 export interface SavedWorkspace {
   name: string;
   packet: string;
+  kind: "complete" | "legacy";
 }
 
 export type SavedWorkspaceFocus =
@@ -31,34 +32,55 @@ function validateName(name: string): string {
   return trimmed;
 }
 
+function readEntry(
+  entry: unknown,
+  kind: SavedWorkspace["kind"] | null,
+  names: Set<string>,
+): SavedWorkspace {
+  if (typeof entry !== "object" || entry === null
+    || !("name" in entry) || typeof entry.name !== "string"
+    || !("packet" in entry) || typeof entry.packet !== "string") {
+    throw new Error("A saved Workspace entry could not be read.");
+  }
+  let resolvedKind = kind;
+  if (resolvedKind === null) {
+    if (!("kind" in entry)
+      || (entry.kind !== "complete" && entry.kind !== "legacy")) {
+      throw new Error("A saved Workspace entry could not be read.");
+    }
+    resolvedKind = entry.kind;
+  }
+  const name = validateName(entry.name);
+  if (name !== entry.name || names.has(name.toLowerCase()))
+    throw new Error("The saved Workspace data contains invalid or duplicate names.");
+  names.add(name.toLowerCase());
+  return {
+    name,
+    packet: entry.packet,
+    kind: resolvedKind,
+  };
+}
+
 function readEntries(raw: string | null): SavedWorkspace[] {
   if (raw === null) return [];
   const value: unknown = JSON.parse(raw);
   if (typeof value !== "object" || value === null
-    || !("version" in value) || value.version !== 1
+    || !("version" in value)
+    || (value.version !== 1 && value.version !== 2)
     || !("entries" in value) || !Array.isArray(value.entries)) {
     throw new Error("The saved Workspace data has an unsupported format.");
   }
   const names = new Set<string>();
-  return value.entries.map((entry: unknown) => {
-    if (typeof entry !== "object" || entry === null
-      || !("name" in entry) || typeof entry.name !== "string"
-      || !("packet" in entry) || typeof entry.packet !== "string") {
-      throw new Error("A saved Workspace entry could not be read.");
-    }
-    const name = validateName(entry.name);
-    if (name !== entry.name || names.has(name.toLowerCase()))
-      throw new Error("The saved Workspace data contains invalid or duplicate names.");
-    names.add(name.toLowerCase());
-    return { name, packet: entry.packet };
-  });
+  const legacy = value.version === 1;
+  return value.entries.map((entry: unknown) =>
+    readEntry(entry, legacy ? "legacy" : null, names));
 }
 
 export function createSavedWorkspaces(options: {
   read: () => string | null;
   write: (value: string) => void;
   capture: () => string | Promise<string>;
-  open: (entry: SavedWorkspace) => void;
+  open: (entry: SavedWorkspace) => void | Promise<void>;
   render: (focus?: SavedWorkspaceFocus) => void;
 }) {
   const state: SavedWorkspacesState = {
@@ -79,7 +101,7 @@ export function createSavedWorkspaces(options: {
 
   function persist(entries: readonly SavedWorkspace[]): void {
     if (!state.available) throw new Error("Read saved Workspaces successfully before changing them.");
-    options.write(JSON.stringify({ version: 1, entries }));
+    options.write(JSON.stringify({ version: 2, entries }));
     state.entries = entries;
   }
 
@@ -96,7 +118,7 @@ export function createSavedWorkspaces(options: {
   } | null = null;
 
   function persistSave(name: string, packet: string): SavedWorkspaceFocus {
-    const entry = { name, packet };
+    const entry: SavedWorkspace = { name, packet, kind: "complete" };
     persist([...state.entries, entry]);
     state.formOpen = false;
     state.name = "";
@@ -167,12 +189,12 @@ export function createSavedWorkspaces(options: {
       options.render({ kind: "save" });
     },
     save,
-    open(name: string) {
+    async open(name: string): Promise<void> {
       try {
         const entry = find(name);
         state.formOpen = false;
         state.error = "";
-        options.open(entry);
+        await options.open(entry);
       } catch (error) {
         state.error = `Could not open saved Workspace: ${String(error)}`;
         options.render();

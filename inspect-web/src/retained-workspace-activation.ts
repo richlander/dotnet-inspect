@@ -122,8 +122,11 @@ export interface RetainedWorkspacePredecessorObservation {
 }
 
 export interface RetainedWorkspaceActivationHooks {
-  post(posting: BrowserRetainedWorkspacePosting): void;
-  clear(): void;
+  post(
+    posting: BrowserRetainedWorkspacePosting,
+    presentationCurrent: boolean,
+  ): void;
+  clear(presentationCurrent?: boolean): void;
   predecessorSettled(
     observation: RetainedWorkspacePredecessorObservation,
     result: BrowserRetainedWorkspaceSettlementResult,
@@ -152,6 +155,9 @@ export interface RetainedWorkspaceActivationController {
     packageSourceCredentials?: Readonly<
       Record<string, RetainedWorkspacePackageSourceCredential>
     >,
+    isPresentationCurrent?: (
+      posting: BrowserRetainedWorkspacePosting,
+    ) => boolean,
   ): Promise<BrowserRetainedWorkspaceActivationResult>;
   cancelPending(): boolean;
   waitForPendingCommit(): Promise<void> | null;
@@ -169,6 +175,9 @@ interface RetainedWorkspaceDeletionOptions {
   readonly completeSuccessor?: (
     posting: BrowserRetainedWorkspacePosting,
   ) => void | Promise<void>;
+  readonly isSuccessorPresentationCurrent?: (
+    posting: BrowserRetainedWorkspacePosting,
+  ) => boolean;
   readonly completeDeactivation?: () => void | Promise<void>;
 }
 
@@ -328,6 +337,9 @@ export function createRetainedWorkspaceActivationController(
     complete: (
       posting: BrowserRetainedWorkspacePosting,
     ) => void | Promise<void>,
+    isPresentationCurrent: (
+      posting: BrowserRetainedWorkspacePosting,
+    ) => boolean,
   ): Promise<boolean> {
     const authority = authorityArguments(posting);
     if (posting.publicationOrdinal <= postedPublicationOrdinal) {
@@ -341,12 +353,12 @@ export function createRetainedWorkspaceActivationController(
       if (!await client.validateRetainedWorkspaceNavigationAuthority(
         ...authority,
       )) {
-        hooks.clear();
+        hooks.clear(isPresentationCurrent(posting));
         await abandonPosting(posting);
         return false;
       }
       postedPublicationOrdinal = posting.publicationOrdinal;
-      hooks.post(posting);
+      hooks.post(posting, isPresentationCurrent(posting));
       const recorded =
         await client.recordRetainedWorkspaceNavigationPosting(
           ...authority,
@@ -378,7 +390,7 @@ export function createRetainedWorkspaceActivationController(
     } catch (error) {
       let clearFailure: unknown = null;
       try {
-        hooks.clear();
+        hooks.clear(isPresentationCurrent(posting));
       } catch (clearError) {
         clearFailure = clearError;
       }
@@ -500,6 +512,9 @@ export function createRetainedWorkspaceActivationController(
     packageSourceCredentials: Readonly<
       Record<string, RetainedWorkspacePackageSourceCredential>
     > = {},
+    isPresentationCurrent: (
+      posting: BrowserRetainedWorkspacePosting,
+    ) => boolean = () => true,
   ): Promise<BrowserRetainedWorkspaceActivationResult> {
     const definition = find(retainedDefinitionId);
     if (soleDeactivationIntent !== null) {
@@ -688,7 +703,11 @@ export function createRetainedWorkspaceActivationController(
             activeDefinitionId = posting.retainedDefinitionId;
             committed();
             try {
-              const posted = await postActivation(posting, complete);
+              const posted = await postActivation(
+                posting,
+                complete,
+                isPresentationCurrent,
+              );
               if (!posted) {
                 throw new Error(
                   "The committed retained Workspace posting is no longer current.",
@@ -956,6 +975,8 @@ export function createRetainedWorkspaceActivationController(
         options.acceptSuccessor,
         options.completeSuccessor,
         completeCommittedDeletion,
+        {},
+        options.isSuccessorPresentationCurrent,
       );
       if (result.status !== "activated" && result.status !== "noEffect") {
         return;

@@ -176,6 +176,7 @@ class ActivationClient implements RetainedWorkspaceActivationClient {
     string,
     BrowserRetainedWorkspaceActivationResult
   >();
+  readonly commitReceipts: string[] = [];
   readonly commitResponses = new Map<
     string,
     Promise<BrowserRetainedWorkspaceActivationResult>
@@ -294,6 +295,7 @@ class ActivationClient implements RetainedWorkspaceActivationClient {
   commitRetainedWorkspaceActivation(
     receipt: string,
   ): Promise<BrowserRetainedWorkspaceActivationResult> {
+    this.commitReceipts.push(receipt);
     const result = this.activationResults.get(receipt);
     if (result === undefined) {
       throw new Error(`Unknown activation receipt: ${receipt}`);
@@ -418,6 +420,8 @@ function createFixture(
 ) {
   const client = new ActivationClient();
   const posted: BrowserRetainedWorkspacePosting[] = [];
+  const presentationCurrent: boolean[] = [];
+  const clearPresentationCurrent: Array<boolean | undefined> = [];
   const settled: Array<{
     observation: RetainedWorkspacePredecessorObservation;
     result: BrowserRetainedWorkspaceSettlementResult;
@@ -428,15 +432,17 @@ function createFixture(
   }> = [];
   let clears = 0;
   const controller = createRetainedWorkspaceActivationController(client, {
-    post: value => {
+    post: (value, current) => {
       client.lifecycle.push(`post:${value.realizationId}`);
       if (failPosting) {
         throw new Error("Injected posting failure.");
       }
       posted.push(value);
+      presentationCurrent.push(current);
     },
-    clear: () => {
+    clear: current => {
       if (failClear) throw new Error("Injected clear failure.");
+      clearPresentationCurrent.push(current);
       clears++;
     },
     predecessorSettled: (observation, result) =>
@@ -448,6 +454,8 @@ function createFixture(
     client,
     controller,
     posted,
+    presentationCurrent,
+    clearPresentationCurrent,
     settled,
     observationFailures,
     clears: () => clears,
@@ -483,6 +491,101 @@ test("posting records and acknowledges exact authority in order", async () => {
     "complete:realization-1",
     "acknowledge:realization-1",
   ]);
+});
+
+test("committed activation retains posting without replacing a newer route", async () => {
+  const fixture = createFixture();
+  const definition = fixture.controller.retain({
+    label: "A",
+    canonicalLocation: "/a",
+    canonicalPacket: "packet-a",
+  });
+  const committed =
+    deferred<BrowserRetainedWorkspaceActivationResult>();
+  fixture.client.commitResponses.set("receipt-1", committed.promise);
+  let presentationCurrent = true;
+  const completed: string[] = [];
+
+  const activation = fixture.controller.activate(
+    definition.id,
+    undefined,
+    value => {
+      completed.push(value.realizationId);
+    },
+    undefined,
+    undefined,
+    () => presentationCurrent,
+  );
+  const activated = {
+    status: "activated",
+    posting: posting(definition.id, "realization-1"),
+    failure: null,
+  } as const;
+  fixture.client.activations[0]!.resolve(activated);
+  while (fixture.client.commitReceipts.length === 0) {
+    await Promise.resolve();
+  }
+  presentationCurrent = false;
+  committed.resolve(activated);
+  await activation;
+
+  assert.deepEqual(
+    fixture.posted.map(value => value.realizationId),
+    ["realization-1"],
+  );
+  assert.deepEqual(fixture.presentationCurrent, [false]);
+  assert.deepEqual(completed, ["realization-1"]);
+  assert.deepEqual(fixture.client.activationCompletions, [{
+    receipt: "receipt-1",
+    succeeded: true,
+    failure: null,
+  }]);
+});
+
+test("posting failure clears retained state without replacing a newer route", async () => {
+  const fixture = createFixture();
+  const definition = fixture.controller.retain({
+    label: "A",
+    canonicalLocation: "/a",
+    canonicalPacket: "packet-a",
+  });
+  const recording = deferred<string>();
+  fixture.client.recordingResponses.set(
+    "realization-1",
+    recording.promise,
+  );
+  let presentationCurrent = true;
+
+  const activation = fixture.controller.activate(
+    definition.id,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    () => presentationCurrent,
+  );
+  fixture.client.activations[0]!.resolve({
+    status: "activated",
+    posting: posting(definition.id, "realization-1"),
+    failure: null,
+  });
+  while (!fixture.client.lifecycle.includes("record:realization-1")) {
+    await Promise.resolve();
+  }
+  presentationCurrent = false;
+  recording.resolve("invalidAuthority");
+
+  await assert.rejects(
+    activation,
+    /Navigation posting record rejected the committed authority/,
+  );
+  assert.deepEqual(fixture.presentationCurrent, [true]);
+  assert.deepEqual(fixture.clearPresentationCurrent, [false]);
+  assert.deepEqual(fixture.client.activationCompletions, [{
+    receipt: "receipt-1",
+    succeeded: false,
+    failure: "Navigation posting record rejected the committed authority.",
+  }]);
 });
 
 test("activation passes endpoint credentials without retaining them in controller state", async () => {
