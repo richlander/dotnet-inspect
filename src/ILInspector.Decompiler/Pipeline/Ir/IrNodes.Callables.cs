@@ -272,6 +272,8 @@ public sealed class LocalFunctionStatement : IrNode
 {
     ImmutableArray<string> _capturedBinderNames = [];
 
+    internal MetadataMethodAddress? SourceMethodAddress { get; init; }
+
     public LocalFunctionStatement(
         string name,
         TypeRef returnType,
