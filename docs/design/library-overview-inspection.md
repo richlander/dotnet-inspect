@@ -19,13 +19,16 @@ repository command inventory in
 
 > Given one exact realized Library, a transferred operation lease, and one
 > bounded overview request, inspect the owner-attested API assembly once and
-> return one `InspectionEnvelope<LibraryOverviewOutcome>` containing a
-> resource-free portable outcome, the required Share outcome for the same
-> semantic request, and ordered typed diagnostics, after settling the
-> transferred lease on every terminal path.
+> return one resource-free scalar
+> `InspectionEnvelope<LibraryOverviewOutcome>` after settling the transferred
+> lease on every terminal path.
 
 The available outcome contains one `LibraryOverviewDocument`. Expected cases
 that cannot construct that Document remain typed non-available outcomes.
+The overview is a scalar value under
+[Section cardinality](section-cardinality.md): it exposes neither semantic
+Rows nor semantic Count. Its fields describe one Library; they are not an
+inventory population.
 
 This owner composes existing contracts without redefining them:
 
@@ -94,9 +97,11 @@ envelope crosses the boundary.
 - the exact `LibraryReference`;
 - explicit finite API-surface extraction bounds.
 
-The initial request has one Execute purpose. It does not expose section names,
-verbosity, fields, columns, row windows, output format, or Browser navigation.
-Effective-section discovery remains outside this first operation.
+The operation accepts one complete request and returns one scalar envelope. It
+does not declare a QuerySpace row set or admit Count, predicates, ordering, or
+semantic row selection. It does not expose section names, verbosity, fields,
+columns, line windows, output format, or Browser navigation.
+Effective-section discovery remains outside this operation.
 
 The overview always inspects the public API assembly and reports the complete
 bounded summary defined below. A host cannot request only the assembly name to
@@ -154,6 +159,11 @@ those values reconstruct process-local Artifact identity.
 The total public-member count is the checked 64-bit sum of method, property,
 event, and field counts. It is presentation-independent summary data, not a
 second scan or a count of rendered rows.
+
+The complete Document is one scalar value. Its properties do not form logical
+Rows, and the value does not have semantic Count `1`. A host may render its
+properties as field/value pairs or lines and may clip those rendered lines,
+but neither presentation creates an inventory terminal.
 
 ### Non-available outcomes
 
@@ -311,8 +321,13 @@ The complete initial operation adoption has six owner-scoped steps:
 2. Implement the request, portable outcome and Document, envelope assembly,
    required non-projectable Share, diagnostics, and lease settlement in
    `DotnetInspector.Sections`.
-3. Adopt the operation for one ordinary direct-file CLI Library overview
-   through direct-Library realization and an ephemeral Workspace.
+3. Adopt the operation for one direct-file CLI scalar Library-overview
+   envelope through direct-Library realization and an ephemeral Workspace.
+   Reject section selection, Count, semantic row selection, predicates,
+   package, Platform, Workspace, trace, and NuGet-source controls that cannot
+   affect this direct-file-only envelope path rather than silently ignoring
+   them. Ordinary `library` section cardinality and rendered-line behavior
+   remain with #8228; structural cardinality declaration remains with #8227.
 4. Adopt the same operation for the PackageHouse CLI route.
 5. Adopt the same operation for the PlatformHouse CLI route.
 6. Consume the same envelope in Inspect Web's Library overview, then retire
@@ -349,6 +364,8 @@ provides Release gates for:
 
 - real `System.Text.Json` produces the expected managed identity, non-empty
   MVID, public API counts, measured work, and finite bounds;
+- the available Document remains one detached scalar value rather than a
+  declared row population;
 - equivalent independently realized Libraries produce equal portable
   Documents without accepting one another's leases;
 - each Library operation lease is settled on available, incomplete, rejected,
@@ -365,6 +382,11 @@ provides Release gates for:
   outcome; and
 - cancellation and validation failure settle transferred authority before
   propagating.
+
+`DotnetInspect.Cli.Tests.CommandExecutionTests` provides production-host gates
+for the direct-file envelope, publication after cleanup, and parser admission.
+Unsupported section, Count, row, predicate, source, package, Platform,
+Workspace, and trace controls fail before direct-file acquisition.
 
 The production-adoption claims remain **unverified** until their later Release
 gates prove:
@@ -390,8 +412,8 @@ This owner does not define:
 - Library reference, content role, borrowing, or retirement semantics;
 - Metadata grammar, API extraction, identity, MVID, or extraction bounds;
 - full API inventory, Library Query, or exact Type/Member inspection;
-- section catalogs, effective discovery, row selection, Analysis, Source,
-  Documentation, ecosystem, or Finding semantics;
+- section catalogs, effective discovery, inventory row selection, Analysis,
+  Source, Documentation, ecosystem, or Finding semantics;
 - CLI syntax, default verbosity, Browser navigation, rendering, or JSON
   transport;
 - available Share projection or its Workspace/request association;
