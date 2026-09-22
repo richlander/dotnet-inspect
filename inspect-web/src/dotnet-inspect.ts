@@ -11791,6 +11791,13 @@ async function openPlatformLibrary(
     : null;
   if (construction) prepareUnpublishedWorkspace();
   else spotlight.reset();
+  if (deferPlatformPresentation && !scopeOnly) {
+    state.loading = true;
+    state.error = "";
+    state.loadingMessage = `Opening ${assembly.replace(/\.dll$/i, "")}…`;
+    state.loadingSubtitle = "Loading the framework Library for inspection.";
+    render({ synchronizeUrl: false });
+  }
   try {
     const target = await ensurePlatformCatalog(tfm, version);
     if (!navigationSequence.isCurrent(navigationSeq)) return undefined;
@@ -11809,7 +11816,9 @@ async function openPlatformLibrary(
       });
       if (!scopeOnly) render();
     }
-    startPlatformTargetWork(target);
+    // A Library selection needs only its selected family. Broad catalog warmup
+    // also downloads the other runtime pack and discovers unrelated versions.
+    if (!deferPlatformPresentation) startPlatformTargetWork(target);
     let pkg = runtimePackageForTarget(target);
     const alreadyLoaded = pkg?.assemblies.some(item => platformLibraryMatchesDescriptor(row, item));
     if (!alreadyLoaded) {
@@ -15251,7 +15260,7 @@ function renderLoading() {
              </div>
              ${state.errorDetail ? `<pre class="load-error-detail" hidden>${escapeHtml(state.errorDetail)}</pre>` : ""}
            </div>`
-        : `<div class="load-progress"><img class="loading-bot" src="${interstitialBotSrc()}" width="200" height="200" alt="dotnet-bot inspector mascot" /><span class="loader"></span><strong>${escapeHtml(state.loadingMessage)}</strong><small>${state.loadingSubtitle ? escapeHtml(state.loadingSubtitle) : `${escapeHtml(state.requestedPackage)}@${escapeHtml(state.requestedVersion)} · ${escapeHtml(state.requestedFramework || "best framework")}`}</small></div>`}
+        : `<div class="load-progress" role="status"><img class="loading-bot" src="${interstitialBotSrc()}" width="200" height="200" alt="dotnet-bot inspector mascot" /><span class="loader"></span><strong>${escapeHtml(state.loadingMessage)}</strong><small>${state.loadingSubtitle ? escapeHtml(state.loadingSubtitle) : `${escapeHtml(state.requestedPackage)}@${escapeHtml(state.requestedVersion)} · ${escapeHtml(state.requestedFramework || "best framework")}`}</small></div>`}
     </div>`;
   bindLoadErrorShell(document, loadErrorShellActions);
   bindLibraryOpenEvents();
