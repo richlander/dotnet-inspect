@@ -82,6 +82,19 @@ public readonly record struct TypeDefinitionToken
 
     public int Value { get; }
 
+    internal static TypeDefinitionToken FromToken(int token)
+    {
+        if ((token & unchecked((int)0xFF000000)) != 0x02000000
+            || (token & 0x00FFFFFF) == 0)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(token),
+                "A TypeDef token must identify a non-zero TypeDef row.");
+        }
+
+        return new TypeDefinitionToken(token);
+    }
+
     internal static TypeDefinitionToken FromHandle(
         MetadataReader reader,
         TypeDefinitionHandle handle)
