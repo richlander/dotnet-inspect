@@ -114,7 +114,16 @@ public sealed partial class PackageHouseExecutionTests
                     available.Document.Graph.Nodes[edge.FromNodeId]).Name,
                 GraphMember(
                     available.Document.Graph.Nodes[edge.ToNodeId]).Name));
-        Assert.IsType<InspectionShare.NonProjectable>(envelope.Share);
+        Assert.Equal(
+            new ResourcePath("package-dependency-member-call-graph"),
+            envelope.ResourcePath);
+        Assert.Equal(InspectionContentKind.Outcome, envelope.ContentKind);
+        var projection =
+            Assert.IsType<InspectionPortableProjection.NonProjectable>(
+                envelope.PortableProjection);
+        Assert.Equal(
+            InspectionPortableProjectionFailureReason.NotSupported,
+            projection.Reason);
         Assert.Equal(
             [
                 "call.traversal-incomplete",

@@ -763,10 +763,13 @@ public sealed class ExternalCallGraphCommandTests
                     graph));
         return new InspectionEnvelope<
                 PackageDependencyMemberCallGraphInspectionOutcome>(
+                new ResourcePath(
+                    "package-dependency-member-call-graph"),
+                InspectionContentKind.Outcome,
                 content,
-                new InspectionShare.NonProjectable(
-                    "package-dependency-member-call-graph/share",
-                    "Test projection."));
+                new InspectionPortableProjection.NonProjectable(
+                    InspectionPortableProjectionFailureReason.NotSupported,
+                    explanation: "Test projection."));
     }
 
     static async Task CommitPackageAsync(

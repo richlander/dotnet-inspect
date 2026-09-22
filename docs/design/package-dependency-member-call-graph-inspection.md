@@ -29,7 +29,8 @@ the inspection:
 4. creates a fresh operation-local Workspace and publishes the exact root;
 5. invokes `PackageDependencyMemberCallGraphOperation` once;
 6. projects its terminal result into resource-free host content; and
-7. returns one required Share outcome and ordered diagnostics.
+7. returns the `package-dependency-member-call-graph` Outcome envelope with one
+   required portable projection and ordered diagnostics.
 
 The inspection owns this production composition. The CLI and Browser/Wasm
 hosts supply source capabilities and exact selection intent; they do not
@@ -128,13 +129,16 @@ Its unavailable case carries one typed reason and contained detail for:
 Cancellation and unexpected producer, acquisition, Workspace, analysis, or
 cleanup exceptions produce no envelope.
 
-## Share and diagnostics
+## Resource, portable projection, and diagnostics
 
-The inspection returns `InspectionShare.NonProjectable` at
-`package-dependency-member-call-graph/share`. No canonical Workspace packet
-currently preserves exact root focus, traversal target, graph bounds, and
-source capabilities. Hosts do not manufacture Share from argv, Browser
-navigation, display labels, or rendered graph content.
+The inspection returns resource
+`package-dependency-member-call-graph`, classifies the owner-specific terminal
+content as Outcome, and returns
+`InspectionPortableProjection.NonProjectable(NotSupported)`. No canonical
+Workspace packet currently preserves exact root focus, traversal target, graph
+bounds, and source capabilities. Hosts do not manufacture a portable
+projection from argv, Browser navigation, display labels, or rendered graph
+content.
 
 Available Content retains graph limits, graph failures, and unavailable
 routes as typed owner evidence. The envelope also emits deterministic
@@ -173,7 +177,8 @@ Release gates prove:
 4. available Content drops process-local Workspace occurrence identity while
    retaining route and graph evidence;
 5. every expected non-available lower outcome remains typed Content;
-6. Share is explicitly non-projectable;
+6. resource identity and Outcome classification are stable and the portable
+   projection is explicitly `NotSupported`;
 7. equivalent CLI and Browser plans consume equal baseline envelopes;
 8. the real `Microsoft.Extensions.Http.Polly` scenario reaches Polly without
    manual dependency participants;
@@ -189,7 +194,7 @@ This inspection does not:
 - change dependency traversal, version choice, or Platform pruning;
 - add active Platform assemblies to package graph analysis;
 - change external-focused graph topology;
-- define a canonical Share packet;
+- define a canonical Workspace portable projection;
 - serialize live execution capabilities;
 - combine package and Platform call-graph paths; or
 - prescribe one host rendering.

@@ -241,8 +241,8 @@ public abstract record PackageDependencyMemberCallGraphInspectionOutcome
 
 public static class PackageDependencyMemberCallGraphInspection
 {
-    const string SharePath =
-        "package-dependency-member-call-graph/share";
+    const string ResourceIdentity =
+        "package-dependency-member-call-graph";
 
     public static async ValueTask<
         InspectionEnvelope<
@@ -511,10 +511,13 @@ public static class PackageDependencyMemberCallGraphInspection
             PackageDependencyMemberCallGraphInspectionOutcome content,
             IEnumerable<InspectionDiagnostic>? diagnostics = null) =>
         new(
+            new ResourcePath(ResourceIdentity),
+            InspectionContentKind.Outcome,
             content,
-            new InspectionShare.NonProjectable(
-                SharePath,
-                "Dependency-aware member call-graph plans do not yet have a canonical Workspace Share projection."),
+            new InspectionPortableProjection.NonProjectable(
+                InspectionPortableProjectionFailureReason.NotSupported,
+                explanation: "Dependency-aware member call-graph plans do not "
+                    + "yet have a canonical Workspace portable projection."),
             diagnostics);
 
     static ImmutableArray<InspectionDiagnostic> Diagnostics(
