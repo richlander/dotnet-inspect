@@ -133,34 +133,35 @@ public sealed record LibraryBodyRootPathResult(
 
 /// <summary>
 /// Finds bounded shortest paths from exact roots to exact destinations within
-/// one already-built body index.
+/// one focused local call-graph result.
 /// </summary>
 public static class LibraryBodyRootPathAnalysis
 {
     public static LibraryBodyRootPathResult FindShortestPaths(
-        LibraryBodyIndex index,
+        LibraryCallGraphAnalysisResult callGraph,
         ImmutableArray<MetadataMethodAddress> roots,
         ImmutableArray<MetadataMethodAddress> destinations,
         LibraryBodyRootPathLimits limits)
     {
-        ArgumentNullException.ThrowIfNull(index);
+        ArgumentNullException.ThrowIfNull(callGraph);
         ArgumentNullException.ThrowIfNull(limits);
+        callGraph.EnsureRequested();
         limits.Validate();
 
-        Dictionary<int, MethodIdentity> methods = index.DeclaredMethods
+        Dictionary<int, MethodIdentity> methods = callGraph.DeclaredMethods
             .ToDictionary(static method => method.MetadataToken);
         ImmutableArray<MethodIdentity> normalizedRoots = Normalize(
-            index,
+            callGraph,
             methods,
             roots,
             nameof(roots));
         ImmutableArray<MethodIdentity> normalizedDestinations = Normalize(
-            index,
+            callGraph,
             methods,
             destinations,
             nameof(destinations));
         LibraryBodyLocalCallGraph graph =
-            index.RootPathGraph();
+            callGraph.RootPathGraph();
         IReadOnlyDictionary<
             int,
             ImmutableArray<LibraryBodyLocalCallEdge>> reverse =
@@ -170,7 +171,7 @@ public static class LibraryBodyRootPathAnalysis
             ImmutableArray.CreateBuilder<LibraryBodyRootPathWitness>();
         var boundaries =
             ImmutableArray.CreateBuilder<LibraryBodyRootPathBoundary>();
-        if (!index.HasFullMethodEvidenceScope)
+        if (!callGraph.HasFullMethodEvidenceScope)
         {
             boundaries.Add(
                 new LibraryBodyRootPathBoundary
@@ -182,11 +183,11 @@ public static class LibraryBodyRootPathAnalysis
                 new LibraryBodyRootPathBoundary.UnresolvedLocalCalls(
                     graph.UnresolvedLocalCalls));
         }
-        if (!index.Diagnostics.IsEmpty)
+        if (!callGraph.Diagnostics.IsEmpty)
         {
             boundaries.Add(
                 new LibraryBodyRootPathBoundary.AnalysisIncomplete(
-                    index.Diagnostics.Length));
+                    callGraph.Diagnostics.Length));
         }
 
         HashSet<int> rootTokens =
@@ -345,7 +346,7 @@ public static class LibraryBodyRootPathAnalysis
         }
 
         return new LibraryBodyRootPathResult(
-            index.ModuleIdentity,
+            callGraph.ModuleIdentity,
             witnesses.ToImmutable(),
             boundaries.ToImmutable(),
             new LibraryBodyRootPathReceipt(
@@ -359,7 +360,7 @@ public static class LibraryBodyRootPathAnalysis
     }
 
     static ImmutableArray<MethodIdentity> Normalize(
-        LibraryBodyIndex index,
+        LibraryCallGraphAnalysisResult callGraph,
         IReadOnlyDictionary<int, MethodIdentity> methods,
         ImmutableArray<MetadataMethodAddress> addresses,
         string parameterName)
@@ -375,7 +376,7 @@ public static class LibraryBodyRootPathAnalysis
         foreach (MetadataMethodAddress address in addresses)
         {
             if (address.ModuleVersionId
-                != index.ModuleIdentity.ModuleVersionId)
+                != callGraph.ModuleIdentity.ModuleVersionId)
             {
                 throw new ArgumentException(
                     "Method address belongs to a different module.",
@@ -387,7 +388,7 @@ public static class LibraryBodyRootPathAnalysis
             {
                 throw new ArgumentException(
                     $"Method address 0x{address.Token:X8} is not declared "
-                        + "by the selected body index.",
+                        + "by the selected call-graph result.",
                     parameterName);
             }
             normalized.TryAdd(address.Token, method);

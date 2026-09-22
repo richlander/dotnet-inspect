@@ -168,19 +168,20 @@ public static class AssemblyPairClusterRootPathQuery
                 Analysis.LibraryBodyAnalysisRequest.Create(
                     Analysis.LibraryBodyAnalysisFeatures
                         .MethodEvidence);
-            Analysis.LibraryBodyIndex index =
-                Analysis.LibraryBodyAnalysisService.AnalyzeImage(
+            Analysis.LibraryCallGraphAnalysisResult callGraph =
+                Analysis.LibraryBodyAnalysisService.ExecuteImage(
                     cluster.Identity.Source.Identity.Name,
                     snapshot.Content,
-                    request);
+                    request)
+                .CallGraph;
             if (roots.ModuleVersionId
                     != cluster.Identity.SourceModuleVersionId
-                || index.ModuleIdentity.ModuleVersionId
+                || callGraph.ModuleIdentity.ModuleVersionId
                     != cluster.Identity.SourceModuleVersionId)
             {
                 throw new AssemblyPairClusterRootPathRequestException(
                     "The selected cluster, Metadata inventory, and "
-                        + "Analysis index do not identify the same "
+                        + "Analysis call-graph result do not identify the same "
                         + "source module.",
                     nameof(selection));
             }
@@ -190,7 +191,7 @@ public static class AssemblyPairClusterRootPathQuery
                     ? null
                     : Analysis.LibraryBodyRootPathAnalysis
                         .FindShortestPaths(
-                            index,
+                            callGraph,
                             roots.Roots,
                             Destinations(cluster),
                             limits.Paths);

@@ -405,7 +405,7 @@ public partial class LibraryBodyIndexTests
             index.BuildCallerTree(token, maxDepth: 2, maxNodes: 50);
             index.BuildCallTree(token, maxDepth: 2, maxNodes: 50);
             _ = LibraryBodyRootPathAnalysis.FindShortestPaths(
-                index,
+                index.CallGraphAnalysis,
                 [
                     new(
                         index.ModuleIdentity.ModuleVersionId,
