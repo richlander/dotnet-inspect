@@ -327,8 +327,9 @@ internal static partial class WorkflowContract
         string stepName,
         string command)
     {
+        YamlMappingNode job = GetRequiredMapping(jobs, jobName, "jobs");
         YamlSequenceNode steps = GetRequiredSequence(
-            GetRequiredMapping(jobs, jobName, "jobs"),
+            job,
             "steps",
             $"jobs.{jobName}");
         YamlMappingNode? requiredStep = null;
@@ -360,6 +361,59 @@ internal static partial class WorkflowContract
             "run",
             command,
             $"jobs.{jobName} {stepName}");
+        RequireRepositoryRootWorkingDirectory(
+            job,
+            requiredStep,
+            $"jobs.{jobName} {stepName}");
+    }
+
+    private static void RequireRepositoryRootWorkingDirectory(
+        YamlMappingNode job,
+        YamlMappingNode step,
+        string context)
+    {
+        string? workingDirectory = GetOptionalScalar(
+            step,
+            "working-directory");
+        if (workingDirectory is null
+            && TryGetNode(job, "defaults", out YamlNode defaultsNode))
+        {
+            YamlMappingNode defaults = RequireMapping(
+                defaultsNode,
+                $"{context} job defaults");
+            if (TryGetNode(defaults, "run", out YamlNode runNode))
+            {
+                workingDirectory = GetOptionalScalar(
+                    RequireMapping(
+                        runNode,
+                        $"{context} job defaults.run"),
+                    "working-directory");
+            }
+        }
+
+        if (workingDirectory is null
+            || IsRepositoryRootWorkingDirectory(workingDirectory))
+        {
+            return;
+        }
+
+        throw new InvalidOperationException(
+            $"{context} must run from the repository root, got " +
+            $"{workingDirectory}.");
+    }
+
+    private static bool IsRepositoryRootWorkingDirectory(string value)
+    {
+        if (value == "${{ github.workspace }}")
+        {
+            return true;
+        }
+
+        string[] segments = value.Split(
+            '/',
+            StringSplitOptions.RemoveEmptyEntries);
+        return segments.Length > 0
+            && segments.All(segment => segment == ".");
     }
 
     private static void ValidateConsumerStepGuards(
