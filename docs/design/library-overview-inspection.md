@@ -323,8 +323,10 @@ The complete initial operation adoption has six owner-scoped steps:
    `DotnetInspector.Sections`.
 3. Adopt the operation for one direct-file CLI scalar Library-overview
    envelope through direct-Library realization and an ephemeral Workspace.
-   Reject Count and semantic row selection for single-Library `Library Info`
-   before acquisition while preserving `-n` rendered-line clipping. Reject
+   Reject Count and semantic row selection before acquisition whenever a
+   single-Library effective selection contains scalar `Library Info`, including
+   mixed and fixed-overview selections, while preserving `-n` rendered-line
+   clipping. Reject
    package, Platform, Workspace, and NuGet-source controls that cannot affect
    this direct-file-only envelope path rather than silently ignoring them.
    Only the actual package-backed all-TFM operation retains its independently
@@ -386,9 +388,10 @@ provides Release gates for:
   propagating.
 
 `DotnetInspect.Cli.Tests.CommandExecutionTests` provides the production-host
-gate `Library_SingleLibraryInfoHasNoRowsOrCount`: exact single-Library
-`Library Info` Count and semantic row selection fail before source acquisition,
-while an accepted `--trace` request still reports its trace. The adjacent
+gate `Library_SingleLibraryInfoHasNoRowsOrCount`: single-Library `Library Info`
+Count and semantic row selection fail before source acquisition for exact,
+mixed, fixed-overview, and Package gestures, while an accepted `--trace`
+request still reports its trace. The adjacent
 `Library_SingleLibraryInfoSupportsRenderedLineSelection` gate preserves `-n`
 as scalar presentation clipping rather than semantic Rows.
 

@@ -378,6 +378,49 @@ public partial class CommandExecutionTests
             "1",
             "--tips",
             "q");
+        var mixedCount = await RunAppAsync(
+            "library",
+            "missing-library-info-mixed-count.dll",
+            "-S",
+            $"{SectionNames.LibraryInfo},{SectionNames.References}",
+            "--count",
+            "--tips",
+            "q");
+        var mixedRows = await RunAppAsync(
+            "library",
+            "missing-library-info-mixed-rows.dll",
+            "-S",
+            $"{SectionNames.LibraryInfo},{SectionNames.References}",
+            "--rows",
+            "1",
+            "--tips",
+            "q");
+        var fixedOverviewCount = await RunAppAsync(
+            "library",
+            "missing-library-info-fixed-count.dll",
+            "-S",
+            "--count",
+            "--tips",
+            "q");
+        var fixedOverviewRows = await RunAppAsync(
+            "library",
+            "missing-library-info-fixed-rows.dll",
+            "-S",
+            "--rows",
+            "1",
+            "--tips",
+            "q");
+        var packageCount = await RunAppAsync(
+            "library",
+            "missing-library-info-package-count.dll",
+            "--package",
+            "missing-library-info-package.nupkg",
+            "-S",
+            SectionNames.LibraryInfo,
+            "--count",
+            "--trace",
+            "--tips",
+            "q");
 
         Assert.Equal(1, count.Exit);
         Assert.Empty(count.Output);
@@ -413,6 +456,9 @@ public partial class CommandExecutionTests
         {
             countWithAllTfm,
             rowsWithAllTfm,
+            mixedCount,
+            fixedOverviewCount,
+            packageCount,
         })
         {
             Assert.Equal(1, result.Exit);
@@ -426,6 +472,41 @@ public partial class CommandExecutionTests
                 result.Error,
                 StringComparison.Ordinal);
         }
+
+        foreach (var result in new[]
+        {
+            mixedRows,
+            fixedOverviewRows,
+        })
+        {
+            Assert.Equal(1, result.Exit);
+            Assert.Empty(result.Output);
+            Assert.Contains(
+                "is scalar and does not support --rows",
+                result.Error,
+                StringComparison.Ordinal);
+            Assert.Contains(
+                "use -n N to limit rendered lines",
+                result.Error,
+                StringComparison.Ordinal);
+            Assert.DoesNotContain(
+                "does not exist",
+                result.Error,
+                StringComparison.Ordinal);
+        }
+
+        Assert.Contains(
+            "trace: library",
+            packageCount.Error,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "resources acquired",
+            packageCount.Error,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "(none)",
+            packageCount.Error,
+            StringComparison.Ordinal);
     }
 
     [Fact]
@@ -567,6 +648,14 @@ public partial class CommandExecutionTests
             "missing.nuget.config",
             "--tips",
             "q");
+        var row = await RunAppAsync(
+            "library",
+            "missing.dll",
+            "--envelope",
+            "--row",
+            "5",
+            "--tips",
+            "q");
 
         Assert.Equal(1, section.Exit);
         Assert.Empty(section.Output);
@@ -606,6 +695,7 @@ public partial class CommandExecutionTests
             (source, "--source"),
             (addSource, "--add-source"),
             (nugetConfig, "--nugetconfig"),
+            (row, "--row"),
         })
         {
             Assert.Equal(1, result.Exit);
@@ -4586,6 +4676,10 @@ public partial class CommandExecutionTests
             Assert.Equal(1, multiTreeMapExit);
             Assert.Empty(multiTreeMapOutput);
             Assert.Contains("Reference Hierarchy", multiTreeMapError);
+            Assert.DoesNotContain(
+                "is scalar and does not support --count",
+                multiTreeMapError,
+                StringComparison.Ordinal);
         }
         finally
         {
