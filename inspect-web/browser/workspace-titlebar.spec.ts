@@ -173,7 +173,7 @@ test("product navigation reverse Tab matches native document order", async ({
 
   await brand.focus();
   await brand.press("ArrowUp");
-  await expect(page.locator("[data-product-destination='activity']"))
+  await expect(page.locator("[data-product-action='open-library']"))
     .toBeFocused();
   await page.keyboard.press("Shift+Tab");
 
