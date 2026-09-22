@@ -1025,7 +1025,6 @@ public static class ApiMemberDetailSectionDescriptors
             [
                 SectionNames.Signature,
                 SectionNames.CustomAttributes,
-                SectionNames.Source,
                 SectionNames.DecompiledSource,
                 SectionNames.PdbSource,
                 SectionNames.IL,

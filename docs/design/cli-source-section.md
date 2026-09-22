@@ -13,6 +13,8 @@ tracked by #8056:
 The section is explicit-only. Ordinary type trees and member listings do not
 acquire source because this section exists. `PDB Source` and `Decompiled Source`
 remain independent provider-specific views with their current contracts.
+`Source` belongs to the explicit `@Source` domain, not the `@Member` base
+category.
 
 The supporting owners are:
 

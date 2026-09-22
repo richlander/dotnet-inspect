@@ -252,7 +252,7 @@ public partial class SectionPipelineTests
     public void ApiMemberPipeline_HasExpectedSectionCount()
     {
         var pipeline = ApiMemberSectionDescriptors.CreatePipeline();
-        Assert.Equal(36, pipeline.AllSectionNames.Length);
+        Assert.Equal(37, pipeline.AllSectionNames.Length);
         Assert.Contains(SectionNames.CloneCandidates, pipeline.AllSectionNames);
     }
 
@@ -729,6 +729,7 @@ public partial class SectionPipelineTests
             Assert.Equal(expectedCategories, categories.Keys);
             Assert.DoesNotContain(SectionPipeline<ApiType>.AllCategory, categories.Keys);
             Assert.DoesNotContain(SectionPipeline<ApiType>.HiddenCategory, categories.Keys);
+            Assert.DoesNotContain(SectionNames.Source, pipeline.BaseSectionNames);
         }
 
         Assert.Contains(SectionNames.MethodGroups, broad.BaseSectionNames);
@@ -1199,6 +1200,7 @@ public partial class SectionPipelineTests
 
         Assert.Equal(
             [
+                SectionNames.Source,
                 SectionNames.DecompiledSource,
                 SectionNames.AnnotatedSource,
                 SectionNames.PdbSource,
@@ -1215,6 +1217,7 @@ public partial class SectionPipelineTests
 
         Assert.Equal(
             [
+                SectionNames.Source,
                 SectionNames.DecompiledSource,
                 SectionNames.AnnotatedSource,
                 SectionNames.PdbSource,
