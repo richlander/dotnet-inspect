@@ -856,6 +856,7 @@ export function createProductionEngineWorkerClient(
       ...packageQuery,
       ...packageChanges,
     },
+    library: ordinary.library,
     metadata: ordinary.metadata,
     analysis: ordinary.analysis,
     source: {

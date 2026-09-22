@@ -188,6 +188,8 @@ public class SymbolPackageDownloaderTests : IDisposable
         using var client = new HttpClient(handler);
         var store = new InMemoryPdbStore();
         var downloader = new SymbolPackageDownloader(client, store);
+        var firstEvidence =
+            new PortablePdbAcquisitionEvidenceCollector();
 
         PortablePdbAcquisitionResult first =
             await downloader.AcquirePdbAsync(
@@ -199,7 +201,8 @@ public class SymbolPackageDownloaderTests : IDisposable
                 packageName: "Example.Package",
                 packageVersion: "1.0.0",
                 cancellationToken:
-                    TestContext.Current.CancellationToken);
+                    TestContext.Current.CancellationToken,
+                evidence: firstEvidence);
 
         var acquired =
             Assert.IsType<PortablePdbAcquisitionResult.Acquired>(
@@ -217,11 +220,34 @@ public class SymbolPackageDownloaderTests : IDisposable
                 TestContext.Current.CancellationToken);
             Assert.Equal(pdbBytes, buffer.ToArray());
         }
+        PortablePdbAcquisitionEvidenceDocument firstDocument =
+            firstEvidence.ToDocument();
+        Assert.Equal(
+            PortablePdbExternalAcquisitionOutcome.Acquired,
+            firstDocument.Outcome);
+        Assert.Equal("nuget.org", firstDocument.SymbolServer);
+        Assert.False(firstDocument.FromCache);
+        Assert.Collection(
+            firstDocument.NetworkAttempts,
+            attempt =>
+            {
+                Assert.Equal(
+                    PortablePdbAcquisitionNetworkRoute.SymbolPackage,
+                    attempt.Route);
+                Assert.Equal(
+                    PortablePdbNetworkAttemptOutcome.Succeeded,
+                    attempt.Outcome);
+                Assert.Equal(HttpStatusCode.OK, attempt.StatusCode);
+                Assert.Equal(1, attempt.RequestCount);
+                Assert.True(attempt.BodyBytesRead > 0);
+            });
 
         using var offlineClient =
             new HttpClient(new ThrowingHandler());
         var cachedDownloader =
             new SymbolPackageDownloader(offlineClient, store);
+        var cachedEvidence =
+            new PortablePdbAcquisitionEvidenceCollector();
         PortablePdbAcquisitionResult second =
             await cachedDownloader.AcquirePdbAsync(
                 guid,
@@ -233,13 +259,21 @@ public class SymbolPackageDownloaderTests : IDisposable
                 packageVersion: "1.0.0",
                 cacheOnly: true,
                 cancellationToken:
-                    TestContext.Current.CancellationToken);
+                    TestContext.Current.CancellationToken,
+                evidence: cachedEvidence);
 
         var cached =
             Assert.IsType<PortablePdbAcquisitionResult.Acquired>(
                 second);
         Assert.True(cached.Pdb.FromCache);
         Assert.Equal("nuget.org", cached.Pdb.SymbolServer);
+        PortablePdbAcquisitionEvidenceDocument cachedDocument =
+            cachedEvidence.ToDocument();
+        Assert.Equal(
+            PortablePdbExternalAcquisitionOutcome.Acquired,
+            cachedDocument.Outcome);
+        Assert.True(cachedDocument.FromCache);
+        Assert.Empty(cachedDocument.NetworkAttempts);
     }
 
     [Fact]
@@ -281,10 +315,51 @@ public class SymbolPackageDownloaderTests : IDisposable
                 cancellationToken:
                     TestContext.Current.CancellationToken);
 
-        Assert.IsType<PortablePdbAcquisitionResult.Unavailable>(result);
+        var unavailable =
+            Assert.IsType<
+                PortablePdbAcquisitionResult.Unavailable>(
+                    result);
+        Assert.Equal(
+            PortablePdbAcquisitionFailureKind.ExternalProviderFailed,
+            unavailable.AcquisitionFailure);
         Assert.Contains(
             failures.Failures,
             failure => failure.Status == HttpStatusCode.OK);
+    }
+
+    [Fact]
+    public async Task AcquirePdbAsync_OperationalProviderFailureIsTyped()
+    {
+        var handler =
+            new CountingHandler(
+                _ => new HttpResponseMessage(
+                    HttpStatusCode.Forbidden));
+        using var client = new HttpClient(handler);
+        var downloader =
+            new SymbolPackageDownloader(
+                client,
+                new InMemoryPdbStore());
+
+        PortablePdbAcquisitionResult result =
+            await downloader.AcquirePdbAsync(
+                Guid.NewGuid(),
+                pdbAge: 1,
+                pdbFileName: "Example.pdb",
+                isPortable: true,
+                assemblyName: "Example",
+                packageName: "Example.Package",
+                packageVersion: "1.0.0",
+                cancellationToken:
+                    TestContext.Current.CancellationToken);
+
+        var unavailable =
+            Assert.IsType<
+                PortablePdbAcquisitionResult.Unavailable>(
+                    result);
+        Assert.Equal(
+            PortablePdbAcquisitionFailureKind
+                .ExternalProviderFailed,
+            unavailable.AcquisitionFailure);
     }
 
     [Theory]
@@ -334,7 +409,13 @@ public class SymbolPackageDownloaderTests : IDisposable
                 cancellationToken:
                     TestContext.Current.CancellationToken);
 
-        Assert.IsType<PortablePdbAcquisitionResult.Unavailable>(result);
+        var unavailable =
+            Assert.IsType<
+                PortablePdbAcquisitionResult.Unavailable>(
+                    result);
+        Assert.Equal(
+            PortablePdbAcquisitionFailureKind.ExternalProviderFailed,
+            unavailable.AcquisitionFailure);
         Assert.Contains(
             failures.Failures,
             failure => failure.Status == HttpStatusCode.OK);
@@ -379,7 +460,11 @@ public class SymbolPackageDownloaderTests : IDisposable
                 cancellationToken:
                     TestContext.Current.CancellationToken);
 
-        Assert.IsType<PortablePdbAcquisitionResult.Unavailable>(result);
+        var unavailable =
+            Assert.IsType<
+                PortablePdbAcquisitionResult.Unavailable>(
+                    result);
+        Assert.Null(unavailable.AcquisitionFailure);
         Assert.Empty(failures.Failures);
     }
 
@@ -421,7 +506,13 @@ public class SymbolPackageDownloaderTests : IDisposable
                 cancellationToken:
                     TestContext.Current.CancellationToken);
 
-        Assert.IsType<PortablePdbAcquisitionResult.Unavailable>(result);
+        var unavailable =
+            Assert.IsType<
+                PortablePdbAcquisitionResult.Unavailable>(
+                    result);
+        Assert.Equal(
+            PortablePdbAcquisitionFailureKind.ExternalProviderFailed,
+            unavailable.AcquisitionFailure);
         Assert.Contains(
             failures.Failures,
             failure => failure.Status == HttpStatusCode.OK);
@@ -1281,6 +1372,130 @@ public class SymbolPackageDownloaderTests : IDisposable
     }
 
     [Fact]
+    public async Task
+        AcquirePdbAsync_CanceledRetryPreservesPriorStatusAndBytes()
+    {
+        var handler =
+            new PartialFailureThenBlockingHandler();
+        using var client = new HttpClient(handler);
+        var downloader =
+            new SymbolPackageDownloader(
+                client,
+                new InMemoryPdbStore());
+        var evidence =
+            new PortablePdbAcquisitionEvidenceCollector();
+        using var cancellation =
+            new CancellationTokenSource();
+
+        Task<PortablePdbAcquisitionResult> acquisition =
+            downloader.AcquirePdbAsync(
+                Guid.NewGuid(),
+                pdbAge: 1,
+                pdbFileName: "Partial.pdb",
+                isPortable: true,
+                isPlatformAssembly: true,
+                cancellationToken: cancellation.Token,
+                evidence: evidence);
+
+        await handler.SecondRequestStarted.Task.WaitAsync(
+            TimeSpan.FromSeconds(5),
+            TestContext.Current.CancellationToken);
+        cancellation.Cancel();
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(
+            () => acquisition);
+        PortablePdbAcquisitionEvidenceDocument document =
+            evidence.ToDocument();
+        Assert.Equal(
+            PortablePdbExternalAcquisitionOutcome.Canceled,
+            document.Outcome);
+        PortablePdbNetworkAttemptEvidence attempt =
+            Assert.Single(document.NetworkAttempts);
+        Assert.Equal(
+            PortablePdbAcquisitionNetworkRoute.MicrosoftSymbolServer,
+            attempt.Route);
+        Assert.Equal(
+            PortablePdbNetworkAttemptOutcome.Canceled,
+            attempt.Outcome);
+        Assert.Equal(HttpStatusCode.OK, attempt.StatusCode);
+        Assert.Equal(2, attempt.RequestCount);
+        Assert.Equal(4, attempt.BodyBytesRead);
+    }
+
+    [Fact]
+    public async Task
+        AcquirePdbAsync_CancellationPreservesPriorProviderStoreFailure()
+    {
+        var guid =
+            Guid.Parse(
+                "81112222-3333-4444-5555-666677778888");
+        var (pdbBytes, _) =
+            SnupkgPdbReaderTests.BuildPortablePdb(guid);
+        var symbolPackage =
+            SnupkgPdbReaderTests.MakeSnupkg(
+                ("lib/net8.0/Failure.pdb", pdbBytes));
+        var handler =
+            new SymbolPackageThenBlockingHandler(symbolPackage);
+        using var client = new HttpClient(handler);
+        var downloader =
+            new SymbolPackageDownloader(
+                client,
+                new ThrowingPutPdbStore());
+        var evidence =
+            new PortablePdbAcquisitionEvidenceCollector();
+        using var cancellation =
+            new CancellationTokenSource();
+
+        Task<PortablePdbAcquisitionResult> acquisition =
+            downloader.AcquirePdbAsync(
+                guid,
+                pdbAge: 1,
+                pdbFileName: "Failure.pdb",
+                isPortable: true,
+                assemblyName: "Failure",
+                packageName: "Example.Package",
+                packageVersion: "1.0.0",
+                cancellationToken: cancellation.Token,
+                evidence: evidence);
+
+        await handler.SymbolRequestStarted.Task.WaitAsync(
+            TimeSpan.FromSeconds(5),
+            TestContext.Current.CancellationToken);
+        cancellation.Cancel();
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(
+            () => acquisition);
+        PortablePdbAcquisitionEvidenceDocument document =
+            evidence.ToDocument();
+        Assert.Equal(
+            PortablePdbExternalAcquisitionOutcome.Canceled,
+            document.Outcome);
+        Assert.Equal(
+            PortablePdbStoreFailureKind.PublicationNotRetained,
+            document.StoreFailure);
+        Assert.Collection(
+            document.NetworkAttempts,
+            attempt =>
+            {
+                Assert.Equal(
+                    PortablePdbAcquisitionNetworkRoute.SymbolPackage,
+                    attempt.Route);
+                Assert.Equal(
+                    PortablePdbNetworkAttemptOutcome.Succeeded,
+                    attempt.Outcome);
+            },
+            attempt =>
+            {
+                Assert.Equal(
+                    PortablePdbAcquisitionNetworkRoute.SymbolServer,
+                    attempt.Route);
+                Assert.Equal(
+                    PortablePdbNetworkAttemptOutcome.Canceled,
+                    attempt.Outcome);
+            });
+    }
+
+    [Fact]
     public async Task DownloadPdbAsync_PrivateMappingDoesNotProbeNuGetOrgSnupkg()
     {
         string configPath = Path.Combine(
@@ -1361,6 +1576,124 @@ public class SymbolPackageDownloaderTests : IDisposable
             await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
             return new HttpResponseMessage(HttpStatusCode.OK);
         }
+    }
+
+    private sealed class PartialFailureThenBlockingHandler
+        : HttpMessageHandler
+    {
+        private int _requestCount;
+
+        public TaskCompletionSource SecondRequestStarted { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        protected override async Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken)
+        {
+            if (Interlocked.Increment(ref _requestCount) == 1)
+            {
+                return new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content =
+                        new StreamContent(
+                            new PrefixThenFailStream()),
+                    RequestMessage = request,
+                };
+            }
+
+            SecondRequestStarted.TrySetResult();
+            await Task.Delay(
+                Timeout.InfiniteTimeSpan,
+                cancellationToken);
+            throw new InvalidOperationException(
+                "A canceled request unexpectedly completed.");
+        }
+    }
+
+    private sealed class SymbolPackageThenBlockingHandler(
+        byte[] symbolPackage)
+        : HttpMessageHandler
+    {
+        public TaskCompletionSource SymbolRequestStarted { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        protected override async Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken)
+        {
+            if (request.RequestUri?.AbsolutePath.EndsWith(
+                    ".snupkg",
+                    StringComparison.Ordinal)
+                == true)
+            {
+                return new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new ByteArrayContent(symbolPackage),
+                    RequestMessage = request,
+                };
+            }
+
+            SymbolRequestStarted.TrySetResult();
+            await Task.Delay(
+                Timeout.InfiniteTimeSpan,
+                cancellationToken);
+            throw new InvalidOperationException(
+                "A canceled symbol request unexpectedly completed.");
+        }
+    }
+
+    private sealed class PrefixThenFailStream : Stream
+    {
+        private int _readCount;
+
+        public override bool CanRead => true;
+        public override bool CanSeek => false;
+        public override bool CanWrite => false;
+        public override long Length =>
+            throw new NotSupportedException();
+        public override long Position
+        {
+            get => throw new NotSupportedException();
+            set => throw new NotSupportedException();
+        }
+
+        public override async ValueTask<int> ReadAsync(
+            Memory<byte> buffer,
+            CancellationToken cancellationToken = default)
+        {
+            if (Interlocked.Increment(ref _readCount) == 1)
+            {
+                "PDB!"u8.CopyTo(buffer.Span);
+                return 4;
+            }
+
+            await Task.Yield();
+            throw new IOException(
+                "Injected response body failure.");
+        }
+
+        public override int Read(
+            byte[] buffer,
+            int offset,
+            int count) =>
+            throw new NotSupportedException();
+
+        public override void Flush() =>
+            throw new NotSupportedException();
+
+        public override long Seek(
+            long offset,
+            SeekOrigin origin) =>
+            throw new NotSupportedException();
+
+        public override void SetLength(long value) =>
+            throw new NotSupportedException();
+
+        public override void Write(
+            byte[] buffer,
+            int offset,
+            int count) =>
+            throw new NotSupportedException();
     }
 
     private sealed class ThrowingHandler : HttpMessageHandler

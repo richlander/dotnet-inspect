@@ -3,6 +3,8 @@ import type {
   BrowserTypeCodeView,
   BrowserTypeSourceCancellation,
   BrowserTypeSourceResult,
+  InspectionDiagnostic,
+  InspectionShare,
 } from "./facades/inspect-web-source.d.ts";
 import {
   typeSourceView,
@@ -265,11 +267,32 @@ export const engineWorkerTypeSourceValue: BoundedPayloadDecoder<BrowserTypeCodeV
     if (candidate === null)
       return rejected("Expected a Type Source code view.");
     const kind = ownData(candidate, "kind");
-    if (kind === "source" && hasExactData(candidate, ["kind", "value"])) {
+    if (kind === "source" && hasExactData(candidate, [
+      "kind",
+      "value",
+      "share",
+      "diagnostics",
+    ])) {
       const source = sourcePayloadValue.decode(ownData(candidate, "value"));
-      return source.kind === "rejected"
-        ? source
-        : { kind: "decoded", value: { kind, value: source.value } };
+      if (source.kind === "rejected") return source;
+      const envelope = decodeEngineWorkerJsonValue<{
+        readonly share: InspectionShare;
+        readonly diagnostics: ReadonlyArray<InspectionDiagnostic>;
+      }>({
+        share: ownData(candidate, "share"),
+        diagnostics: ownData(candidate, "diagnostics"),
+      });
+      return envelope.kind === "rejected"
+        ? envelope
+        : {
+          kind: "decoded",
+          value: {
+            kind,
+            value: source.value,
+            share: envelope.value.share,
+            diagnostics: envelope.value.diagnostics,
+          },
+        };
     }
     if (kind === "apiDeclarations" && hasExactData(candidate, ["kind", "inspection"])) {
       const inspection = dataRecord(ownData(candidate, "inspection"));
