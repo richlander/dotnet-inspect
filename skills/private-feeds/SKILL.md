@@ -58,11 +58,15 @@ dnx dotnet-inspect -y -- workspace \
 ```
 
 Inspect Web prompts once per exact endpoint for a username and personal access
-token. The credentials are used only for that activation: they are not placed
-in the packet or URL, retained Workspace definition, browser storage, logs,
-diagnostics, or telemetry. Reloading prompts again. Cancelling or failed
-activation preserves the prior visible Workspace. Declared anonymous sources
-activate without a prompt.
+token. Credentials remain in page-session memory only: activation-local copies
+are cleared after settlement, while the active realization or
+incumbent-recovery binding may retain them until replacement or disposal. They
+are not placed in the packet or URL, retained Workspace definition, browser
+storage, logs, diagnostics, or telemetry. Reloading prompts again. Cancellation
+or failure before publication preserves the prior visible Workspace; if
+recovery after cutover also fails, Inspect Web enters a blocking retry state
+rather than exposing the failed tentative Workspace. Declared anonymous
+sources activate without a prompt.
 
 ### Query versions from a folder feed
 
