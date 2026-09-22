@@ -29,6 +29,7 @@ public static class SignatureBlobGuard
     {
         Valid,
         DepthBudgetExceeded,
+        NodeBudgetExceeded,
         Malformed,
     }
 
@@ -81,6 +82,7 @@ public static class SignatureBlobGuard
                 kind,
                 maxDepth,
                 ref measurements,
+                out _,
                 out _);
         }
         catch (BadImageFormatException)
@@ -125,6 +127,7 @@ public static class SignatureBlobGuard
                     kind,
                     maxDepth,
                     ref measurements,
+                    out _,
                     out _)
                 && blob.RemainingBytes == 0;
         }
@@ -167,10 +170,13 @@ public static class SignatureBlobGuard
                     kind,
                     maxDepth,
                     ref measurements,
-                    out bool depthBudgetExceeded))
+                    out bool depthBudgetExceeded,
+                    out bool nodeBudgetExceeded))
             {
-                return depthBudgetExceeded
-                    ? CompleteValidationKind.DepthBudgetExceeded
+                if (depthBudgetExceeded)
+                    return CompleteValidationKind.DepthBudgetExceeded;
+                return nodeBudgetExceeded
+                    ? CompleteValidationKind.NodeBudgetExceeded
                     : CompleteValidationKind.Malformed;
             }
 
@@ -202,9 +208,11 @@ public static class SignatureBlobGuard
         Kind kind,
         int maxDepth,
         ref SignatureBlobGuardMeasurements measurements,
-        out bool depthBudgetExceeded)
+        out bool depthBudgetExceeded,
+        out bool nodeBudgetExceeded)
     {
         depthBudgetExceeded = false;
+        nodeBudgetExceeded = false;
         // Work items are read strictly left-to-right; the stack only tracks *what* to read next and
         // at what depth, so recursion lives on the heap and can never overflow the native stack.
         // Every Type work item consumes at least one blob byte, and count-driven pushes are bounded
@@ -216,7 +224,8 @@ public static class SignatureBlobGuard
                 ref blob,
                 kind,
                 work,
-                ref remainingTypeNodes))
+                ref remainingTypeNodes,
+                ref nodeBudgetExceeded))
             return true;
 
         while (work.Count > 0)
@@ -234,7 +243,8 @@ public static class SignatureBlobGuard
                             ref blob,
                             item.Depth,
                             work,
-                            ref remainingTypeNodes))
+                            ref remainingTypeNodes,
+                            ref nodeBudgetExceeded))
                         return true;
                     break;
 
@@ -248,7 +258,8 @@ public static class SignatureBlobGuard
                             ref blob,
                             item,
                             work,
-                            ref remainingTypeNodes))
+                            ref remainingTypeNodes,
+                            ref nodeBudgetExceeded))
                         return true;
                     break;
 
@@ -256,7 +267,8 @@ public static class SignatureBlobGuard
                     if (SkipArrayShape(
                             ref blob,
                             ref remainingTypeNodes,
-                            ref measurements))
+                            ref measurements,
+                            ref nodeBudgetExceeded))
                         return true;
                     break;
             }
@@ -274,12 +286,17 @@ public static class SignatureBlobGuard
         int count,
         int depth,
         ref BlobReader blob,
-        ref int remainingTypeNodes)
+        ref int remainingTypeNodes,
+        ref bool nodeBudgetExceeded)
     {
         if (count < 0
-            || count > blob.RemainingBytes
-            || count > remainingTypeNodes)
+            || count > blob.RemainingBytes)
             return true;
+        if (count > remainingTypeNodes)
+        {
+            nodeBudgetExceeded = true;
+            return true;
+        }
         remainingTypeNodes -= count;
         for (int i = 0; i < count; i++)
             work.Push(WorkItem.Type(depth));
@@ -289,10 +306,14 @@ public static class SignatureBlobGuard
     static bool PushType(
         Stack<WorkItem> work,
         int depth,
-        ref int remainingTypeNodes)
+        ref int remainingTypeNodes,
+        ref bool nodeBudgetExceeded)
     {
         if (remainingTypeNodes == 0)
+        {
+            nodeBudgetExceeded = true;
             return true;
+        }
         remainingTypeNodes--;
         work.Push(WorkItem.Type(depth));
         return false;
@@ -302,7 +323,8 @@ public static class SignatureBlobGuard
         ref BlobReader blob,
         Kind kind,
         Stack<WorkItem> work,
-        ref int remainingTypeNodes)
+        ref int remainingTypeNodes,
+        ref bool nodeBudgetExceeded)
     {
         switch (kind)
         {
@@ -310,14 +332,16 @@ public static class SignatureBlobGuard
                 return PushType(
                     work,
                     1,
-                    ref remainingTypeNodes);
+                    ref remainingTypeNodes,
+                    ref nodeBudgetExceeded);
 
             case Kind.Field:
                 blob.ReadSignatureHeader();
                 return PushType(
                     work,
                     1,
-                    ref remainingTypeNodes);
+                    ref remainingTypeNodes,
+                    ref nodeBudgetExceeded);
 
             case Kind.MethodSpecification:
             case Kind.LocalVariables:
@@ -329,7 +353,8 @@ public static class SignatureBlobGuard
                         count,
                         1,
                         ref blob,
-                        ref remainingTypeNodes);
+                        ref remainingTypeNodes,
+                        ref nodeBudgetExceeded);
                 }
 
             case Kind.Method:
@@ -340,7 +365,8 @@ public static class SignatureBlobGuard
                     depth: 1,
                     allowCdeclSentinel: kind == Kind.StandaloneMethod,
                     requireMethodKind: false,
-                    ref remainingTypeNodes);
+                    ref remainingTypeNodes,
+                    ref nodeBudgetExceeded);
 
             default:
                 return false;
@@ -353,7 +379,8 @@ public static class SignatureBlobGuard
         int depth,
         bool allowCdeclSentinel,
         bool requireMethodKind,
-        ref int remainingTypeNodes)
+        ref int remainingTypeNodes,
+        ref bool nodeBudgetExceeded)
     {
         var header = blob.ReadSignatureHeader();
         if (requireMethodKind && header.Kind != SignatureKind.Method)
@@ -362,9 +389,13 @@ public static class SignatureBlobGuard
             blob.ReadCompressedInteger(); // generic parameter count
         int paramCount = blob.ReadCompressedInteger();
         if (paramCount < 0
-            || (long)paramCount + 1 > blob.RemainingBytes
-            || (long)paramCount + 1 > remainingTypeNodes)
+            || (long)paramCount + 1 > blob.RemainingBytes)
             return true;
+        if ((long)paramCount + 1 > remainingTypeNodes)
+        {
+            nodeBudgetExceeded = true;
+            return true;
+        }
         remainingTypeNodes -= paramCount + 1;
         var state = new MethodState(
             header.CallingConvention
@@ -382,7 +413,8 @@ public static class SignatureBlobGuard
         ref BlobReader blob,
         WorkItem item,
         Stack<WorkItem> work,
-        ref int remainingTypeNodes)
+        ref int remainingTypeNodes,
+        ref bool nodeBudgetExceeded)
     {
         MethodState state = item.Method
             ?? throw new InvalidOperationException(
@@ -405,7 +437,8 @@ public static class SignatureBlobGuard
             ref blob,
             item.Depth,
             work,
-            ref remainingTypeNodes);
+            ref remainingTypeNodes,
+            ref nodeBudgetExceeded);
     }
 
     /// <summary>Reads one Type at <paramref name="depth"/>, consuming its own bytes and pushing its
@@ -417,7 +450,8 @@ public static class SignatureBlobGuard
         ref BlobReader blob,
         int depth,
         Stack<WorkItem> work,
-        ref int remainingTypeNodes)
+        ref int remainingTypeNodes,
+        ref bool nodeBudgetExceeded)
     {
         byte code = blob.ReadByte();
         // SRM reads type codes as compressed integers. Canonical codes are a
@@ -430,11 +464,12 @@ public static class SignatureBlobGuard
         {
             case ElementTypeCmodReqd:
             case ElementTypeCmodOpt:
-                blob.ReadTypeHandle();               // modifier's TypeDefOrRefOrSpec token
+                ReadTypeDefOrRefOrSpec(ref blob);
                 return PushType(
                     work,
                     depth + 1,
-                    ref remainingTypeNodes);
+                    ref remainingTypeNodes,
+                    ref nodeBudgetExceeded);
 
             case ElementTypeByRef:
             case ElementTypePinned:
@@ -443,7 +478,8 @@ public static class SignatureBlobGuard
                 return PushType(
                     work,
                     depth + 1,
-                    ref remainingTypeNodes);
+                    ref remainingTypeNodes,
+                    ref nodeBudgetExceeded);
 
             case ElementTypeSentinel:
                 return true;
@@ -455,7 +491,8 @@ public static class SignatureBlobGuard
                 return PushType(
                     work,
                     depth + 1,
-                    ref remainingTypeNodes);
+                    ref remainingTypeNodes,
+                    ref nodeBudgetExceeded);
 
             case ElementTypeGenericInst:
                 {
@@ -467,14 +504,15 @@ public static class SignatureBlobGuard
                     byte genericTypeCode = blob.ReadByte();
                     if (genericTypeCode is not (ElementTypeClass or ElementTypeValueType))
                         return true;
-                    blob.ReadTypeHandle();
+                    ReadTypeDefOrRefOrSpec(ref blob);
                     int args = blob.ReadCompressedInteger();
                     return PushTypes(
                         work,
                         args,
                         depth + 1,
                         ref blob,
-                        ref remainingTypeNodes);
+                        ref remainingTypeNodes,
+                        ref nodeBudgetExceeded);
                 }
 
             case ElementTypeFnPtr:
@@ -485,11 +523,12 @@ public static class SignatureBlobGuard
                     depth + 1,
                     allowCdeclSentinel: false,
                     requireMethodKind: true,
-                    ref remainingTypeNodes);
+                    ref remainingTypeNodes,
+                    ref nodeBudgetExceeded);
 
             case ElementTypeClass:
             case ElementTypeValueType:
-                blob.ReadTypeHandle();
+                ReadTypeDefOrRefOrSpec(ref blob);
                 return false;
 
             case ElementTypeVar:
@@ -501,6 +540,18 @@ public static class SignatureBlobGuard
                 // Primitive / VOID / OBJECT / STRING / TYPEDBYREF / I / U and anything else:
                 // a leaf that consumes no further bytes here.
                 return false;
+        }
+
+        static void ReadTypeDefOrRefOrSpec(ref BlobReader blob)
+        {
+            int encoded = blob.ReadCompressedInteger();
+            int row = encoded >> 2;
+            int tag = encoded & 3;
+            if (row <= 0 || tag > 2)
+            {
+                throw new BadImageFormatException(
+                    "The signature contains an invalid TypeDefOrRefOrSpec encoding.");
+            }
         }
 
     }
@@ -524,16 +575,21 @@ public static class SignatureBlobGuard
     static bool SkipArrayShape(
         ref BlobReader blob,
         ref int remainingTypeNodes,
-        ref SignatureBlobGuardMeasurements measurements)
+        ref SignatureBlobGuardMeasurements measurements,
+        ref bool nodeBudgetExceeded)
     {
         blob.ReadCompressedInteger();           // rank
         int numSizes = blob.ReadCompressedInteger();
         if (numSizes >= 0)
             measurements.Sizes = measurements.Sizes.Observe(numSizes);
         if (numSizes < 0
-            || numSizes > blob.RemainingBytes
-            || numSizes > remainingTypeNodes)
+            || numSizes > blob.RemainingBytes)
         {
+            return true;
+        }
+        if (numSizes > remainingTypeNodes)
+        {
+            nodeBudgetExceeded = true;
             return true;
         }
         remainingTypeNodes -= numSizes;
@@ -543,9 +599,13 @@ public static class SignatureBlobGuard
         if (numLoBounds >= 0)
             measurements.LowerBounds = measurements.LowerBounds.Observe(numLoBounds);
         if (numLoBounds < 0
-            || numLoBounds > blob.RemainingBytes
-            || numLoBounds > remainingTypeNodes)
+            || numLoBounds > blob.RemainingBytes)
         {
+            return true;
+        }
+        if (numLoBounds > remainingTypeNodes)
+        {
+            nodeBudgetExceeded = true;
             return true;
         }
         remainingTypeNodes -= numLoBounds;

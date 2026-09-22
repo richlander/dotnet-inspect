@@ -30,4 +30,34 @@ public readonly record struct MetadataMethodAddress(
 
     public bool BelongsTo(MetadataReader reader)
         => ModuleVersionId == MetadataModuleIdentity.ReadVersionId(reader);
+
+    /// <summary>
+    /// Resolves this address only after validating its module and physical
+    /// MethodDef row.
+    /// </summary>
+    public bool TryResolve(
+        MetadataReader reader,
+        out MethodDefinitionHandle handle)
+    {
+        ArgumentNullException.ThrowIfNull(reader);
+        handle = default;
+
+        int row = MetadataTokens.GetRowNumber(Handle);
+        if (row <= 0 || row > reader.GetTableRowCount(TableIndex.MethodDef))
+            return false;
+
+        try
+        {
+            if (!BelongsTo(reader))
+                return false;
+        }
+        catch (Exception ex) when (
+            ex is BadImageFormatException or ArgumentOutOfRangeException)
+        {
+            return false;
+        }
+
+        handle = MetadataTokens.MethodDefinitionHandle(row);
+        return true;
+    }
 }

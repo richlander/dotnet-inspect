@@ -111,7 +111,9 @@ public sealed class StateMachineRelationshipIndex
                 StateMachineRelationshipFailureKind.BudgetExceeded,
                 "State-machine relationship discovery exceeded its work budget.");
         }
-        catch (MetadataTypeDefinitionIndexBudgetException)
+        catch (MetadataTypeDefinitionIndexFailureException ex)
+            when (ex.Kind
+                == MetadataTypeDefinitionIndexFailureKind.BudgetExceeded)
         {
             return Failed(
                 reader,
