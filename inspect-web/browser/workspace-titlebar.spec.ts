@@ -53,7 +53,7 @@ async function renderSpotlightFooter(
   }, spotlightScope);
 }
 
-test("the top shell row separates application scopes from inspection subjects", async ({
+test("the top shell row separates product navigation from inspection subjects", async ({
   page,
 }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
@@ -80,16 +80,24 @@ test("the top shell row separates application scopes from inspection subjects", 
   await expect(page.locator(".titlebar .nav-history")).toBeVisible();
   await expect(page.locator(".titlebar .subject-inspector-region"))
     .toBeVisible();
-  await expect(page.locator(".titlebar .application-scope-strip"))
-    .toBeVisible();
-  await expect(page.locator("[data-application-scope]"))
-    .toHaveText(["Query", "Activity", "Workspace"]);
-  await expect(page.locator("[data-application-scope='query']"))
+  await expect(page.locator(".titlebar .brand"))
+    .toHaveAttribute("aria-expanded", "false");
+  await expect(page.locator(".product-navigation-menu")).toBeHidden();
+  await page.locator(".titlebar .brand").click();
+  await expect(page.locator("[data-product-destination='home']"))
+    .toBeFocused();
+  await expect(page.locator("[data-product-destination]"))
+    .toHaveText(["Home", "Query", "Workspace", "Activity"]);
+  await expect(page.locator("[data-product-destination='home']"))
     .not.toHaveAttribute("aria-current", "page");
-  await expect(page.locator("[data-application-scope='activity']"))
+  await expect(page.locator("[data-product-destination='query']"))
     .not.toHaveAttribute("aria-current", "page");
-  await expect(page.locator("[data-application-scope='workspace']"))
+  await expect(page.locator("[data-product-destination='workspace']"))
     .not.toHaveAttribute("aria-current", "page");
+  await page.locator("[data-product-destination='query']").click();
+  await expect(page.locator("body"))
+    .toHaveAttribute("data-product-destination", "query");
+  await expect(page.locator(".product-navigation-menu")).toBeHidden();
   await expect(page.locator(".scope-switch [data-subject-tab]")).toHaveCount(3);
   await expect(page.locator("[data-subject-tab][data-scope='package']"))
     .toHaveAttribute("aria-label", "Package");
@@ -107,6 +115,62 @@ test("the top shell row separates application scopes from inspection subjects", 
   await expect(page.locator(".brand-icon img")).toHaveAttribute(
     "src",
     "/assets/dotnet-inspect-bot.png");
+});
+
+test("product navigation Tab closes and continues to the actual next tab stop", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto("/browser/workspace-titlebar.html?type=1");
+
+  const brand = page.locator("[data-product-navigation-button]");
+  await brand.focus();
+  await page.keyboard.press("Tab");
+  await page.locator(":focus").evaluate(element => {
+    if (!(element instanceof HTMLElement))
+      throw new Error("The native next focus target is unavailable.");
+    element.dataset.nativeNextFocus = "true";
+  });
+
+  await brand.focus();
+  await brand.press("ArrowDown");
+  await expect(page.locator("[data-product-destination='home']"))
+    .toBeFocused();
+
+  await page.keyboard.press("Tab");
+
+  await expect(page.locator(".product-navigation-menu")).toBeHidden();
+  await expect(page.locator("[data-native-next-focus='true']")).toBeFocused();
+});
+
+test("product navigation reverse Tab matches native document order", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto("/browser/workspace-titlebar.html?type=1");
+
+  const focusState = () => page.evaluate(() => {
+    const active = document.activeElement;
+    return {
+      id: active?.id ?? "",
+      tag: active?.tagName ?? "",
+      body: active === document.body,
+    };
+  });
+  const brand = page.locator("[data-product-navigation-button]");
+  await brand.focus();
+  await page.keyboard.press("Shift+Tab");
+  const nativePreviousFocus = await focusState();
+
+  await brand.focus();
+  await brand.press("ArrowUp");
+  await expect(page.locator("[data-product-destination='activity']"))
+    .toBeFocused();
+  await page.keyboard.press("Shift+Tab");
+
+  await expect(page.locator(".product-navigation-menu")).toBeHidden();
+  await expect(page.locator(".product-navigation-menu :focus")).toHaveCount(0);
+  await expect.poll(focusState).toEqual(nativePreviousFocus);
 });
 
 test("the data bar occupies its fixed row when the notice stack is empty", async ({
@@ -2205,70 +2269,16 @@ test("Workspace keeps its retained collection visible and menu fixed", async ({
   await expect(page.getByRole("menuitem", { name: "Share" })).toBeVisible();
   await expect(page.locator("#copy-name")).toHaveCount(0);
   await expect(page.locator("[data-subject-copy]")).toHaveCount(0);
-  await expect(page.locator("[data-application-scope='workspace']"))
+  await page.locator(".brand").click();
+  await expect(page.locator("[data-product-destination='workspace']"))
     .toHaveAttribute("aria-current", "page");
-  await expect(page.locator("[data-application-scope='workspace']"))
+  await expect(page.locator("[data-product-destination='workspace']"))
     .toBeVisible();
   await expect(page.locator("[data-subject-tab][data-scope='package']"))
     .toHaveAttribute("aria-selected", "false");
 });
 
-test("application scopes yield before inspection identity without dropping focus", async ({
-  page,
-}) => {
-  await page.setViewportSize({ width: 1440, height: 900 });
-  await page.goto("/browser/workspace-titlebar.html?member=1");
-
-  const query = page.locator("[data-application-scope='query']");
-  await query.focus();
-  await page.setViewportSize({ width: 1100, height: 900 });
-  await expect(page.locator(".brand")).toBeFocused();
-  await expect(page.locator(".titlebar > .application-scope-region"))
-    .toBeHidden();
-  await expect(
-    page.locator("[data-subject-tab]"),
-  ).toHaveCount(4);
-  await expect(
-    page.locator("[data-inspector-tab]"),
-  ).toHaveCount(5);
-});
-
-test("a trailing application scope transfers focus before terminal clipping", async ({
-  page,
-}) => {
-  await page.setViewportSize({ width: 1440, height: 900 });
-  await page.goto("/browser/workspace-titlebar.html?member=1");
-
-  const workspace = page.locator("[data-application-scope='workspace']");
-  await workspace.focus();
-  await page.setViewportSize({ width: 300, height: 900 });
-
-  await expect(page.locator(".brand")).toBeFocused();
-  await expect(page.locator(".titlebar > .application-scope-region"))
-    .toBeHidden();
-});
-
-test("application scope rerenders preserve focus until responsive yielding", async ({
-  page,
-}) => {
-  await page.setViewportSize({ width: 1440, height: 900 });
-  await page.goto("/browser/workspace-titlebar.html?member=1");
-
-  const query = page.locator("[data-application-scope='query']");
-  await query.focus();
-  await expect(query).toBeVisible();
-  await expect(query).toBeFocused();
-
-  await page.evaluate(() => window.rerenderApplicationScopeProbe());
-
-  await expect(page.locator("[data-application-scope='query']")).toBeFocused();
-  await page.setViewportSize({ width: 900, height: 900 });
-  await expect(page.locator(".titlebar > .application-scope-region"))
-    .toBeHidden();
-  await expect(page.locator(".brand")).toBeFocused();
-});
-
-test("query header omits scope buttons and preserves navigation focus across widths", async ({
+test("query header keeps product navigation collapsed and preserves navigation focus across widths", async ({
   page,
 }) => {
   await page.setViewportSize({ width: 700, height: 900 });
@@ -2286,8 +2296,9 @@ test("query header omits scope buttons and preserves navigation focus across wid
     });
   });
 
-  await expect(page.getByRole("button", { name: "Query", exact: true })).toHaveCount(0);
-  await expect(page.getByRole("button", { name: "Workspace", exact: true })).toHaveCount(0);
+  await expect(page.locator(".product-navigation-menu")).toBeHidden();
+  await expect(page.locator("[data-product-destination]"))
+    .toHaveText(["Home", "Query", "Workspace", "Activity"]);
   await expect(page.locator("#package-query-back")).toBeVisible();
   await page.locator("#package-query-product").focus();
   const productResult = await page.evaluate(async () => {
@@ -2343,8 +2354,7 @@ test("query header omits scope buttons and preserves navigation focus across wid
     restoration: "restored",
     activeId: "package-query-back",
   });
-  await expect(page.getByRole("button", { name: "Query", exact: true })).toHaveCount(0);
-  await expect(page.getByRole("button", { name: "Workspace", exact: true })).toHaveCount(0);
+  await expect(page.locator(".product-navigation-menu")).toBeHidden();
   await expect(page.locator("#package-query-product")).toBeVisible();
 });
 

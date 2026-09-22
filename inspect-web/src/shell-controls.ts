@@ -4,6 +4,7 @@ import {
 } from "./package-controls.ts";
 import { renderBrand } from "./brand.ts";
 import type { KeybindingDescription } from "./keybinding-registry.ts";
+import { continueMenuButtonDocumentOrder } from "./menu-button.ts";
 
 export type ApplicationAction =
   | "open-library"
@@ -39,7 +40,6 @@ export interface LoadErrorShellBindingActions {
 }
 
 export interface WorkbenchShellHtmlOptions {
-  applicationScopeHtml: string;
   contextualActionsHtml?: string;
   inspectedTargetHtml: string;
   subjectInspectorHtml: string;
@@ -52,9 +52,6 @@ export function workbenchShellHtml(
   return `
       <header class="titlebar">
         ${renderBrand()}
-        <div class="application-scope-region">
-          ${options.applicationScopeHtml}
-        </div>
         <div class="subject-inspector-region">
           ${options.subjectInspectorHtml}
         </div>
@@ -345,9 +342,11 @@ export function bindWorkbenchShell(
         event.preventDefault();
         closeApplicationMenu(menuButton, menu, true);
       } else if (event.key === "Tab") {
-        // Let native Tab traversal continue from the trigger, including at
-        // document boundaries and past controls outside the page Tab sequence.
-        closeApplicationMenu(menuButton, menu, true);
+        continueMenuButtonDocumentOrder(
+          menuButton,
+          menu,
+          event,
+          () => closeApplicationMenu(menuButton, menu, false));
       } else if (event.key === "Home" || event.key === "End") {
         event.preventDefault();
         (event.key === "Home" ? items[0] : items.at(-1))?.focus();

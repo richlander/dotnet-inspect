@@ -4,6 +4,7 @@ import type {
   BrowserRetainedWorkspaceActivationResult,
   BrowserRetainedWorkspaceConsumerCompletionResult,
   BrowserRetainedWorkspaceDeactivationResult,
+  BrowserRetainedWorkspacePackageSourceCredential,
   BrowserRetainedWorkspacePosting,
   BrowserRetainedWorkspacePreparationResult,
   BrowserRetainedWorkspacePreparedPosting,
@@ -167,7 +168,9 @@ function preparedPosting(
 }
 
 class ActivationClient implements RetainedWorkspaceActivationClient {
-  readonly packageSourceCredentialPayloads: string[] = [];
+  readonly packageSourceCredentialPayloads: Array<
+    Readonly<Record<string, BrowserRetainedWorkspacePackageSourceCredential>>
+  > = [];
   readonly activations: Array<{
     promise: Promise<BrowserRetainedWorkspaceActivationResult>;
     resolve(value: BrowserRetainedWorkspaceActivationResult): void;
@@ -284,10 +287,12 @@ class ActivationClient implements RetainedWorkspaceActivationClient {
     _label: string,
     _canonicalLocation: string,
     _canonicalPacket: string,
-    packageSourceCredentialsJson: string,
+    packageSourceCredentials: Readonly<
+      Record<string, BrowserRetainedWorkspacePackageSourceCredential>
+    >,
   ): Promise<BrowserRetainedWorkspacePreparationResult> {
     this.packageSourceCredentialPayloads.push(
-      packageSourceCredentialsJson,
+      packageSourceCredentials,
     );
     return this.prepareRetainedWorkspaceDefinition();
   }
@@ -619,12 +624,12 @@ test("activation passes endpoint credentials without retaining them in controlle
   assert.deepEqual(
     fixture.client.packageSourceCredentialPayloads,
     [
-      JSON.stringify({
+      {
         "https://nuget.pkg.github.com/example/index.json": {
           username: "example-user",
           pat: secret,
         },
-      }),
+      },
     ],
   );
   assert.doesNotMatch(JSON.stringify(fixture.controller.state), /session-only-secret/);
