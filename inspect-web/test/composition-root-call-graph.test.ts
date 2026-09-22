@@ -1449,6 +1449,7 @@ test("call graph navigation rejects ambiguous loaded package coordinates", () =>
     "platform");
   const packageTarget = {
     ...target,
+    assemblyVersion: "1.0.0.0",
     packageId: "dependency.package",
     packageVersion: "2.0.0",
     packageFramework: "net9.0",
