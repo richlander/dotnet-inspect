@@ -280,7 +280,7 @@ public sealed class BrowserSourceComparisonOperationTests(ITestOutputHelper outp
         // Refused Source acquisition is visible non-success, never an empty successful diff.
         Assert.Equal("Unavailable", value.Status);
         Assert.False(value.IsExact);
-        Assert.Empty(value.Lines);
+        Assert.Null(value.Diff);
         output.WriteLine($"Before: {value.Before.State}: {value.Before.Detail}");
         output.WriteLine($"After: {value.After.State}: {value.After.Detail}");
         AssertUnresolvedSource(value.Before);
@@ -299,7 +299,7 @@ public sealed class BrowserSourceComparisonOperationTests(ITestOutputHelper outp
         BrowserSourceComparison value = Assert.IsType<BrowserSourceComparison>(result.Value);
         Assert.Equal("Unavailable", value.Status);
         Assert.False(value.IsExact);
-        Assert.Empty(value.Lines);
+        Assert.Null(value.Diff);
         Assert.Equal("NotFound", value.After.State);
         Assert.Contains("TargetNotFound", value.After.Detail);
         Assert.Null(value.After.MemberIdentity);
@@ -350,6 +350,211 @@ public sealed class BrowserSourceComparisonOperationTests(ITestOutputHelper outp
         Assert.Equal(
             BrowserTypeSourceCancellationKind.NotActive,
             Cancel(id, "user").Kind);
+    }
+
+    [Fact]
+    public void SourceDiffAdmissionAcceptsEveryExactFirstProfileLimit()
+    {
+        BrowserSourceDiffProjection.AdmitRequest(
+            new string('x', BrowserSourceDiffProjection.MaximumRequestBytes));
+        BrowserSourceDiffProjection.AdmitEndpointText(
+            new string('x', BrowserSourceDiffProjection.MaximumRawEndpointBytes),
+            BrowserSourceDiffCapacityDimension.RawBeforeBytes,
+            BrowserSourceDiffCapacityDimension.RawBeforeLines);
+        BrowserSourceDiffProjection.AdmitEndpointText(
+            string.Join('\n', Enumerable.Repeat("x",
+                BrowserSourceDiffProjection.MaximumRawEndpointLines)),
+            BrowserSourceDiffCapacityDimension.RawAfterBytes,
+            BrowserSourceDiffCapacityDimension.RawAfterLines);
+        BrowserSourceDiffProjection.AdmitProjectedShape(
+            BrowserSourceDiffProjection.MaximumRelations,
+            BrowserSourceDiffProjection.MaximumCoordinateOccurrences,
+            BrowserSourceDiffProjection.MaximumMappedChanges,
+            BrowserSourceDiffProjection.MaximumInnerMappings,
+            BrowserSourceDiffProjection.MaximumAnnotations,
+            BrowserSourceDiffProjection.MaximumAnnotationTextBytes);
+        BrowserSourceDiffProjection.AdmitAuxiliaryText(
+            [new string('x', BrowserSourceDiffProjection.MaximumAuxiliaryTextBytes)]);
+    }
+
+    [Theory]
+    [InlineData(BrowserSourceDiffCapacityDimension.Relations, 0)]
+    [InlineData(BrowserSourceDiffCapacityDimension.CoordinateOccurrences, 1)]
+    [InlineData(BrowserSourceDiffCapacityDimension.MappedChanges, 2)]
+    [InlineData(BrowserSourceDiffCapacityDimension.InnerMappings, 3)]
+    [InlineData(BrowserSourceDiffCapacityDimension.Annotations, 4)]
+    [InlineData(BrowserSourceDiffCapacityDimension.AnnotationTextBytes, 5)]
+    public void ProjectedShapeOverLimitProducesTypedCapacity(
+        BrowserSourceDiffCapacityDimension dimension,
+        int selected)
+    {
+        int[] values =
+        [
+            BrowserSourceDiffProjection.MaximumRelations,
+            BrowserSourceDiffProjection.MaximumCoordinateOccurrences,
+            BrowserSourceDiffProjection.MaximumMappedChanges,
+            BrowserSourceDiffProjection.MaximumInnerMappings,
+            BrowserSourceDiffProjection.MaximumAnnotations,
+            BrowserSourceDiffProjection.MaximumAnnotationTextBytes,
+        ];
+        values[selected]++;
+
+        BrowserSourceDiffCapacityException error = Assert.Throws<
+            BrowserSourceDiffCapacityException>(() =>
+                BrowserSourceDiffProjection.AdmitProjectedShape(
+                    values[0], values[1], values[2],
+                    values[3], values[4], values[5]));
+
+        Assert.Equal(dimension, error.Capacity.Dimension);
+        Assert.Equal(values[selected] - 1, error.Capacity.Limit);
+        Assert.Equal(values[selected], error.Capacity.Actual);
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void EndpointOverLimitProducesTypedByteOrLineCapacity(bool bytes)
+    {
+        BrowserSourceDiffCapacityException error = Assert.Throws<
+            BrowserSourceDiffCapacityException>(() =>
+                BrowserSourceDiffProjection.AdmitEndpointText(
+                    bytes
+                        ? new string('x',
+                            BrowserSourceDiffProjection.MaximumRawEndpointBytes + 1)
+                        : new string('\n',
+                            BrowserSourceDiffProjection.MaximumRawEndpointLines),
+                    BrowserSourceDiffCapacityDimension.RawBeforeBytes,
+                    BrowserSourceDiffCapacityDimension.RawBeforeLines));
+
+        Assert.Equal(
+            bytes
+                ? BrowserSourceDiffCapacityDimension.RawBeforeBytes
+                : BrowserSourceDiffCapacityDimension.RawBeforeLines,
+            error.Capacity.Dimension);
+        Assert.Equal(error.Capacity.Limit + 1, error.Capacity.Actual);
+    }
+
+    [Fact]
+    public void RequestAndAuxiliaryOverLimitProduceTypedCapacity()
+    {
+        BrowserSourceDiffCapacityException request = Assert.Throws<
+            BrowserSourceDiffCapacityException>(() =>
+                BrowserSourceDiffProjection.AdmitRequest(
+                    new string('x',
+                        BrowserSourceDiffProjection.MaximumRequestBytes + 1)));
+        Assert.Equal(
+            BrowserSourceDiffCapacityDimension.RequestBytes,
+            request.Capacity.Dimension);
+
+        BrowserSourceDiffCapacityException auxiliary = Assert.Throws<
+            BrowserSourceDiffCapacityException>(() =>
+                BrowserSourceDiffProjection.AdmitAuxiliaryText(
+                [
+                    new string('x',
+                        BrowserSourceDiffProjection.MaximumAuxiliaryTextBytes + 1),
+                ]));
+        Assert.Equal(
+            BrowserSourceDiffCapacityDimension.AuxiliaryTextBytes,
+            auxiliary.Capacity.Dimension);
+    }
+
+    [Fact]
+    public void DiagnosticExpansionReturnsTypedAuxiliaryCapacity()
+    {
+        var oversized = new BrowserSourceComparisonResult(
+            Version: 1,
+            BrowserSourceComparisonResultKind.Failed,
+            Value: null,
+            BrowserTypeSourceFailureKind.Unexpected,
+            Error: new string('x',
+                BrowserSourceDiffProjection.MaximumAuxiliaryTextBytes + 1),
+            Diagnostic: null,
+            Reason: null,
+            Capacity: null);
+
+        BrowserSourceComparisonResult result = Read(
+            BrowserSourceDiffJson.Serialize(oversized));
+
+        Assert.Equal(BrowserSourceComparisonResultKind.TooComplex, result.Kind);
+        BrowserSourceDiffCapacity capacity =
+            Assert.IsType<BrowserSourceDiffCapacity>(result.Capacity);
+        Assert.Equal(
+            BrowserSourceDiffCapacityDimension.AuxiliaryTextBytes,
+            capacity.Dimension);
+        Assert.Equal(
+            BrowserSourceDiffProjection.MaximumAuxiliaryTextBytes,
+            capacity.Limit);
+        Assert.True(capacity.Actual > capacity.Limit);
+    }
+
+    [Fact]
+    public void EscapingExpansionReturnsTypedEncodedResultCapacity()
+    {
+        string[] lines = Enumerable.Repeat(new string('"', 127),
+            BrowserSourceDiffProjection.MaximumRawEndpointLines).ToArray();
+        BrowserSourceDiffRelation[] relations =
+        [
+            .. Enumerable.Range(0, lines.Length).Select(index =>
+                new BrowserSourceDiffRelation(
+                    BrowserSourceDiffRelationKind.Removal,
+                    [index], [], null, null)),
+            .. Enumerable.Range(0, lines.Length).Select(index =>
+                new BrowserSourceDiffRelation(
+                    BrowserSourceDiffRelationKind.Addition,
+                    [], [index], null, null)),
+        ];
+        BrowserSourceDiffInnerMapping[] innerMappings =
+            Enumerable.Range(0, BrowserSourceDiffProjection.MaximumInnerMappings)
+                .Select(_ => new BrowserSourceDiffInnerMapping(
+                    new(0, 0, 1), new(0, 0, 1)))
+                .ToArray();
+        BrowserSourceDiffAnnotation[] annotations =
+            Enumerable.Range(0, BrowserSourceDiffProjection.MaximumAnnotations)
+                .Select(_ => new BrowserSourceDiffAnnotation(
+                    "", BrowserSourceDiffSeverity.Note,
+                    BrowserSourceDiffAnnotationTargetKind.Change,
+                    null, null, null))
+                .ToArray();
+        BrowserSourceDiffChange[] changes =
+            Enumerable.Range(0, BrowserSourceDiffProjection.MaximumMappedChanges)
+                .Select(index => new BrowserSourceDiffChange(
+                    new(index % lines.Length, 1),
+                    new(index % lines.Length, 1),
+                    index == 0 ? innerMappings : [],
+                    index == 0 ? annotations : []))
+                .ToArray();
+        var diff = new BrowserSourceDiff(
+            1,
+            new(null, lines, BrowserSourceDiffLineTerminator.Absent),
+            new(null, lines, BrowserSourceDiffLineTerminator.Absent),
+            relations,
+            new(0, 0, 0, 0, 0, 0),
+            changes);
+        var request = new BrowserSourceComparisonRequest(
+            "P", "1.0.0", "2.0.0", "net11.0", "A", "T", "M", "M()", 0x06000001);
+        static BrowserSourceComparisonEndpoint Endpoint(string version) =>
+            new("P", version, "net11.0", "A", "A.dll", null, "A", "T::M()",
+                0x06000001, "Available", null, null, null, null, null);
+        var result = new BrowserSourceComparisonResult(
+            1,
+            BrowserSourceComparisonResultKind.Succeeded,
+            new(request, "Compared", false, Endpoint("1.0.0"), Endpoint("2.0.0"),
+                diff, null),
+            null, null, null, null, null);
+
+        BrowserSourceComparisonResult encoded = Read(
+            BrowserSourceDiffJson.Serialize(result));
+
+        Assert.Equal(BrowserSourceComparisonResultKind.TooComplex, encoded.Kind);
+        BrowserSourceDiffCapacity capacity =
+            Assert.IsType<BrowserSourceDiffCapacity>(encoded.Capacity);
+        Assert.Equal(
+            BrowserSourceDiffCapacityDimension.EncodedResultBytes,
+            capacity.Dimension);
+        Assert.Equal(
+            BrowserSourceDiffProjection.MaximumEncodedResultBytes,
+            capacity.Limit);
+        Assert.True(capacity.Actual > capacity.Limit);
     }
 
     [Theory]
@@ -468,11 +673,14 @@ public sealed class BrowserSourceComparisonOperationTests(ITestOutputHelper outp
         Assert.False(value.IsExact);
         Assert.Equal("Available", value.Before.State);
         Assert.Equal("Available", value.After.State);
-        Assert.Contains("1 + 2", value.Before.Text);
-        Assert.Contains("=> 3", value.After.Text);
-        Assert.DoesNotContain("=> 3", value.Before.Text);
-        Assert.StartsWith(SourcePairHost.BeforeSourcePrefix, value.Before.SourceUrl);
-        Assert.StartsWith(SourcePairHost.AfterSourcePrefix, value.After.SourceUrl);
+        BrowserSourceDiff diff = Assert.IsType<BrowserSourceDiff>(value.Diff);
+        Assert.Contains("1 + 2", string.Join('\n', diff.Before.Lines));
+        Assert.Contains("=> 3", string.Join('\n', diff.After.Lines));
+        Assert.DoesNotContain("=> 3", string.Join('\n', diff.Before.Lines));
+        Assert.Null(value.Before.Text);
+        Assert.Null(value.After.Text);
+        Assert.Null(value.Before.BrowseUrl);
+        Assert.Null(value.After.BrowseUrl);
         Assert.NotEqual(value.Before.ModuleVersionId, value.After.ModuleVersionId);
 
         // The debug information travelled inside each image, so no symbol server was consulted,
@@ -483,23 +691,22 @@ public sealed class BrowserSourceComparisonOperationTests(ITestOutputHelper outp
         Assert.All(host.SourceRequests, uri =>
             Assert.Equal("raw.githubusercontent.com", uri.IdnHost));
 
-        // The authored declaration is one line in each version, and the native comparison keeps
-        // that polarity: the removed Before row and the added After row each carry a one-based
-        // declaration-relative coordinate on their own side only.
-        Assert.Equal(2, value.Lines.Length);
-        BrowserSourceComparisonLine removed =
-            Assert.Single(value.Lines, line => line.Kind == "Removed");
-        Assert.Equal("None", removed.Difference);
-        Assert.Equal(1, removed.BeforeLine);
-        Assert.Contains("1 + 2", removed.BeforeText);
-        Assert.Null(removed.AfterLine);
-        Assert.Null(removed.AfterText);
-        BrowserSourceComparisonLine added =
-            Assert.Single(value.Lines, line => line.Kind == "Added");
-        Assert.Equal(1, added.AfterLine);
-        Assert.Contains("=> 3", added.AfterText);
-        Assert.Null(added.BeforeLine);
-        Assert.Null(added.BeforeText);
+        // The authored declaration is one line in each version. The native producer polarity
+        // survives as distinct analytical relations over the shared endpoint arrays.
+        Assert.Equal(2, diff.Relations.Length);
+        BrowserSourceDiffRelation removed = Assert.Single(
+            diff.Relations,
+            relation => relation.Kind == BrowserSourceDiffRelationKind.Removal);
+        Assert.Equal([0], removed.BeforeCoordinates);
+        Assert.Empty(removed.AfterCoordinates);
+        BrowserSourceDiffRelation added = Assert.Single(
+            diff.Relations,
+            relation => relation.Kind == BrowserSourceDiffRelationKind.Addition);
+        Assert.Empty(added.BeforeCoordinates);
+        Assert.Equal([0], added.AfterCoordinates);
+        Assert.Equal(1, diff.Statistics.Added);
+        Assert.Equal(1, diff.Statistics.Removed);
+        Assert.Single(diff.Changes);
     }
 
     // PR-fast: bounded public projection over the existing embedded-PDB pair.
@@ -527,7 +734,7 @@ public sealed class BrowserSourceComparisonOperationTests(ITestOutputHelper outp
         BrowserSourceComparison value = await pair.CompareThrough(host, "Counter", "Value", context);
 
         Assert.Equal("Unavailable", value.Status);
-        Assert.Empty(value.Lines);
+        Assert.Null(value.Diff);
         foreach (var endpoint in new[] { value.Before, value.After })
         {
             Assert.Equal("Failed", endpoint.State);
@@ -555,43 +762,65 @@ public sealed class BrowserSourceComparisonOperationTests(ITestOutputHelper outp
 
         Assert.Equal("Compared", value.Status);
         Assert.Equal(exact, value.IsExact);
-        Assert.NotEmpty(value.Lines);
-        Assert.Equal(moved, value.Lines.Any(line => line.Difference == "Moved"));
-        Assert.All(value.Lines, line =>
+        BrowserSourceDiff diff = Assert.IsType<BrowserSourceDiff>(value.Diff);
+        Assert.NotEmpty(diff.Relations);
+        Assert.Equal(
+            moved,
+            diff.Relations.Any(relation =>
+                relation.Placement == BrowserSourceDiffPlacementKind.Moved));
+        Assert.All(diff.Relations, relation =>
         {
-            Assert.Contains(line.Kind, (string[])["Present", "Added", "Removed", "Changed"]);
-            Assert.Equal(line.BeforeLine is null, line.BeforeText is null);
-            Assert.Equal(line.AfterLine is null, line.AfterText is null);
-            Assert.True(line.BeforeLine is null or > 0);
-            Assert.True(line.AfterLine is null or > 0);
+            Assert.All(
+                relation.BeforeCoordinates,
+                coordinate => Assert.InRange(
+                    coordinate,
+                    0,
+                    diff.Before.Lines.Length - 1));
+            Assert.All(
+                relation.AfterCoordinates,
+                coordinate => Assert.InRange(
+                    coordinate,
+                    0,
+                    diff.After.Lines.Length - 1));
         });
         if (exact)
         {
-            Assert.All(value.Lines, line =>
+            Assert.All(diff.Relations, relation =>
             {
-                Assert.Equal("Present", line.Kind);
-                Assert.Equal("None", line.Difference);
-                Assert.Equal(line.BeforeLine, line.AfterLine);
+                Assert.Equal(
+                    BrowserSourceDiffRelationKind.Correspondence,
+                    relation.Kind);
+                Assert.Equal(
+                    BrowserSourceDiffContentKind.Unchanged,
+                    relation.Content);
+                Assert.Equal(
+                    BrowserSourceDiffPlacementKind.Stable,
+                    relation.Placement);
+                Assert.Equal(
+                    relation.BeforeCoordinates,
+                    relation.AfterCoordinates);
             });
+            Assert.Empty(diff.Changes);
         }
 
         if (moved)
         {
-            // A moved comment block keeps both of its declaration-relative coordinates, so the
-            // browser can render the movement instead of inferring it from an empty row.
-            BrowserSourceComparisonLine movedLine =
-                value.Lines.First(line => line.Difference == "Moved");
-            Assert.NotNull(movedLine.BeforeLine);
-            Assert.NotNull(movedLine.AfterLine);
-            Assert.NotEqual(movedLine.BeforeLine, movedLine.AfterLine);
-            Assert.Equal(movedLine.BeforeText, movedLine.AfterText);
+            BrowserSourceDiffRelation movedRelation = diff.Relations.First(
+                relation =>
+                    relation.Placement == BrowserSourceDiffPlacementKind.Moved);
+            Assert.NotEqual(
+                movedRelation.BeforeCoordinates,
+                movedRelation.AfterCoordinates);
+            Assert.Equal(
+                diff.Before.Lines[movedRelation.BeforeCoordinates[0]],
+                diff.After.Lines[movedRelation.AfterCoordinates[0]]);
         }
 
         if (memberName == "MovedBlockAndEdit")
         {
-            Assert.Contains(
-                value.Lines,
-                line => line.Kind != "Present" && line.AfterText?.Contains("+ 1") == true);
+            Assert.Contains(diff.After.Lines, line => line.Contains("+ 1"));
+            Assert.True(diff.Statistics.Added > 0
+                || diff.Statistics.ChangedAfter > 0);
         }
     }
 
@@ -605,10 +834,10 @@ public sealed class BrowserSourceComparisonOperationTests(ITestOutputHelper outp
 
         Assert.Equal("Unavailable", value.Status);
         Assert.False(value.IsExact);
-        Assert.Empty(value.Lines);
+        Assert.Null(value.Diff);
         Assert.Equal("Available", value.Before.State);
         Assert.Contains("1 + 2", value.Before.Text);
-        Assert.StartsWith(SourcePairHost.BeforeSourcePrefix, value.Before.SourceUrl);
+        Assert.Null(value.Before.BrowseUrl);
         AssertUnresolvedSource(value.After);
         Assert.Contains(
             host.SourceRequests,
@@ -622,6 +851,21 @@ public sealed class BrowserSourceComparisonOperationTests(ITestOutputHelper outp
         Assert.Contains(endpoint.State, (string[])["Unavailable", "Failed"]);
         Assert.NotEmpty(endpoint.Detail!);
         Assert.Null(endpoint.Text);
+    }
+
+    [Theory]
+    [InlineData(
+        "https://raw.githubusercontent.com/example/repository/0123456789abcdef0123456789abcdef01234567/src/Widget.cs",
+        "https://github.com/example/repository/blob/0123456789abcdef0123456789abcdef01234567/src/Widget.cs")]
+    [InlineData(
+        "https://raw.githubusercontent.com/example/repository/v1/src/Widget.cs",
+        null)]
+    [InlineData("https://example.test/src/Widget.cs", null)]
+    public void BrowseUrlRequiresAttributedGitHubProvenance(
+        string resolvedUrl,
+        string? expected)
+    {
+        Assert.Equal(expected, BrowserSourceDiffProjection.BrowseUrl(resolvedUrl));
     }
 
     static async Task<BrowserSourceComparisonResult> Compare(

@@ -28,8 +28,15 @@ public static partial class SourceExports
         string operationId, string requestJson)
     {
         BrowserManagedOperationId id = BrowserManagedOperationId.From(operationId);
-        BrowserManagedOperationResult<BrowserSourceComparison, string, string> result =
-            await TypeSourceOperations.RunAsync<BrowserSourceComparison, string, string, object>(
+        BrowserManagedOperationResult<
+            BrowserSourceComparisonProjectionResult,
+            string,
+            string> result =
+            await TypeSourceOperations.RunAsync<
+                BrowserSourceComparisonProjectionResult,
+                string,
+                string,
+                object>(
                 id, null,
                 async (token, _) =>
                 {
@@ -38,30 +45,87 @@ public static partial class SourceExports
                             token, reason => TypeSourceOperations.RequestCancellation(id, reason));
                     try
                     {
+                        BrowserSourceDiffProjection.AdmitRequest(requestJson);
                         BrowserSourceComparisonRequest request = JsonSerializer.Deserialize(
                             requestJson, BrowserSourceJsonContext.Default.BrowserSourceComparisonRequest)
                             ?? throw new ArgumentException("A Source comparison request is required.");
                         ValidateSourceComparisonRequest(request);
-                        return new BrowserManagedOperationBodyResult<BrowserSourceComparison, string, string>.Succeeded(
-                            await QueryMemberSourceComparisonCore(request, operation.CancellationToken));
+                        BrowserSourceComparison comparison =
+                            await QueryMemberSourceComparisonCore(
+                                request,
+                                operation.CancellationToken);
+                        return new BrowserManagedOperationBodyResult<
+                            BrowserSourceComparisonProjectionResult,
+                            string,
+                            string>.Succeeded(
+                                new BrowserSourceComparisonProjectionResult.Complete(
+                                    comparison));
+                    }
+                    catch (BrowserSourceDiffCapacityException error)
+                    {
+                        return new BrowserManagedOperationBodyResult<
+                            BrowserSourceComparisonProjectionResult,
+                            string,
+                            string>.Succeeded(
+                                new BrowserSourceComparisonProjectionResult.TooComplex(
+                                    error.Capacity));
                     }
                     catch (SourceComparisonUnavailableException error)
                     {
-                        return new BrowserManagedOperationBodyResult<BrowserSourceComparison, string, string>.Failed(
+                        return new BrowserManagedOperationBodyResult<
+                            BrowserSourceComparisonProjectionResult,
+                            string,
+                            string>.Failed(
                             error.Message, error.ToString());
                     }
                     catch (Exception error) when (error is ArgumentException or JsonException)
                     {
-                        return new BrowserManagedOperationBodyResult<BrowserSourceComparison, string, string>.Failed(
+                        return new BrowserManagedOperationBodyResult<
+                            BrowserSourceComparisonProjectionResult,
+                            string,
+                            string>.Failed(
                             error.Message, error.ToString());
                     }
                 },
                 error => new(error.Message, error.ToString()));
         BrowserSourceComparisonResult wire = result switch
         {
-            BrowserManagedOperationResult<BrowserSourceComparison, string, string>.Succeeded success =>
-                new(1, BrowserSourceComparisonResultKind.Succeeded, success.Value, null, null, null, null),
-            BrowserManagedOperationResult<BrowserSourceComparison, string, string>.Failed failure =>
+            BrowserManagedOperationResult<
+                BrowserSourceComparisonProjectionResult,
+                string,
+                string>.Succeeded
+            {
+                Value: BrowserSourceComparisonProjectionResult.Complete complete,
+            } =>
+                new(
+                    1,
+                    BrowserSourceComparisonResultKind.Succeeded,
+                    complete.Comparison,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null),
+            BrowserManagedOperationResult<
+                BrowserSourceComparisonProjectionResult,
+                string,
+                string>.Succeeded
+            {
+                Value: BrowserSourceComparisonProjectionResult.TooComplex tooComplex,
+            } =>
+                new(
+                    1,
+                    BrowserSourceComparisonResultKind.TooComplex,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    tooComplex.Capacity),
+            BrowserManagedOperationResult<
+                BrowserSourceComparisonProjectionResult,
+                string,
+                string>.Failed failure =>
                 new(1, BrowserSourceComparisonResultKind.Failed, null,
                     failure.FailureKind switch
                     {
@@ -69,14 +133,23 @@ public static partial class SourceExports
                         BrowserManagedOperationFailureKind.Unexpected => BrowserTypeSourceFailureKind.Unexpected,
                         _ => throw new ArgumentOutOfRangeException(nameof(result)),
                     },
-                    failure.Error, failure.Diagnostic, null),
-            BrowserManagedOperationResult<BrowserSourceComparison, string, string>.Canceled canceled =>
-                new(1, BrowserSourceComparisonResultKind.Canceled, null, null, null, null,
-                    BrowserTypeSourceCancellation.FormatReason(canceled.Reason)),
+                    failure.Error, failure.Diagnostic, null, null),
+            BrowserManagedOperationResult<
+                BrowserSourceComparisonProjectionResult,
+                string,
+                string>.Canceled canceled =>
+                new(
+                    1,
+                    BrowserSourceComparisonResultKind.Canceled,
+                    null,
+                    null,
+                    null,
+                    null,
+                    BrowserTypeSourceCancellation.FormatReason(canceled.Reason),
+                    null),
             _ => throw new InvalidOperationException("Unknown managed Source comparison outcome."),
         };
-        return JsonSerializer.Serialize(
-            wire, BrowserSourceJsonContext.Default.BrowserSourceComparisonResult);
+        return BrowserSourceDiffJson.Serialize(wire);
     }
 
     static async Task<BrowserSourceComparison> QueryMemberSourceComparisonCore(

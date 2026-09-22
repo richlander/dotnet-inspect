@@ -1,3 +1,7 @@
+import type {
+  BrowserSourceComparisonResult,
+} from "./source-diff-transport.ts";
+
 type HostFacade = typeof import("./facades/inspect-web-host.d.ts");
 type PackageFacade = typeof import("./facades/inspect-web-package.d.ts");
 type LibraryFacade = typeof import("./facades/inspect-web-library.d.ts");
@@ -78,7 +82,6 @@ type SourceOperations =
   | "cancelSourceQuery"
   | "queryMemberFindingCensus"
   | "queryMemberSource"
-  | "queryMemberSourceComparison"
   | "queryMethodBodyComparison"
   | "queryMethodBodyComparisonTargets"
   | "queryTypeMemberSource"
@@ -132,6 +135,9 @@ export interface EngineClient {
   readonly metadata: AsyncFacade<MetadataFacade, MetadataOperations>;
   readonly analysis: AsyncFacade<AnalysisFacade, AnalysisOperations>;
   readonly source: AsyncFacade<SourceFacade, SourceOperations> & {
+    queryMemberSourceComparison(
+      ...args: Parameters<SourceFacade["queryMemberSourceComparison"]>
+    ): Promise<BrowserSourceComparisonResult>;
     cancelTypeSourceQuery(
       ...args: Parameters<SourceFacade["cancelTypeSourceQuery"]>
     ): void;

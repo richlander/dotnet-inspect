@@ -1,4 +1,5 @@
 using System.Runtime.Versioning;
+using DotnetInspector.Presentation;
 using DotnetInspector.Queries;
 using DotnetInspector.Services;
 using Inspector.Findings;
@@ -12,29 +13,50 @@ internal static class BrowserSourceComparisonProjection
         BrowserSourceComparisonRequest request,
         AssemblyMemberSourcePairResult pair,
         BrowserWorkspaceParticipant before,
-        BrowserWorkspaceParticipant after) =>
-        new(
+        BrowserWorkspaceParticipant after)
+    {
+        BrowserSourceDiffProjection.AdmitPair(pair);
+        MemberSourcePairDiffPresentationResult projected =
+            MemberSourcePairDiffPresentationAdapter.Create(pair);
+        BrowserSourceDiff? diff = projected switch
+        {
+            MemberSourcePairDiffPresentationResult.Available available =>
+                BrowserSourceDiffProjection.Project(available.Presentation),
+            _ => null,
+        };
+        string? failure = projected switch
+        {
+            MemberSourcePairDiffPresentationResult.Failed failed =>
+                failed.Detail,
+            _ => pair.Failure?.Detail
+                ?? (pair.Comparison is FindingComparison<string>.Failed failed
+                    ? failed.Failure
+                    : null),
+        };
+        bool retainEndpointText = diff is null;
+        BrowserSourceComparisonEndpoint beforeEndpoint =
+            Endpoint(pair.Before, before, retainEndpointText);
+        BrowserSourceComparisonEndpoint afterEndpoint =
+            Endpoint(pair.After, after, retainEndpointText);
+        return new(
             request,
             pair.Status.ToString(),
             pair.IsExact,
-            Endpoint(pair.Before, before),
-            Endpoint(pair.After, after),
-            pair.Comparison is FindingComparison<string>.Complete complete
-                ? [.. complete.Pairs.Select(Line)]
-                : [],
-            pair.Failure?.Detail
-                ?? (pair.Comparison is FindingComparison<string>.Failed failed
-                    ? failed.Failure
-                    : null));
+            beforeEndpoint,
+            afterEndpoint,
+            diff,
+            failure);
+    }
 
     static BrowserSourceComparisonEndpoint Endpoint(
         AssemblyMemberSourcePairEndpoint endpoint,
-        BrowserWorkspaceParticipant participant)
+        BrowserWorkspaceParticipant participant,
+        bool retainText)
     {
         string state;
         string? detail = null;
         string? text = null;
-        string? sourceUrl = null;
+        string? browseUrl = null;
         AssemblyPdbSourceProvenance? provenance = null;
         AssemblyMemberSourceRequest? request = null;
         switch (endpoint)
@@ -45,8 +67,9 @@ internal static class BrowserSourceComparisonProjection
                 {
                     case AssemblyMemberPdbSourceAttempt.Available available:
                         state = "Available";
-                        text = available.Inspection.Text;
-                        sourceUrl = available.Inspection.Document?.ResolvedUrl;
+                        text = retainText ? available.Inspection.Text : null;
+                        browseUrl = BrowserSourceDiffProjection.BrowseUrl(
+                            available.Inspection.Document?.ResolvedUrl);
                         provenance = available.Provenance;
                         break;
                     case AssemblyMemberPdbSourceAttempt.Unavailable unavailable:
@@ -59,7 +82,8 @@ internal static class BrowserSourceComparisonProjection
                             _ => throw new InvalidOperationException(
                                 "Unavailable Source carried complete evidence."),
                         };
-                        sourceUrl = unavailable.Inspection.Document?.ResolvedUrl;
+                        browseUrl = BrowserSourceDiffProjection.BrowseUrl(
+                            unavailable.Inspection.Document?.ResolvedUrl);
                         break;
                     default:
                         throw new InvalidOperationException("Unknown PDB Source attempt.");
@@ -91,27 +115,6 @@ internal static class BrowserSourceComparisonProjection
             request is null ? null
                 : $"{request.Type.ToEscapedFullName()}::{request.Member.StableSelector}",
             request?.MetadataToken,
-            state, detail, text, sourceUrl, provenance?.RepositoryUrl, provenance?.Revision);
-    }
-
-    static BrowserSourceComparisonLine Line(PairFinding<string> pair)
-    {
-        return pair switch
-        {
-            PairFinding<string>.Added added =>
-                Row(null, added.New),
-            PairFinding<string>.Removed removed =>
-                Row(removed.Old, null),
-            PairFinding<string>.Present present =>
-                Row(present.Old, present.New),
-            PairFinding<string>.Changed changed =>
-                Row(changed.Old, changed.New),
-        };
-
-        BrowserSourceComparisonLine Row(Finding<string>? before, Finding<string>? after) =>
-            new(
-                pair.Kind.ToString(), pair.Difference.ToString(),
-                before?.Ordinal + 1, before?.Payload,
-                after?.Ordinal + 1, after?.Payload);
+            state, detail, text, browseUrl, provenance?.RepositoryUrl, provenance?.Revision);
     }
 }

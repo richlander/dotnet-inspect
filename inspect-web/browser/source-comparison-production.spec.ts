@@ -2,6 +2,10 @@ import { expect, test, type Page } from "@playwright/test";
 import { writeFile } from "node:fs/promises";
 import type { TypeSourceView } from "../src/source-inspection.ts";
 import {
+  sourceDiffPayloadDecoder,
+  type BrowserSourceComparisonResult,
+} from "../src/source-diff-transport.ts";
+import {
   chooseSubject,
   selectFirstExactLibrary,
 } from "./library-subject-actions.ts";
@@ -12,6 +16,14 @@ const beforePackage = process.env.INSPECT_WEB_SOURCE_DIFF_BEFORE_PACKAGE;
 const afterPackage = process.env.INSPECT_WEB_SOURCE_DIFF_AFTER_PACKAGE;
 const beforeSource = process.env.INSPECT_WEB_SOURCE_DIFF_BEFORE_SOURCE;
 const afterSource = process.env.INSPECT_WEB_SOURCE_DIFF_AFTER_SOURCE;
+
+function decodeSourceComparison(
+  value: unknown,
+): BrowserSourceComparisonResult {
+  const result = sourceDiffPayloadDecoder.decode(value);
+  if (result.kind === "decoded") return result.value;
+  throw new Error(`Published Source comparison was rejected: ${result.message}`);
+}
 
 async function openPublishedSite(page: Page): Promise<void> {
   await page.route(site!, route => route.fulfill({
@@ -140,7 +152,7 @@ test.describe("published authored Source comparison transport", () => {
     async ({ page }, testInfo) => {
       test.skip(fixtureOnly, "The CI gate uses deterministic acquired artifacts.");
       await openPublishedSite(page);
-      const evidence = await page.evaluate(async () => {
+      const rawEvidence = await page.evaluate(async () => {
         const packages = await import("/inspect-web-package.js");
         const source = await import("/inspect-web-source.js");
         const loadResult = await packages.queryPackage(
@@ -183,6 +195,11 @@ test.describe("published authored Source comparison transport", () => {
         );
         return { request, compared, same };
       });
+      const evidence = {
+        request: rawEvidence.request,
+        compared: decodeSourceComparison(rawEvidence.compared),
+        same: decodeSourceComparison(rawEvidence.same),
+      };
       const evidencePath =
         testInfo.outputPath("public-source-comparisons.json");
       await writeFile(evidencePath, JSON.stringify(evidence, null, 2));
@@ -302,11 +319,12 @@ test.describe("published authored Source comparison transport", () => {
 
       async function compareMember(targetPage: Page, name: string) {
         const selected = await memberRequest(targetPage, name);
-        return targetPage.evaluate(async request => {
+        const result = await targetPage.evaluate(async request => {
           const source = await import("/inspect-web-source.js");
           return source.queryMemberSourceComparison(
             `source-comparison-fixture-${request.memberName}`, JSON.stringify(request));
         }, selected);
+        return decodeSourceComparison(result);
       }
 
       async function memberSource(
@@ -535,31 +553,44 @@ test.describe("published authored Source comparison transport", () => {
       expect(changed.kind).toBe("Succeeded");
       expect(changed.value?.status).toBe("Compared");
       expect(changed.value?.isExact).toBe(false);
-      expect(changed.value?.lines.some(line =>
-        line.kind === "Removed" && line.beforeText?.includes("1 + 2")))
-        .toBe(true);
-      expect(changed.value?.lines.some(line =>
-        line.kind === "Added" && line.afterText?.includes("=> 3")))
-        .toBe(true);
+      expect(changed.value?.diff?.before.lines.some(line =>
+        line.includes("1 + 2"))).toBe(true);
+      expect(changed.value?.diff?.after.lines.some(line =>
+        line.includes("=> 3"))).toBe(true);
+      expect(changed.value?.diff?.relations.some(relation =>
+        relation.kind === "Removal")).toBe(true);
+      expect(changed.value?.diff?.relations.some(relation =>
+        relation.kind === "Addition")).toBe(true);
+      expect(changed.value?.diff?.changes).toHaveLength(1);
 
       expect(exact.kind).toBe("Succeeded");
       expect(exact.value?.status).toBe("Compared");
       expect(exact.value?.isExact).toBe(true);
+      expect(exact.value?.diff?.changes).toHaveLength(0);
+      expect(exact.value?.diff?.statistics).toEqual({
+        added: 0,
+        removed: 0,
+        changedBefore: 0,
+        changedAfter: 0,
+        movedBefore: 0,
+        movedAfter: 0,
+      });
 
       for (const result of [moved, movedAndEdited]) {
         expect(result.kind).toBe("Succeeded");
         expect(result.value?.status).toBe("Compared");
-        const moves = result.value?.lines.filter(
-          line => line.difference === "Moved") ?? [];
-        expect(moves).toHaveLength(2);
-        expect(moves.map(line => [
-          line.beforeLine, line.afterLine,
-        ])).toEqual([[3, 5], [4, 6]]);
+        const moves = result.value?.diff?.relations.filter(
+          relation => relation.placement === "Moved") ?? [];
+        expect(moves).not.toHaveLength(0);
+        expect(moves.some(relation =>
+          relation.beforeCoordinates[0] !== relation.afterCoordinates[0]))
+          .toBe(true);
       }
-      expect(movedAndEdited.value?.lines.some(
-        line => line.kind === "Removed")).toBe(true);
-      expect(movedAndEdited.value?.lines.some(
-        line => line.kind === "Added")).toBe(true);
+      expect(movedAndEdited.value?.diff?.after.lines.some(
+        line => line.includes("+ 1"))).toBe(true);
+      expect((movedAndEdited.value?.diff?.statistics.added ?? 0)
+        + (movedAndEdited.value?.diff?.statistics.changedAfter ?? 0))
+        .toBeGreaterThan(0);
 
       expect(unavailable.kind).toBe("Succeeded");
       expect(unavailable.value?.status).toBe("Unavailable");
@@ -567,6 +598,6 @@ test.describe("published authored Source comparison transport", () => {
       expect(unavailable.value?.before.text).toContain("1 + 2");
       expect(unavailable.value?.after.state).not.toBe("Available");
       expect(unavailable.value?.isExact).toBe(false);
-      expect(unavailable.value?.lines).toHaveLength(0);
+      expect(unavailable.value?.diff).toBeNull();
     });
 });
