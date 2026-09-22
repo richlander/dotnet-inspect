@@ -14446,22 +14446,6 @@ async function openWorkspaceProductDestination(): Promise<{
     return null;
   }
 
-  discardPackageQueryTermEditors();
-  state.packageQueryOpen = false;
-  state.packageActivityOpen = false;
-  packageQueryController.cancel();
-  packageChangesController.cancel("disposed");
-  state.packageQueryNavigationError = "";
-  state.credits = false;
-  state.home = false;
-  spotlight.reset();
-
-  state.workspaceSubjectOpen = true;
-  state.atPackageRoot = true;
-  state.atLibraryRoot = false;
-  state.selectedMemberKey = "";
-  state.memberBrowseTypeId = "";
-  state.selectedOverloadIndex = null;
   const successor = resolvePackageQueryWorkspaceSuccessor(
     () => {
       if (projectionError !== null) {
@@ -14486,12 +14470,36 @@ async function openWorkspaceProductDestination(): Promise<{
       fallback.hash = "workspace";
       return fallback;
     });
+  if (!workspaceLocation.push(successor.url.toString())) {
+    reportWorkspaceProductNavigationFailure(
+      new Error("Browser history could not be updated."),
+      navigationSeq,
+      initiatingFocusGeneration,
+    );
+    return null;
+  }
+
+  discardPackageQueryTermEditors();
+  state.packageQueryOpen = false;
+  state.packageActivityOpen = false;
+  packageQueryController.cancel();
+  packageChangesController.cancel("disposed");
+  state.packageQueryNavigationError = "";
+  state.credits = false;
+  state.home = false;
+  spotlight.reset();
+
+  state.workspaceSubjectOpen = true;
+  state.atPackageRoot = true;
+  state.atLibraryRoot = false;
+  state.selectedMemberKey = "";
+  state.memberBrowseTypeId = "";
+  state.selectedOverloadIndex = null;
   if (!successor.projected) {
     appendQueryNotice(
       `Workspace opened, but its complete state could not be saved in the address bar: ${errorMessage(successor.projectionError)
         || "workspace URL encoding failed."}`);
   }
-  workspaceLocation.push(successor.url.toString());
   const restoreDestinationFocus =
     initiatingFocusGeneration === documentFocusGeneration
     && document.activeElement instanceof Element

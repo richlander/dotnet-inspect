@@ -39,6 +39,29 @@ test("Platform Workspace entry preserves the catalog for Back and Forward", asyn
   await expect(page.locator("#inspector-panel h1")).toHaveText("Workspace");
 });
 
+test("rejected Platform Workspace history retains the catalog", async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await openPlatform(page);
+  const catalogLocation = page.url();
+  const historyLength = await page.evaluate(() => history.length);
+  const predecessor = await currentWorkspaceHistoryState(page);
+  await page.evaluate(() => {
+    history.pushState = () => {
+      throw new DOMException("Fixture history rejection.", "SecurityError");
+    };
+  });
+
+  await openProductDestination(page, "workspace");
+
+  await expect(page.locator('.toast[role="status"]'))
+    .toContainText("Browser history could not be updated.");
+  await expect(page).toHaveURL(catalogLocation);
+  await expect(subjectTab(page, "platform")).toHaveAttribute("aria-selected", "true");
+  expect(await page.evaluate(() => history.length)).toBe(historyLength);
+  expect(await currentWorkspaceHistoryState(page)).toEqual(predecessor);
+  await expect(page.locator("[data-product-navigation-button]")).toBeFocused();
+});
+
 test("pending Platform Workspace entry retains the catalog and newer Search focus", async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
   await openPlatform(page);
