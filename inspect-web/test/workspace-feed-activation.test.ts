@@ -488,6 +488,7 @@ function createCoordinatorHarness(
   events: string[],
   initialVisible = "incumbent",
   activationController?: RetainedWorkspaceActivationController,
+  restoreRollback?: (rollback: string) => void | Promise<void>,
 ) {
   let navigationSequence = 1;
   let visible = initialVisible;
@@ -511,10 +512,10 @@ function createCoordinatorHarness(
     hasVisibleWorkspace: () => visible.length > 0,
     captureRollback: () => visible,
     cloneRollback: rollback => rollback,
-    restoreRollback(restored) {
+    restoreRollback: restoreRollback ?? (restored => {
       events.push("restore");
       visible = restored;
-    },
+    }),
     releaseRollback() {
       events.push("release");
     },
@@ -568,6 +569,7 @@ test("source and Saved Workspaces share one retained activation authority", asyn
     const client = createWorkspaceTestClient(events, {
       noEffectWhenActive: true,
     });
+
     const controller =
       createRetainedWorkspaceActivationController(client, hooks);
     const saved = controller.retain({
@@ -638,6 +640,64 @@ test("source and Saved Workspaces share one retained activation authority", asyn
     assert.equal(controller.state.activeDefinitionId, saved.id);
     assert.equal(source.coordinator.ownsRetainedDefinition(saved.id), false);
   }
+});
+
+test("post-publication rollback reactivates incumbent authority", async () => {
+  const events: string[] = [];
+  const client = createWorkspaceTestClient(events);
+  const controller = createRetainedWorkspaceActivationController(client, {
+    post() {},
+    clear() {},
+    predecessorSettled() {},
+    predecessorObservationFailed() {},
+  });
+  const saved = controller.retain({
+    label: "Saved",
+    canonicalLocation: "https://example.test/?w=saved",
+    canonicalPacket: "saved",
+  });
+  await controller.activate(saved.id);
+  const completeActivation =
+    client.completeRetainedWorkspaceActivation.bind(client);
+  let failNextSuccessfulCompletion = true;
+  client.completeRetainedWorkspaceActivation = async (
+    receipt,
+    succeeded,
+    failure,
+  ) => {
+    if (succeeded && failNextSuccessfulCompletion) {
+      failNextSuccessfulCompletion = false;
+      throw new Error("Consumer completion delivery failed.");
+    }
+    return completeActivation(receipt, succeeded, failure);
+  };
+  let restoredVisible = "";
+  let harness: ReturnType<typeof createCoordinatorHarness>;
+  harness = createCoordinatorHarness(
+    client,
+    events,
+    "https://example.test/?w=saved",
+    controller,
+    async restored => {
+      const reactivated = await harness.coordinator
+        .reactivateRetainedDefinition(
+          saved.id,
+          harness.sequence,
+          restoredPosting => {
+            restoredVisible = restoredPosting.canonicalLocation;
+          });
+      assert.equal(reactivated, true);
+      assert.equal(restored, "https://example.test/?w=saved");
+    });
+
+  await harness.coordinator.tryOpen(
+    new URL("https://example.test/?w=source"),
+    harness.sequence,
+    true);
+
+  assert.equal(controller.state.activeDefinitionId, saved.id);
+  assert.equal(restoredVisible, "https://example.test/?w=saved");
+  assert.match(harness.failure ?? "", /Consumer completion/);
 });
 
 test("credential prompt names endpoints without retaining credential fields", () => {

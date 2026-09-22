@@ -1173,7 +1173,10 @@ Authentication-required declarations open one modal form that identifies every
 exact endpoint and collects one username/PAT pair per endpoint. The form owns
 the input elements; submission copies the values only into activation-local
 variables, clears the password elements immediately, and clears those local
-values after activation settles.
+values after activation settles. The page may retain a separate in-memory
+binding keyed by the source-owned retained definition only while that
+definition can restore an incumbent displaced by a failed successor. Removing
+the definition clears that binding. It never enters history or browser storage.
 
 The page keeps the prior visible Workspace while managed preparation runs. It
 admits every retained Package and Platform Type page, projects those surfaces
@@ -1188,8 +1191,10 @@ Every admitted Package and Platform remains a visible, selectable top-level
 Workspace member even when another member is active.
 URL synchronization remains suspended for the complete source-activation
 lifecycle. History restoration performs source preflight before switching the
-retained host projection, and ordinary navigation preserves the incumbent
-source-bearing URL until its replacement commits. Navigation supersession
+retained host projection. A source-owned retained history identity cannot enter
+the credential-free Saved Workspace activation branch; it returns to source
+preflight and credential collection. Ordinary navigation preserves the
+incumbent source-bearing URL until its replacement commits. Navigation supersession
 alone does not retire the last committed incumbent while a visibly published
 activation still awaits consumer completion; only a committed replacement
 retires that rollback. Dismissing a prompt cannot retire the rollback when its
@@ -1216,6 +1221,11 @@ managed activation owner. Source cleanup removes only source-owned definitions;
 it cannot prune a Saved Workspace definition. Switching between either kind
 therefore cannot alias one definition to another or reuse the active posting
 for a different packet.
+If managed cutover occurs before source publication later fails, rollback
+reactivates the incumbent definition and replaces its retired posting with the
+new realization before restoring its presentation. Restored Package and
+Platform rows therefore carry current managed admission authority rather than
+only the appearance of the incumbent.
 
 Browser/Wasm supports anonymous sources and explicit page-session credentials.
 It cannot launch a NuGet credential-provider plugin, so an

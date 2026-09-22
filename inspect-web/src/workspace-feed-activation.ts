@@ -76,7 +76,7 @@ export interface WorkspaceFeedActivationDependencies<TRollback> {
   hasVisibleWorkspace(): boolean;
   captureRollback(): TRollback;
   cloneRollback(rollback: TRollback): TRollback;
-  restoreRollback(rollback: TRollback): void;
+  restoreRollback(rollback: TRollback): void | Promise<void>;
   releaseRollback(rollback: TRollback): void;
   publish(
     posting: BrowserRetainedWorkspacePosting,
@@ -102,6 +102,12 @@ export interface WorkspaceFeedActivationCoordinator<TRollback = never> {
     retainedDefinitionId: string,
     completeDeactivation: () => void | Promise<void>,
   ): Promise<void>;
+  reactivateRetainedDefinition(
+    retainedDefinitionId: string,
+    navigationSequence: number,
+    complete: (posting: BrowserRetainedWorkspacePosting) =>
+      void | Promise<void>,
+  ): Promise<boolean>;
   tryOpen(
     url: URL,
     navigationSequence: number,
@@ -126,6 +132,12 @@ interface PendingWorkspaceCredentialPrompt {
 export function createWorkspaceFeedActivationCoordinator<TRollback>(
   dependencies: WorkspaceFeedActivationDependencies<TRollback>,
 ): WorkspaceFeedActivationCoordinator<TRollback> {
+  type RollbackState = {
+    readonly retainedDefinitionId: string;
+    readonly navigationSequence: number;
+    readonly state: TRollback;
+    readonly sourceUrl: string | null;
+  };
   let controller = dependencies.activationController ?? null;
   let prompt: PendingWorkspaceCredentialPrompt | null = null;
   let posted: {
@@ -133,15 +145,15 @@ export function createWorkspaceFeedActivationCoordinator<TRollback>(
     readonly navigationSequence: number;
     readonly published: boolean;
   } | null = null;
-  let rollback: {
-    readonly retainedDefinitionId: string;
-    readonly navigationSequence: number;
-    readonly state: TRollback;
-    readonly sourceUrl: string | null;
-  } | null = null;
+  let rollback: RollbackState | null = null;
+  let pendingRollbackRestoration: RollbackState | null = null;
   const activationSequences = new Map<string, number>();
   const retainedDefinitionIds = new Set<string>();
   const deliveredDefinitionIds = new Set<string>();
+  const retainedCredentials = new Map<
+    string,
+    Record<string, { username: string; pat: string }>
+  >();
   let activeUrl: string | null = null;
   let lastFailure: string | null = null;
   let pendingNavigationSequence: number | null = null;
@@ -162,7 +174,7 @@ export function createWorkspaceFeedActivationCoordinator<TRollback>(
     },
     clear() {
       if (posted !== null) {
-        reconcileRollback(
+        stageRollbackRestoration(
           posted.value.retainedDefinitionId,
           posted.navigationSequence);
       }
@@ -201,6 +213,7 @@ export function createWorkspaceFeedActivationCoordinator<TRollback>(
         hooks: activationHooks,
       });
       retainedDefinitionIds.delete(existing.id);
+      forgetRetainedCredentials(existing.id);
       deliveredDefinitionIds.delete(existing.id);
     }
 
@@ -216,6 +229,7 @@ export function createWorkspaceFeedActivationCoordinator<TRollback>(
           hooks: activationHooks,
         });
         retainedDefinitionIds.delete(definition.id);
+        forgetRetainedCredentials(definition.id);
         deliveredDefinitionIds.delete(definition.id);
       }
     }
@@ -536,6 +550,7 @@ export function createWorkspaceFeedActivationCoordinator<TRollback>(
       if ((result.status === "activated" || result.status === "noEffect")
         && projected) {
         deliveredDefinitionIds.add(retainedDefinitionId);
+        rememberRetainedCredentials(retainedDefinitionId, credentials);
         activeUrl = canonicalLocation;
         releaseRollback(retainedDefinitionId, navigationSequence);
         if (commitHistory) dependencies.pushLocation(canonicalLocation);
@@ -553,11 +568,15 @@ export function createWorkspaceFeedActivationCoordinator<TRollback>(
       return false;
     } catch (error) {
       lastFailure = dependencies.errorMessage(error);
-      if (publicationAttempted
+      if (pendingRollbackRestoration !== null) {
+        posted = null;
+        await restoreStagedRollback();
+      } else if (publicationAttempted
         && posted?.value.retainedDefinitionId === retainedDefinitionId
         && posted.navigationSequence === navigationSequence) {
-        reconcileRollback(retainedDefinitionId, navigationSequence);
+        stageRollbackRestoration(retainedDefinitionId, navigationSequence);
         posted = null;
+        await restoreStagedRollback();
       } else if (!dependencies.isCurrent(navigationSequence)
         || prompt === null) {
         releaseRollback(retainedDefinitionId, navigationSequence);
@@ -609,7 +628,7 @@ export function createWorkspaceFeedActivationCoordinator<TRollback>(
       "Opening private Workspace");
   }
 
-  function reconcileRollback(
+  function stageRollbackRestoration(
     retainedDefinitionId: string,
     navigationSequence: number,
   ): void {
@@ -629,16 +648,49 @@ export function createWorkspaceFeedActivationCoordinator<TRollback>(
       dependencies.releaseRollback(prior.state);
       return;
     }
-    dependencies.restoreRollback(prior.state);
+    pendingRollbackRestoration = prior;
+  }
+
+  async function restoreStagedRollback(): Promise<void> {
+    const prior = pendingRollbackRestoration;
+    if (prior === null) return;
+    pendingRollbackRestoration = null;
+    await dependencies.restoreRollback(prior.state);
     activeUrl = prior.sourceUrl;
-    if (prompt?.retainedDefinitionId === retainedDefinitionId
-      && prompt.navigationSequence === navigationSequence) {
+    if (prompt?.retainedDefinitionId === prior.retainedDefinitionId
+      && prompt.navigationSequence === prior.navigationSequence) {
       rollback = {
-        retainedDefinitionId,
-        navigationSequence,
+        retainedDefinitionId: prior.retainedDefinitionId,
+        navigationSequence: prior.navigationSequence,
         state: dependencies.captureRollback(),
         sourceUrl: prior.sourceUrl,
       };
+    }
+  }
+
+  function rememberRetainedCredentials(
+    retainedDefinitionId: string,
+    credentials: Readonly<
+      Record<string, { readonly username: string; readonly pat: string }>
+    >,
+  ): void {
+    forgetRetainedCredentials(retainedDefinitionId);
+    retainedCredentials.set(
+      retainedDefinitionId,
+      Object.fromEntries(Object.entries(credentials).map(
+        ([endpoint, credential]) => [
+          endpoint,
+          { username: credential.username, pat: credential.pat },
+        ])));
+  }
+
+  function forgetRetainedCredentials(retainedDefinitionId: string): void {
+    const credentials = retainedCredentials.get(retainedDefinitionId);
+    if (credentials === undefined) return;
+    retainedCredentials.delete(retainedDefinitionId);
+    for (const credential of Object.values(credentials)) {
+      credential.username = "";
+      credential.pat = "";
     }
   }
 
@@ -704,8 +756,44 @@ export function createWorkspaceFeedActivationCoordinator<TRollback>(
       });
       retainedDefinitionIds.delete(retainedDefinitionId);
       deliveredDefinitionIds.delete(retainedDefinitionId);
+      forgetRetainedCredentials(retainedDefinitionId);
       if (posted?.value.retainedDefinitionId === retainedDefinitionId) {
         posted = null;
+      }
+    },
+    async reactivateRetainedDefinition(
+      retainedDefinitionId,
+      navigationSequence,
+      complete,
+    ) {
+      const currentController = activationController();
+      const sourceOwned = retainedDefinitionIds.has(retainedDefinitionId);
+      const credentials = sourceOwned
+        ? retainedCredentials.get(retainedDefinitionId) ?? {}
+        : {};
+      if (sourceOwned) {
+        activationSequences.set(retainedDefinitionId, navigationSequence);
+      }
+      try {
+        const result = await currentController.activate(
+          retainedDefinitionId,
+          () => true,
+          complete,
+          undefined,
+          credentials,
+          undefined,
+          sourceOwned ? activationHooks : undefined,
+        );
+        if (result.status === "noEffect" && result.posting !== null) {
+          await complete(result.posting);
+        }
+        return result.status === "activated" || result.status === "noEffect";
+      } finally {
+        if (sourceOwned
+          && activationSequences.get(retainedDefinitionId)
+            === navigationSequence) {
+          activationSequences.delete(retainedDefinitionId);
+        }
       }
     },
     tryOpen,
@@ -714,6 +802,9 @@ export function createWorkspaceFeedActivationCoordinator<TRollback>(
       releaseRollback();
       posted = null;
       activeUrl = null;
+      for (const retainedDefinitionId of retainedCredentials.keys()) {
+        forgetRetainedCredentials(retainedDefinitionId);
+      }
     },
   };
 }

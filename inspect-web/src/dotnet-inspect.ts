@@ -18832,11 +18832,7 @@ function workspaceFeedActivationCoordinator():
         state.package !== null || state.platformSelection !== null,
       captureRollback: captureCanonicalWorkspaceRestoreSnapshot,
       cloneRollback: cloneCanonicalWorkspaceSnapshotForRetention,
-      restoreRollback(snapshot) {
-        restoreCanonicalWorkspaceRestoreSnapshot(snapshot);
-        activeWorkspaceUrl = snapshot.url;
-        render({ synchronizeUrl: false });
-      },
+      restoreRollback: restoreWorkspaceFeedRollback,
       releaseRollback: releaseRetainedWorkspaceSnapshot,
       publish: publishSourceBearingWorkspace,
       setLoading() {
@@ -18873,6 +18869,38 @@ function workspaceFeedActivationCoordinator():
       trapModalTab,
     });
   return workspaceFeedActivation;
+}
+
+async function restoreWorkspaceFeedRollback(
+  snapshot: CanonicalWorkspaceRestoreSnapshot,
+): Promise<void> {
+  const priorPosting = snapshot.activeRetainedWorkspacePosting;
+  if (priorPosting !== null
+    && retainedWorkspaceActivation?.state.definitions.some(
+      definition => definition.id
+        === priorPosting.retainedDefinitionId)) {
+    const restored = await workspaceFeedActivationCoordinator()
+      .reactivateRetainedDefinition(
+        priorPosting.retainedDefinitionId,
+        navigationSequence.current(),
+        posting => {
+          restoreCanonicalWorkspaceRestoreSnapshot(snapshot);
+          activeRetainedWorkspacePosting = posting;
+          retainedWorkspacePresentation =
+            createNavigationDescriptorPresentation(posting);
+          retainedWorkspaceInitialDetailAuthority = null;
+          activeWorkspaceUrl = snapshot.url;
+          render({ synchronizeUrl: false });
+        });
+    if (!restored) {
+      throw new Error(
+        "The incumbent retained Workspace could not be reactivated.");
+    }
+    return;
+  }
+  restoreCanonicalWorkspaceRestoreSnapshot(snapshot);
+  activeWorkspaceUrl = snapshot.url;
+  render({ synchronizeUrl: false });
 }
 
 async function tryOpenSourceBearingWorkspace(
@@ -19981,7 +20009,11 @@ window.addEventListener("popstate", () => {
     retainedWorkspaceIdFromHistory(history.state);
   const historyWorkspaceReferenced =
     historyReferencesRetainedWorkspace(history.state);
-  const managedHistoryWorkspaceAvailable = historyWorkspaceId !== null
+  const sourceHistoryWorkspaceAvailable = historyWorkspaceId !== null
+    && workspaceFeedActivation?.ownsRetainedDefinition(
+      historyWorkspaceId) === true;
+  const managedHistoryWorkspaceAvailable = !sourceHistoryWorkspaceAvailable
+    && historyWorkspaceId !== null
     && retainedWorkspaceActivation?.state.definitions.some(
       definition => definition.id === historyWorkspaceId) === true;
   let restoredActiveManagedWorkspace = false;

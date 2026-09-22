@@ -405,6 +405,9 @@ test("source-bearing Workspace URLs use page-session retained activation", () =>
     /function publishSourceBearingWorkspace\([\s\S]*activeRetainedWorkspacePosting = posting;[\s\S]*retainedWorkspacePresentation =\s*createNavigationDescriptorPresentation\(posting\)/);
   assert.match(
     appSource,
+    /restoreRollback: restoreWorkspaceFeedRollback[\s\S]*async function restoreWorkspaceFeedRollback\([\s\S]*reactivateRetainedDefinition\([\s\S]*activeRetainedWorkspacePosting = posting;[\s\S]*createNavigationDescriptorPresentation\(posting\)/);
+  assert.match(
+    appSource,
     /function clearWorkspaceFeedIdentity\(\): void \{[\s\S]*workspaceFeedActivation\?\.ownsRetainedDefinition\([\s\S]*activeRetainedWorkspacePosting = null;[\s\S]*retainedWorkspacePresentation = null;[\s\S]*workspaceFeedActivation\?\.clearActiveUrl\(\)/);
   assert.match(
     appSource,
@@ -427,6 +430,9 @@ test("source-bearing Workspace URLs use page-session retained activation", () =>
   assert.match(
     history,
     /tryOpenSourceBearingWorkspace\([\s\S]*new URL\(location\.href\)[\s\S]*return;[\s\S]*parseLocation\(\)/);
+  assert.match(
+    history,
+    /sourceHistoryWorkspaceAvailable = historyWorkspaceId !== null[\s\S]*workspaceFeedActivation\?\.ownsRetainedDefinition\([\s\S]*managedHistoryWorkspaceAvailable = !sourceHistoryWorkspaceAvailable[\s\S]*if \(managedHistoryWorkspaceAvailable[\s\S]*tryOpenSourceBearingWorkspace/);
   assert.match(
     history,
     /deferHistoryWorkspaceActivation =[\s\S]*searchParams\.has\("w"\)[\s\S]*tryOpenSourceBearingWorkspace\([\s\S]*return;[\s\S]*if \(!navigationSequence\.isCurrent\(navigationSeq\)\) return;[\s\S]*if \(deferHistoryWorkspaceActivation[\s\S]*activateRetainedWorkspaceProjection\(historyWorkspaceId, false\)[\s\S]*const loc = await parseLocation\(\)/);
