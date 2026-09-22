@@ -764,7 +764,7 @@ test("runtime graph member activation requires the matching exact catalog", asyn
 
 test("home navigation invalidates pending graph work", () => {
   const home =
-    appSource.match(/function goHome\(\) \{[\s\S]*?\n\}/)?.[0]
+    appSource.match(/function goHome\(\): boolean \{[\s\S]*?\n\}/)?.[0]
     ?? "";
   const history =
     appSource.match(/window\.addEventListener\("popstate"[\s\S]*?\n\}\);/)?.[0]
