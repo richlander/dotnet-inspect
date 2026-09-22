@@ -39,8 +39,11 @@ into document accounting; their generated MethodDefs remain physical-body
 artifacts rather than invalid standalone C# declarations. A helper that the
 Decompiler cannot raise and CSharp cannot represent makes the document
 `Unavailable`, not a falsely complete C# listing. In the pinned
-`System.Text.Json` package, `OrderedDictionary<TKey,TValue>.Enumerator`
-produces an available document, while `JsonSerializerOptions` reports the
+`System.Text.Json` package, `JsonIgnoreAttribute` produces an available document
+whose Bodies, Skeleton, and Selected-constructor projections compile unchanged.
+`OrderedDictionary<TKey,TValue>.Enumerator` reports that its containing Type's
+interface obligations cannot be preserved by an empty shell, while
+`JsonSerializerOptions` reports the
 unrepresented instance local helper
 `<get_CacheContext>g__GetOrCreate|1_0`. Supporting that helper requires a
 separate raising change, not a name-based absorption exception in this producer.
@@ -110,13 +113,20 @@ The primary package is
 `System.Text.Json@11.0.0-preview.7.26381.103`, assembly
 `lib/netstandard2.0/System.Text.Json.dll`.
 
+`System.Text.Json.Serialization.JsonIgnoreAttribute` supplies the supported
+production canary: complete physical-method accounting, a property initializer
+contributed by its constructor, and unchanged compilable Bodies, Skeleton, and
+Selected-constructor projections.
+
 `System.Collections.Generic.OrderedDictionary<TKey,TValue>.Enumerator`
-motivates exact nested-Type identity and a useful body/skeleton view over one
-selected Type. `System.Text.Json.JsonSerializerOptions` supplies the larger
-case: fields, properties with accessors, constructors, static and instance
-members, accessibility variation, attributes, generated declarations, and
-enough bodies to expose an implementation that preserves only flat text or
-positional member order.
+motivates exact nested-Type identity and the containing-context support
+boundary: the exact Type resolves, but its outer Type implements
+interfaces whose obligations an empty shell cannot preserve.
+`System.Text.Json.JsonSerializerOptions` supplies the larger case: fields,
+properties with accessors, constructors, static and instance members,
+accessibility variation, attributes, generated declarations, and enough bodies
+to expose an implementation that preserves only flat text or positional member
+order.
 
 Compiler-produced fixtures remain necessary for empty and bodyless Types,
 delegates, overloaded indexers, explicit interface implementations, generated
@@ -206,6 +216,15 @@ nested subtree: body production, body limits, revision, and Type Explorer
 routing stay scoped to one exact TypeDef. A future nested-Type inventory may
 expose exact navigation destinations, but it is not part of this document's
 completeness claim.
+
+The first producer issues containing shells only when their declaration
+headers are valid without recursively producing outer members. It preserves
+exact containing identity, introduced generic parameters, and generic
+constraints. A non-interface containing Type with a custom base or implemented
+interfaces is `Unavailable`, because copying those inheritance obligations
+onto an empty shell can require omitted constructors or members. Inherited
+interfaces on an interface remain supported because they do not impose
+implementation obligations on the shell.
 
 Empty classes, bodyless interfaces, enums, and delegates are valid documents.
 The absence of implementation bodies is not absence of the selected Type.
@@ -663,7 +682,7 @@ Planned Release gates:
 | `CSharpTypeDocumentTests` | Constructor rejects broken Type/Member/body identity, missing or duplicate physical artifacts or body rows, invalid primary representation or body-contribution references, duplicate or non-contiguous declaration rows, malformed UTF-16, invalid fingerprints, inconsistent render-plan alternatives, and overflowing or out-of-bounds ranges. |
 | `CSharpTypeDocumentProjectionTests` | Bodies, Skeleton, and Selected body use owner-issued render-plan alternatives; the selected declaration's owned-body contribution closure remains visible; structural filters preserve order, identities, valid C#, and projection-local absolute declaration, body, and contribution ranges without parsing source. |
 | `CSharpTypeDocumentRevisionTests` | Canonical replay is stable; changing identity, physical-artifact association, classification, source, render policy, body address, physical fingerprint, ownership, or contribution provenance changes the revision; short-anchor collisions cannot merge artifacts or declarations. |
-| `CSharpDecompilerTypeDocumentTests` | Complete same-reader physical artifact, body, and C# declaration populations; non-public and generated members; absorbed backing/enum/delegate artifacts; backing-storage initializer contributions; valid ref-return skeletons; accessor body context; constructor-chain validity under exhausted budgets; properties/events with multiple accessors; bodyless and empty Types; visible body failures; and one-load exact body association. |
+| `CSharpDecompilerTypeDocumentTests` | Complete same-reader physical artifact, body, and C# declaration populations; non-public and generated members; absorbed backing/enum/delegate artifacts; backing-storage initializer contributions; valid ref-return and implemented-interface-property skeletons; containing-context validity or native unavailability at default and exhausted budgets; accessor body context; constructor-chain validity under exhausted budgets; properties/events with multiple accessors; bodyless and empty Types; visible body failures; and one-load exact body association. |
 | `TypeDocumentInspectionTests` | Exact-Type SourceHouse settlement preserves provenance, typed outcomes, bounds, diagnostics, detached serialization, and `InspectionEnvelope` content across supplied and absent PDB paths. |
 | CLI whole-Type Decompiled Source tests | The existing command text, diagnostics, and failure behavior come from the shared Bodies projection for the real System.Text.Json witnesses and focused fixtures. |
 | Browser Type Explorer production test | Type Source Explore opens the routed viewer; Bodies/Skeleton/Selected body and structural filters consume product projections and exact identities without Browser C# parsing. |
@@ -681,8 +700,16 @@ become binding as their implementation slices land.
 
 The implementation must demonstrate:
 
+- `JsonIgnoreAttribute` retains its exact identity and complete physical-method
+  inventory in compilable Bodies, Skeleton, and Selected-constructor projections;
+- an obligation-free nested generic fixture resolves to one exact `TypeDef`,
+  preserves its enclosing generic identity, and produces valid C#;
+- an interface containing context retains its inherited interfaces in valid
+  Bodies, Skeleton, and Selected-body projections;
 - the nested generic `OrderedDictionary<TKey,TValue>.Enumerator` resolves to
-  one exact `TypeDef` and preserves its enclosing generic identity;
+  one exact `TypeDef` but reports native unavailability because its
+  containing Type's implemented interfaces cannot be preserved by an empty
+  shell;
 - `JsonSerializerOptions` remains usable with a large declaration population
   and all filters preserve source order;
 - overloaded indexers retain distinct complete Member identities;
@@ -704,6 +731,8 @@ The implementation must demonstrate:
 - auto-property and field-like-event backing-storage initializers retain every
   contributing constructor and remain independently selectable;
 - ref and ref-readonly property skeletons use valid throwing accessors;
+- implemented default-interface property skeletons retain their dispatch
+  modifiers and use valid throwing accessors;
 - property and custom-event bodies retain required unsafe declaration context;
 - an empty class, bodyless interface, enum, and delegate produce valid
   documents;

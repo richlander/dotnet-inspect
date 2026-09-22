@@ -170,6 +170,46 @@ public sealed class CSharpDecompilerTypeDocumentTests
     }
 
     [Theory]
+    [InlineData(typeof(InterfaceObligationOuter.Inner), false)]
+    [InlineData(typeof(InterfaceObligationOuter.Inner), true)]
+    [InlineData(typeof(RequiredBaseOuter.Inner), false)]
+    [InlineData(typeof(RequiredBaseOuter.Inner), true)]
+    public void ProduceTypeDocument_DeclinesInvalidContainingTypeShells(
+        Type runtimeType,
+        bool zeroBudget)
+    {
+        CSharpTypeDocumentOutcome.Unavailable unavailable =
+            Assert.IsType<CSharpTypeDocumentOutcome.Unavailable>(
+                Produce(
+                    Type(runtimeType),
+                    maxBodyProjections: zeroBudget
+                        ? 0
+                        : CSharpDecompilerService.DefaultMaxBodyProjections));
+
+        Assert.Contains("Containing Type", unavailable.Reason);
+        Assert.Contains("inheritance obligations", unavailable.Reason);
+    }
+
+    [Fact]
+    public void ProduceTypeDocument_PreservesInheritedInterfaceContext()
+    {
+        CSharpTypeDocument document = Available(
+            Produce(Type<InterfaceContext.Inner>()));
+        CSharpTypeDeclaration read = Assert.Single(
+            document.Declarations,
+            declaration => declaration.Kind == CSharpTypeDeclarationKind.Method);
+
+        Assert.Equal(
+            Type<InterfaceContext.Inner>().DefinitionName,
+            document.TypeName);
+        AssertCompiles(Project(document, new(CSharpTypeBodyMode.Bodies)).Text);
+        AssertCompiles(Project(document, new(CSharpTypeBodyMode.Skeleton)).Text);
+        AssertCompiles(Project(
+            document,
+            new(CSharpTypeBodyMode.SelectedBody, read.Anchor)).Text);
+    }
+
+    [Theory]
     [InlineData(0)]
     [InlineData(1)]
     public void ProduceTypeDocument_BudgetExhaustionRetainsCompleteSkeleton(int budget)
@@ -319,6 +359,55 @@ public sealed class CSharpDecompilerTypeDocumentTests
     }
 
     [Fact]
+    public void ProduceTypeDocument_UsesThrowingDefaultInterfacePropertySkeletons()
+    {
+        CSharpTypeDocument document = Available(
+            Produce(Type<DefaultInterface>()));
+        CSharpTypeDocumentProjection bodies = Project(
+            document,
+            new(CSharpTypeBodyMode.Bodies));
+        CSharpTypeDocumentProjection skeleton = Project(
+            document,
+            new(CSharpTypeBodyMode.Skeleton));
+        CSharpTypeDeclaration read = Assert.Single(
+            document.Declarations,
+            declaration =>
+                declaration.Kind == CSharpTypeDeclarationKind.Method);
+        CSharpTypeDocumentProjection selected = Project(
+            document,
+            new(CSharpTypeBodyMode.SelectedBody, read.Anchor));
+
+        Assert.Contains("public virtual int Value", bodies.Text);
+        Assert.Contains("public virtual int Value", skeleton.Text);
+        Assert.Contains("throw null;", skeleton.Text);
+        Assert.Contains("throw null;", selected.Text);
+        AssertCompiles(bodies.Text);
+        AssertCompiles(skeleton.Text);
+        AssertCompiles(selected.Text);
+    }
+
+    [Fact]
+    public void ProduceTypeDocument_ZeroBudgetDefaultInterfaceRemainsValid()
+    {
+        CSharpTypeDocumentOutcome.Incomplete incomplete =
+            Assert.IsType<CSharpTypeDocumentOutcome.Incomplete>(
+                Produce(
+                    Type<DefaultInterface>(),
+                    maxBodyProjections: 0));
+        CSharpTypeDocumentProjection bodies = Project(
+            incomplete.Document,
+            new(CSharpTypeBodyMode.Bodies));
+        CSharpTypeDocumentProjection skeleton = Project(
+            incomplete.Document,
+            new(CSharpTypeBodyMode.Skeleton));
+
+        Assert.Contains("throw null;", bodies.Text);
+        Assert.Contains("throw null;", skeleton.Text);
+        AssertCompiles(bodies.Text);
+        AssertCompiles(skeleton.Text);
+    }
+
+    [Fact]
     public void ProduceTypeDocument_PreservesUnsafeAccessorContext()
     {
         CSharpTypeDocument document = Available(
@@ -436,14 +525,56 @@ public sealed class CSharpDecompilerTypeDocumentTests
             Produce(type, [1, 2, 3, 4]));
     }
 
+    [Fact]
+    [Trait("Speed", "Slow")]
+    public void ProduceTypeDocument_ProjectsRealPackageAttribute()
+    {
+        string assemblyPath = Path.Combine(
+            AppContext.BaseDirectory,
+            "RealAssets",
+            "StructuredTypes",
+            "System.Text.Json.dll");
+        Assert.True(File.Exists(assemblyPath), assemblyPath);
+        ApiType type = Type(
+            assemblyPath,
+            "System.Text.Json.Serialization.JsonIgnoreAttribute");
+        CSharpTypeDocument document = Available(Produce(type, assemblyPath));
+
+        using var pe = new PEReader(File.OpenRead(assemblyPath));
+        TypeDefinition definition = pe.GetMetadataReader().GetTypeDefinition(
+            MetadataTokens.TypeDefinitionHandle(
+                type.MetadataToken!.Value & 0x00FFFFFF));
+        Assert.Equal(type.DefinitionName, document.TypeName);
+        Assert.Equal(definition.GetMethods().Count, document.Bodies.Length);
+        Assert.NotEmpty(document.Artifacts);
+        Assert.NotEmpty(document.Revision.Sha256);
+        Assert.Contains(
+            document.Declarations
+                .SelectMany(declaration => declaration.Parts)
+                .SelectMany(part => part.Contributions),
+            contribution =>
+                contribution.Role == CSharpTypeBodyContributionRole.PropertyInitializer);
+        AssertCompiles(Project(document, new(CSharpTypeBodyMode.Bodies)).Text);
+        AssertCompiles(Project(document, new(CSharpTypeBodyMode.Skeleton)).Text);
+        CSharpTypeDeclaration constructor = Assert.Single(
+            document.Declarations,
+            declaration => declaration.Kind == CSharpTypeDeclarationKind.Constructor);
+        AssertCompiles(Project(
+            document,
+            new(CSharpTypeBodyMode.SelectedBody, constructor.Anchor)).Text);
+    }
+
     [Theory]
     [Trait("Speed", "Slow")]
-    [InlineData("System.Text.Json.JsonSerializerOptions", false)]
     [InlineData(
-        "System.Collections.Generic.OrderedDictionary`2+Enumerator", true)]
-    public void ProduceTypeDocument_ProjectsRequiredRealPackageTypes(
+        "System.Text.Json.JsonSerializerOptions",
+        "<get_CacheContext>g__GetOrCreate|1_0")]
+    [InlineData(
+        "System.Collections.Generic.OrderedDictionary`2+Enumerator",
+        "inheritance obligations")]
+    public void ProduceTypeDocument_ReportsRequiredRealPackageBoundaries(
         string metadataName,
-        bool representable)
+        string unavailableReason)
     {
         string assemblyPath = Path.Combine(
             AppContext.BaseDirectory,
@@ -456,35 +587,9 @@ public sealed class CSharpDecompilerTypeDocumentTests
         CSharpTypeDocumentOutcome outcome = Produce(
             type,
             assemblyPath);
-        if (!representable)
-        {
-            var unavailable = Assert.IsType<CSharpTypeDocumentOutcome.Unavailable>(outcome);
-            Assert.Contains("<get_CacheContext>g__GetOrCreate|1_0", unavailable.Reason);
-            return;
-        }
-        CSharpTypeDocument document = outcome switch
-        {
-            CSharpTypeDocumentOutcome.Available available =>
-                available.Document,
-            CSharpTypeDocumentOutcome.Incomplete incomplete =>
-                incomplete.Document,
-            _ => throw new Xunit.Sdk.XunitException(
-                $"Expected a structurally complete real-asset document, received {outcome}."),
-        };
-        CSharpTypeDocumentProjection skeleton = Project(
-            document,
-            new(CSharpTypeBodyMode.Skeleton));
-
-        using var pe = new PEReader(File.OpenRead(assemblyPath));
-        TypeDefinition definition = pe.GetMetadataReader().GetTypeDefinition(
-            MetadataTokens.TypeDefinitionHandle(
-                type.MetadataToken!.Value & 0x00FFFFFF));
-        Assert.Equal(definition.GetMethods().Count, document.Bodies.Length);
-        Assert.NotEmpty(document.Artifacts);
-        Assert.NotEmpty(document.Revision.Sha256);
-        Assert.Contains(
-            type.DefinitionName!.Segments[^1].Split('`')[0],
-            skeleton.Text);
+        var unavailable =
+            Assert.IsType<CSharpTypeDocumentOutcome.Unavailable>(outcome);
+        Assert.Contains(unavailableReason, unavailable.Reason);
     }
 
     static CSharpTypeDocumentOutcome Produce(

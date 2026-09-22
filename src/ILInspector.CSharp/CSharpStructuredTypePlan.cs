@@ -112,10 +112,9 @@ public static class CSharpStructuredTypePlanProducer
         ImmutableArray<ApiType> containingTypes =
         [
             .. request.ContainingTypes.Select((type, index) =>
-                PrepareTypeForDeclaration(
+                PrepareContainingTypeForDeclaration(
                     type,
-                    nested: index > 0,
-                    [])),
+                    nested: index > 0)),
         ];
         CSharpFormatter formatter = CreateFormatter(
             declaredType,
@@ -275,6 +274,34 @@ public static class CSharpStructuredTypePlanProducer
         [
             .. snapshot.TypeParameters.TakeLast(introducedCount),
         ];
+        return snapshot;
+    }
+
+    static ApiType PrepareContainingTypeForDeclaration(
+        ApiType type,
+        bool nested)
+    {
+        ApiType snapshot = PrepareTypeForDeclaration(type, nested, []);
+        bool hasCustomBase = type.BaseType is not null
+            && type.BaseTypeReference is not
+            {
+                Assembly.Name: "System.Private.CoreLib" or "mscorlib"
+                    or "System.Runtime" or "netstandard",
+                DefinitionName:
+                {
+                    Namespace: "System",
+                    Segments: ["Object" or "ValueType" or "Enum"],
+                },
+            };
+        bool hasInterfaceObligations =
+            snapshot.Kind != "interface"
+            && snapshot.Interfaces.Count > 0;
+        if (hasCustomBase || hasInterfaceObligations)
+        {
+            throw new NotSupportedException(
+                $"Containing Type '{type.FullName}' has inheritance obligations "
+                + "that an empty structured shell cannot preserve.");
+        }
         return snapshot;
     }
 
@@ -439,7 +466,8 @@ public static class CSharpStructuredTypePlanProducer
                     range = new(prefix.Length, block.Length);
                 }
                 bool canUseAuto =
-                    member.SignatureModel?.MemberName != "this[]"
+                    type.Kind != "interface"
+                    && member.SignatureModel?.MemberName != "this[]"
                     && member.SignatureModel?.ReturnType?.StartsWith(
                         "ref ",
                         StringComparison.Ordinal) != true

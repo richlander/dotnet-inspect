@@ -60,6 +60,41 @@ public sealed class Outer<T>
     }
 }
 
+public sealed class InterfaceObligationOuter : IDisposable
+{
+    public void Dispose() { }
+
+    public sealed class Inner;
+}
+
+public class ContainingRequiredBase
+{
+    public ContainingRequiredBase(int value) { }
+}
+
+public sealed class RequiredBaseOuter : ContainingRequiredBase
+{
+    public RequiredBaseOuter()
+        : base(7) { }
+
+    public sealed class Inner;
+}
+
+public interface InterfaceContext : IDisposable
+{
+    public sealed class Inner
+    {
+        public int Read() => 7;
+    }
+}
+
+public interface DefaultInterface
+{
+    private int Read() => 7;
+
+    public int Value => Read();
+}
+
 [System.ComponentModel.Description("structured-frame")]
 public sealed class MultipleConstructors
 {
