@@ -531,6 +531,20 @@ public class LibraryInspection
     public IReadOnlyDictionary<int, (string? Stable, string Visibility, string Selector)>?
         ImplementationProfilesDrillMap { get; set; }
 
+    private LibraryMetricsResult? _libraryMetricsQueryResult;
+
+    /// <summary>Typed whole-library metrics report.</summary>
+    [JsonIgnore]
+    public LibraryMetricsResult? LibraryMetricsQueryResult
+    {
+        get => _libraryMetricsQueryResult;
+        set
+        {
+            _libraryMetricsQueryResult = value;
+            ResetFindingProjectionCaches();
+        }
+    }
+
     /// <summary>
     /// Safe, local optimization opportunities inferred from IL/body evidence. Internal backing
     /// for the kind-scoped performance sections and the nested <see cref="Performance"/> JSON
@@ -952,6 +966,14 @@ public class LibraryInspection
                     SectionNames.MemberMetrics,
                     ImplementationProfilesQuery.Definition.Name,
                     profileFailure.Error.Message));
+            }
+            if (LibraryMetricsQueryResult
+                is LibraryMetricsResult.Failed libraryMetricsFailure)
+            {
+                failures.Add(new LibraryInspectionFailureJson(
+                    SectionNames.LibraryMetrics,
+                    LibraryMetricsQuery.Definition.Name,
+                    libraryMetricsFailure.Error.Message));
             }
             if (OptimizationOpportunitiesQueryResult
                 is OptimizationOpportunitiesResult.Failed optimizationFailure)

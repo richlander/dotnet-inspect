@@ -405,6 +405,40 @@ public sealed class JsonWireContractResolverTests
     }
 
     [Fact]
+    public void Build_AssociatesAsyncDeserializeWireTypeWithParameter()
+    {
+        ILInspector.JsExportSurface.JsExportSurface surface =
+            BuildFixtureSurfaceWithWireContracts();
+
+        JsExportFunction function = Assert.Single(
+            surface.Functions,
+            candidate => candidate.Name == "RenameWidgetAsync");
+        JsExportParameterWireBinding binding = Assert.Single(
+            function.ParameterWireBindings);
+
+        Assert.Equal(0, binding.ParameterIndex);
+        Assert.Equal(FixtureNamespace + "WidgetDto", binding.WireType);
+        Assert.Equal(FixtureNamespace + "WidgetDto", function.ReturnWireType);
+    }
+
+    [Fact]
+    public void Build_DoesNotBindTransformedAsyncDeserializeInput()
+    {
+        ILInspector.JsExportSurface.JsExportSurface surface =
+            BuildFixtureSurfaceWithWireContracts();
+
+        JsExportFunction function = Assert.Single(
+            surface.Functions,
+            candidate => candidate.Name == "RenameNormalizedWidgetAsync");
+
+        Assert.Equal(
+            [FixtureNamespace + "WidgetDto"],
+            function.ParameterWireTypes);
+        Assert.Empty(function.ParameterWireBindings);
+        Assert.Equal(FixtureNamespace + "WidgetDto", function.ReturnWireType);
+    }
+
+    [Fact]
     public void Build_ResolvesRegisteredStringArrayAfterAwait()
     {
         var bodyIndex = LibraryBodyIndex.Open(

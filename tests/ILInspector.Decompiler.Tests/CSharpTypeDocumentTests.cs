@@ -614,6 +614,15 @@ public class CSharpTypeDocumentTests
             () => CSharpTypeDocumentJson.Deserialize(
                 amplifiedComparison.ToJsonString()));
 
+        JsonObject zeroLengthNonEmptyBody =
+            Assert.IsType<JsonObject>(JsonNode.Parse(json));
+        zeroLengthNonEmptyBody["declarations"]!.AsArray()[2]!["parts"]!
+            .AsArray()[1]!["owned_bodies"]!.AsArray()[0]!["range"]![
+                "length"] = 0;
+        Assert.Throws<JsonException>(
+            () => CSharpTypeDocumentJson.Deserialize(
+                zeroLengthNonEmptyBody.ToJsonString()));
+
         Assert.Throws<JsonException>(() => CSharpTypeDocumentJson.Deserialize(
             new string(' ', CSharpTypeDocumentJson.MaxSerializedCharacters + 1)));
     }
@@ -782,6 +791,39 @@ public class CSharpTypeDocumentTests
         Assert.Equal(
             0,
             Assert.Single(bodies.Declarations[2].Bodies).Range.Length);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Create_RejectsZeroLengthEvidenceForNonEmptyManagedBody(
+        bool identicalAlternatives)
+    {
+        var input = Input();
+        CSharpTypeDeclaration constructor = input.Declarations[2];
+        CSharpTypeRenderPart implementation = constructor.Parts[1];
+        input.Declarations[2] = constructor with
+        {
+            Parts = constructor.Parts.SetItem(
+                1,
+                implementation with
+                {
+                    SkeletonText = identicalAlternatives
+                        ? implementation.FullText
+                        : implementation.SkeletonText,
+                    OwnedBodies =
+                    [
+                        implementation.OwnedBodies[0] with
+                        {
+                            FullRange = new(2, 0),
+                        },
+                    ],
+                }),
+        };
+
+        Assert.Contains(
+            "requires non-empty evidence",
+            Assert.Throws<ArgumentException>(() => Create(input)).Message);
     }
 
     [Fact]

@@ -33,12 +33,6 @@ export interface PlatformStackEntry {
   title: string;
 }
 
-export interface CallGraphWorkspacePackage {
-  package: string;
-  version: string;
-  framework: string;
-}
-
 export interface MemberCallGraphRequest {
   signature: string;
   isRuntimePack: boolean;
@@ -58,8 +52,7 @@ export interface MemberCallGraphRequest {
   memberSignature: string;
   selectorKey: string;
   metadataToken: number;
-  workspacePackages: CallGraphWorkspacePackage[];
-  hasOtherLibraries: boolean;
+  traversalFramework: string;
   isCurrent(): boolean;
 }
 
@@ -104,10 +97,7 @@ export function callGraphErrorForView(state: CallGraphInspectionState) {
 
 export interface CallGraphInspectionDependencies {
   state: CallGraphInspectionState;
-  queryWorkspace(
-    request: MemberCallGraphRequest,
-    workspace: CallGraphWorkspacePackage[],
-  ): Promise<InspectedCallGraph>;
+  queryPackage(request: MemberCallGraphRequest): Promise<InspectedCallGraph>;
   queryPlatform(request: {
     contextId: string | null;
     framework: string;
@@ -128,9 +118,6 @@ export interface CallGraphInspectionDependencies {
     fallback?: MemberFocusSnapshot | null,
   ): MemberFocusSnapshot;
   renderCallGraph(): Promise<void>;
-  nextPaint(): Promise<unknown>;
-  refreshPackageStats(): void;
-  patchCallGraphSection(previousMermaid: string | undefined): void;
 }
 
 export interface CallGraphInspectionCoordinator {
@@ -162,7 +149,6 @@ export function createCallGraphInspectionCoordinator(
   dependencies: CallGraphInspectionDependencies,
 ): CallGraphInspectionCoordinator {
   const { state } = dependencies;
-  let loadGeneration = 0;
   const resetPlatformDrill = () => {
     state.platformStack = [];
     state.platformDrillLoading = false;
@@ -219,7 +205,6 @@ export function createCallGraphInspectionCoordinator(
         await dependencies.renderCallGraph();
         return;
       }
-      const generation = ++loadGeneration;
       state.memberCallGraphKey = request.signature;
       state.memberCallGraph = null;
       state.memberCallGraphError = "";
@@ -239,70 +224,20 @@ export function createCallGraphInspectionCoordinator(
         sequence === state.memberCallGraphSeq
         && request.isCurrent()
         && state.memberCallGraphKey === request.signature;
-      let local: InspectedCallGraph | null = null;
-      // Platform descent may retain this expansion; a fresh load must not,
-      // even if its local query returns the same graph object.
-      const canceledExpansionStillMatchesView = () =>
-        local != null
-        && generation === loadGeneration
-        && request.isCurrent()
-        && state.memberCallGraphKey === request.signature
-        && state.memberCallGraph === local
-        && !state.memberCallGraphExpanding;
       try {
-        local = await dependencies.queryWorkspace(request, []);
+        const graph = await dependencies.queryPackage(request);
         if (!ownsRequest()) return;
-        state.memberCallGraph = local;
-        state.memberCallGraphLoading = false;
-        state.memberCallGraphExpanding = request.hasOtherLibraries;
-        dependencies.renderPreservingMemberFocus(preservedFocus);
-        await dependencies.renderCallGraph();
-
-        if (request.hasOtherLibraries) {
-          // Let the local graph paint before the synchronous engine begins the
-          // broader workspace scan.
-          await dependencies.nextPaint();
-          if (!ownsRequest()) return;
-          const full = await dependencies.queryWorkspace(
-            request,
-            request.workspacePackages);
-          const previousMermaid = state.memberCallGraph?.mermaid;
-          if (!ownsRequest()) {
-            if (!canceledExpansionStillMatchesView()) return;
-            state.memberCallGraph = full;
-            dependencies.refreshPackageStats();
-            if (!state.platformDrillLoading && state.platformStack.length === 0)
-              dependencies.patchCallGraphSection(previousMermaid);
-            return;
-          }
-          state.memberCallGraph = full;
-          state.memberCallGraphExpanding = false;
-          dependencies.refreshPackageStats();
-          dependencies.patchCallGraphSection(previousMermaid);
-        }
-      } catch (error) {
-        if (!ownsRequest()) {
-          if (!canceledExpansionStillMatchesView()) return;
-          state.memberCallGraphError = mergeInspectionErrors(
-            state.memberCallGraphError,
-            `Workspace expansion was incomplete: ${dependencies.describeError(error)}`);
-          if (state.platformDrillLoading || state.platformStack.length > 0)
-            return;
-          dependencies.renderPreservingMemberFocus(preservedFocus);
-          await dependencies.renderCallGraph();
-          return;
-        }
+        state.memberCallGraph = graph;
         state.memberCallGraphLoading = false;
         state.memberCallGraphExpanding = false;
-        if (state.memberCallGraph) {
-          state.memberCallGraphError =
-            `Workspace expansion was incomplete: ${dependencies.describeError(error)}`;
-          dependencies.renderPreservingMemberFocus(preservedFocus);
-          await dependencies.renderCallGraph();
-        } else {
-          state.memberCallGraphError = dependencies.describeError(error);
-          dependencies.renderPreservingMemberFocus(preservedFocus);
-        }
+        dependencies.renderPreservingMemberFocus(preservedFocus);
+        await dependencies.renderCallGraph();
+      } catch (error) {
+        if (!ownsRequest()) return;
+        state.memberCallGraphLoading = false;
+        state.memberCallGraphExpanding = false;
+        state.memberCallGraphError = dependencies.describeError(error);
+        dependencies.renderPreservingMemberFocus(preservedFocus);
       }
     },
 

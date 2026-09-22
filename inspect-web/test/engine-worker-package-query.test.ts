@@ -1012,7 +1012,14 @@ test("Package Query Worker adapter preserves request, durable events, credit, an
   assert.deepEqual(runs[0]?.slice(0, 8), [
     "package-query-operation",
     "Contoso.*",
-    '[{"key":"readme","operator":"eq","value":"true"},{"key":"depends","operator":"eq","value":"Microsoft.Extensions.Hosting"}]',
+    [
+      { key: "readme", operator: "eq", value: "true" },
+      {
+        key: "depends",
+        operator: "eq",
+        value: "Microsoft.Extensions.Hosting",
+      },
+    ],
     null,
     200,
     100,
@@ -1112,7 +1119,7 @@ test("Package Query Worker routes whitespace-only library literals as ordinary t
   assert.deepEqual(runs[0]?.slice(0, 8), [
     "package-query-operation",
     "Contoso.Library",
-    '[{"key":"library-literal","operator":"eq","value":" "}]',
+    [{ key: "library-literal", operator: "eq", value: " " }],
     "net10.0",
     5,
     100,
@@ -1260,7 +1267,7 @@ test("Package Query binding preserves caller identity and expected diagnostics",
   assert.deepEqual(await binding.runPackageQuery(
     "caller-package-query",
     "Contoso.",
-    "[]",
+    [],
     null,
     20,
     10,
@@ -1299,7 +1306,7 @@ test("Package Query binding preserves the inspection envelope", async () => {
   const result = await binding.runPackageQuery(
     "envelope-package-query",
     "Contoso.",
-    "[]",
+    [],
     null,
     20,
     10,

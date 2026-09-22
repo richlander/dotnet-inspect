@@ -1071,8 +1071,8 @@ Explicit latest queries exclude unlisted versions even when their output
 requests the listing column. Pinned queries enumerate including prereleases
 and unlisted coordinates, compare normalized versions, and do not consult
 legacy payload caches online. Raw partial listings (including `--versions -n 1`)
-retain warnings; bare `--version`, explicit latest, and range queries fail
-before rendering when evidence is partial.
+retain warnings; explicit `--latest-version` and range queries fail before
+rendering when evidence is partial.
 
 `CliVersionQueries_LocalSelectorsUseCompleteEvidence`,
 `CliVersionQueries_PartialEvidenceCannotSelectLatestOrRange`,

@@ -4,54 +4,16 @@ using DotnetInspector.Packages;
 namespace DotnetInspect.Cli.Tests;
 
 /// <summary>
-/// Tests for router --version and --versions behavior.
-/// Validates candidate-cache resolution, fallthrough, and offline behavior.
+/// Tests for Package version cache behavior.
 /// </summary>
 [Collection("Console")]
-public class RouterVersionTests
+public class PackageVersionCacheTests
 {
     private const string VersionCacheCategory = "versions-v5";
 
-    public RouterVersionTests()
+    public PackageVersionCacheTests()
     {
         NuGetCache.Initialize("dotnet-inspect");
-    }
-
-    [Fact]
-    public async Task Version_WithCachedPackage_ReturnsResolvedVersion()
-    {
-        // Ensure the package is cached by downloading it first
-        await EnsurePackageCached("System.CommandLine");
-
-        var version = PackageExtractor.TryGetLatestCachedCandidateVersion(
-            "System.CommandLine",
-            NuGetSourceResolver.ResolveSourceKeys(null));
-        Assert.NotNull(version);
-
-        var root = CommandLineBuilder.CreateRootCommand();
-        var args = CommandLineBuilder.PreprocessArgs(["System.CommandLine", "--version"]);
-
-        var (exit, output, _) = await ConsoleCapture.RunAsync(
-            () => Task.FromResult(root.Parse(args).InvokeAsync().Result));
-
-        Assert.Equal(0, exit);
-        Assert.Equal(version, output.Trim());
-    }
-
-    [Fact]
-    public async Task Version_WithPinnedVersion_ReturnsPinnedVersion()
-    {
-        // Download a specific version so it's in the cache
-        await EnsurePackageCached("System.CommandLine", "2.0.2");
-
-        var root = CommandLineBuilder.CreateRootCommand();
-        var args = CommandLineBuilder.PreprocessArgs(["System.CommandLine@2.0.2", "--version"]);
-
-        var (exit, output, _) = await ConsoleCapture.RunAsync(
-            () => Task.FromResult(root.Parse(args).InvokeAsync().Result));
-
-        Assert.Equal(0, exit);
-        Assert.Equal("2.0.2", output.Trim());
     }
 
     [Fact]
@@ -125,49 +87,6 @@ public class RouterVersionTests
             var path = PersistentCache.GetFilePath(VersionCacheCategory, key.ToLowerInvariant(), extension: "txt");
             if (File.Exists(path)) File.Delete(path);
         }
-    }
-
-    [Fact]
-    public async Task Version_WithLatestTag_SkipsCacheAndQueriesVersionApi()
-    {
-        var root = CommandLineBuilder.CreateRootCommand();
-        var args = CommandLineBuilder.PreprocessArgs(["System.CommandLine@latest", "--version"]);
-
-        var (exit, output, _) = await ConsoleCapture.RunAsync(
-            () => Task.FromResult(root.Parse(args).InvokeAsync().Result));
-
-        Assert.Equal(0, exit);
-        var version = output.Trim();
-        Assert.Matches(@"^\d+\.\d+\.\d+", version);
-    }
-
-    [Fact]
-    public async Task Version_WithBogusVersion_ReportsError()
-    {
-        var root = CommandLineBuilder.CreateRootCommand();
-        var args = CommandLineBuilder.PreprocessArgs(["System.CommandLine@99.99.99", "--version"]);
-
-        var (exit, output, error) = await ConsoleCapture.RunAsync(
-            () => Task.FromResult(root.Parse(args).InvokeAsync().Result));
-
-        Assert.Equal(1, exit);
-        Assert.Empty(output.Trim());
-        Assert.Contains("Version '99.99.99' of package", error);
-    }
-
-    [Fact]
-    public async Task Version_WithValidUncachedVersion_ReturnsVersion()
-    {
-        // A real version that may not be cached should still return it
-        // after verifying it exists via the version API.
-        var root = CommandLineBuilder.CreateRootCommand();
-        var args = CommandLineBuilder.PreprocessArgs(["System.CommandLine@2.0.1", "--version"]);
-
-        var (exit, output, _) = await ConsoleCapture.RunAsync(
-            () => Task.FromResult(root.Parse(args).InvokeAsync().Result));
-
-        Assert.Equal(0, exit);
-        Assert.Equal("2.0.1", output.Trim());
     }
 
     /// <summary>

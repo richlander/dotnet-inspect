@@ -20,6 +20,7 @@
     <ProjectReference Include="../DotnetInspector.DocumentationHouse.Platform/DotnetInspector.DocumentationHouse.Platform.csproj" />
     <ProjectReference Include="../DotnetInspector.PlatformHouse.Execution/DotnetInspector.PlatformHouse.Execution.csproj" />
     <ProjectReference Include="../DotnetInspector.Queries/DotnetInspector.Queries.csproj" />
+    <ProjectReference Include="../QuerySpace/QuerySpace.csproj" />
   </ItemGroup>
 
 </Project>

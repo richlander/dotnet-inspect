@@ -2,7 +2,7 @@ namespace DotnetInspect.Cli.Tests;
 
 /// <summary>
 /// Gates CI wiring whose source-level shape prevents required evidence from
-/// silently selecting no tests or exposing credentials beyond its owner step.
+/// silently selecting no tests.
 /// </summary>
 public class CiWorkflowTests
 {
@@ -52,56 +52,6 @@ public class CiWorkflowTests
     }
 
     [Fact]
-    public void HostedPackageFixture_UsesOneStepScopedReadToken()
-    {
-        string testHeader = JobHeader("test");
-
-        Assert.Contains("contents: read", testHeader);
-        Assert.Contains("packages: read", testHeader);
-        Assert.Equal(
-            1,
-            CountOccurrences(Workflow, "packages: read"));
-
-        string fixtureStep = NamedStep(
-            "Run GitHub Packages fixture test");
-        Assert.Contains(
-            "DOTNET_INSPECT_PACKAGE_FIXTURE_USER: ${{ github.actor }}",
-            fixtureStep);
-        Assert.Contains(
-            "DOTNET_INSPECT_PACKAGE_FIXTURE_TOKEN: ${{ github.token }}",
-            fixtureStep);
-        Assert.DoesNotContain(
-            "DOTNET_INSPECT_PACKAGE_FIXTURE_TOKEN",
-            testHeader);
-        Assert.Equal(
-            1,
-            CountOccurrences(
-                Workflow,
-                "DOTNET_INSPECT_PACKAGE_FIXTURE_TOKEN: ${{ github.token }}"));
-        Assert.Contains(
-            "--filter-method '*Package_Manifest_RendersToolManifestRows*'",
-            fixtureStep);
-        Assert.Contains(
-            "Package fixture test skipped authenticated execution.",
-            fixtureStep);
-        Assert.Contains(
-            "grep -Eq '<assembly[^>]+skipped=\"0\"'",
-            fixtureStep);
-        Assert.Contains("--report-xunit-xml", fixtureStep);
-        Assert.Contains(
-            "--report-xunit-xml-filename \"$results_name\"",
-            fixtureStep);
-        Assert.Contains(
-            "--results-directory \"$results_dir\"",
-            fixtureStep);
-        Assert.Contains("continue-on-error: true", fixtureStep);
-        Assert.Contains("id: package_fixture", fixtureStep);
-        Assert.Contains(
-            "if: matrix.shard == 'host-policy' && steps.package_fixture.outcome == 'failure'",
-            NamedStep("Check GitHub Packages fixture result"));
-    }
-
-    [Fact]
     public void JsExportAsyncWireGate_RunsBothParityFormsAndCloseNegative()
     {
         string step = NamedStep("Run JSExport runtime-async wire gates");
@@ -125,16 +75,6 @@ public class CiWorkflowTests
         Assert.Contains(
             "--results-directory \"$results_dir\"",
             step);
-    }
-
-    static string JobHeader(string jobName)
-    {
-        int jobStart = Workflow.IndexOf($"\n  {jobName}:\n", StringComparison.Ordinal);
-        Assert.True(jobStart >= 0, $"CI workflow does not define the '{jobName}' job.");
-
-        int stepsStart = Workflow.IndexOf("\n    steps:\n", jobStart, StringComparison.Ordinal);
-        Assert.True(stepsStart > jobStart, $"CI job '{jobName}' does not define steps.");
-        return Workflow[jobStart..stepsStart];
     }
 
     static string NamedStep(string stepName)

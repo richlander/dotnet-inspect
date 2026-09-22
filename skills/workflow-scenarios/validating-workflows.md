@@ -71,8 +71,8 @@ General preconditions for all workflows:
 
 - **Warm cache**: Timing targets assume second+ invocation (OS and app caches warm).
 - **Network**: Some commands require network access (for example,
-  `Package@latest --version`). Others are fully offline (for example,
-  `--version` with cached data).
+  `package Package --latest-version`). Others are fully offline (for example,
+  exact Package inspection from a cached payload).
 
 ## Running a single workflow
 

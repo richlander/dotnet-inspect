@@ -12,6 +12,7 @@ import type {
   BrowserPackageQueryEvent as BrowserPackageQueryEventPayload,
   BrowserPackageQueryMatchCreditResponse,
   BrowserPackageQueryResult,
+  BrowserPackageQueryTerm,
 } from "./facades/inspect-web-package.d.ts";
 import type {
   PackageQueryDataSource,
@@ -49,7 +50,7 @@ export interface BrowserPackageQueryEngine {
   run(
     operationId: string,
     searchText: string,
-    termsJson: string,
+    terms: ReadonlyArray<BrowserPackageQueryTerm>,
     targetFramework: string | null,
     maximumCandidates: number,
     maximumMatches: number,
@@ -239,7 +240,7 @@ export function createBrowserPackageQueryDataSource(
         const result = await engine.run(
               operationId,
               request.scopeQuery,
-              JSON.stringify([
+              [
                 ...request.presets.map(preset => ({
                   key: preset.key,
                   operator: preset.operator,
@@ -250,7 +251,7 @@ export function createBrowserPackageQueryDataSource(
                   operator: term.operator,
                   value: term.value,
                 })),
-              ]),
+              ],
               isLibraryLiteralQuery(request)
                 ? request.targetFramework
                 : null,

@@ -45,6 +45,10 @@
     <None Include="$(NuGetPackageRoot)docopt.net/0.8.3/lib/netstandard2.1/DocoptNet.dll"
           Link="RealAssets/FieldGetter/DocoptNet.dll"
           CopyToOutputDirectory="PreserveNewest" />
+    <PackageDownload Include="Newtonsoft.Json" Version="[13.0.4]" />
+    <None Include="$(NuGetPackageRoot)newtonsoft.json/13.0.4/lib/net6.0/Newtonsoft.Json.dll"
+          Link="RealAssets/ReferenceConditional/Newtonsoft.Json.dll"
+          CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
   <ItemGroup>

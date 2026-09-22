@@ -123,10 +123,16 @@ public static class PackageCommandDefinitions
         });
         var typeFilterOption = new Option<string?>("-t") { Description = "Filter SourceLink: Files rows by type glob/name (e.g., *Json*)" };
         typeFilterOption.Aliases.Add("--type");
-        var versionOption = new Option<bool>("--version")
+        var versionOption = new Option<string?>("--version")
         {
             Description =
-                "Show the resolved Package version; select a version with Package@Version",
+                "Select an exact Package version",
+            Arity = ArgumentArity.ExactlyOne,
+        };
+        var latestVersionOption = new Option<bool>("--latest-version")
+        {
+            Description =
+                "Show the latest stable version from eligible configured sources (add --preview for prerelease)",
             Arity = ArgumentArity.Zero,
         };
         packageCommand.Arguments.Add(packageNameArg);
@@ -158,6 +164,7 @@ public static class PackageCommandDefinitions
         packageCommand.Options.Add(depthOption);
         packageCommand.Options.Add(typeFilterOption);
         packageCommand.Options.Add(versionOption);
+        packageCommand.Options.Add(latestVersionOption);
         packageCommand.Options.Add(opts.PreferRenderedUrls);
         packageCommand.Options.Add(opts.Bare);
         packageCommand.Options.Add(outOption);
@@ -166,6 +173,7 @@ public static class PackageCommandDefinitions
             libOption, toolsOption, libraryOption, namesakeLibraryOption, allLibrariesOption, versionsOption, versionsWithFeedOption, prereleaseOption, includeUnlistedOption,
             contentOption, frontmatterOption, bodyOption,
             tfmOption, depthOption, typeFilterOption, versionOption,
+            latestVersionOption,
             opts.Lines, opts.TailLines, outOption, pathMatchOption,
             skipEmptyOption, rootsOption, opts.NoHeaders,
             workspaceOption, shareOption,
@@ -223,7 +231,8 @@ public static class PackageCommandDefinitions
             skipEmptyOption, tfmsOption, libOption, toolsOption,
             libraryOption, namesakeLibraryOption, allLibrariesOption,
             contentOption, frontmatterOption, bodyOption, outOption,
-            tfmOption, depthOption, typeFilterOption, versionOption, rootsOption);
+            tfmOption, depthOption, typeFilterOption, versionOption,
+            latestVersionOption, rootsOption);
         packageCommand.Validators.Add(result =>
         {
             bool hasPluralVersionSelector =
