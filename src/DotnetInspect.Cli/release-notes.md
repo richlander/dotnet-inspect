@@ -13,6 +13,10 @@
   QuerySpace and Query Operation route across Package Query, Library Query,
   Find, Depends, and Graph Libraries (#7373, #7561, #7575, #7594, #7677,
   #7799, #7867, #7872, #7910, #7924, #7945, #7985, #8042).
+- Adds exact decoded-string `library-literal=<text>` qualification to Package
+  Query with an exact `--tfm`. Results remain package-grain while retaining the
+  selected Library, complete occurrences, typed completion, and an exact Root
+  reopening token (#8054).
 - **Breaking:** Replaces `package search` and patternless
   `find --package-prefix` with host-neutral `package query`. Exact IDs and
   terminal-star prefixes share the Package Query engine; `--take` limits
@@ -46,11 +50,12 @@
   rejected, while Library's separate `@Integrations` category remains
   available. Computed `@All`, `@Default`, and `@Hidden` remain unsupported
   (#7453, #7506).
-- **Breaking:** Removes package `--latest-version`; use
-  `PACKAGE@latest --version` for a fresh scalar latest query or omit the
-  version for ordinary latest inspection. SourceLink `--raw` and `--blob` are
-  replaced by `--prefer-rendered-urls`; direct fetchable URLs remain the
-  default (#7510, #7621).
+- Uses explicit Package version lenses: `package ID --version VERSION`
+  verifies one exact version, while `package ID --latest-version` returns the
+  newest listed version. Root `dotnet-inspect --version` remains product
+  version reporting. SourceLink `--raw` and `--blob` are replaced by
+  `--prefer-rendered-urls`; direct fetchable URLs remain the default (#7621,
+  #8204).
 
 ### Workspaces and coordinates
 
@@ -61,6 +66,14 @@
   replay preserves focus independently from selected context, while Inspect Web
   activation and deletion settle as consumer-accepted transactions (#7505,
   #7509, #7542, #7615, #7756, #7836, #7873, #7909, #7949, #8011).
+- Adds canonical Workspace component paths and immutable
+  `workspace package add|update|remove` editing, plus nested packet
+  encode/decode commands. Inspect Web now saves and reopens complete Workspace
+  packets through retained-definition activation; legacy records remain
+  explicit compatibility records (#8146, #8153).
+- Adds bounded picker, drop, and paste opening of one standalone managed
+  assembly in Inspect Web, with typed rejection and Library-to-Type-to-Member
+  navigation (#8051).
 - Adds focus-first `library coordinate <coordinate>` and bounded
   `library coordinate --file <path>` for exact IL and metadata-heap inspection,
   retaining source context and typed malformed-record evidence. File mode
@@ -80,6 +93,16 @@
   without waiting indefinitely (#7502, #7527, #7568, #7597, #7605, #7680,
   #7729, #7782, #7824, #7868, #7899, #7930, #7957, #7968, #8034, #8049,
   #8058, #8065, #8101).
+- Adds explicit authored-first `type T -S Source` and exact
+  `member T M -S Source`. Native source remains the default presentation;
+  explicit Markdown and structured output preserve provider and fallback
+  context, while `PDB Source` and `Decompiled Source` remain independent
+  provider-specific views. Authored member-part printing now honors
+  `--markdown`, and Type Source preserves stable Portable PDB disposition
+  diagnostics (#8140, #8147, #8195).
+- Preserves compiled XML alongside typed authored-source availability,
+  incompleteness, and failure in Inspect Web package-member documentation
+  (#8161).
 - **Breaking:** A single selected Type or Member source/code payload now prints
   native content by default. Use `--markdown` to request the framed document
   presentation. Full-Type source no longer requires `--all` to include
@@ -114,6 +137,14 @@
   now reuse immutable snapshots instead of copying them during cohort binding
   (#7508, #7579, #7603, #7722, #7725, #7738, #7770, #7817, #7861, #7869,
   #7878, #7896, #7912, #7936, #7939, #7995, #8144).
+- Makes package-backed `graph calls` automatically follow the root package's
+  dependency graph in both the CLI and Inspect Web, preserving exact root
+  selection while applying an independent traversal target (#8215).
+- Adds an explicit `Library Metrics` section for whole-library structural
+  metrics. QuerySpace and metadata-backed count paths reduce allocation and
+  startup cost for Graph Libraries and installed-Platform Type inventories,
+  while retaining fallback when compact evidence is unavailable (#8183,
+  #8186, #8207, #8221).
 - Adds complete JSON and `InspectionEnvelope<ImplementationDiffDocument>`
   transport for one exact local Implementation Diff pair while preserving
   ordinary rendered output (#7876).
@@ -167,6 +198,9 @@
   evidence remains complete, and renames ambiguous `Implementation Profiles`
   to `Type Metrics` and `Member Metrics` (#6413, #7535, #7561, #7834, #7922,
   #7956, #7972, #7999, #8012, #8059, #8061, #8075, #8079, #8113, #8149).
+- Resolves versionless bare CLI Type and Member requests through the highest
+  eligible installed Platform catalog before lazy package fallback, retaining
+  exact assembly and runtime identity (#8177).
 - **Breaking:** Flattens `vocabulary` discovery and removes category selectors
   such as `@Decompiler`; stable names, IDs, and globs replace them, and
   structured schema v2 removes `categories`. Removes redundant `type --shape`;
