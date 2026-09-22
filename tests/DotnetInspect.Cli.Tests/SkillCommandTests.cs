@@ -218,6 +218,9 @@ public class SkillCommandTests
         Assert.Contains("find JsonSerializer -n 5 --table", router);
         Assert.Contains("find ControllerBase -n 5 --table", router);
         Assert.Contains("find OptionsBuilder -n 5 --table", router);
+        Assert.Contains(
+            "find IChatClient --package Microsoft.Extensions.AI.Abstractions",
+            router);
     }
 
     [Fact]
