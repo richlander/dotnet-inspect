@@ -65,8 +65,8 @@ development model and rationale. The binding summary:
   advertise GPT models, never start non-GPT, `Fast`, or extra-high (`xhigh`)
   configurations. This launch prohibition does not invalidate work: observe and
   use results from agents mistakenly started with a prohibited configuration.
-  Default to GPT-5.6 Sol; use GPT-6 Astra for complex reviews, or GPT-5.6 Terra
-  or Luna for relatively simple reviews.
+  Default to GPT-6 Sol. Prefer GPT-6 Luna for well-bounded work with clear
+  acceptance criteria; use GPT-6 Astra for complex reviews.
 - **Hot-start requested work through PR and review.** Agents may branch,
   commit, push, open the PR, and dispatch eligible rounds without separate
   approval; merge remains separately authorized.
@@ -488,8 +488,8 @@ The full procedure lives in
 ### How many reviewers, and from which models
 
 Trivial changes need no review; state why. Everything else gets one GPT seat:
-GPT-5.6 Sol by default, GPT-6 Astra for complex work, or Terra/Luna for
-relatively simple work. Selection, substitution, and dispatch rules live in
+GPT-6 Sol by default, GPT-6 Astra for complex work, or GPT-6 Luna for
+well-bounded work. Selection, substitution, and dispatch rules live in
 [Reviewer roster](docs/round-orchestration.md#reviewer-roster).
 
 ### Running the round
