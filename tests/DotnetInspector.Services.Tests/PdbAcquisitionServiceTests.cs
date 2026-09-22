@@ -355,10 +355,8 @@ public class PdbAcquisitionServiceTests
         var evidence =
             new PortablePdbAcquisitionEvidenceCollector();
 
-        PdbExternalAcquisitionException exception =
-            await Assert.ThrowsAsync<
-                PdbExternalAcquisitionException>(
-            () => PdbAcquisitionService.AcquireAsync(
+        PortablePdbAcquisitionResult? result =
+            await PdbAcquisitionService.AcquireAsync(
                 source.Context,
                 assembly,
                 client,
@@ -373,12 +371,16 @@ public class PdbAcquisitionServiceTests
                         maxSymbolPackageBytes: 64,
                         maxPortablePdbBytes: 64,
                         maxSymbolPackageEntries: 8),
-                evidence: evidence));
+                evidence: evidence);
 
+        var unavailable =
+            Assert.IsType<
+                PortablePdbAcquisitionResult.Unavailable>(
+                    result);
         Assert.Equal(
             PortablePdbAcquisitionFailureKind
                 .ExternalProviderFailed,
-            exception.AcquisitionFailure);
+            unavailable.AcquisitionFailure);
         PortablePdbAcquisitionEvidenceDocument document =
             evidence.ToDocument();
         Assert.Equal(

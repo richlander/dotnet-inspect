@@ -20,7 +20,7 @@ public sealed class PdbStoreAcquisitionException : IOException
 /// <summary>A typed failure reported by an external PDB provider.</summary>
 public sealed class PdbExternalAcquisitionException : IOException
 {
-    internal PdbExternalAcquisitionException(
+    public PdbExternalAcquisitionException(
         PortablePdbAcquisitionFailureKind acquisitionFailure)
         : base(
             "External PDB providers could not produce usable Portable PDB content.")
@@ -75,7 +75,8 @@ public static class PdbAcquisitionService
             sourceAuthorization).ConfigureAwait(false);
     }
 
-    private static async Task AcquireCoreAsync(
+    private static async Task<PortablePdbAcquisitionResult>
+        AcquireCoreAsync(
         PdbContext context,
         HttpClient httpClient,
         string? assemblyName,
@@ -161,15 +162,12 @@ public static class PdbAcquisitionService
             evidence?.RecordStoreFailure(storeFailure);
             throw new PdbStoreAcquisitionException(storeFailure);
         }
-        else if (result.AcquisitionFailure is { } acquisitionFailure)
-        {
-            throw new PdbExternalAcquisitionException(
-                acquisitionFailure);
-        }
         else if (result.WindowsPdbDetected)
         {
             context.WindowsPdbDetected = true;
         }
+
+        return result;
     }
 
     internal static string DescribeStoreFailure(
@@ -217,7 +215,8 @@ public static class PdbAcquisitionService
             cancellationToken);
     }
 
-    public static Task AcquireAsync(
+    public static Task<PortablePdbAcquisitionResult?>
+        AcquireAsync(
         PdbContext context,
         ResolvedAssemblyReference assembly,
         HttpClient httpClient,
@@ -239,7 +238,10 @@ public static class PdbAcquisitionService
         ArgumentNullException.ThrowIfNull(sourceAuthorization);
 
         if (!context.NeedsPdb)
-            return Task.CompletedTask;
+        {
+            return Task.FromResult<
+                PortablePdbAcquisitionResult?>(null);
+        }
 
         var (packageName, packageVersion, isPlatformAssembly) =
             GetAcquisitionCoordinates(
@@ -247,21 +249,26 @@ public static class PdbAcquisitionService
                 fallbackPackageName,
                 fallbackPackageVersion);
 
-        return AcquireCoreAsync(
-            context,
-            httpClient,
-            assembly.Identity.Name,
-            packageName,
-            packageVersion,
-            isPlatformAssembly,
-            log,
-            cacheOnly,
-            sourceOptions,
-            cancellationToken,
-            pdbStore,
-            sourceAuthorization,
-            limits,
-            evidence);
+        return AcquireResultCoreAsync();
+
+        async Task<PortablePdbAcquisitionResult?>
+            AcquireResultCoreAsync() =>
+                await AcquireCoreAsync(
+                        context,
+                        httpClient,
+                        assembly.Identity.Name,
+                        packageName,
+                        packageVersion,
+                        isPlatformAssembly,
+                        log,
+                        cacheOnly,
+                        sourceOptions,
+                        cancellationToken,
+                        pdbStore,
+                        sourceAuthorization,
+                        limits,
+                        evidence)
+                    .ConfigureAwait(false);
     }
 
     private static (

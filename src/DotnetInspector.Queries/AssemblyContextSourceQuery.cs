@@ -1513,7 +1513,8 @@ public static partial class AssemblyContextSourceQuery
         return result;
     }
 
-    static Task AcquirePdbAsync(
+    static Task<PortablePdbAcquisitionResult?>
+        AcquirePdbAsync(
         SourceLinkService source,
         ResolvedAssemblyReference retained,
         AssemblyContextSourceQueryContext context,
@@ -1586,13 +1587,20 @@ public static partial class AssemblyContextSourceQuery
             try
             {
                 LoadAdjacentPdb(source, retained, context, cancellationToken);
-                await AcquirePdbAsync(
+                PortablePdbAcquisitionResult? acquisition =
+                    await AcquirePdbAsync(
                         source,
                         retained,
                         context,
                         pdbEvidence,
                         cancellationToken)
                     .ConfigureAwait(false);
+                if (acquisition?.AcquisitionFailure
+                    is { } acquisitionFailure)
+                {
+                    throw new PdbExternalAcquisitionException(
+                        acquisitionFailure);
+                }
             }
             catch (Exception ex) when (IsPdbAcquisitionFailure(ex))
             {
