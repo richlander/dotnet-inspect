@@ -259,11 +259,13 @@ test("application menu renders exact conditional inventory", () => {
   assert.match(button, /aria-haspopup="menu"/);
   assert.match(
     withShare,
-    /data-application-action="open-library"[\s\S]*role="separator"[\s\S]*data-application-action="share"[\s\S]*role="separator"[\s\S]*data-application-action="settings"[\s\S]*data-application-action="keyboard-help"/);
+    /data-application-action="share"[\s\S]*role="separator"[\s\S]*data-application-action="settings"[\s\S]*data-application-action="keyboard-help"/);
+  assert.doesNotMatch(withShare, /data-application-action="open-library"/);
   assert.doesNotMatch(withoutShare, /data-application-action="share"/);
   assert.match(
     withoutShare,
-    /data-application-action="open-library"[\s\S]*role="separator"[\s\S]*data-application-action="settings"[\s\S]*data-application-action="keyboard-help"/);
+    /data-application-action="settings"[\s\S]*data-application-action="keyboard-help"/);
+  assert.doesNotMatch(withoutShare, /role="separator"/);
 });
 
 test("application menu follows menu-button keyboard and dismissal behavior", () => {
@@ -271,16 +273,14 @@ test("application menu follows menu-button keyboard and dismissal behavior", () 
   const button = root.add("#application-menu-button");
   const menu = root.add("#application-menu");
   menu.hidden = true;
-  const open = root.element({ applicationAction: "open-library" });
   const share = root.element({ applicationAction: "share" });
   const settings = root.element({ applicationAction: "settings" });
   const help = root.element({ applicationAction: "keyboard-help" });
-  open.hidden = false;
   share.hidden = false;
   settings.hidden = false;
   help.hidden = false;
-  menu.addAll('[role="menuitem"]', open, share, settings, help);
-  menu.addAll("[data-application-action]", open, share, settings, help);
+  menu.addAll('[role="menuitem"]', share, settings, help);
+  menu.addAll("[data-application-action]", share, settings, help);
   root.addAll(
     'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
     button);
@@ -297,14 +297,14 @@ test("application menu follows menu-button keyboard and dismissal behavior", () 
   assert.equal(button.dispatch("keydown", { key: "ArrowDown" }), true);
   assert.equal(menu.hidden, false);
   assert.equal(button.getAttribute("aria-expanded"), "true");
-  assert.equal(open.focused, true);
+  assert.equal(share.focused, true);
 
   menu.dispatch("keydown", { key: "ArrowDown" });
-  assert.equal(share.focused, true);
+  assert.equal(settings.focused, true);
   menu.dispatch("keydown", { key: "End" });
   assert.equal(help.focused, true);
   menu.dispatch("keydown", { key: "ArrowDown" });
-  assert.equal(open.focused, true);
+  assert.equal(share.focused, true);
   assert.equal(menu.dispatch("keydown", { key: "Escape" }), true);
   assert.equal(menu.hidden, true);
   assert.equal(button.focused, true);

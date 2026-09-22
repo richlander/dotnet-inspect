@@ -116,6 +116,39 @@ public sealed record BrowserPackagePerformance(
     int TotalOpportunities,
     BrowserCompileLibraryAvailability CompileLibrary);
 
+public sealed record BrowserLibraryMetrics(
+    string Outcome,
+    string? MethodologyVersion,
+    BrowserLibraryMetricsPopulation? Population,
+    BrowserLibraryMetricsDistribution[] Distributions,
+    BrowserLibraryMetricsBooleanDisposition? AsyncStateMachinePresence,
+    string[] Diagnostics,
+    string? Failure,
+    BrowserCompileLibraryAvailability CompileLibrary);
+
+public sealed record BrowserLibraryMetricsPopulation(
+    int PhysicalEvidenceBodyCount,
+    int ProfiledPhysicalEvidenceBodyCount,
+    int LogicalOwnerCount,
+    int CompleteProfileCount,
+    int IncompleteProfileCount);
+
+public sealed record BrowserLibraryMetricsDistribution(
+    string Metric,
+    int CompleteBodyCount,
+    int? Minimum,
+    int? P50,
+    int? P90,
+    int? P95,
+    int? P99,
+    int? Maximum);
+
+public sealed record BrowserLibraryMetricsBooleanDisposition(
+    string Name,
+    int CompleteBodyCount,
+    int PresentCount,
+    int AbsentCount);
+
 public sealed record BrowserPerformanceMember(
     string Assembly,
     string TypeId,
@@ -200,6 +233,7 @@ public sealed record BrowserPerformanceOpportunity(
 [JsonSerializable(typeof(BrowserPackageIntegrations))]
 [JsonSerializable(typeof(BrowserPackageOpportunities))]
 [JsonSerializable(typeof(BrowserPackagePerformance))]
+[JsonSerializable(typeof(BrowserLibraryMetrics))]
 [JsonSerializable(typeof(BrowserAnalysisInspectionEnvelope))]
 [JsonSerializable(typeof(BrowserMemberFacts))]
 [JsonSerializable(typeof(BrowserCloneCandidateRequest))]

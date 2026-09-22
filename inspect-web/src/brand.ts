@@ -9,9 +9,11 @@ function escapeAttribute(value: string): string {
 }
 
 export type ProductDestination = "home" | "query" | "workspace" | "activity";
+export type ProductAction = "open-library";
 
 export interface ProductNavigationActions {
   currentDestination: () => ProductDestination | null;
+  onAction: (action: ProductAction) => void;
   onNavigate: (destination: ProductDestination) => void;
   unavailableReason: (destination: ProductDestination) => string | null;
 }
@@ -46,6 +48,9 @@ export function renderBrand(options: {
     data-product-navigation-menu aria-label="dotnet-inspect" hidden>
     ${productDestinations.map(([destination, label]) =>
       `<button type="button" role="menuitem" tabindex="-1" data-product-destination="${destination}">${label}</button>`).join("")}
+    <div class="product-navigation-separator" role="separator"></div>
+    <button type="button" role="menuitem" tabindex="-1"
+      data-product-action="open-library">Open Library…</button>
   </nav>`;
 }
 
@@ -58,6 +63,12 @@ function isProductDestination(
     || value === "activity";
 }
 
+function isProductAction(
+  value: string | null | undefined,
+): value is ProductAction {
+  return value === "open-library";
+}
+
 function buttonMenu(
   root: ParentNode,
   button: HTMLElement,
@@ -68,7 +79,7 @@ function buttonMenu(
 
 function productItems(menu: HTMLElement): HTMLButtonElement[] {
   return [...menu.querySelectorAll<HTMLButtonElement>(
-    "[data-product-destination]")];
+    "[data-product-destination], [data-product-action]")];
 }
 
 function clamp(value: number, minimum: number, maximum: number): number {
@@ -195,17 +206,23 @@ export function bindProductNavigation(
       if (open) openProductNavigation(button, menu, actions, "first");
       return;
     }
-    const item =
-      target?.closest<HTMLButtonElement>("[data-product-destination]");
+    const item = target?.closest<HTMLButtonElement>(
+      "[data-product-destination], [data-product-action]");
     if (!item || !root.contains(item)) return;
     if (item.getAttribute("aria-disabled") === "true") {
       event.preventDefault();
       return;
     }
     const destination = item.dataset.productDestination;
-    if (!isProductDestination(destination)) return;
+    if (isProductDestination(destination)) {
+      closeOpenMenu(true);
+      actions.onNavigate(destination);
+      return;
+    }
+    const action = item.dataset.productAction;
+    if (!isProductAction(action)) return;
     closeOpenMenu(true);
-    actions.onNavigate(destination);
+    actions.onAction(action);
   };
   const keyDownHandler = (event: KeyboardEvent) => {
     const target = eventElement(event.target);
