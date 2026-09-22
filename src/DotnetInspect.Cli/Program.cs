@@ -133,8 +133,8 @@ try
     }
 
     #if DEBUG
-    // DEBUG-only: log every managed HTTP request with its traffic kind to catch unintended network access.
-    // Disabled for offline mode (OfflineHandler handles it) and detailed verbosity (legitimate need).
+    // Log every managed HTTP request with its traffic kind; offline mode
+    // enforces the no-network boundary separately.
     if (!offline)
         DotnetInspector.Networking.HttpClientFactory.EnableNetworkTrafficLogging(CSharpIdentifier.ContainRenderedText);
     #endif
