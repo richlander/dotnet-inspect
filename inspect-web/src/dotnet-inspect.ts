@@ -127,6 +127,7 @@ import {
   createPackageAcquisition,
   createNuGetPackageModel,
   createRuntimePackageModel,
+  createUploadedLibraryModel,
   createWorkspaceOccurrencePackageModel,
   graphOnlyImplementationBody,
   retainGraphOnlyImplementationBody,
@@ -158,6 +159,13 @@ import {
   preferredLibrarySubjectId,
   renderLibrarySubjectNav,
 } from "./library-subject-nav.ts";
+import {
+  bindLibraryOpen,
+  bindLibraryOpenDocument,
+  renderLibraryOpenDialog,
+  type LibraryOpenActions,
+  type LibraryOpenInput,
+} from "./library-open.ts";
 import {
   bindLibraryControls,
   type LibraryControlBindingActions,
@@ -353,6 +361,7 @@ import {
   activateRetainedWorkspace as activateRetainedWorkspaceState,
   createRetainedWorkspaceCollection,
   deleteRetainedWorkspace as deleteRetainedWorkspaceState,
+  detachActiveRetainedWorkspace,
   MAX_RETAINED_WORKSPACES,
   publishRetainedWorkspace,
   type RetainedWorkspaceCollection,
@@ -625,6 +634,9 @@ import type {
   BrowserWorkspacePackageOccurrenceActivation,
   BrowserWorkspacePackageOccurrenceView,
 } from "./facades/inspect-web-package.d.ts";
+export type {
+  BrowserUploadedLibraryInspection,
+} from "./facades/inspect-web-library.d.ts";
 import type {
   BrowserMemberDeclaration,
   BrowserTypeMetadata,
@@ -672,6 +684,8 @@ let inspectPlatformMemberDocumentation:
   EngineClient["package"]["queryPlatformMemberDocumentation"];
 let inspectPackage: EngineClient["package"]["queryPackage"];
 let inspectPackageRoot: EngineClient["package"]["queryPackageRoot"];
+let inspectOpenUploadedLibrary:
+  EngineClient["library"]["openUploadedLibrary"];
 let inspectLibraryApi: EngineClient["package"]["queryLibraryApi"];
 let inspectPackageDependencies:
   EngineClient["package"]["queryPackageDependencies"];
@@ -847,6 +861,9 @@ async function loadEngineModule() {
       clearWorkspacePackageOccurrences:
         inspectClearWorkspacePackageOccurrences,
     } = engineClient.package);
+    ({
+      openUploadedLibrary: inspectOpenUploadedLibrary,
+    } = engineClient.library);
     ({
       cancelLibraryApiDiff,
       queryLibraryApiDiff: inspectLibraryApiDiff,
@@ -1043,12 +1060,14 @@ let homeBotAnimationStartedAt: number | null = null;
 let homeReadyGlintPending = true;
 let homeFocusRenderGeneration = 0;
 let pendingHomeFocusTarget: HomeFocusTarget | null = null;
+type LibraryOpenReturnTarget = "home" | "application" | "surface";
 const initialState = {
   theme: localStorage.getItem("inspect-theme") === "light" ? "light" : "dark",
   memberFiltersExpanded: false,
   typeFiltersExpanded: false,
   packages: [],
   package: null,
+  uploadedLibrary: null,
   home: false,
   credits: false,
   packageQueryOpen: false,
@@ -1057,6 +1076,10 @@ const initialState = {
   packageQueryNavigationError: "",
   packageQueryCatalogError: "",
   packageChangesCatalogError: "",
+  libraryOpen: false,
+  libraryOpenBusy: false,
+  libraryOpenError: "",
+  libraryOpenReturn: "surface" as LibraryOpenReturnTarget,
   packageQueryOpenedFromApp: false,
   packageActivityOpenedFromApp: false,
   packageQueryPredecessorEntryId: null,
@@ -1072,7 +1095,7 @@ const initialState = {
   packageChangesPackageSets: [],
   packageChangesState: initialPackageChangesState(),
   platformIndex: null,
-  rootKind: "package" as "package" | "platform",
+  rootKind: "package" as "package" | "platform" | "library",
   platformSelection: null,
   frameworkLibraryPresentation: null,
   platformPresentedAsRoot: false,
@@ -1240,6 +1263,7 @@ const memberSourcePartSelector = createMemberSourcePartSelector();
 interface StateOverrides {
   packages: AppPackage[];
   package: AppPackage | null;
+  uploadedLibrary: AppPackage | null;
   workspaceOccurrences: BrowserWorkspacePackageOccurrenceView | null;
   workspaceShareBasis: BrowserWorkspaceShareState | null;
   platformIndex: PlatformIndex | null;
@@ -1325,6 +1349,30 @@ const state: AppState = initialState;
 const scopeBarState = createScopeBarState();
 let scopeBarBinding: ScopeBarBinding | null = null;
 let workbenchShellBinding: WorkbenchShellBinding | null = null;
+let disconnectLibraryOpen: (() => void) | null = null;
+let libraryOpenSequence = 0;
+const libraryEngineReadyWaiters: Array<{
+  resolve: () => void;
+  reject: (error: Error) => void;
+}> = [];
+
+function waitForLibraryEngineReady(): Promise<void> {
+  if (state.engineReady) return Promise.resolve();
+  if (state.engineStartupFailed) {
+    return Promise.reject(new Error(
+      "The browser inspection engine did not start."));
+  }
+  return new Promise<void>((resolve, reject) => {
+    libraryEngineReadyWaiters.push({ resolve, reject });
+  });
+}
+
+function settleLibraryEngineReadyWaiters(error?: Error) {
+  for (const waiter of libraryEngineReadyWaiters.splice(0)) {
+    if (error) waiter.reject(error);
+    else waiter.resolve();
+  }
+}
 type FailedWorkspaceUrlState = WorkspaceUrlPreservation & (
   | { kind: "canonical" }
   | {
@@ -1412,6 +1460,9 @@ CanonicalWorkspaceRestoreSnapshot {
     catalogRequests.copyPackage(original, copy);
   }
   packageComparisonTargets.copyPackages(copies);
+  const uploadedLibrary = state.uploadedLibrary
+    ? structuredClone(state.uploadedLibrary)
+    : null;
   const activeKey = state.package
     ? packageIdentityKey(state.package)
     : null;
@@ -1425,9 +1476,12 @@ CanonicalWorkspaceRestoreSnapshot {
       platformCatalogStatus: { ...state.platformCatalogStatus },
       platformOpeningStatus: { ...state.platformOpeningStatus },
       packages,
-      package: activeKey
-        ? packages.find(pkg => packageIdentityKey(pkg) === activeKey) ?? null
-        : null,
+      uploadedLibrary,
+      package: state.rootKind === "library" && state.package
+        ? uploadedLibrary
+        : activeKey
+          ? packages.find(pkg => packageIdentityKey(pkg) === activeKey) ?? null
+          : null,
       workspaceDependencies: structuredClone(state.workspaceDependencies),
       workspaceDependencyErrors:
         structuredClone(state.workspaceDependencyErrors),
@@ -1461,7 +1515,9 @@ CanonicalWorkspaceRestoreSnapshot {
     platformLibraryRetry,
     platformCatalogRetry,
   };
-  if (snapshot.state.packages.length === 0 && !snapshot.state.platformSelection) {
+  if (snapshot.state.packages.length === 0
+    && !snapshot.state.platformSelection
+    && !snapshot.state.uploadedLibrary) {
     snapshot.state.workspaceSubjectOpen = true;
     snapshot.state.atPackageRoot = true;
     snapshot.state.atLibraryRoot = false;
@@ -3130,7 +3186,9 @@ function captureView(): WorkspaceView | null {
     rootKind: state.rootKind,
     platform: state.platformSelection ? { ...state.platformSelection } : null,
     package: state.package?.id ?? "",
-    packageKey: packageIdentityKey(state.package),
+    packageKey: state.rootKind === "library"
+      ? uploadedLibraryHistoryKey(state.package)
+      : packageIdentityKey(state.package),
     workspaceSubjectOpen: state.workspaceSubjectOpen,
     lens: state.lens,
     selectedTypeId: state.selectedTypeId,
@@ -3158,6 +3216,16 @@ function captureView(): WorkspaceView | null {
       && hasPlatformRootHistoryView(),
     platformPresentedAsRoot: platformIsPresentedAsRoot(),
   };
+}
+
+function uploadedLibraryHistoryKey(
+  pkg: AppPackage | null | undefined,
+): string {
+  if (!pkg) return "";
+  return [
+    packageIdentityKey(pkg),
+    encodeURIComponent(pkg.assemblyId.toLowerCase()),
+  ].join("|");
 }
 
 function viewSignature() {
@@ -3257,7 +3325,11 @@ function applyView(view: WorkspaceView) {
       return true;
     }
   }
-  const pkg = packageForView(state.packages, view)
+  const pkg = (view.rootKind === "library"
+      && uploadedLibraryHistoryKey(state.uploadedLibrary) === view.packageKey
+      ? state.uploadedLibrary
+      : null)
+    ?? packageForView(state.packages, view)
     ?? (view.rootKind === "platform" && view.platform ? runtimePackageForTarget(view.platform) : null);
   if (!pkg) return false;
   if (view.rootKind === "platform" && !state.packages.includes(pkg))
@@ -3540,6 +3612,9 @@ function withRetainedWorkspaceHistoryId(historyState: unknown): unknown {
 }
 
 function memberSectionsFor(member: AppMemberGroup) {
+  if (state.rootKind === "library") {
+    return memberSectionDefinitions.filter(([id]) => id === "overview");
+  }
   const allowed = new Set(
     memberSectionIdsFor(
       member,
@@ -3775,6 +3850,8 @@ const NUGET_DEFAULT_PACKAGE_ICON =
 function renderInspectedSubjectIcon(pkg: AppPackage): string {
   if (scope() === "workspace")
     return '<span class="subject-icon" aria-hidden="true">W</span>';
+  if (state.rootKind === "library")
+    return '<span class="subject-icon" aria-hidden="true">◫</span>';
   if (pkg.isRuntimePack)
     return '<span class="subject-icon" aria-hidden="true">◎</span>';
 
@@ -3901,7 +3978,7 @@ const savedWorkspaces = createSavedWorkspaces({
 const spotlight = createSpotlight({
   keybindings,
   state,
-  lenses: () => typeLensesFor(state.package),
+  lenses: () => availableTypeLenses(),
   escapeHtml,
   highlightRanges,
   kindIcon,
@@ -4332,11 +4409,11 @@ function typeQualifiedLibraryLabel(
 }
 
 function aggregateLibrarySubjectIsActive() {
-  return state.rootKind !== "platform" && state.libraryScope === null;
+  return state.rootKind === "package" && state.libraryScope === null;
 }
 
 function aggregateLibrarySubjectIsAvailable() {
-  return state.rootKind !== "platform" && packageLibraries().length > 0;
+  return state.rootKind === "package" && packageLibraries().length > 0;
 }
 
 function activeLibrarySubjectName() {
@@ -4658,6 +4735,7 @@ function clearWorkspacePackages() {
   const discarded = state.packages;
   state.packages = [];
   state.package = null;
+  state.uploadedLibrary = null;
   state.workspaceShareBasis = null;
   state.platformSelection = null;
   state.frameworkLibraryPresentation = null;
@@ -5215,7 +5293,7 @@ function selectScopeLensByIndex(index: number, workspaceScope: WorkspaceScope): 
     const selected = libraryLensesFor(state.package)[index];
     if (selected) selectLibraryLens(selected[0]);
   } else if (workspaceScope === "type") {
-    const selected = typeLensesFor(state.package)[index];
+    const selected = availableTypeLenses()[index];
     if (selected) {
       state.lens = selected[0];
       render();
@@ -5236,11 +5314,19 @@ function packageLensesFor(pkg: AppPackage | null) {
 }
 
 function libraryLensesFor(pkg: AppPackage | null) {
+  if (state.rootKind === "library")
+    return libraryLenses.filter(([id]) => id === "overview");
   return libraryLenses.filter(([id]) => {
     if (id === "compare")
       return pkg?.source.kind === "nuget.org" && !pkg.isRuntimePack;
     return !pkg?.isRuntimePack || id !== "references";
   });
+}
+
+function availableTypeLenses() {
+  return state.rootKind === "library"
+    ? typeLensesFor({ isRuntimePack: true })
+    : typeLensesFor(state.package);
 }
 
 function libraryLensRequiresExactLibrary(lens: LibraryLens) {
@@ -5994,7 +6080,7 @@ function stepHorizontal(delta: number) {
   } else {
     // `typeLensesFor` from main; the checked-index guard from this slice. `available`
     // can be empty, which is exactly the case the bare index read could not express.
-    const available = typeLensesFor(state.package);
+    const available = availableTypeLenses();
     const index = available.findIndex(([id]) => id === state.lens);
     const next = available[(index + delta + available.length) % available.length];
     if (!next) return;
@@ -6248,6 +6334,8 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
   scopeBarBinding?.disconnect();
   workbenchShellBinding?.disconnect();
   workbenchShellBinding = null;
+  disconnectLibraryOpen?.();
+  disconnectLibraryOpen = null;
 
   if (diagnosticsDestinationFocusPending
     && !isDiagnosticsPath(location.pathname)) {
@@ -6256,6 +6344,7 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
   if (isDiagnosticsPath(location.pathname)) {
     loadingBotSrc = null;
     renderDiagnosticsPage();
+    bindLibraryOpenEvents();
     return;
   }
   // The Metadata Explorer is a full-bleed "browse the database" view layered over the
@@ -6264,11 +6353,13 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
   if (state.explorer?.open) {
     loadingBotSrc = null;
     renderMetadataExplorer();
+    bindLibraryOpenEvents();
     return;
   }
   if (state.credits) {
     loadingBotSrc = null;
     renderCreditsView();
+    bindLibraryOpenEvents();
     return;
   }
   if (state.packageQueryOpen
@@ -6278,6 +6369,7 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
     document.body.classList.add("package-query-route");
     loadingBotSrc = null;
     renderPackageQueryPage();
+    bindLibraryOpenEvents();
     return;
   }
   if (state.packageActivityOpen
@@ -6287,6 +6379,7 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
     document.body.classList.add("package-activity-route");
     loadingBotSrc = null;
     renderPackageActivityPage();
+    bindLibraryOpenEvents();
     return;
   }
   packageQueryLiveAnnouncer.reset();
@@ -6418,7 +6511,7 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
   }
   if (!state.atPackageRoot
     && scope() === "type"
-    && !typeLensesFor(state.package).some(([id]) => id === state.lens)) {
+    && !availableTypeLenses().some(([id]) => id === state.lens)) {
     state.lens = "api";
   }
   state.typeCursor = Math.min(state.typeCursor, Math.max(visible.length - 1, 0));
@@ -6519,6 +6612,8 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
   const contentNavigationLabel =
     activeScope === "package"
       ? "Frameworks"
+      : activeScope === "library" && state.rootKind === "library"
+        ? "Types"
       : activeScope === "library" && state.rootKind !== "platform"
         ? "Libraries"
       : navMode() === "member" && current ? "Members" : "Types";
@@ -6539,7 +6634,8 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
     app.tabIndex = -1;
     app.focus({ preventScroll: true });
   }
-  const applicationModalOpen = state.settings || state.keyboardHelp;
+  const applicationModalOpen =
+    state.settings || state.keyboardHelp || state.libraryOpen;
   app.innerHTML = `
     <div class="workbench"${state.memberAnnotatedModal || applicationModalOpen ? " inert" : ""}>
       ${workbenchShellHtml({
@@ -6626,7 +6722,10 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
       ${dataBarHtml({
         buildIdentity: state.buildIdentity,
         producer: {
-          kind: pkg.source.kind === "platform" ? "acquisition" : "package",
+          kind: pkg.source.kind === "platform"
+            || state.rootKind === "library"
+            ? "acquisition"
+            : "package",
           label: pkg.producerLabel,
         },
       }, escapeHtml)}
@@ -6634,11 +6733,16 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
       ${graphSourceIsOpen(state.graphSource) ? renderGraphSource() : ""}
       ${documentViewerIsOpen(state.docViewer) ? renderDocViewer() : ""}
     </div>
-    ${renderApplicationMenu(true)}
+    ${renderApplicationMenu(state.rootKind !== "library")}
     ${state.settings ? renderSettingsViewHtml() : ""}
     ${state.keyboardHelp
       ? renderKeyboardHelpDialog(keyboardHelpBindings)
       : ""}
+    ${renderLibraryOpenDialog({
+      open: state.libraryOpen,
+      busy: state.libraryOpenBusy,
+      error: state.libraryOpenError,
+    }, escapeHtml)}
     ${renderAnnotatedSourceModal()}`;
 
   for (const packageIcon of document.querySelectorAll<HTMLImageElement>("[data-package-icon]")) {
@@ -6648,6 +6752,7 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
     };
   }
   bindEvents();
+  bindLibraryOpenEvents();
   if (loadingPackageContent) {
     for (const region of document.querySelectorAll(
       ".subject-inspector-region, #subject-panel > aside, .content-navigation-bar")) {
@@ -6711,17 +6816,20 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
     && isProductHomeDemosPath(location.pathname);
   if (productDemosRouteVisible) {
     document.title = "Demos — dotnet-inspect";
-  } else if (options.synchronizeUrl !== false) {
+  } else if (state.rootKind !== "library"
+    && options.synchronizeUrl !== false) {
     syncUrl();
   }
-  maybeAutoLoadVisibleSource();
-  maybeAutoLoadTypeMetadata();
-  maybeAutoLoadLibraryApi();
-  maybeAutoLoadPackageDependencies();
-  maybeAutoLoadPackageIntegrations();
-  maybeAutoLoadPackageOpportunities();
-  maybeAutoLoadPackagePerformance();
-  maybeAutoLoadPackageMetadata();
+  if (state.rootKind !== "library") {
+    maybeAutoLoadVisibleSource();
+    maybeAutoLoadTypeMetadata();
+    maybeAutoLoadLibraryApi();
+    maybeAutoLoadPackageDependencies();
+    maybeAutoLoadPackageIntegrations();
+    maybeAutoLoadPackageOpportunities();
+    maybeAutoLoadPackagePerformance();
+    maybeAutoLoadPackageMetadata();
+  }
   if (scope() === "member"
     && state.memberSection === "call-graph"
     && currentCallGraph()?.mermaid) {
@@ -6742,7 +6850,7 @@ function renderWorkspaceCatalogView() {
     copyable: false,
   }];
   app.innerHTML = `
-    <div class="workbench"${state.settings || state.keyboardHelp ? " inert" : ""}>
+    <div class="workbench"${state.settings || state.keyboardHelp || state.libraryOpen ? " inert" : ""}>
       ${workbenchShellHtml({
         applicationScopeHtml: renderApplicationScopeBar(
           "workspace",
@@ -6780,12 +6888,18 @@ function renderWorkspaceCatalogView() {
     ${state.settings ? renderSettingsViewHtml() : ""}
     ${state.keyboardHelp
       ? renderKeyboardHelpDialog(keyboardHelpBindings)
-      : ""}`;
+      : ""}
+    ${renderLibraryOpenDialog({
+      open: state.libraryOpen,
+      busy: state.libraryOpenBusy,
+      error: state.libraryOpenError,
+    }, escapeHtml)}`;
   bindScopeBarEvents();
   bindWorkspaceSubjectEvents();
   bindSettingsPanelEvents();
   workbenchShellBinding =
     bindWorkbenchShell(document, workbenchShellActions);
+  bindLibraryOpenEvents();
   if (state.spotlightOpen) spotlight.bind(document, "modal");
 }
 
@@ -6854,6 +6968,9 @@ function renderNavPane(
       escapeHtml,
     });
   }
+  if (scope() === "library" && state.rootKind === "library") {
+    return renderTypeNavPane(current, visible);
+  }
   if (scope() === "library" && state.rootKind !== "platform") {
     return renderLibrarySubjectNav({
       libraries: packageLibraries(),
@@ -6899,13 +7016,16 @@ function inspectedSubjectPath(
         kind: state.rootKind,
         label: state.rootKind === "platform"
           ? platformTargetLabel()
-          : packageDisplayName(pkg),
+          : state.rootKind === "library"
+            ? activeLibrarySubjectName()
+            : packageDisplayName(pkg),
         copyable: true,
       }]
     : [];
-  if (state.atPackageRoot) return path;
+  if (state.atPackageRoot
+    || (state.rootKind === "library" && state.atLibraryRoot)) return path;
   const library = activeLibrarySubjectName();
-  if (library) {
+  if (library && state.rootKind !== "library") {
     path.push({
       kind: "library",
       label: library,
@@ -7063,7 +7183,7 @@ function renderScopeBar(
       ? []
       : [state.rootKind];
   const libraryScopeAvailable = state.rootKind !== "platform"
-    ? aggregateLibrarySubjectIsAvailable()
+    ? state.rootKind !== "library" && aggregateLibrarySubjectIsAvailable()
     : Boolean(selectedLibrary());
   availableScopes ??= [
     ...rootScopes,
@@ -7130,7 +7250,7 @@ function renderScopeBar(
       scope: sc,
       // `typeLensesFor` rather than the raw catalog: a runtime pack offers only the API
       // lens, and reading the catalog directly here would skip that restriction.
-      strip: typeLensesFor(state.package),
+      strip: availableTypeLenses(),
       activeStripId: state.lens,
       availableScopes,
       stripAttribute: "data-lens",
@@ -7144,7 +7264,7 @@ function renderScopeBar(
 }
 
 function packageVersionField() {
-  if (state.rootKind === "platform") return "";
+  if (state.rootKind !== "package") return "";
   const pkg = currentPackage();
   return `<label class="version-select">
     <span>Version</span>
@@ -8596,7 +8716,7 @@ function renderLibraryOverview() {
     return `<section class="document-section empty-document"><span class="large-glyph">◇</span><h2>No library selected</h2><p>Choose an exact Library from the Libraries navigation.</p></section>`;
   }
   const pkg = currentPackage();
-  if (pkg.isRuntimePack) {
+  if (state.rootKind === "library" || pkg.isRuntimePack) {
     return renderLibraryCompositionOverview(pkg, library);
   }
   const key = libraryApiSignature(pkg, library);
@@ -8927,7 +9047,9 @@ function renderMember(type: AppTypeSurface, member: AppMemberGroup) {
     state.memberDeclarationKey === documentationKey
       ? state.memberDeclaration
       : null;
-  const declaration = declarationState.loading
+  const declaration = state.rootKind === "library"
+    ? `<pre class="language-csharp signature-code"><code class="language-csharp">${highlightCSharp(overload.signature)}</code></pre>`
+    : declarationState.loading
     ? '<p class="docs-loading">Loading C# declaration…</p>'
     : declarationState.error
       ? `<p class="docs-unavailable">Declaration query failed: ${escapeHtml(declarationState.error)}</p>`
@@ -8935,6 +9057,7 @@ function renderMember(type: AppTypeSurface, member: AppMemberGroup) {
         ? `<pre class="language-csharp signature-code"><code class="language-csharp">${highlightCSharp(selectedDeclaration.text)}</code></pre>`
         : `<p class="docs-unavailable">${escapeHtml(selectedDeclaration?.unavailable ?? "The selected declaration is unavailable.")}</p>`;
   const copyDeclaration = selectedDeclaration?.text
+    && state.rootKind !== "library"
     ? '<button id="copy-signature" type="button" aria-label="Copy declaration">copy</button>'
     : "";
   let content;
@@ -10840,7 +10963,7 @@ function showPlatformRoot() {
 function renderPlatformView() {
   const target = selectedPlatformTarget();
   const idle = { loading: false, error: "" };
-  app.innerHTML = `<div class="workbench"${state.settings || state.keyboardHelp ? " inert" : ""}>
+  app.innerHTML = `<div class="workbench"${state.settings || state.keyboardHelp || state.libraryOpen ? " inert" : ""}>
     ${workbenchShellHtml({
       applicationScopeHtml: renderApplicationScopeBar(null, true, escapeHtml),
       inspectedTargetHtml: `<div class="inspected-target"><span class="subject-icon" aria-hidden="true">.NET</span><div class="subject-path">${renderInspectedSubjectPath(currentInspectedSubjectPath())}</div></div>`,
@@ -10869,10 +10992,16 @@ function renderPlatformView() {
     ${state.spotlightOpen ? spotlight.modalHtml() : ""}
     </div>${renderApplicationMenu(true)}
     ${state.settings ? renderSettingsViewHtml() : ""}
-    ${state.keyboardHelp ? renderKeyboardHelpDialog(keyboardHelpBindings) : ""}`;
+    ${state.keyboardHelp ? renderKeyboardHelpDialog(keyboardHelpBindings) : ""}
+    ${renderLibraryOpenDialog({
+      open: state.libraryOpen,
+      busy: state.libraryOpenBusy,
+      error: state.libraryOpenError,
+    }, escapeHtml)}`;
   bindScopeBarEvents();
   bindSettingsPanelEvents();
   workbenchShellBinding = bindWorkbenchShell(document, workbenchShellActions);
+  bindLibraryOpenEvents();
   if (state.spotlightOpen) spotlight.bind(document, "modal");
   bindPlatformSubject(document, {
     onFramework: tfm => observeAsync(openPlatformSubject(tfm, state.platformIndex?.target(tfm)?.version), "Changing Platform target"),
@@ -11340,7 +11469,7 @@ function capturePackageCoordinateView(): Pick<
 > {
   const preserveLibrarySelection =
     state.atLibraryRoot
-    || (state.rootKind !== "platform" && state.libraryScope?.size === 1);
+    || (state.rootKind === "package" && state.libraryScope?.size === 1);
   const library = preserveLibrarySelection
     && !aggregateLibrarySubjectIsActive()
     ? selectedLibrary()
@@ -11870,7 +11999,7 @@ function executeCommand(
       operation = loadSelectionData();
     }
   } else if (verb === "show") {
-    const match = typeLensesFor(state.package)
+    const match = availableTypeLenses()
       .find(([id, label]) =>
         id === argument.toLowerCase()
         || label.toLowerCase() === argument.toLowerCase());
@@ -11991,7 +12120,8 @@ function workbenchOverlayOwnsFocus() {
 }
 
 function workbenchModalOwnsFocus() {
-  return state.spotlightOpen
+  return state.libraryOpen
+    || state.spotlightOpen
     || graphSourceIsOpen(state.graphSource)
     || documentViewerIsOpen(state.docViewer)
     || state.memberAnnotatedModal !== null
@@ -12129,6 +12259,7 @@ function activeShareTabIndex(
 }
 
 function captureWorkspaceUrlState(): WorkspaceUrlState | null {
+  if (state.rootKind === "library") return null;
   if (!state.package && !state.platformSelection) return null;
   const currentScope = scope();
   const workspaceSubjectOpen = currentScope === "workspace";
@@ -12435,7 +12566,7 @@ function canonicalViewRestorationFailure(
       return `The shared Library '${requestedLibraryLens}' inspector is not available for ${pkg.id}.`;
     }
     const aggregateLibrarySubject =
-      state.rootKind !== "platform"
+      state.rootKind === "package"
       && state.libraryScope === null
       && aggregateLibrarySubjectIsAvailable();
     if (!aggregateLibrarySubject
@@ -12917,7 +13048,7 @@ async function copyText(value: string, confirmation: string) {
 // (shared #spotlight-input / #spotlight-chips / #spotlight-results ids), so results, scope
 // chips, NuGet discovery, and result picking all behave exactly like the modal Spotlight.
 function renderHomeView(preservedFocus: HomeFocusTarget | null) {
-  document.title = "dotnet-inspect -- Inspect .NET packages in your browser.";
+  document.title = "dotnet-inspect -- Inspect .NET packages and libraries in your browser.";
   const enginePending = !state.engineReady;
   const showReadyGlint = state.engineReady && homeReadyGlintPending;
   if (showReadyGlint) homeReadyGlintPending = false;
@@ -12929,11 +13060,13 @@ function renderHomeView(preservedFocus: HomeFocusTarget | null) {
     : -((performance.now() - homeBotAnimationStartedAt)
       % HOME_BOT_ANIMATION_DURATION_MS);
   app.innerHTML = `
-    <div class="home"${state.settings ? " inert" : ""}>
+    <div class="home"${state.settings || state.libraryOpen ? " inert" : ""}>
       <header class="home-bar">
         ${renderBrand()}
         <div class="home-bar-actions">
           <a class="home-link" href="https://github.com/richlander/dotnet-inspect" target="_blank" rel="noreferrer">GitHub</a>
+          <button id="home-open-library" type="button"
+            ${enginePending ? "disabled" : ""}>Open Library…</button>
           <button id="home-settings" aria-label="Open settings" title="Settings">⚙</button>
           <button id="home-theme" aria-label="Switch theme">${state.theme === "dark" ? "light" : "dark"}</button>
         </div>
@@ -12948,7 +13081,7 @@ function renderHomeView(preservedFocus: HomeFocusTarget | null) {
       <main class="home-hero">
         <div class="home-copy">
           <p class="home-kicker">Browser-native · WebAssembly · zero install</p>
-          <h1 class="home-title">Inspect .NET packages in your browser.</h1>
+          <h1 class="home-title">Inspect .NET packages and libraries in your browser.</h1>
           <p class="home-lede">
             <span class="home-lede-wide">Search a package, type, or member. Explore APIs, metadata, dependencies, call graphs, and decompiled C# — computed locally in this tab.</span>
             <span class="home-lede-narrow">Search packages, types, and members, then explore APIs, metadata, dependencies, and decompiled C#.</span>
@@ -12974,7 +13107,7 @@ function renderHomeView(preservedFocus: HomeFocusTarget | null) {
                 escapeHtml)}
             </div>
           </div>
-          <p class="home-trust">Nothing to install. Package content stays in your browser.</p>
+          <p class="home-trust">Nothing to install. Inspected content stays in your browser.</p>
         </div>
         <aside class="home-art ${enginePending ? "engine-pending" : "engine-ready"}" style="--home-bot-animation-delay: ${botAnimationDelay}ms">
           ${homeArtSvg()}
@@ -12985,8 +13118,14 @@ function renderHomeView(preservedFocus: HomeFocusTarget | null) {
         buildIdentity: state.buildIdentity,
       }, escapeHtml)}
     </div>
-    ${state.settings ? renderSettingsViewHtml() : ""}`;
+    ${state.settings ? renderSettingsViewHtml() : ""}
+    ${renderLibraryOpenDialog({
+      open: state.libraryOpen,
+      busy: state.libraryOpenBusy,
+      error: state.libraryOpenError,
+    }, escapeHtml)}`;
   bindHomeEvents(preservedFocus);
+  bindLibraryOpenEvents();
   if (state.settings) {
     if (!preservedFocus
       || !settingsOwnsHomeFocusTarget(preservedFocus)
@@ -13006,6 +13145,7 @@ function homeArtSvg() {
 const homeShellActions: HomeShellBindingActions = {
   onDismissNotice: dismissQueryNotice,
   onOpenDemos: openProductDemos,
+  onOpenLibrary: () => openLibraryDialog("home"),
   onToggleTheme: toggleTheme,
 };
 
@@ -13112,11 +13252,12 @@ function openProductDemos(): void {
 function renderProductDemosPage(): void {
   document.title = "Demos — dotnet-inspect";
   app.innerHTML = `
-    <div class="home demos-page"${state.settings || state.keyboardHelp ? " inert" : ""}>
+    <div class="home demos-page"${state.settings || state.keyboardHelp || state.libraryOpen ? " inert" : ""}>
       <header class="home-bar">
         ${renderBrand()}
         <div class="home-bar-actions">
           <a class="home-link" href="/">Home</a>
+          <button id="home-open-library" type="button">Open Library…</button>
           <button id="home-settings" aria-label="Open settings" title="Settings">⚙</button>
           <button id="home-theme" aria-label="Switch theme">${state.theme === "dark" ? "light" : "dark"}</button>
         </div>
@@ -13129,8 +13270,14 @@ function renderProductDemosPage(): void {
       ${state.spotlightOpen ? spotlight.modalHtml() : ""}
     </div>
     ${state.settings ? renderSettingsViewHtml() : ""}
-    ${state.keyboardHelp ? renderKeyboardHelpDialog(keyboardHelpBindings) : ""}`;
+    ${state.keyboardHelp ? renderKeyboardHelpDialog(keyboardHelpBindings) : ""}
+    ${renderLibraryOpenDialog({
+      open: state.libraryOpen,
+      busy: state.libraryOpenBusy,
+      error: state.libraryOpenError,
+    }, escapeHtml)}`;
   bindHomeShell(document, homeShellActions);
+  bindLibraryOpenEvents();
   bindWorkspaceSubjectEvents();
   bindSettingsPanelEvents();
   if (state.spotlightOpen) spotlight.bind(document, "modal");
@@ -14788,9 +14935,14 @@ function renderLoading() {
         : `<div class="load-progress"><img class="loading-bot" src="${interstitialBotSrc()}" width="200" height="200" alt="dotnet-bot inspector mascot" /><span class="loader"></span><strong>${escapeHtml(state.loadingMessage)}</strong><small>${state.loadingSubtitle ? escapeHtml(state.loadingSubtitle) : `${escapeHtml(state.requestedPackage)}@${escapeHtml(state.requestedVersion)} · ${escapeHtml(state.requestedFramework || "best framework")}`}</small></div>`}
     </div>`;
   bindLoadErrorShell(document, loadErrorShellActions);
+  bindLibraryOpenEvents();
 }
 
 async function loadSelectedMemberDocumentation() {
+  if (state.rootKind === "library") {
+    render({ synchronizeUrl: false });
+    return;
+  }
   const type = selectedType();
   const member = selectedMember(type);
   if (!type || !member) {
@@ -17013,7 +17165,14 @@ function clearTaste() {
 
 function dispatchApplicationAction(action: ApplicationAction) {
   switch (action) {
+    case "open-library":
+      openLibraryDialog("application");
+      return;
     case "share":
+      if (state.rootKind === "library") {
+        showToast("Uploaded Libraries cannot be shared.");
+        return;
+      }
       void share();
       return;
     case "settings":
@@ -17025,6 +17184,188 @@ function dispatchApplicationAction(action: ApplicationAction) {
       return;
   }
 }
+
+function prepareLibraryOpen(returnTarget: LibraryOpenReturnTarget) {
+  graphExplorer.close(false);
+  graphExplorerNavigationFocusPending = false;
+  dismissAnnotatedSourceModal(false);
+  state.settings = false;
+  state.keyboardHelp = false;
+  state.explorer = null;
+  spotlight.reset();
+  sourceInspection.clearGraphSource();
+  documentInspection.clear();
+  if (!state.libraryOpen) {
+    state.libraryOpenReturn = returnTarget;
+  }
+  state.libraryOpen = true;
+}
+
+function openLibraryDialog(
+  returnTarget: LibraryOpenReturnTarget = "surface",
+) {
+  prepareLibraryOpen(returnTarget);
+  state.libraryOpenBusy = false;
+  state.libraryOpenError = state.engineReady
+    ? ""
+    : "Wait for the browser inspection engine to finish starting.";
+  render({ synchronizeUrl: false });
+}
+
+function closeLibraryDialog() {
+  if (state.libraryOpenBusy) return;
+  const returnTarget = state.libraryOpenReturn;
+  libraryOpenSequence++;
+  state.libraryOpen = false;
+  state.libraryOpenError = "";
+  render({ synchronizeUrl: false });
+  requestAnimationFrame(() => {
+    if (returnTarget === "home") {
+      document.querySelector<HTMLElement>("#home-open-library")
+        ?.focus({ preventScroll: true });
+    } else if (returnTarget === "application") {
+      restoreOrdinaryModalDismissFocus(() =>
+        document.querySelector<HTMLElement>("#application-menu-button")
+          ?.focus({ preventScroll: true }));
+    } else {
+      focusLevelOneHeading();
+    }
+  });
+}
+
+function bindLibraryOpenEvents() {
+  if (state.libraryOpen
+    && !document.querySelector("#library-open-dialog")) {
+    app.insertAdjacentHTML(
+      "beforeend",
+      renderLibraryOpenDialog(currentLibraryOpenView(), escapeHtml));
+  }
+  if (state.libraryOpen) {
+    const backdrop = app.querySelector("#library-open-backdrop");
+    for (const child of app.children) {
+      if (child !== backdrop) child.setAttribute("inert", "");
+    }
+  }
+  disconnectLibraryOpen = bindLibraryOpen(
+    document,
+    currentLibraryOpenView(),
+    libraryOpenActions);
+}
+
+function currentLibraryOpenView() {
+  return {
+    open: state.libraryOpen,
+    busy: state.libraryOpenBusy,
+    error: state.libraryOpenError,
+  };
+}
+
+const libraryOpenActions: LibraryOpenActions = {
+  onDismiss: closeLibraryDialog,
+  onReject: (message, input) => {
+    if (input === "drop") prepareLibraryOpen("surface");
+    state.libraryOpenError = message;
+    render({ synchronizeUrl: false });
+  },
+  onFile: (file, input) =>
+    observeAsync(
+      openUploadedLibraryFile(file, input),
+      "Opening uploaded Library"),
+};
+
+async function openUploadedLibraryFile(
+  file: File,
+  input: LibraryOpenInput,
+) {
+  const operationSequence = ++libraryOpenSequence;
+  const navigationSeq = navigationSequence.begin();
+  const isCurrent = () =>
+    operationSequence === libraryOpenSequence
+    && navigationSequence.isCurrent(navigationSeq);
+  if (input === "drop") prepareLibraryOpen("surface");
+  else state.libraryOpen = true;
+  state.libraryOpenBusy = state.engineReady;
+  state.libraryOpenError = state.engineReady
+    ? ""
+    : "Wait for the browser inspection engine to finish starting.";
+  render({ synchronizeUrl: false });
+
+  let activatedLibrary = false;
+  try {
+    await waitForLibraryEngineReady();
+    if (!isCurrent()) return;
+    state.libraryOpenBusy = true;
+    state.libraryOpenError = "";
+    render({ synchronizeUrl: false });
+    const content = Array.from(new Uint8Array(await file.arrayBuffer()));
+    if (!isCurrent()) return;
+    const inspection = await inspectOpenUploadedLibrary(file.name, content);
+    if (!isCurrent()) return;
+    if (inspection.content.outcome !== "Available") {
+      const failure = inspection.content.failure;
+      state.libraryOpenError = failure?.detail
+        || "The selected file could not be opened as a managed Library.";
+      return;
+    }
+
+    const retainedSnapshot = retainedWorkspaces.activeWorkspaceId === null
+      ? null
+      : captureRetainedWorkspaceSnapshot();
+    const packageModel =
+      createUploadedLibraryModel(inspection.content);
+    activatePackage(packageModel, { resetAccessibility: true });
+    state.uploadedLibrary = packageModel;
+    state.rootKind = "library";
+    state.home = false;
+    state.loading = false;
+    state.error = "";
+    state.errorTitle = "";
+    state.errorDetail = "";
+    state.retryAction = null;
+    state.queryNotice = "";
+    state.queryNoticeRetryAction = null;
+    state.workspaceSubjectOpen = false;
+    state.atPackageRoot = false;
+    state.atLibraryRoot = true;
+    state.libraryScope = new Set([packageModel.assemblyId]);
+    state.libraryLens = "overview";
+    state.namespaceFilter = "";
+    state.kindFilter = "";
+    state.typeFilter = "";
+    state.selectedTypeId = "";
+    state.selectedMemberKey = "";
+    state.memberBrowseTypeId = "";
+    state.selectedOverloadIndex = null;
+    state.libraryOpen = false;
+    state.libraryOpenError = "";
+    if (retainedSnapshot !== null) {
+      retainedWorkspaces = detachActiveRetainedWorkspace(
+        retainedWorkspaces,
+        retainedSnapshot);
+    }
+    activeWorkspaceUrl = null;
+    activatedLibrary = true;
+    workspaceLocation.replace("/");
+  } catch (error) {
+    if (!isCurrent()) return;
+    state.libraryOpenError =
+      `${input === "drop" ? "Dropped" : input === "paste" ? "Pasted" : "Selected"} `
+      + `Library failed to open: ${errorMessage(error)}`;
+  } finally {
+    if (isCurrent()) {
+      state.libraryOpenBusy = false;
+      render({ synchronizeUrl: false });
+      if (activatedLibrary) {
+        afterCurrentNavigationFrame(() => focusLevelOneHeading());
+      }
+    }
+  }
+}
+
+bindLibraryOpenDocument(
+  document,
+  currentLibraryOpenView,
+  libraryOpenActions);
 
 function focusSettingsEntry() {
   const selector = state.settingsReturn === "source"
@@ -18494,6 +18835,9 @@ function showEngineFailure(error: unknown) {
   state.engineReady = false;
   state.engineRuntimeReady = false;
   state.engineStartupFailed = true;
+  settleLibraryEngineReadyWaiters(error instanceof Error
+    ? error
+    : new Error(String(error)));
   state.engineStatus = "";
   state.error =
     "Couldn’t start the inspection engine. Retry, or open a different package.";
@@ -18611,6 +18955,7 @@ async function bootstrap() {
         `Package-query vocabulary is unavailable: ${errorMessage(error) || "Unknown error."}`;
     }
     state.engineReady = true;
+    settleLibraryEngineReadyWaiters();
     state.engineStatus = "";
     if (isDiagnosticsPath(location.pathname)) {
       state.loading = false;
@@ -19397,6 +19742,10 @@ function dismissModalsForRoutedNavigation() {
   const dismissedAnnotatedSourceModal = dismissAnnotatedSourceModal(false);
   state.settings = false;
   state.keyboardHelp = false;
+  libraryOpenSequence++;
+  state.libraryOpen = false;
+  state.libraryOpenBusy = false;
+  state.libraryOpenError = "";
   state.explorer = null;
   spotlight.reset();
   sourceInspection.clearGraphSource();

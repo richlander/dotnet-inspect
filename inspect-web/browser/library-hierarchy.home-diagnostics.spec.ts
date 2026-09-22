@@ -52,7 +52,7 @@ test("Home keeps Search and curated demos ahead of artwork", async ({
   await expect(page.locator(".home-search"))
     .toHaveAttribute("aria-busy", "false");
   await expect(page.locator(".home-title"))
-    .toHaveText("Inspect .NET packages in your browser.");
+    .toHaveText("Inspect .NET packages and libraries in your browser.");
   await expect(page.locator(".home-lede-wide")).toBeVisible();
   await expect(page.locator(".home-lede-narrow")).toBeHidden();
   await expect(page.locator(".home-demos-copy"))
