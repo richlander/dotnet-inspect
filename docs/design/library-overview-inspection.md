@@ -324,7 +324,9 @@ The complete initial operation adoption has six owner-scoped steps:
 3. Adopt the operation for one direct-file CLI scalar Library-overview
    envelope through direct-Library realization and an ephemeral Workspace.
    Reject Count and semantic row selection for single-Library `Library Info`
-   before acquisition while preserving `-n` rendered-line clipping.
+   before acquisition while preserving `-n` rendered-line clipping. Reject
+   package, Platform, Workspace, and NuGet-source controls that cannot affect
+   this direct-file-only envelope path rather than silently ignoring them.
 4. Adopt the same operation for the PackageHouse CLI route.
 5. Adopt the same operation for the PlatformHouse CLI route.
 6. Consume the same envelope in Inspect Web's Library overview, then retire

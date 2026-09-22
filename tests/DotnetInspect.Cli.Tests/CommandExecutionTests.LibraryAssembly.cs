@@ -504,6 +504,30 @@ public partial class CommandExecutionTests
             "--count",
             "--tips",
             "q");
+        var source = await RunAppAsync(
+            "library",
+            "missing.dll",
+            "--envelope",
+            "--source",
+            "https://example.invalid/v3/index.json",
+            "--tips",
+            "q");
+        var addSource = await RunAppAsync(
+            "library",
+            "missing.dll",
+            "--envelope",
+            "--add-source",
+            "https://example.invalid/v3/index.json",
+            "--tips",
+            "q");
+        var nugetConfig = await RunAppAsync(
+            "library",
+            "missing.dll",
+            "--envelope",
+            "--nugetconfig",
+            "missing.nuget.config",
+            "--tips",
+            "q");
 
         Assert.Equal(1, section.Exit);
         Assert.Empty(section.Output);
@@ -537,6 +561,25 @@ public partial class CommandExecutionTests
             "does not exist",
             count.Error,
             StringComparison.Ordinal);
+
+        foreach (var (result, option) in new[]
+        {
+            (source, "--source"),
+            (addSource, "--add-source"),
+            (nugetConfig, "--nugetconfig"),
+        })
+        {
+            Assert.Equal(1, result.Exit);
+            Assert.Empty(result.Output);
+            Assert.Contains(
+                $"--envelope cannot be combined with {option}",
+                result.Error,
+                StringComparison.Ordinal);
+            Assert.DoesNotContain(
+                "does not exist",
+                result.Error,
+                StringComparison.Ordinal);
+        }
     }
 
     [Fact]
