@@ -6,6 +6,7 @@ using DotnetInspect.Cli.Output;
 using DotnetInspect.Cli.Sections;
 using DotnetInspect.Cli.Views;
 using DotnetInspector.Fixtures;
+using DotnetInspector.Packages;
 using DotnetInspector.Queries;
 using ILInspector.Analysis;
 using ILInspector.Metadata;
@@ -16,6 +17,8 @@ namespace DotnetInspect.Cli.Tests;
 [Collection("Console")]
 public class MetricSectionTests
 {
+    public MetricSectionTests() => NuGetCache.Initialize("dotnet-inspect");
+
     [Fact]
     public async Task
         LibraryImplementationProfiles_RendersPhysicalBodyRows()
@@ -324,6 +327,7 @@ public class MetricSectionTests
                     FixtureCatalog.AnalysisCallerLoop.AssemblyPath(),
                 Select = ["*"],
                 JsonOutput = true,
+                FormatExplicitlySet = true,
                 TipLevel = TipLevel.Quiet,
             }));
 
