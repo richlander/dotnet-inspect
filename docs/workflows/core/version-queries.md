@@ -1,7 +1,7 @@
 ---
 id: version-queries
 description: Query package versions, wildcard patterns, and custom NuGet sources
-commands: [--version, --versions, @latest, --add-source, --nugetconfig]
+commands: [--version, --latest-version, --versions, @latest, --add-source, --nugetconfig]
 areas: [versioning, cache, nuget, wildcards, sources]
 ---
 
@@ -33,58 +33,56 @@ dotnet-inspect System.CommandLine@2.0.2 -v:q
 dotnet-inspect System.CommandLine --versions > /dev/null
 ```
 
-## 1. Get the best-known version
+## 1. Select an exact version
 
-> Goal: Get the version most likely to be relevant, fast. Checks app cache first, then NuGet cache, then remote — returning the first hit.
+> Goal: Inspect an exact Package version with the explicit Package selector.
 
-### 1a. Using `--version` (cached)
+### 1a. Using valued `--version`
 
 ```prompt
-What version of System.CommandLine do I have cached?
+Inspect System.CommandLine version 2.0.2.
 ```
 
 ```bash
-dotnet-inspect System.CommandLine@2.0.2 --version
+dotnet-inspect package System.CommandLine --version 2.0.2 \
+  -S "Package Info" -v:q
 ```
 
 ```expect
-2.0.2
+exact-version
 ```
 
 ```query
-head -1
+grep -Fq '| Version | 2.0.2 |' && echo exact-version
 ```
 
-### 1b. Using `--version` (empty cache)
-
-```setup
-dotnet-inspect cache clear
-```
+### 1b. Using the coordinate spelling
 
 ```bash
-dotnet-inspect System.CommandLine --version
+dotnet-inspect package System.CommandLine@2.0.2 \
+  -S "Package Info" -v:q
 ```
 
 ```query
-grep -Eq '^[0-9]+(\.[0-9]+){2}$' && echo stable-version
+grep -Fq '| Version | 2.0.2 |' && echo exact-version
 ```
 
 ```expect
-stable-version
+exact-version
 ```
 
 ## 2. Get the latest published version
 
 > Goal: Check the latest version available on NuGet.
 
-### 2a. Using `@latest`
+### 2a. Using `--latest-version`
 
 ```prompt
 What is the latest version of System.CommandLine on NuGet?
 ```
 
 ```bash
-dotnet-inspect System.CommandLine@latest --version
+dotnet-inspect package System.CommandLine --latest-version
 ```
 
 ```query
@@ -119,7 +117,7 @@ By default, unpinned package resolution chooses the latest stable version. Add `
 or `--prerelease` to include prerelease versions when resolving latest.
 
 ```bash
-dotnet-inspect package System.Text.Json@latest --version --preview
+dotnet-inspect package System.Text.Json --latest-version --preview
 ```
 
 ```query
@@ -266,10 +264,10 @@ answer for the version and reports it as listed.
 
 > Goal: Get a clear error when requesting a version that doesn't exist for a known package.
 
-### 4a. Using `--version` with bad version
+### 4a. Using valued `--version` with bad version
 
 ```bash
-dotnet-inspect System.CommandLine@99.99.99 --version
+dotnet-inspect package System.CommandLine --version 99.99.99
 ```
 
 ```expect-error

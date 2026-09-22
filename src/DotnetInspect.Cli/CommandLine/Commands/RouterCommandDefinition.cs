@@ -885,8 +885,7 @@ public static class RouterCommandDefinition
                 || (hasLibraryValue
                     && !hasPackageLibraryValue);
             bool hasVersionQuery =
-                ContainsOption(tokens, "--version")
-                || ContainsOption(tokens, "--versions")
+                ContainsOption(tokens, "--versions")
                 || ContainsOption(
                     tokens,
                     "--versions-with-feed");

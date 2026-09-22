@@ -74,41 +74,33 @@ public static class CommandLineBuilder
             args,
             out error);
 
-    internal static bool TryGetPackageVersionValueError(
+    internal static bool TryGetCommandlessPackageVersionError(
         string[] args,
         RootCommand rootCommand,
         out string? error)
     {
-        ParseResult rawParse = rootCommand.Parse(args);
-        bool explicitPackage =
-            rawParse.CommandResult.Command.Name == PackageCommand.Name;
-        bool implicitPackage =
-            ArgumentPreprocessor.IsImplicitPackageCandidate(args);
-        if (!explicitPackage && !implicitPackage)
-        {
-            error = null;
-            return false;
-        }
-
-        string[] packageArgs =
-            implicitPackage
-                ? [PackageCommand.Name, .. args]
+        string[] routerArgs =
+            args.FirstOrDefault() == "router"
+                ? args[1..]
                 : args;
-        ParseResult packageParse = rootCommand.Parse(packageArgs);
-        CliOptionValueFailure? failure =
-            CliOptionValueValidation.FindFailure(
-                packageParse,
-                packageArgs);
-        if (failure?.Error !=
-            CliOptionValueValidation.DoesNotAcceptValue("--version"))
+        ParseResult packageParse =
+            rootCommand.Parse([PackageCommand.Name, .. routerArgs]);
+        if (HasParsedOption(packageParse, "--version"))
         {
-            error = null;
-            return false;
+            error = "'--version' requires the explicit 'package' command. "
+                + "Use 'package Package --version VERSION'.";
+            return true;
         }
 
-        error = "'--version' does not accept a value. "
-            + "Use 'Package@Version' to select a Package version.";
-        return true;
+        if (HasParsedOption(packageParse, "--latest-version"))
+        {
+            error = "'--latest-version' requires the explicit 'package' command. "
+                + "Use 'package Package --latest-version'.";
+            return true;
+        }
+
+        error = null;
+        return false;
     }
 
     /// <summary>
@@ -371,31 +363,14 @@ public static class CommandLineBuilder
             headLines: null,
             tailLines: null);
         if (rawArgs is not null
-            && parseResult.CommandResult.Command.Name
-                is PackageCommand.Name or "router")
+            && parseResult.CommandResult.Command.Name == "router"
+            && TryGetCommandlessPackageVersionError(
+                rawArgs,
+                CreateRootCommand(),
+                out string? commandlessPackageVersionError))
         {
-            string[] versionArgs =
-                rawArgs.FirstOrDefault() == "router"
-                    ? rawArgs[1..]
-                    : rawArgs;
-            if (versionArgs.Any(static argument =>
-                    argument.Equals(
-                        "--version",
-                        StringComparison.Ordinal)
-                    || argument.StartsWith(
-                        "--version=",
-                        StringComparison.Ordinal)
-                    || argument.StartsWith(
-                        "--version:",
-                        StringComparison.Ordinal))
-                && TryGetPackageVersionValueError(
-                    versionArgs,
-                    CreateRootCommand(),
-                    out string? packageVersionValueError))
-            {
-                CommandError.Write(packageVersionValueError!);
-                return 1;
-            }
+            CommandError.Write(commandlessPackageVersionError!);
+            return 1;
         }
 
         CliRowSelectionPreparation rowSelection;
