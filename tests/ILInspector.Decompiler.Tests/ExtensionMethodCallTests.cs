@@ -370,21 +370,21 @@ public class ExtensionMethodCallTests
             typeof(OutputInferenceMethodGroupSamples),
             nameof(OutputInferenceMethodGroupSamples.Call));
 
-        Assert.Contains("values.Select((Func<string, int>)int.Parse)", output);
-        Assert.DoesNotContain("Select<string, int>", output);
+        Assert.Contains(
+            "values.Select<string, int>((Func<string, int>)int.Parse)",
+            output);
     }
 
     [Fact]
-    public void SameAssemblyOutputInferredMethodGroup_OmitsGenericArgumentsAndDelegateCast()
+    public void SameAssemblyOutputInferredMethodGroup_OmitsDelegateCast()
     {
         string output = PrintRaised(
             typeof(OutputInferenceMethodGroupSamples),
             nameof(OutputInferenceMethodGroupSamples.CallSameAssembly));
 
         Assert.Contains(
-            "values.Select(OutputInferenceMethodGroupSamples.ParseExact)",
+            "values.Select<string, int>(OutputInferenceMethodGroupSamples.ParseExact)",
             output);
-        Assert.DoesNotContain("Select<string, int>", output);
         Assert.DoesNotContain("(Func<string, int>)", output);
     }
 
@@ -396,9 +396,8 @@ public class ExtensionMethodCallTests
             nameof(OutputInferenceMethodGroupSamples.CallOuterOverloadRisk));
 
         Assert.Contains(
-            "values.Select((Func<string, int>)Convert.ToInt32)",
+            "values.Select<string, int>((Func<string, int>)Convert.ToInt32)",
             output);
-        Assert.DoesNotContain("Select<string, int>", output);
     }
 
     [Fact]
@@ -409,9 +408,28 @@ public class ExtensionMethodCallTests
             nameof(OutputInferenceMethodGroupSamples.CallInheritedOuterOverloadRisk));
 
         Assert.Contains(
-            "values.Select((Func<string, int>)OutputInferenceParser.Parse)",
+            "values.Select<string, int>("
+                + "(Func<string, int>)OutputInferenceParser.Parse)",
             output);
-        Assert.DoesNotContain("Select<string, int>", output);
+    }
+
+    [Fact]
+    public void CompetingNonGenericExtension_KeepsGenericArguments()
+    {
+        string output = PrintRaised(
+            typeof(MethodGroupLookup.OutputInferenceMethodGroupLookupSamples),
+            nameof(MethodGroupLookup.OutputInferenceMethodGroupLookupSamples
+                .CallWithCompetingExtension));
+
+        Assert.Contains(
+            "values.Select<string, int>("
+                + "OutputInferenceMethodGroupLookupSamples.Parse)",
+            output);
+        Assert.DoesNotContain("(Func<string, int>)", output);
+        Assert.Equal(
+            [4],
+            MethodGroupLookup.OutputInferenceMethodGroupLookupSamples
+                .CallWithCompetingExtension(["abcd"]));
     }
 
     [Fact]
@@ -460,6 +478,9 @@ public class ExtensionMethodCallTests
     {
         string assembly = typeof(OutputInferenceMethodGroupSamples).Assembly.Location;
         string typeName = typeof(OutputInferenceMethodGroupSamples).FullName!;
+        string lookupTypeName =
+            typeof(MethodGroupLookup.OutputInferenceMethodGroupLookupSamples)
+                .FullName!;
         string[] methods =
         [
             nameof(OutputInferenceMethodGroupSamples.Call),
@@ -470,10 +491,12 @@ public class ExtensionMethodCallTests
             nameof(OutputInferenceMethodGroupSamples.CallPriorityRisk),
             nameof(OutputInferenceMethodGroupSamples.CallDynamicReturnRisk),
             nameof(OutputInferenceMethodGroupSamples.CallConstructedGenericRisk),
+            nameof(MethodGroupLookup.OutputInferenceMethodGroupLookupSamples
+                .CallWithCompetingExtension),
         ];
         var results = FidelityCheck.Evaluate(
             assembly,
-            type => type == typeName,
+            type => type == typeName || type == lookupTypeName,
             method => methods.Contains(method.Method));
 
         Assert.Equal(methods.Length, results.Count);

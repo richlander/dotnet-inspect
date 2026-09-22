@@ -305,9 +305,10 @@ public sealed record MethodRef(
     /// <summary>
     /// True only when metadata and the imported call prove that C# can infer
     /// every method type argument from the extension receiver and supported
-    /// lambda or method-group outputs without changing overload selection.
-    /// Output-inference obligations are revalidated against final raised
-    /// expressions by the printer.
+    /// lambda or method-group outputs without changing declaring-type overload
+    /// selection. Output-inference obligations are revalidated against final
+    /// raised expressions by the printer, which separately preserves explicit
+    /// type arguments when their removal could broaden extension lookup.
     /// </summary>
     internal bool CanOmitTypeArguments { get; init; }
 

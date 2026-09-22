@@ -708,10 +708,17 @@ public sealed partial class CSharpPrinter
     string CallText(Call call)
     {
         var arguments = call.Arguments;
-        bool omitTypeArguments = !call.Callee.TypeArguments.IsEmpty
+        bool canInferTypeArguments = !call.Callee.TypeArguments.IsEmpty
             && call.Callee.CanOmitTypeArguments
             && PrintedArgumentsPreserveGenericInference(call);
-        bool inferMethodGroups = omitTypeArguments
+        bool hasMethodGroupOutputInference = canInferTypeArguments
+            && call.Callee.TypeArgumentElisionOutputInferences.Any(
+                output => (uint)output.ArgumentIndex < (uint)arguments.Count
+                    && arguments[output.ArgumentIndex] is DelegateCreation);
+        bool omitTypeArguments = canInferTypeArguments
+            && !hasMethodGroupOutputInference;
+        bool inferMethodGroups = canInferTypeArguments
+            && hasMethodGroupOutputInference
             && BareMethodGroupArgumentsPreserveOverloadSelection(call);
         string typeArguments = call.Callee.TypeArguments.IsEmpty
             || omitTypeArguments
