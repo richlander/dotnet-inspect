@@ -165,6 +165,12 @@ Eliminated locals have no emitted declaration and no presentation name. Their
 absence is established by the transformation that eliminated them, not inferred
 from an empty planner result.
 
+The final pre-presentation
+`StoreElementReceiverInliningPass` owns the #1911 single-use address-receiver
+elimination. It removes the store and address use from finalized IR before
+planning rather than asking a renderer to rediscover the pattern and exclude
+the local.
+
 ## Invariants
 
 For a successful plan:
@@ -192,11 +198,13 @@ allocation. Existing output behavior remains covered by
 `NestedScopeNameCollisionTests`, `ReadableLocalNamesTests`, and
 `ByteNeutralityGateTests`.
 
-An eventual claim that no semantic declaration or local-name decision remains
-in the printer is a composition absence claim. Before making it, the operator
-must choose full, partial, or no automated coverage under
-[Evidence and validation](../evidence-and-validation.md). This document does
-not preselect that coverage.
+The adopted claim that no materialized-local declaration or name decision
+remains in the printer uses partial, outcome-level coverage under
+[Evidence and validation](../evidence-and-validation.md). Direct plan and
+receiver-elimination tests cover the construction boundary; existing
+compile-backed output, exact-name, collision, disclosure, and byte-neutrality
+gates cover its production consumers. This deliberately does not add a
+repository-source policing gate.
 
 ## Production adoption
 
@@ -208,7 +216,8 @@ bindings.
 The first adoption covers already-materialized locals in methods, raised
 lambdas, and raised local functions. It must:
 
-- preserve current default and opt-in rendered behavior and byte neutrality;
+- preserve current default and opt-in rendered behavior except where a nested
+  body was incorrectly consuming its enclosing body's bindings;
 - preserve exact-name fidelity and Applied Taste disclosure;
 - remove the pipeline-to-printer declaration-analysis dependency; and
 - leave residual stack slots on the explicitly named #2095 path.
@@ -248,6 +257,21 @@ and printer-generated helper names remain on their separately owned paths.
 `PdbLocalNameScopeTests`, and `LambdaRaisingPassTests` gate the plan and its
 method, raised-lambda, raised-local-function, disclosure, and collision
 consumers.
+
+The final ownership closure moves the #1911 address-receiver temporary
+elimination into `StoreElementReceiverInliningPass`, after structural and
+storage settling and before PDB scope and binding planning. The pass preserves
+the established exact-name, branch-target, additional-use, nested-capture,
+target-order, and target-dependency declines. `LocalDeclarationPlan` therefore
+derives retention from finalized IR without a renderer-issued exclusion set.
+`CSharpPrinter.LocalName` fails explicitly if a retained reference has no
+complete plan entry; it cannot synthesize an unplanned `V_index` fallback.
+Expression-bodied lambdas with local bindings render through the same isolated
+nested-body plan as block-bodied lambdas. They therefore preserve their own
+exact names and resolve fallback collisions against enclosing binders instead
+of accidentally consuming an enclosing binding with the same numeric index.
+Residual stack-slot and printer-generated helper names remain on their
+separately owned paths.
 
 ## Pathological case
 

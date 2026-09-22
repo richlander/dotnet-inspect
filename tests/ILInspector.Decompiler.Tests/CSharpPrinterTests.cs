@@ -11,6 +11,11 @@ namespace ILInspector.Decompiler.Tests;
 
 public class CSharpPrinterTests
 {
+    static void RunStoreElementReceiverInlining(
+        IrFunction function)
+        => new StoreElementReceiverInliningPass()
+            .Run(function, PassContext.None);
+
     static string PrintFixture(string methodName)
     {
         using var source = MetadataSource.Open(typeof(CfgSampleClass).Assembly.Location);
@@ -542,9 +547,14 @@ public class CSharpPrinterTests
             [spanType],
             body);
 
+        RunStoreElementReceiverInlining(function);
         string output = CSharpPrinter.Print(function).Output!.ReplaceLineEndings("\n").TrimEnd();
 
         Assert.Equal("items[i] = MemoryExtensions.Trim(item).ToString();", output);
+        Assert.DoesNotContain(
+            0,
+            LocalDeclarationPlan.Create(function, 1)
+                .RetainedLocalSlots);
     }
 
     [Fact]
@@ -584,6 +594,7 @@ public class CSharpPrinterTests
             [spanType],
             body);
 
+        RunStoreElementReceiverInlining(function);
         string output = CSharpPrinter.Print(function).Output!.ReplaceLineEndings("\n").TrimEnd();
 
         Assert.Contains("ReadOnlySpan<char> V_0 = MemoryExtensions.Trim(item);", output);
@@ -622,6 +633,7 @@ public class CSharpPrinterTests
             [spanType],
             body);
 
+        RunStoreElementReceiverInlining(function);
         string output = CSharpPrinter.Print(function).Output!.ReplaceLineEndings("\n").TrimEnd();
 
         Assert.Contains("ReadOnlySpan<char> V_0 = MemoryExtensions.Trim(item);", output);
@@ -658,6 +670,7 @@ public class CSharpPrinterTests
             [spanType],
             body);
 
+        RunStoreElementReceiverInlining(function);
         string output = CSharpPrinter.Print(function).Output!.ReplaceLineEndings("\n").TrimEnd();
 
         Assert.Contains("ReadOnlySpan<char> V_0 = Next(i);", output);
@@ -696,6 +709,7 @@ public class CSharpPrinterTests
             UsesUpdatedMemorySafetyRules = true,
         };
 
+        RunStoreElementReceiverInlining(function);
         string output = CSharpPrinter.Print(function).Output!.ReplaceLineEndings("\n");
 
         Assert.Contains("unsafe", output);
@@ -749,6 +763,7 @@ public class CSharpPrinterTests
             [spanType],
             body);
 
+        RunStoreElementReceiverInlining(function);
         string output = CSharpPrinter.Print(function).Output!.ReplaceLineEndings("\n").TrimEnd();
 
         Assert.Contains("ReadOnlySpan<char> V_0 = MemoryExtensions.Trim(item);", output);
