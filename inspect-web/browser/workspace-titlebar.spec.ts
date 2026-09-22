@@ -173,6 +173,29 @@ test("product navigation reverse Tab matches native document order", async ({
   await expect.poll(focusState).toEqual(nativePreviousFocus);
 });
 
+test("product navigation preserves its focused action across maintenance replacement", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto("/browser/workspace-titlebar.html?type=1");
+
+  await page.locator("[data-product-navigation-button]").click();
+  const activity =
+    page.locator("[data-product-destination='activity']");
+  await activity.focus();
+  await expect(activity).toBeFocused();
+
+  await page.evaluate(() => window.rerenderProductNavigationProbe());
+
+  await expect(page.locator(".product-navigation-menu")).toBeVisible();
+  await expect(page.locator("[data-product-navigation-button]"))
+    .toHaveAttribute("aria-expanded", "true");
+  await expect(activity).toBeFocused();
+  await activity.click();
+  await expect(page.locator("body"))
+    .toHaveAttribute("data-product-destination", "activity");
+});
+
 test("the data bar occupies its fixed row when the notice stack is empty", async ({
   page,
 }) => {

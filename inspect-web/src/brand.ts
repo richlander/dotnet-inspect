@@ -17,6 +17,8 @@ export interface ProductNavigationActions {
 }
 
 export interface ProductNavigationBinding {
+  beforeRender(): void;
+  afterRender(): void;
   disconnect(): void;
 }
 
@@ -166,6 +168,11 @@ export function bindProductNavigation(
   root: HTMLElement,
   actions: ProductNavigationActions,
 ): ProductNavigationBinding {
+  let replacement: {
+    buttonId: string;
+    destination: ProductDestination;
+    currentDestination: ProductDestination | null;
+  } | null = null;
   const currentOpenMenu = () =>
     root.querySelector<HTMLElement>(
       "[data-product-navigation-menu]:not([hidden])");
@@ -295,7 +302,49 @@ export function bindProductNavigation(
   visualViewport?.addEventListener("resize", resizeHandler);
   visualViewport?.addEventListener("scroll", resizeHandler);
   return {
+    beforeRender() {
+      replacement = null;
+      const menu = currentOpenMenu();
+      if (!menu) return;
+      const button = currentButton(menu);
+      const focused = menu.ownerDocument.activeElement;
+      const item = focused instanceof Element
+        ? focused.closest<HTMLElement>("[data-product-destination]")
+        : null;
+      const destination = item?.dataset.productDestination;
+      if (!button?.id
+        || !item
+        || !menu.contains(item)
+        || !isProductDestination(destination)) {
+        return;
+      }
+      replacement = {
+        buttonId: button.id,
+        destination,
+        currentDestination: actions.currentDestination(),
+      };
+    },
+    afterRender() {
+      const pending = replacement;
+      replacement = null;
+      if (!pending
+        || actions.currentDestination() !== pending.currentDestination) {
+        return;
+      }
+      const button = root.querySelector<HTMLElement>(
+        `#${CSS.escape(pending.buttonId)}[data-product-navigation-button]`);
+      if (!button) return;
+      const menu = buttonMenu(root, button);
+      const item = menu
+        ? productItems(menu).find(candidate =>
+            candidate.dataset.productDestination === pending.destination)
+        : null;
+      if (!menu || !item) return;
+      setProductNavigationOpen(button, menu, true, actions);
+      item.focus();
+    },
     disconnect() {
+      replacement = null;
       root.removeEventListener("click", clickHandler);
       root.removeEventListener("keydown", keyDownHandler);
       root.removeEventListener("pointerdown", pointerDownHandler);

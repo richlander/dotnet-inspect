@@ -6,7 +6,11 @@ import {
   restoreScopeBarFocus,
   type ScopeBarBinding,
 } from "../src/scope-bar.ts";
-import { bindProductNavigation } from "../src/brand.ts";
+import {
+  bindProductNavigation,
+  renderBrand,
+  type ProductNavigationBinding,
+} from "../src/brand.ts";
 import { renderAnnotatedSourcePageActions } from "../src/annotated-source.ts";
 import type {
   LibraryLens,
@@ -93,6 +97,7 @@ declare global {
     focusWorkbenchSearchProbe: () => boolean;
     renderPackageScopeProbe: () => void;
     rerenderApplicationMenuProbe: () => void;
+    rerenderProductNavigationProbe: () => void;
     rerenderScopeBarProbe: () => void;
     beginContentFrameReplacementProbe: () => void;
     flushContentFrameReplacementProbe: () => void;
@@ -112,6 +117,7 @@ if (!app) throw new Error("The workspace-titlebar harness root is unavailable.")
 const appRoot: HTMLElement = app;
 const scopeBarState = createScopeBarState();
 let scopeBarBinding: ScopeBarBinding | null = null;
+let productNavigationBinding: ProductNavigationBinding | null = null;
 let workbenchShellBinding: WorkbenchShellBinding | null = null;
 let applicationDialog: "settings" | "keyboard-help" | null = null;
 let applicationDialogReturn: "application" | "source" = "application";
@@ -1008,7 +1014,7 @@ app.innerHTML = `
     'id="keyboard-help-backdrop" class="modal-backdrop"',
     'id="keyboard-help-backdrop" class="modal-backdrop" hidden',
   )}`;
-bindProductNavigation(appRoot, {
+productNavigationBinding = bindProductNavigation(appRoot, {
   currentDestination: () => workspaceMode ? "workspace" : null,
   onNavigate: destination => {
     document.body.dataset.productDestination = destination;
@@ -1333,6 +1339,18 @@ window.rerenderApplicationMenuProbe = () => {
   workbenchShellBinding =
     bindWorkbenchShell(document, workbenchShellActions);
   if (applicationMenuHadFocus) focusApplicationMenuButton(document);
+};
+window.rerenderProductNavigationProbe = () => {
+  productNavigationBinding?.beforeRender();
+  const button = document.querySelector<HTMLElement>(
+    "[data-product-navigation-button]");
+  const menu = document.querySelector<HTMLElement>(
+    "[data-product-navigation-menu]");
+  if (!button || !menu)
+    throw new Error("The product navigation shell is unavailable.");
+  button.outerHTML = renderBrand();
+  menu.remove();
+  productNavigationBinding?.afterRender();
 };
 window.rerenderScopeBarProbe = renderHarnessScopeBar;
 window.beginContentFrameReplacementProbe = () => {

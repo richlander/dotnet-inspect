@@ -3801,7 +3801,7 @@ function requireElement(selector: string): HTMLElement {
 }
 
 const app = requireElement("#app");
-bindProductNavigation(app, {
+const productNavigationBinding = bindProductNavigation(app, {
   currentDestination: currentProductDestination,
   onNavigate: navigateProductDestination,
   unavailableReason: productNavigationUnavailableReason,
@@ -6284,6 +6284,15 @@ function settingsOwnsHomeFocusTarget(target: HomeFocusTarget | null): boolean {
 }
 
 function render(options: { synchronizeUrl?: boolean } = {}) {
+  productNavigationBinding.beforeRender();
+  try {
+    renderCore(options);
+  } finally {
+    productNavigationBinding.afterRender();
+  }
+}
+
+function renderCore(options: { synchronizeUrl?: boolean }) {
   sourceInspection.cancelHiddenRequest();
   libraryApiDiff.reconcile(currentLibraryApiDiffSelection());
   compareClone.reconcile(currentCompareCloneTarget());

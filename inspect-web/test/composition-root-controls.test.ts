@@ -878,7 +878,7 @@ test("deferred Spotlight focus preserves newer document focus", () => {
 });
 
 test("the shell separates typed target and Subject navigation rows", () => {
-  const renderNode = functionDeclaration("render");
+  const renderNode = functionDeclaration("renderCore");
   const subjectPathNode = functionDeclaration("inspectedSubjectPath");
   const subjectPathRenderer = functionDeclaration("renderInspectedSubjectPath");
   const subjectIconRenderer =
