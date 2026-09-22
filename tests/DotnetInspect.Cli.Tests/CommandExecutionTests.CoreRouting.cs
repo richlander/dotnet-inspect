@@ -216,9 +216,7 @@ public partial class CommandExecutionTests
         Assert.Equal(0, exit);
         Assert.Contains("# System.Text.RegularExpressions.Regex", output);
         AssertLibraryAsset(output, "System.Text.RegularExpressions");
-        Assert.Contains(
-            "Note: Type 'Regex' resolved via the target-bound Platform catalog",
-            error);
+        Assert.Empty(error);
     }
 
     [Theory]
@@ -236,9 +234,7 @@ public partial class CommandExecutionTests
         Assert.Equal(0, exit);
         Assert.Contains($"# {expectedType}", output);
         Assert.DoesNotContain("## Package Info", output);
-        Assert.Contains(
-            "resolved via the target-bound Platform catalog",
-            error);
+        Assert.Empty(error);
     }
 
     [Fact]
@@ -251,9 +247,7 @@ public partial class CommandExecutionTests
         Assert.Contains(
             "# System.Runtime.InteropServices.JavaScript.JSType.String",
             output);
-        Assert.Contains(
-            "resolved via the target-bound Platform catalog",
-            error);
+        Assert.Empty(error);
     }
 
     [Fact]
@@ -293,9 +287,7 @@ public partial class CommandExecutionTests
         Assert.Equal(0, exit);
         Assert.Contains("# System.Collections.Generic.List&lt;T&gt;", output);
         AssertLibraryAsset(output, "System.Collections");
-        Assert.Contains(
-            "Note: Type 'List<T>' resolved via the target-bound Platform catalog",
-            error);
+        Assert.Empty(error);
     }
 
     [Theory]
