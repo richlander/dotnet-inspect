@@ -1918,7 +1918,7 @@ public class PackageQueryCliTests
 
     [Fact]
     [Trait("Speed", "Slow")]
-    public async Task CliLiteralStringQueryItemizesDistinctWholeUrlStrings()
+    public async Task CliLiteralStringQueryItemizesPhysicalUrlOccurrences()
     {
         string[] arguments =
         [
@@ -1946,21 +1946,27 @@ public class PackageQueryCliTests
         Assert.Empty(projected.Error);
 
         using JsonDocument contentDocument = JsonDocument.Parse(content.Output);
-        string[] occurrences =
+        JsonElement result = contentDocument.RootElement
+            .GetProperty("results")[0];
+        string package = result
+            .GetProperty("package")
+            .GetProperty("packageId")
+            .GetString()
+            ?? throw new InvalidOperationException(
+                "Expected a package identity.");
+        string library = result
+            .GetProperty("libraryLiteral")
+            .GetProperty("selectedAsset")
+            .GetProperty("path")
+            .GetString()
+            ?? throw new InvalidOperationException(
+                "Expected a selected implementation library.");
+        JsonElement[] occurrences =
         [
-            .. contentDocument.RootElement
-                .GetProperty("results")[0]
+            .. result
                 .GetProperty("libraryLiteral")
                 .GetProperty("occurrences")
                 .EnumerateArray()
-                .Select(occurrence =>
-                    occurrence.GetProperty("literalText").GetString()
-                    ?? throw new InvalidOperationException(
-                        "Expected a decoded literal string.")),
-        ];
-        string[] expected =
-        [
-            .. occurrences.Distinct(StringComparer.Ordinal),
         ];
 
         using JsonDocument projectedDocument =
@@ -1971,24 +1977,52 @@ public class PackageQueryCliTests
                 .GetProperty("literal_strings")
                 .EnumerateArray(),
         ];
-        string[] actual =
+        Assert.Equal(occurrences.Length, rows.Length);
+        for (int index = 0; index < rows.Length; index++)
+        {
+            JsonElement occurrence = occurrences[index];
+            JsonElement address = occurrence.GetProperty("address");
+            JsonElement row = rows[index];
+
+            Assert.Equal(package, row.GetProperty("package").GetString());
+            Assert.Equal(library, row.GetProperty("library").GetString());
+            Assert.Equal(
+                $"0x{address.GetProperty("methodDefinitionToken").GetInt32():X8}",
+                row.GetProperty("method_token").GetString());
+            Assert.Equal(
+                $"IL_{address.GetProperty("ilOffset").GetInt32():X4}",
+                row.GetProperty("il_offset").GetString());
+            Assert.Equal(
+                occurrence.GetProperty("literalText").GetString(),
+                row.GetProperty("literal").GetString());
+            Assert.Equal(5, row.EnumerateObject().Count());
+        }
+
+        string[] literals =
         [
             .. rows.Select(row =>
                 row.GetProperty("literal").GetString()
                 ?? throw new InvalidOperationException(
                     "Expected a projected literal string.")),
         ];
-
-        Assert.True(occurrences.Length > expected.Length);
-        Assert.Equal(expected, actual);
-        Assert.All(rows, row => Assert.Single(row.EnumerateObject()));
         Assert.Contains(
-            actual,
+            literals,
+            literal =>
+                literal.Split(
+                    "https://",
+                    StringSplitOptions.None).Length > 2);
+        Assert.Contains(
+            literals.GroupBy(
+                literal => literal,
+                StringComparer.Ordinal),
+            group => group.Count() > 1);
+        Assert.Contains(
+            literals,
             literal => literal.StartsWith(
                 "https://",
                 StringComparison.Ordinal));
         Assert.Contains(
-            actual,
+            literals,
             literal =>
                 !literal.StartsWith("https://", StringComparison.Ordinal)
                 && literal.Contains("https://", StringComparison.Ordinal));

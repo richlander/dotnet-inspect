@@ -98,7 +98,6 @@ public static class PackageQuerySections
     private static List<PackageQueryLiteralStringRow> CreateLiteralStringRows(
         IReadOnlyList<PackageQueryMatch> results)
     {
-        var seen = new HashSet<InertString>();
         var rows = new List<PackageQueryLiteralStringRow>();
         foreach (PackageQueryMatch match in results)
         {
@@ -107,10 +106,19 @@ public static class PackageQuerySections
                 ?? throw new ArgumentException(
                     "A semantic Package Query row requires library-literal evidence.",
                     nameof(results));
+            var packageText =
+                new InertString(
+                    TextPolicy.Field,
+                    match.Package.PackageId);
             foreach (var occurrence in literal.Occurrences)
             {
-                if (seen.Add(occurrence.LiteralText))
-                    rows.Add(new(occurrence.LiteralText));
+                rows.Add(
+                    new(
+                        packageText,
+                        literal.SelectedAsset.PathText,
+                        occurrence.Address.MethodDefinitionToken,
+                        occurrence.Address.ILOffset,
+                        occurrence.LiteralText));
             }
         }
         return rows;

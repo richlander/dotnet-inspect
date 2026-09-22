@@ -115,14 +115,15 @@ display-string identity.
 CLI Package Query presentation exposes the selected-library context, complete
 occurrence count, bounded coordinate preview, and opaque Root reopening token
 on each semantic package row. Its explicit `Literal Strings` section projects
-one row per distinct full retained literal value across the selected package
-Results, preserving first-occurrence order. Deduplication compares the complete
-contained value ordinally: repeated operand hits within one string and repeated
-physical occurrences of the same string do not create duplicate rows, and a
-match such as `https://` does not extract or split URL substrings from a larger
-literal. Package Query JSON serializes the typed `RootRequest` as that same
-opaque token so `workspace --root-request` can consume it without
-reconstructing owner-private fields.
+one row per physical decoded `ldstr` occurrence across the selected package
+Results, preserving package and occurrence order. Each row contains Package,
+Library, Method Token, IL Offset, and the complete retained Literal. Repeated
+operand hits within one decoded string do not split or duplicate that physical
+occurrence; repeated uses of the same full string at different IL coordinates
+remain separate rows. A match such as `https://` does not extract or split URL
+substrings from a larger literal. Package Query JSON serializes the typed
+`RootRequest` as that same opaque token so `workspace --root-request` can
+consume it without reconstructing owner-private fields.
 
 The Document also retains one typed semantic assessment for every candidate
 that entered the selected-library evaluator: `Matched`, `NoMatch`,
@@ -216,8 +217,9 @@ Focused Release gates must cover:
 - one package Result for a candidate with multiple occurrences;
 - final-match-only publication and Browser credit consumption;
 - complete occurrence retention with bounded presentation preview;
-- distinct full-literal CLI rows that preserve prefix and interior substring
-  matches without extracting URLs or duplicating repeated values;
+- physical full-literal CLI rows that preserve package, library, MethodDef, and
+  IL-offset coordinates; retain separate IL sites; and do not split one string
+  when the operand occurs more than once;
 - semantic miss, not applicable, acquisition failure, not evaluated, and a
   later match in one bounded population;
 - unified Package Query envelope, result kind, Summary, and failure accounting;
