@@ -555,7 +555,12 @@ internal static class BrowserLibraryApiDiffWireProjection
                 .. type.CompatibilityChanges
                     .Where(change => Describes(change, member.Relation))
                     .Select(Project),
-            ]);
+            ],
+            member.Relation.Match is null
+                ? null
+                : new BrowserLibraryApiDiffMatch(
+                    member.Relation.Match.Tier.Id,
+                    member.Relation.Match.Confidence));
 
     static BrowserLibraryApiDiffMemberIdentity Project(
         LibraryApiMemberIdentity identity) =>

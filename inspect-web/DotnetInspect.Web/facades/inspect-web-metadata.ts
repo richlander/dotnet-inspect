@@ -195,6 +195,11 @@ export interface BrowserLibraryApiDiffInspectionFailure {
   readonly dependencyAssembly: BrowserLibraryApiDiffAssemblyIdentity | null;
 }
 
+export interface BrowserLibraryApiDiffMatch {
+  readonly tier: string;
+  readonly confidence: number;
+}
+
 export interface BrowserLibraryApiDiffMember {
   readonly documentIdentifier: string;
   readonly pairKind: BrowserLibraryApiDiffMemberPairKind;
@@ -202,6 +207,7 @@ export interface BrowserLibraryApiDiffMember {
   readonly before: BrowserLibraryApiDiffMemberIdentity | null;
   readonly after: BrowserLibraryApiDiffMemberIdentity | null;
   readonly changes: ReadonlyArray<BrowserLibraryApiDiffChange>;
+  readonly match: BrowserLibraryApiDiffMatch | null;
 }
 
 export interface BrowserLibraryApiDiffMemberIdentity {

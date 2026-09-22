@@ -458,6 +458,19 @@ function validateMembers(value: unknown, description: string): void {
     if (member.before === null && member.after === null)
       throw new Error(`${description}[${index}] has no side.`);
     validateChanges(member.changes, `${description}[${index}].changes`);
+    if (member.match !== null) {
+      const match = requireRecord(member.match, `${description}[${index}].match`);
+      requireString(match.tier, `${description}[${index}].match.tier`);
+      if (match.tier === "")
+        throw new Error(`${description}[${index}].match.tier must not be empty.`);
+      if (!Number.isSafeInteger(match.confidence)
+        || Number(match.confidence) <= 0
+        || Number(match.confidence) >= 100) {
+        throw new Error(
+          `${description}[${index}].match.confidence must be between 1 and 99.`,
+        );
+      }
+    }
   }
 }
 
@@ -1166,20 +1179,60 @@ function memberStateLabel(member: BrowserLibraryApiDiffMember): string {
   }
 }
 
+// A relation whose Before and After declaring Types differ is one Member that
+// the producer placed under both Types. The exact declaring-Type identifiers
+// are the join; display text is never used to decide this.
+function counterpartType(
+  member: BrowserLibraryApiDiffMember,
+): { readonly identifier: string; readonly fullName: string } | null {
+  if (member.before === null || member.after === null) return null;
+  if (member.before.declaringTypeIdentifier
+    === member.after.declaringTypeIdentifier) {
+    return null;
+  }
+  const other = member.role === "Before" ? member.after : member.before;
+  return {
+    identifier: other.declaringTypeIdentifier,
+    fullName: other.typeFullName,
+  };
+}
+
+function matchText(member: BrowserLibraryApiDiffMember): string {
+  return member.match === null
+    ? ""
+    : `Matched by ${member.match.tier} at ${member.match.confidence}% confidence`;
+}
+
 function renderMemberRow(
   member: BrowserLibraryApiDiffMember,
   escapeHtml: (value: unknown) => string,
   activatableMembers: ReadonlySet<string> | undefined,
+  activatableTypes: ReadonlySet<string> | undefined,
 ): string {
   const display = member.after?.display ?? member.before?.display ?? "";
   const fingerprint = member.after?.fingerprint ?? "";
-  const activatable =
-    member.after !== null && activatableMembers?.has(fingerprint) === true;
+  const counterpart = counterpartType(member);
+  // The Before-role placement of a moved Member has no current subject on this
+  // Type; its current subject lives on the counterpart Type.
+  const movedAway = counterpart !== null && member.role === "Before";
+  const activatable = !movedAway
+    && member.after !== null
+    && activatableMembers?.has(fingerprint) === true;
   const inertReason = member.after === null
     ? "Removed in the current version; Before-side evidence only"
-    : activatable
-      ? ""
-      : "Not joined to a loaded Member";
+    : movedAway
+      ? `Now declared on ${counterpart.fullName}`
+      : activatable
+        ? ""
+        : "Not joined to a loaded Member";
+  const movedFrom = counterpart !== null && member.role !== "Before"
+    ? `<span class="library-api-diff-moved">Moved from ${escapeHtml(counterpart.fullName)}${
+      member.match === null ? "" : ` · ${escapeHtml(matchText(member))}`}</span>`
+    : "";
+  const openCounterpart = movedAway
+    && activatableTypes?.has(counterpart.identifier) === true
+    ? `<button type="button" class="library-api-diff-counterpart" data-compare-type-id="${attributeText(counterpart.identifier, escapeHtml)}">Open ${escapeHtml(counterpart.fullName)}</button>`
+    : "";
   const signatures = member.before !== null && member.after !== null
     && member.before.canonicalSignature !== member.after.canonicalSignature
     ? `<span class="library-api-diff-signature-change"><code>${escapeHtml(member.before.canonicalSignature)}</code> → <code>${escapeHtml(member.after.canonicalSignature)}</code></span>`
@@ -1187,14 +1240,17 @@ function renderMemberRow(
   const copy = `<span class="library-api-diff-type-copy">
       <strong>${escapeHtml(display)}</strong>
       ${changeChips(member.changes, escapeHtml)}
+      ${movedFrom}
       ${signatures}
       ${inertReason ? `<span class="library-api-diff-inert">${escapeHtml(inertReason)}</span>` : ""}
     </span>`;
   const state = `<span class="library-api-diff-state library-api-diff-state-${String(member.pairKind).toLowerCase()}">${escapeHtml(memberStateLabel(member))}</span>`;
+  // The counterpart action is a sibling of the inert row, not a child of it,
+  // so the row's disabled state never disables the one live control.
   return `<li class="library-api-diff-member${activatable ? "" : " library-api-diff-member-inert"}" data-member-fingerprint="${attributeText(fingerprint, escapeHtml)}" data-member-before-fingerprint="${attributeText(member.before?.fingerprint ?? "", escapeHtml)}">${
     activatable
       ? `<button type="button" class="library-api-diff-row" data-compare-member-fingerprint="${attributeText(fingerprint, escapeHtml)}" aria-label="Open ${escapeHtml(display)} Compare">${state}${copy}</button>`
-      : `<div class="library-api-diff-row" aria-disabled="true">${state}${copy}</div>`
+      : `<div class="library-api-diff-row" aria-disabled="true">${state}${copy}</div>${openCounterpart}`
   }</li>`;
 }
 
@@ -1337,7 +1393,12 @@ function renderTypeSubject(
     content: `<div class="library-api-diff-metrics">${metrics.map(metric =>
       `<span>${escapeHtml(metric)}</span>`).join("")}</div>${typeChanges}
       <ol class="library-api-diff-members" aria-label="Changed Members">${type.members.map(member =>
-        renderMemberRow(member, escapeHtml, options.activatableMembers)).join("")}</ol>`,
+        renderMemberRow(
+          member,
+          escapeHtml,
+          options.activatableMembers,
+          options.activatableTypes,
+        )).join("")}</ol>`,
   };
 }
 
@@ -1368,6 +1429,16 @@ function renderMemberSubject(
       `${classificationLabel(change.classification)} · ${changeKindLabel(change.kind)}`),
     type.typeDefinitionChanged === true ? "Type definition changed" : "",
   ].filter(Boolean);
+  const counterpart = counterpartType(member);
+  const correspondence = [
+    matchText(member),
+    counterpart !== null && member.before !== null && member.after !== null
+      ? `Moved from ${member.before.typeFullName} to ${member.after.typeFullName}`
+      : "",
+  ].filter(Boolean);
+  const correspondenceHtml = correspondence.length === 0
+    ? ""
+    : `<p class="library-api-diff-note library-api-diff-correspondence">${correspondence.map(escapeHtml).join(" · ")}</p>`;
   // A Member inside an added or removed Type carries no change of its own:
   // the classified change belongs to the Type entry.
   const carriedByType = member.changes.length === 0
@@ -1383,6 +1454,7 @@ function renderMemberSubject(
     status: `Comparison complete. Member ${memberStateLabel(member).toLowerCase()}.`,
     content: `<div class="library-api-diff-metrics">${classification.map(metric =>
       `<span>${escapeHtml(metric)}</span>`).join("")}</div>
+      ${correspondenceHtml}
       <section class="library-api-diff-change-section" aria-labelledby="library-api-diff-changes-title">
         <h2 id="library-api-diff-changes-title">What changed</h2>
         ${changes}

@@ -173,6 +173,14 @@ public sealed class BrowserLibraryApiDiffOperationTests
             receiverMoved.After!.DeclaringTypeIdentifier);
         Assert.Equal("Transform", receiverMoved.Before.MemberName);
         Assert.Equal("Transform", receiverMoved.After.MemberName);
+        // Both placements of one relation carry the same correspondence
+        // provenance, and a projected match is always a bounded soft match.
+        Assert.Equal(receiverMoved.Match, extensionMoved.Match);
+        if (receiverMoved.Match is { } match)
+        {
+            Assert.NotEmpty(match.Tier);
+            Assert.InRange(match.Confidence, 1, 99);
+        }
         Assert.NotEmpty(receiverMoved.After.StableSelector);
         Assert.NotEmpty(receiverMoved.After.CanonicalSignature);
         Assert.Equal(10, receiverMoved.After.Fingerprint.Length);
@@ -1004,6 +1012,7 @@ public sealed class BrowserLibraryApiDiffOperationTests
                 "before",
                 "changes",
                 "documentIdentifier",
+                "match",
                 "pairKind",
                 "role",
             ],
