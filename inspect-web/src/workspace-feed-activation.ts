@@ -90,6 +90,7 @@ export interface WorkspaceFeedActivationDependencies<TRollback> {
   pushLocation(location: string): void;
   reportFailure(message: string, retry: () => void): void;
   reportBlockingFailure(message: string, retry: () => void): void;
+  successorCommitted?(): void;
   reportPredecessorFailure(error: unknown): void;
   observe(promise: Promise<unknown>, label: string): void;
   errorMessage(error: unknown): string;
@@ -118,6 +119,7 @@ export interface WorkspaceFeedActivationCoordinator<TRollback = never> {
     url: URL,
     navigationSequence: number,
     commitHistory?: boolean,
+    inheritedRollback?: WorkspaceFeedRollbackTransfer<TRollback> | null,
   ): Promise<boolean>;
   cancelPrompt(showFailure?: boolean): void;
   clearActiveUrl(): void;
@@ -125,6 +127,8 @@ export interface WorkspaceFeedActivationCoordinator<TRollback = never> {
 
 export interface WorkspaceFeedRollbackTransfer<TRollback> {
   readonly snapshot: TRollback;
+  readonly incumbentDefinitionId: string | null;
+  readonly sourceUrl: string | null;
   transfer(): WorkspaceFeedRollbackTransfer<TRollback> | null;
   restore(): Promise<boolean>;
   release(): void;
@@ -152,6 +156,7 @@ export function createWorkspaceFeedActivationCoordinator<TRollback>(
     readonly state: TRollback;
     readonly sourceUrl: string | null;
     readonly recoveryFailure: string | null;
+    readonly transfer: WorkspaceFeedRollbackTransfer<TRollback> | null;
   };
   type RollbackRestoration = {
     readonly rollback: RollbackState;
@@ -269,6 +274,8 @@ export function createWorkspaceFeedActivationCoordinator<TRollback>(
     url: URL,
     navigationSequence: number,
     commitHistory = false,
+    inheritedRollback:
+      WorkspaceFeedRollbackTransfer<TRollback> | null = null,
   ): Promise<boolean> {
     const packet = url.searchParams.get("w");
     if (!packet) return false;
@@ -287,7 +294,19 @@ export function createWorkspaceFeedActivationCoordinator<TRollback>(
       packet);
     if (!dependencies.isCurrent(navigationSequence)) return false;
     pendingNavigationSequence = navigationSequence;
-    if (rollbackRestoration !== null) {
+    if (inheritedRollback !== null) {
+      releaseRollback();
+      releaseRollbackRestoration();
+      rollback = {
+        retainedDefinitionId,
+        navigationSequence,
+        incumbentDefinitionId: inheritedRollback.incumbentDefinitionId,
+        state: inheritedRollback.snapshot,
+        sourceUrl: inheritedRollback.sourceUrl,
+        recoveryFailure: null,
+        transfer: inheritedRollback,
+      };
+    } else if (rollbackRestoration !== null) {
       rollback = {
         ...rollbackRestoration.rollback,
         retainedDefinitionId,
@@ -311,6 +330,7 @@ export function createWorkspaceFeedActivationCoordinator<TRollback>(
         state: dependencies.captureRollback(),
         sourceUrl: activeUrl,
         recoveryFailure: null,
+        transfer: null,
       };
     }
     const required = description.sources.filter(
@@ -476,6 +496,7 @@ export function createWorkspaceFeedActivationCoordinator<TRollback>(
           state: dependencies.captureRollback(),
           sourceUrl: activeUrl,
           recoveryFailure: null,
+          transfer: null,
         };
       }
       const succeeded = await activate(
@@ -608,6 +629,8 @@ export function createWorkspaceFeedActivationCoordinator<TRollback>(
         rememberRetainedCredentials(retainedDefinitionId, credentials);
         activeUrl = canonicalLocation;
         releaseRollback(retainedDefinitionId, navigationSequence);
+        dependencies.successorCommitted?.();
+        dependencies.applicationRoot.inert = false;
         if (commitHistory) dependencies.pushLocation(canonicalLocation);
         return true;
       }
@@ -634,14 +657,29 @@ export function createWorkspaceFeedActivationCoordinator<TRollback>(
         try {
           await restoreStagedRollback();
         } catch (recoveryError) {
-          if (!dependencies.isCurrent(navigationSequence)
-            || prompt !== null) {
+          const restoration = rollbackRestoration;
+          if (restoration === null) {
+            return false;
+          }
+          const recoveryMessage =
+            `The prior Workspace could not be restored: ${
+              dependencies.errorMessage(recoveryError)
+            }`;
+          if (prompt !== null) {
+            rollback = {
+              ...restoration.rollback,
+              retainedDefinitionId: prompt.retainedDefinitionId,
+              navigationSequence: prompt.navigationSequence,
+              recoveryFailure: restoration.failure
+                ?? dependencies.errorMessage(recoveryError),
+            };
+            rollbackRestoration = null;
+            prompt.error = recoveryMessage;
+            mountPrompt();
             return false;
           }
           dependencies.reportBlockingFailure(
-            `The prior Workspace could not be restored: ${
-              dependencies.errorMessage(recoveryError)
-            }`,
+            recoveryMessage,
             () => retry(canonicalLocation, commitHistory));
           return false;
         }
@@ -727,9 +765,13 @@ export function createWorkspaceFeedActivationCoordinator<TRollback>(
     if (restoration === null) return;
     const prior = restoration.rollback;
     try {
-      await dependencies.restoreRollback(
-        prior.state,
-        () => rollbackRestoration === restoration);
+      if (prior.transfer !== null) {
+        if (!await prior.transfer.restore()) return;
+      } else {
+        await dependencies.restoreRollback(
+          prior.state,
+          () => rollbackRestoration === restoration);
+      }
     } catch (error) {
       if (rollbackRestoration !== restoration) return;
       restoration.failure = dependencies.errorMessage(error);
@@ -748,6 +790,7 @@ export function createWorkspaceFeedActivationCoordinator<TRollback>(
         state: dependencies.captureRollback(),
         sourceUrl: prior.sourceUrl,
         recoveryFailure: null,
+        transfer: null,
       };
     }
   }
@@ -773,7 +816,11 @@ export function createWorkspaceFeedActivationCoordinator<TRollback>(
     const restoration = rollbackRestoration;
     if (restoration === null) return;
     rollbackRestoration = null;
-    dependencies.releaseRollback(restoration.rollback.state);
+    if (restoration.rollback.transfer !== null) {
+      restoration.rollback.transfer.release();
+    } else {
+      dependencies.releaseRollback(restoration.rollback.state);
+    }
   }
 
   function rememberRetainedCredentials(
@@ -811,7 +858,11 @@ export function createWorkspaceFeedActivationCoordinator<TRollback>(
       && rollback.retainedDefinitionId !== retainedDefinitionId) return;
     if (navigationSequence !== undefined
       && rollback.navigationSequence !== navigationSequence) return;
-    dependencies.releaseRollback(rollback.state);
+    if (rollback.transfer !== null) {
+      rollback.transfer.release();
+    } else {
+      dependencies.releaseRollback(rollback.state);
+    }
     rollback = null;
   }
 
@@ -838,6 +889,8 @@ export function createWorkspaceFeedActivationCoordinator<TRollback>(
       owner = issuedOwner;
       const transfer: WorkspaceFeedRollbackTransfer<TRollback> = {
         snapshot,
+        incumbentDefinitionId: ownedRollback.incumbentDefinitionId,
+        sourceUrl: ownedRollback.sourceUrl,
         transfer() {
           if (retired || owner !== issuedOwner) return null;
           rollbackTransfers.delete(transfer);
@@ -895,6 +948,13 @@ export function createWorkspaceFeedActivationCoordinator<TRollback>(
     },
     transferCommittedRollback() {
       if (rollbackRestoration !== null) {
+        if (rollbackRestoration.rollback.transfer !== null) {
+          const transferred =
+            rollbackRestoration.rollback.transfer.transfer();
+          rollbackRestoration = null;
+          posted = null;
+          return transferred;
+        }
         const transferred = createRollbackTransfer(
           rollbackRestoration.rollback);
         releaseRollbackRestoration();
@@ -902,6 +962,12 @@ export function createWorkspaceFeedActivationCoordinator<TRollback>(
         return transferred;
       }
       if (!ownsTentativeVisibleProjection() || rollback === null) return null;
+      if (rollback.transfer !== null) {
+        const transferred = rollback.transfer.transfer();
+        rollback = null;
+        posted = null;
+        return transferred;
+      }
       const transferred = createRollbackTransfer(rollback);
       releaseRollback();
       posted = null;

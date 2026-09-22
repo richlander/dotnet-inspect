@@ -420,6 +420,12 @@ test("source-bearing Workspace URLs use page-session retained activation", () =>
     /function captureWorkspaceNavigationRollback\(\):[\s\S]*workspaceFeedActivation\?\.transferCommittedRollback\(\)[\s\S]*workspaceFeedRollbackTransfers\.set\(transfer\.snapshot, transfer\);[\s\S]*return transfer\.snapshot;[\s\S]*async function restoreWorkspaceNavigationRollback\([\s\S]*await transfer\.restore\(\)/);
   assert.match(
     appSource,
+    /async function tryOpenSourceBearingWorkspace\([\s\S]*workspaceFeedRollbackTransfer\.transfer\(\);[\s\S]*workspaceFeedActivationCoordinator\(\)\.tryOpen\([\s\S]*inheritedRollback\);[\s\S]*workspaceFeedRollbackTransfer = null;[\s\S]*workspaceFeedRollbackTransfers\.delete\(inheritedRollback\.snapshot\)/);
+  assert.match(
+    appSource,
+    /successorCommitted\(\) \{\s*discardPendingWorkspaceConstruction\(\);\s*}/);
+  assert.match(
+    appSource,
     /function cancelPendingWorkspaceConstruction\(\): void \{[\s\S]*workspaceFeedRollbackTransfers\.get\([\s\S]*pending\.supersessionSnapshot[\s\S]*const successor = transfer\.transfer\(\);[\s\S]*workspaceFeedRollbackTransfer = successor;[\s\S]*return;/);
   assert.match(
     appSource,

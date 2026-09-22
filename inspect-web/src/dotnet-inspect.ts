@@ -19258,6 +19258,9 @@ function workspaceFeedActivationCoordinator():
         state.retryAction = retry;
         render({ synchronizeUrl: false });
       },
+      successorCommitted() {
+        discardPendingWorkspaceConstruction();
+      },
       reportPredecessorFailure(error) {
         showToast(
           `Could not confirm the replaced Workspace was released: ${
@@ -19316,10 +19319,33 @@ async function tryOpenSourceBearingWorkspace(
   navigationSeq: number,
   commitHistory = false,
 ): Promise<boolean> {
-  return workspaceFeedActivationCoordinator().tryOpen(
+  let inheritedRollback:
+    WorkspaceFeedRollbackTransfer<CanonicalWorkspaceRestoreSnapshot> | null =
+      null;
+  if (workspaceFeedRollbackTransfer !== null) {
+    inheritedRollback = workspaceFeedRollbackTransfer.transfer();
+    if (inheritedRollback !== null) {
+      workspaceFeedRollbackTransfer = inheritedRollback;
+      workspaceFeedRollbackTransfers.set(
+        inheritedRollback.snapshot,
+        inheritedRollback);
+    }
+  }
+  const handled = await workspaceFeedActivationCoordinator().tryOpen(
     url,
     navigationSeq,
-    commitHistory);
+    commitHistory,
+    inheritedRollback);
+  if (handled
+    && inheritedRollback !== null
+    && workspaceFeedRollbackTransfer === inheritedRollback) {
+    workspaceFeedRollbackTransfer = null;
+    if (workspaceFeedRollbackTransfers.get(inheritedRollback.snapshot)
+      === inheritedRollback) {
+      workspaceFeedRollbackTransfers.delete(inheritedRollback.snapshot);
+    }
+  }
+  return handled;
 }
 
 function cancelWorkspaceCredentialPrompt(showFailure = true): void {

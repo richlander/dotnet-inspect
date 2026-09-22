@@ -496,6 +496,7 @@ function createCoordinatorHarness(
   let navigationSequence = 1;
   let visible = initialVisible;
   let failure: string | null = null;
+  const applicationRoot = { inert: false };
   const coordinator = createWorkspaceFeedActivationCoordinator({
     client,
     ...(activationController ? { activationController } : {}),
@@ -508,7 +509,7 @@ function createCoordinatorHarness(
       },
       body: { append() {} },
     },
-    applicationRoot: { inert: false },
+    applicationRoot,
     maxVisibleModels: 8,
     isCurrent: sequence => sequence === navigationSequence,
     beginNavigation: () => ++navigationSequence,
@@ -536,6 +537,9 @@ function createCoordinatorHarness(
     reportBlockingFailure(message) {
       failure = message;
     },
+    successorCommitted() {
+      events.push("successor-committed");
+    },
     reportPredecessorFailure(error) {
       assert.fail(String(error));
     },
@@ -559,6 +563,7 @@ function createCoordinatorHarness(
     get failure() {
       return failure;
     },
+    applicationRoot,
   };
 }
 
@@ -969,6 +974,157 @@ test("anonymous recovery failure uses the blocking host failure path", async () 
   assert.equal(
     harness.coordinator.captureCommittedRollback(),
     "incumbent");
+});
+
+test("a source successor adopts and retires inherited recovery", async () => {
+  const events: string[] = [];
+  const client = createWorkspaceTestClient(events);
+  const harness = createCoordinatorHarness(client, events, "tentative");
+  let released = false;
+  const inherited = {
+    snapshot: "incumbent",
+    incumbentDefinitionId: null,
+    sourceUrl: "https://example.test/?w=incumbent",
+    transfer() {
+      return null;
+    },
+    async restore() {
+      assert.fail("Successful source activation must retire recovery.");
+    },
+    release() {
+      released = true;
+    },
+  };
+  harness.applicationRoot.inert = true;
+
+  assert.equal(
+    await harness.coordinator.tryOpen(
+      new URL("https://example.test/?w=successor"),
+      harness.sequence,
+      true,
+      inherited),
+    true);
+  assert.equal(harness.visible, "https://example.test/?w=successor");
+  assert.equal(released, true);
+  assert.equal(harness.applicationRoot.inert, false);
+  assert.equal(events.includes("successor-committed"), true);
+  assert.equal(harness.coordinator.captureCommittedRollback(), null);
+});
+
+test("cancelled source prompt cannot suppress late recovery failure", async () => {
+  const htmlElement = Object.getOwnPropertyDescriptor(
+    globalThis,
+    "HTMLElement");
+  Object.defineProperty(globalThis, "HTMLElement", {
+    configurable: true,
+    value: Object,
+  });
+  try {
+    const events: string[] = [];
+    const client = createWorkspaceTestClient(events);
+    const promptDocument = createPromptTestDocument();
+    const applicationRoot = { inert: false };
+    client.describeWorkspacePackageSources = packet => ({
+      succeeded: true,
+      sources: [{
+        endpoint: "https://packages.example.test/v3/index.json",
+        authentication: packet === "C"
+          ? "AuthenticationRequired"
+          : "Anonymous",
+      }],
+      failure: null,
+    });
+    let navigationSequence = 1;
+    let visible = "initial";
+    let blockingFailures = 0;
+    const coordinator = createWorkspaceFeedActivationCoordinator({
+      client,
+      // @ts-expect-error This fixture supplies only the DOM members the prompt uses.
+      document: promptDocument.document,
+      applicationRoot,
+      maxVisibleModels: 8,
+      isCurrent: sequence => sequence === navigationSequence,
+      beginNavigation: () => ++navigationSequence,
+      hasVisibleWorkspace: () => true,
+      captureRollback: () => visible,
+      cloneRollback: rollback => rollback,
+      restoreRollback() {
+        throw new Error("The incumbent source is unavailable.");
+      },
+      releaseRollback() {},
+      publish(activationPosting) {
+        visible = new URL(
+          activationPosting.canonicalLocation).searchParams.get("w")
+          ?? "";
+      },
+      setLoading() {},
+      pushLocation() {},
+      reportFailure(message) {
+        events.push(`failure:${message}`);
+      },
+      reportBlockingFailure() {
+        blockingFailures++;
+        visible = "recovery-error";
+      },
+      reportPredecessorFailure(error) {
+        assert.fail(String(error));
+      },
+      observe() {},
+      errorMessage: String,
+      escapeHtml: String,
+      trapModalTab() {},
+    });
+
+    await coordinator.tryOpen(
+      new URL("https://example.test/?w=A"),
+      navigationSequence,
+      true);
+    const completion = deferred<boolean>();
+    const entered = deferred<boolean>();
+    const completeActivation =
+      client.completeRetainedWorkspaceActivation.bind(client);
+    client.completeRetainedWorkspaceActivation = async (
+      receipt,
+      succeeded,
+      failure,
+    ) => {
+      if (succeeded) {
+        entered.resolve(true);
+        await completion.promise;
+        throw new Error("Consumer completion failed.");
+      }
+      return completeActivation(receipt, succeeded, failure);
+    };
+
+    navigationSequence++;
+    const opening = coordinator.tryOpen(
+      new URL("https://example.test/?w=B"),
+      navigationSequence,
+      true);
+    await entered.promise;
+    navigationSequence++;
+    await coordinator.tryOpen(
+      new URL("https://example.test/?w=C"),
+      navigationSequence,
+      true);
+    coordinator.cancelPrompt();
+    completion.resolve(true);
+    await opening;
+
+    assert.equal(visible, "recovery-error");
+    assert.equal(blockingFailures, 1);
+    assert.equal(applicationRoot.inert, false);
+    assert.equal(coordinator.blocksUrlSynchronization, true);
+    assert.equal(
+      coordinator.captureCommittedRollback(),
+      "A");
+  } finally {
+    if (htmlElement) {
+      Object.defineProperty(globalThis, "HTMLElement", htmlElement);
+    } else {
+      Reflect.deleteProperty(globalThis, "HTMLElement");
+    }
+  }
 });
 
 test("credential prompt names endpoints without retaining credential fields", () => {

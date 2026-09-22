@@ -1204,10 +1204,12 @@ responsibility from the source coordinator before successor work can yield; the
 coordinator then cannot apply a late rollback to shared application state.
 Successor failure uses that responsibility to reactivate managed authority and
 install its fresh posting before exposing the restored incumbent, while
-successful commit retires the prior source identity. A later successor claims
-the same responsibility before cancelling an earlier construction or recovery;
-the revoked owner settles without changing presentation, pending state, or the
-committed successor.
+successful commit retires the prior source identity. Every later successor,
+including source preflight, claims the same responsibility before cancelling
+an earlier construction or recovery; the revoked owner settles without changing
+presentation, pending state, or the committed successor. A successful source
+commit retires both its coordinator-local rollback and any responsibility
+inherited from ordinary construction.
 URL synchronization remains blocked while the tentative projection owns
 visible state even after another navigation becomes current. An identical active
 definition may reuse its posting only after that posting completed consumer
@@ -1243,7 +1245,9 @@ superseding navigation claims the rollback. Dismissing an error therefore
 cannot expose a Workspace that failed consumer completion. Anonymous
 activation has no credential prompt, so the host replaces the tentative
 projection with a blocking recovery error and explicit retry rather than
-leaving failed Package or Platform rows interactive.
+leaving failed Package or Platform rows interactive. That response follows the
+live rollback owner even when the activation's original navigation is stale;
+cancelling an intervening prompt cannot suppress a later recovery failure.
 
 Browser/Wasm supports anonymous sources and explicit page-session credentials.
 It cannot launch a NuGet credential-provider plugin, so an
