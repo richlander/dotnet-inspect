@@ -456,6 +456,15 @@ typed results; committed or already-current membership survives Navigation
 failure or supersession. The boundary neither creates a fallback Workspace nor
 publishes host state.
 
+Stage 3's retained-host adoption enters `NavigateCurrent`,
+`AddCurrentPackage`, and `ActivateCurrentPackageLibrary` through the exact
+active realization. The admitted operation lease spans Navigation or the
+complete Package membership-and-focus operation. Admission unavailability
+remains distinct from the existing detailed Package result, and an acquisition
+failure cannot select the fresh-Workspace path. A predecessor operation may
+finish after replacement; final presentation still rejects its stale
+realization association under #6686.
+
 Stage 4's `BrowserSpotlightCurrentPlatformActivation` and
 `BrowserSpotlightDestinationPresentation` implementation is retained only as
 historical staged capability. It has no production adoption step and must not
