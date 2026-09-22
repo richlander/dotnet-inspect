@@ -128,6 +128,8 @@ import {
   createAppMemberSurface,
   createAppTypeSurface,
   createPackageAcquisition,
+  createNuGetPackageModel,
+  createRuntimePackageModel,
   createUploadedLibraryModel,
   createWorkspaceOccurrencePackageModel,
   graphOnlyImplementationBody,
@@ -203,6 +205,21 @@ import {
 } from "./product-home-demos.ts";
 import { createSavedWorkspaces, type SavedWorkspace } from "./saved-workspaces.ts";
 import { bindSavedWorkspaces, restoreSavedWorkspaceFocus } from "./saved-workspaces-view.ts";
+import {
+  createNavigationDescriptorPresentation,
+  withNavigationPackageDetailFailure,
+  withNavigationPlatformDetailFailure,
+  type NavigationDescriptorPresentation,
+} from "./navigation-descriptor-presentation.ts";
+import {
+  createNavigationLocationIntentArbiter,
+  type InstalledLocationAssociation,
+  type LocationIntentDeclaration,
+} from "./navigation-location-intent.ts";
+import {
+  createRetainedWorkspaceActivationController,
+  type RetainedWorkspaceActivationController,
+} from "./retained-workspace-activation.ts";
 import {
   createSourceInspectionCoordinator,
   graphSourceAutoLoadRequest,
@@ -639,6 +656,12 @@ import type {
 import type {
   BrowserHomeDemoRunActivation,
   BrowserHomeDemoRunResult,
+  BrowserPackageSurface as CatalogPackageSurface,
+  BrowserRetainedWorkspaceActivationResult,
+  BrowserRetainedWorkspacePackage,
+  BrowserRetainedWorkspacePackageInventory,
+  BrowserRetainedWorkspacePlatform,
+  BrowserRetainedWorkspacePlatformInventory,
   BrowserRetainedWorkspacePosting,
   BrowserWorkspaceShareState,
 } from "./facades/inspect-web-catalog.d.ts";
@@ -777,6 +800,30 @@ async function loadEngineModule() {
       },
     });
     engineClient = worker.client;
+    retainedWorkspaceActivation =
+      createRetainedWorkspaceActivationController(engineClient.catalog, {
+        post: postRetainedWorkspace,
+        clear: clearRetainedWorkspacePosting,
+        predecessorSettled: (_observation, result) => {
+          if (result.status === "failed") {
+            appendQueryNotice(
+              result.settlement?.failure
+                ?? "The previous Workspace could not be settled.",
+              null,
+            );
+            render({ synchronizeUrl: false });
+          }
+        },
+        predecessorObservationFailed: (_observation, error) => {
+          appendQueryNotice(
+            `The previous Workspace settlement could not be observed: ${
+              errorMessage(error)
+            }`,
+            null,
+          );
+          render({ synchronizeUrl: false });
+        },
+      });
     installPublishedRuntimeBenchmarkBridge(
       window,
       window.location.search,
@@ -1366,6 +1413,23 @@ interface CanonicalWorkspaceRestoreSnapshot {
 
 let retainedWorkspaces =
   createRetainedWorkspaceCollection<CanonicalWorkspaceRestoreSnapshot>();
+let retainedWorkspaceActivation: RetainedWorkspaceActivationController | null =
+  null;
+let activeRetainedWorkspacePosting: BrowserRetainedWorkspacePosting | null =
+  null;
+let retainedWorkspacePresentation: NavigationDescriptorPresentation | null =
+  null;
+let retainedWorkspaceInitialDetailAuthority: {
+  realizationId: string;
+  navigationSeq: number;
+  presentationCurrent: boolean;
+} | null = null;
+const retainedWorkspacePostings =
+  new Map<string, BrowserRetainedWorkspacePosting>();
+const issuedManagedRetainedDefinitionIds = new Set<string>();
+let failedManagedRetainedDefinitionId: string | null = null;
+const retainedLocationIntents = createNavigationLocationIntentArbiter();
+let installedRetainedLocation: InstalledLocationAssociation | null = null;
 let activeWorkspaceUrl: string | null = null;
 let workspaceFeedActivation:
   WorkspaceFeedActivationCoordinator<
@@ -1801,12 +1865,527 @@ function discardPendingWorkspaceConstruction(): void {
   setWorkspaceConstructionPending(false);
 }
 
+function requireRetainedWorkspaceActivation():
+RetainedWorkspaceActivationController {
+  if (retainedWorkspaceActivation === null) {
+    throw new Error("Wait until the Browser engine is ready before opening a saved Workspace.");
+  }
+  return retainedWorkspaceActivation;
+}
+
+function parkActiveCompatibilityWorkspace(): void {
+  const activeId = retainedWorkspaces.activeWorkspaceId;
+  if (activeId === null) return;
+  const snapshot = captureRetainedWorkspaceSnapshot();
+  retainedWorkspaces = {
+    ...retainedWorkspaces,
+    activeWorkspaceId: null,
+    workspaces: retainedWorkspaces.workspaces.map(workspace =>
+      workspace.id === activeId
+        ? { ...workspace, snapshot }
+        : workspace),
+  };
+}
+
+function postRetainedWorkspace(
+  posting: BrowserRetainedWorkspacePosting,
+  presentationCurrent = true,
+): void {
+  if (presentationCurrent) {
+    const focusedElement = document.activeElement instanceof HTMLElement
+      ? document.activeElement
+      : null;
+    if (captureWorkspaceFocus(focusedElement) !== null) {
+      focusApplicationMenuButton(document);
+    }
+  }
+  parkActiveCompatibilityWorkspace();
+  activeRetainedWorkspacePosting = posting;
+  retainedWorkspaceInitialDetailAuthority = {
+    realizationId: posting.realizationId,
+    navigationSeq: navigationSequence.current(),
+    presentationCurrent,
+  };
+  retainedWorkspacePostings.set(posting.retainedDefinitionId, posting);
+  retainedWorkspacePresentation =
+    createNavigationDescriptorPresentation(posting);
+  if (!presentationCurrent) return;
+  prepareUnpublishedWorkspace();
+  state.home = false;
+  state.loading = true;
+  state.workspaceSubjectOpen = true;
+  state.atPackageRoot = true;
+  render({ synchronizeUrl: false });
+}
+
+function clearRetainedWorkspacePosting(presentationCurrent = true): void {
+  activeRetainedWorkspacePosting = null;
+  retainedWorkspacePresentation = null;
+  retainedWorkspaceInitialDetailAuthority = null;
+  installedRetainedLocation = null;
+  if (!presentationCurrent) return;
+  prepareUnpublishedWorkspace();
+  state.loading = false;
+  state.error = "The retained Workspace is unavailable.";
+  state.workspaceSubjectOpen = true;
+  state.atPackageRoot = true;
+  activeWorkspaceUrl = null;
+  render({ synchronizeUrl: false });
+}
+
+async function admitRetainedPackage(
+  posting: BrowserRetainedWorkspacePosting,
+  inventory: BrowserRetainedWorkspacePackageInventory,
+): Promise<BrowserRetainedWorkspacePackage> {
+  let offset = 0;
+  let admitted: BrowserRetainedWorkspacePackage | null = null;
+  const types: CatalogPackageSurface["types"][number][] = [];
+  for (;;) {
+    const result = await engineClient.catalog.admitRetainedWorkspacePackage(
+      posting.retainedDefinitionId,
+      posting.realizationId,
+      inventory.navigationId,
+      offset,
+    );
+    if (result.status !== "admitted" || result.package === null) {
+      throw new Error(
+        result.message
+          ?? `Package '${inventory.navigationId}' is unavailable.`,
+      );
+    }
+    const page = result.package;
+    if (page.typePage.offset !== offset) {
+      throw new Error(
+        `Package '${inventory.navigationId}' returned an unexpected Type page.`,
+      );
+    }
+    admitted ??= page;
+    types.push(...page.surface.types);
+    if (page.typePage.nextOffset === null) break;
+    if (page.typePage.nextOffset <= offset) {
+      throw new Error(
+        `Package '${inventory.navigationId}' returned an invalid Type continuation.`,
+      );
+    }
+    offset = page.typePage.nextOffset;
+  }
+  return {
+    ...admitted,
+    surface: {
+      ...admitted.surface,
+      types,
+    },
+    typePage: {
+      ...admitted.typePage,
+      offset: 0,
+      nextOffset: null,
+    },
+  };
+}
+
+async function admitRetainedPlatform(
+  posting: BrowserRetainedWorkspacePosting,
+  inventory: BrowserRetainedWorkspacePlatformInventory,
+): Promise<BrowserRetainedWorkspacePlatform> {
+  let offset = 0;
+  let admitted: BrowserRetainedWorkspacePlatform | null = null;
+  const types: CatalogPackageSurface["types"][number][] = [];
+  for (;;) {
+    const result = await engineClient.catalog.admitRetainedWorkspacePlatform(
+      posting.retainedDefinitionId,
+      posting.realizationId,
+      inventory.navigationId,
+      offset,
+    );
+    if (result.status !== "admitted" || result.platform === null) {
+      throw new Error(
+        result.message
+          ?? `Platform '${inventory.navigationId}' is unavailable.`,
+      );
+    }
+    const page = result.platform;
+    if (page.typePage.offset !== offset) {
+      throw new Error(
+        `Platform '${inventory.navigationId}' returned an unexpected Type page.`,
+      );
+    }
+    admitted ??= page;
+    types.push(...page.surface.types);
+    if (page.typePage.nextOffset === null) break;
+    if (page.typePage.nextOffset <= offset) {
+      throw new Error(
+        `Platform '${inventory.navigationId}' returned an invalid Type continuation.`,
+      );
+    }
+    offset = page.typePage.nextOffset;
+  }
+  return {
+    ...admitted,
+    surface: {
+      ...admitted.surface,
+      types,
+    },
+    typePage: {
+      ...admitted.typePage,
+      offset: 0,
+      nextOffset: null,
+    },
+  };
+}
+
+function retainedLocationHistoryState(
+  retainedDefinitionId: string,
+): unknown {
+  return {
+    ...(isRecord(history.state) ? history.state : {}),
+    [retainedWorkspaceHistoryKey]: retainedDefinitionId,
+    [retainedWorkspaceHistorySessionKey]: retainedWorkspaceHistorySessionId,
+  };
+}
+
+function retainedLocationFallbackAssociation():
+InstalledLocationAssociation {
+  return installedRetainedLocation ?? {
+    identity: Symbol("compatibility-workspace"),
+    canonicalLocation: activeWorkspaceUrl ?? "/demos",
+    historyState: withRetainedWorkspaceHistoryId(history.state),
+  };
+}
+
+function realignRetainedLocationIntent(
+  intent: LocationIntentDeclaration,
+  outcome: "unavailable" | "rejected" | "failed" | "aborted",
+): void {
+  const effect = retainedLocationIntents.classify(intent, {
+    outcome,
+    synchronization: "current",
+    association: retainedLocationFallbackAssociation(),
+  });
+  if (!retainedLocationIntents.publish(effect, history)) {
+    throw new Error(
+      "The compatibility Workspace location intent was superseded.",
+    );
+  }
+}
+
+function retainedLocationPresentationCurrent(
+  intent: LocationIntentDeclaration,
+  canonicalLocation: string,
+): boolean {
+  return retainedLocationIntents.currentIntentId === intent.id
+    || (retainedLocationIntents.currentIntentId === null
+      && installedRetainedLocation?.canonicalLocation === canonicalLocation
+      && location.href === canonicalLocation);
+}
+
+function supersedeRetainedLocationIntentForRoutedNavigation(): void {
+  if (retainedLocationIntents.currentIntentId === null) return;
+  const routeIntent = retainedLocationIntents.admitNonBrowser(
+    "none",
+    installedRetainedLocation,
+    history,
+  );
+  const effect = retainedLocationIntents.classify(routeIntent, {
+    outcome: "applied",
+    synchronization: "current",
+    association: retainedLocationFallbackAssociation(),
+  });
+  if (!retainedLocationIntents.publish(effect, history)) {
+    throw new Error(
+      "The routed Navigation location intent was superseded before settlement.",
+    );
+  }
+}
+
+async function installRetainedWorkspacePosting(
+  posting: BrowserRetainedWorkspacePosting,
+  locationIntent: LocationIntentDeclaration,
+  browserRestoration?: "exact" | "changed",
+): Promise<void> {
+  const detailAuthority = retainedWorkspaceInitialDetailAuthority;
+  if (detailAuthority?.realizationId !== posting.realizationId) {
+    throw new Error(
+      "The retained Workspace initial detail authority is unavailable.",
+    );
+  }
+  const detailNavigationSeq = detailAuthority.navigationSeq;
+  const admitInitialDetail = detailAuthority.presentationCurrent
+    && navigationSequence.isCurrent(detailNavigationSeq);
+  const activeTabId = posting.definition.activeTabId;
+  const packageInventory = activeTabId === null
+    ? posting.packages[0]
+    : posting.packages.find(inventory =>
+        inventory.navigationId === activeTabId);
+  const selectedPlatformInventory = packageInventory === undefined
+    ? activeTabId === null
+      ? posting.platforms[0]
+      : posting.platforms.find(inventory =>
+          inventory.navigationId === activeTabId)
+    : undefined;
+  let admittedPackage: BrowserRetainedWorkspacePackage | null = null;
+  let admittedPlatform: BrowserRetainedWorkspacePlatform | null = null;
+  let detailFailure: string | null = null;
+  if (admitInitialDetail) {
+    try {
+      if (packageInventory !== undefined) {
+        admittedPackage = await admitRetainedPackage(posting, packageInventory);
+      } else if (selectedPlatformInventory !== undefined) {
+        admittedPlatform = await admitRetainedPlatform(
+          posting,
+          selectedPlatformInventory,
+        );
+      }
+    } catch (error) {
+      detailFailure = errorMessage(error) || "The active row details are unavailable.";
+    }
+  }
+  if (activeRetainedWorkspacePosting?.realizationId !== posting.realizationId) {
+    throw new Error("A newer retained Workspace replaced this installation.");
+  }
+
+  if (admitInitialDetail
+    && navigationSequence.isCurrent(detailNavigationSeq)) {
+    let packageModel: AppPackage | null = null;
+    let platformModel: AppPackage | null = null;
+    try {
+      packageModel = admittedPackage
+        ? createNuGetPackageModel(admittedPackage.surface)
+        : null;
+      platformModel = admittedPlatform
+        ? createRuntimePackageModel(admittedPlatform.surface)
+        : null;
+    } catch (error) {
+      detailFailure = errorMessage(error)
+        || "The active row details could not be projected.";
+    }
+    state.packages = [
+      ...(packageModel ? [packageModel] : []),
+      ...(platformModel ? [platformModel] : []),
+    ];
+    state.package = packageModel ?? platformModel;
+    state.platformSelection = admittedPlatform
+      ? {
+        tfm: admittedPlatform.surface.activeFramework,
+        version: admittedPlatform.surface.version,
+        includeAllLibraries: false,
+        filter: "",
+      }
+      : null;
+    state.rootKind = state.package?.isRuntimePack ? "platform" : "package";
+    state.workspaceSubjectOpen = true;
+    state.atPackageRoot = true;
+    state.atLibraryRoot = false;
+    if (detailFailure !== null) {
+      if (packageInventory !== undefined) {
+        const presentation = retainedWorkspacePresentation;
+        if (presentation !== null) {
+          retainedWorkspacePresentation = withNavigationPackageDetailFailure(
+            presentation,
+            packageInventory.consumerPackageSubjectId,
+            detailFailure,
+          );
+        }
+      } else if (selectedPlatformInventory !== undefined) {
+        const presentation = retainedWorkspacePresentation;
+        if (presentation !== null) {
+          retainedWorkspacePresentation = withNavigationPlatformDetailFailure(
+            presentation,
+            selectedPlatformInventory.navigationId,
+            detailFailure,
+          );
+        }
+      }
+    }
+  }
+  state.loading = false;
+  state.error = "";
+  state.errorTitle = "";
+  state.errorDetail = "";
+  state.retryAction = null;
+  activeWorkspaceUrl = posting.canonicalLocation;
+
+  const association: InstalledLocationAssociation = {
+    identity: Symbol(posting.retainedDefinitionId),
+    canonicalLocation: posting.canonicalLocation,
+    historyState: retainedLocationHistoryState(posting.retainedDefinitionId),
+  };
+  const effect = retainedLocationIntents.classify(locationIntent, {
+    outcome: "applied",
+    synchronization:
+      posting.navigation.synchronization.toLowerCase()
+        === "synchronizationrequired"
+        ? "synchronization-required"
+        : "current",
+    association,
+    ...(browserRestoration ? { browserRestoration } : {}),
+  });
+  if (effect.kind === "none" && effect.reason === "stale") {
+    installedRetainedLocation = association;
+    return;
+  }
+  if (!retainedLocationIntents.publish(effect, history)) {
+    throw new Error(
+      "The retained Workspace location intent was superseded before installation.",
+    );
+  }
+  installedRetainedLocation = association;
+  render({ synchronizeUrl: false });
+}
+
+function completeRetainedActivationPresentation(
+  result: BrowserRetainedWorkspaceActivationResult,
+  locationIntent: LocationIntentDeclaration,
+  navigationSeq: number,
+): void {
+  if (result.posting === null
+    || !navigationSequence.isCurrent(navigationSeq)
+    || !retainedLocationPresentationCurrent(
+      locationIntent,
+      result.posting.canonicalLocation,
+    )) {
+    return;
+  }
+  render({ synchronizeUrl: false });
+  afterCurrentNavigationFrame(focusWorkspaceOrHeading);
+}
+
+async function activateRetainedPackageAction(
+  navigationId: string,
+): Promise<void> {
+  const posting = activeRetainedWorkspacePosting;
+  const presentation = retainedWorkspacePresentation;
+  if (posting === null || presentation === null) {
+    throw new Error("The retained Workspace is no longer active.");
+  }
+  const navigationSeq = navigationSequence.begin();
+  const inventory = posting.packages.find(
+    candidate => candidate.navigationId === navigationId);
+  const item = presentation.packages.find(
+    candidate => candidate.navigationId === navigationId);
+  if (item === undefined) {
+    throw new Error("The retained Package action is no longer available.");
+  }
+  if (inventory === undefined) {
+    throw new Error("The retained Package inventory is no longer available.");
+  }
+  let packageModel: AppPackage;
+  try {
+    const admitted = await admitRetainedPackage(posting, inventory);
+    packageModel = createNuGetPackageModel(admitted.surface);
+  } catch (error) {
+    const currentPresentation = retainedWorkspacePresentation;
+    const currentPosting = activeRetainedWorkspacePosting;
+    if (currentPresentation !== null
+      && navigationSequence.isCurrent(navigationSeq)
+      && currentPosting?.realizationId === posting.realizationId) {
+      if (currentPresentation.packages.some(
+        candidate => candidate.navigationId === navigationId)) {
+        retainedWorkspacePresentation = withNavigationPackageDetailFailure(
+          currentPresentation,
+          inventory.consumerPackageSubjectId,
+          errorMessage(error) || "The Package details are unavailable.",
+        );
+        render({ synchronizeUrl: false });
+      }
+    }
+    return;
+  }
+  const currentPresentation = retainedWorkspacePresentation;
+  const currentPosting = activeRetainedWorkspacePosting;
+  if (currentPresentation === null
+    || !navigationSequence.isCurrent(navigationSeq)
+    || currentPosting?.realizationId !== posting.realizationId) {
+    return;
+  }
+  if (!currentPresentation.packages.some(
+    candidate => candidate.navigationId === navigationId)) return;
+  retainedWorkspacePresentation = withNavigationPackageDetailFailure(
+    currentPresentation,
+    inventory.consumerPackageSubjectId,
+    null,
+  );
+
+  const existing = state.packages.find(candidate =>
+    packageIdentityKey(candidate) === packageIdentityKey(packageModel));
+  if (existing) {
+    state.packages = state.packages.map(candidate =>
+      candidate === existing ? packageModel : candidate);
+  } else {
+    state.packages = [...state.packages, packageModel];
+  }
+  selectWorkspacePackage(packageModel, {
+    stayInWorkspace: false,
+    navigationSeq,
+    renderSelection: false,
+  });
+  state.atPackageRoot = true;
+  render({ synchronizeUrl: false });
+}
+
+async function activateRetainedPlatformAction(
+  navigationId: string,
+): Promise<void> {
+  const posting = activeRetainedWorkspacePosting;
+  const inventory = posting?.platforms.find(
+    candidate => candidate.navigationId === navigationId);
+  if (posting === null || inventory === undefined) {
+    throw new Error("The retained Platform is no longer available.");
+  }
+  const navigationSeq = navigationSequence.begin();
+
+  let platformModel: AppPackage;
+  try {
+    const admitted = await admitRetainedPlatform(posting, inventory);
+    platformModel = createRuntimePackageModel(admitted.surface);
+  } catch (error) {
+    const currentPresentation = retainedWorkspacePresentation;
+    if (currentPresentation !== null
+      && navigationSequence.isCurrent(navigationSeq)
+      && activeRetainedWorkspacePosting?.realizationId
+        === posting.realizationId) {
+      retainedWorkspacePresentation = withNavigationPlatformDetailFailure(
+        currentPresentation,
+        navigationId,
+        errorMessage(error) || "The Platform details are unavailable.",
+      );
+      render({ synchronizeUrl: false });
+    }
+    return;
+  }
+  const currentPresentation = retainedWorkspacePresentation;
+  if (currentPresentation === null
+    || !navigationSequence.isCurrent(navigationSeq)
+    || activeRetainedWorkspacePosting?.realizationId
+      !== posting.realizationId) {
+    return;
+  }
+  retainedWorkspacePresentation = withNavigationPlatformDetailFailure(
+    currentPresentation,
+    navigationId,
+    null,
+  );
+
+  const existing = state.packages.find(candidate =>
+    packageIdentityKey(candidate) === packageIdentityKey(platformModel));
+  state.packages = existing
+    ? state.packages.map(candidate =>
+        candidate === existing ? platformModel : candidate)
+    : [...state.packages, platformModel];
+  selectWorkspacePackage(platformModel, {
+    stayInWorkspace: false,
+    navigationSeq,
+    renderSelection: false,
+  });
+  state.atPackageRoot = true;
+  render({ synchronizeUrl: false });
+}
+
 function retainedWorkspaceItems() {
   const publishedActiveSnapshot = pendingWorkspaceConstruction
     ? pendingWorkspaceConstruction.retainedSnapshot
       ?? pendingWorkspaceConstruction.supersessionSnapshot
     : null;
-  return retainedWorkspaces.workspaces.map(workspace => {
+  const compatibility = retainedWorkspaces.workspaces.map(workspace => {
     const workspaceState = workspace.id === retainedWorkspaces.activeWorkspaceId
       ? publishedActiveSnapshot?.state ?? state
       : workspace.snapshot?.state;
@@ -1820,6 +2399,35 @@ function retainedWorkspaceItems() {
       active: workspace.id === retainedWorkspaces.activeWorkspaceId,
     };
   });
+  const managed = retainedWorkspaceActivation?.state.definitions.map(
+    definition => ({
+      id: definition.id,
+      label: definition.label,
+      packageCount: (() => {
+        const posting = retainedWorkspacePostings.get(definition.id);
+        return posting ? posting.packages.length + posting.platforms.length : 0;
+      })(),
+      active: definition.id
+        === retainedWorkspaceActivation?.state.activeDefinitionId,
+      status: definition.id === retainedWorkspaceActivation?.state.deactivatingDefinitionId
+        ? "Closing" as const
+        : definition.id === retainedWorkspaceActivation?.state.pendingDefinitionId
+        ? "Activating" as const
+        : definition.id === failedManagedRetainedDefinitionId
+          ? "Activation failed" as const
+          : definition.id === retainedWorkspaceActivation?.state.activeDefinitionId
+            ? state.loading
+              ? "Activating" as const
+              : "Active" as const
+            : "Activate" as const,
+      deletionDisabled:
+        retainedWorkspaceActivation?.state.pendingDefinitionId === definition.id
+        || retainedWorkspaceActivation?.state.deactivatingDefinitionId
+          === definition.id
+        || retainedWorkspaceActivation?.state.unsettledDefinitionIds.includes(
+          definition.id) === true,
+    })) ?? [];
+  return [...compatibility, ...managed];
 }
 
 function ensureCurrentWorkspacePublished(): void {
@@ -1908,7 +2516,10 @@ function retainedWorkspaceCapacityMessage(): string {
 }
 
 function canPublishRetainedWorkspace(): boolean {
-  return retainedWorkspaces.workspaces.length < MAX_RETAINED_WORKSPACES;
+  const managedCount =
+    retainedWorkspaceActivation?.state.definitions.length ?? 0;
+  return retainedWorkspaces.workspaces.length + managedCount
+    < MAX_RETAINED_WORKSPACES;
 }
 
 function releaseRetainedWorkspaceSnapshot(
@@ -1940,6 +2551,22 @@ function prepareUnpublishedWorkspace(): void {
 
 function selectRetainedWorkspace(workspaceId: string): void {
   navigationSequence.begin();
+  if (retainedWorkspaceActivation?.state.definitions.some(
+    definition => definition.id === workspaceId)) {
+    observeAsync(
+      activateManagedRetainedWorkspace(workspaceId, "push"),
+      "Activating retained Workspace",
+    );
+    return;
+  }
+  if (retainedWorkspaceActivation !== null
+    && retainedWorkspaceActivation.state.activeDefinitionId !== null) {
+    observeAsync(
+      activateCompatibilityRetainedWorkspace(workspaceId),
+      "Activating compatibility Workspace",
+    );
+    return;
+  }
   if (workspaceId === retainedWorkspaces.activeWorkspaceId) {
     openDefaultWorkspace();
     return;
@@ -1957,6 +2584,116 @@ function selectRetainedWorkspace(workspaceId: string): void {
   } catch (error) {
     showToast(`Could not activate Workspace: ${errorMessage(error)}`);
   }
+}
+
+async function activateCompatibilityRetainedWorkspace(
+  workspaceId: string,
+  browserIntent?: {
+    declaration: LocationIntentDeclaration;
+    restoration: "exact" | "changed";
+  },
+): Promise<void> {
+    const controller = requireRetainedWorkspaceActivation();
+    if (controller.state.pendingDefinitionId !== null) {
+      controller.cancelPending();
+      await controller.waitForPendingCommit();
+    }
+    const activeDefinitionId = controller.state.activeDefinitionId;
+    if (activeDefinitionId === null) {
+      if (activateRetainedWorkspaceProjection(workspaceId, false)) {
+        render({ synchronizeUrl: false });
+      }
+      return;
+    }
+    const locationIntent = browserIntent?.declaration
+      ?? retainedLocationIntents.admitNonBrowser(
+        "push",
+        installedRetainedLocation,
+        history,
+      );
+    await controller.delete(activeDefinitionId, {
+      successorDefinitionId: null,
+      completeDeactivation: () => {
+        if (!activateRetainedWorkspaceProjection(workspaceId, false)) {
+          throw new Error("The compatibility Workspace is no longer available.");
+        }
+        const association: InstalledLocationAssociation = {
+          identity: Symbol(workspaceId),
+          canonicalLocation: activeWorkspaceUrl ?? "/demos",
+          historyState: withRetainedWorkspaceHistoryId(history.state),
+        };
+        const effect = retainedLocationIntents.classify(locationIntent, {
+          outcome: "applied",
+          synchronization: "current",
+          association,
+          ...(browserIntent
+            ? { browserRestoration: browserIntent.restoration }
+            : {}),
+        });
+        retainedLocationIntents.publish(effect, history);
+        installedRetainedLocation = null;
+        render({ synchronizeUrl: false });
+      },
+    });
+    retainedWorkspacePostings.delete(activeDefinitionId);
+}
+
+async function activateManagedRetainedWorkspace(
+  retainedDefinitionId: string,
+  locationPolicy: "push" | "replace" | "none",
+): Promise<void> {
+    const controller = requireRetainedWorkspaceActivation();
+    if (controller.state.activeDefinitionId === retainedDefinitionId) {
+      openDefaultWorkspace();
+      return;
+    }
+    if (controller.state.activeDefinitionId === null
+      && retainedWorkspaces.activeWorkspaceId !== null) {
+      workspaceLocation.replace(location.href, history.state);
+    }
+    const locationIntent = retainedLocationIntents.admitNonBrowser(
+      locationPolicy,
+      installedRetainedLocation,
+      history,
+    );
+    const activationNavigationSeq = navigationSequence.current();
+    let result: BrowserRetainedWorkspaceActivationResult;
+    try {
+      const activation = controller.activate(
+        retainedDefinitionId,
+        () => retainedLocationIntents.currentIntentId === locationIntent.id,
+        posting => installRetainedWorkspacePosting(posting, locationIntent),
+        undefined,
+        undefined,
+        posting => retainedLocationPresentationCurrent(
+          locationIntent,
+          posting.canonicalLocation,
+        ),
+      );
+      render({ synchronizeUrl: false });
+      result = await activation;
+    } catch (error) {
+      failedManagedRetainedDefinitionId = retainedDefinitionId;
+      realignRetainedLocationIntent(locationIntent, "failed");
+      render({ synchronizeUrl: false });
+      throw error;
+    }
+    if (result.status === "failed") {
+      failedManagedRetainedDefinitionId = retainedDefinitionId;
+      realignRetainedLocationIntent(locationIntent, "failed");
+      render({ synchronizeUrl: false });
+      throw new Error(
+        result.failure?.message ?? "The retained Workspace could not be activated.",
+      );
+    }
+    if (result.status === "activated" || result.status === "noEffect") {
+      failedManagedRetainedDefinitionId = null;
+      completeRetainedActivationPresentation(
+        result,
+        locationIntent,
+        activationNavigationSeq,
+      );
+    }
 }
 
 function activateRetainedWorkspaceProjection(
@@ -2011,6 +2748,14 @@ function publishFreshEmptyWorkspaceFromHistory(
 }
 
 function deleteRetainedWorkspace(workspaceId: string): void {
+  if (retainedWorkspaceActivation?.state.definitions.some(
+    definition => definition.id === workspaceId)) {
+    observeAsync(
+      deleteManagedRetainedWorkspace(workspaceId),
+      "Deleting retained Workspace",
+    );
+    return;
+  }
   try {
     navigationSequence.begin();
     const deletingActive =
@@ -2055,6 +2800,107 @@ function deleteRetainedWorkspace(workspaceId: string): void {
   } catch (error) {
     showToast(`Could not delete Workspace: ${errorMessage(error)}`);
   }
+}
+
+async function deleteManagedRetainedWorkspace(
+  retainedDefinitionId: string,
+): Promise<void> {
+  const controller = requireRetainedWorkspaceActivation();
+  const wasActive =
+    controller.state.activeDefinitionId === retainedDefinitionId;
+  const definitionIndex = controller.state.definitions.findIndex(
+    definition => definition.id === retainedDefinitionId);
+  const successor = definitionIndex < 0
+    ? undefined
+    : controller.state.definitions[definitionIndex + 1]
+      ?? controller.state.definitions[definitionIndex - 1];
+  const compatibilitySuccessor =
+    successor === undefined
+      ? retainedWorkspaces.workspaces.at(-1)
+      : undefined;
+  const locationIntent = wasActive
+    ? retainedLocationIntents.admitNonBrowser(
+      "replace",
+      installedRetainedLocation,
+      history,
+    )
+    : null;
+  await controller.delete(retainedDefinitionId, successor && locationIntent
+    ? {
+      successorDefinitionId: successor.id,
+      acceptSuccessor: () =>
+        retainedLocationIntents.currentIntentId === locationIntent.id,
+      completeSuccessor: posting =>
+        installRetainedWorkspacePosting(posting, locationIntent),
+      isSuccessorPresentationCurrent: posting =>
+        retainedLocationPresentationCurrent(
+          locationIntent,
+          posting.canonicalLocation,
+        ),
+    }
+    : compatibilitySuccessor && locationIntent
+      ? {
+        successorDefinitionId: null,
+        completeDeactivation: () => {
+          if (!activateRetainedWorkspaceProjection(
+            compatibilitySuccessor.id,
+            false,
+          )) {
+            throw new Error(
+              "The compatibility Workspace is no longer available.",
+            );
+          }
+          const association: InstalledLocationAssociation = {
+            identity: Symbol(compatibilitySuccessor.id),
+            canonicalLocation: activeWorkspaceUrl ?? "/demos",
+            historyState: withRetainedWorkspaceHistoryId(history.state),
+          };
+          const effect = retainedLocationIntents.classify(locationIntent, {
+            outcome: "applied",
+            synchronization: "current",
+            association,
+          });
+          if (!retainedLocationIntents.publish(effect, history)) {
+            throw new Error(
+              "The compatibility successor location intent was superseded.",
+            );
+          }
+          installedRetainedLocation = null;
+        },
+      }
+    : {
+      successorDefinitionId: null,
+      completeDeactivation: () => {
+        state.error = "";
+        state.errorTitle = "";
+        state.errorDetail = "";
+        state.retryAction = null;
+        state.workspaceSubjectOpen = true;
+        state.atPackageRoot = true;
+        state.atLibraryRoot = false;
+        activeWorkspaceUrl = "/demos";
+        if (locationIntent === null) return undefined;
+        const association: InstalledLocationAssociation = {
+          identity: Symbol("no-workspace"),
+          canonicalLocation: "/demos",
+          historyState: withRetainedWorkspaceHistoryId(history.state),
+        };
+        const effect = retainedLocationIntents.classify(locationIntent, {
+          outcome: "applied",
+          synchronization: "current",
+          association,
+        });
+        if (!retainedLocationIntents.publish(effect, history)) {
+          throw new Error(
+            "The no-Workspace location intent was superseded.",
+          );
+        }
+        installedRetainedLocation = null;
+        return undefined;
+      },
+    });
+  retainedWorkspacePostings.delete(retainedDefinitionId);
+  render({ synchronizeUrl: false });
 }
 
 const keybindings = createWorkbenchKeybindings();
@@ -2759,7 +3605,10 @@ function withPlatformRootParentHistory(
 }
 
 function withRetainedWorkspaceHistoryId(historyState: unknown): unknown {
-  if (!retainedWorkspaces.activeWorkspaceId) {
+  const activeWorkspaceId =
+    retainedWorkspaceActivation?.state.activeDefinitionId
+    ?? retainedWorkspaces.activeWorkspaceId;
+  if (!activeWorkspaceId) {
     if (!isRecord(historyState)
       || !(retainedWorkspaceHistoryKey in historyState)) {
       return historyState;
@@ -2771,7 +3620,7 @@ function withRetainedWorkspaceHistoryId(historyState: unknown): unknown {
   }
   return {
     ...(isRecord(historyState) ? historyState : {}),
-    [retainedWorkspaceHistoryKey]: retainedWorkspaces.activeWorkspaceId,
+    [retainedWorkspaceHistoryKey]: activeWorkspaceId,
     [retainedWorkspaceHistorySessionKey]: retainedWorkspaceHistorySessionId,
   };
 }
@@ -3132,9 +3981,9 @@ const savedWorkspaces = createSavedWorkspaces({
   read: () => localStorage.getItem("inspect-saved-workspaces"),
   write: value => localStorage.setItem("inspect-saved-workspaces", value),
   capture: captureSavedWorkspacePacket,
-  open: openSavedWorkspace,
+  open: openSavedWorkspaceEntry,
   render: focus => {
-    render();
+    render({ synchronizeUrl: false });
     if (focus) {
       afterCurrentNavigationFrame(() => restoreSavedWorkspaceFocus(document, focus));
     }
@@ -5555,16 +6404,26 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
   packageQueryLiveAnnouncer.reset();
   // A loading/interstitial view holds one random bot for its whole appearance; any non-loading
   // view resets it so the next interstitial picks a fresh random bot (see interstitialBotSrc).
+  const retainedWorkspacePostingVisible =
+    state.workspaceSubjectOpen
+    && activeRetainedWorkspacePosting !== null;
   const workspaceCatalogVisible =
     state.workspaceSubjectOpen
-    && (isProductHomeDemosPath(location.pathname) || state.platformSelection !== null)
+    && (isProductHomeDemosPath(location.pathname)
+      || state.platformSelection !== null
+      || retainedWorkspacePostingVisible)
     && state.engineReady;
   const showingInterstitial =
-    (state.loading && !loadingPackageContent)
+    (state.loading
+      && !loadingPackageContent
+      && !retainedWorkspacePostingVisible)
     || state.error
     || (!state.home && !state.package && !workspaceCatalogVisible);
   if (!showingInterstitial) loadingBotSrc = null;
-  if ((state.loading && !loadingPackageContent) || state.error) {
+  if ((state.loading
+      && !loadingPackageContent
+      && !retainedWorkspacePostingVisible)
+    || state.error) {
     renderLoading();
     return;
   }
@@ -6493,13 +7352,25 @@ function renderWorkspaceView() {
           frameworkPackage.assemblyId)
       : null);
   return renderWorkspaceViewPure({
-    canAddPackage: state.engineReady && !state.loading && !state.error,
     savedWorkspaces: {
       state: savedWorkspaces.state,
-      canSave: state.engineReady && !state.loading && !state.error && (state.packages.length > 0 || state.platformSelection !== null),
+      canSave: state.engineReady
+        && !state.loading
+        && !state.error
+        && (state.packages.length > 0
+          || state.platformSelection !== null
+          || activeRetainedWorkspacePosting !== null),
       canOpen: state.engineReady && !state.loading && !state.error,
     },
     occurrences: state.workspaceOccurrences?.occurrences ?? [],
+    ...(retainedWorkspacePresentation
+      ? {
+          navigationPackages: retainedWorkspacePresentation.packages,
+          navigationPlatforms: retainedWorkspacePresentation.platforms,
+        }
+      : {
+          canAddPackage: state.engineReady && !state.loading && !state.error,
+        }),
     packages: state.packages,
     platform: presentPlatform ? state.platformSelection : null,
     frameworkLibraries: frameworkLibrary ? [{
@@ -9500,6 +10371,14 @@ function bindWorkspaceSubjectEvents() {
     onSelect: selectRetainedWorkspace,
     onActivateWorkspace: selectRetainedWorkspace,
     onDeleteWorkspace: deleteRetainedWorkspace,
+    onProductPackageAction: navigationId => observeAsync(
+      activateRetainedPackageAction(navigationId),
+      "Activating retained Package",
+    ),
+    onProductPlatformAction: navigationId => observeAsync(
+      activateRetainedPlatformAction(navigationId),
+      "Activating retained Platform",
+    ),
     onActivate: action =>
       observeAction(
         () => activateWorkspacePackageOccurrence(action),
@@ -11509,6 +12388,9 @@ async function captureSavedWorkspacePacket(): Promise<string> {
   if (!state.engineReady || state.loading || state.error) {
     throw new Error("Wait until the Workspace is ready before saving.");
   }
+  if (activeRetainedWorkspacePosting !== null) {
+    return activeRetainedWorkspacePosting.canonicalPacket;
+  }
   const snapshot = captureWorkspaceUrlState();
   if (!snapshot || snapshot.tabs.length === 0) {
     throw new Error("Load a package before saving the Workspace.");
@@ -11539,12 +12421,20 @@ async function captureSavedWorkspacePacket(): Promise<string> {
     }
     return { ...tab, version: pkg.version, framework: pkg.activeFramework };
   });
-  const packet =
-    (await workspaceLocation.build({ ...snapshot, tabs })).searchParams.get("w");
-  if (!packet) {
-    throw new Error("The Workspace could not be captured as a canonical share packet.");
+  const captured = await engineClient.catalog.captureCompleteWorkspaceShareState({
+    tabs,
+    contexts: snapshot.contexts,
+    activeTabId: snapshot.activeTabId,
+    selectedContextId: snapshot.selectedContextId,
+    view: snapshot.view,
+  });
+  if (!captured.succeeded || !captured.packet) {
+    throw new Error(
+      captured.failure?.message
+        ?? "The Workspace could not be captured as a complete share packet.",
+    );
   }
-  return packet;
+  return captured.packet;
 }
 
 async function buildStateUrl(base = location.href): Promise<URL> {
@@ -11577,6 +12467,7 @@ function workspaceUrlProjection() {
 let syncUrlRevision = 0;
 
 function syncUrl() {
+  if (activeRetainedWorkspacePosting !== null) return;
   if (currentPackageQueryHandoff()) return;
   if (pendingDemoNavigation
     && navigationSequence.isCurrent(pendingDemoNavigation.navigationSeq)) return;
@@ -12354,6 +13245,7 @@ function openProductDemos(): void {
     render();
     return;
   }
+  supersedeRetainedLocationIntentForRoutedNavigation();
   state.home = false;
   state.credits = false;
   discardPackageQueryTermEditors();
@@ -12559,7 +13451,98 @@ async function addWorkspacePackage(result: SpotlightPackageResult): Promise<void
 }
 
 function openSavedWorkspace(entry: SavedWorkspace): void {
-  observeAsync(openSavedWorkspaceCore(entry), "Opening saved Workspace");
+  observeAsync(
+    openSavedWorkspaceEntry(entry),
+    "Opening saved Workspace",
+  );
+}
+
+async function openSavedWorkspaceEntry(entry: SavedWorkspace): Promise<void> {
+  if (entry.kind !== "complete") {
+    const controller = retainedWorkspaceActivation;
+    if (controller === null) {
+      await openSavedWorkspaceCore(entry);
+      return;
+    }
+    if (controller.state.pendingDefinitionId !== null) {
+      controller.cancelPending();
+      await controller.waitForPendingCommit();
+    }
+    const activeDefinitionId = controller.state.activeDefinitionId;
+    if (activeDefinitionId === null) {
+      await openSavedWorkspaceCore(entry);
+      return;
+    }
+    await controller.delete(activeDefinitionId, {
+      successorDefinitionId: null,
+      completeDeactivation: () => openSavedWorkspaceCore(entry),
+    });
+    retainedWorkspacePostings.delete(activeDefinitionId);
+    return;
+  }
+
+  if (!canPublishRetainedWorkspace()) {
+    throw new Error(retainedWorkspaceCapacityMessage());
+  }
+  const activationNavigationSeq = navigationSequence.begin();
+  const controller = requireRetainedWorkspaceActivation();
+  if (controller.state.activeDefinitionId === null
+    && retainedWorkspaces.activeWorkspaceId !== null) {
+    workspaceLocation.replace(location.href, history.state);
+  }
+  const url = new URL("/", location.origin);
+  url.searchParams.set("w", entry.packet);
+  url.hash = "workspace";
+  const destination = url.toString();
+  const locationIntent = retainedLocationIntents.admitNonBrowser(
+    "push",
+    installedRetainedLocation,
+    history,
+  );
+  const definition = controller.retain({
+    label: entry.name,
+    canonicalLocation: destination,
+    canonicalPacket: entry.packet,
+  });
+  issuedManagedRetainedDefinitionIds.add(definition.id);
+  let result: BrowserRetainedWorkspaceActivationResult;
+  try {
+    const activation = controller.activate(
+      definition.id,
+      () => retainedLocationIntents.currentIntentId === locationIntent.id,
+      posting => installRetainedWorkspacePosting(posting, locationIntent),
+      undefined,
+      undefined,
+      posting => retainedLocationPresentationCurrent(
+        locationIntent,
+        posting.canonicalLocation,
+      ),
+    );
+    render({ synchronizeUrl: false });
+    result = await activation;
+  } catch (error) {
+    failedManagedRetainedDefinitionId = definition.id;
+    realignRetainedLocationIntent(locationIntent, "failed");
+    render({ synchronizeUrl: false });
+    throw error;
+  }
+  if (result.status === "failed") {
+    failedManagedRetainedDefinitionId = definition.id;
+    realignRetainedLocationIntent(locationIntent, "failed");
+    render({ synchronizeUrl: false });
+    throw new Error(
+      result.failure?.message
+        ?? "The complete saved Workspace could not be activated.",
+    );
+  }
+  if (result.status === "activated" || result.status === "noEffect") {
+    failedManagedRetainedDefinitionId = null;
+    completeRetainedActivationPresentation(
+      result,
+      locationIntent,
+      activationNavigationSeq,
+    );
+  }
 }
 
 async function openSavedWorkspaceCore(entry: SavedWorkspace): Promise<void> {
@@ -12823,6 +13806,7 @@ function goHome() {
     render();
     return;
   }
+  supersedeRetainedLocationIntentForRoutedNavigation();
   discardPackageQueryTermEditors();
   state.packageQueryOpen = false;
   state.packageActivityOpen = false;
@@ -12840,6 +13824,7 @@ function openCredits() {
     render();
     return;
   }
+  supersedeRetainedLocationIntentForRoutedNavigation();
   navigationSequence.begin();
   state.loading = false;
   discardPackageQueryTermEditors();
@@ -12973,6 +13958,7 @@ function renderDiagnosticsPage() {
 
 function openDiagnosticsRoute() {
   dismissModalsForRoutedNavigation();
+  supersedeRetainedLocationIntentForRoutedNavigation();
   navigationSequence.begin();
   packageQueryController.cancel();
   packageChangesController.cancel("disposed");
@@ -13021,6 +14007,7 @@ function replaceDiagnosticsWithHome() {
     render();
     return;
   }
+  supersedeRetainedLocationIntentForRoutedNavigation();
   discardPackageQueryTermEditors();
   state.packageQueryOpen = false;
   state.packageActivityOpen = false;
@@ -13246,6 +14233,7 @@ function openPackageQueryRoute(
 ) {
   if (!state.engineReady || state.loading || state.error) return;
   dismissModalsForRoutedNavigation();
+  supersedeRetainedLocationIntentForRoutedNavigation();
   navigationSequence.begin();
   packageQueryController.cancel();
   packageChangesController.cancel("disposed");
@@ -13291,6 +14279,7 @@ function openPackageActivityRoute(
 ) {
   if (!state.engineReady || state.loading || state.error) return;
   dismissModalsForRoutedNavigation();
+  supersedeRetainedLocationIntentForRoutedNavigation();
   navigationSequence.begin();
   packageQueryController.cancel();
   packageChangesController.cancel("superseded");
@@ -18903,12 +19892,101 @@ window.addEventListener("popstate", () => {
     retainedWorkspaceIdFromHistory(history.state);
   const historyWorkspaceReferenced =
     historyReferencesRetainedWorkspace(history.state);
+  const managedHistoryWorkspaceAvailable = historyWorkspaceId !== null
+    && retainedWorkspaceActivation?.state.definitions.some(
+      definition => definition.id === historyWorkspaceId) === true;
+  let restoredActiveManagedWorkspace = false;
+  if (managedHistoryWorkspaceAvailable && historyWorkspaceId !== null) {
+    const locationIntent = retainedLocationIntents.selectBrowserEntry({
+      url: location.href,
+      historyState: history.state,
+      retainedDefinitionId: historyWorkspaceId,
+      incumbent: installedRetainedLocation,
+    });
+    try {
+      if (retainedWorkspaceActivation?.state.activeDefinitionId
+          === historyWorkspaceId) {
+        const effect = retainedLocationIntents.classify(locationIntent, {
+          outcome: "applied",
+          synchronization: "current",
+          association: retainedLocationFallbackAssociation(),
+          browserRestoration: "exact",
+        });
+        retainedLocationIntents.publish(effect, history);
+        restoredActiveManagedWorkspace = true;
+      } else {
+        const result = await requireRetainedWorkspaceActivation().activate(
+          historyWorkspaceId,
+          () => retainedLocationIntents.currentIntentId === locationIntent.id,
+          posting => installRetainedWorkspacePosting(
+            posting,
+            locationIntent,
+            posting.canonicalLocation === location.href ? "exact" : "changed",
+          ),
+          undefined,
+          undefined,
+          posting => retainedLocationPresentationCurrent(
+            locationIntent,
+            posting.canonicalLocation,
+          ),
+        );
+        if (result.status === "failed") {
+          realignRetainedLocationIntent(locationIntent, "failed");
+          showToast(
+            result.failure?.message
+              ?? "Could not restore the retained Workspace.",
+          );
+        }
+      }
+    } catch (error) {
+      realignRetainedLocationIntent(locationIntent, "failed");
+      showToast(`Could not restore Workspace: ${errorMessage(error)}`);
+    }
+    if (!restoredActiveManagedWorkspace) return;
+  }
   const historyWorkspaceAvailable = historyWorkspaceId !== null
     && retainedWorkspaces.workspaces.some(
       workspace => workspace.id === historyWorkspaceId);
   const deferHistoryWorkspaceActivation =
     location.pathname === "/"
     && new URL(location.href).searchParams.has("w");
+  if (historyWorkspaceAvailable
+    && historyWorkspaceId !== null
+    && retainedWorkspaceActivation !== null
+    && (retainedWorkspaceActivation.state.activeDefinitionId !== null
+      || retainedWorkspaceActivation.state.pendingDefinitionId !== null)
+    && !deferHistoryWorkspaceActivation) {
+    const locationIntent = retainedLocationIntents.selectBrowserEntry({
+      url: location.href,
+      historyState: history.state,
+      retainedDefinitionId: historyWorkspaceId,
+      incumbent: installedRetainedLocation,
+    });
+    try {
+      await activateCompatibilityRetainedWorkspace(historyWorkspaceId, {
+        declaration: locationIntent,
+        restoration:
+          activeWorkspaceUrl === location.href ? "exact" : "changed",
+      });
+    } catch (error) {
+      realignRetainedLocationIntent(locationIntent, "failed");
+      showToast(`Could not restore Workspace: ${errorMessage(error)}`);
+    }
+    return;
+  }
+  if (historyWorkspaceId !== null
+    && issuedManagedRetainedDefinitionIds.has(historyWorkspaceId)
+    && !managedHistoryWorkspaceAvailable) {
+    const locationIntent = retainedLocationIntents.selectBrowserEntry({
+      url: location.href,
+      historyState: history.state,
+      retainedDefinitionId: historyWorkspaceId,
+      incumbent: installedRetainedLocation,
+    });
+    realignRetainedLocationIntent(locationIntent, "unavailable");
+    showToast("That retained Workspace is no longer available.");
+    return;
+  }
   if (historyWorkspaceAvailable
     && historyWorkspaceId !== retainedWorkspaces.activeWorkspaceId
     && !deferHistoryWorkspaceActivation) {
@@ -18921,6 +19999,7 @@ window.addEventListener("popstate", () => {
   }
   const unavailableGlobalWorkspace =
     historyWorkspaceReferenced
+    && !managedHistoryWorkspaceAvailable
     && !historyWorkspaceAvailable
     && (isDiagnosticsPath(location.pathname)
       || isPackageQueryPath(location.pathname)
@@ -19050,6 +20129,13 @@ window.addEventListener("popstate", () => {
     }
     return;
   }
+  if (restoredActiveManagedWorkspace
+    && activeRetainedWorkspacePosting?.canonicalLocation === location.href) {
+    state.credits = false;
+    state.home = false;
+    render({ synchronizeUrl: false });
+    return;
+  }
   if (leftPackageQueryForWorkspaceSuccessor) {
     packageQueryWorkspaceFocusNavigationSeq = navigationSeq;
   }
@@ -19090,6 +20176,28 @@ window.addEventListener("popstate", () => {
   if (deferHistoryWorkspaceActivation
     && historyWorkspaceAvailable
     && historyWorkspaceId !== retainedWorkspaces.activeWorkspaceId) {
+    if (historyWorkspaceId !== null
+      && retainedWorkspaceActivation !== null
+      && (retainedWorkspaceActivation.state.activeDefinitionId !== null
+        || retainedWorkspaceActivation.state.pendingDefinitionId !== null)) {
+      const locationIntent = retainedLocationIntents.selectBrowserEntry({
+        url: location.href,
+        historyState: history.state,
+        retainedDefinitionId: historyWorkspaceId,
+        incumbent: installedRetainedLocation,
+      });
+      try {
+        await activateCompatibilityRetainedWorkspace(historyWorkspaceId, {
+          declaration: locationIntent,
+          restoration:
+            activeWorkspaceUrl === location.href ? "exact" : "changed",
+        });
+      } catch (error) {
+        realignRetainedLocationIntent(locationIntent, "failed");
+        showToast(`Could not restore Workspace: ${errorMessage(error)}`);
+      }
+      return;
+    }
     try {
       activateRetainedWorkspaceProjection(historyWorkspaceId, false);
     } catch (error) {
@@ -19122,7 +20230,9 @@ window.addEventListener("popstate", () => {
   }
   const bareHome = !loc.package && !(loc.tabs && loc.tabs.length);
   if (bareHome) {
-    if (historyWorkspaceReferenced && !historyWorkspaceAvailable) {
+    if (historyWorkspaceReferenced
+      && !managedHistoryWorkspaceAvailable
+      && !historyWorkspaceAvailable) {
       unavailableWorkspaceAdmissionRejected =
         !publishFreshEmptyWorkspaceFromHistory(location.href);
     }

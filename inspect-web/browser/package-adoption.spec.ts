@@ -2433,6 +2433,215 @@ test.describe("artifact-backed package scope adoption over real Wasm", () => {
 test.describe("bounded network-backed two-host demo", () => {
   test.describe.configure({ timeout: 240_000 });
 
+  test("saves and reopens System.Text.Json through retained production activation", async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.goto("/");
+    const search = page.locator("#spotlight-input");
+    await expect(search).toBeVisible({ timeout: 120_000 });
+    await search.fill("System.Text.Json@9.0.4");
+    await page.locator('[data-sl-pkg-load="System.Text.Json"]').click();
+    await expect(page.locator(".inspected-target"))
+      .toContainText("System.Text.Json", { timeout: 180_000 });
+
+    await page.locator('[data-application-scope="workspace"]').click();
+    await page.getByRole(
+      "button",
+      { name: "Save Workspace", exact: true },
+    ).click();
+    await page.getByLabel("Workspace name", { exact: true })
+      .fill("System.Text.Json 9.0.4");
+    await page.getByRole("button", { name: "Save", exact: true }).click();
+    const open = page.getByRole("button", {
+      name: "Open saved Workspace System.Text.Json 9.0.4",
+      exact: true,
+    });
+    await expect(open).toBeVisible({ timeout: 180_000 });
+
+    const persisted = await page.evaluate((): {
+      version: number;
+      entries: Array<{ name: string; packet: string; kind: string }>;
+    } => {
+      const raw = localStorage.getItem("inspect-saved-workspaces");
+      if (raw === null) {
+        throw new Error(
+          `Saved Workspace storage is empty (${Object.keys(localStorage).join(", ")}).`,
+        );
+      }
+      const parsed: unknown = JSON.parse(raw);
+      if (typeof parsed !== "object" || parsed === null
+        || !("version" in parsed) || typeof parsed.version !== "number"
+        || !("entries" in parsed) || !Array.isArray(parsed.entries)) {
+        throw new Error("Saved Workspace storage has an invalid envelope.");
+      }
+      const entries = parsed.entries.map((entry: unknown) => {
+        if (typeof entry !== "object" || entry === null
+          || !("name" in entry) || typeof entry.name !== "string"
+          || !("packet" in entry) || typeof entry.packet !== "string"
+          || !("kind" in entry) || typeof entry.kind !== "string") {
+          throw new Error("Saved Workspace storage has an invalid entry.");
+        }
+        return {
+          name: entry.name,
+          packet: entry.packet,
+          kind: entry.kind,
+        };
+      });
+      return { version: parsed.version, entries };
+    });
+    expect(persisted.version).toBe(2);
+    expect(persisted.entries).toHaveLength(1);
+    expect(persisted.entries[0]).toMatchObject({
+      name: "System.Text.Json 9.0.4",
+      kind: "complete",
+    });
+
+    const compatibilityUrl = page.url();
+    await open.focus();
+    await expect(open).toBeFocused();
+    await open.click();
+    await expect(page.locator("[data-navigation-order]"))
+      .toContainText("System.Text.Json", { timeout: 180_000 });
+    await expect(page.locator("[data-navigation-order]"))
+      .toContainText("9.0.4");
+    await expect(page.locator(".workspace-row")
+      .filter({ hasText: "System.Text.Json 9.0.4" })
+      .locator("small"))
+      .toHaveText("Active", { timeout: 180_000 });
+    await expect(page.getByRole("button", {
+      name: "Delete System.Text.Json 9.0.4",
+      exact: true,
+    })).toBeEnabled({ timeout: 180_000 });
+    await expect(page.locator('[data-workspace-select]').first())
+      .toBeFocused({ timeout: 180_000 });
+    await expect(page.locator(".workspace-list .workspace-row"))
+      .toHaveCount(2);
+    await page.getByRole(
+      "button",
+      { name: "Save Workspace", exact: true },
+    ).click();
+    await page.getByLabel("Workspace name", { exact: true })
+      .fill("Re-saved System.Text.Json 9.0.4");
+    await page.getByRole("button", { name: "Save", exact: true }).click();
+    const resavedPacket = await page.evaluate<string | null>(() => {
+      const raw = localStorage.getItem("inspect-saved-workspaces");
+      if (raw === null) return null;
+      const value: unknown = JSON.parse(raw);
+      if (typeof value !== "object" || value === null
+        || !("entries" in value) || !Array.isArray(value.entries)) {
+        return null;
+      }
+      const entries: unknown[] = Array.from(value.entries);
+      const entry = entries.find(candidate =>
+        typeof candidate === "object"
+        && candidate !== null
+        && "name" in candidate
+        && candidate.name === "Re-saved System.Text.Json 9.0.4");
+      return entry
+        && typeof entry === "object"
+        && "packet" in entry
+        && typeof entry.packet === "string"
+        ? entry.packet
+        : null;
+    });
+    expect(resavedPacket).toBe(persisted.entries[0]!.packet);
+    await expect.poll(
+      () => new URL(page.url()).searchParams.get("w"),
+      { timeout: 180_000 },
+    )
+      .toBe(persisted.entries[0]!.packet);
+    const managedUrl = page.url();
+    expect(managedUrl).not.toBe(compatibilityUrl);
+    await expect(page.locator("[data-workspace-add-package]")).toHaveCount(0);
+
+    await page.locator('[data-application-scope="query"]').click();
+    await expect(page).toHaveURL(/\/query$/);
+    await expect(page.locator("#package-query-heading"))
+      .toHaveText("Package query");
+    await page.evaluate(() => history.back());
+    await expect.poll(() => page.url()).toBe(managedUrl);
+    await expect(page.locator("[data-navigation-order]"))
+      .toContainText("System.Text.Json");
+    await expect(page.locator("#package-query-heading")).toHaveCount(0);
+    await expect(page.locator(".workspace-list .workspace-row"))
+      .toHaveCount(2);
+    await page.evaluate(() => history.forward());
+    await expect(page).toHaveURL(/\/query$/);
+    await expect(page.locator("#package-query-heading"))
+      .toHaveText("Package query");
+    await page.evaluate(() => history.back());
+    await expect.poll(() => page.url()).toBe(managedUrl);
+    await expect(page.locator(".workspace-list .workspace-row"))
+      .toHaveCount(2);
+
+    await page.locator('[data-application-scope="activity"]').click();
+    await expect(page).toHaveURL(/\/activity$/);
+    await expect(page.locator("#package-changes-heading"))
+      .toHaveText("Package Activity");
+    await page.evaluate(() => history.back());
+    await expect.poll(() => page.url()).toBe(managedUrl);
+    await expect(page.locator("[data-navigation-order]"))
+      .toContainText("System.Text.Json");
+    await expect(page.locator("#package-changes-heading")).toHaveCount(0);
+    await expect(page.locator(".workspace-list .workspace-row"))
+      .toHaveCount(2);
+    await page.evaluate(() => history.forward());
+    await expect(page).toHaveURL(/\/activity$/);
+    await expect(page.locator("#package-changes-heading"))
+      .toHaveText("Package Activity");
+    await page.evaluate(() => history.back());
+    await expect.poll(() => page.url()).toBe(managedUrl);
+    await expect(page.locator(".workspace-list .workspace-row"))
+      .toHaveCount(2);
+
+    await page.getByRole(
+      "link",
+      { name: "dotnet inspect home", exact: true },
+    ).click();
+    await expect(page).toHaveURL(/\/$/);
+    await expect(page.locator("#spotlight-input")).toBeVisible();
+    await page.evaluate(() => history.back());
+    await expect.poll(() => page.url()).toBe(managedUrl);
+    await expect(page.locator("[data-navigation-order]"))
+      .toContainText("System.Text.Json");
+    await expect(page.locator("#spotlight-input")).toHaveCount(0);
+    await page.evaluate(() => history.forward());
+    await expect(page).toHaveURL(/\/$/);
+    await expect(page.locator("#spotlight-input")).toBeVisible();
+    await page.evaluate(() => history.back());
+    await expect.poll(() => page.url()).toBe(managedUrl);
+
+    await page.getByRole("link", { name: "Credits", exact: true }).click();
+    await expect(page).toHaveURL(/\/credits$/);
+    await expect(page.getByRole("heading", { name: "Credits", level: 1 }))
+      .toBeVisible();
+    await page.evaluate(() => history.back());
+    await expect.poll(() => page.url()).toBe(managedUrl);
+    await expect(page.locator("[data-navigation-order]"))
+      .toContainText("System.Text.Json");
+    await expect(page.getByRole("heading", { name: "Credits", level: 1 }))
+      .toHaveCount(0);
+    await page.evaluate(() => history.forward());
+    await expect(page).toHaveURL(/\/credits$/);
+    await expect(page.getByRole("heading", { name: "Credits", level: 1 }))
+      .toBeVisible();
+    await page.evaluate(() => history.back());
+    await expect.poll(() => page.url()).toBe(managedUrl);
+
+    await page.evaluate(() => history.back());
+    await expect.poll(() => page.url()).toBe(compatibilityUrl);
+    await expect(page.locator(".workspace-list .workspace-row"))
+      .toHaveCount(1, { timeout: 180_000 });
+    await expect(page.locator(".workspace-occurrence-row"))
+      .toContainText("System.Text.Json");
+
+    await page.evaluate(() => history.forward());
+    await expect(page.locator(".toast"))
+      .toContainText("That retained Workspace is no longer available.");
+    await expect.poll(() => page.url()).toBe(compatibilityUrl);
+  });
+
   test("opens an unlisted package through visible exact-coordinate search", async ({
     page,
   }) => {

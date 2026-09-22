@@ -1486,7 +1486,6 @@ export {
   historicalPlatformTarget,
   installFacades,
   installWorkspaceSourceFacades,
-  installLibraryQueryFacades,
   installLibraryUploadFacades,
   releaseFacade,
   root,
