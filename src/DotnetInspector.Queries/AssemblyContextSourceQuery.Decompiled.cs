@@ -73,6 +73,41 @@ public abstract record AssemblyTypeDecompilationEntry(
     }
 }
 
+/// <summary>
+/// Result of producing one structured C# document for an exact type without
+/// attempting authored source.
+/// </summary>
+public abstract record AssemblyTypeDocumentEntry(
+    AssemblyContextSubject Subject,
+    AssemblyTypeSourceRequest Request)
+{
+    public sealed record Settled(
+        AssemblyContextSubject Subject,
+        AssemblyTypeSourceRequest Request,
+        CSharpTypeDocumentOutcome Outcome,
+        SourceHouseDecompilationOutcome HouseOutcome)
+        : AssemblyTypeDocumentEntry(Subject, Request);
+
+    public sealed record Rejected(
+        AssemblyContextSubject Subject,
+        AssemblyTypeSourceRequest Request,
+        CandidateOpenFailure Failure)
+        : AssemblyTypeDocumentEntry(Subject, Request);
+
+    public sealed record Unavailable(
+        AssemblyContextSubject Subject,
+        AssemblyTypeSourceRequest Request,
+        AssemblySourceFailure Failure)
+        : AssemblyTypeDocumentEntry(Subject, Request)
+    {
+        public AssemblyContextLibraryAdapterResult.Terminal? LibraryFailure
+        {
+            get;
+            init;
+        }
+    }
+}
+
 public static partial class AssemblyContextSourceQuery
 {
     public static InspectionQuery<AssemblyMemberDecompilationEntry>
@@ -87,6 +122,13 @@ public static partial class AssemblyContextSourceQuery
     { get; } =
         new(
             "Assembly context type decompilation",
+            InspectionCost.Moderated);
+
+    public static InspectionQuery<AssemblyTypeDocumentEntry>
+        TypeDocument
+    { get; } =
+        new(
+            "Assembly context structured type document",
             InspectionCost.Moderated);
 
     public static async Task<AssemblyMemberDecompilationEntry>
@@ -169,6 +211,7 @@ public static partial class AssemblyContextSourceQuery
                         portablePdb,
                         bindingPolicyVersion,
                         "member-decompilation",
+                        SourceHouseDecompilationProduct.SourceText,
                         cancellationToken)
                     .ConfigureAwait(false);
             return operation switch
@@ -285,6 +328,7 @@ public static partial class AssemblyContextSourceQuery
                         portablePdb,
                         bindingPolicyVersion,
                         "type-decompilation",
+                        SourceHouseDecompilationProduct.SourceText,
                         cancellationToken)
                     .ConfigureAwait(false);
             return operation switch
@@ -317,6 +361,150 @@ public static partial class AssemblyContextSourceQuery
         }
     }
 
+    public static async Task<AssemblyTypeDocumentEntry>
+        ExecuteTypeDocumentAsync(
+            AssemblyContextGroup group,
+            AssemblyContextParticipant participant,
+            AssemblyTypeSourceRequest request,
+            AssemblyContextSourceQueryContext context,
+            AssemblyContextLibraryPortablePdb? portablePdb = null,
+            CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(group);
+        ArgumentNullException.ThrowIfNull(participant);
+        ArgumentNullException.ThrowIfNull(request);
+        ArgumentNullException.ThrowIfNull(context);
+        if (request.OriginalDocumentPath is not null)
+        {
+            throw new ArgumentException(
+                "A structured Type document request cannot select an authored document.",
+                nameof(request));
+        }
+
+        var subject = new AssemblyContextSubject(participant.Assembly);
+        AssemblyBindingPolicyVersion bindingPolicyVersion =
+            group.BindingPolicyVersion;
+        AssemblyImageAccessResult<TypeInspectionSeed> access;
+        try
+        {
+            access = group.UseAssemblySession(
+                participant,
+                cancellationToken,
+                (session, retained) => new TypeInspectionSeed(
+                    retained,
+                    ResolveType(session, request.Type)));
+            cancellationToken.ThrowIfCancellationRequested();
+            EnsureBindingPolicyVersion(
+                participant,
+                bindingPolicyVersion);
+        }
+        catch (Exception ex) when (IsInspectionFailure(ex))
+        {
+            return new AssemblyTypeDocumentEntry.Unavailable(
+                subject,
+                request,
+                InspectionFailure(ex));
+        }
+
+        if (access
+            is AssemblyImageAccessResult<
+                TypeInspectionSeed>.Rejected rejected)
+        {
+            return new AssemblyTypeDocumentEntry.Rejected(
+                subject,
+                request,
+                rejected.Failure);
+        }
+        if (access
+            is not AssemblyImageAccessResult<
+                TypeInspectionSeed>.Available available)
+        {
+            throw new InvalidOperationException(
+                "Unknown assembly image access result.");
+        }
+        if (available.Value.Target is null)
+        {
+            return new AssemblyTypeDocumentEntry.Unavailable(
+                subject,
+                request,
+                TargetNotFound(
+                    "The selected participant does not declare the requested type."));
+        }
+
+        try
+        {
+            DecompilationOperationResult operation =
+                await ExecuteDecompilationOperationAsync(
+                        group,
+                        participant,
+                        new SourceHouseTarget.TypeTarget(
+                            request.Type),
+                        request.PrinterOptions,
+                        context,
+                        context.TypeDecompilationLimits,
+                        portablePdb,
+                        bindingPolicyVersion,
+                        "type-document",
+                        SourceHouseDecompilationProduct
+                            .StructuredTypeDocument,
+                        cancellationToken)
+                    .ConfigureAwait(false);
+            return operation switch
+            {
+                DecompilationOperationResult
+                    .TypeDocumentSettled settled =>
+                    new AssemblyTypeDocumentEntry.Settled(
+                        subject,
+                        request,
+                        settled.Outcome,
+                        settled.HouseOutcome),
+                DecompilationOperationResult.LibraryUnavailable unavailable =>
+                    new AssemblyTypeDocumentEntry.Unavailable(
+                        subject,
+                        request,
+                        LibraryAdmissionUnavailable(
+                            unavailable.Terminal))
+                    {
+                        LibraryFailure = unavailable.Terminal,
+                    },
+                _ => throw new InvalidOperationException(
+                    "Unknown structured Type document operation result."),
+            };
+        }
+        catch (Exception ex) when (IsInspectionFailure(ex))
+        {
+            return new AssemblyTypeDocumentEntry.Unavailable(
+                subject,
+                request,
+                InspectionFailure(ex));
+        }
+    }
+
+    static Task<DecompilationOperationResult>
+        ExecuteDecompilationOperationAsync(
+            AssemblyContextGroup group,
+            AssemblyContextParticipant participant,
+            SourceHouseTarget target,
+            PrinterOptions? printerOptions,
+            AssemblyContextSourceQueryContext context,
+            SourceHouseDecompilationLimits limits,
+            AssemblyContextLibraryPortablePdb? portablePdb,
+            AssemblyBindingPolicyVersion bindingPolicyVersion,
+            string operationName,
+            CancellationToken cancellationToken) =>
+        ExecuteDecompilationOperationAsync(
+            group,
+            participant,
+            target,
+            printerOptions,
+            context,
+            limits,
+            portablePdb,
+            bindingPolicyVersion,
+            operationName,
+            SourceHouseDecompilationProduct.SourceText,
+            cancellationToken);
+
     static async Task<DecompilationOperationResult>
         ExecuteDecompilationOperationAsync(
             AssemblyContextGroup group,
@@ -328,6 +516,7 @@ public static partial class AssemblyContextSourceQuery
             AssemblyContextLibraryPortablePdb? portablePdb,
             AssemblyBindingPolicyVersion bindingPolicyVersion,
             string operationName,
+            SourceHouseDecompilationProduct product,
             CancellationToken cancellationToken)
     {
         AssemblyContextLibraryAdapterResult admission =
@@ -369,25 +558,38 @@ public static partial class AssemblyContextSourceQuery
         }
 
         Exception? primaryFailure = null;
-        DecompilationOperationResult.Settled settled;
+        DecompilationOperationResult settled;
         try
         {
-            (CSharpDecompilationAttempt attempt,
-                SourceHouseDecompilationOutcome houseOutcome) =
-                    await DecompileAsync(
-                            participant,
-                            target,
-                            printerOptions,
-                            completed,
-                            bindingPolicyVersion,
-                            limits,
-                            context,
-                            operationName,
-                            cancellationToken)
-                        .ConfigureAwait(false);
-            settled = new(
-                attempt,
-                houseOutcome);
+            SourceHouseDecompilationOutcome houseOutcome =
+                await DecompileHouseAsync(
+                        participant,
+                        target,
+                        printerOptions,
+                        completed,
+                        bindingPolicyVersion,
+                        limits,
+                        context,
+                        operationName,
+                        product,
+                        cancellationToken)
+                    .ConfigureAwait(false);
+            settled = product switch
+            {
+                SourceHouseDecompilationProduct.SourceText =>
+                    new DecompilationOperationResult
+                        .Settled(
+                            DecompilationAttempt(houseOutcome),
+                            houseOutcome),
+                SourceHouseDecompilationProduct
+                    .StructuredTypeDocument =>
+                    new DecompilationOperationResult
+                        .TypeDocumentSettled(
+                            TypeDocumentOutcome(houseOutcome),
+                            houseOutcome),
+                _ => throw new InvalidOperationException(
+                    "Unknown SourceHouse decompilation product."),
+            };
         }
         catch (Exception failure)
         {
@@ -413,6 +615,11 @@ public static partial class AssemblyContextSourceQuery
     {
         internal sealed record Settled(
             CSharpDecompilationAttempt Attempt,
+            SourceHouseDecompilationOutcome HouseOutcome)
+            : DecompilationOperationResult;
+
+        internal sealed record TypeDocumentSettled(
+            CSharpTypeDocumentOutcome Outcome,
             SourceHouseDecompilationOutcome HouseOutcome)
             : DecompilationOperationResult;
 
