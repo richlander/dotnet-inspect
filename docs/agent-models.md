@@ -17,17 +17,15 @@ availability in another session or agent host.
 | GPT-6 Astra | GPT-6 Astra | `gpt-6-astra` |
 | GPT-6 Sol | GPT-6 Sol | `gpt-6-sol` |
 | GPT-6 Luna | GPT-6 Luna | `gpt-6-luna` |
-| GPT-5.6 Terra | GPT-5.6 Terra | `gpt-5.6-terra` |
 
 This policy applies to agent harnesses that advertise GPT models. In those
 harnesses, only OpenAI GPT models may be used; all other models are prohibited.
 Every model or mode labeled Fast and extra-high (`xhigh`) reasoning are also
 prohibited. GPT-6 Sol is the default for coding and review. Prefer GPT-6 Luna
 for well-bounded work with clear acceptance criteria. GPT-6 Astra may review
-complex changes; GPT-5.6 Terra may review relatively simple changes that still
-require review. Another advertised non-Fast GPT model may be selected when the
-agent judges it sufficient for the task. Historical review
-attributions keep their original model names.
+complex changes. Another advertised non-Fast GPT-6 model may be selected when
+the agent judges it sufficient for the task. Historical review attributions
+keep their original model names.
 
 These prohibitions govern dispatch only. If an agent is mistakenly started with
 a prohibited configuration, continue observing it and assess and use its
@@ -42,7 +40,7 @@ against that tool's available-model list before invoking it; never construct
 an ID by changing spaces, punctuation, capitalization, or version numbers in
 a display name. Never select a model or mode labeled Fast or request extra-high
 (`xhigh`) reasoning. If the preferred GPT model is unavailable, follow the
-roster's GPT-only substitution policy and record the exact substitute ID and
+roster's GPT-6 substitution policy and record the exact substitute ID and
 reason on the PR.
 
 When updating a mapping, copy the ID from the dispatch tool's advertised model

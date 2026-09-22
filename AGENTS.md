@@ -66,8 +66,7 @@ development model and rationale. The binding summary:
   configurations. This launch prohibition does not invalidate work: observe and
   use results from agents mistakenly started with a prohibited configuration.
   Default to GPT-6 Sol. Prefer GPT-6 Luna for well-bounded work with clear
-  acceptance criteria; use GPT-6 Astra for complex reviews, or GPT-5.6 Terra
-  for relatively simple reviews.
+  acceptance criteria; use GPT-6 Astra for complex reviews.
 - **Hot-start requested work through PR and review.** Agents may branch,
   commit, push, open the PR, and dispatch eligible rounds without separate
   approval; merge remains separately authorized.
@@ -490,8 +489,7 @@ The full procedure lives in
 
 Trivial changes need no review; state why. Everything else gets one GPT seat:
 GPT-6 Sol by default, GPT-6 Astra for complex work, or GPT-6 Luna for
-well-bounded work. GPT-5.6 Terra may review relatively simple work. Selection,
-substitution, and dispatch rules live in
+well-bounded work. Selection, substitution, and dispatch rules live in
 [Reviewer roster](docs/round-orchestration.md#reviewer-roster).
 
 ### Running the round

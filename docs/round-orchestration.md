@@ -312,15 +312,14 @@ review seat; there is no second seat and no clean-count-based selection. Use
 [Agent model mapping](agent-models.md) to resolve the name to a dispatch ID.
 
 Select GPT-6 Sol by default. Prefer GPT-6 Luna for well-bounded changes with
-clear acceptance criteria. Use GPT-6 Astra for complex changes; GPT-5.6 Terra
-may fill the seat for relatively simple changes that still require review. If
-the selected model is unavailable, choose another non-Fast GPT model sufficient
-for the change's complexity, report the substitution and
-its reasoning on the PR, and proceed without approval. Non-GPT models, Fast
-models or modes, and extra-high (`xhigh`) reasoning are prohibited when the
-harness advertises GPT models. This prohibition governs dispatch only; observe
-and use otherwise valid work returned by a mistakenly prohibited launch. One
-round evaluates one settled head with its required reviewer.
+clear acceptance criteria. Use GPT-6 Astra for complex changes. If the selected
+model is unavailable, choose another non-Fast GPT-6 model sufficient for the
+change's complexity, report the substitution and its reasoning on the PR, and
+proceed without approval. Non-GPT models, Fast models or modes, and extra-high
+(`xhigh`) reasoning are prohibited when the harness advertises GPT models.
+This prohibition governs dispatch only; observe and use otherwise valid work
+returned by a mistakenly prohibited launch. One round evaluates one settled
+head with its required reviewer.
 
 ### Dispatch
 
