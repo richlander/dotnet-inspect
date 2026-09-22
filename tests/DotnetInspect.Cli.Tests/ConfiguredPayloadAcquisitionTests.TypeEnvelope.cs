@@ -247,17 +247,29 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
     }
 
     [Fact]
-    public async Task Depends_Envelope_RejectsAssetModeBeforeAcquisition()
+    public async Task Depends_Envelope_SupportsAssetMode()
     {
-        int requests = 0;
-        ConfigureAuthenticDependencyFeed(() => requests++);
+        ConfigureAuthenticDependencyFeed();
         var result = await RunEnvelopeCommandAsync(
             ["depends", "--package", $"{NpgsqlPackage}@{AuthenticDependencyVersion}",
                 "--source", FirstFeed, "--envelope", "--tips", "q"]);
         Assert.Equal(1, result.Exit);
-        Assert.Empty(result.Output);
-        Assert.Contains("positional type", result.Error);
-        Assert.Equal(0, requests);
+        Assert.DoesNotContain("positional type", result.Error);
+        Assert.Contains(
+            "Dependency traversal completed as Failed",
+            result.Error);
+        using JsonDocument document = JsonDocument.Parse(result.Output);
+        JsonElement root = document.RootElement;
+        Assert.Equal(2, root.GetProperty("schema_version").GetInt32());
+        Assert.Equal(
+            "asset-dependencies",
+            root.GetProperty("result_kind").GetString());
+        Assert.True(root.TryGetProperty("content", out _));
+        Assert.Equal(
+            "nonProjectable",
+            root.GetProperty("portable_projection")
+                .GetProperty("kind")
+                .GetString());
     }
 
     [Theory]
