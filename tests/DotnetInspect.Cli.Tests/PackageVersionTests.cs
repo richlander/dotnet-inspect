@@ -673,7 +673,10 @@ public class PackageVersionTests
     [InlineData("--versions:2")]
     [InlineData("--versions-with-feed=2")]
     [InlineData("--versions-with-feed:2")]
-    public async Task Versions_AdditionalPackageUsesMultiPackageValidation(
+    [InlineData("--version", "2")]
+    [InlineData("--version=2")]
+    [InlineData("--version:2")]
+    public async Task VersionSelectors_RejectValuesBeforeAcquisition(
         params string[] selectorArguments)
     {
         var (exit, output, error) = await RunAppAsync(
@@ -682,7 +685,12 @@ public class PackageVersionTests
         Assert.Equal(1, exit);
         Assert.Empty(output);
         string selector = selectorArguments[0].Split('=', ':')[0];
-        Assert.Equal($"Error: {selector} does not accept a value.{Environment.NewLine}", error);
+        string expected = selector == "--version"
+            ? "Error: '--version' does not accept a value. "
+                + "Use 'Package@Version' to select a Package version."
+                + Environment.NewLine
+            : $"Error: {selector} does not accept a value.{Environment.NewLine}";
+        Assert.Equal(expected, error);
     }
 
     [Theory]
@@ -713,22 +721,15 @@ public class PackageVersionTests
             StringComparison.OrdinalIgnoreCase);
     }
 
-    [Theory]
-    [InlineData("--version", null)]
-    [InlineData("--version", "1.0.0")]
-    public async Task RangeCount_ExactSelectorRejectsBeforeAcquisition(
-        string exactSelector,
-        string? exactValue)
+    [Fact]
+    public async Task RangeCount_ExactSelectorRejectsBeforeAcquisition()
     {
-        string[] exactArgs = exactValue is null
-            ? [exactSelector]
-            : [exactSelector, exactValue];
         var (exit, output, error) = await RunAppAsync(
             [
                 "package",
                 "ThisQueryMustNotReachTheNetwork@1.0.0..2.0.0",
                 "--count",
-                .. exactArgs,
+                "--version",
             ]);
 
         Assert.Equal(1, exit);
@@ -744,35 +745,56 @@ public class PackageVersionTests
     }
 
     [Theory]
-    [InlineData("--version", "2.0.10")]
-    [InlineData("--version=2.0.10", null)]
-    public async Task Versions_ValuedSingularSelectorConflictsBeforeAcquisition(
-        string versionSelector,
-        string? versionValue)
+    [InlineData(false, "--version", "2.0.10")]
+    [InlineData(false, "--version=2.0.10")]
+    [InlineData(false, "--version:2.0.10")]
+    [InlineData(true, "--version", "2.0.10")]
+    [InlineData(true, "--version=2.0.10")]
+    [InlineData(true, "--version:2.0.10")]
+    public async Task Version_ValueRequiresPackageCoordinate(
+        bool commandless,
+        params string[] versionArguments)
     {
-        string[] selectorArgs = versionValue is null
-            ? [versionSelector]
-            : [versionSelector, versionValue];
+        string[] prefix = commandless ? [] : ["package"];
         var (exit, output, error) = await RunAppAsync(
             [
-                "package",
+                .. prefix,
                 "ThisQueryMustNotReachTheNetwork",
-                "--versions",
-                "-n",
-                "2",
-                .. selectorArgs,
+                .. versionArguments,
             ]);
 
         Assert.Equal(1, exit);
         Assert.Empty(output);
-        Assert.Contains(
-            "cannot be combined",
-            error,
-            StringComparison.Ordinal);
+        Assert.Equal(
+            "Error: '--version' does not accept a value. "
+                + "Use 'Package@Version' to select a Package version."
+                + Environment.NewLine,
+            error);
         Assert.DoesNotContain(
             "not found",
             error,
             StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task Version_ValueRejectsBeforeCommandlessStructuralRouting()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "Newtonsoft.Json",
+            "--version",
+            "13.0.3",
+            "--library",
+            "Newtonsoft.Json",
+            "-S",
+            "Library Info");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Equal(
+            "Error: '--version' does not accept a value. "
+                + "Use 'Package@Version' to select a Package version."
+                + Environment.NewLine,
+            error);
     }
 
     [Fact]
