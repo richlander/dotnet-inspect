@@ -728,16 +728,79 @@ public class CSharpTypeDocumentTests
         CSharpTypeDocumentProjection skeleton = Project(
             document,
             new(CSharpTypeBodyMode.Skeleton));
+        CSharpTypeDocumentProjection filtered = Project(
+            document,
+            new(
+                CSharpTypeBodyMode.Bodies,
+                placement: CSharpTypePlacementFilter.Static));
 
         Assert.Contains("private int _a;", bodies.Text);
         Assert.Contains("private int _b;", bodies.Text);
         Assert.Contains("public Sample() { }", bodies.Text);
         Assert.Single(bodies.Diagnostics);
         Assert.Single(skeleton.Diagnostics);
+        Assert.Single(filtered.Diagnostics);
         Assert.Equal(0, bodies.Diagnostics[0].BodyId);
         Assert.Equal(0, skeleton.Diagnostics[0].BodyId);
+        Assert.Equal(0, filtered.Diagnostics[0].BodyId);
         Assert.Equal(2, bodies.Diagnostics[0].DeclarationId);
         Assert.Equal(2, skeleton.Diagnostics[0].DeclarationId);
+        Assert.Equal(2, filtered.Diagnostics[0].DeclarationId);
+    }
+
+    [Fact]
+    public void Create_AllowsEmptyManagedBodyEvidence()
+    {
+        var input = Input();
+        CSharpTypeDeclaration constructor = input.Declarations[2];
+        CSharpTypeRenderPart implementation = constructor.Parts[1];
+        input.Declarations[2] = constructor with
+        {
+            Parts = constructor.Parts.SetItem(
+                1,
+                implementation with
+                {
+                    FullText = " { }",
+                    SkeletonText = " { }",
+                    OwnedBodies =
+                    [
+                        implementation.OwnedBodies[0] with
+                        {
+                            FullRange = new(2, 0),
+                        },
+                    ],
+                }),
+        };
+
+        CSharpTypeDocument document = Create(input);
+        CSharpTypeDocument replay = CSharpTypeDocumentJson.Deserialize(
+            CSharpTypeDocumentJson.Serialize(document, indented: false));
+        CSharpTypeDocumentProjection bodies = Project(
+            replay,
+            new(CSharpTypeBodyMode.Bodies));
+
+        Assert.Equal(
+            0,
+            Assert.Single(bodies.Declarations[2].Bodies).Range.Length);
+    }
+
+    [Fact]
+    public void BodylessMethods_DoNotEmitUnavailableDiagnostics()
+    {
+        var input = Input();
+        input.Bodies[0] = input.Bodies[0] with
+        {
+            HasManagedBody = false,
+            Outcome = CSharpTypeBodyOutcome.NoBody,
+            Fidelity = null,
+        };
+        CSharpTypeDocumentProjection projection = Project(
+            Create(input),
+            new(CSharpTypeBodyMode.Bodies));
+
+        Assert.DoesNotContain(
+            projection.Diagnostics,
+            static diagnostic => diagnostic.BodyId == 0);
     }
 
     [Fact]

@@ -1125,8 +1125,13 @@ static class CSharpTypeDocumentValidator
                     Charge(contribution.FullRange);
 
                 void Charge(CSharpSourceRange range)
-                    => AddWork(
-                        (4L * range.Length) + part.SkeletonText.Length);
+                {
+                    if (range.Length > 0)
+                    {
+                        AddWork(
+                            (4L * range.Length) + part.SkeletonText.Length);
+                    }
+                }
             }
         }
 
@@ -1161,6 +1166,9 @@ static class CSharpTypeDocumentValidator
 
                 void Validate(CSharpSourceRange range)
                 {
+                    if (range.Length == 0)
+                        return;
+
                     string evidence = RemoveWhitespace(
                         part.FullText.AsSpan(range.Start, range.Length));
                     if (ContainsOrdinal(skeleton, evidence))
@@ -1254,7 +1262,8 @@ static class CSharpTypeDocumentValidator
                 ValidateRange(
                     reference.FullRange,
                     part.FullText,
-                    $"Declaration {declaration.Id} owned body {reference.BodyId}");
+                    $"Declaration {declaration.Id} owned body {reference.BodyId}",
+                    allowEmpty: true);
             }
 
             var contributed = new HashSet<(int BodyId, CSharpTypeBodyContributionRole Role, int Start, int Length)>();
@@ -1340,7 +1349,8 @@ static class CSharpTypeDocumentValidator
     static void ValidateRange(
         CSharpSourceRange range,
         string text,
-        string owner)
+        string owner,
+        bool allowEmpty = false)
     {
         int end;
         try
@@ -1354,7 +1364,7 @@ static class CSharpTypeDocumentValidator
                 nameof(range),
                 ex);
         }
-        if (range.Length <= 0 || end > text.Length)
+        if ((!allowEmpty && range.Length == 0) || end > text.Length)
             throw new ArgumentOutOfRangeException(nameof(range), $"{owner} range is outside its full alternative.");
     }
 

@@ -203,7 +203,7 @@ public static class CSharpTypeDocumentProjector
             ImmutableArray.CreateBuilder<CSharpTypeProjectedDeclaration>();
         var diagnostics =
             ImmutableArray.CreateBuilder<CSharpTypeProjectionDiagnostic>();
-        var diagnosedBodies = new HashSet<int>();
+        AddUnavailableBodyDiagnostics(document, diagnostics);
 
         AppendFrameParts(
             document,
@@ -211,9 +211,7 @@ public static class CSharpTypeDocumentProjector
             selectedOwnedBodies,
             text,
             frameRegions,
-            frameContributions,
-            diagnostics,
-            diagnosedBodies);
+            frameContributions);
 
         foreach (CSharpTypeDeclaration declaration in document.Declarations)
         {
@@ -257,9 +255,7 @@ public static class CSharpTypeDocumentProjector
                     text,
                     regions,
                     bodies,
-                    contributions,
-                    diagnostics,
-                    diagnosedBodies);
+                    contributions);
             }
 
             int declarationLength = text.Length - declarationStart;
@@ -294,9 +290,7 @@ public static class CSharpTypeDocumentProjector
         ImmutableHashSet<int> selectedOwnedBodies,
         StringBuilder text,
         ImmutableArray<CSharpTypeProjectedRegion>.Builder regions,
-        ImmutableArray<CSharpTypeProjectedContribution>.Builder contributions,
-        ImmutableArray<CSharpTypeProjectionDiagnostic>.Builder diagnostics,
-        HashSet<int> diagnosedBodies)
+        ImmutableArray<CSharpTypeProjectedContribution>.Builder contributions)
     {
         foreach (CSharpTypeRenderPart part in document.Frame.PrefixParts)
         {
@@ -329,11 +323,6 @@ public static class CSharpTypeDocumentProjector
                         Rebase(contribution.FullRange, start)));
                 }
             }
-            AddUnavailableBodyDiagnostics(
-                document,
-                part,
-                diagnostics,
-                diagnosedBodies);
         }
     }
 
@@ -347,9 +336,7 @@ public static class CSharpTypeDocumentProjector
         StringBuilder text,
         ImmutableArray<CSharpTypeProjectedRegion>.Builder regions,
         ImmutableArray<CSharpTypeProjectedBody>.Builder bodies,
-        ImmutableArray<CSharpTypeProjectedContribution>.Builder contributions,
-        ImmutableArray<CSharpTypeProjectionDiagnostic>.Builder diagnostics,
-        HashSet<int> diagnosedBodies)
+        ImmutableArray<CSharpTypeProjectedContribution>.Builder contributions)
     {
         if (!IncludePart(part, request))
             return;
@@ -386,11 +373,6 @@ public static class CSharpTypeDocumentProjector
                     Rebase(contribution.FullRange, partStart)));
             }
         }
-        AddUnavailableBodyDiagnostics(
-            document,
-            part,
-            diagnostics,
-            diagnosedBodies);
     }
 
     static bool IncludePart(
@@ -511,18 +493,13 @@ public static class CSharpTypeDocumentProjector
 
     static void AddUnavailableBodyDiagnostics(
         CSharpTypeDocument document,
-        CSharpTypeRenderPart part,
-        ImmutableArray<CSharpTypeProjectionDiagnostic>.Builder diagnostics,
-        HashSet<int> diagnosedBodies)
+        ImmutableArray<CSharpTypeProjectionDiagnostic>.Builder diagnostics)
     {
-        foreach (int bodyId in part.OwnedBodies
-            .Select(static reference => reference.BodyId)
-            .Concat(part.Contributions.Select(static contribution => contribution.BodyId))
-            .Distinct())
+        foreach (CSharpTypePhysicalBody body in document.Bodies)
         {
-            CSharpTypePhysicalBody body = document.Bodies[bodyId];
-            if (body.Outcome == CSharpTypeBodyOutcome.Available
-                || !diagnosedBodies.Add(bodyId))
+            if (body.Outcome is not (
+                CSharpTypeBodyOutcome.Unavailable
+                    or CSharpTypeBodyOutcome.Failed))
             {
                 continue;
             }
@@ -534,9 +511,9 @@ public static class CSharpTypeDocumentProjector
                 : null;
             diagnostics.Add(new(
                 CSharpTypeProjectionDiagnosticKind.BodyUnavailable,
-                $"Physical body {bodyId} is {body.Outcome}.",
+                $"Physical body {body.Id} is {body.Outcome}.",
                 declarationId,
-                bodyId));
+                body.Id));
         }
     }
 
