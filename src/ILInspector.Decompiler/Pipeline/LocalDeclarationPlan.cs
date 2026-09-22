@@ -2,9 +2,26 @@ using System.Collections.Immutable;
 
 namespace ILInspector.Decompiler.Pipeline;
 
+internal enum LocalBindingNameProvenance
+{
+    Eliminated,
+    Exact,
+    ApproximatePdb,
+    Synthesized,
+    Readable,
+    SlotFallback,
+}
+
+internal sealed record PlannedLocalBinding(
+    int LocalIndex,
+    string Identifier,
+    LocalBindingNameProvenance Provenance,
+    ExactLocalNameDisposition ExactDisposition,
+    string PreferredIdentifier);
+
 /// <summary>
-/// Final declaration ownership for already-materialized locals in one raised
-/// body. Residual stack slots remain a printer concern.
+/// Final declaration ownership and binding allocation for already-materialized
+/// locals in one raised body. Residual stack slots remain a printer concern.
 /// </summary>
 internal sealed class LocalDeclarationPlan
 {
@@ -26,17 +43,33 @@ internal sealed class LocalDeclarationPlan
     readonly Dictionary<int, IrNode> _declarationScopes = [];
     readonly IrFunction _function;
     readonly HashSet<int> _labelTargets;
+    readonly HashSet<int> _retainedLocalSlots;
     readonly LocalDeclarationUnsafeContext _unsafeContext;
 
-    LocalDeclarationPlan(IrFunction function, int localCount)
+    LocalDeclarationPlan(
+        IrFunction function,
+        int localCount,
+        PrinterOptions options,
+        IEnumerable<string>? enclosingScopeNames,
+        IReadOnlySet<int>? excludedLocalSlots)
     {
         _function = function;
         _labelTargets = ReferenceOwnership.CollectBranchTargets(function);
+        _retainedLocalSlots = ExactLocalNameAllocation.RetainedLocalSlots(
+            function,
+            localCount,
+            function.EliminatedLocalSlots);
+        if (excludedLocalSlots is not null)
+            _retainedLocalSlots.ExceptWith(excludedLocalSlots);
         _unsafeContext = new LocalDeclarationUnsafeContext(function);
 
         CollectSyntaxOwners();
         CollectDeclaringNodes();
         CollectDeclarationScopes(localCount);
+        Bindings = AllocateBindings(
+            localCount,
+            options,
+            enclosingScopeNames);
     }
 
     public IReadOnlySet<IrNode> DeclaringNodes => _declaringNodes;
@@ -54,9 +87,21 @@ internal sealed class LocalDeclarationPlan
         => _scopeEntryProjections;
     public IReadOnlyDictionary<int, IrNode> DeclarationScopes
         => _declarationScopes;
+    public IReadOnlySet<int> RetainedLocalSlots => _retainedLocalSlots;
+    public ImmutableArray<PlannedLocalBinding> Bindings { get; }
 
-    public static LocalDeclarationPlan Create(IrNode scope, int localCount)
-        => new(CreatePlanningFunction(scope), localCount);
+    public static LocalDeclarationPlan Create(
+        IrNode scope,
+        int localCount,
+        PrinterOptions? options = null,
+        IEnumerable<string>? enclosingScopeNames = null,
+        IReadOnlySet<int>? excludedLocalSlots = null)
+        => new(
+            CreatePlanningFunction(scope),
+            localCount,
+            options ?? PrinterOptions.Default,
+            enclosingScopeNames,
+            excludedLocalSlots);
 
     static IrFunction CreatePlanningFunction(IrNode scope)
     {
@@ -69,6 +114,8 @@ internal sealed class LocalDeclarationPlan
         (BlockContainer? Body, ImmutableArray<TypeRef> Locals,
             ImmutableArray<string?> Names, ImmutableArray<bool> NestedScopes,
             ImmutableArray<PdbLocalDeclaration?> Bindings,
+            ImmutableArray<string?> SynthesizedNames,
+            ImmutableArray<string?> PdbNameCandidates,
             ImmutableArray<Parameter> Parameters, TypeRef? ReturnType) nested =
             owner switch
             {
@@ -78,6 +125,8 @@ internal sealed class LocalDeclarationPlan
                     lambda.LocalNames,
                     lambda.LocalDeclaredInNestedScope,
                     lambda.LocalDeclarationBindings,
+                    lambda.SynthesizedLocalNames,
+                    lambda.PdbLocalNameCandidates,
                     lambda.Parameters,
                     LambdaReturnType(lambda)
                         ?? TypeRef.CoreLib("System", "Void")),
@@ -87,6 +136,8 @@ internal sealed class LocalDeclarationPlan
                     local.LocalNames,
                     local.LocalDeclaredInNestedScope,
                     local.LocalDeclarationBindings,
+                    local.SynthesizedLocalNames,
+                    local.PdbLocalNameCandidates,
                     local.Parameters,
                     local.ReturnType),
                 _ => default,
@@ -119,8 +170,10 @@ internal sealed class LocalDeclarationPlan
             (BlockContainer)nested.Body.Clone())
         {
             LocalNames = nested.Names,
+            SynthesizedLocalNames = nested.SynthesizedNames,
             LocalDeclaredInNestedScope = nested.NestedScopes,
             LocalDeclarationBindings = nested.Bindings,
+            PdbLocalNameCandidates = nested.PdbNameCandidates,
             UsesUpdatedMemorySafetyRules =
                 owner is Lambda { UsesUpdatedMemorySafetyRules: true }
                     or LocalFunctionStatement
@@ -143,6 +196,219 @@ internal sealed class LocalDeclarationPlan
                 return type;
         }
         return null;
+    }
+
+    ImmutableArray<PlannedLocalBinding> AllocateBindings(
+        int localCount,
+        PrinterOptions options,
+        IEnumerable<string>? enclosingScopeNames)
+    {
+        var display = new string[localCount];
+        var provenance = new LocalBindingNameProvenance[localCount];
+        var preferred = new string[localCount];
+        var assigned = new bool[localCount];
+        for (var index = 0; index < localCount; index++)
+        {
+            display[index] = preferred[index] = $"V_{index}";
+            if (!_retainedLocalSlots.Contains(index))
+            {
+                assigned[index] = true;
+                provenance[index] = LocalBindingNameProvenance.Eliminated;
+            }
+        }
+
+        var enclosing = enclosingScopeNames is null
+            ? new HashSet<string>(StringComparer.Ordinal)
+            : new HashSet<string>(
+                enclosingScopeNames,
+                StringComparer.Ordinal);
+        if (_function.HasAccessorStorageBinding)
+            enclosing.Add("field");
+        var captured = CSharpSpellability.ExternalArgumentNamesInScope(
+                _function,
+                _function.Signature.Parameters)
+            .Where(enclosing.Contains);
+        var taken = ExactLocalNameAllocation.ReservedNames(
+            _function,
+            _function.Signature.Parameters,
+            _function.Signature.GenericParameterNames,
+            captured);
+        var exact = ExactLocalNameAllocation.Allocate(
+            _function,
+            localCount,
+            _function.LocalNames,
+            taken,
+            _retainedLocalSlots,
+            _declarationScopes);
+        for (var index = 0; index < localCount; index++)
+        {
+            if (exact.Dispositions[index]
+                    != ExactLocalNameDisposition.Preserved
+                || exact.DisplayNames[index] is not { } name)
+            {
+                continue;
+            }
+
+            display[index] = preferred[index] = name;
+            provenance[index] = LocalBindingNameProvenance.Exact;
+            assigned[index] = true;
+        }
+        taken.UnionWith(exact.DisplayNames.OfType<string>());
+
+        // Exact names may legally shadow non-captured enclosing or descendant
+        // binders. Approximate and generated presentation stays conservative.
+        taken.UnionWith(enclosing);
+        AddDescendantBinderNames(taken);
+
+        if (options.ApproximatePdbLocalNames)
+        {
+            for (var index = 0; index < localCount; index++)
+            {
+                if (assigned[index]
+                    || ApproximatePdbLocalName(
+                        index,
+                        _function.LocalNames,
+                        exact) is not { } candidate)
+                {
+                    continue;
+                }
+
+                display[index] = ReserveName(candidate, taken);
+                preferred[index] = candidate;
+                provenance[index] =
+                    LocalBindingNameProvenance.ApproximatePdb;
+                assigned[index] = true;
+            }
+        }
+
+        var synthesizedNames = _function.SynthesizedLocalNames;
+        for (var index = 0;
+            index < localCount && index < synthesizedNames.Length;
+            index++)
+        {
+            if (assigned[index]
+                || synthesizedNames[index] is not { } synthesized)
+            {
+                continue;
+            }
+
+            display[index] = ReserveName(synthesized, taken);
+            preferred[index] = synthesized;
+            provenance[index] = LocalBindingNameProvenance.Synthesized;
+            assigned[index] = true;
+        }
+
+        if (options.ReadableLocalNames)
+        {
+            var counters = LoopCounterLocals();
+            for (var index = 0; index < localCount; index++)
+            {
+                if (assigned[index])
+                    continue;
+                TypeRef? type = index < _function.Locals.Length
+                    ? _function.Locals[index]
+                    : null;
+                if (LocalNameSynthesizer.Synthesize(
+                        type,
+                        counters.Contains(index),
+                        taken) is not { } synthesized)
+                {
+                    continue;
+                }
+
+                display[index] = preferred[index] = synthesized;
+                taken.Add(synthesized);
+                provenance[index] = LocalBindingNameProvenance.Readable;
+                assigned[index] = true;
+            }
+        }
+
+        for (var index = 0; index < localCount; index++)
+        {
+            if (assigned[index])
+                continue;
+            display[index] = ReserveName(display[index], taken);
+            provenance[index] = LocalBindingNameProvenance.SlotFallback;
+        }
+
+        return
+        [
+            .. Enumerable.Range(0, localCount).Select(index =>
+                new PlannedLocalBinding(
+                    index,
+                    display[index],
+                    provenance[index],
+                    exact.Dispositions[index],
+                    preferred[index])),
+        ];
+    }
+
+    void AddDescendantBinderNames(HashSet<string> names)
+    {
+        foreach (var nested in _function.Descendants.OfType<Lambda>())
+        {
+            foreach (var parameter in nested.Parameters)
+                names.Add(parameter.DisplayName);
+        }
+        foreach (var nested in _function.Descendants
+            .OfType<LocalFunctionStatement>())
+        {
+            names.Add(nested.Name);
+            foreach (var parameter in nested.Parameters)
+                names.Add(parameter.DisplayName);
+        }
+    }
+
+    string? ApproximatePdbLocalName(
+        int index,
+        ImmutableArray<string?> exactNames,
+        ExactLocalNameAllocation exact)
+    {
+        if (index < exact.Dispositions.Length
+            && exact.Dispositions[index]
+                == ExactLocalNameDisposition.Collision
+            && index < exactNames.Length
+            && exactNames[index] is { } collided
+            && CSharpNaming.IsUsableIdentifier(collided))
+        {
+            return collided;
+        }
+
+        return index < _function.PdbLocalNameCandidates.Length
+            ? _function.PdbLocalNameCandidates[index]
+            : null;
+    }
+
+    static string ReserveName(
+        string baseName,
+        HashSet<string> taken)
+    {
+        if (taken.Add(baseName))
+            return baseName;
+        for (var index = 1; ; index++)
+        {
+            string candidate = $"{baseName}_{index}";
+            if (taken.Add(candidate))
+                return candidate;
+        }
+    }
+
+    HashSet<int> LoopCounterLocals()
+    {
+        var counters = new HashSet<int>();
+        foreach (var loop in _function.DescendantsOutsideNestedFunctions
+            .OfType<ForLoop>())
+        {
+            var increment = loop.Increment;
+            if (increment is StoreLocal direct)
+                counters.Add(direct.Index);
+            foreach (var node in increment.Descendants)
+            {
+                if (node is StoreLocal store)
+                    counters.Add(store.Index);
+            }
+        }
+        return counters;
     }
 
     void CollectSyntaxOwners()
