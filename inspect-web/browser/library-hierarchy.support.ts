@@ -700,8 +700,8 @@ async function installFacades(
           .map(candidate => ({ key: candidate.key, kind: "substring" }));
       }
       export function clearWorkspacePackageOccurrences() {}
-      export async function queryWorkspacePackageOccurrences(json) {
-        return { superseded: false, occurrences: JSON.parse(json).map(coordinate => ({
+      export async function queryWorkspacePackageOccurrences(workspace) {
+        return { superseded: false, occurrences: workspace.map(coordinate => ({
           ...coordinate, action: JSON.stringify(coordinate),
         })) };
       }
