@@ -154,7 +154,16 @@ internal static class DetailedDiscoverOutput
             [
                 .. resource.OutputModes.Select(
                     OutputCapabilityCatalog.CliOption),
-            ]);
+            ],
+            resource.Cardinality?.Shape.ToString().ToLowerInvariant(),
+            resource.Cardinality is null
+                ? null
+                :
+                [
+                    .. resource.Cardinality.Terminals.Select(
+                        static terminal =>
+                            terminal.ToString().ToLowerInvariant()),
+                ]);
 }
 
 [JsonSerializable(typeof(List<DetailedDiscoveryRow>))]

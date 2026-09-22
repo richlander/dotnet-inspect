@@ -68,7 +68,11 @@
   #7509, #7542, #7615, #7756, #7836, #7873, #7909, #7949, #8011).
   Retained-Workspace package-source credentials now keep a typed C#/TypeScript
   contract through the generated facade while preserving the private string
-  ABI and page-session-only credential constraints (#8238).
+  ABI and page-session-only credential constraints. Inspect Web activates
+  credential-free source-bearing Workspace URLs, prompts once per exact
+  authentication-required endpoint, preserves the prior visible Workspace on
+  cancellation or failure before publication, and enters a blocking retry
+  state if post-cutover incumbent recovery fails (#8167, #8238).
 - Adds canonical Workspace component paths and immutable
   `workspace package add|update|remove` editing, plus nested packet
   encode/decode commands. Inspect Web now saves and reopens complete Workspace
@@ -174,6 +178,10 @@
   failed Content is emitted before a nonzero exit where available.
   Assembly-resolution provenance now serializes its actual typed kind rather
   than `{}` (#6719, #7117, #7126, #7474, #7537, #7575, #7644, #7667).
+- Adds `library <path> --envelope` for one exact direct-file Library overview
+  as a scalar `InspectionEnvelope<LibraryOverviewOutcome>`, with compact or
+  file JSON publication and pre-acquisition rejection of incompatible
+  section, row, and query controls (#8225).
 - **Breaking:** Positional `depends <type> --json` now emits shared camel-case
   `TypeDependencySectionResult` Content rather than the former presentation
   graph. Unprojected single-Library `diff --json` emits complete
