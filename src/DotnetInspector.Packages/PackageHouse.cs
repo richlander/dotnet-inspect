@@ -759,18 +759,33 @@ public sealed class PackageHouse
                                 Reason(
                                     "No configured authority reported the package."));
                     }
-                    else if (!PackageVersionVector.ContainsVersion(
+                    else if (request.Policy
+                            == PackageVersionPopulationPolicy.ExactEndpoints
+                            && (!PackageVersionVector.ContainsVersion(
+                                discovery.Versions,
+                                request.Range.Start)
+                                || !PackageVersionVector.ContainsVersion(
+                                    discovery.Versions,
+                                    request.Range.End)))
+                    {
+                        result = new PackageHouseVersionPopulationResult
+                                .NoMatch(
+                                evidence,
+                                Reason(
+                                    "The configured package version population does not contain both requested range endpoints."));
+                    }
+                    else if (request.Policy
+                        == PackageVersionPopulationPolicy.MajorBounds
+                        && !PackageVersionVector.ContainsMajorBounds(
+                            request.Range,
                             discovery.Versions,
-                            request.Range.Start)
-                        || !PackageVersionVector.ContainsVersion(
-                            discovery.Versions,
-                            request.Range.End))
+                            request.IncludePrerelease))
                     {
                         result = new PackageHouseVersionPopulationResult
                             .NoMatch(
                                 evidence,
                                 Reason(
-                                    "The configured package version population does not contain both requested range endpoints."));
+                                    "The configured package version population does not contain an admitted version in both boundary majors."));
                     }
                     else
                     {
