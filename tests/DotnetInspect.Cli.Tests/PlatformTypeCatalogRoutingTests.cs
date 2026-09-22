@@ -3,6 +3,7 @@ using DotnetInspect.Cli.Commands;
 using DotnetInspector.Packages;
 using DotnetInspector.PlatformHouse;
 using DotnetInspector.Platforms;
+using DotnetInspector.Sections;
 
 namespace DotnetInspect.Cli.Tests;
 
@@ -89,48 +90,63 @@ public sealed class PlatformTypeCatalogRoutingTests
                 settlement.Contribution.Capability.Name,
                 StringComparison.Ordinal));
 
-        var type = Assert.IsType<
-            CliPlatformTypeRouteOutcome.Resolved>(
+        InspectionEnvelope<PlatformTypeCatalogRouteOutcome> typeEnvelope =
                 PlatformTypeCatalogRouting.Resolve(
                     completed.Catalog,
                     "System.Text.Json.JsonSerializer",
-                    TestContext.Current.CancellationToken));
+                    TestContext.Current.CancellationToken);
+        var type = Assert.IsType<
+            PlatformTypeCatalogRouteOutcome.Resolved>(
+                typeEnvelope.Content);
         Assert.Equal(
-            "System.Text.Json.JsonSerializer",
-            type.TypeName);
-        Assert.Equal("System.Text.Json", type.AssemblyName);
-        Assert.Null(type.MemberSelector);
-        Assert.True(type.InputWasFullName);
+            "System.Text.Json",
+            type.Candidate.Type.Namespace);
+        Assert.Equal(["JsonSerializer"], type.Candidate.Type.Segments);
         Assert.Equal(
-            $"runtime@{completed.Catalog.Target.Version.Value}",
-            type.Framework);
+            "System.Text.Json",
+            type.Candidate.Assembly.Identity.Name);
+        Assert.Null(type.Request.MemberSelector);
+        Assert.Equal(
+            PlatformTypeCatalogRouteTargetKind.Type,
+            type.Request.TargetKind);
+        Assert.Equal(
+            completed.Catalog.Target.Version.Value,
+            type.Target.Version);
 
-        var member = Assert.IsType<
-            CliPlatformTypeRouteOutcome.Resolved>(
+        InspectionEnvelope<PlatformTypeCatalogRouteOutcome> memberEnvelope =
                 PlatformTypeCatalogRouting.Resolve(
                     completed.Catalog,
                     "System.Collections.Generic.List<T>.Add",
-                    TestContext.Current.CancellationToken));
+                    TestContext.Current.CancellationToken);
+        var member = Assert.IsType<
+            PlatformTypeCatalogRouteOutcome.Resolved>(
+                memberEnvelope.Content);
         Assert.Equal(
-            "System.Collections.Generic.List<T>",
-            member.TypeName);
-        Assert.Equal("System.Collections", member.AssemblyName);
-        Assert.Equal("Add", member.MemberSelector);
+            "System.Collections.Generic",
+            member.Candidate.Type.Namespace);
+        Assert.Equal(["List`1"], member.Candidate.Type.Segments);
+        Assert.Equal(
+            "System.Collections",
+            member.Candidate.Assembly.Identity.Name);
+        Assert.Equal("Add", member.Request.MemberSelector);
+        Assert.Equal(
+            PlatformTypeCatalogRouteTargetKind.Member,
+            member.Request.TargetKind);
 
-        Assert.IsType<CliPlatformTypeRouteOutcome.Missing>(
+        Assert.IsType<PlatformTypeCatalogRouteOutcome.Missing>(
             PlatformTypeCatalogRouting.Resolve(
                 completed.Catalog,
                 "No.Such.Platform.Type",
-                TestContext.Current.CancellationToken));
-        Assert.IsType<CliPlatformTypeRouteOutcome.Rejected>(
+                TestContext.Current.CancellationToken).Content);
+        Assert.IsType<PlatformTypeCatalogRouteOutcome.Rejected>(
             PlatformTypeCatalogRouting.Resolve(
                 completed.Catalog,
                 " ",
-                TestContext.Current.CancellationToken));
-        Assert.IsType<CliPlatformTypeRouteOutcome.Ambiguous>(
+                TestContext.Current.CancellationToken).Content);
+        Assert.IsType<PlatformTypeCatalogRouteOutcome.Ambiguous>(
             PlatformTypeCatalogRouting.Resolve(
                 completed.Catalog,
                 "Timer",
-                TestContext.Current.CancellationToken));
+                TestContext.Current.CancellationToken).Content);
     }
 }

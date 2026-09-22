@@ -14,6 +14,11 @@ population, bind Metadata, load inspected assemblies, or retire owners.
 [PlatformHouse reference processing](platform-house-reference-processing.md#type-catalogs-are-derived-facets)
 owns the catalog and its exact population correspondence.
 
+`PlatformTypeCatalogRouteInspection` is this owner's completed host-neutral
+projection. It places route correspondence in primary
+`InspectionEnvelope<TContent>` Content rather than a diagnostic or
+supplemental evidence attachment.
+
 ## Input and result
 
 The input is:
@@ -34,6 +39,41 @@ after the population owner retires. The query introduces no receipt or
 settlement: it preserves the target, population value and receipt, members,
 source settlements, generations, MVIDs, and structured declarations already
 issued by the catalog owner.
+
+## Route inspection envelope
+
+One host may associate a query with an already parsed Type or member route by
+supplying `PlatformTypeCatalogRouteRequest`. The request retains the original
+query, the exact Type pattern presented to this query owner, a typed Type or
+member target kind, and the member selector when present. Construction
+requires exact correspondence: a Type request's original query equals its
+pattern, while a member request's original query equals the pattern and member
+selector joined by the separating dot.
+
+`PlatformTypeCatalogRouteInspection` resolves that pattern through the same
+QuerySpace plan and emits one completed
+`InspectionEnvelope<PlatformTypeCatalogRouteOutcome>`. Its primary Content is
+typed `Resolved`, `Ambiguous`, `Missing`, or `Rejected`. A resolved value
+retains:
+
+- the exact route request;
+- the structured Metadata Type identity;
+- the exact assembly identity and module version ID;
+- the declaration kind; and
+- the selected Platform family, target framework, and version.
+
+Ambiguous content retains every equally preferred candidate with the same
+structured identity shape. Missing and rejected content remain typed
+non-successes. No outcome retains the catalog, owner, stream, callback, or
+other authority. Share is explicitly `NonProjectable` until a canonical
+Workspace projection exists, and ordinary diagnostics are empty because the
+route correspondence is primary semantic data rather than a message.
+
+The envelope and Content have one source-generated JSON contract. That
+contract preserves request, target, Type, assembly identity, MVID, declaration
+kind, and outcome discriminator without parsing display text. Serialization
+does not expose a CLI output mode by itself; hosts separately own admission
+and presentation.
 
 ## QuerySpace composition
 
@@ -136,8 +176,12 @@ Release tests exercise:
 - nested generic spelling with arity on every segment;
 - wrong explicit generic arity returning `Missing`;
 - empty text returning `Rejected`;
-- cancellation before a scan; and
-- result use after population-owner retirement.
+- cancellation before a scan;
+- result use after population-owner retirement;
+- exact member-route correspondence in primary envelope Content after
+  retirement; and
+- envelope JSON round-trip of the route request, selected target, structured
+  Type, assembly identity, and MVID.
 
 These cases use product-owned catalog derivation over real or independently
 compiled Platform population inputs. Tests do not construct catalog entries or
@@ -145,10 +189,11 @@ query outcomes through test-only seams.
 
 ## Production adoption
 
-This query is the shared adaptation boundary for CLI and Browser/Wasm
-consumers. Those hosts separately own target-demand selection, operation
-composition, and presentation. Versionless CLI routing adopts this query over
-a catalog selected by the Platform family-default policy under
+This query and its route-inspection envelope are the shared adaptation
+boundary for CLI and Browser/Wasm consumers. Those hosts separately own
+target-demand selection, operation composition, and presentation. Versionless
+CLI routing adopts this query over a catalog selected by the Platform
+family-default policy under
 [#8164](https://github.com/richlander/dotnet-inspect/issues/8164).
 Browser/Wasm and explicit `runtime@version` routing remain later adoptions; an
 exact-demand catalog can serve the latter without changing this query
@@ -169,7 +214,7 @@ new ownership-preserving results back to path-oriented legacy results.
 - Reference-population realization or catalog derivation.
 - Metadata binding or forwarding-chain resolution.
 - Assembly loading or inspected-code execution.
-- CLI or Browser/Wasm command routing and rendering.
+- CLI or Browser/Wasm token splitting, command routing, or rendering.
 - Services-era resolver retirement.
 - Glob patterns, fuzzy ranking, or assembly-name heuristics.
 - Windows Metadata support.
