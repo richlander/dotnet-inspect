@@ -66,10 +66,6 @@ internal static partial class WorkflowContract
                 job,
                 "continue-on-error",
                 $"jobs.{jobName}");
-            RequireAbsent(
-                job,
-                "defaults",
-                $"jobs.{jobName}");
         }
 
         ValidateConsumerStepGuards(jobs, jobNames);
@@ -496,7 +492,6 @@ internal static partial class WorkflowContract
                     }
                     seenContinueOnError.Add(key);
                 }
-                RequireAbsent(step, "working-directory", key);
             }
         }
 
