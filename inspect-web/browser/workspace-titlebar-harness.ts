@@ -1045,6 +1045,10 @@ function setApplicationDialog(
 }
 
 function handleApplicationAction(action: ApplicationAction): void {
+  if (action === "open-library") {
+    document.body.dataset.openLibrary = "true";
+    return;
+  }
   if (action === "share") {
     const focusOwner = captureApplicationMenuFocusOwner(document);
     setTimeout(() => {

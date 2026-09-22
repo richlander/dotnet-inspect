@@ -10,6 +10,19 @@ export interface ComparisonPackage {
 export type DiffTarget = { kind: "previous" } | { kind: "exact"; version: string };
 export type CloneTarget<T> = { kind: "workspace" } | { kind: "package"; package: T };
 
+// Compare mode is Browser presentation state scoped to the retained Package
+// model: it survives Compare-owned drill-down, history restoration, and Explore
+// return, and is discarded with the Package's other session-local comparison
+// settings. It is neither a Navigation lens identity nor a portable Workspace
+// field. A Package with no retained mode state presents Diff.
+export type CompareMode = "diff" | "clone";
+
+export function isCompareMode(
+  value: string | null | undefined,
+): value is CompareMode {
+  return value === "diff" || value === "clone";
+}
+
 export type EffectiveDiffTarget =
   | { kind: "available"; version: string }
   | { kind: "loading"; message: string }
@@ -46,11 +59,13 @@ export function createPackageComparisonTargets<T extends ComparisonPackage>(
   const settings = new WeakMap<T, {
     diff: DiffTarget;
     clone: CloneTarget<T>;
+    mode: CompareMode;
   }>();
   const get = (pkg: T) =>
     settings.get(pkg) ?? {
       diff: { kind: "previous" } as const,
       clone: { kind: "workspace" } as const,
+      mode: "diff" as const,
     };
   const requireResident = (pkg: T) => {
     if (!packages().includes(pkg))
@@ -71,7 +86,7 @@ export function createPackageComparisonTargets<T extends ComparisonPackage>(
             package: copies.get(value.clone.package) ?? value.clone.package,
           }
           : value.clone;
-        settings.set(copy, { diff: value.diff, clone });
+        settings.set(copy, { diff: value.diff, clone, mode: value.mode });
       }
     },
     selectDiff(pkg: T, diff: DiffTarget, versions: PackageVersionState) {
@@ -88,6 +103,10 @@ export function createPackageComparisonTargets<T extends ComparisonPackage>(
       requireResident(pkg);
       if (clone.kind === "package") requireResident(clone.package);
       settings.set(pkg, { ...get(pkg), clone });
+    },
+    selectMode(pkg: T, mode: CompareMode) {
+      requireResident(pkg);
+      settings.set(pkg, { ...get(pkg), mode });
     },
   };
 }

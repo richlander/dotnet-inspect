@@ -37,8 +37,8 @@ Tag a test `Speed=Slow` when it does one of the following:
 
   ```sh
   dotnet run --project tests/DotnetInspect.Cli.Tests -c Release -- \
-    --filter-not-trait "Speed=Slow" --report-xunit \
-    --report-xunit-filename fast-tests.xml --results-directory /tmp
+    --filter-not-trait "Speed=Slow" --report-xunit-xml \
+    --report-xunit-xml-filename fast-tests.xml --results-directory /tmp
   ```
 
   Static analysis (grepping for subprocess helpers, fixture size, etc.) is

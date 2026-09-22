@@ -28,7 +28,9 @@ public static class PackageQuerySections
             .Compile();
 
     public static DocumentSchema CreateSchema() =>
-        SearchViewContext.Default.GetSchemaInfo<PackageQueryView>()!.ToDocumentSchema();
+        SearchViewContext.Default
+            .GetSchemaInfo<PackageQuerySemanticView>()!
+            .ToDocumentSchema();
 
     public static PackageQueryView CreateDocument(
         string prefix,
@@ -46,6 +48,34 @@ public static class PackageQuerySections
             [
                 .. RowWindow.Apply(rows, results)
                     .Select(match => new PackageQueryRow(match)),
+            ],
+            QuerySummary =
+            [
+                new(
+                    summary.Candidates,
+                    summary.Matches,
+                    summary.Failures,
+                    summary.Completion),
+            ],
+        };
+    }
+
+    public static PackageQuerySemanticView CreateSemanticDocument(
+        string prefix,
+        IReadOnlyList<PackageQueryMatch> results,
+        PackageQuerySummary summary,
+        RowWindow? rows = null)
+    {
+        ArgumentNullException.ThrowIfNull(results);
+        ArgumentNullException.ThrowIfNull(summary);
+        return new()
+        {
+            TitleText = new(TextPolicy.Field, $"Package Query: {prefix}"),
+            Summary = summary,
+            Results =
+            [
+                .. RowWindow.Apply(rows, results)
+                    .Select(match => new PackageQuerySemanticRow(match)),
             ],
             QuerySummary =
             [

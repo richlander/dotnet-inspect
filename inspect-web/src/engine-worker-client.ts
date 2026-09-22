@@ -218,6 +218,7 @@ function registerEngineWorkerCanaryAdapter(host: EngineWorkerHost) {
 function packageQueryRequest(
   searchText: string,
   termsJson: string,
+  targetFramework: string | null,
   maximumCandidates: number,
   maximumMatches: number,
   includePrerelease: boolean,
@@ -267,6 +268,7 @@ function packageQueryRequest(
           operators: [term.operator],
           valueKind: "",
           example: "",
+          multiline: false,
         },
         operator: term.operator,
         value: term.value,
@@ -275,36 +277,7 @@ function packageQueryRequest(
     requestedLimit: maximumCandidates,
     requestedMatchLimit: maximumMatches,
     includePrerelease,
-    libraryLiteral: {
-      operand: "",
-      targetFramework: "net10.0",
-    },
-  };
-}
-
-function packageAssemblySemanticQueryRequest(
-  searchText: string,
-  operand: string,
-  targetFramework: string,
-  maximumCandidates: number,
-  includePrerelease: boolean,
-  initialMatchCredit: number,
-): QueryRequest {
-  if (initialMatchCredit !== PACKAGE_QUERY_INITIAL_MATCH_CREDIT) {
-    throw new Error(
-      `Package Query initial credit must be ${PACKAGE_QUERY_INITIAL_MATCH_CREDIT}.`);
-  }
-  return {
-    scopeQuery: searchText,
-    presets: [],
-    terms: [],
-    requestedLimit: maximumCandidates,
-    requestedMatchLimit: maximumCandidates,
-    includePrerelease,
-    libraryLiteral: {
-      operand,
-      targetFramework,
-    },
+    targetFramework: targetFramework ?? "net10.0",
   };
 }
 
@@ -457,7 +430,6 @@ export function bindPackageQueryFacade(
   EngineClient["package"],
   | "cancelPackageQuery"
   | "requestPackageQueryMatches"
-  | "runPackageAssemblySemanticQuery"
   | "runPackageQuery"
 > & { readonly dispose: () => void } {
   interface ActivePackageQuery {
@@ -584,6 +556,7 @@ export function bindPackageQueryFacade(
       operationId,
       searchText,
       termsJson,
+      targetFramework,
       maximumCandidates,
       maximumMatches,
       includePrerelease,
@@ -595,31 +568,9 @@ export function bindPackageQueryFacade(
         packageQueryRequest(
           searchText,
           termsJson,
-          maximumCandidates,
-          maximumMatches,
-          includePrerelease,
-          initialMatchCredit,
-        ),
-        eventSink,
-      );
-    },
-    runPackageAssemblySemanticQuery(
-      operationId,
-      searchText,
-      operand,
-      targetFramework,
-      maximumCandidates,
-      includePrerelease,
-      initialMatchCredit,
-      eventSink,
-    ) {
-      return run(
-        operationId,
-        packageAssemblySemanticQueryRequest(
-          searchText,
-          operand,
           targetFramework,
           maximumCandidates,
+          maximumMatches,
           includePrerelease,
           initialMatchCredit,
         ),
@@ -905,6 +856,7 @@ export function createProductionEngineWorkerClient(
       ...packageQuery,
       ...packageChanges,
     },
+    library: ordinary.library,
     metadata: ordinary.metadata,
     analysis: ordinary.analysis,
     source: {

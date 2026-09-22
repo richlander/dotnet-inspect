@@ -116,7 +116,8 @@ public sealed partial class CompiledXmlDocumentationHouseTests
             scenario.Binding.OperationPlan,
             scenario.Binding.PolicyGeneration,
             scenario.Binding.Subject,
-            scenario.Binding.ImplementationContent);
+            scenario.Binding.ImplementationContent,
+            scenario.Binding.ImplementationSubject);
         var foreignInvocation =
             new DocumentationAuthoredSourceOperationInvocation(
                 foreignBinding,
@@ -295,7 +296,8 @@ public sealed partial class CompiledXmlDocumentationHouseTests
                 scenario.Binding.OperationPlan,
                 scenario.Binding.PolicyGeneration,
                 scenario.Binding.Subject,
-                library.Reference.ApiAssembly));
+                library.Reference.ApiAssembly,
+                scenario.Binding.ImplementationSubject));
 
         Assert.Equal("implementationContent", exception.ParamName);
         Assert.Equal(0, capability.SourceReads);
@@ -441,7 +443,9 @@ public sealed partial class CompiledXmlDocumentationHouseTests
                 DocumentationHousePolicyGeneration.Create(
                     "documentation-policy"),
                 subject,
-                library.Reference.ImplementationAssembly!);
+                library.Reference.ImplementationAssembly!,
+                DocumentationImplementationSubjectReference
+                    .FromApiSubject(subject));
             var invocation =
                 new DocumentationAuthoredSourceOperationInvocation(
                     binding,

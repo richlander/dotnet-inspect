@@ -15,11 +15,11 @@ namespace DotnetInspect.Cli.CommandLine;
 /// </summary>
 public static class UtilityCommandDefinitions
 {
-    public static Command CreateWorkspaceStateCommand()
+    public static Command CreateWorkspacePacketCommand()
     {
         var command = new Command(
-            "workspace-state",
-            "Convert workspace share packets and their JSON shape");
+            "packet",
+            "Convert Workspace packets and their canonical JSON shape");
         command.SetAction(_ =>
         {
             HelpWriter.WriteHelp(command);
@@ -28,22 +28,22 @@ public static class UtilityCommandDefinitions
 
         Command decode = CreateConversionCommand(
             "decode",
-            "Decode canonical base64url workspace state to canonical JSON",
+            "Decode a canonical Base64URL Workspace packet to canonical JSON",
             "packet",
             "Canonical base64url packet, or '-' to read stdin",
             (input, file, _, cancellationToken) =>
-                WorkspaceStateCommand.DecodeAsync(input, file, cancellationToken));
+                WorkspacePacketCommand.DecodeAsync(input, file, cancellationToken));
         var urlOption = new Option<bool>("--url")
         {
             Description = "Emit a complete https://dotnet-inspect.net/ share URL instead of the packet",
         };
         Command encode = CreateConversionCommand(
             "encode",
-            "Encode workspace-state JSON as a canonical base64url packet",
+            "Encode Workspace packet JSON as canonical Base64URL",
             "json",
-            "Workspace-state JSON, or '-' to read stdin",
+            "Workspace packet JSON, or '-' to read stdin",
             (input, file, parseResult, cancellationToken) =>
-                WorkspaceStateCommand.EncodeAsync(
+                WorkspacePacketCommand.EncodeAsync(
                     input,
                     file,
                     cancellationToken,

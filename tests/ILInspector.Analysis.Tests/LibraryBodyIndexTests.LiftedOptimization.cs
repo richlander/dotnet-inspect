@@ -2663,6 +2663,10 @@ public partial class LibraryBodyIndexTests
     [Fact(Timeout = 10_000)]
     public void OptimizationOpportunities_CyclicNestedTypes_Terminate()
     {
+        CancellationToken cancellationToken =
+            TestContext.Current.CancellationToken;
+        cancellationToken.ThrowIfCancellationRequested();
+
         string directory = Path.Combine(
             Path.GetTempPath(),
             "dotnet-inspect-cyclic-nesting-" + Guid.NewGuid().ToString("N"));
@@ -2693,6 +2697,7 @@ public partial class LibraryBodyIndexTests
             var index = LibraryBodyIndex.Open(path);
 
             Assert.Empty(index.OptimizationOpportunities);
+            cancellationToken.ThrowIfCancellationRequested();
         }
         finally
         {

@@ -304,6 +304,8 @@ public class PdbAcquisitionServiceTests
         using var client =
             new HttpClient(
                 new SymbolPackageHandler(snupkg));
+        var evidence =
+            new PortablePdbAcquisitionEvidenceCollector();
 
         PdbStoreAcquisitionException exception =
             await Assert.ThrowsAsync<PdbStoreAcquisitionException>(
@@ -316,10 +318,79 @@ public class PdbAcquisitionServiceTests
                     [NuGetFetch.PackageSource.NuGetOrg]),
                 log: null,
                 cancellationToken:
-                    TestContext.Current.CancellationToken));
+                    TestContext.Current.CancellationToken,
+                evidence: evidence));
         Assert.Equal(
             PortablePdbStoreFailureKind.ReadFailed,
             exception.StoreFailure);
+        PortablePdbAcquisitionEvidenceDocument document =
+            evidence.ToDocument();
+        Assert.Equal(
+            PortablePdbExternalAcquisitionOutcome.Failed,
+            document.Outcome);
+        Assert.Equal(
+            PortablePdbStoreFailureKind.ReadFailed,
+            document.StoreFailure);
+        Assert.False(document.FromCache);
+        Assert.Equal(
+            "nuget.org",
+            document.SymbolServer);
+        Assert.NotEmpty(document.NetworkAttempts);
+    }
+
+    [Fact]
+    public async Task PathlessParticipant_ProviderFailureIsVisible()
+    {
+        var (assembly, _) = CreateTestAssembly(
+            AssemblyResolutionProvenance.Package(
+                "Example.Symbols",
+                "1.0.0",
+                "net10.0",
+                rid: null));
+        using var source = SourceLinkService.Open(assembly);
+        using var client =
+            new HttpClient(
+                new SymbolPackageHandler(
+                    new byte[65]));
+        var evidence =
+            new PortablePdbAcquisitionEvidenceCollector();
+
+        PortablePdbAcquisitionResult? result =
+            await PdbAcquisitionService.AcquireAsync(
+                source.Context,
+                assembly,
+                client,
+                new InMemoryPdbStore(),
+                new UniformPackageSourceAuthorization(
+                    [NuGetFetch.PackageSource.NuGetOrg]),
+                log: null,
+                cancellationToken:
+                    TestContext.Current.CancellationToken,
+                limits:
+                    new SymbolAcquisitionLimits(
+                        maxSymbolPackageBytes: 64,
+                        maxPortablePdbBytes: 64,
+                        maxSymbolPackageEntries: 8),
+                evidence: evidence);
+
+        var unavailable =
+            Assert.IsType<
+                PortablePdbAcquisitionResult.Unavailable>(
+                    result);
+        Assert.Equal(
+            PortablePdbAcquisitionFailureKind
+                .ExternalProviderFailed,
+            unavailable.AcquisitionFailure);
+        PortablePdbAcquisitionEvidenceDocument document =
+            evidence.ToDocument();
+        Assert.Equal(
+            PortablePdbExternalAcquisitionOutcome.Failed,
+            document.Outcome);
+        Assert.Contains(
+            document.NetworkAttempts,
+            attempt =>
+                attempt.Outcome
+                == PortablePdbNetworkAttemptOutcome.TooLarge);
     }
 
     [Fact]

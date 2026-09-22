@@ -40,8 +40,9 @@ identity and structural selectors.
 For a format-4 input `$w` retaining that Type, the CLI operation is:
 
 ```bash
-dotnet-inspect workspace --packet "$w" \
-  --replace-package 1 --to-version 12.1.2 --json --envelope
+dotnet-inspect workspace package update \
+  packages/avalonia@11.3.14/net8.0/~ \
+  --packet "$w" --version 12.1.2 --json --envelope
 ```
 
 The following summarizes the semantic before/after rather than the JSON shape:
@@ -233,7 +234,8 @@ InspectionEnvelope<WorkspacePortableCoordinateReplacementOutcome> result =
     await WorkspacePortableCoordinateReplacementOperation.ExecuteAsync(
         inputScenario,
         new WorkspacePackageCoordinateReplacementRequest(
-            "package-0", version: "12.1.2"),
+            "packages/avalonia@11.3.14/net8.0/~",
+            version: "12.1.2"),
         restorationOptions,
         cancellationToken);
 ```
@@ -253,11 +255,15 @@ renderShare(result.share);
 renderDiagnostics(result.diagnostics);
 ```
 
-The CLI selects the source by one-based packet navigation-row order using
-`--replace-package`, and destination intent with `--to-version`, `--to-tfm`,
-or both. It requires either `--share packet|url` or `--json --envelope` so the
-complete durable result, rather than only a summary, is always emitted.
-The JSON registration is `workspace-coordinate-replacement`, schema version 1.
+The CLI selects the source by the canonical Package component path emitted by
+`workspace component list`; it never translates a row number or display label
+into identity. `workspace package update` accepts `--version`, `--tfm`, or
+both. It emits a packet by default and also accepts `--share packet|url` or
+`--json --envelope`, so the complete durable result rather than only a summary
+is always emitted.
+The CLI-facing JSON registration is `workspace-package-update`, schema version
+1. Coordinate replacement remains the underlying operation name, not the user
+workflow vocabulary.
 Sections preserves typed native settlement, correspondence statuses and
 inspector outcome, with display-only subject labels; the canonical Share owns
 portable selectors. It omits live effect/action authority. NuGet source options

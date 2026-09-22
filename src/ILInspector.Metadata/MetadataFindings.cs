@@ -50,7 +50,9 @@ public static partial class MetadataFindings
 
         return new FindingInspection<ApiMemberHandle>.Complete(
         [
-            .. EnumerateMembers(surface).Select(item =>
+            .. EnumerateMembers(surface)
+                .Where(static item => IsDeclaredMember(item.Member))
+                .Select(item =>
             {
                 var handle = ApiMemberIdentity.CreateHandle(item.Type, item.Member);
                 return new Finding<ApiMemberHandle>(
@@ -121,7 +123,9 @@ public static partial class MetadataFindings
                 FindingInspectionAbsenceKind.SubjectAbsent)
             : new FindingInspection<ApiMemberHandle>.Complete(
             [
-                .. EnumerateMembers(type).Select(item =>
+                .. EnumerateMembers(type)
+                    .Where(static item => IsDeclaredMember(item.Member))
+                    .Select(item =>
                 {
                     var handle = ApiMemberIdentity.CreateHandle(item.Type, item.Member);
                     return new Finding<ApiMemberHandle>(
@@ -871,6 +875,11 @@ public static partial class MetadataFindings
         foreach (var member in type.Members)
             yield return (type, member);
     }
+
+    static bool IsDeclaredMember(ApiMember member)
+        => member.DeclaringTypeCanonicalName is null
+            && member.DeclaringTypeDefinitionName is null
+            && member.DeclaringOverloadIndex is null;
 
     static FindingKey CreateMemberFindingKey(
         ApiType type,

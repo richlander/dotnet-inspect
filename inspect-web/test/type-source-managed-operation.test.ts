@@ -90,7 +90,13 @@ function succeeded(text: string): BrowserTypeSourceResult {
     version: 1, kind: "Succeeded",
     value: { kind: "source", value: {
       provider: "pdb", provenance: inertStringFixture("verified"), url: null,
-      pdbSourceLimitation: null, text } },
+      pdbSourceLimitation: null, text },
+    share: {
+      kind: "available",
+      fullUrl: "https://example.test/type-source",
+      packet: "type-source",
+    },
+    diagnostics: [] },
     failureKind: null, error: null, diagnostic: null, reason: null,
   };
 }

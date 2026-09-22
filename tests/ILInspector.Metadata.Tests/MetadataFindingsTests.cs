@@ -845,6 +845,30 @@ public class MetadataFindingsTests
     {
         var oldSurface = ExtractSurface(typeof(extensionold::ExtensionInstanceFixture.Widget).Assembly.Location);
         var newSurface = ExtractSurface(typeof(extensionnew::ExtensionInstanceFixture.Widget).Assembly.Location);
+        const string extensionType = "ExtensionInstanceFixture.WidgetExtensions";
+        const string receiverType = "ExtensionInstanceFixture.Widget";
+
+        var allFindings = Assert.IsType<FindingInspection<ApiMemberHandle>.Complete>(
+            MetadataFindings.InspectApiMembers(oldSurface, Subject).Value).Findings;
+        var declaration = Assert.Single(
+            allFindings,
+            finding => finding.Payload.MemberName == "Measure");
+        Assert.Equal(extensionType, declaration.Payload.TypeFullName);
+        Assert.Contains(
+            declaration.Key.SoftKeys,
+            key => key.Tier == MetadataFindings.ExtensionInstanceMatchTier);
+
+        var declaringTypeFindings = Assert.IsType<FindingInspection<ApiMemberHandle>.Complete>(
+            MetadataFindings.InspectApiMembers(oldSurface, Subject, extensionType).Value).Findings;
+        Assert.Single(
+            declaringTypeFindings,
+            finding => finding.Payload.MemberName == "Measure");
+
+        var receiverTypeFindings = Assert.IsType<FindingInspection<ApiMemberHandle>.Complete>(
+            MetadataFindings.InspectApiMembers(oldSurface, Subject, receiverType).Value).Findings;
+        Assert.DoesNotContain(
+            receiverTypeFindings,
+            finding => finding.Payload.MemberName == "Measure");
 
         var comparison = MetadataFindings.CompareApiMembers(
             oldSurface,
@@ -858,6 +882,12 @@ public class MetadataFindingsTests
             {
                 Old.Payload.Member.Name: "Measure",
                 New.Payload.Member.Name: "Measure",
+            });
+        Assert.DoesNotContain(
+            Pairs(comparison),
+            pair => pair is PairFinding<ApiMemberHandle>.Removed
+            {
+                Old.Payload.Member.Name: "Measure",
             });
         var matched = Assert.IsAssignableFrom<IMatchedPairFinding>(changed.Value);
         Assert.Equal(MetadataFindings.ExtensionInstanceMatchTier, matched.Match?.Tier);

@@ -19,8 +19,8 @@ public sealed class AssemblyPairCallUseRequestException
 }
 
 /// <summary>
-/// One participant that supplied a complete body index for a pairwise call-use
-/// query.
+/// One participant that supplied focused call-graph evidence for a pairwise
+/// call-use query.
 /// </summary>
 public sealed record AssemblyPairCallUseParticipant(
     AssemblyContextSubject Subject,
@@ -130,14 +130,14 @@ public static class AssemblyPairCallUseQuery
             new(secondParticipant.Assembly),
         ];
         var available =
-            ImmutableArray.CreateBuilder<IndexedParticipant>();
+            ImmutableArray.CreateBuilder<AnalyzedParticipant>();
         var failures =
             ImmutableArray.CreateBuilder<AssemblyPairCallUseFailure>();
         foreach (AssemblyContextParticipant participant in requested)
         {
-            BuildResult result = BuildIndex(group, participant);
-            if (result is BuildResult.Available indexed)
-                available.Add(indexed.Participant);
+            BuildResult result = BuildCallGraph(group, participant);
+            if (result is BuildResult.Available analyzed)
+                available.Add(analyzed.Participant);
             else if (result is BuildResult.Unavailable unavailable)
                 failures.Add(unavailable.Failure);
         }
@@ -152,13 +152,13 @@ public static class AssemblyPairCallUseQuery
                 AssemblyPairCallUseDiagnostics.Empty);
         }
 
-        IndexedParticipant firstIndexed = available[0];
-        IndexedParticipant secondIndexed = available[1];
-        if (firstIndexed.ResultParticipant.ModuleVersionId
-                == secondIndexed.ResultParticipant.ModuleVersionId
-            && firstIndexed.ResultParticipant.Subject.Identity
+        AnalyzedParticipant firstAnalyzed = available[0];
+        AnalyzedParticipant secondAnalyzed = available[1];
+        if (firstAnalyzed.ResultParticipant.ModuleVersionId
+                == secondAnalyzed.ResultParticipant.ModuleVersionId
+            && firstAnalyzed.ResultParticipant.Subject.Identity
                 .IsEquivalentTo(
-                    secondIndexed.ResultParticipant.Subject.Identity))
+                    secondAnalyzed.ResultParticipant.Subject.Identity))
         {
             throw new AssemblyPairCallUseRequestException(
                 "Pairwise call use requires two distinct physical assembly artifacts.",
@@ -173,19 +173,19 @@ public static class AssemblyPairCallUseQuery
             policy,
             available.Select(item =>
                 new Analysis.CatalogCallGraphParticipant(
-                    item.Index.CallGraphAnalysis,
+                    item.CallGraph,
                     item.Assembly)));
 
         ImmutableArray<AssemblyPairCallUseOccurrence> occurrences =
         [
             .. scope
                 .ResolvedCalls(
-                    firstIndexed.Index.CallGraphAnalysis,
-                    secondIndexed.Index.CallGraphAnalysis)
+                    firstAnalyzed.CallGraph,
+                    secondAnalyzed.CallGraph)
                 .Concat(
                     scope.ResolvedCalls(
-                        secondIndexed.Index.CallGraphAnalysis,
-                        firstIndexed.Index.CallGraphAnalysis))
+                        secondAnalyzed.CallGraph,
+                        firstAnalyzed.CallGraph))
                 .Where(call =>
                     call.Call.Kind is
                         Analysis.CallKind.Call
@@ -193,18 +193,18 @@ public static class AssemblyPairCallUseQuery
                         or Analysis.CallKind.NewObject)
                 .Select(call =>
                 {
-                    IndexedParticipant source =
+                    AnalyzedParticipant source =
                         ReferenceEquals(
                             call.Source.CallGraph,
-                            firstIndexed.Index.CallGraphAnalysis)
-                            ? firstIndexed
-                            : secondIndexed;
-                    IndexedParticipant target =
+                            firstAnalyzed.CallGraph)
+                            ? firstAnalyzed
+                            : secondAnalyzed;
+                    AnalyzedParticipant target =
                         ReferenceEquals(
                             call.Target.CallGraph,
-                            firstIndexed.Index.CallGraphAnalysis)
-                            ? firstIndexed
-                            : secondIndexed;
+                            firstAnalyzed.CallGraph)
+                            ? firstAnalyzed
+                            : secondAnalyzed;
                     return new AssemblyPairCallUseOccurrence(
                         source.ResultParticipant.Subject,
                         source.ResultParticipant.ModuleVersionId,
@@ -236,17 +236,17 @@ public static class AssemblyPairCallUseQuery
             .ToHashSet();
         int unresolvedCandidateCallCount =
             CountUnresolvedPairCandidates(
-                firstIndexed,
-                secondIndexed,
+                firstAnalyzed,
+                secondAnalyzed,
                 resolvedSites)
             + CountUnresolvedPairCandidates(
-                secondIndexed,
-                firstIndexed,
+                secondAnalyzed,
+                firstAnalyzed,
                 resolvedSites);
 
         return new AssemblyPairCallUseResult(
             subjects,
-            [firstIndexed.ResultParticipant, secondIndexed.ResultParticipant],
+            [firstAnalyzed.ResultParticipant, secondAnalyzed.ResultParticipant],
             [],
             occurrences,
             new AssemblyPairCallUseDiagnostics(
@@ -254,10 +254,10 @@ public static class AssemblyPairCallUseQuery
     }
 
     static int CountUnresolvedPairCandidates(
-        IndexedParticipant source,
-        IndexedParticipant target,
+        AnalyzedParticipant source,
+        AnalyzedParticipant target,
         HashSet<PhysicalCallSite> resolvedSites) =>
-        source.Index.DirectCalls.Count(call =>
+        source.CallGraph.DirectCalls.Count(call =>
             IsAdmittedKind(call.Kind)
             && NamesTargetAssembly(
                 call,
@@ -323,7 +323,7 @@ public static class AssemblyPairCallUseQuery
             "The assembly does not belong to the context group.",
             nameof(assembly));
 
-    static BuildResult BuildIndex(
+    static BuildResult BuildCallGraph(
         AssemblyContextGroup group,
         AssemblyContextParticipant participant)
     {
@@ -336,27 +336,27 @@ public static class AssemblyPairCallUseQuery
                 {
                     try
                     {
-                        Analysis.LibraryBodyIndex index =
-                            Analysis.LibraryBodyIndex
-                                .OpenFromPrefetchedImage(
-                                    participant.Assembly.Path
-                                        ?? participant.Assembly
-                                            .Identity.Name,
-                                    snapshot.Content,
+                        Analysis.LibraryCallGraphAnalysisResult callGraph =
+                            Analysis.LibraryBodyAnalysisService.ExecuteImage(
+                                participant.Assembly.Path
+                                    ?? participant.Assembly.Identity.Name,
+                                snapshot.Content,
+                                Analysis.LibraryBodyAnalysisRequest.Create(
                                     Analysis.LibraryBodyAnalysisFeatures
-                                        .MethodEvidence);
+                                        .MethodEvidence))
+                            .CallGraph;
                         ResolvedAssemblyReference assembly =
                             snapshot.RetainAssemblyReference(
                                 participant.Assembly);
                         return new BuildResult.Available(
-                            new IndexedParticipant(
+                            new AnalyzedParticipant(
                                 participant,
                                 assembly,
-                                index,
+                                callGraph,
                                 new AssemblyPairCallUseParticipant(
                                     subject,
-                                    index.ModuleIdentity.ModuleVersionId,
-                                    index.Diagnostics)));
+                                    callGraph.ModuleIdentity.ModuleVersionId,
+                                    callGraph.Diagnostics)));
                     }
                     catch (Exception exception)
                         when (MemberCallGraphSession
@@ -383,16 +383,16 @@ public static class AssemblyPairCallUseQuery
         };
     }
 
-    sealed record IndexedParticipant(
+    sealed record AnalyzedParticipant(
         AssemblyContextParticipant Participant,
         ResolvedAssemblyReference Assembly,
-        Analysis.LibraryBodyIndex Index,
+        Analysis.LibraryCallGraphAnalysisResult CallGraph,
         AssemblyPairCallUseParticipant ResultParticipant);
 
     abstract record BuildResult
     {
         internal sealed record Available(
-            IndexedParticipant Participant)
+            AnalyzedParticipant Participant)
             : BuildResult;
 
         internal sealed record Unavailable(

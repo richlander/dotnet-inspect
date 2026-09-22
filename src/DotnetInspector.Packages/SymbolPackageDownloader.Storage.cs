@@ -8,7 +8,8 @@ public partial class SymbolPackageDownloader
     private sealed record PdbProbeResult(
         AcquiredPortablePdb? Pdb,
         bool WindowsPdbDetected,
-        PortablePdbStoreFailureKind? StoreFailure = null);
+        PortablePdbStoreFailureKind? StoreFailure = null,
+        PortablePdbAcquisitionFailureKind? AcquisitionFailure = null);
 
     private readonly record struct StoredPdbProbe(
         bool Portable,

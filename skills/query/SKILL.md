@@ -10,10 +10,11 @@ The query system is like Go templates, without a DSL: inspection commands emit
 structured sections, with the broadest shared query surface on `type`, `member`,
 `package`, and `library`. `project` supports `-D` and `-S` but not general
 field/column projection. `find` supports `-D` discovery and field/column
-projection but not `-S` selection. `diff` supports `-D` and `-S` but not
-field/column projection. `timeline` supports section selection and projection
-but not `-D` discovery. `workspace` supports output formats, `--count`, and
-`--rows`, but not discovery, section selection, or field projection.
+projection but not `-S` selection. Pairwise `diff` supports `-D` and `-S` but
+not field/column projection. `diff --history` supports section selection and
+projection but not `-D` discovery. `workspace` supports output formats,
+`--count`, and `--rows`, but not discovery, section selection, or field
+projection.
 `depends` supports `-D`, `-S`, categories, row windows, count, and field/column
 projection across its dependency graph and evidence sections. Several commands
 also expose a separate complete-service `--envelope` path described below.
@@ -53,7 +54,7 @@ Workspace coordinate replacement is the exception: request
 | `depends <type>` | Carries complete dependency Content, semantic relationship selection, diagnostics, and an available Share for an exact projectable NuGet.org package/TFM request. |
 | Single-Library API `diff` | Carries the complete typed comparison outcome and diagnostics; ordered comparison endpoints currently make Share non-projectable. |
 | `package activity` | Carries the complete ecosystem change report and diagnostics; Share may be non-projectable. |
-| `package query` | Carries complete ordinary or assembly-semantic query Content and diagnostics; Package Query Share is currently non-projectable. |
+| `package query` | Carries one complete `PackageQueryDocument`, including selected-library semantic context when `library-literal` is active, plus diagnostics; Package Query Share is currently non-projectable. |
 | `library query` | Carries complete Library-grain query Content, population/evaluation failures, and completion; Library Query Share is currently non-projectable. |
 | Exact package-backed Type or Library API `type` | Carries the complete `exact-type` or `exact-library-api` Content and diagnostics; quiet/minimal output is admitted. |
 | Online package version population | Unlike projected version JSON, carries the complete directed population Document and source/completion evidence; `--count --envelope` uses the scalar Count as Content. |
@@ -454,8 +455,8 @@ Member `Call Graph` is the current exception: its legacy command-owned
 an empty edge table only when the requested start is beyond the available rows.
 
 `find`, `implements`, `extensions`, `depends`, `ecosystem`, `vocabulary`,
-`timeline`, `match --similar`, `package query`, `library query`, package activity, package
-`--versions` / `--versions-with-feed`, `demo list`, Workspace inventory,
+`diff --history`, `match --similar`, `package query`, `library query`, package
+activity, package `--versions` / `--versions-with-feed`, `demo list`, Workspace inventory,
 Integration graph edges, selected package file/SourceLink inventories,
 selected Project document inventories, explicit-source Type catalogs, and
 exact Member `Calls` and `Callers` have semantic adoption in their supported

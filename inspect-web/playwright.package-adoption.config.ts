@@ -3,6 +3,7 @@ import { defineConfig, devices } from "@playwright/test";
 export default defineConfig({
   testDir: "./browser",
   testMatch: "package-adoption.spec.ts",
+  outputDir: "test-results/package-adoption",
   workers: 1,
   forbidOnly: Boolean(process.env.CI),
   timeout: 240_000,

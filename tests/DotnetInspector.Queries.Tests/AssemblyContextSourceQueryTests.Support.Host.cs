@@ -341,6 +341,17 @@ public sealed partial class AssemblyContextSourceQueryTests
                 allowAdjacentPdbReads: allowAdjacentPdbReads,
                 maxDecompilerBodyProjections: maxDecompilerBodyProjections);
 
+        internal static QueryHost WithFailedPdbProvider()
+            => new(
+                new SymbolPackageHandler(
+                    new byte[65]),
+                new SourceHandler(content: null),
+                symbolAcquisitionLimits:
+                    new SymbolAcquisitionLimits(
+                        maxSymbolPackageBytes: 64,
+                        maxPortablePdbBytes: 64,
+                        maxSymbolPackageEntries: 8));
+
         internal static QueryHost WithPairPdb(
             TestAssembly before,
             TestAssembly after,

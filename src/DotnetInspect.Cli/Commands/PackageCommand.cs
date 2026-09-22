@@ -89,7 +89,6 @@ public partial class PackageCommand
         ArgumentNullException.ThrowIfNull(options);
         ArgumentNullException.ThrowIfNull(context);
         var packageArgs = options.PackageArgs;
-        var explicitVersion = options.ExplicitVersion;
         var catalog = PackageSectionDescriptors.CreateCatalog();
         var sectionCatalog = catalog.Sections;
         var pipeline = catalog.Pipeline;
@@ -1058,7 +1057,9 @@ public partial class PackageCommand
 
         var client = context.HttpClient;
 
-        var target = PackageExtractor.ParsePackageTarget(packageArgs[0], explicitVersion);
+        PackageReferenceTarget target =
+            options.DeclaredPackageTarget
+            ?? PackageExtractor.ParsePackageTarget(packageArgs[0]);
         string packageName = target.PackageName;
         string version = target.Version;
         if (target.IsLocalFile)
@@ -1071,9 +1072,7 @@ public partial class PackageCommand
         }
         else
         {
-            if (explicitVersion != null)
-                logger.Log($"Using --version: {version}");
-            else if (version.Length > 0)
+            if (version.Length > 0)
                 logger.Log($"Using specified version: {version}");
 
             if (!PackageExtractor.IsValidPackageReferenceVersion(version))
@@ -1115,7 +1114,18 @@ public partial class PackageCommand
             if (preResolved is null)
             {
                 PackageExtractionOutcome outcome;
-                if (!target.IsLocalFile && !DotnetInspector.Networking.HttpClientFactory.IsOffline)
+                if (options.DeclaredPackageTarget
+                    is { IsLocalFile: true })
+                {
+                    outcome = await PackageExtractor.ExtractPackageAsync(
+                        client,
+                        target,
+                        logger.Log,
+                        sourceOptions: options.SourceOptions,
+                        includePrerelease: options.IncludePrerelease);
+                }
+                else if (!target.IsLocalFile
+                    && !DotnetInspector.Networking.HttpClientFactory.IsOffline)
                 {
                     outcome = PackageExtractor.TryNormalizePackageVersion(version, out string pinnedVersion)
                         ? await PackageExtractor.ExtractPinnedPackageAsync(

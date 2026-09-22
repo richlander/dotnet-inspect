@@ -15,6 +15,7 @@
     -->
     <InternalsVisibleTo Include="DotnetInspect.Web" />
     <InternalsVisibleTo Include="DotnetInspect.Web.Interop.Package" />
+    <InternalsVisibleTo Include="DotnetInspect.Web.Interop.Library" />
     <InternalsVisibleTo Include="DotnetInspect.Web.Interop.Metadata" />
     <InternalsVisibleTo Include="DotnetInspect.Web.Interop.Analysis" />
     <InternalsVisibleTo Include="DotnetInspect.Web.Interop.Source" />
@@ -31,6 +32,7 @@
     <ProjectReference Include="..\..\src\DotnetInspector.PlatformHouse.Packages\DotnetInspector.PlatformHouse.Packages.csproj" />
     <ProjectReference Include="..\..\src\DotnetInspector.PlatformQueries\DotnetInspector.PlatformQueries.csproj" />
     <ProjectReference Include="..\..\src\DotnetInspector.Platforms.Packages\DotnetInspector.Platforms.Packages.csproj" />
+    <ProjectReference Include="..\..\src\DotnetInspector.DocumentationHouse.Source\DotnetInspector.DocumentationHouse.Source.csproj" />
     <ProjectReference Include="..\..\src\DotnetInspector.Queries\DotnetInspector.Queries.csproj" />
     <ProjectReference Include="..\..\src\DotnetInspector.Sections\DotnetInspector.Sections.csproj" />
     <ProjectReference Include="..\..\src\DotnetInspector.Services\DotnetInspector.Services.csproj" />
@@ -40,5 +42,6 @@
     <ProjectReference Include="..\..\src\ILInspector.Metadata\ILInspector.Metadata.csproj" />
     <ProjectReference Include="..\..\src\ILInspector.Research\ILInspector.Research.csproj" />
     <ProjectReference Include="..\..\src\NuGetFetch\NuGetFetch.csproj" />
+    <ProjectReference Include="..\..\src\DotnetInspector.SourceHouse\DotnetInspector.SourceHouse.csproj" />
   </ItemGroup>
 </Project>

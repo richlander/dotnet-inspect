@@ -4,6 +4,8 @@ using DotnetInspector.DocumentationHouse.Packages;
 using DotnetInspector.Libraries;
 using DotnetInspector.LibraryMetadata;
 using DotnetInspector.Packages;
+using DotnetInspector.PackageQueries;
+using DotnetInspector.Queries;
 using ILInspector.Metadata;
 
 using DocumentationHouseService =
@@ -170,6 +172,61 @@ public sealed partial class PackageHouseExecutionTests
             await materialized.Artifacts.DisposeAsync();
         }
 
+        await environment.AssertRootSettledAsync();
+    }
+
+    [Fact]
+    public async Task
+        CompiledDocumentationDoesNotAcquireImplementationPortablePdb()
+    {
+        byte[] assembly = ReadRealAsset("System.Text.Json.dll");
+        byte[] documentation = ReadRealAsset("System.Text.Json.xml");
+        long maxContentBytes = Math.Max(
+            assembly.LongLength,
+            documentation.LongLength);
+        byte[] portablePdb =
+            GC.AllocateUninitializedArray<byte>(
+                checked((int)maxContentBytes + 1));
+        InMemoryPackageContent content = CreatePackageContent(
+            (MaterializedApiPath, assembly),
+            (MaterializedImplementationPath, assembly),
+            (MaterializedDocumentationPath, documentation),
+            (MaterializedPortablePdbPath, portablePdb));
+        await using HouseEnvironment environment =
+            HouseEnvironment.CreateNuGetOrg(
+                MaterializedPackageId,
+                new SourceBehavior([Version]));
+        (PackageHouseSettlement.Acquired settlement,
+            PackageHouseLibraryHandoff.Compile handoff) =
+            await ExecuteMaterializationInputAsync(
+                environment,
+                content);
+        var limits = new PackageCompiledDocumentationQueryLimits
+        {
+            Materialization =
+                new PackageHouseLibraryMaterializationLimits
+                {
+                    MaxContentBytes = maxContentBytes,
+                    MaxRetainedBytes =
+                        checked(
+                            (2 * assembly.LongLength)
+                            + documentation.LongLength),
+                },
+        };
+
+        CompiledDocumentationOutcome.Available available =
+            Assert.IsType<CompiledDocumentationOutcome.Available>(
+                await PackageCompiledDocumentationQuery.ExecuteAsync(
+                    settlement,
+                    handoff,
+                    PackageDocumentationDeserializeIdentity,
+                    limits,
+                    TestContext.Current.CancellationToken));
+
+        Assert.Contains(
+            "Converts the JsonDocument",
+            available.Documentation.Summary,
+            StringComparison.Ordinal);
         await environment.AssertRootSettledAsync();
     }
 

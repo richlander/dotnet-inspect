@@ -16,6 +16,86 @@ import {
 
 test.use({ viewport: { width: 900, height: 900 } });
 
+// PR-fast: production navigation with the existing Platform facade fixture.
+test("Platform Workspace entry preserves the catalog for Back and Forward", async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await openPlatform(page);
+  const catalogLocation = page.url();
+  const predecessor = await currentWorkspaceHistoryState(page);
+  await page.locator('[data-application-scope="workspace"]').click();
+  await expect(page.locator("#inspector-panel h1")).toHaveText("Workspace");
+  await expect(page.locator("[data-workspace-select]")).toBeFocused();
+  await expect(page).not.toHaveURL(catalogLocation);
+  const workspaceLocation = page.url();
+
+  await page.goBack();
+  await expect(page).toHaveURL(catalogLocation);
+  await expect(subjectTab(page, "platform")).toHaveAttribute("aria-selected", "true");
+  expect(await currentWorkspaceHistoryState(page)).toEqual(predecessor);
+  await page.goForward();
+  await expect(page).toHaveURL(workspaceLocation);
+  await expect(page.locator("#inspector-panel h1")).toHaveText("Workspace");
+  await page.reload();
+  await expect(page.locator("#inspector-panel h1")).toHaveText("Workspace");
+});
+
+test("pending Platform Workspace entry retains the catalog and newer Search focus", async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await openPlatform(page);
+  const catalogLocation = page.url();
+  await releaseFacade(page, "hold-workspace-encode");
+  await page.locator('[data-application-scope="workspace"]').click();
+  await expect(page.locator("html"))
+    .toHaveAttribute("data-workspace-encode-pending", "true");
+  await expect(page).toHaveURL(catalogLocation);
+  await expect(subjectTab(page, "platform")).toHaveAttribute("aria-selected", "true");
+  await expect(page.locator('[data-application-scope="workspace"]'))
+    .not.toHaveAttribute("aria-current", "page");
+  const search = page.locator("#open-search");
+  await search.focus();
+
+  await releaseFacade(page, "finish-workspace-encode");
+  await expect(page.locator("#inspector-panel h1")).toHaveText("Workspace");
+  await expect(search).toBeFocused();
+});
+
+test("failed Platform Workspace entry retains the catalog and focused control", async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await openPlatform(page);
+  const catalogLocation = page.url();
+  const historyLength = await page.evaluate(() => history.length);
+  await releaseFacade(page, "hold-workspace-encode");
+  await releaseFacade(page, "fail-workspace-encode");
+  await page.locator('[data-application-scope="workspace"]').click();
+  await expect(page.locator("html"))
+    .toHaveAttribute("data-workspace-encode-pending", "true");
+  const search = page.locator("#open-search");
+  await search.focus();
+  await releaseFacade(page, "finish-workspace-encode");
+
+  await expect(page.locator('.toast[role="status"]'))
+    .toContainText("Fixture workspace projection failure.");
+  await expect(page).toHaveURL(catalogLocation);
+  await expect(subjectTab(page, "platform")).toHaveAttribute("aria-selected", "true");
+  expect(await page.evaluate(() => history.length)).toBe(historyLength);
+  await expect(search).toBeFocused();
+});
+
+test("superseded Platform Workspace entry leaves Query and its focus current", async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await openPlatform(page);
+  await releaseFacade(page, "hold-workspace-encode");
+  await page.locator('[data-application-scope="workspace"]').click();
+  await expect(page.locator("html"))
+    .toHaveAttribute("data-workspace-encode-pending", "true");
+  await page.locator('[data-application-scope="query"]').click();
+  await expect(page).toHaveURL(/\/query$/);
+  await releaseFacade(page, "finish-workspace-encode");
+  await page.waitForTimeout(100);
+  await expect(page).toHaveURL(/\/query$/);
+  await expect(page.locator("#package-query-prefix")).toBeFocused();
+});
+
 test("Activity Back restores focus on the Platform route", async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
   await openPlatform(page);

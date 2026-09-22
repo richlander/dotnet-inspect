@@ -646,6 +646,10 @@ public sealed class AssemblyPairCallUseQueryTests
     [Fact(Timeout = 10_000)]
     public async Task ProjectionKeepsRepeatedPhysicalSitesLinear()
     {
+        CancellationToken cancellationToken =
+            TestContext.Current.CancellationToken;
+        cancellationToken.ThrowIfCancellationRequested();
+
         await using PairContext context = PairContext.Create(
             FixtureCatalog.AnalysisCallerGraphCaller.AssemblyPath(),
             FixtureCatalog.AnalysisCallerGraphTarget.AssemblyPath());
@@ -677,6 +681,7 @@ public sealed class AssemblyPairCallUseQueryTests
 
         AssemblyPairDirectUseClusterProjection projection =
             AssemblyPairDirectUseClusterProjection.Create(repeated);
+        cancellationToken.ThrowIfCancellationRequested();
 
         AssemblyPairDirectUseCluster cluster =
             Assert.Single(projection.Clusters);

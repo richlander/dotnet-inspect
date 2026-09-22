@@ -137,6 +137,8 @@ public sealed class LibraryApiDiffPresentationTests
         LibraryApiMemberDiff extensionRelation = Assert.Single(
             extensions.Members,
             member => member.Relation.Identifier == receiverRelation.Relation.Identifier);
+        Assert.Single(receiver.Members);
+        Assert.Single(extensions.Members);
         Assert.Equal(LibraryApiMemberRelationRole.After, receiverRelation.Role);
         Assert.Equal(LibraryApiMemberRelationRole.Before, extensionRelation.Role);
         Assert.Equal(

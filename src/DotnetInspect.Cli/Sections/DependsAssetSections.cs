@@ -127,7 +127,7 @@ internal static class DependsAssetSections
         public static string Name => DependencyHierarchy;
         public static bool IsExpensive => false;
         public static bool Info => true;
-        public static SectionSizeClass SizeClass => SectionSizeClass.Terse;
+        public static SectionSizeClass SizeClass => SectionSizeClass.Verbose;
         public static SectionCost Cost => SectionCost.NetworkFree;
         public static bool CanRender(DependsAssetProjection model) =>
             !model.Hierarchy.Roots.IsEmpty;
@@ -139,8 +139,7 @@ internal static class DependsAssetSections
         public static string Name => Roots;
         public static bool IsExpensive => false;
         public static bool ExplicitOnly => true;
-        public static SectionSizeClass SizeClass =>
-            SectionSizeClass.Informative;
+        public static SectionSizeClass SizeClass => SectionSizeClass.Verbose;
         public static SectionCost Cost => SectionCost.NetworkFree;
         public static bool CanRender(DependsAssetProjection model) =>
             !model.Roots.IsEmpty;
@@ -151,8 +150,7 @@ internal static class DependsAssetSections
     {
         public static string Name => Dependencies;
         public static bool IsExpensive => false;
-        public static SectionSizeClass SizeClass =>
-            SectionSizeClass.Informative;
+        public static SectionSizeClass SizeClass => SectionSizeClass.Verbose;
         public static SectionCost Cost => SectionCost.NetworkFree;
         public static bool CanRender(DependsAssetProjection model) =>
             !model.Dependencies.IsEmpty;
@@ -164,8 +162,7 @@ internal static class DependsAssetSections
         public static string Name => Pruning;
         public static bool IsExpensive => true;
         public static bool ExplicitOnly => true;
-        public static SectionSizeClass SizeClass =>
-            SectionSizeClass.Informative;
+        public static SectionSizeClass SizeClass => SectionSizeClass.Verbose;
         public static SectionCost Cost => SectionCost.Unbounded;
         public static bool CanRender(DependsAssetProjection model) =>
             model.Summary.Pruning.Completion
@@ -178,8 +175,7 @@ internal static class DependsAssetSections
         public static string Name => Licenses;
         public static bool IsExpensive => true;
         public static bool ExplicitOnly => true;
-        public static SectionSizeClass SizeClass =>
-            SectionSizeClass.Informative;
+        public static SectionSizeClass SizeClass => SectionSizeClass.Verbose;
         public static SectionCost Cost => SectionCost.Unbounded;
         public static bool CanRender(DependsAssetProjection model) =>
             model.Summary.Licenses.Completion
@@ -192,8 +188,7 @@ internal static class DependsAssetSections
         public static string Name => RestoredEdges;
         public static bool IsExpensive => false;
         public static bool ExplicitOnly => true;
-        public static SectionSizeClass SizeClass =>
-            SectionSizeClass.Informative;
+        public static SectionSizeClass SizeClass => SectionSizeClass.Verbose;
         public static SectionCost Cost => SectionCost.NetworkFree;
         public static bool CanRender(DependsAssetProjection model) =>
             !model.RestoredEdges.IsEmpty;
@@ -204,8 +199,7 @@ internal static class DependsAssetSections
     {
         public static string Name => Failures;
         public static bool IsExpensive => false;
-        public static SectionSizeClass SizeClass =>
-            SectionSizeClass.Informative;
+        public static SectionSizeClass SizeClass => SectionSizeClass.Verbose;
         public static SectionCost Cost => SectionCost.NetworkFree;
         public static bool CanRender(DependsAssetProjection model) =>
             !model.Failures.IsEmpty;

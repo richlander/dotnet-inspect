@@ -74,7 +74,7 @@ Source: Platform
 ```markdown
 ```expect-not
 Source: NuGet
-Network guard violation
+Network traffic [
 `` `
 ```
 

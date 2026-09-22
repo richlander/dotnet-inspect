@@ -591,7 +591,6 @@ public partial class PackageCommand
     internal static List<string> GetMultiPackageConflicts(InspectionOptions options)
     {
         List<string> conflicts = [];
-        if (options.ExplicitVersion != null) conflicts.Add("--version");
         if (options.ListVersions) conflicts.Add("--versions/--version");
         if (options.ListLayout) conflicts.Add("--layout");
         if (options.ListTfms) conflicts.Add("--tfms");
@@ -607,7 +606,7 @@ public partial class PackageCommand
             conflicts.Add("-S \"Dependency Hierarchy\"");
         }
         if (options.PackageLibrary != null) conflicts.Add("--library");
-        if (options.AllLibraries) conflicts.Add("--all-libraries");
+        if (options.AllLibraries) conflicts.Add("--library");
         if (options.Discover != null) conflicts.Add("-D/--discover");
 
         return conflicts;
@@ -678,7 +677,7 @@ public partial class PackageCommand
             if (options.ListVersions) conflicts.Add("--versions/--version");
             if (options.Roots) conflicts.Add("--roots");
             if (options.PackageLibrary != null) conflicts.Add("--library");
-            if (options.AllLibraries) conflicts.Add("--all-libraries");
+            if (options.AllLibraries) conflicts.Add("--library");
             if (options.Discover != null) conflicts.Add("-D/--discover");
             if (options.Columns != null) conflicts.Add("--columns");
             if (options.Fields != null) conflicts.Add("--fields");

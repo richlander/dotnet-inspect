@@ -542,6 +542,8 @@ export interface ApiDeclarations {
 export interface Source {
   readonly kind: "source";
   readonly value: BrowserSource;
+  readonly share: InspectionShare;
+  readonly diagnostics: ReadonlyArray<InspectionDiagnostic>;
 }
 
 export type BrowserTypeCodeView = Source | ApiDeclarations;

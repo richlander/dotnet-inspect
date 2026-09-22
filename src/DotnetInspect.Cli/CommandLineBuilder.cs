@@ -74,6 +74,43 @@ public static class CommandLineBuilder
             args,
             out error);
 
+    internal static bool TryGetPackageVersionValueError(
+        string[] args,
+        RootCommand rootCommand,
+        out string? error)
+    {
+        ParseResult rawParse = rootCommand.Parse(args);
+        bool explicitPackage =
+            rawParse.CommandResult.Command.Name == PackageCommand.Name;
+        bool implicitPackage =
+            ArgumentPreprocessor.IsImplicitPackageCandidate(args);
+        if (!explicitPackage && !implicitPackage)
+        {
+            error = null;
+            return false;
+        }
+
+        string[] packageArgs =
+            implicitPackage
+                ? [PackageCommand.Name, .. args]
+                : args;
+        ParseResult packageParse = rootCommand.Parse(packageArgs);
+        CliOptionValueFailure? failure =
+            CliOptionValueValidation.FindFailure(
+                packageParse,
+                packageArgs);
+        if (failure?.Error !=
+            CliOptionValueValidation.DoesNotAcceptValue("--version"))
+        {
+            error = null;
+            return false;
+        }
+
+        error = "'--version' does not accept a value. "
+            + "Use 'Package@Version' to select a Package version.";
+        return true;
+    }
+
     /// <summary>
     /// Reports stale direction syntax using the active command's count unit.
     /// </summary>
@@ -135,6 +172,7 @@ public static class CommandLineBuilder
         string[] processed = ArgumentPreprocessor.PreprocessArgs(
             args,
             UsesImplicitVersionDirectionPresence(args, rootCommand));
+        processed = BindWorkspaceShareValue(processed);
         processed = ExpandInlineEmptyParentOptionValuesBeforeChild(
             processed,
             rootCommand,
@@ -168,6 +206,27 @@ public static class CommandLineBuilder
         return ArgumentPreprocessor.RewriteLineWindowShorthand(
             parseResult,
             processed);
+    }
+
+    private static string[] BindWorkspaceShareValue(string[] args)
+    {
+        if (args.FirstOrDefault() != WorkspaceCommand.Name)
+            return args;
+
+        for (int index = 1; index + 1 < args.Length; index++)
+        {
+            if (args[index] == "--share"
+                && args[index + 1] is "packet" or "url")
+            {
+                return
+                [
+                    .. args[..index],
+                    $"--share={args[index + 1]}",
+                    .. args[(index + 2)..],
+                ];
+            }
+        }
+        return args;
     }
 
     private static string[] ExpandInlineEmptyParentOptionValuesBeforeChild(
@@ -311,6 +370,34 @@ public static class CommandLineBuilder
         ArgumentPreprocessor.SetLineWindow(
             headLines: null,
             tailLines: null);
+        if (rawArgs is not null
+            && parseResult.CommandResult.Command.Name
+                is PackageCommand.Name or "router")
+        {
+            string[] versionArgs =
+                rawArgs.FirstOrDefault() == "router"
+                    ? rawArgs[1..]
+                    : rawArgs;
+            if (versionArgs.Any(static argument =>
+                    argument.Equals(
+                        "--version",
+                        StringComparison.Ordinal)
+                    || argument.StartsWith(
+                        "--version=",
+                        StringComparison.Ordinal)
+                    || argument.StartsWith(
+                        "--version:",
+                        StringComparison.Ordinal))
+                && TryGetPackageVersionValueError(
+                    versionArgs,
+                    CreateRootCommand(),
+                    out string? packageVersionValueError))
+            {
+                CommandError.Write(packageVersionValueError!);
+                return 1;
+            }
+        }
+
         CliRowSelectionPreparation rowSelection;
         try
         {
@@ -1159,11 +1246,7 @@ public static class CommandLineBuilder
         // Project command
         rootCommand.Subcommands.Add(ProjectCommandDefinitions.CreateProjectCommand(opts));
 
-        // Workspace share packet conversion
-        rootCommand.Subcommands.Add(
-            UtilityCommandDefinitions.CreateWorkspaceStateCommand());
-
-        // Product-owned runtime Workspace inventory
+        // Workspace definition, packet, editing, and runtime inventory
         rootCommand.Subcommands.Add(
             WorkspaceCommandDefinitions.CreateWorkspaceCommand(opts));
 

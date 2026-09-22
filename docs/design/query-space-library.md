@@ -302,10 +302,18 @@ kernel is optional and may decline a plan without changing support. Adding a
 kernel changes performance only; it does not add a facet, operator, order,
 selection stage, terminal, or source capability.
 
-The initial library extraction preserves the structural seam but does not claim
-an allocation or throughput improvement. Kernel selection and performance
-claims require measured adopter evidence in their focused implementation
-slices.
+The first specialized kernel computes exact Count from source cardinality for
+predicate-free, unordered plans composed from Head, Tail, and Window. Top and
+plans that require row values decline to the reference interpreter. The
+`SpecializedRowExecutionMatchesReferenceEvaluator` gate compares the
+cardinality algebra with materialized selection across empty, successful, and
+strict-Window-failure cases.
+
+Graph Libraries is the first production adopter. For its admitted Count
+topology, terminal resolution captures the exact local source cardinality
+rather than copying row values. Its Rows terminal still captures a complete
+row snapshot. Measured adopter evidence remains required for each additional
+kernel topology.
 
 ## Optional source generation
 

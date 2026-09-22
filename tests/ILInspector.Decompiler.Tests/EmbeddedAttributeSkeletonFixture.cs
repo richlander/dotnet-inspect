@@ -9,7 +9,7 @@ namespace ILInspector.Decompiler.Tests
 namespace Microsoft.CodeAnalysis
 {
     [AttributeUsage(AttributeTargets.All, Inherited = false)]
-    internal sealed class EmbeddedAttribute : Attribute
+    internal sealed partial class EmbeddedAttribute : Attribute
     {
     }
 }

@@ -157,6 +157,14 @@ acquisition did not run.
 House failures remain House failures. No-match, rejection, unavailability,
 incomplete work, or acquisition failure does not become an empty destination.
 
+`PackageDependencyEdgeRealizationExecution.ExecuteAsync` preserves the ordinary
+single-request ownership contract and consumes its Package Source lease.
+`ExecuteStepAsync` performs the same exact prepared House request without
+consuming the lease, allowing the
+[package dependency call-graph operation](package-dependency-call-graph-operation.md)
+to execute several fully validated edges serially through one caller-owned
+source operation.
+
 ## Motivating and pathological cases
 
 `Polly.Core@8.8.0` is the motivating real package:
@@ -218,9 +226,10 @@ The end-to-end dependency-aware call-graph adoption path has four slices:
    batches completed admitted-edge evidence, retains destination Package Root
    lifetimes through Scope, reuses already-realized root occurrences, and
    lowers package or Platform decisions into typed dependency destinations.
-3. One owner-issued source-operation context executes all admitted resolved
-   edges, invokes the Workspace route operation, and exposes detached
-   dependency destinations to one shared dependency-aware call-graph service.
+3. The shared
+   [package dependency call-graph operation](package-dependency-call-graph-operation.md)
+   executes all admitted resolved edges, invokes the Workspace route
+   operation, and exposes detached route and graph evidence.
 4. CLI and Browser/Wasm consume that same service. Inspect Web adds an
    independent traversal-TFM selector defaulted to `net12.0`; package TFM
    remains the root/member selection contract.

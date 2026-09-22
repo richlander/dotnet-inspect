@@ -73,7 +73,7 @@ other workflows; follow the `perf` block beside each command.
 
 A `max_ms` failure means the command is slower than expected. Common causes:
 
-- **Unexpected network access** — a code path accidentally hits the network. Use the [network guard](network-guard.md) to diagnose.
+- **Unexpected network access** — a code path unexpectedly starts HTTP work. Use [network observation](network-guard.md) to diagnose it and `--offline` to enforce a no-network run.
 - **Cache miss** — the preconditions didn't prime the cache correctly. Check the `setup` blocks.
 - **Regression in hot path** — new code added overhead. Profile to find where.
 
@@ -136,7 +136,10 @@ Use a fresh cache to capture first-invocation latency (JIT, cache misses) and th
 
 ### Diagnosing unexpected network access
 
-Unexpected network calls (especially PDB downloads from MSDL) can add 700ms+ latency to queries that should be instant. See the [network guard skill](network-guard.md) for how to catch and diagnose these.
+Unexpected network calls, especially PDB downloads from MSDL, can add material
+latency to otherwise local queries. See
+[network observation](network-guard.md) for Debug request logging and offline
+enforcement.
 
 ## Reference
 

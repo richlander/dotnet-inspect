@@ -51,13 +51,23 @@ public sealed class SectionQuerySpaceRowScopeBinding<TRow> :
         }
 
         ResolvedRowQueryPlan<TRow> plan = resolution.Plan!;
+        bool canApplyCount =
+            RowQueryExecutor.CanApplyCount(plan);
         var schemaBinding =
             new SectionRowSchemaBinding<string, TRow>(
                 TypedSchema,
                 sequences =>
                     RowsCohortExecutor.ApplyResolved(
                         sequences,
-                        plan));
+                        plan),
+                canApplyCount
+                    ? rowSets =>
+                        RowsCohortExecutor.ApplyResolvedCount<
+                            string,
+                            TRow>(
+                                rowSets,
+                                plan)
+                    : null);
         return SectionQuerySpaceScopeResolution.Success(
             schemaBinding,
             new ResolvedQuerySpaceRowAssociation<TRow>(
@@ -179,6 +189,91 @@ public sealed class QuerySpaceSectionRowExecutionRequest<TProjection>
     { get; }
 }
 
+public sealed class QuerySpaceSectionSourceRowExecutionRequest<
+    TProjection,
+    TDisposition,
+    TCompletionEvidence>
+    where TDisposition : notnull
+    where TCompletionEvidence : notnull
+{
+    internal QuerySpaceSectionSourceRowExecutionRequest(
+        QuerySpaceRequest structuralRequest,
+        SectionSourceRowExecutionRequest<
+            string,
+            TProjection,
+            TDisposition,
+            TCompletionEvidence> sectionRequest,
+        ResolvedQuerySpaceRowAssociation association)
+    {
+        StructuralRequest = structuralRequest;
+        SectionRequest = sectionRequest;
+        Association = association;
+    }
+
+    public QuerySpaceRequest StructuralRequest { get; }
+
+    public QuerySpaceTerminalRequirement Terminal =>
+        StructuralRequest.Terminal;
+
+    public ResolvedQuerySpaceRowAssociation Association { get; }
+
+    internal SectionSourceRowExecutionRequest<
+        string,
+        TProjection,
+        TDisposition,
+        TCompletionEvidence> SectionRequest
+    { get; }
+}
+
+public sealed class QuerySpaceSectionSourceRowResolutionResult<
+    TProjection,
+    TDisposition,
+    TCompletionEvidence>
+    where TDisposition : notnull
+    where TCompletionEvidence : notnull
+{
+    private QuerySpaceSectionSourceRowResolutionResult(
+        QuerySpaceSectionSourceRowExecutionRequest<
+            TProjection,
+            TDisposition,
+            TCompletionEvidence>? request,
+        QuerySpaceSectionRowResolutionFailure? failure)
+    {
+        Request = request;
+        Failure = failure;
+    }
+
+    public bool IsSuccess => Request is not null;
+
+    public QuerySpaceSectionSourceRowExecutionRequest<
+        TProjection,
+        TDisposition,
+        TCompletionEvidence>? Request
+    { get; }
+
+    public ResolvedQuerySpaceRowAssociation? Association =>
+        Request?.Association;
+
+    public QuerySpaceSectionRowResolutionFailure? Failure { get; }
+
+    internal static QuerySpaceSectionSourceRowResolutionResult<
+        TProjection,
+        TDisposition,
+        TCompletionEvidence> Success(
+            QuerySpaceSectionSourceRowExecutionRequest<
+                TProjection,
+                TDisposition,
+                TCompletionEvidence> request) =>
+        new(request, null);
+
+    internal static QuerySpaceSectionSourceRowResolutionResult<
+        TProjection,
+        TDisposition,
+        TCompletionEvidence> Failed(
+            QuerySpaceSectionRowResolutionFailure failure) =>
+        new(null, failure);
+}
+
 public static class QuerySpaceSectionRowExecutor
 {
     public static SectionRowsOutcome<string, TProjection>
@@ -208,6 +303,52 @@ public static class QuerySpaceSectionRowExecutor
             TEvidence>(request.SectionRequest);
     }
 
+    public static SectionSourceRowsOutcome<
+        string,
+        TProjection,
+        TDisposition,
+        TCompletionEvidence> ApplyRows<
+            TProjection,
+            TDisposition,
+            TCompletionEvidence>(
+                QuerySpaceSectionSourceRowExecutionRequest<
+                    TProjection,
+                    TDisposition,
+                    TCompletionEvidence> request)
+        where TDisposition : notnull
+        where TCompletionEvidence : notnull
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        RequireTerminal(
+            request.Terminal,
+            QuerySpaceTerminalRequirement.Rows);
+        return SectionSourceRowExecutor.ApplyRows(
+            request.SectionRequest);
+    }
+
+    public static SectionCountOutcome<
+        string,
+        SectionRowSourceEvidence<
+            TDisposition,
+            TCompletionEvidence>> ApplyCount<
+                TProjection,
+                TDisposition,
+                TCompletionEvidence>(
+                    QuerySpaceSectionSourceRowExecutionRequest<
+                        TProjection,
+                        TDisposition,
+                        TCompletionEvidence> request)
+        where TDisposition : notnull
+        where TCompletionEvidence : notnull
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        RequireTerminal(
+            request.Terminal,
+            QuerySpaceTerminalRequirement.Count);
+        return SectionSourceRowExecutor.ApplyCount(
+            request.SectionRequest);
+    }
+
     private static void RequireTerminal(
         QuerySpaceTerminalRequirement actual,
         QuerySpaceTerminalRequirement required)
@@ -223,6 +364,70 @@ public static class QuerySpaceSectionRowExecutor
 
 public static class QuerySpaceSectionRowResolver
 {
+    public static QuerySpaceSectionSourceRowResolutionResult<
+        TProjection,
+        TDisposition,
+        TCompletionEvidence> Resolve<
+            TProjection,
+            TDisposition,
+            TCompletionEvidence>(
+                QuerySpaceBinding querySpace,
+                QuerySpaceRequest request,
+                IReadOnlyList<
+                    SectionRowSetDeclaration<
+                        string,
+                        TProjection>> rowSets,
+                IReadOnlyList<
+                    SectionRowSourceState<
+                        string,
+                        TDisposition,
+                        TCompletionEvidence>> sources,
+                SectionQuerySpaceRowScopeBinding scopeBinding)
+        where TDisposition : notnull
+        where TCompletionEvidence : notnull
+    {
+        QuerySpaceSectionRowResolutionResult<TProjection>
+            completeSource =
+                Resolve(
+                    querySpace,
+                    request,
+                    rowSets,
+                    scopeBinding);
+        if (!completeSource.IsSuccess)
+        {
+            return QuerySpaceSectionSourceRowResolutionResult<
+                TProjection,
+                TDisposition,
+                TCompletionEvidence>.Failed(
+                    completeSource.Failure!);
+        }
+
+        QuerySpaceSectionRowExecutionRequest<TProjection>
+            completeRequest =
+                completeSource.Request!;
+        SectionSourceRowExecutionRequest<
+            string,
+            TProjection,
+            TDisposition,
+            TCompletionEvidence> sectionRequest =
+                SectionSourceRowExecutionRequest<
+                    string,
+                    TProjection,
+                    TDisposition,
+                    TCompletionEvidence>.Create(
+                        completeRequest.SectionRequest.RowSets,
+                        completeRequest.SectionRequest.Association,
+                        sources);
+        return QuerySpaceSectionSourceRowResolutionResult<
+            TProjection,
+            TDisposition,
+            TCompletionEvidence>.Success(
+                new(
+                    completeRequest.StructuralRequest,
+                    sectionRequest,
+                    completeRequest.Association));
+    }
+
     public static QuerySpaceSectionRowResolutionResult<TProjection>
         Resolve<TProjection>(
             QuerySpaceBinding querySpace,
@@ -276,8 +481,7 @@ public static class QuerySpaceSectionRowResolver
                 nameof(scopeBinding));
         }
 
-        IReadOnlyList<
-            SectionRowSetDeclaration<string, TProjection>>
+        SectionRowSetDeclaration<string, TProjection>[]
             participating =
                 OrderParticipatingRowSets(
                     validatedRequest,
@@ -306,6 +510,16 @@ public static class QuerySpaceSectionRowResolver
                     resolution.Failure));
         }
 
+        bool countOnly =
+            validatedRequest.Terminal
+                is QuerySpaceTerminalRequirement.Count
+            && resolution.SchemaBinding!
+                .CanExecuteCountWithoutRows;
+        for (int index = 0; index < participating.Length; index++)
+        {
+            participating[index] =
+                participating[index].ResolveSnapshot(countOnly);
+        }
         var sectionAssociation =
             new SectionRowIntentAssociation<string>(
                 association.RowSets,
@@ -322,8 +536,7 @@ public static class QuerySpaceSectionRowResolver
                 resolution.Association!));
     }
 
-    private static IReadOnlyList<
-        SectionRowSetDeclaration<string, TProjection>>
+    private static SectionRowSetDeclaration<string, TProjection>[]
         OrderParticipatingRowSets<TProjection>(
             QuerySpaceRequest request,
             IReadOnlyList<
@@ -379,7 +592,7 @@ public static class QuerySpaceSectionRowResolver
                 nameof(rowSets));
         }
 
-        return Array.AsReadOnly(participating);
+        return participating;
     }
 }
 
