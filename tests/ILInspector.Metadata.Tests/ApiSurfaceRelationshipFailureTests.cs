@@ -136,6 +136,18 @@ public class ApiSurfaceRelationshipFailureTests
     }
 
     [Fact]
+    public void CountSummaryTypes_CyclicTypeDeclinesWithoutPartialCount()
+    {
+        using var stream = new MemoryStream(BuildImage(
+            cyclicTypeName: "Rejected",
+            validTypeNames: ["Sibling"]));
+        using var peReader = new PEReader(stream);
+
+        Assert.IsType<ApiTypeInventoryCountResult.Declined>(
+            ApiSurfaceExtractor.CountSummaryTypes(peReader));
+    }
+
+    [Fact]
     public void BoundedApiSurface_RejectedIdentityDoesNotSpendTheTypeBudget()
     {
         using var stream = new MemoryStream(BuildImage(

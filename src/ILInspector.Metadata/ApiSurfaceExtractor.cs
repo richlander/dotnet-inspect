@@ -152,6 +152,74 @@ public abstract record ApiSurfaceExtractionResult
     public sealed record Exceeded(ApiSurfaceExtractionBound Bound) : ApiSurfaceExtractionResult;
 }
 
+/// <summary>Type-kind facets of the compact public API inventory.</summary>
+public enum ApiTypeInventoryKind
+{
+    Class,
+    Struct,
+    Interface,
+    Enum,
+    Delegate,
+}
+
+/// <summary>Exact cardinality of the compact public Type inventory, grouped by Type kind.</summary>
+public sealed record ApiTypeInventoryCount(
+    Guid ModuleVersionId,
+    int Classes,
+    int Structs,
+    int Interfaces,
+    int Enums,
+    int Delegates)
+{
+    public int Total =>
+        checked(Classes + Structs + Interfaces + Enums + Delegates);
+
+    public int Count(ApiTypeInventoryKind kind) =>
+        kind switch
+        {
+            ApiTypeInventoryKind.Class => Classes,
+            ApiTypeInventoryKind.Struct => Structs,
+            ApiTypeInventoryKind.Interface => Interfaces,
+            ApiTypeInventoryKind.Enum => Enums,
+            ApiTypeInventoryKind.Delegate => Delegates,
+            _ => throw new ArgumentOutOfRangeException(
+                nameof(kind),
+                kind,
+                "Unknown API Type kind."),
+        };
+}
+
+/// <summary>Why compact Type-inventory Count could not accept an image.</summary>
+public enum ApiTypeInventoryCountDeclineReason
+{
+    TypeForwarders,
+    MalformedExportedType,
+    MalformedTypeIdentity,
+    MalformedTypeRow,
+}
+
+/// <summary>
+/// Outcome of requesting compact public Type-inventory cardinality directly from metadata.
+/// </summary>
+public abstract record ApiTypeInventoryCountResult
+{
+    private protected ApiTypeInventoryCountResult()
+    {
+    }
+
+    /// <summary>The exact count completed without materializing Type or member rows.</summary>
+    public sealed record Counted(ApiTypeInventoryCount Count)
+        : ApiTypeInventoryCountResult;
+
+    /// <summary>
+    /// The image requires evidence outside the compact metadata Count capability.
+    /// </summary>
+    public sealed record Declined(
+        ApiTypeInventoryCountDeclineReason Reason,
+        string Detail)
+        : ApiTypeInventoryCountResult;
+}
+
 /// <summary>
 /// Extracts public API surface from assemblies.
 /// </summary>
@@ -240,7 +308,8 @@ public static partial class ApiSurfaceExtractor
                         MetadataDeclarationQuery.GetIntroducedTypeParameterCounts(
                             reader,
                             typeDefHandle),
-                    Kind = "class",
+                    Kind = TypeKindName(
+                        GetSummaryTypeKind(reader, typeDef)),
                     Layout = (ApiTypeLayout)(typeAttributes & TypeAttributes.LayoutMask),
                     Members = []
                 };
@@ -293,6 +362,194 @@ public static partial class ApiSurfaceExtractor
         ExtractTypeForwarders(reader, surface);
         return surface;
     }
+
+    /// <summary>
+    /// Counts the compact public Type inventory without retaining Type or member rows.
+    /// </summary>
+    /// <remarks>
+    /// Type forwarders require assembly resolution and are outside this image-local capability.
+    /// A malformed row declines the capability so callers can preserve their existing
+    /// evidence-bearing fallback instead of treating a partial count as exact.
+    /// </remarks>
+    public static ApiTypeInventoryCountResult CountSummaryTypes(
+        PEReader peReader)
+    {
+        ArgumentNullException.ThrowIfNull(peReader);
+
+        MetadataReader reader =
+            MetadataFormatAdmission.GetMetadataReader(peReader);
+        Guid moduleVersionId = reader.GetGuid(
+            reader.GetModuleDefinition().Mvid);
+        foreach (ExportedTypeHandle exportedTypeHandle
+            in reader.ExportedTypes)
+        {
+            try
+            {
+                ExportedType exportedType =
+                    reader.GetExportedType(exportedTypeHandle);
+                if (exportedType.IsForwarder
+                    || exportedType.Implementation.Kind
+                        == HandleKind.AssemblyReference)
+                {
+                    return new ApiTypeInventoryCountResult.Declined(
+                        ApiTypeInventoryCountDeclineReason
+                            .TypeForwarders,
+                        "The image contains exported Type rows that require resolution.");
+                }
+            }
+            catch (Exception ex) when (
+                ex is BadImageFormatException
+                    or ArgumentOutOfRangeException)
+            {
+                return new ApiTypeInventoryCountResult.Declined(
+                    ApiTypeInventoryCountDeclineReason
+                        .MalformedExportedType,
+                    $"Exported Type inspection was rejected: {ex.Message}");
+            }
+        }
+
+        var surface = new ApiSurface();
+        int classes = 0;
+        int structs = 0;
+        int interfaces = 0;
+        int enums = 0;
+        int delegates = 0;
+        foreach (TypeDefinitionHandle typeDefHandle
+            in reader.TypeDefinitions)
+        {
+            try
+            {
+                TypeDefinition typeDef =
+                    reader.GetTypeDefinition(typeDefHandle);
+                if (!typeDef.IsPublic)
+                    continue;
+
+                string metadataName =
+                    reader.GetString(typeDef.Name);
+                if (TypeFilters.IsCompilerGenerated(metadataName)
+                    || AttributeReader.HasHiddenAttribute(
+                        reader,
+                        typeDef.GetCustomAttributes()))
+                {
+                    continue;
+                }
+
+                MetadataTypeDefinitionNameReadResult name =
+                    MetadataTypeDefinitionNameReader.Read(
+                        reader,
+                        typeDefHandle);
+                if (name
+                    is MetadataTypeDefinitionNameReadResult.Rejected rejected)
+                {
+                    return new ApiTypeInventoryCountResult.Declined(
+                        ApiTypeInventoryCountDeclineReason
+                            .MalformedTypeIdentity,
+                        $"Type identity was rejected: {rejected.Failure.Detail}");
+                }
+
+                ApiTypeInventoryKind kind =
+                    GetSummaryTypeKind(reader, typeDef);
+                bool isExtensionClass =
+                    (typeDef.Attributes
+                        & (TypeAttributes.Sealed
+                            | TypeAttributes.Abstract))
+                    == (TypeAttributes.Sealed
+                        | TypeAttributes.Abstract)
+                    && AttributeReader.HasExtensionAttribute(
+                        reader,
+                        typeDef.GetCustomAttributes());
+                CountSummaryMembers(
+                    reader,
+                    typeDef,
+                    apiType: null,
+                    surface,
+                    isExtensionClass,
+                    extensionReceiverDefinitions: null);
+
+                switch (kind)
+                {
+                    case ApiTypeInventoryKind.Class:
+                        classes++;
+                        break;
+                    case ApiTypeInventoryKind.Struct:
+                        structs++;
+                        break;
+                    case ApiTypeInventoryKind.Interface:
+                        interfaces++;
+                        break;
+                    case ApiTypeInventoryKind.Enum:
+                        enums++;
+                        break;
+                    case ApiTypeInventoryKind.Delegate:
+                        delegates++;
+                        break;
+                    default:
+                        throw new InvalidOperationException(
+                            $"Unknown compact API Type kind '{kind}'.");
+                }
+            }
+            catch (Exception ex) when (
+                ex is MetadataRowRejectedException
+                    or BadImageFormatException
+                    or ArgumentOutOfRangeException)
+            {
+                return new ApiTypeInventoryCountResult.Declined(
+                    ApiTypeInventoryCountDeclineReason
+                        .MalformedTypeRow,
+                    $"Compact Type inventory rejected row "
+                    + $"0x{MetadataTokens.GetToken(typeDefHandle):X8}: "
+                    + ex.Message);
+            }
+        }
+
+        return new ApiTypeInventoryCountResult.Counted(
+            new(
+                moduleVersionId,
+                classes,
+                structs,
+                interfaces,
+                enums,
+                delegates));
+    }
+
+    private static ApiTypeInventoryKind GetSummaryTypeKind(
+        MetadataReader reader,
+        TypeDefinition typeDef)
+    {
+        TypeAttributes attributes = typeDef.Attributes;
+        if ((attributes & TypeAttributes.Interface) != 0)
+            return ApiTypeInventoryKind.Interface;
+        if (typeDef.BaseType.IsNil)
+            return ApiTypeInventoryKind.Class;
+
+        return ResolveRequiredTypeName(
+            reader,
+            typeDef.BaseType)
+            switch
+            {
+                "System.Enum" => ApiTypeInventoryKind.Enum,
+                "System.ValueType" => ApiTypeInventoryKind.Struct,
+                "System.Delegate"
+                    or "System.MulticastDelegate" =>
+                        ApiTypeInventoryKind.Delegate,
+                _ => ApiTypeInventoryKind.Class,
+            };
+    }
+
+    private static string TypeKindName(
+        ApiTypeInventoryKind kind) =>
+        kind switch
+        {
+            ApiTypeInventoryKind.Class => "class",
+            ApiTypeInventoryKind.Struct => "struct",
+            ApiTypeInventoryKind.Interface => "interface",
+            ApiTypeInventoryKind.Enum => "enum",
+            ApiTypeInventoryKind.Delegate => "delegate",
+            _ => throw new ArgumentOutOfRangeException(
+                nameof(kind),
+                kind,
+                "Unknown API Type kind."),
+        };
 
     public static ApiSurface Extract(PEReader peReader, bool includeAll = false, bool typesOnly = false, bool includeCompilerGenerated = false)
         => Extract(
