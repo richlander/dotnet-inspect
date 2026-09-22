@@ -42,7 +42,6 @@ type PackageOperations =
   | "queryWorkspacePackageOccurrences"
   | "resolvePackageDependencyVersion"
   | "runPackageActivity"
-  | "runPackageAssemblySemanticQuery"
   | "runPackageQuery"
   | "searchTypes";
 
@@ -61,6 +60,7 @@ type MetadataOperations =
   | "queryTypeProjection";
 
 type AnalysisOperations =
+  | "queryCloneCandidates"
   | "queryMemberFacts"
   | "queryPackageIntegrations"
   | "queryPackageOpportunities"

@@ -39,7 +39,7 @@ namespace DotnetInspect.Web.Tests;
 
 [Collection("Retained Workspace activation")]
 [SupportedOSPlatform("browser")]
-public sealed class BrowserSpotlightRetainedWorkspaceActivationTests
+public sealed partial class BrowserSpotlightRetainedWorkspaceActivationTests
 {
     const string ExternalPackageId = "Example.External";
     const string ExternalPackageVersion = "1.0.0";

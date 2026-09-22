@@ -20,13 +20,25 @@ internal abstract record TypeSpecificationRootReadResult
     internal sealed record Read(TypeSpecificationRoot Root)
         : TypeSpecificationRootReadResult;
 
-    internal sealed record BudgetExceeded(int Budget, string Detail)
+    internal sealed record BudgetExceeded(
+        int Budget,
+        EntityHandle Subject,
+        string Detail)
         : TypeSpecificationRootReadResult;
 
-    internal sealed record Malformed(string Detail)
+    internal sealed record Malformed(
+        EntityHandle Subject,
+        string Detail)
         : TypeSpecificationRootReadResult;
 
-    internal sealed record Unsupported(string Detail)
+    internal sealed record Cycle(
+        EntityHandle Subject,
+        string Detail)
+        : TypeSpecificationRootReadResult;
+
+    internal sealed record Unsupported(
+        EntityHandle Subject,
+        string Detail)
         : TypeSpecificationRootReadResult;
 }
 
@@ -34,6 +46,7 @@ internal readonly record struct TypeSpecificationRoot(
     TypeSpecificationRootKind Kind,
     EntityHandle Type,
     byte RawTypeKind,
+    bool IsGenericInstantiation,
     int GenericArgumentCount,
     int GenericParameterIndex)
 {
@@ -57,10 +70,18 @@ internal readonly record struct TypeSpecificationRoot(
 
     internal static TypeSpecificationRootReadResult Read(
         MetadataReader reader,
-        TypeSpecificationHandle handle)
+        TypeSpecificationHandle handle,
+        Action<TypeSpecificationHandle, int>? beforeDecodeBytes = null,
+        Action<TypeSpecificationHandle>? beforeDependencyEdge = null,
+        Action<TypeSpecificationHandle>? graphValidated = null)
     {
         TypeSpecificationRootReadResult? validationFailure =
-            TypeSpecificationShapeValidator.Validate(reader, handle);
+            ValidateGraph(
+                reader,
+                handle,
+                beforeDecodeBytes,
+                beforeDependencyEdge,
+                graphValidated);
         if (validationFailure is not null)
             return validationFailure;
 
@@ -69,6 +90,7 @@ internal readonly record struct TypeSpecificationRoot(
             BlobHandle signature =
                 reader.GetTypeSpecification(handle).Signature;
             BlobReader blob = reader.GetBlobReader(signature);
+            beforeDecodeBytes?.Invoke(handle, blob.Length);
             byte code = blob.ReadByte();
             bool isGenericInstantiation = code == 0x15; // GENERICINST
             if (isGenericInstantiation)
@@ -88,6 +110,7 @@ internal readonly record struct TypeSpecificationRoot(
                         && blob.RemainingBytes != 0))
                 {
                     return new TypeSpecificationRootReadResult.Malformed(
+                        handle,
                         "The TypeSpec root has an invalid named-type encoding.");
                 }
 
@@ -96,6 +119,7 @@ internal readonly record struct TypeSpecificationRoot(
                         TypeSpecificationRootKind.NamedType,
                         type,
                         code,
+                        isGenericInstantiation,
                         genericArgumentCount,
                         GenericParameterIndex: -1));
             }
@@ -107,6 +131,7 @@ internal readonly record struct TypeSpecificationRoot(
                     || blob.RemainingBytes != 0)
                 {
                     return new TypeSpecificationRootReadResult.Malformed(
+                        handle,
                         "The TypeSpec root has an invalid generic-parameter encoding.");
                 }
 
@@ -117,11 +142,13 @@ internal readonly record struct TypeSpecificationRoot(
                             : TypeSpecificationRootKind.GenericMethodParameter,
                         default,
                         RawTypeKind: 0,
+                        IsGenericInstantiation: false,
                         GenericArgumentCount: 0,
                         index));
             }
 
             return new TypeSpecificationRootReadResult.Unsupported(
+                handle,
                 "The TypeSpec root is not a named class or generic parameter.");
         }
         catch (Exception ex) when (
@@ -129,9 +156,24 @@ internal readonly record struct TypeSpecificationRoot(
                 or ArgumentOutOfRangeException
                 or IndexOutOfRangeException)
         {
-            return new TypeSpecificationRootReadResult.Malformed(ex.Message);
+            return new TypeSpecificationRootReadResult.Malformed(
+                handle,
+                ex.Message);
         }
     }
+
+    internal static TypeSpecificationRootReadResult? ValidateGraph(
+        MetadataReader reader,
+        TypeSpecificationHandle handle,
+        Action<TypeSpecificationHandle, int>? beforeDecodeBytes = null,
+        Action<TypeSpecificationHandle>? beforeDependencyEdge = null,
+        Action<TypeSpecificationHandle>? graphValidated = null) =>
+        TypeSpecificationShapeValidator.Validate(
+            reader,
+            handle,
+            beforeDecodeBytes,
+            beforeDependencyEdge,
+            graphValidated);
 
     sealed class TypeSpecificationShapeValidator :
         ISignatureTypeProvider<byte, Stack<TypeSpecificationHandle>>
@@ -143,7 +185,10 @@ internal readonly record struct TypeSpecificationRoot(
 
         internal static TypeSpecificationRootReadResult? Validate(
             MetadataReader reader,
-            TypeSpecificationHandle root)
+            TypeSpecificationHandle root,
+            Action<TypeSpecificationHandle, int>? beforeDecodeBytes,
+            Action<TypeSpecificationHandle>? beforeDependencyEdge,
+            Action<TypeSpecificationHandle>? graphValidated)
         {
             var pending = new Stack<ValidationFrame>();
             var states =
@@ -151,11 +196,13 @@ internal readonly record struct TypeSpecificationRoot(
                     TypeSpecificationHandle,
                     ValidationState>();
             int cumulativeBytes = 0;
+            EntityHandle activeSubject = root;
             pending.Push(new ValidationFrame(root, IsExit: false));
             try
             {
                 while (pending.TryPop(out ValidationFrame frame))
                 {
+                    activeSubject = frame.Handle;
                     if (frame.IsExit)
                     {
                         states[frame.Handle] =
@@ -169,7 +216,8 @@ internal readonly record struct TypeSpecificationRoot(
                     {
                         if (state == ValidationState.Active)
                         {
-                            return new TypeSpecificationRootReadResult.Malformed(
+                            return new TypeSpecificationRootReadResult.Cycle(
+                                frame.Handle,
                                 "The TypeSpec dependency graph contains a cycle.");
                         }
                         continue;
@@ -185,6 +233,7 @@ internal readonly record struct TypeSpecificationRoot(
                     {
                         return new TypeSpecificationRootReadResult.BudgetExceeded(
                             TypeSpecGuard.MaxDepth,
+                            frame.Handle,
                             "The TypeSpec dependency graph exceeded its "
                                 + "handle-count budget.");
                     }
@@ -194,6 +243,7 @@ internal readonly record struct TypeSpecificationRoot(
                     {
                         return new TypeSpecificationRootReadResult.BudgetExceeded(
                             TypeSpecGuard.MaxCumulativeBytes,
+                            frame.Handle,
                             "The TypeSpec dependency graph exceeded its "
                                 + "cumulative-byte budget.");
                     }
@@ -201,6 +251,9 @@ internal readonly record struct TypeSpecificationRoot(
                     states.Add(
                         frame.Handle,
                         ValidationState.Active);
+                    beforeDecodeBytes?.Invoke(
+                        frame.Handle,
+                        blobLength);
                     cumulativeBytes += blobLength;
                     SignatureBlobGuard.CompleteValidationKind validation =
                         SignatureBlobGuard.ValidateComplete(
@@ -214,13 +267,25 @@ internal readonly record struct TypeSpecificationRoot(
                     {
                         return new TypeSpecificationRootReadResult.BudgetExceeded(
                             MaxAuthenticationSignatureDepth,
+                            frame.Handle,
                             "The TypeSpec signature exceeded its structural "
                                 + "depth budget.");
+                    }
+                    if (validation
+                        == SignatureBlobGuard.CompleteValidationKind
+                            .NodeBudgetExceeded)
+                    {
+                        return new TypeSpecificationRootReadResult.BudgetExceeded(
+                            MetadataSafetyPolicy.MaxSignatureTypeNodes,
+                            frame.Handle,
+                            "The TypeSpec signature exceeded its shared "
+                                + "type-node budget.");
                     }
                     if (validation
                         == SignatureBlobGuard.CompleteValidationKind.Malformed)
                     {
                         return new TypeSpecificationRootReadResult.Malformed(
+                            frame.Handle,
                             "The TypeSpec signature is incomplete or has "
                                 + "trailing data.");
                     }
@@ -240,6 +305,7 @@ internal readonly record struct TypeSpecificationRoot(
                     while (dependencies.TryPop(
                         out TypeSpecificationHandle dependency))
                     {
+                        beforeDependencyEdge?.Invoke(dependency);
                         pending.Push(
                             new ValidationFrame(
                                 dependency,
@@ -247,6 +313,11 @@ internal readonly record struct TypeSpecificationRoot(
                     }
                 }
 
+                if (graphValidated is not null)
+                {
+                    foreach (TypeSpecificationHandle handle in states.Keys)
+                        graphValidated(handle);
+                }
                 return null;
             }
             catch (Exception ex) when (
@@ -255,6 +326,7 @@ internal readonly record struct TypeSpecificationRoot(
                     or IndexOutOfRangeException)
             {
                 return new TypeSpecificationRootReadResult.Malformed(
+                    activeSubject,
                     ex.Message);
             }
         }

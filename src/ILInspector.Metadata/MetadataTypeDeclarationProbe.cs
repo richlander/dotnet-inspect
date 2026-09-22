@@ -1442,11 +1442,15 @@ public static class MetadataTypeDeclarationProbe
                     exceeded.Detail),
             TypeSpecificationRootReadResult.Malformed malformed =>
                 new MetadataTypeDefinitionKindFailure.Malformed(
-                    MetadataTokens.GetToken(handle),
+                    MetadataTokens.GetToken(malformed.Subject),
                     malformed.Detail),
+            TypeSpecificationRootReadResult.Cycle cycle =>
+                new MetadataTypeDefinitionKindFailure.Malformed(
+                    MetadataTokens.GetToken(cycle.Subject),
+                    cycle.Detail),
             TypeSpecificationRootReadResult.Unsupported unsupported =>
                 new MetadataTypeDefinitionKindFailure.Unsupported(
-                    MetadataTokens.GetToken(handle),
+                    MetadataTokens.GetToken(unsupported.Subject),
                     unsupported.Detail),
             _ => throw new InvalidOperationException(
                 "A successful TypeSpec root cannot be converted to a failure."),

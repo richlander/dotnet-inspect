@@ -196,15 +196,15 @@ defining-Library result, preserves active ancestors, and applies forwarded
 fallback under #5584. CLI and Browser/Wasm adoption remain separately
 unverified.
 
-The aggregate-first Package policy below is likewise **target-only and
-unverified** under
+The aggregate-first Package policy below remains **target-only in shared
+Navigation** under
 [#7318](https://github.com/richlander/dotnet-inspect/issues/7318). Current
 `NavigationInitialSubjectRecommendation` still prefers one primary or
-declaration-order Library before `All libraries`. The #7318 slice instead
-recommends the existing Package-scoped aggregate and defines exact and
-namesake-Library narrowing as explicit gestures. It changes neither Package
-acquisition nor the shipped CLI and Browser consumers until their focused
-adoption slices land.
+declaration-order Library before `All libraries`. Focused CLI adoption has
+begun: PR #8018 composes Workspace-backed Library inspection from the selected
+Package aggregate, and PR #8081 adopts the aggregate default plus exact and
+namesake narrowing for direct Package/Library inspection. Shared Navigation,
+API/Type/Member, Find, and Browser adoption remain with their focused slices.
 
 ## Consumer and complexity record
 

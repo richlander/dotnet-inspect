@@ -27,32 +27,59 @@ public static class SectionRowExecutor
         where TEvidence : notnull
     {
         ArgumentNullException.ThrowIfNull(request);
-        SectionRowExecution<TIdentity, TProjection> execution =
-            Execute(request);
-        if (execution.Failure is not null)
+        var countsByIdentity =
+            new Dictionary<TIdentity, int>();
+        foreach (SectionRowCohort<TIdentity, TProjection> cohort
+            in request.ExecutableCohorts)
         {
-            RowWindowFailure failure =
-                execution.Failure.Failure;
-            return new SectionCountOutcome<
-                TIdentity,
-                TEvidence>.Semantic(
-                    execution.Failure.Identity,
-                    failure.StageNumber,
-                    failure.RequiredPosition,
-                    failure.AvailableCount);
+            RowsCohortCountResult<TIdentity> execution =
+                cohort.ExecuteCount();
+            if (execution.Failure is not null)
+            {
+                RowWindowFailure failure =
+                    execution.Failure.Failure;
+                return new SectionCountOutcome<
+                    TIdentity,
+                    TEvidence>.Semantic(
+                        execution.Failure.Identity,
+                        failure.StageNumber,
+                        failure.RequiredPosition,
+                        failure.AvailableCount);
+            }
+
+            foreach (CountedRowSet<TIdentity> rowSet
+                in execution.RowSets)
+            {
+                if (!countsByIdentity.TryAdd(
+                        rowSet.Identity,
+                        rowSet.Count))
+                {
+                    throw new InvalidOperationException(
+                        "Section-row Count execution returned a declared "
+                        + "row set more than once.");
+                }
+            }
         }
 
         var counts =
             new SectionCountEntry<TIdentity>[
-                execution.RowSets.Length];
+                request.RowSets.Count];
         for (int index = 0;
-             index < execution.RowSets.Length;
+             index < request.RowSets.Count;
              index++)
         {
-            SectionRowSetResult<TIdentity, TProjection> rowSet =
-                execution.RowSets[index];
+            TIdentity identity =
+                request.RowSets[index].Identity;
+            if (!countsByIdentity.TryGetValue(
+                    identity,
+                    out int count))
+            {
+                throw new InvalidOperationException(
+                    "Section-row Count execution omitted a participating "
+                    + "declared row set.");
+            }
             counts[index] =
-                new(rowSet.Identity, rowSet.Count);
+                new(identity, count);
         }
         return new SectionCountOutcome<
             TIdentity,
@@ -142,6 +169,8 @@ internal abstract class SectionRowCohort<TIdentity, TProjection>
         TIdentity,
         TProjection> Execute();
 
+    public abstract RowsCohortCountResult<TIdentity> ExecuteCount();
+
     public abstract SectionRowCohort<
         TIdentity,
         TProjection>? CreateSubset(
@@ -165,6 +194,9 @@ internal sealed class TypedSectionRowCohort<
     private readonly Func<
         IReadOnlyList<RowsCohortSequence<TIdentity, TRow>>,
         RowsCohortResult<TIdentity, TRow>> _executor;
+    private readonly Func<
+        IReadOnlyList<RowsCohortCardinality<TIdentity>>,
+        RowsCohortCountResult<TIdentity>>? _countExecutor;
     private readonly SectionRowSchemaIdentity<TRow> _schema;
 
     public TypedSectionRowCohort(
@@ -179,7 +211,10 @@ internal sealed class TypedSectionRowCohort<
         IReadOnlyDictionary<TIdentity, RowSequenceKey> keys,
         Func<
             IReadOnlyList<RowsCohortSequence<TIdentity, TRow>>,
-            RowsCohortResult<TIdentity, TRow>> executor)
+            RowsCohortResult<TIdentity, TRow>> executor,
+        Func<
+            IReadOnlyList<RowsCohortCardinality<TIdentity>>,
+            RowsCohortCountResult<TIdentity>>? countExecutor)
         : base(
             new(
                 identity,
@@ -193,11 +228,79 @@ internal sealed class TypedSectionRowCohort<
         _rowSets = rowSets;
         _keys = keys;
         _executor = executor;
+        _countExecutor = countExecutor;
     }
 
     public override SectionRowCohortExecution<
         TIdentity,
         TProjection> Execute()
+        => Execute(CreateSequences());
+
+    public override RowsCohortCountResult<TIdentity> ExecuteCount()
+    {
+        if (_countExecutor is not null)
+        {
+            return _countExecutor(CreateCardinalities());
+        }
+
+        RowsCohortSequence<TIdentity, TRow>[] sequences =
+            CreateSequences();
+        SectionRowCohortExecution<TIdentity, TProjection> execution =
+            Execute(sequences);
+        if (execution.Failure is not null)
+        {
+            return RowsCohortCountResult<TIdentity>.Failed(
+                execution.Failure);
+        }
+
+        var counts =
+            new CountedRowSet<TIdentity>[
+                execution.RowSets.Length];
+        for (int index = 0;
+             index < execution.RowSets.Length;
+             index++)
+        {
+            SectionRowSetResult<TIdentity, TProjection> rowSet =
+                execution.RowSets[index];
+            counts[index] =
+                new(
+                    rowSet.Identity,
+                    rowSet.Count);
+        }
+        return RowsCohortCountResult<TIdentity>.Success(counts);
+    }
+
+    public override SectionRowCohort<
+        TIdentity,
+        TProjection>? CreateSubset(
+            IReadOnlySet<TIdentity> includedRowSets)
+    {
+        SectionRowSetDeclaration<
+            TIdentity,
+            TProjection,
+            TRow>[] rowSets =
+                _rowSets
+                    .Where(
+                        rowSet =>
+                            includedRowSets.Contains(
+                                rowSet.Identity))
+                    .ToArray();
+        return rowSets.Length == 0
+            ? null
+            : new TypedSectionRowCohort<
+                TIdentity,
+                TProjection,
+                TRow>(
+                    Descriptor.Identity,
+                    Descriptor.IntentBinding,
+                    _schema,
+                    rowSets,
+                    _keys,
+                    _executor,
+                    _countExecutor);
+    }
+
+    private RowsCohortSequence<TIdentity, TRow>[] CreateSequences()
     {
         var sequences =
             new RowsCohortSequence<
@@ -216,7 +319,35 @@ internal sealed class TypedSectionRowCohort<
                         rowSet,
                         _keys[rowSet.Identity]);
         }
+        return sequences;
+    }
 
+    private RowsCohortCardinality<TIdentity>[] CreateCardinalities()
+    {
+        var rowSets =
+            new RowsCohortCardinality<TIdentity>[
+                _rowSets.Count];
+        for (int index = 0; index < _rowSets.Count; index++)
+        {
+            SectionRowSetDeclaration<
+                TIdentity,
+                TProjection,
+                TRow> rowSet =
+                    _rowSets[index];
+            rowSets[index] =
+                new(
+                    rowSet.Identity,
+                    rowSet.SourceCount,
+                    _keys[rowSet.Identity]);
+        }
+        return rowSets;
+    }
+
+    private SectionRowCohortExecution<TIdentity, TProjection>
+        Execute(
+            IReadOnlyList<RowsCohortSequence<TIdentity, TRow>>
+                sequences)
+    {
         RowsCohortResult<TIdentity, TRow> selected =
             _executor(sequences)
             ?? throw new InvalidOperationException(
@@ -289,35 +420,6 @@ internal sealed class TypedSectionRowCohort<
         return SectionRowCohortExecution<
             TIdentity,
             TProjection>.Success(outcomes);
-    }
-
-    public override SectionRowCohort<
-        TIdentity,
-        TProjection>? CreateSubset(
-            IReadOnlySet<TIdentity> includedRowSets)
-    {
-        SectionRowSetDeclaration<
-            TIdentity,
-            TProjection,
-            TRow>[] rowSets =
-                _rowSets
-                    .Where(
-                        rowSet =>
-                            includedRowSets.Contains(
-                                rowSet.Identity))
-                    .ToArray();
-        return rowSets.Length == 0
-            ? null
-            : new TypedSectionRowCohort<
-                TIdentity,
-                TProjection,
-                TRow>(
-                    Descriptor.Identity,
-                    Descriptor.IntentBinding,
-                    _schema,
-                    rowSets,
-                    _keys,
-                    _executor);
     }
 }
 

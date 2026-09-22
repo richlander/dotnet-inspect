@@ -31,6 +31,13 @@ call-graph composition consume those focused types. The compatibility index
 delegates its leverage and local graph members to the same results; it no
 longer owns a second implementation.
 
+The next call-graph adoption moves pairwise direct-use acquisition and bounded
+local root-path analysis to `LibraryCallGraphAnalysisResult`. Pairwise queries
+execute Analysis once per participant and consume the focused result directly;
+root-path analysis accepts that result rather than requiring the compatibility
+aggregate. Existing pair completion, path limits, diagnostics, and output
+remain unchanged.
+
 The first Research adoption publishes `LibraryAllocationAnalysisResult`,
 extends `LibrarySafetyAnalysisResult` with its producer-owned occurrence map,
 and lets `LibraryCallGraphAnalysisResult` publish its detached method signals.
@@ -257,6 +264,14 @@ optional annotations. The existing `CallTreeNode`, `CallGraphProjection`, and
 Markout lowering remain the structured and rendered output path; the slice
 changes evidence ownership, not output shape or host rendering.
 
+The next call-graph slice moves `AssemblyPairCallUseQuery` participant
+acquisition and `LibraryBodyRootPathAnalysis` onto
+`LibraryCallGraphAnalysisResult`. `AssemblyPairClusterRootPathQuery` executes
+the service over its retained participant image and passes the focused result
+to the bounded path operation. The wider member Research projection retains
+its compatibility index for unrelated evidence but passes its associated
+call-graph result to root-path analysis.
+
 The first sequence-5 slice moves member Research fact production from
 `LibraryBodyIndex` and `ResearchAssemblyContext` to four exact focused results:
 allocation occurrences, safety evidence and occurrences, call evidence and
@@ -341,11 +356,12 @@ Inspect Web continues to receive owner-typed query exports. The browser host
 remains compiler-banned from calling the Analysis service directly; Workspace
 queries own service execution and project its evidence.
 The cluster root-path query follows the same request/service shape for
-`MethodEvidence`; its existing section and CLI continue to own composition and
-presentation. `MethodBodyInspectionSession` similarly translates command
-capability and scope policy into one request, delegates path or
-prefetched-image execution to the service, retains the returned execution for
-the command, and creates its detached compatibility index only when an
+`MethodEvidence` and passes the resulting `LibraryCallGraphAnalysisResult`
+directly to bounded path analysis; its existing section and CLI continue to own
+composition and presentation. `MethodBodyInspectionSession` similarly
+translates command capability and scope policy into one request, delegates path
+or prefetched-image execution to the service, retains the returned execution
+for the command, and creates its detached compatibility index only when an
 unmigrated consumer requests it.
 
 ## Evidence

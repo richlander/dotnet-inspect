@@ -1890,8 +1890,10 @@ These properties are represented by
 `LocalPathAdmission_ExpectedKindsAndLinksAreShared`,
 `LocalPathAdmission_StableNonRegularEntriesRejectBeforeOpen`,
 `LocalPathAdmission_ConsumerReceivesTheVerifiedOpenGeneration`,
-`LocalPathAdmission_OutcomesAndCancellationRemainDistinct`, and
-`LocalPathAdmission_PlatformClassifiersRemainPortable`. The Windows-specific
+and `LocalPathAdmission_OutcomesAndCancellationRemainDistinct`. The
+NativeAOT host-policy and Browser/Wasm platform-probe jobs execute
+`eng/run-local-path-admission-platform-probe.sh` and require its exact
+successful verdict. The Windows-specific
 `LocalPathAdmission_WindowsExtendedRelativeLinkTargetIsNormalized`,
 `LocalPathAdmission_WindowsAbsoluteExtendedLinkTargetRetainsSyntaxPolicy`, and
 `LocalPathAdmission_WindowsAncestorLinkLoopIsRejected` gates run in Deep
@@ -4340,14 +4342,22 @@ another Workspace. Once the operation returns an outcome, Workspace has either
 accepted every supplied authority or settled every Library owner and then the
 Artifact session.
 
-Acceptance issues one `WorkspaceLibraryAdmissionReceipt` and one distinct
-`WorkspaceLibraryOccurrence` per submitted Library. These values record
-physical Workspace admission only. They do not add logical scope membership,
-choose order or replacement, identify an Ecosystem contribution, or change
-Navigation. Repeated admission may therefore issue distinct physical
-occurrences even when source coordinates compare equal. The accepted
-registration revision is historical correspondence for the commit; a later
-registration replacement does not revoke direct use of the admitted Library.
+Acceptance issues one `WorkspaceLibraryAdmissionReceipt`, one distinct
+`WorkspaceLibraryOccurrence` per submitted Library, and one exact
+`WorkspaceLibraryAdmissionRelation` from the Workspace to each occurrence.
+The relation is the Workspace owner's resource-free evidence for the direct
+`Workspace -> Library` structural edge; it retains the exact admission and
+occurrence rather than reconstructing either from Library display or source
+identity. Receipt relation order matches occurrence order one-to-one. These
+values record physical Workspace admission only. They do not add logical scope
+membership, choose order or replacement, identify an Ecosystem or Package
+contribution, choose an active route, or change Navigation. Repeated admission
+therefore issues distinct occurrences and relations even when source
+coordinates compare equal. The accepted registration revision is historical
+correspondence for the commit; a later registration replacement does not
+revoke direct use of the admitted Library or replace its relation. Workspace
+close retires the owned resources but leaves the receipt and relation as
+comparable historical evidence; neither value grants operation authority.
 
 The Workspace issues a `LibraryOperationLease` only for an exact occurrence it
 admitted and only while it remains open. Issuance and close are serialized:
@@ -4361,6 +4371,8 @@ settlement. Cleanup failure is a typed failed outcome rather than a
 success-shaped rejection.
 
 `WorkspaceAdmission_OwnsOperationsAndRetiresOwnersBeforeArtifacts`,
+`WorkspaceAdmission_BatchPreservesOccurrenceRelationOrder`,
+`WorkspaceAdmission_RepeatedLibraryAdmissionIssuesDistinctRelations`,
 `WorkspaceAdmission_RejectsStaleRevisionAndSettlesTransferredResources`,
 `WorkspaceAdmission_RejectsForeignRevisionAndSettlesTransferredResources`, and
 `WorkspaceAdmission_RegistrationChangesDoNotRevokeAcceptedOccurrence` gate
@@ -4652,7 +4664,8 @@ The target is complete only when tests equivalent to these exist:
 - `LocalPathAdmission_StableNonRegularEntriesRejectBeforeOpen`
 - `LocalPathAdmission_ConsumerReceivesTheVerifiedOpenGeneration`
 - `LocalPathAdmission_OutcomesAndCancellationRemainDistinct`
-- `LocalPathAdmission_PlatformClassifiersRemainPortable`
+- `eng/run-local-path-admission-platform-probe.sh` in the NativeAOT host-policy
+  and Browser/Wasm platform-probe jobs
 - `LocalDirectoryAcquisition_BoundedDeterministicSelection`
 - `LocalDirectoryAcquisition_EmptyOrFailedBatchPublishesNothing`
 - `LocalDirectoryAcquisition_ProvenanceSnapshotAndCancellationArePreserved`

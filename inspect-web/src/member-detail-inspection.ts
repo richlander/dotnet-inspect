@@ -9,6 +9,8 @@ import type {
 } from "./annotated-source-session.ts";
 import type {
   CompiledDocumentationOutcome,
+  DocumentationQueryOutcome,
+  DocumentationQueryTextFieldEvidence,
 } from "./facades/inspect-web-package.d.ts";
 import type {
   BrowserMemberDeclaration,
@@ -122,7 +124,7 @@ export interface MemberDetailInspectionDependencies {
   queryDocumentation(
     request: MemberDocumentationRequest,
     documentationId: string,
-  ): Promise<CompiledDocumentationOutcome>;
+  ): Promise<CompiledDocumentationOutcome | DocumentationQueryOutcome>;
   queryDeclaration(
     request: MemberDeclarationRequest,
   ): Promise<BrowserMemberDeclaration>;
@@ -248,6 +250,34 @@ export function createMemberDetailInspectionCoordinator(
         if (!request.isCurrent()
           || memberDocumentationRequestId !== requestId) return;
         switch (outcome.kind) {
+          case "completed": {
+            const { fields } = outcome;
+            const parameters = new Map(
+              fields.parameters.map(
+                parameter => [
+                  parameter.name ?? "",
+                  firstTextContribution(parameter.evidence),
+                ]));
+            overload.summary = firstTextContribution(fields.summary);
+            overload.returns = firstTextContribution(fields.returns);
+            overload.exceptions =
+              (fields.exceptions.contributions[0]?.value ?? [])
+                .map(exception => ({
+                  type: documentationExceptionType(exception.reference),
+                  description: exception.description ?? "",
+                }));
+            overload.parameters = overload.parameters.map(parameter => ({
+              ...parameter,
+              description: parameters.get(parameter.name) ?? null,
+            }));
+            const completedError = completedDocumentationError(outcome);
+            if (completedError) {
+              state.memberDocumentationError = completedError;
+            } else {
+              overload.documentationLoaded = true;
+            }
+            break;
+          }
           case "available": {
             const { documentation } = outcome;
             const parameters = new Map(
@@ -287,18 +317,22 @@ export function createMemberDetailInspectionCoordinator(
             break;
           case "incomplete":
             state.memberDocumentationError =
-              "The compiled documentation query did not complete.";
+              "The documentation query did not complete.";
             break;
           case "requestRejected":
             state.memberDocumentationError =
-              "The compiled documentation request was rejected.";
+              "The documentation request was rejected.";
             break;
           case "contentAccessFailed":
             state.memberDocumentationError =
               "The compiled documentation content could not be read.";
             break;
+          case "failed":
+            state.memberDocumentationError =
+              "The documentation query failed.";
+            break;
           default:
-            assertNever(outcome, "compiled documentation outcome");
+            assertNever(outcome, "documentation outcome");
         }
       } catch (error) {
         if (request.isCurrent()
@@ -413,6 +447,94 @@ export function createMemberDetailInspectionCoordinator(
       }
     },
   };
+}
+
+function firstTextContribution(
+  evidence: DocumentationQueryTextFieldEvidence,
+): string | null {
+  return evidence.contributions[0]?.value ?? null;
+}
+
+function completedDocumentationError(
+  outcome: Extract<DocumentationQueryOutcome, { readonly kind: "completed" }>,
+): string | null {
+  if (outcome.fields.summary.contributions.length > 0
+    || outcome.fields.remarks.contributions.length > 0
+    || outcome.fields.returns.contributions.length > 0
+    || outcome.fields.parameters.some(
+      parameter => parameter.evidence.contributions.length > 0)
+    || outcome.fields.exceptions.contributions.length > 0
+    || outcome.fields.samples.contributions.length > 0) {
+    return null;
+  }
+
+  const authoredFailure = authoredDocumentationError(
+    outcome.authoredSource,
+    false,
+  );
+  if (authoredFailure) return authoredFailure;
+
+  switch (outcome.compiledXml?.kind) {
+    case "available":
+    case "absent":
+      return null;
+    case "unavailable":
+      return "Compiled and authored documentation are unavailable.";
+    case "ambiguous":
+      return "The compiled documentation source is ambiguous.";
+    case "contributionsRejected":
+      return "Compiled documentation sources were rejected.";
+    case "malformedOrUnreadableDocument":
+      return "The compiled documentation could not be read.";
+    case "incomplete":
+      return "The documentation query did not complete.";
+    case "requestRejected":
+      return "The documentation request was rejected.";
+    case "contentAccessFailed":
+      return "The compiled documentation content could not be read.";
+    case undefined:
+      break;
+    default:
+      return assertNever(
+        outcome.compiledXml,
+        "compiled documentation outcome",
+      );
+  }
+
+  return authoredDocumentationError(outcome.authoredSource, true);
+}
+
+function authoredDocumentationError(
+  outcome: Extract<
+    DocumentationQueryOutcome,
+    { readonly kind: "completed" }
+  >["authoredSource"],
+  reportUnavailable: boolean,
+): string | null {
+  switch (outcome?.kind) {
+    case "available":
+    case "absent":
+      return null;
+    case "unavailable":
+      return reportUnavailable
+        ? "Authored documentation is unavailable."
+        : null;
+    case "ambiguous":
+      return "The authored documentation source is ambiguous.";
+    case "rejected":
+      return "The authored documentation source was rejected.";
+    case "failed":
+      return "The authored documentation source failed.";
+    case "incomplete":
+      return "The authored documentation query did not complete.";
+    case undefined:
+      return null;
+    default:
+      return assertNever(
+        outcome,
+        "authored documentation outcome",
+      );
+  }
 }
 
 function documentationExceptionType(

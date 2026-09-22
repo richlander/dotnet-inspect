@@ -194,20 +194,23 @@ public static class GraphLibrariesSectionRows
                         [RowSet]),
                 ],
                 terminal);
+            SectionRowSetDeclaration<
+                string,
+                GraphLibrariesSectionRowProjection,
+                TRow> declaration =
+                    SectionRowSetDeclaration<
+                        string,
+                        GraphLibrariesSectionRowProjection,
+                        TRow>.CreateDeferred(
+                            RowSet,
+                            _schema,
+                            _rows(projection),
+                            _resultBinder);
             return QuerySpaceSectionRowResolver.Resolve<
                 GraphLibrariesSectionRowProjection>(
                 GraphLibrariesQuery.QuerySpace,
                 request,
-                [
-                    new SectionRowSetDeclaration<
-                        string,
-                        GraphLibrariesSectionRowProjection,
-                        TRow>(
-                            RowSet,
-                            _schema,
-                            _rows(projection),
-                            _resultBinder),
-                ],
+                [declaration],
                 new SectionQuerySpaceRowScopeBinding<TRow>(
                     _queryScope,
                     _schema));
