@@ -1059,7 +1059,7 @@ public class LibraryInspectionView
                 FormatNullable(distribution.P95),
                 FormatNullable(distribution.P99),
                 FormatNullable(distribution.Maximum),
-                FormatMaximumBodies(distribution.MaximumBodies),
+                FormatMaximumBodiesText(distribution.MaximumBodies),
                 null,
                 null,
                 distribution.AdditionalMaximumBodyCount > 0
@@ -1120,16 +1120,18 @@ public class LibraryInspectionView
     private static string? FormatNullable(int? value) =>
         value?.ToString();
 
-    private static string? FormatMaximumBodies(
+    private static InertString? FormatMaximumBodiesText(
         IReadOnlyCollection<LibraryStructuralExtremeBody> bodies) =>
         bodies.Count == 0
             ? null
-            : string.Join(
-                "; ",
-                bodies.Select(static body =>
-                    MarkoutInline.Code(
-                        LibraryMetadataService.FormatMethod(
-                            body.EvidenceMethod))));
+            : InertString.FromEncoded(
+                TextPolicy.Field,
+                string.Join(
+                    "; ",
+                    bodies.Select(static body =>
+                        MarkoutInline.Code(
+                            LibraryMetadataService.FormatMethod(
+                                body.EvidenceMethod)))));
 
     private static string? FormatReasonCounts(
         IReadOnlyCollection<LibraryStructuralReasonCount> counts) =>
@@ -2160,7 +2162,7 @@ public record LibraryMetricRow(
     string? P95,
     string? P99,
     string? Maximum,
-    string? MaximumBodies,
+    InertString? MaximumBodiesText,
     string? Present,
     string? Absent,
     string? Notes)
@@ -2200,9 +2202,12 @@ public record LibraryMetricRow(
     public string? Maximum { get; init; } = LibraryViewText.Contain(Maximum);
 
     /// <inheritdoc cref="LibraryViewText"/>
+    [MarkoutIgnore, JsonIgnore]
+    public InertString? MaximumBodiesText { get; init; } = MaximumBodiesText;
+
     [MarkoutPropertyName("Maximum Bodies")]
     [MarkoutSkipNull]
-    public string? MaximumBodies { get; init; } = MaximumBodies;
+    public string? MaximumBodies => MaximumBodiesText?.ToString();
 
     /// <inheritdoc cref="LibraryViewText"/>
     [MarkoutSkipNull]

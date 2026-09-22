@@ -1837,6 +1837,7 @@ public partial class SectionPipelineTests
                 CustomAttributesQuery.Definition,
                 ExtensionMethodsQuery.Definition,
                 ImplementationProfilesQuery.Definition,
+                LibraryMetricsQuery.Definition,
                 MetadataImageQuery.Definition,
                 OptimizationOpportunitiesQuery.Definition,
                 ReadyToRunImageQuery.Definition,
