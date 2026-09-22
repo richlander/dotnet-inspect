@@ -18,32 +18,28 @@ public class PackageVersionTests
     }
 
     [Fact]
-    public async Task Version_Bare_WithCachedPackage_ReturnsCachedVersion()
+    public async Task Version_ValueSelectsExactPackage()
     {
-        await EnsurePackageCached("System.CommandLine");
-
-        var cachedVersion = PackageExtractor.TryGetLatestCachedCandidateVersion(
-            "System.CommandLine",
-            NuGetSourceResolver.ResolveSourceKeys(null));
-        Assert.NotNull(cachedVersion);
-
-        var root = CommandLineBuilder.CreateRootCommand();
-        var args = new[] { "package", "System.CommandLine", "--version" };
-
-        var (exit, output, _) = await ConsoleCapture.RunAsync(
-            () => Task.FromResult(root.Parse(args).InvokeAsync().Result));
+        var (exit, output, error) = await RunAppAsync(
+            "package",
+            "Newtonsoft.Json",
+            "--version",
+            "13.0.4",
+            "-S",
+            "Package Info");
 
         Assert.Equal(0, exit);
-        Assert.Equal(cachedVersion, output.Trim());
+        Assert.Empty(error);
+        Assert.Contains("13.0.4", output, StringComparison.Ordinal);
     }
 
     [Fact]
-    public async Task Version_Bare_PreservesSingularJsonBehavior()
+    public async Task LatestVersion_PreservesSingularJsonBehavior()
     {
         var (exit, output, error) = await RunAppAsync(
             "package",
             "System.CommandLine",
-            "--version",
+            "--latest-version",
             "--json");
 
         Assert.Equal(0, exit);
@@ -53,10 +49,10 @@ public class PackageVersionTests
     }
 
     [Fact]
-    public async Task AtLatestVersion_AlwaysQueriesNuGet()
+    public async Task LatestVersion_AlwaysQueriesNuGet()
     {
         var root = CommandLineBuilder.CreateRootCommand();
-        var args = new[] { "package", "System.CommandLine@latest", "--version" };
+        var args = new[] { "package", "System.CommandLine", "--latest-version" };
 
         var (exit, output, _) = await ConsoleCapture.RunAsync(
             () => Task.FromResult(root.Parse(args).InvokeAsync().Result));
@@ -66,11 +62,30 @@ public class PackageVersionTests
         Assert.Matches(@"^\d+\.\d+\.\d+", version);
     }
 
+    [Fact]
+    public async Task Version_WithoutValueRejectsBeforeAcquisition()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "package",
+            "ThisQueryMustNotReachTheNetwork",
+            "--version");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains(
+            "Required argument missing for option: '--version'.",
+            error,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "not found",
+            error,
+            StringComparison.OrdinalIgnoreCase);
+    }
+
     [Theory]
-    [InlineData("--latest-version")]
     [InlineData("--latest-version=true")]
     [InlineData("--latest-version:false")]
-    public async Task LatestVersionOption_ReturnsReplacementGuidanceBeforeAcquisition(
+    public async Task LatestVersion_RejectsValuesBeforeAcquisition(
         string option)
     {
         var (exit, output, error) = await RunAppAsync(
@@ -80,18 +95,20 @@ public class PackageVersionTests
 
         Assert.Equal(1, exit);
         Assert.Empty(output);
-        Assert.Contains("'--latest-version' is no longer valid", error);
-        Assert.Contains("Package@latest --version", error);
+        Assert.Equal(
+            $"Error: --latest-version does not accept a value.{Environment.NewLine}",
+            error);
         Assert.DoesNotContain("not found", error, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
-    public async Task PackageHelp_DoesNotAdvertiseLatestVersionOption()
+    public async Task PackageHelp_AdvertisesVersionSelectors()
     {
         var (exit, output, error) = await RunAppAsync("package", "--help");
 
         Assert.Equal(0, exit);
-        Assert.DoesNotContain("--latest-version", output);
+        Assert.Contains("--version", output);
+        Assert.Contains("--latest-version", output);
         Assert.Empty(error);
     }
 
@@ -673,9 +690,6 @@ public class PackageVersionTests
     [InlineData("--versions:2")]
     [InlineData("--versions-with-feed=2")]
     [InlineData("--versions-with-feed:2")]
-    [InlineData("--version", "2")]
-    [InlineData("--version=2")]
-    [InlineData("--version:2")]
     public async Task VersionSelectors_RejectValuesBeforeAcquisition(
         params string[] selectorArguments)
     {
@@ -685,17 +699,14 @@ public class PackageVersionTests
         Assert.Equal(1, exit);
         Assert.Empty(output);
         string selector = selectorArguments[0].Split('=', ':')[0];
-        string expected = selector == "--version"
-            ? "Error: '--version' does not accept a value. "
-                + "Use 'Package@Version' to select a Package version."
-                + Environment.NewLine
-            : $"Error: {selector} does not accept a value.{Environment.NewLine}";
+        string expected =
+            $"Error: {selector} does not accept a value.{Environment.NewLine}";
         Assert.Equal(expected, error);
     }
 
     [Theory]
-    [InlineData("--versions", "--version")]
-    [InlineData("--versions-with-feed", "--version")]
+    [InlineData("--versions", "--latest-version")]
+    [InlineData("--versions-with-feed", "--latest-version")]
     [InlineData("--versions", "--versions-with-feed")]
     public async Task Versions_ConflictingSelectorsRejectBeforeAcquisition(
         string pluralSelector,
@@ -721,21 +732,90 @@ public class PackageVersionTests
             StringComparison.OrdinalIgnoreCase);
     }
 
+    [Theory]
+    [InlineData("--versions")]
+    [InlineData("--versions-with-feed")]
+    public async Task Versions_ExactVersionSelectorRejectsBeforeAcquisition(
+        string pluralSelector)
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "package",
+            "ThisQueryMustNotReachTheNetwork",
+            pluralSelector,
+            "--version",
+            "2.0.10");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains(
+            "cannot be combined with --version or --latest-version",
+            error,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "not found",
+            error,
+            StringComparison.OrdinalIgnoreCase);
+    }
+
     [Fact]
-    public async Task RangeCount_ExactSelectorRejectsBeforeAcquisition()
+    public async Task VersionedCoordinateAndVersionOptionRejectBeforeAcquisition()
     {
         var (exit, output, error) = await RunAppAsync(
             [
                 "package",
                 "ThisQueryMustNotReachTheNetwork@1.0.0..2.0.0",
-                "--count",
                 "--version",
+                "2.0.10",
             ]);
 
         Assert.Equal(1, exit);
         Assert.Empty(output);
         Assert.Contains(
-            "range --count cannot be combined",
+            "--version cannot be combined with a versioned Package coordinate",
+            error,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "not found",
+            error,
+            StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task LocalPackageAndVersionOptionRejectBeforeAcquisition()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "package",
+            "ThisPackageMustNotExist.nupkg",
+            "--version",
+            "2.0.10");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains(
+            "--version cannot be combined with a local Package file",
+            error,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "File not found",
+            error,
+            StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("--version=latest")]
+    [InlineData("--version=1.*")]
+    [InlineData("--version=1.0.0..2.0.0")]
+    public async Task Version_RequiresExactValue(string versionArgument)
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "package",
+            "ThisQueryMustNotReachTheNetwork",
+            versionArgument);
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains(
+            "--version requires an exact Package version",
             error,
             StringComparison.Ordinal);
         Assert.DoesNotContain(
@@ -745,20 +825,36 @@ public class PackageVersionTests
     }
 
     [Theory]
-    [InlineData(false, "--version", "2.0.10")]
-    [InlineData(false, "--version=2.0.10")]
-    [InlineData(false, "--version:2.0.10")]
-    [InlineData(true, "--version", "2.0.10")]
-    [InlineData(true, "--version=2.0.10")]
-    [InlineData(true, "--version:2.0.10")]
-    public async Task Version_ValueRequiresPackageCoordinate(
-        bool commandless,
+    [InlineData("--version", "2.0.10")]
+    [InlineData("--version=2.0.10")]
+    [InlineData("--version:2.0.10")]
+    public async Task Version_ValueSelectsPackage(
         params string[] versionArguments)
     {
-        string[] prefix = commandless ? [] : ["package"];
         var (exit, output, error) = await RunAppAsync(
             [
-                .. prefix,
+                "package",
+                "System.CommandLine",
+                .. versionArguments,
+                "-S",
+                "Package Info",
+            ]);
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains("2.0.10", output, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("--version")]
+    [InlineData("--version", "2.0.10")]
+    [InlineData("--version=2.0.10")]
+    [InlineData("--version:2.0.10")]
+    public async Task CommandlessVersion_IsIllegalBeforeAcquisition(
+        params string[] versionArguments)
+    {
+        var (exit, output, error) = await RunAppAsync(
+            [
                 "ThisQueryMustNotReachTheNetwork",
                 .. versionArguments,
             ]);
@@ -766,8 +862,8 @@ public class PackageVersionTests
         Assert.Equal(1, exit);
         Assert.Empty(output);
         Assert.Equal(
-            "Error: '--version' does not accept a value. "
-                + "Use 'Package@Version' to select a Package version."
+            "Error: '--version' requires the explicit 'package' command. "
+                + "Use 'package Package --version VERSION'."
                 + Environment.NewLine,
             error);
         Assert.DoesNotContain(
@@ -791,8 +887,8 @@ public class PackageVersionTests
         Assert.Equal(1, exit);
         Assert.Empty(output);
         Assert.Equal(
-            "Error: '--version' does not accept a value. "
-                + "Use 'Package@Version' to select a Package version."
+            "Error: '--version' requires the explicit 'package' command. "
+                + "Use 'package Package --version VERSION'."
                 + Environment.NewLine,
             error);
     }
@@ -1070,28 +1166,6 @@ public class PackageVersionTests
         Assert.Equal(0, exit);
         Assert.Contains("public void Write(LogEvent logEvent)", output);
         Assert.DoesNotContain("Invalid package version", error);
-    }
-
-    [Fact]
-    public async Task Version_Bare_MatchesRouterBehavior()
-    {
-        await EnsurePackageCached("System.CommandLine");
-
-        var root = CommandLineBuilder.CreateRootCommand();
-
-        // Router path: bare name --version
-        var routerArgs = CommandLineBuilder.PreprocessArgs(["System.CommandLine", "--version"]);
-        var (routerExit, routerOutput, _) = await ConsoleCapture.RunAsync(
-            () => Task.FromResult(root.Parse(routerArgs).InvokeAsync().Result));
-
-        // Package path: package --version
-        var packageArgs = new[] { "package", "System.CommandLine", "--version" };
-        var (packageExit, packageOutput, _) = await ConsoleCapture.RunAsync(
-            () => Task.FromResult(root.Parse(packageArgs).InvokeAsync().Result));
-
-        Assert.Equal(0, routerExit);
-        Assert.Equal(0, packageExit);
-        Assert.Equal(routerOutput.Trim(), packageOutput.Trim());
     }
 
     [Fact]
