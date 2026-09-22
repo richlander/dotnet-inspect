@@ -751,6 +751,32 @@ internal static class BrowserPackageWorkspace
                 "Package version settlement returned an invalid Browser acquisition result."),
         };
 
+    static BrowserPackageRealization RequireRealization(
+        BrowserPackageRealizationResult result,
+        BrowserPackageOperationDeadline deadline) =>
+        result switch
+        {
+            BrowserPackageRealizationResult.Realized realized =>
+                realized.Realization,
+            BrowserPackageRealizationResult.NotSettled
+            {
+                VersionSettlement.Content:
+                    PackageVersionSettlementOutcome.NotSettled notSettled,
+            } when notSettled.Failure.OperationTimedOut =>
+                throw deadline.Timeout(
+                    new TimeoutException(
+                        notSettled.Failure.Reason.ToString())),
+            BrowserPackageRealizationResult.NotSettled
+            {
+                VersionSettlement.Content:
+                    PackageVersionSettlementOutcome.NotSettled notSettled,
+            } =>
+                throw new InvalidOperationException(
+                    notSettled.Failure.Reason.ToString()),
+            _ => throw new InvalidOperationException(
+                "Package version settlement returned an invalid Browser realization result."),
+        };
+
     static async Task<InspectionEnvelope<PackageVersionSettlementOutcome>>
         SettleCoordinateAsync(
         PackageCoordinate request,
@@ -968,6 +994,143 @@ internal static class BrowserPackageWorkspace
             package,
             package.CreateRootBinding(targetFramework));
     }
+
+    internal static Task<
+        InspectionEnvelope<
+            PackageDependencyMemberCallGraphInspectionOutcome>>
+        QueryDependencyMemberCallGraphAsync(
+            string packageId,
+            string version,
+            string rootTargetFramework,
+            string? traversalTargetFramework,
+            string assemblyName,
+            string typeIdentity,
+            string memberName,
+            string selectorKey,
+            int metadataToken,
+            CancellationToken cancellationToken = default) =>
+        RunPackageOperationAsync(
+            async deadline =>
+            {
+                BrowserPackageRealization realization =
+                    RequireRealization(
+                        await RealizeCoreAsync(
+                                packageId,
+                                version,
+                                rootTargetFramework,
+                                Gallery,
+                                deadline)
+                            .ConfigureAwait(false),
+                        deadline);
+                BrowserPackageCoordinate coordinate =
+                    realization.Coordinate;
+                PackageDependencyMemberCallGraphInspectionFocus focus;
+                await using (
+                    BrowserScopeLease<BrowserInspectionScope> lease =
+                        await OpenScopeAsync(
+                                [coordinate],
+                                deadline.Token)
+                            .ConfigureAwait(false))
+                {
+                    BrowserInspectionScope scope = lease.Scope;
+                    BrowserPackageCoordinate retained =
+                        scope.Coordinate(coordinate);
+                    BrowserMemberResolution.Resolved resolved =
+                        BrowserMemberResolution.ResolveImplementationMember(
+                            scope,
+                            retained,
+                            assemblyName,
+                            typeIdentity,
+                            memberName,
+                            selectorKey,
+                            metadataToken);
+                    Guid moduleVersionId =
+                        resolved.ImplementationParticipant.Assembly
+                            .Registration.ModuleVersionId
+                        ?? throw new InvalidOperationException(
+                            "The selected Browser call-graph implementation did not expose a module version identifier.");
+                    focus =
+                        new PackageDependencyMemberCallGraphInspectionFocus(
+                            moduleVersionId,
+                            resolved.Member.BodyToken);
+                }
+
+                IPackageSourceClient source = Gallery;
+                IPackageSourceAuthorization authorization =
+                    SourceAuthorizationFor(source);
+                await using PackageSourceSettlementLease sourceLease =
+                    PackageSourceSettlementService.IssueLease(
+                        authority =>
+                            ReferenceEquals(
+                                authority.Association,
+                                source.Source.Association)
+                                ? source
+                                : throw new InvalidOperationException(
+                                    "The dependency call graph requested another configured package source."));
+                var candidateSource =
+                    new AuthorizedPackageDependencyCandidateSource(
+                        authorization,
+                        sourceLease);
+                TimeSpan operationTimeout =
+                    SourceSettlementOperationTimeout(
+                        deadline.Remaining);
+                PackageHouseOperation operation =
+                    PackageHouseOperation.Create(
+                        PackageHouseOperationProfile.Realize,
+                        requestTimeout: operationTimeout,
+                        operationTimeout: operationTimeout);
+                BrowserSessionPackageStore store =
+                    StoreFor(source);
+                var house = new PackageHouse(
+                    authorization,
+                    new PackagePayloadAcquisitionPlan(
+                        (authority, _) =>
+                            ReferenceEquals(
+                                authority.Association,
+                                source.Source.Association)
+                                ? store
+                                : throw new InvalidOperationException(
+                                    "The dependency call graph requested another configured package source."),
+                        PayloadLimits,
+                        new BrowserPackageOperationTransferPolicy(
+                            store,
+                            deadline)));
+                return await PackageDependencyMemberCallGraphInspection
+                    .ExecuteAsync(
+                        new PackageDependencyMemberCallGraphInspectionRequest(
+                            coordinate.Binding
+                            ?? throw new InvalidOperationException(
+                                "The selected Browser package has no acquisition-issued root binding."),
+                            focus,
+                            string.IsNullOrWhiteSpace(
+                                traversalTargetFramework)
+                                ? TraversalTargetFrameworkPolicy
+                                    .ProductDefault
+                                : new TraversalTargetFrameworkPolicy(
+                                    traversalTargetFramework),
+                            new MemberCallGraphCalleeNeighborhoodRequest(
+                                maxDepth: 3,
+                                maxNodes: 50),
+                            operation,
+                            DateTimeOffset.UtcNow
+                                .Add(deadline.Remaining),
+                            maximumDependencyDepth: 4),
+                        new PackageDependencyMemberCallGraphInspectionSource(
+                            new PackageDependencyTraversalCandidateAdapter(
+                                candidateSource),
+                            new AuthorizedPackageDependencyManifestSource(
+                                candidateSource),
+                            house,
+                            (requestedOperation, token) =>
+                                sourceLease.IssueOperationLease(
+                                    token,
+                                    requestedOperation.RequestTimeout,
+                                    requestedOperation.OperationTimeout)),
+                        deadline.Token)
+                    .ConfigureAwait(false);
+            },
+            PackageChangesOperationTimeout,
+            cancellationToken);
 
     internal static Task<DocumentationQueryOutcome>
         QueryMemberDocumentationAsync(

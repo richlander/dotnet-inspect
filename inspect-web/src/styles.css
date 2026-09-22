@@ -1744,6 +1744,9 @@ kbd {
 .dependency-graph-stage { position: relative; width: 100%; }
 .graph-expanding { display: flex; align-items: center; gap: 8px; padding: 8px 10px; border-top: 1px solid var(--line); color: var(--muted); font: 11px var(--mono); }
 .graph-expanding .loader { width: 13px; height: 13px; border-width: 2px; }
+.graph-traversal-framework { display: flex; align-items: center; gap: 8px; padding: 8px 10px; border-top: 1px solid var(--line); }
+.graph-traversal-framework > span { color: var(--dim); font: 9px var(--mono); letter-spacing: .08em; text-transform: uppercase; }
+.graph-traversal-framework select { height: 26px; padding: 0 23px 0 7px; border: 1px solid var(--line); border-radius: 2px; background: var(--panel-raised); font: 10px var(--mono); }
 .graph-scope { display: grid; grid-template-columns: max-content 1fr max-content 1fr; gap: 8px 14px; align-items: center; padding: 10px; border-top: 1px solid var(--line); color: var(--dim); font: 11px var(--mono); }
 .graph-scope strong { color: var(--text); font-weight: 500; }
 .graph-breadcrumb { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border-top: 1px solid var(--line); font: 11px var(--mono); }

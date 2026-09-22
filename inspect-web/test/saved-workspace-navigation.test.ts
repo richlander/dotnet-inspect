@@ -49,7 +49,6 @@ import {
   createWorkspaceLocationPersistence,
   parseWorkspaceLocation,
   parseWorkspaceLocationAsync,
-  selectedBrowserCallGraphPackageTabIds,
   workspaceShareCaptureTopology,
   workspaceShareTabsMatchResolved,
   type ParsedWorkspaceLocation,
@@ -108,7 +107,7 @@ function isCapturedWorkspaceUrlState(
 const hostNames = new Set([
   "captureSavedWorkspacePacket", "captureWorkspaceUrlState",
   "capturedShareTabs", "resolvedWorkspaceShareTabs", "activeShareTabIndex",
-  "selectedCallGraphWorkspacePackages", "workspaceCoordinateCount",
+  "workspaceCoordinateCount",
   "selectedLibraryShareKey", "scope", "syncUrl", "buildStateUrl",
   "buildShareUrl", "share",
   "openSavedWorkspace", "openSavedWorkspaceCore",
@@ -589,7 +588,6 @@ function harness() {
       },
     },
     typeLensesFor, browserCreatedCallGraphTabIds,
-    selectedBrowserCallGraphPackageTabIds,
     workspaceShareCaptureTopology, workspaceShareTabsMatchResolved,
     parseWorkspaceLocation, parseWorkspaceLocationAsync, isProductHomeDemosPath,
     inspectDecodeWorkspaceShareState: (value: string) =>
@@ -1124,7 +1122,7 @@ for (const platform of [false, true]) {
   });
 }
 
-test("floating packet coordinates resolve the active package and Call Graph context", async () => {
+test("floating packet coordinates resolve the active package for saved capture", async () => {
   const h = harness();
   const exact = sharedState();
   const basis: BrowserWorkspaceShareState = {
@@ -1157,11 +1155,6 @@ test("floating packet coordinates resolve the active package and Call Graph cont
       ...basis,
       tabs: exact.tabs,
     });
-  const selected: unknown = runInNewContext(
-    "selectedCallGraphWorkspacePackages()",
-    h.context);
-  assert.ok(Array.isArray(selected));
-  assert.deepEqual(selected, h.state.packages);
 });
 
 test("saved Open uses only the opaque packet at the current origin and commits after view completion", async () => {

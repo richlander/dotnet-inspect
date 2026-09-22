@@ -70,12 +70,6 @@ public sealed record BrowserCallGraphScope(
     int CallerAssemblies,
     string CalleeScope);
 
-public sealed record BrowserWorkspacePackage(
-    string Package,
-    string Version,
-    string Framework);
-
 [JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase)]
 [JsonSerializable(typeof(BrowserCallGraph))]
-[JsonSerializable(typeof(BrowserWorkspacePackage[]))]
 internal sealed partial class BrowserCallGraphJsonContext : JsonSerializerContext;

@@ -154,17 +154,18 @@ bindings.
 
 ## Package implementation context
 
-The graph package set contains:
+The graph package set always contains the focused root binding. For each
+canonical package ID, it selects at most one exact final Workspace occurrence:
+another traversal root precedes dependency routes; dependency routes select
+the nearest root-relative occurrence, then the highest resolved version at
+that distance. Scope order remains the final binding order.
 
-- every traversal root binding; and
-- every distinct contributed Package binding named by a completed Package
-  route.
-
-Supplied-root destinations are already present in the root set. Bindings are
-deduplicated by their exact final Workspace Package occurrence and ordered by
-that occurrence in the final Scope. When several traversal root slots map to
-one occurrence, the selected focus root binding represents that occurrence.
-Unrelated packages already present in the Scope do not enter this demand.
+This graph-only coalescing prevents multiple routed versions of one package
+from contributing duplicate assembly identities. Completed routes retain
+every traversal candidate, exact realization, and final Workspace occurrence;
+the operation does not rewrite traversal or route evidence. Supplied-root
+destinations are already eligible through the root set. Unrelated packages
+already present in the Scope do not enter this demand.
 
 The operation prepares one
 `PackageAssemblyContextCompletion` and one demand-local projection from those
@@ -254,7 +255,8 @@ The four slices are:
 2. [Workspace route composition](package-dependency-workspace-routes.md);
 3. this shared source operation and dependency-aware call-graph service; and
 4. CLI and Browser/Wasm adoption through one
-   `InspectionEnvelope<TContent>`.
+   `InspectionEnvelope<TContent>`, owned by
+   [Package dependency member call-graph inspection](package-dependency-member-call-graph-inspection.md).
 
 The fourth slice owns command syntax, browser interaction, host source
 capabilities, output lowering, and final envelope diagnostics. Both hosts call

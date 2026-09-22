@@ -6,6 +6,7 @@ using DotnetInspector.PackageQueries;
 using DotnetInspector.Packages;
 using DotnetInspector.Platforms;
 using DotnetInspector.Queries;
+using DotnetInspector.Sections;
 using ILInspector.Metadata;
 using NuGet.Versioning;
 using NuGetFetch;
@@ -23,6 +24,110 @@ public sealed partial class PackageHouseExecutionTests
 
     private static string CallGraphTargetPath =>
         FixtureCatalog.AnalysisCallerGraphTarget.AssemblyPath();
+
+    [Fact]
+    public async Task
+        DependencyMemberCallGraphInspectionPreparesTraversalAndReturnsEnvelope()
+    {
+        await using HouseEnvironment environment =
+            HouseEnvironment.CreateForAnyPackage(
+                new SourceBehavior(
+                    [RouteVersion],
+                    PayloadContentEntries:
+                    [
+                        (
+                            "lib/net11.0/ILInspector.Analysis.CallerGraphTarget.dll",
+                            File.ReadAllBytes(CallGraphTargetPath)),
+                    ]));
+        PackageRootBinding rootBinding = CallGraphRootBinding(
+            (CallGraphTargetPackage, RouteVersion));
+        var candidateSource =
+            new AuthorizedPackageDependencyCandidateSource(
+                environment.Authorization,
+                environment.Root);
+        PackageHouseOperation realizationOperation =
+            PackageHouseOperation.Create(
+                PackageHouseOperationProfile.Realize);
+
+        InspectionEnvelope<
+            PackageDependencyMemberCallGraphInspectionOutcome> envelope =
+            await PackageDependencyMemberCallGraphInspection.ExecuteAsync(
+                new PackageDependencyMemberCallGraphInspectionRequest(
+                    rootBinding,
+                    new PackageDependencyMemberCallGraphInspectionFocus(
+                        ModuleVersionId(CallGraphCallerPath),
+                        MethodToken(
+                            CallGraphCallerPath,
+                            "Entry",
+                            "RunAcrossBoundary")),
+                    TraversalTargetFrameworkPolicy.ProductDefault,
+                    new MemberCallGraphCalleeNeighborhoodRequest(
+                        maxDepth: 2,
+                        maxNodes: 10),
+                    realizationOperation,
+                    DateTimeOffset.UtcNow.AddMinutes(1),
+                    maximumDependencyDepth: 1,
+                    traversalWorkBudget:
+                        new PackageDependencyTraversalWorkBudget(
+                            maxManifestProjections: 3,
+                            maxDeclarationResolutions: 3)),
+                new PackageDependencyMemberCallGraphInspectionSource(
+                    new PackageDependencyTraversalCandidateAdapter(
+                        candidateSource),
+                    new UnexpectedManifestAcquirer(),
+                    environment.CreateHouse(
+                        (_, _) => new InMemoryPackageStore()),
+                    (operation, cancellationToken) =>
+                        environment.Root.IssueOperationLease(
+                            cancellationToken,
+                            operation.RequestTimeout,
+                            operation.OperationTimeout)),
+                TestContext.Current.CancellationToken);
+
+        var available =
+            Assert.IsType<
+                PackageDependencyMemberCallGraphInspectionOutcome.Available>(
+                envelope.Content);
+        Assert.Equal(
+            "net12.0",
+            available.Document.TraversalTargetPolicy.TargetFramework);
+        Assert.Equal(
+            TraversalTargetFrameworkPolicySource.ProductDefault,
+            available.Document.TraversalTargetPolicy.Source);
+        PackageDependencyMemberCallGraphInspectionDestination.Package
+            destination =
+            Assert.IsType<
+                PackageDependencyMemberCallGraphInspectionDestination.Package>(
+                Assert.Single(available.Document.Routes).Destination);
+        Assert.Equal(
+            CallGraphTargetPackage,
+            destination.Descriptor.PackageId);
+        Assert.Equal(
+            "net11.0",
+            destination.Descriptor.SelectedTargetFramework);
+        InspectionGraphEdge edge =
+            Assert.Single(available.Document.Graph.Edges);
+        Assert.Equal(
+            ("RunAcrossBoundary", "Forward"),
+            (
+                GraphMember(
+                    available.Document.Graph.Nodes[edge.FromNodeId]).Name,
+                GraphMember(
+                    available.Document.Graph.Nodes[edge.ToNodeId]).Name));
+        Assert.IsType<InspectionShare.NonProjectable>(envelope.Share);
+        Assert.Equal(
+            [
+                "call.traversal-incomplete",
+                "call.correspondence-incomplete",
+                "queries.call.external-boundary-classification-incomplete",
+            ],
+            envelope.Diagnostics.Select(
+                diagnostic => diagnostic.Correspondence!.ToString()));
+        Assert.Equal(
+            [CallGraphTargetPackage],
+            environment.Clients[0].PayloadPackageIds);
+        await environment.AssertRootSettledAsync();
+    }
 
     [Fact]
     public async Task
@@ -389,7 +494,7 @@ public sealed partial class PackageHouseExecutionTests
                             TestContext.Current.CancellationToken)));
 
         Assert.Contains(
-            "exact contributed binding",
+            "exact admitted dependency Package",
             failure.Message,
             StringComparison.Ordinal);
         Assert.Equal(

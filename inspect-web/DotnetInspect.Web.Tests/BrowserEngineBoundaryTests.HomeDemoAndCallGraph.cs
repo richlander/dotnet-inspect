@@ -15,6 +15,7 @@ using DotnetInspector.Packages;
 using DotnetInspector.Platforms;
 using DotnetInspector.Queries;
 using DotnetInspector.Queries.Definitions;
+using DotnetInspector.Sections;
 using DotnetInspector.Services;
 using ILInspector.Analysis;
 using ILInspector.CallGraph;
@@ -563,6 +564,70 @@ public sealed partial class BrowserEngineBoundaryTests
 
         Assert.Contains("n0 -- loop --> n1", mermaid);
         Assert.Contains("n0 --> n2", mermaid);
+    }
+
+    [Fact]
+    public void DependencyCallGraphDocument_ProjectsDetachedBrowserGraph()
+    {
+        TypeRef type = TypeRef.Definition(
+            "Example.Dependency",
+            "Example",
+            "Worker");
+        TypeRef returnType = TypeRef.CoreLib("System", "Void");
+        var focus = new MemberRef(
+            type,
+            "Run",
+            [],
+            returnType,
+            MemberKind.Method);
+        var dependency = new MemberRef(
+            TypeRef.Definition(
+                "Dependency.Library",
+                "Dependency",
+                "Api"),
+            "Invoke",
+            [],
+            returnType,
+            MemberKind.Method);
+        var tree = new CallTreeNode(
+            focus,
+            null,
+            CallTreeStatus.Expanded,
+            [
+                new CallTreeNode(
+                    dependency,
+                    null,
+                    CallTreeStatus.External,
+                    []),
+            ]);
+        InspectionGraphDocument graph =
+            CallGraphInspectionGraphAdapter.Create(
+                CallGraphProjection.FromCallees(tree));
+        var document =
+            new PackageDependencyMemberCallGraphDocument(
+                TraversalTargetFrameworkPolicy.ProductDefault,
+                new PackageDependencyTraversalSummary(
+                    CompleteRoots: 1,
+                    DepthBoundedRoots: 0,
+                    SourceBoundedRoots: 0,
+                    PartialRoots: 0),
+                [],
+                graph);
+
+        BrowserCallGraphInfo projected =
+            BrowserCallGraphProjection.Project(document);
+
+        Assert.Equal("Run", projected.Callees.MemberName);
+        Assert.Equal(
+            "Invoke",
+            Assert.Single(projected.Callees.Children).MemberName);
+        Assert.Contains(
+            projected.Targets,
+            target =>
+                target.Assembly == "Dependency.Library"
+                && target.MemberName == "Invoke");
+        Assert.Contains("Example.Worker.Run", projected.Mermaid);
+        Assert.Equal("CrossLibrary", projected.Scope.CalleeScope);
     }
 
     [Fact]
