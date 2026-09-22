@@ -28,6 +28,16 @@ dnx dotnet-inspect -y -- type MyType --library MyLib.dll --all -S "Top Leverage"
 Ranking rows carry a copyable `Stable` selector, `Visibility`, and `Selector`.
 Add `--all` to include non-public members.
 
+For a whole-library structural report rather than ranked candidates, select
+the explicit `Library Metrics` section:
+
+```bash
+dnx dotnet-inspect -y -- library MyLib.dll -S "Library Metrics"
+```
+
+It reports the Research-owned compiled-IL population metrics without assigning
+an overall score or source-level meaning.
+
 ## Triage against rewrite shapes
 
 Library triage is split into kind-scoped sections under `@Performance`
