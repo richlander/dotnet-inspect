@@ -2,11 +2,13 @@ using System.Reflection;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
+using System.Text.Json;
 using DotnetInspector.DocumentationHouse;
 using DotnetInspector.LibraryMetadata;
 using DotnetInspector.Libraries;
 using DotnetInspector.PlatformQueries;
 using DotnetInspector.Queries;
+using DotnetInspector.Sections;
 using ILInspector.Metadata;
 using QuerySpace;
 using QuerySpace.Composition;
@@ -182,12 +184,94 @@ public partial class PlatformLibraryRealizationTests
             AssertResourceFree(
                 typeof(PlatformTypeCatalogQueryOutcome.Rejected));
             AssertResourceFree(typeof(PlatformTypeCatalogQueryPlan));
+            AssertResourceFree(typeof(PlatformTypeCatalogRouteRequest));
+            AssertResourceFree(typeof(PlatformTypeCatalogRouteTarget));
+            AssertResourceFree(typeof(PlatformTypeCatalogRouteCandidate));
+            AssertResourceFree(
+                typeof(PlatformTypeCatalogRouteOutcome.Resolved));
+            AssertResourceFree(
+                typeof(
+                    InspectionEnvelope<
+                        PlatformTypeCatalogRouteOutcome>));
+            Assert.Throws<ArgumentException>(
+                () => new PlatformTypeCatalogRouteRequest(
+                    "JsonSerializer.Serialize",
+                    "JsonSerializer",
+                    "Deserialize"));
 
             await RetireCatalogPopulationAsync(
                 population,
                 artifacts,
                 cancellationToken);
             retired = true;
+            InspectionEnvelope<PlatformTypeCatalogRouteOutcome> route =
+                PlatformTypeCatalogRouteInspection.Execute(
+                    catalog,
+                    new(
+                        "JsonSerializer.Serialize",
+                        "JsonSerializer",
+                        "Serialize"),
+                    cancellationToken);
+            var resolvedRoute = Assert.IsType<
+                PlatformTypeCatalogRouteOutcome.Resolved>(
+                    route.Content);
+            Assert.Equal(
+                "JsonSerializer.Serialize",
+                resolvedRoute.Request.OriginalQuery);
+            Assert.Equal(
+                "JsonSerializer",
+                resolvedRoute.Request.TypePattern);
+            Assert.Equal(
+                PlatformTypeCatalogRouteTargetKind.Member,
+                resolvedRoute.Request.TargetKind);
+            Assert.Equal(
+                "Serialize",
+                resolvedRoute.Request.MemberSelector);
+            Assert.Equal(jsonSerializer.Name, resolvedRoute.Candidate.Type);
+            Assert.Equal(
+                jsonSerializer.ApiContent.AssemblyIdentity!.Identity,
+                resolvedRoute.Candidate.Assembly.Identity);
+            Assert.Equal(
+                jsonSerializer.ModuleVersionId,
+                resolvedRoute.Candidate.Assembly.ModuleVersionId);
+            Assert.Equal(
+                jsonSerializer.Kind,
+                resolvedRoute.Candidate.DeclarationKind);
+            Assert.Equal(
+                catalog.Target.Family,
+                resolvedRoute.Target.Family);
+            Assert.Equal(
+                catalog.Target.TargetFramework.ToString(),
+                resolvedRoute.Target.TargetFramework);
+            Assert.Equal(
+                catalog.Target.Version.Value,
+                resolvedRoute.Target.Version);
+            Assert.Empty(route.Diagnostics);
+            Assert.IsType<InspectionShare.NonProjectable>(route.Share);
+
+            string json = JsonSerializer.Serialize(
+                route,
+                PlatformTypeCatalogRouteInspectionJsonContext.Default
+                    .PlatformTypeCatalogRouteInspectionEnvelope);
+            InspectionEnvelope<PlatformTypeCatalogRouteOutcome>? roundTrip =
+                JsonSerializer.Deserialize(
+                    json,
+                    PlatformTypeCatalogRouteInspectionJsonContext.Default
+                        .PlatformTypeCatalogRouteInspectionEnvelope);
+            Assert.NotNull(roundTrip);
+            var roundTripResolved = Assert.IsType<
+                PlatformTypeCatalogRouteOutcome.Resolved>(
+                    roundTrip.Content);
+            Assert.Equal(
+                resolvedRoute.Request,
+                roundTripResolved.Request);
+            Assert.Equal(
+                resolvedRoute.Target,
+                roundTripResolved.Target);
+            Assert.Equal(
+                resolvedRoute.Candidate,
+                roundTripResolved.Candidate);
+
             Assert.Same(
                 jsonSerializer,
                 Assert.Single(

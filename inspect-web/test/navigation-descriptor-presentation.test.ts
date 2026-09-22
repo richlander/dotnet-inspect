@@ -12,6 +12,8 @@ import {
   bindNavigationDescriptorActions,
   createNavigationDescriptorPresentation,
   resolveNavigationPresentationAction,
+  withNavigationPackageDetailFailure,
+  withNavigationPlatformDetailFailure,
 } from "../src/navigation-descriptor-presentation.ts";
 import {
   captureScopeBarFocus,
@@ -427,8 +429,105 @@ test("Workspace entry and Package rows render product labels, order, and status"
   assert.match(
     workspace,
     /data-product-navigation-id="package-2"[^>]*aria-current="page"/);
+  assert.match(
+    workspace,
+    /data-product-package-action="navigation-2"/);
   assert.match(workspace, /Second[\s\S]*Current/);
   assert.match(workspace, /data-workspace-platform/);
+});
+
+test("Package detail failure decorates only the exact compact row", () => {
+  const presentation = createNavigationDescriptorPresentation(posting());
+  const failed = withNavigationPackageDetailFailure(
+    presentation,
+    "package-1",
+    "Package details are unavailable.",
+  );
+  const workspace = renderWorkspaceView({
+    occurrences: [],
+    navigationPackages: failed.packages,
+    packages: [],
+    platform: null,
+    loading: false,
+    error: "",
+    escapeHtml,
+  });
+
+  test("Platform inventory stays separately typed and keeps row-local failure", () => {
+    const source = posting();
+    const platformPosting = {
+      ...source,
+      definition: {
+        ...source.definition,
+        tabs: [{
+          id: "platform-1",
+          kind: "group",
+          source: ":Platform",
+          version: "11.0.0",
+          framework: "net11.0",
+          runtimeIdentifier: "linux-x64",
+        }],
+        activeTabId: "platform-1",
+      },
+      platforms: [{
+        navigationId: "platform-1",
+        contextIndex: 0,
+        family: ".NET",
+        runtimeIdentifier: "linux-x64",
+        summary: packageSummary("net11.0"),
+      }],
+    };
+    const platformPresentation = withNavigationPlatformDetailFailure(
+      createNavigationDescriptorPresentation(platformPosting),
+      "platform-1",
+      "Platform details are unavailable.",
+    );
+    const workspaceHtml = renderWorkspaceView({
+      occurrences: [],
+      navigationPackages: [],
+      navigationPlatforms: platformPresentation.platforms,
+      packages: [],
+      platform: null,
+      loading: false,
+      error: "",
+      escapeHtml,
+    });
+
+    assert.deepEqual(platformPresentation.platforms, [{
+      order: 0,
+      navigationId: "platform-1",
+      family: ".NET",
+      version: "11.0.0",
+      framework: "net11.0",
+      runtimeIdentifier: "linux-x64",
+      current: true,
+      detailFailure: "Platform details are unavailable.",
+      summary: packageSummary("net11.0"),
+    }]);
+    assert.match(workspaceHtml, /data-product-platform-action="platform-1"/);
+    assert.match(workspaceHtml, />Platform<\/span><strong>\.NET<\/strong>/);
+    assert.match(workspaceHtml, /Platform details are unavailable\./);
+    assert.doesNotMatch(workspaceHtml, /<span>NuGet package<\/span>/);
+  });
+
+  assert.equal(
+    failed.packages.find(item => item.subject.identity === "package-1")
+      ?.detailFailure,
+    "Package details are unavailable.",
+  );
+  assert.equal(
+    failed.packages.find(item => item.subject.identity === "package-2")
+      ?.detailFailure,
+    null,
+  );
+  assert.match(
+    workspace,
+    /First[\s\S]*Package details are unavailable\./,
+  );
+  assert.doesNotMatch(
+    workspace,
+    /aria-label="Inspect Second[^"]*Package details are unavailable\./,
+  );
 });
 
 test("no-effective-lens outcomes retain status and exact evidence", () => {

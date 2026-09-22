@@ -60,18 +60,26 @@ function harness(initial: string | null = null) {
   };
 }
 
-test("named saves retain the exact opaque packet and reopen across reload without recapture", () => {
+test("named saves retain a complete opaque packet and reopen across reload without recapture", async () => {
   const h = harness();
   assert.equal(h.saves.state.available, true);
   assert.equal(h.captures(), 0);
   h.save("  Json study  ");
-  assert.deepEqual(h.saves.state.entries, [{ name: "Json study", packet: "owner-issued-packet" }]);
+  assert.deepEqual(h.saves.state.entries, [{
+    name: "Json study",
+    packet: "owner-issued-packet",
+    kind: "complete",
+  }]);
   assert.equal(h.saves.state.formOpen, false);
   assert.deepEqual(h.focused.at(-1), { kind: "saved-open", name: "Json study", index: 0 });
   const reloaded = h.reload();
   assert.equal(h.captures(), 1);
-  reloaded.open("Json study");
-  assert.deepEqual(h.opened, [{ name: "Json study", packet: "owner-issued-packet" }]);
+  await reloaded.open("Json study");
+  assert.deepEqual(h.opened, [{
+    name: "Json study",
+    packet: "owner-issued-packet",
+    kind: "complete",
+  }]);
   assert.equal(h.captures(), 1);
 });
 
@@ -94,7 +102,11 @@ test("forget removes only its saved identity and never opens or recaptures a Wor
   h.save("First");
   h.save("Second");
   h.saves.forget("First");
-  assert.deepEqual(h.saves.state.entries, [{ name: "Second", packet: "owner-issued-packet" }]);
+  assert.deepEqual(h.saves.state.entries, [{
+    name: "Second",
+    packet: "owner-issued-packet",
+    kind: "complete",
+  }]);
   assert.deepEqual(h.reload().state.entries, h.saves.state.entries);
   assert.deepEqual(h.opened, []);
   assert.equal(h.captures(), 2);
@@ -108,7 +120,11 @@ test("write failure preserves saved entries and draft text on save and forget", 
   h.failWrite();
   h.save("Second");
   assert.equal(h.stored(), before);
-  assert.deepEqual(h.saves.state.entries, [{ name: "First", packet: "owner-issued-packet" }]);
+  assert.deepEqual(h.saves.state.entries, [{
+    name: "First",
+    packet: "owner-issued-packet",
+    kind: "complete",
+  }]);
   assert.equal(h.saves.state.name, "Second");
   assert.match(h.saves.state.error, /Quota exceeded/);
   h.saves.forget("First");
@@ -153,6 +169,7 @@ test("overlapping Save submissions share one pending capture", async () => {
   assert.deepEqual(saves.state.entries, [{
     name: "My Workspace",
     packet: "owner-issued-packet",
+    kind: "complete",
   }]);
   assert.equal(createSavedWorkspaces({
     read: () => stored,
@@ -217,7 +234,8 @@ test("canceling an asynchronous save retires it before a new draft", async () =>
 
 for (const raw of [
   "{",
-  '{"version":2,"entries":[]}',
+  '{"version":3,"entries":[]}',
+  '{"version":2,"entries":[{"name":"A","packet":"p","kind":"unknown"}]}',
   '{"version":1,"entries":[{"name":"A","packet":"p"},{"name":"a","packet":"q"}]}',
   '{"version":1,"entries":[{"name":"A","packet":null}]}',
 ]) {
@@ -246,11 +264,20 @@ test("storage read failures remain visible until a successful retry", () => {
   assert.equal(reloaded.state.error, "");
 });
 
-test("a saved packet can fail to open and still be forgotten without decoding", () => {
+test("version 1 records load as explicit legacy entries", () => {
+  const h = harness('{"version":1,"entries":[{"name":"Old","packet":"p"}]}');
+  assert.deepEqual(h.saves.state.entries, [{
+    name: "Old",
+    packet: "p",
+    kind: "legacy",
+  }]);
+});
+
+test("a saved packet can fail to open and still be forgotten without decoding", async () => {
   const h = harness('{"version":1,"entries":[{"name":"Old","packet":""}]}');
   assert.equal(h.saves.state.available, true);
   h.failOpen();
-  h.saves.open("Old");
+  await h.saves.open("Old");
   assert.match(h.saves.state.error, /cannot be restored/);
   assert.equal(h.saves.state.entries.length, 1);
   h.saves.forget("Old");

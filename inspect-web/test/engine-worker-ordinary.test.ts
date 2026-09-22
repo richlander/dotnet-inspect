@@ -176,6 +176,8 @@ const defaultFacades: EngineWorkerOrdinaryFacades = {
       unexpected("activateRetainedWorkspaceDefinitionWithCredentials"),
     cancelRetainedWorkspaceActivation: () =>
       unexpected("cancelRetainedWorkspaceActivation"),
+    captureCompleteWorkspaceShareState: () =>
+      unexpected("captureCompleteWorkspaceShareState"),
     canonicalizeWorkspaceSharePacket: () =>
       unexpected("canonicalizeWorkspaceSharePacket"),
     commitRetainedWorkspaceActivation: () =>
@@ -1711,6 +1713,7 @@ test("the page client and Worker catalog expose only the closed allow-list", () 
       "activateRetainedWorkspaceDefinition",
       "activateRetainedWorkspaceDefinitionWithCredentials",
       "cancelRetainedWorkspaceActivation",
+      "captureCompleteWorkspaceShareState",
       "canonicalizeWorkspaceSharePacket",
       "commitRetainedWorkspaceActivation",
       "completeRetainedWorkspaceActivation",
@@ -1741,7 +1744,7 @@ test("the page client and Worker catalog expose only the closed allow-list", () 
     [...engineWorkerOrdinaryOperationKinds].sort(),
     expectedKinds,
   );
-  assert.equal(engineWorkerOrdinaryOperationKinds.length, 77);
+  assert.equal(engineWorkerOrdinaryOperationKinds.length, 78);
 
   const state = fixture();
   const groups = [
