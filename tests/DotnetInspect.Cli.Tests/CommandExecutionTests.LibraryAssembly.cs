@@ -1505,6 +1505,8 @@ public partial class CommandExecutionTests
             "| References | section | library/sections/references "
             + "| --markdown, --plaintext, --json, --table, --tsv, --jsonl |",
             output);
+        Assert.DoesNotContain("| Shape |", output);
+        Assert.DoesNotContain("| Terminals |", output);
         Assert.DoesNotContain("File not found", output);
     }
 
@@ -1590,6 +1592,8 @@ public partial class CommandExecutionTests
             row.GetProperty("formats")
                 .EnumerateArray()
                 .Select(item => item.GetString()));
+        Assert.False(row.TryGetProperty("shape", out _));
+        Assert.False(row.TryGetProperty("terminals", out _));
     }
 
     [Fact]
