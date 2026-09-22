@@ -1238,7 +1238,13 @@ test("Package query and Activity are routed Spotlight actions", () => {
     /id="package-query-announcement"[\s\S]*class="query-announcement"[\s\S]*role="alert"[\s\S]*aria-live="assertive"[\s\S]*aria-atomic="true"/);
   assert.match(
     appSource,
-    /bindProductNavigation\(app, \{[\s\S]*currentDestination: currentProductDestination,[\s\S]*onNavigate: navigateProductDestination,[\s\S]*unavailableReason: productNavigationUnavailableReason/);
+    /bindProductNavigation\(app, \{[\s\S]*currentDestination: currentProductDestination,[\s\S]*onAction: dispatchProductAction,[\s\S]*onNavigate: navigateProductDestination,[\s\S]*unavailableReason: productNavigationUnavailableReason/);
+  assert.match(
+    appSource,
+    /function dispatchProductAction\(action: ProductAction\) \{[\s\S]*case "open-library":[\s\S]*openLibraryDialog\("product-navigation"\)/);
+  assert.match(
+    appSource,
+    /returnTarget === "product-navigation"[\s\S]*restoreOrdinaryModalDismissFocus\(\(\) =>[\s\S]*"\[data-product-navigation-button\]"/);
   assert.match(
     appSource,
     /function productNavigationUnavailableReason\(\s*destination: ProductDestination,[\s\S]*destination === "workspace"[\s\S]*return "No workspace is open";[\s\S]*destination !== "query" && destination !== "activity"[\s\S]*!state\.engineReady[\s\S]*Available after runtime startup completes/);

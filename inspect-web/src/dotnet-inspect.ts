@@ -451,6 +451,7 @@ import {
 import {
   bindProductNavigation,
   renderBrand,
+  type ProductAction,
   type ProductDestination,
 } from "./brand.ts";
 import {
@@ -1061,7 +1062,7 @@ let homeBotAnimationStartedAt: number | null = null;
 let homeReadyGlintPending = true;
 let homeFocusRenderGeneration = 0;
 let pendingHomeFocusTarget: HomeFocusTarget | null = null;
-type LibraryOpenReturnTarget = "home" | "application" | "surface";
+type LibraryOpenReturnTarget = "home" | "product-navigation" | "surface";
 const initialState = {
   theme: localStorage.getItem("inspect-theme") === "light" ? "light" : "dark",
   memberFiltersExpanded: false,
@@ -3803,6 +3804,7 @@ function requireElement(selector: string): HTMLElement {
 const app = requireElement("#app");
 const productNavigationBinding = bindProductNavigation(app, {
   currentDestination: currentProductDestination,
+  onAction: dispatchProductAction,
   onNavigate: navigateProductDestination,
   unavailableReason: productNavigationUnavailableReason,
 });
@@ -17367,9 +17369,6 @@ function clearTaste() {
 
 function dispatchApplicationAction(action: ApplicationAction) {
   switch (action) {
-    case "open-library":
-      openLibraryDialog("application");
-      return;
     case "share":
       if (state.rootKind === "library") {
         showToast("Uploaded Libraries cannot be shared.");
@@ -17383,6 +17382,14 @@ function dispatchApplicationAction(action: ApplicationAction) {
     case "keyboard-help":
       if (state.keyboardHelp) closeKeyboardHelp();
       else openKeyboardHelp();
+      return;
+  }
+}
+
+function dispatchProductAction(action: ProductAction) {
+  switch (action) {
+    case "open-library":
+      openLibraryDialog("product-navigation");
       return;
   }
 }
@@ -17425,9 +17432,10 @@ function closeLibraryDialog() {
     if (returnTarget === "home") {
       document.querySelector<HTMLElement>("#home-open-library")
         ?.focus({ preventScroll: true });
-    } else if (returnTarget === "application") {
+    } else if (returnTarget === "product-navigation") {
       restoreOrdinaryModalDismissFocus(() =>
-        document.querySelector<HTMLElement>("#application-menu-button")
+        document.querySelector<HTMLElement>(
+          "[data-product-navigation-button]")
           ?.focus({ preventScroll: true }));
     } else {
       focusLevelOneHeading();

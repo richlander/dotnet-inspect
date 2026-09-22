@@ -9,7 +9,7 @@ import {
 import {
   bindProductNavigation,
   renderBrand,
-  type ProductNavigationBinding,
+  type ProductNavigationActions,
 } from "../src/brand.ts";
 import { renderAnnotatedSourcePageActions } from "../src/annotated-source.ts";
 import type {
@@ -117,7 +117,6 @@ if (!app) throw new Error("The workspace-titlebar harness root is unavailable.")
 const appRoot: HTMLElement = app;
 const scopeBarState = createScopeBarState();
 let scopeBarBinding: ScopeBarBinding | null = null;
-let productNavigationBinding: ProductNavigationBinding | null = null;
 let workbenchShellBinding: WorkbenchShellBinding | null = null;
 let applicationDialog: "settings" | "keyboard-help" | null = null;
 let applicationDialogReturn: "application" | "source" = "application";
@@ -1014,13 +1013,20 @@ app.innerHTML = `
     'id="keyboard-help-backdrop" class="modal-backdrop"',
     'id="keyboard-help-backdrop" class="modal-backdrop" hidden',
   )}`;
-productNavigationBinding = bindProductNavigation(appRoot, {
+const productNavigationActions: ProductNavigationActions = {
   currentDestination: () => workspaceMode ? "workspace" : null,
+  onAction: action => {
+    if (action === "open-library") {
+      document.body.dataset.openLibrary = "true";
+    }
+  },
   onNavigate: destination => {
     document.body.dataset.productDestination = destination;
   },
   unavailableReason: () => null,
-});
+};
+let productNavigationBinding =
+  bindProductNavigation(appRoot, productNavigationActions);
 
 function setApplicationDialog(
   next: "settings" | "keyboard-help" | null,
@@ -1051,10 +1057,6 @@ function setApplicationDialog(
 }
 
 function handleApplicationAction(action: ApplicationAction): void {
-  if (action === "open-library") {
-    document.body.dataset.openLibrary = "true";
-    return;
-  }
   if (action === "share") {
     const focusOwner = captureApplicationMenuFocusOwner(document);
     setTimeout(() => {
@@ -1341,16 +1343,32 @@ window.rerenderApplicationMenuProbe = () => {
   if (applicationMenuHadFocus) focusApplicationMenuButton(document);
 };
 window.rerenderProductNavigationProbe = () => {
-  productNavigationBinding?.beforeRender();
+  productNavigationBinding.beforeRender();
   const button = document.querySelector<HTMLElement>(
     "[data-product-navigation-button]");
   const menu = document.querySelector<HTMLElement>(
     "[data-product-navigation-menu]");
-  if (!button || !menu)
-    throw new Error("The product navigation shell is unavailable.");
+  const productNavigationHadFocus =
+    document.activeElement === button
+    || (document.activeElement instanceof Node
+      && menu?.contains(document.activeElement) === true);
+  menu?.remove();
+  if (!button)
+    throw new Error("The product-navigation shell is unavailable.");
   button.outerHTML = renderBrand();
-  menu.remove();
-  productNavigationBinding?.afterRender();
+  productNavigationBinding.afterRender();
+  const replacementButton = document.querySelector<HTMLElement>(
+    "[data-product-navigation-button]");
+  const replacementMenu = document.querySelector<HTMLElement>(
+    "[data-product-navigation-menu]");
+  const activeElement = document.activeElement;
+  const replacementOwnsFocus =
+    activeElement === replacementButton
+    || (activeElement instanceof Node
+      && replacementMenu?.contains(activeElement) === true);
+  if (productNavigationHadFocus && !replacementOwnsFocus) {
+    replacementButton?.focus();
+  }
 };
 window.rerenderScopeBarProbe = renderHarnessScopeBar;
 window.beginContentFrameReplacementProbe = () => {

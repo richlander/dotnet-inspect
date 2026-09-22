@@ -7,7 +7,6 @@ import type { KeybindingDescription } from "./keybinding-registry.ts";
 import { continueMenuButtonDocumentOrder } from "./menu-button.ts";
 
 export type ApplicationAction =
-  | "open-library"
   | "share"
   | "settings"
   | "keyboard-help";
@@ -107,9 +106,6 @@ export function renderApplicationMenu(shareAvailable: boolean): string {
   return `<div id="application-menu-overlay" class="application-menu-overlay">
     <div id="application-menu" class="application-menu" role="menu"
       aria-label="Application menu" hidden>
-      <button type="button" role="menuitem"
-        data-application-action="open-library">Open Library…</button>
-      <div class="application-menu-separator" role="separator"></div>
       ${shareAvailable
         ? `<button type="button" role="menuitem" data-application-action="share">Share</button>
           <div class="application-menu-separator" role="separator"></div>`
@@ -359,8 +355,7 @@ export function bindWorkbenchShell(
     menu.querySelectorAll<HTMLElement>("[data-application-action]")
       .forEach(item => item.addEventListener("click", () => {
         const action = item.dataset.applicationAction;
-        if (action !== "open-library"
-          && action !== "share"
+        if (action !== "share"
           && action !== "settings"
           && action !== "keyboard-help") return;
         closeApplicationMenu(menuButton, menu, action === "share");
