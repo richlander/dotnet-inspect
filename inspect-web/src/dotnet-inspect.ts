@@ -2012,6 +2012,25 @@ function realignRetainedLocationIntent(
   }
 }
 
+function supersedeRetainedLocationIntentForRoutedNavigation(): void {
+  if (retainedLocationIntents.currentIntentId === null) return;
+  const routeIntent = retainedLocationIntents.admitNonBrowser(
+    "none",
+    installedRetainedLocation,
+    history,
+  );
+  const effect = retainedLocationIntents.classify(routeIntent, {
+    outcome: "applied",
+    synchronization: "current",
+    association: retainedLocationFallbackAssociation(),
+  });
+  if (!retainedLocationIntents.publish(effect, history)) {
+    throw new Error(
+      "The routed Navigation location intent was superseded before settlement.",
+    );
+  }
+}
+
 async function installRetainedWorkspacePosting(
   posting: BrowserRetainedWorkspacePosting,
   locationIntent: LocationIntentDeclaration,
@@ -2129,6 +2148,10 @@ async function installRetainedWorkspacePosting(
     association,
     ...(browserRestoration ? { browserRestoration } : {}),
   });
+  if (effect.kind === "none" && effect.reason === "stale") {
+    installedRetainedLocation = association;
+    return;
+  }
   if (!retainedLocationIntents.publish(effect, history)) {
     throw new Error(
       "The retained Workspace location intent was superseded before installation.",
@@ -13223,6 +13246,7 @@ function openProductDemos(): void {
     render();
     return;
   }
+  supersedeRetainedLocationIntentForRoutedNavigation();
   state.home = false;
   state.credits = false;
   discardPackageQueryTermEditors();
@@ -13765,6 +13789,7 @@ function goHome() {
     render();
     return;
   }
+  supersedeRetainedLocationIntentForRoutedNavigation();
   discardPackageQueryTermEditors();
   state.packageQueryOpen = false;
   state.packageActivityOpen = false;
@@ -13782,6 +13807,7 @@ function openCredits() {
     render();
     return;
   }
+  supersedeRetainedLocationIntentForRoutedNavigation();
   navigationSequence.begin();
   state.loading = false;
   discardPackageQueryTermEditors();
@@ -13915,6 +13941,7 @@ function renderDiagnosticsPage() {
 
 function openDiagnosticsRoute() {
   dismissModalsForRoutedNavigation();
+  supersedeRetainedLocationIntentForRoutedNavigation();
   navigationSequence.begin();
   packageQueryController.cancel();
   packageChangesController.cancel("disposed");
@@ -13963,6 +13990,7 @@ function replaceDiagnosticsWithHome() {
     render();
     return;
   }
+  supersedeRetainedLocationIntentForRoutedNavigation();
   discardPackageQueryTermEditors();
   state.packageQueryOpen = false;
   state.packageActivityOpen = false;
@@ -14188,6 +14216,7 @@ function openPackageQueryRoute(
 ) {
   if (!state.engineReady || state.loading || state.error) return;
   dismissModalsForRoutedNavigation();
+  supersedeRetainedLocationIntentForRoutedNavigation();
   navigationSequence.begin();
   packageQueryController.cancel();
   packageChangesController.cancel("disposed");
@@ -14233,6 +14262,7 @@ function openPackageActivityRoute(
 ) {
   if (!state.engineReady || state.loading || state.error) return;
   dismissModalsForRoutedNavigation();
+  supersedeRetainedLocationIntentForRoutedNavigation();
   navigationSequence.begin();
   packageQueryController.cancel();
   packageChangesController.cancel("superseded");

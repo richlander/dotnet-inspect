@@ -1140,7 +1140,7 @@ test("Package query and Activity are routed Spotlight actions", () => {
     /function dismissModalsForRoutedNavigation\(\) \{\s*closeGraphExplorerForNavigation\(\);\s*const dismissedAnnotatedSourceModal = dismissAnnotatedSourceModal\(false\);\s*state\.settings = false;\s*state\.keyboardHelp = false;\s*state\.explorer = null;\s*spotlight\.reset\(\);\s*sourceInspection\.clearGraphSource\(\);\s*documentInspection\.clear\(\);\s*return dismissedAnnotatedSourceModal/);
   assert.match(
     route,
-    /dismissModalsForRoutedNavigation\(\);\s*navigationSequence\.begin\(\)/);
+    /dismissModalsForRoutedNavigation\(\);\s*supersedeRetainedLocationIntentForRoutedNavigation\(\);\s*navigationSequence\.begin\(\)/);
   assert.match(
     popstate,
     /if \(isPackageQueryPath\(location\.pathname\)\) \{[\s\S]*applyPackageQueryHistory\(history\.state\)/);
@@ -1299,6 +1299,15 @@ test("browser history reuses available identities and publishes only unavailable
     history,
     /if \(bareHome\) \{\s*if \(historyWorkspaceReferenced\s*&& !managedHistoryWorkspaceAvailable\s*&& !historyWorkspaceAvailable\)/);
   assert.match(
+    appSource,
+    /function supersedeRetainedLocationIntentForRoutedNavigation\(\): void \{\s*if \(retainedLocationIntents\.currentIntentId === null\) return;[\s\S]*admitNonBrowser\(\s*"none",[\s\S]*if \(!retainedLocationIntents\.publish\(effect, history\)\)/);
+  assert.match(
+    appSource,
+    /function goHome\(\)[\s\S]*supersedeRetainedLocationIntentForRoutedNavigation\(\)[\s\S]*workspaceLocation\.push\("\/"\)/);
+  assert.match(
+    appSource,
+    /function openCredits\(\)[\s\S]*supersedeRetainedLocationIntentForRoutedNavigation\(\)[\s\S]*workspaceLocation\.push\("\/credits"\)/);
+  assert.match(
     history,
     /historyWorkspaceAvailable[\s\S]*activeDefinitionId !== null[\s\S]*activateCompatibilityRetainedWorkspace\(historyWorkspaceId, \{[\s\S]*declaration: locationIntent,[\s\S]*restoration:/);
   assert.match(
@@ -1402,6 +1411,9 @@ test("managed Saved Open keeps compact rows, packet fidelity, and focus ownershi
   assert.match(
     install,
     /browserRestoration[\s\S]*render\(\{ synchronizeUrl: false \}\);/);
+  assert.match(
+    install,
+    /effect\.kind === "none" && effect\.reason === "stale"[\s\S]*installedRetainedLocation = association;\s*return;/);
   assert.match(
     appSource,
     /async function openSavedWorkspaceEntry\([\s\S]*result\.status === "activated" \|\| result\.status === "noEffect"[\s\S]*render\(\{ synchronizeUrl: false \}\);\s*afterCurrentNavigationFrame\(focusWorkspaceOrHeading\)/);

@@ -6,6 +6,7 @@ import {
   appSource,
   functionDeclaration,
 } from "./composition-root-test-fixture.ts";
+import { createNavigationLocationIntentArbiter } from "../src/navigation-location-intent.ts";
 
 interface Deferred<T> {
   promise: Promise<T>;
@@ -78,14 +79,33 @@ function retainedWorkspaceInstallationHarness(options: {
     atPackageRoot: true,
     atLibraryRoot: false,
     loading: true,
+    home: false,
+    credits: false,
+    packageQueryOpen: false,
+    packageActivityOpen: false,
+    memberCallGraphSeq: 0,
+    memberCallGraphExpanding: false,
     error: "",
     errorTitle: "",
     errorDetail: "",
     retryAction: null,
   };
   let sequence = 1;
-  let published = 0;
   let renders = 0;
+  const historyWrites: string[] = [];
+  const routedLocations: string[] = [];
+  const history = {
+    state: {},
+    pushState(_data: unknown, _unused: string, url?: string | URL | null) {
+      historyWrites.push(String(url));
+    },
+    replaceState(_data: unknown, _unused: string, url?: string | URL | null) {
+      historyWrites.push(String(url));
+    },
+  };
+  const retainedLocationIntents = createNavigationLocationIntentArbiter();
+  const locationIntent =
+    retainedLocationIntents.admitNonBrowser("push", null, null);
   const navigationSequence = {
     current: () => sequence,
     isCurrent: (candidate: number) => candidate === sequence,
@@ -156,26 +176,41 @@ function retainedWorkspaceInstallationHarness(options: {
     withNavigationPackageDetailFailure: updateFailure,
     withNavigationPlatformDetailFailure: updateFailure,
     retainedLocationHistoryState: () => ({ definition: "definition" }),
-    retainedLocationIntents: {
-      classify: (_intent: unknown, outcome: unknown) => outcome,
-      publish: () => {
-        published += 1;
+    retainedLocationIntents,
+    retainedLocationFallbackAssociation: () => ({
+      identity: Symbol("fallback"),
+      canonicalLocation: "/incumbent",
+      historyState: {},
+    }),
+    history,
+    invalidateGraphMemberNavigation: () => {},
+    clearNavigationError: () => {},
+    clearWorkspaceRouteFailure: () => true,
+    discardPackageQueryTermEditors: () => {},
+    packageQueryController: { cancel: () => {} },
+    packageChangesController: { cancel: () => {} },
+    spotlight: { reset: () => {} },
+    workspaceLocation: {
+      push: (url: string) => {
+        routedLocations.push(url);
         return true;
       },
     },
-    history: {},
     render: () => {
       renders += 1;
     },
     posting,
-    locationIntent: {},
+    locationIntent,
     newerNavigationId,
   };
   const declarations = [
     "postRetainedWorkspace",
+    "supersedeRetainedLocationIntentForRoutedNavigation",
     "installRetainedWorkspacePosting",
     "activateRetainedPackageAction",
     "activateRetainedPlatformAction",
+    "goHome",
+    "openCredits",
   ].map(name => {
     const declaration = functionDeclaration(name);
     return appSource.slice(declaration.start, declaration.end);
@@ -188,7 +223,8 @@ function retainedWorkspaceInstallationHarness(options: {
     posting,
     activeNavigationId,
     newerNavigationId,
-    published: () => published,
+    historyWrites: () => historyWrites,
+    routedLocations: () => routedLocations,
     renders: () => renders,
     post: () => {
       runInNewContext("postRetainedWorkspace(posting)", context);
@@ -205,6 +241,12 @@ function retainedWorkspaceInstallationHarness(options: {
       "activateRetainedPlatformAction(newerNavigationId)",
       context,
     )),
+    goHome: () => {
+      runInNewContext("goHome()", context);
+    },
+    openCredits: () => {
+      runInNewContext("openCredits()", context);
+    },
   };
 }
 
@@ -239,7 +281,7 @@ test("stale initial Package detail cannot replace a newer row selection", async 
   );
   assert.equal(harness.state.loading, false);
   assert.equal(harness.context.activeWorkspaceUrl, "/workspace");
-  assert.equal(harness.published(), 1);
+  assert.deepEqual(harness.historyWrites(), ["/workspace"]);
 });
 
 test("stale initial Platform detail preserves a newer row failure", async () => {
@@ -277,7 +319,7 @@ test("stale initial Platform detail preserves a newer row failure", async () => 
   );
   assert.equal(harness.state.loading, false);
   assert.equal(harness.context.activeWorkspaceUrl, "/workspace");
-  assert.equal(harness.published(), 1);
+  assert.deepEqual(harness.historyWrites(), ["/workspace"]);
   assert.ok(harness.renders() >= 2);
 });
 
@@ -316,5 +358,44 @@ test("posting captures initial detail authority before rows become interactive",
   assert.equal(harness.state.packages.length, 1);
   assert.equal(harness.state.packages[0], newer);
   assert.equal(harness.context.activeWorkspaceUrl, "/workspace");
-  assert.equal(harness.published(), 1);
+  assert.deepEqual(harness.historyWrites(), ["/workspace"]);
 });
+
+for (const route of ["home", "credits"] as const) {
+  test(`delayed installation yields its location to newer ${route}`, async () => {
+    const initial = deferred<{ surface: TestPackage }>();
+    const postingRecord = deferred<void>();
+    const harness = retainedWorkspaceInstallationHarness({
+      activeKind: "package",
+      initial,
+      newer: () => Promise.reject(new Error("unused")),
+    });
+
+    harness.post();
+    const installation = (async () => {
+      await postingRecord.promise;
+      await harness.install();
+    })();
+    if (route === "home") harness.goHome();
+    else harness.openCredits();
+    postingRecord.resolve();
+    initial.resolve({
+      surface: {
+        id: "stale-package",
+        isRuntimePack: false,
+        source: { kind: "package" },
+      },
+    });
+    await installation;
+
+    assert.equal(harness.context.activeWorkspaceUrl, "/workspace");
+    assert.ok(harness.context.installedRetainedLocation);
+    assert.equal(harness.state.home, true);
+    assert.equal(harness.state.credits, route === "credits");
+    assert.deepEqual(
+      harness.routedLocations(),
+      [route === "home" ? "/" : "/credits"],
+    );
+    assert.deepEqual(harness.historyWrites(), []);
+  });
+}
