@@ -516,6 +516,11 @@ export interface BrowserRetainedWorkspacePackageInventory {
   readonly summary: BrowserRetainedWorkspaceSurfaceSummary;
 }
 
+export interface BrowserRetainedWorkspacePackageSourceCredential {
+  readonly username: string;
+  readonly pat: string;
+}
+
 export interface BrowserRetainedWorkspacePlatform {
   readonly navigationId: string;
   readonly contextIndex: number;
@@ -1158,8 +1163,8 @@ export async function activateRetainedWorkspaceDefinition(retainedDefinitionId: 
   return $parsed as BrowserRetainedWorkspaceActivationResult;
 }
 
-export async function activateRetainedWorkspaceDefinitionWithCredentials(retainedDefinitionId: string, label: string, canonicalLocation: string, canonicalPacket: string, packageSourceCredentialsJson: string): Promise<BrowserRetainedWorkspaceActivationResult> {
-  const $result = await $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Catalog"]["CatalogExports"]["ActivateRetainedWorkspaceDefinitionWithCredentials.1330709314"](retainedDefinitionId, label, canonicalLocation, canonicalPacket, packageSourceCredentialsJson);
+export async function activateRetainedWorkspaceDefinitionWithCredentials(retainedDefinitionId: string, label: string, canonicalLocation: string, canonicalPacket: string, packageSourceCredentialsJson: Readonly<Record<string, BrowserRetainedWorkspacePackageSourceCredential>>): Promise<BrowserRetainedWorkspaceActivationResult> {
+  const $result = await $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Catalog"]["CatalogExports"]["ActivateRetainedWorkspaceDefinitionWithCredentials.1330709314"](retainedDefinitionId, label, canonicalLocation, canonicalPacket, $serializeJsonInput(packageSourceCredentialsJson, "DotnetInspect.Web.Interop.Catalog.CatalogExports.ActivateRetainedWorkspaceDefinitionWithCredentials.1330709314", "packageSourceCredentialsJson"));
   const $parsed: unknown = JSON.parse($result);
   return $parsed as BrowserRetainedWorkspaceActivationResult;
 }
@@ -1260,8 +1265,8 @@ export async function prepareRetainedWorkspaceDefinition(retainedDefinitionId: s
   return $parsed as BrowserRetainedWorkspacePreparationResult;
 }
 
-export async function prepareRetainedWorkspaceDefinitionWithCredentials(retainedDefinitionId: string, label: string, canonicalLocation: string, canonicalPacket: string, packageSourceCredentialsJson: string): Promise<BrowserRetainedWorkspacePreparationResult> {
-  const $result = await $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Catalog"]["CatalogExports"]["PrepareRetainedWorkspaceDefinitionWithCredentials.1330709314"](retainedDefinitionId, label, canonicalLocation, canonicalPacket, packageSourceCredentialsJson);
+export async function prepareRetainedWorkspaceDefinitionWithCredentials(retainedDefinitionId: string, label: string, canonicalLocation: string, canonicalPacket: string, packageSourceCredentialsJson: Readonly<Record<string, BrowserRetainedWorkspacePackageSourceCredential>>): Promise<BrowserRetainedWorkspacePreparationResult> {
+  const $result = await $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Catalog"]["CatalogExports"]["PrepareRetainedWorkspaceDefinitionWithCredentials.1330709314"](retainedDefinitionId, label, canonicalLocation, canonicalPacket, $serializeJsonInput(packageSourceCredentialsJson, "DotnetInspect.Web.Interop.Catalog.CatalogExports.PrepareRetainedWorkspaceDefinitionWithCredentials.1330709314", "packageSourceCredentialsJson"));
   const $parsed: unknown = JSON.parse($result);
   return $parsed as BrowserRetainedWorkspacePreparationResult;
 }

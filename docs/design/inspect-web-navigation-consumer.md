@@ -630,12 +630,12 @@ Package query's `/query` route is a full-bleed routed surface under
 Back/Forward and focus-restoration classification. This UI owns the entry and
 return specifics beyond that classification. Browser Back and Forward own
 entry and return. Entry from Search returns focus to Search when it remains
-rendered; entry from the application-scope strip returns focus to its Query
-control. Either path falls back to the prior surface's level-one heading. The
-route's visible `Back` action invokes the same history transition, falling back
-to Home only when the route was loaded without an in-app predecessor. Each
-query history entry carries its own predecessor identity and focus target in
-session-only history state, so a later query route cannot change an older
+rendered; entry from the product-navigation menu returns focus to the brand
+trigger. Either path falls back to the prior surface's level-one heading. The
+route's visible `Back` action invokes the same history transition, falling
+back to Home only when the route was loaded without an in-app predecessor.
+Each query history entry carries its own predecessor identity and focus target
+in session-only history state, so a later query route cannot change an older
 entry's Back behavior.
 
 Selecting Query without a new seed restores the current session request,
@@ -661,9 +661,9 @@ failure semantics are owned by
 
 Package Activity's `/activity` route follows the same full-bleed
 Back/Forward, predecessor-identity, and proportional focus-restoration pattern.
-Entry from Search returns focus to Search; entry from the application-scope
-strip returns focus to its Activity control. The visible `Back` action falls
-back to Home only when the route was loaded without an in-app predecessor.
+Entry from Search returns focus to Search; entry from the product-navigation
+menu returns focus to the brand trigger. The visible `Back` action falls back
+to Home only when the route was loaded without an in-app predecessor.
 
 Selecting Activity restores the current session request, admitted rows,
 failures, progress, and typed completion state. Leaving `/activity`, route

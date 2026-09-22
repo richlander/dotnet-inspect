@@ -612,7 +612,7 @@ numbers rather than converting malformed data into an empty or partial result.
 
 Page consumers await formerly synchronous managed behavior. Workspace packet
 encoding and decoding, demo resolution, Spotlight ranking, package-cache
-statistics, application-scope selection, Workspace occurrence clearing, saved
+statistics, product-destination selection, Workspace occurrence clearing, saved
 Workspace capture and restoration, and navigation publication all retain their
 own stale-result and transaction authority. Occurrence clear is a barrier for
 following occurrence queries and activation. Initial Workspace publication

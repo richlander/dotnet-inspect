@@ -341,7 +341,6 @@ import {
   captureScopeBarFocus,
   createScopeBarState,
   focusRenderedElement,
-  renderApplicationScopeBar,
   renderScopeBar as renderScopeBarPure,
   restoreScopeBarFocus,
   type ScopeBarBinding,
@@ -449,7 +448,11 @@ import {
   type StyleOption,
   type StyleTier,
 } from "./settings-panel.ts";
-import { renderBrand } from "./brand.ts";
+import {
+  bindProductNavigation,
+  renderBrand,
+  type ProductDestination,
+} from "./brand.ts";
 import {
   DEFAULT_PLATFORM_FRAMEWORK, isExactPlatformPruningFramework,
   loadPlatformIndex, parsePlatformCatalogTarget,
@@ -3798,6 +3801,11 @@ function requireElement(selector: string): HTMLElement {
 }
 
 const app = requireElement("#app");
+bindProductNavigation(app, {
+  currentDestination: currentProductDestination,
+  onNavigate: navigateProductDestination,
+  unavailableReason: productNavigationUnavailableReason,
+});
 const graphExplorer = createGraphExplorer(document);
 let graphExplorerNavigationFocusPending = false;
 let graphExplorerOriginKey: string | null = null;
@@ -3820,6 +3828,7 @@ let callGraphRenderOperation: {
 } | null = null;
 let spotlightFocusGeneration = 0;
 let documentFocusGeneration = 0;
+let workspaceProductFocusParkingActive = false;
 let contentFramePane: ContentFramePane = "detail";
 let contentFrameFocusOwner: ContentFrameFocusOwner = null;
 interface ContentFrameReplacementAuthority {
@@ -4148,6 +4157,11 @@ function renderPreservingContentFrameFocus() {
 
 function trackContentFrameFocus(event: FocusEvent) {
   documentFocusGeneration++;
+  if (workspaceProductFocusParkingActive
+    && document.activeElement !== app) {
+    workspaceProductFocusParkingActive = false;
+    app.removeAttribute("tabindex");
+  }
   contentFrameReplacementAuthority = null;
   const focused = event.target instanceof HTMLElement ? event.target : null;
   contentFrameFocusOwner = contentFrameFocusOwnerFor(focused);
@@ -6319,8 +6333,8 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
     pendingHomeFocusTarget ?? captureHomeFocus(focusedElement);
   contentFrameFocusOwner = null;
   contentFrameReplacementAuthority = null;
-  const scopeBarOwnsFocus = focusedElement
-    ?.closest("[data-scope-bar], [data-application-scope-strip]") != null;
+  const scopeBarOwnsFocus =
+    focusedElement?.closest("[data-scope-bar]") != null;
   const scopeBarFocus = focusedElement
     ? captureScopeBarFocus(focusedElement)
     : null;
@@ -6638,10 +6652,6 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
   app.innerHTML = `
     <div class="workbench"${state.memberAnnotatedModal || applicationModalOpen ? " inert" : ""}>
       ${workbenchShellHtml({
-        applicationScopeHtml: renderApplicationScopeBar(
-          activeScope === "workspace" ? "workspace" : null,
-          true,
-          escapeHtml),
         contextualActionsHtml: !loadingPackageContent && (annotatedPageContext || sourcePageKind || callGraphPageContext || packageDependenciesWorkingSurface || metadataWorkingSurface)
           ? `<div class="working-surface-actions" role="group" aria-label="${metadataWorkingSurface ? "Type graph actions" : packageDependenciesWorkingSurface ? "Dependency graph actions" : callGraphPageContext ? "Call graph actions" : annotatedPageContext ? "Annotated Source actions" : sourcePageKind ? "Source actions" : "Member actions"}">
               ${metadataWorkingSurface
@@ -6697,9 +6707,7 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
 
       <main id="subject-panel" class="workspace${contentFrameEnabled ? " content-frame" : ""}"
         ${contentFrameEnabled ? `data-content-pane="${contentFramePane}"` : ""}
-        ${activeScope === "workspace"
-          ? 'role="tabpanel" aria-labelledby="application-scope-workspace"'
-          : ""}>
+        >
         ${renderNavPane(current, visible)}
 
         <section class="detail-pane${contentFrameEnabled
@@ -6851,10 +6859,6 @@ function renderWorkspaceCatalogView() {
   app.innerHTML = `
     <div class="workbench"${state.settings || state.keyboardHelp || state.libraryOpen ? " inert" : ""}>
       ${workbenchShellHtml({
-        applicationScopeHtml: renderApplicationScopeBar(
-          "workspace",
-          true,
-          escapeHtml),
         inspectedTargetHtml: `
           <div class="inspected-target" aria-label="Inspected target">
             <span class="subject-icon" aria-hidden="true">W</span>
@@ -6870,7 +6874,7 @@ function renderWorkspaceCatalogView() {
       <div class="notice-stack">
         ${renderQueryNotice()}
       </div>
-      <main id="subject-panel" class="workspace" role="tabpanel" aria-labelledby="application-scope-workspace">
+      <main id="subject-panel" class="workspace">
         ${renderWorkspaceNavPane()}
         <section class="detail-pane">
           <article id="inspector-panel" class="detail-scroll">
@@ -9850,20 +9854,6 @@ function bindTypePanelEvents() {
 
 function bindScopeBarEvents() {
   scopeBarBinding = bindScopeBar(document, {
-    onApplicationScopeSelect: applicationScope => {
-      if (applicationScope === "query") {
-        openPackageQueryRoute("", {
-          preserveState: true,
-          returnFocus: "application-query",
-        });
-      } else if (applicationScope === "activity") {
-        openPackageActivityRoute("application-activity");
-      } else if (scope() !== "workspace") {
-        observeAsync(
-          selectWorkspaceApplicationScope(),
-          "Opening the Workspace scope");
-      }
-    },
     onMemberSectionSelect: section => {
       contentFramePane = "detail";
       applyMemberSection(section);
@@ -10990,7 +10980,6 @@ function renderPlatformView() {
   const idle = { loading: false, error: "" };
   app.innerHTML = `<div class="workbench"${state.settings || state.keyboardHelp || state.libraryOpen ? " inert" : ""}>
     ${workbenchShellHtml({
-      applicationScopeHtml: renderApplicationScopeBar(null, true, escapeHtml),
       inspectedTargetHtml: `<div class="inspected-target"><span class="subject-icon" aria-hidden="true">.NET</span><div class="subject-path">${renderInspectedSubjectPath(currentInspectedSubjectPath())}</div></div>`,
       subjectInspectorHtml: renderScopeBar(["platform"]),
       titleNavigationHtml: renderTitleNavigation(navigationHistory.canBack(), navigationHistory.canForward()),
@@ -13764,18 +13753,40 @@ function failWorkspaceCatalogAction(
 // Return to the intro/home page without tearing down the warm engine or the loaded packages.
 // Soft in-app navigation (pushState "/") so a refresh stays on home and Back returns to the
 // workbench; the home search reuses the still-resident package list.
-function goHome() {
-  navigationSequence.begin();
+function goHome(): boolean {
+  if (!clearWorkspaceRouteFailure()) {
+    render();
+    return false;
+  }
+  const navigationSeq = navigationSequence.begin();
+  const initiatingFocusGeneration = documentFocusGeneration;
+  try {
+    supersedeRetainedLocationIntentForRoutedNavigation();
+  } catch (error) {
+    reportProductNavigationFailure(
+      "home",
+      error,
+      navigationSeq,
+      initiatingFocusGeneration,
+      true,
+    );
+    return false;
+  }
+  if (!workspaceLocation.push("/")) {
+    reportProductNavigationFailure(
+      "home",
+      new Error("Browser history could not be updated."),
+      navigationSeq,
+      initiatingFocusGeneration,
+      true,
+    );
+    return false;
+  }
   state.loading = false;
   state.memberCallGraphSeq++;
   state.memberCallGraphExpanding = false;
   invalidateGraphMemberNavigation();
   clearNavigationError();
-  if (!clearWorkspaceRouteFailure()) {
-    render();
-    return;
-  }
-  supersedeRetainedLocationIntentForRoutedNavigation();
   discardPackageQueryTermEditors();
   state.packageQueryOpen = false;
   state.packageActivityOpen = false;
@@ -13784,8 +13795,96 @@ function goHome() {
   state.credits = false;
   state.home = true;
   spotlight.reset();
-  workspaceLocation.push("/");
   render();
+  return true;
+}
+
+function currentProductDestination(): ProductDestination | null {
+  if (isDiagnosticsPath(location.pathname)
+    || isProductHomeDemosPath(location.pathname)
+    || state.credits) return null;
+  if (state.packageQueryOpen) return "query";
+  if (state.packageActivityOpen) return "activity";
+  if (state.workspaceSubjectOpen && !state.home) return "workspace";
+  if (state.home && !state.credits) return "home";
+  return null;
+}
+
+function productNavigationUnavailableReason(
+  destination: ProductDestination,
+): string | null {
+  if (destination === "workspace"
+    && state.package === null
+    && state.platformSelection === null) {
+    return "No workspace is open";
+  }
+  if (destination !== "query" && destination !== "activity") return null;
+  if (!state.engineReady) return "Available after runtime startup completes";
+  if (state.loading) return "Available after the current inspection loads";
+  if (state.error) return "Available after the current inspection error is resolved";
+  return null;
+}
+
+function focusProductNavigationButton(): void {
+  document.querySelector<HTMLElement>("[data-product-navigation-button]")
+    ?.focus({ preventScroll: true });
+}
+
+function productNavigationOwnsFocus(): boolean {
+  return document.activeElement instanceof Element
+    && (document.activeElement.closest("[data-product-navigation-button]")
+        !== null
+      || document.activeElement.closest("[data-product-navigation-menu]")
+        !== null);
+}
+
+function navigateProductDestination(destination: ProductDestination): void {
+  if (destination === currentProductDestination()) {
+    focusProductNavigationButton();
+    return;
+  }
+  if (destination === "home") {
+    if (goHome()) {
+      afterCurrentNavigationFrame(() => focusLevelOneHeading());
+    }
+    return;
+  }
+  if (destination === "query") {
+    openPackageQueryRoute("", {
+      preserveState: true,
+      returnFocus: "application-query",
+    });
+    return;
+  }
+  if (destination === "activity") {
+    openPackageActivityRoute("application-activity");
+    return;
+  }
+  observeAsync(
+    openWorkspaceProductDestination().then(completion => {
+      if (completion === null) return undefined;
+      requestAnimationFrame(() => {
+        const releaseFocusParking = () => {
+          if (completion.focusGeneration === null) return;
+          if (document.activeElement === app) {
+            return;
+          }
+          workspaceProductFocusParkingActive = false;
+          app.removeAttribute("tabindex");
+        };
+        if (!navigationSequence.isCurrent(completion.navigationSeq)
+          || completion.focusGeneration === null
+          || !completion.restoreDestinationFocus
+          || completion.focusGeneration !== documentFocusGeneration) {
+          releaseFocusParking();
+          return;
+        }
+        focusWorkspaceOrHeading();
+        releaseFocusParking();
+      });
+      return undefined;
+    }),
+    "Opening the Workspace destination");
 }
 
 function openCredits() {
@@ -13883,15 +13982,30 @@ function diagnosticsBuildState(): DiagnosticsBuildState {
 }
 
 function renderDiagnosticsPage() {
-  const activeId = document.activeElement?.id;
+  const activeElement = document.activeElement;
+  const activeId = activeElement?.id;
+  const productNavigationFocused = Boolean(
+    activeElement?.closest("[data-product-navigation-menu]"));
+  const diagnosticsFocusWillBeReplaced =
+    productNavigationFocused
+    || activeId === "diagnostics-heading"
+    || activeId === "diagnostics-product"
+    || activeId === "diagnostics-commit"
+    || activeId === "diagnostics-back";
   const focusTargetId = diagnosticsHeadingFocusPending
     || activeId === "diagnostics-heading"
     ? "diagnostics-heading"
-    : activeId === "diagnostics-product"
+    : productNavigationFocused
+      ? "diagnostics-product"
+      : activeId === "diagnostics-product"
       || activeId === "diagnostics-commit"
       || activeId === "diagnostics-back"
       ? activeId
       : null;
+  if (diagnosticsFocusWillBeReplaced) {
+    app.tabIndex = -1;
+    app.focus({ preventScroll: true });
+  }
   state.diagnosticsCapturedAtUtc ??= new Date().toISOString();
   document.title = "Diagnostics · dotnet-inspect";
   app.innerHTML = diagnosticsViewHtml({
@@ -13902,25 +14016,33 @@ function renderDiagnosticsPage() {
   }, value => escapeHtml(value));
   bindDiagnosticsView(document, {
     onBack: closeDiagnosticsRoute,
-    onHome: openDiagnosticsHome,
   });
   if (focusTargetId) {
     const focusGeneration = documentFocusGeneration;
     requestAnimationFrame(() => {
+      const releaseFocusParking = () => {
+        if (diagnosticsFocusWillBeReplaced) {
+          app.removeAttribute("tabindex");
+        }
+      };
       if (!isDiagnosticsPath(location.pathname)) {
         diagnosticsHeadingFocusPending = false;
+        releaseFocusParking();
         return;
       }
       if (focusGeneration !== documentFocusGeneration) {
         diagnosticsHeadingFocusPending = false;
+        releaseFocusParking();
         return;
       }
       if (focusTargetId === "diagnostics-heading") {
         diagnosticsHeadingFocusPending = false;
         focusLevelOneHeading();
+        releaseFocusParking();
         return;
       }
       document.getElementById(focusTargetId)?.focus({ preventScroll: true });
+      releaseFocusParking();
     });
   }
 }
@@ -13958,11 +14080,6 @@ function closeDiagnosticsRoute() {
     return;
   }
   replaceDiagnosticsWithHome();
-}
-
-function openDiagnosticsHome() {
-  diagnosticsDestinationFocusPending = true;
-  goHome();
 }
 
 function replaceDiagnosticsWithHome() {
@@ -14004,6 +14121,12 @@ function focusPackageActivityInput() {
       if (document.activeElement === packageSet) return;
     }
     focusLevelOneHeading();
+  });
+}
+
+function afterNavigationFrame(navigationSeq: number, action: () => void) {
+  requestAnimationFrame(() => {
+    if (navigationSequence.isCurrent(navigationSeq)) action();
   });
 }
 
@@ -14072,9 +14195,8 @@ function restorePackageQueryReturnFocus() {
   if (!state.packageQueryReturnFocusPending) return;
   if (state.packageQueryReturnFocus === "application-query") {
     afterCurrentNavigationFrame(() => {
-      const queryScope = document.querySelector<HTMLElement>(
-        '[data-application-scope="query"]');
-      if (focusRenderedElement(queryScope)) {
+      if (focusRenderedElement(document.querySelector<HTMLElement>(
+        "[data-product-navigation-button]"))) {
         state.packageQueryReturnFocus = null;
         state.packageQueryReturnFocusPending = false;
       } else if (focusLevelOneHeading()) {
@@ -14101,9 +14223,8 @@ function restorePackageActivityReturnFocus() {
   if (state.packageActivityReturnFocus === "application-activity") {
     afterCurrentNavigationFrame(() => {
       afterCurrentNavigationFrame(() => {
-        const activityScope = document.querySelector<HTMLElement>(
-          '[data-application-scope="activity"]');
-        if (focusRenderedElement(activityScope) || focusLevelOneHeading()) {
+        if (focusRenderedElement(document.querySelector<HTMLElement>(
+          "[data-product-navigation-button]")) || focusLevelOneHeading()) {
           state.packageActivityReturnFocus = null;
           state.packageActivityReturnFocusPending = false;
         }
@@ -14199,11 +14320,42 @@ function openPackageQueryRoute(
     preserveState?: boolean;
     returnFocus?: PackageQueryReturnFocus;
   } = {},
-) {
-  if (!state.engineReady || state.loading || state.error) return;
+): boolean {
+  if (!state.engineReady || state.loading || state.error) return false;
+  const returnFocus: PackageQueryReturnFocus = options.returnFocus
+    ?? (state.home ? "home-search" : "package-search");
+  const navigationSeq = navigationSequence.begin();
+  const initiatingFocusGeneration = documentFocusGeneration;
+  try {
+    supersedeRetainedLocationIntentForRoutedNavigation();
+  } catch (error) {
+    reportProductNavigationFailure(
+      "query",
+      error,
+      navigationSeq,
+      initiatingFocusGeneration,
+      returnFocus === "application-query",
+    );
+    return false;
+  }
+  const predecessorEntryId = ensureCurrentHistoryEntryId();
+  const successorState = predecessorEntryId
+    ? packageQueryHistoryState(
+        null,
+        crypto.randomUUID(),
+        { predecessorEntryId, returnFocus })
+    : null;
+  if (!workspaceLocation.push("/query", successorState)) {
+    reportProductNavigationFailure(
+      "query",
+      new Error("Browser history could not be updated."),
+      navigationSeq,
+      initiatingFocusGeneration,
+      returnFocus === "application-query",
+    );
+    return false;
+  }
   dismissModalsForRoutedNavigation();
-  supersedeRetainedLocationIntentForRoutedNavigation();
-  navigationSequence.begin();
   packageQueryController.cancel();
   packageChangesController.cancel("disposed");
   packageQueryHandoffNavigationSeq = null;
@@ -14215,9 +14367,6 @@ function openPackageQueryRoute(
     state.packageQueryPrefix = validPackageQuerySearchText(seed);
   }
   state.packageQueryNavigationError = "";
-  const returnFocus: PackageQueryReturnFocus = options.returnFocus
-    ?? (state.home ? "home-search" : "package-search");
-  const predecessorEntryId = ensureCurrentHistoryEntryId();
   if (predecessorEntryId) {
     state.packageQueryOpenedFromApp = true;
     state.packageQueryPredecessorEntryId = predecessorEntryId;
@@ -14230,119 +14379,224 @@ function openPackageQueryRoute(
   state.packageActivityOpen = false;
   state.credits = false;
   state.home = false;
-  workspaceLocation.push(
-    "/query",
-    predecessorEntryId
-      ? packageQueryHistoryState(
-          null,
-          crypto.randomUUID(),
-          { predecessorEntryId, returnFocus })
-      : null);
   render();
   focusPackageQueryInput();
+  return true;
 }
 
 function openPackageActivityRoute(
   returnFocus: PackageActivityReturnFocus =
   state.home ? "home-search" : "package-search",
-) {
-  if (!state.engineReady || state.loading || state.error) return;
+): boolean {
+  if (!state.engineReady || state.loading || state.error) return false;
+  const navigationSeq = navigationSequence.begin();
+  const initiatingFocusGeneration = documentFocusGeneration;
+  try {
+    supersedeRetainedLocationIntentForRoutedNavigation();
+  } catch (error) {
+    reportProductNavigationFailure(
+      "activity",
+      error,
+      navigationSeq,
+      initiatingFocusGeneration,
+      returnFocus === "application-activity",
+    );
+    return false;
+  }
+  const predecessorEntryId = ensureCurrentHistoryEntryId();
+  const successorState = predecessorEntryId
+    ? packageActivityHistoryState(
+        null,
+        crypto.randomUUID(),
+        { predecessorEntryId, returnFocus })
+    : null;
+  if (!workspaceLocation.push(PACKAGE_ACTIVITY_PATH, successorState)) {
+    reportProductNavigationFailure(
+      "activity",
+      new Error("Browser history could not be updated."),
+      navigationSeq,
+      initiatingFocusGeneration,
+      returnFocus === "application-activity",
+    );
+    return false;
+  }
   dismissModalsForRoutedNavigation();
-  supersedeRetainedLocationIntentForRoutedNavigation();
-  navigationSequence.begin();
   packageQueryController.cancel();
   packageChangesController.cancel("superseded");
   discardPackageQueryTermEditors();
-  const predecessorEntryId = ensureCurrentHistoryEntryId();
   if (predecessorEntryId) {
-  state.packageActivityOpenedFromApp = true;
-  state.packageActivityPredecessorEntryId = predecessorEntryId;
-  state.packageActivityReturnFocus = returnFocus;
-  state.packageActivityReturnFocusPending = false;
+    state.packageActivityOpenedFromApp = true;
+    state.packageActivityPredecessorEntryId = predecessorEntryId;
+    state.packageActivityReturnFocus = returnFocus;
+    state.packageActivityReturnFocusPending = false;
   } else {
-  applyPackageActivityHistory(null);
+    applyPackageActivityHistory(null);
   }
   state.packageQueryOpen = false;
   state.packageActivityOpen = true;
   state.credits = false;
   state.home = false;
-  workspaceLocation.push(
-  PACKAGE_ACTIVITY_PATH,
-  predecessorEntryId
-    ? packageActivityHistoryState(
-        null,
-        crypto.randomUUID(),
-        { predecessorEntryId, returnFocus })
-    : null);
   render();
   focusPackageActivityInput();
+  return true;
 }
 
-async function selectWorkspaceApplicationScope() {
-  const pkg = state.package;
-  if (!pkg) {
-    if (state.platformSelection) {
-      const navigationSeq = navigationSequence.begin();
-      const focusGeneration = documentFocusGeneration;
-      let destination: URL;
-      try {
-        const snapshot = captureWorkspaceUrlState();
-        if (!snapshot) throw new Error("The Platform workspace is unavailable.");
-        destination = await workspaceLocation.build({
-          ...snapshot,
-          subject: "workspace",
-        });
-      } catch (error) {
-        if (navigationSequence.isCurrent(navigationSeq)) {
-          showToast(`Opening Workspace failed: ${errorMessage(error)}`);
-        }
-        return;
-      }
-      if (!navigationSequence.isCurrent(navigationSeq)) return;
-      if (!workspaceLocation.push(destination.toString())) {
-        showToast("Opening Workspace failed: browser history could not be updated.");
-        return;
-      }
-      // Retire any maintenance projection captured from the predecessor.
-      syncUrlRevision++;
-      const restoreDestinationFocus = focusGeneration === documentFocusGeneration;
-      state.workspaceSubjectOpen = true;
-      state.atPackageRoot = true;
-      state.atLibraryRoot = false;
-      activeWorkspaceUrl = destination.toString();
-      render({ synchronizeUrl: false });
-      if (restoreDestinationFocus) focusWorkspaceOrHeading();
-    }
-    return;
+function reportProductNavigationFailure(
+  destination: ProductDestination,
+  error: unknown,
+  navigationSeq: number,
+  initiatingFocusGeneration: number,
+  restoreProductNavigationFocus: boolean,
+): void {
+  const label = destination[0]!.toUpperCase() + destination.slice(1);
+  console.error(`Opening ${label} failed.`, error);
+  const message =
+    `Opening ${label} failed: ${errorMessage(error) || "Unknown error."}`;
+  const restoreInvokerFocus =
+    restoreProductNavigationFocus
+    && initiatingFocusGeneration === documentFocusGeneration;
+  if (state.packageQueryOpen) {
+    state.packageQueryNavigationError = message;
+  } else {
+    appendQueryNotice(message);
   }
+  render();
+  showToast(message);
+  if (!restoreInvokerFocus) return;
+  const focusGeneration = documentFocusGeneration;
+  afterNavigationFrame(navigationSeq, () => {
+    if (focusGeneration === documentFocusGeneration) {
+      focusProductNavigationButton();
+    }
+  });
+}
+
+async function openWorkspaceProductDestination(): Promise<{
+  readonly navigationSeq: number;
+  readonly focusGeneration: number | null;
+  readonly restoreDestinationFocus: boolean;
+} | null> {
+  const pkg = state.package;
+  if (!pkg && !state.platformSelection) return null;
+  const fallbackPackage = pkg?.source.kind === "platform" ? null : pkg;
+
+  dismissModalsForRoutedNavigation();
   const navigationSeq = navigationSequence.begin();
+  const initiatingFocusGeneration = documentFocusGeneration;
+  const routeState = {
+    packageQueryOpen: state.packageQueryOpen,
+    packageActivityOpen: state.packageActivityOpen,
+    credits: state.credits,
+    home: state.home,
+    workspaceSubjectOpen: state.workspaceSubjectOpen,
+    atPackageRoot: state.atPackageRoot,
+    atLibraryRoot: state.atLibraryRoot,
+    selectedMemberKey: state.selectedMemberKey,
+    memberBrowseTypeId: state.memberBrowseTypeId,
+    selectedOverloadIndex: state.selectedOverloadIndex,
+  };
+  state.packageQueryOpen = false;
+  state.packageActivityOpen = false;
+  state.credits = false;
+  state.home = false;
   state.workspaceSubjectOpen = true;
   state.atPackageRoot = true;
   state.atLibraryRoot = false;
   state.selectedMemberKey = "";
   state.memberBrowseTypeId = "";
   state.selectedOverloadIndex = null;
-  const projected = await buildStateUrl();
-  if (!navigationSequence.isCurrent(navigationSeq)) return;
+  const projection = buildStateUrl();
+  Object.assign(state, routeState);
+
+  let projected: URL | null = null;
+  let projectionError: unknown = null;
+  try {
+    projected = await projection;
+  } catch (error) {
+    projectionError = error;
+  }
+  if (!navigationSequence.isCurrent(navigationSeq)) return null;
+  if (!fallbackPackage && projectionError !== null) {
+    reportProductNavigationFailure(
+      "workspace",
+      projectionError,
+      navigationSeq,
+      initiatingFocusGeneration,
+      true,
+    );
+    return null;
+  }
+
   const successor = resolvePackageQueryWorkspaceSuccessor(
-    () => projected,
     () => {
+      if (projectionError !== null) {
+        throw projectionError instanceof Error
+          ? projectionError
+          : new Error(
+            errorMessage(projectionError) || "Workspace URL encoding failed.");
+      }
+      if (!projected) throw new Error("Workspace URL projection did not complete.");
+      return projected;
+    },
+    () => {
+      if (!fallbackPackage) {
+        throw new Error("Package Workspace fallback is unavailable.");
+      }
       const fallback = buildPackageRootStateUrl(location.href, {
-        package: pkg.id,
-        version: pkg.version,
-        framework: pkg.activeFramework,
+        package: fallbackPackage.id,
+        version: fallbackPackage.version,
+        framework: fallbackPackage.activeFramework,
         lens: state.packageLens,
       });
       fallback.hash = "workspace";
       return fallback;
     });
+  if (!workspaceLocation.push(successor.url.toString())) {
+    reportProductNavigationFailure(
+      "workspace",
+      new Error("Browser history could not be updated."),
+      navigationSeq,
+      initiatingFocusGeneration,
+      true,
+    );
+    return null;
+  }
+
+  discardPackageQueryTermEditors();
+  state.packageQueryOpen = false;
+  state.packageActivityOpen = false;
+  packageQueryController.cancel();
+  packageChangesController.cancel("disposed");
+  state.packageQueryNavigationError = "";
+  state.credits = false;
+  state.home = false;
+  spotlight.reset();
+
+  state.workspaceSubjectOpen = true;
+  state.atPackageRoot = true;
+  state.atLibraryRoot = false;
+  state.selectedMemberKey = "";
+  state.memberBrowseTypeId = "";
+  state.selectedOverloadIndex = null;
   if (!successor.projected) {
     appendQueryNotice(
       `Workspace opened, but its complete state could not be saved in the address bar: ${errorMessage(successor.projectionError)
         || "workspace URL encoding failed."}`);
   }
-  workspaceLocation.push(successor.url.toString());
+  const restoreDestinationFocus =
+    initiatingFocusGeneration === documentFocusGeneration
+    && document.activeElement instanceof Element
+    && document.activeElement.closest("[data-product-navigation-button]")
+      !== null;
+  let focusGeneration: number | null = null;
+  if (productNavigationOwnsFocus()) {
+    workspaceProductFocusParkingActive = true;
+    app.tabIndex = -1;
+    app.focus({ preventScroll: true });
+    focusGeneration = documentFocusGeneration;
+  }
   render();
+  return { navigationSeq, focusGeneration, restoreDestinationFocus };
 }
 
 function closePackageQueryRoute() {

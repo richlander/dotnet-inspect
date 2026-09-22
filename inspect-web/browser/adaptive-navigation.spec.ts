@@ -139,7 +139,7 @@ test("adaptive navigation selects deterministic mixed and dual Chooser forms", a
     element.scrollWidth <= element.clientWidth)).toBe(true);
 });
 
-test("application scopes yield before complete navigation falls back", async ({
+test("product navigation remains available while complete navigation fits", async ({
   page,
 }) => {
   await page.goto("/browser/workspace-titlebar.html?member=1");
@@ -150,7 +150,7 @@ test("application scopes yield before complete navigation falls back", async ({
       subject: "tabs",
       inspector: "tabs",
     });
-    await expect(page.locator(".application-scope-region")).toBeHidden();
+    await expect(page.locator(".brand")).toBeVisible();
   }
 
   await page.setViewportSize({ width: 1440, height: 900 });
@@ -158,22 +158,22 @@ test("application scopes yield before complete navigation falls back", async ({
     subject: "tabs",
     inspector: "tabs",
   });
-  await expect(page.locator(".application-scope-region")).toBeVisible();
+  await expect(page.locator(".brand")).toBeVisible();
 });
 
-test("application scopes yield before a subject-only group falls back", async ({
+test("product navigation remains available when a subject-only group falls back", async ({
   page,
 }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.goto("/browser/workspace-titlebar.html?workspace=1");
-  await expect(page.locator(".application-scope-region")).toBeVisible();
+  await expect(page.locator(".brand")).toBeVisible();
   await expect.poll(() => forms(page)).toEqual({
     subject: "tabs",
     inspector: null,
   });
 
   await page.setViewportSize({ width: 260, height: 900 });
-  await expect(page.locator(".application-scope-region")).toBeHidden();
+  await expect(page.locator(".brand")).toBeVisible();
   await expect.poll(() => forms(page)).toEqual({
     subject: "chooser",
     inspector: null,
@@ -508,9 +508,8 @@ test("Workspace with no committed subject uses an honest focus origin", async ({
   const packageTab = page.getByRole("tab", { name: "Package" });
   await expect(packageTab).toBeFocused();
   await expect(packageTab).toHaveAttribute("aria-selected", "false");
-  await expect(page.locator("#subject-panel")).toHaveAttribute(
-    "aria-labelledby",
-    "application-scope-workspace");
+  await expect(page.locator("#subject-panel"))
+    .not.toHaveAttribute("aria-labelledby");
 });
 
 test("Chooser keeps a disabled owner-ordered item open on activation", async ({

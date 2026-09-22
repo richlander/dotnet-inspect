@@ -1,6 +1,7 @@
 import { expect, test, type Page } from "@playwright/test";
 import {
   installLibraryUploadFacades,
+  openProductDestination,
   releaseFacade,
   root,
   subjectTab,
@@ -259,7 +260,7 @@ test("successful upload is excluded from retained Workspace restoration", async 
   await expect(page.locator(".inspected-target"))
     .toContainText("Other.Package");
 
-  await page.locator('[data-application-scope="workspace"]').click();
+  await openProductDestination(page, "workspace");
   await page.locator('[data-workspace-switch="workspace-1"]').click();
 
   await expect(page.getByText("Browser upload", { exact: true }))
@@ -309,10 +310,7 @@ test("failed Package open restores the uploaded Library", async ({ page }) => {
   await expect(page.getByText("Browser upload", { exact: true }))
     .toBeVisible();
 
-  await page.getByRole(
-    "button",
-    { name: "Search", exact: true },
-  ).click();
+  await page.getByRole("button", { name: /Search/ }).click();
   await page.locator("#spotlight-input")
     .fill("Other.Package@1.0.1");
   await page.locator('[data-sl-pkg-load="Other.Package"]').click();
