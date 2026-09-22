@@ -417,4 +417,32 @@ public static class AssemblyReader
             return 0;
         }
     }
+
+    /// <summary>
+    /// Counts the compact public API Type inventory when image-local metadata is sufficient.
+    /// Returns null if the file cannot be read or has no admitted managed metadata.
+    /// </summary>
+    public static ApiTypeInventoryCountResult? CountApiTypeInventory(
+        string dllPath)
+    {
+        try
+        {
+            return OwnedResourceCleanup.ReadAdmittedPeImage<
+                ApiTypeInventoryCountResult?>(
+                    () => File.OpenRead(dllPath),
+                    ApiSurfaceExtractor.CountSummaryTypes,
+                    noMetadataResult: null);
+        }
+        catch (Exception ex)
+            when (ex is not UnsupportedMetadataFormatException
+                and not MalformedMetadataRootException
+                and (IOException
+                    or UnauthorizedAccessException
+                    or BadImageFormatException
+                    or OverflowException
+                    or ArgumentException))
+        {
+            return null;
+        }
+    }
 }

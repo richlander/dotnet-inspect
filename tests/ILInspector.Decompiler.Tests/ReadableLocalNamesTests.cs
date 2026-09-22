@@ -54,6 +54,113 @@ public class ReadableLocalNamesTests
     }
 
     [Fact]
+    public void DeclarationPlan_AllocatesEveryPresentationTier()
+    {
+        IrFunction exactFunction = StringLocalFunction();
+        exactFunction.LocalNames = ["source"];
+        PlannedLocalBinding exact = Assert.Single(
+            LocalDeclarationPlan.Create(exactFunction, 1).Bindings);
+        Assert.Equal("source", exact.Identifier);
+        Assert.Equal(LocalBindingNameProvenance.Exact, exact.Provenance);
+        Assert.Equal(
+            ExactLocalNameDisposition.Preserved,
+            exact.ExactDisposition);
+
+        IrFunction approximateFunction = StringLocalFunction();
+        approximateFunction.PdbLocalNameCandidates = ["value"];
+        PlannedLocalBinding approximate = Assert.Single(
+            LocalDeclarationPlan.Create(
+                approximateFunction,
+                1,
+                new PrinterOptions { ApproximatePdbLocalNames = true },
+                ["value"]).Bindings);
+        Assert.Equal("value_1", approximate.Identifier);
+        Assert.Equal("value", approximate.PreferredIdentifier);
+        Assert.Equal(
+            LocalBindingNameProvenance.ApproximatePdb,
+            approximate.Provenance);
+
+        IrFunction synthesizedFunction = StringLocalFunction();
+        synthesizedFunction.SynthesizedLocalNames = ["result"];
+        PlannedLocalBinding synthesized = Assert.Single(
+            LocalDeclarationPlan.Create(synthesizedFunction, 1).Bindings);
+        Assert.Equal("result", synthesized.Identifier);
+        Assert.Equal(
+            LocalBindingNameProvenance.Synthesized,
+            synthesized.Provenance);
+
+        PlannedLocalBinding readable = Assert.Single(
+            LocalDeclarationPlan.Create(
+                StringLocalFunction(),
+                1,
+                new PrinterOptions { ReadableLocalNames = true }).Bindings);
+        Assert.Equal("text", readable.Identifier);
+        Assert.Equal(
+            LocalBindingNameProvenance.Readable,
+            readable.Provenance);
+
+        PlannedLocalBinding fallback = Assert.Single(
+            LocalDeclarationPlan.Create(StringLocalFunction(), 1).Bindings);
+        Assert.Equal("V_0", fallback.Identifier);
+        Assert.Equal(
+            LocalBindingNameProvenance.SlotFallback,
+            fallback.Provenance);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void DeclarationPlan_AllocatesNestedCallableBindings(
+        bool localFunction)
+    {
+        IrNode scope = localFunction
+            ? new LocalFunctionStatement(
+                "Inner",
+                Void,
+                [],
+                isStatic: true,
+                [String],
+                [],
+                usesUpdatedMemorySafetyRules: false,
+                skipLocalsInit: false,
+                Body(
+                    new StoreLocal(
+                        0,
+                        String,
+                        new Constant("hi", String))))
+                {
+                    PdbLocalNameCandidates = ["value"],
+                }
+            : new Lambda(
+                TypeRef.CoreLib("System", "Action"),
+                [],
+                [String],
+                [],
+                usesUpdatedMemorySafetyRules: false,
+                skipLocalsInit: false,
+                Body(
+                    new StoreLocal(
+                        0,
+                        String,
+                        new Constant("hi", String))))
+                {
+                    PdbLocalNameCandidates = ["value"],
+                };
+
+        PlannedLocalBinding binding = Assert.Single(
+            LocalDeclarationPlan.Create(
+                scope,
+                1,
+                new PrinterOptions { ApproximatePdbLocalNames = true },
+                ["value"]).Bindings);
+
+        Assert.Equal("value_1", binding.Identifier);
+        Assert.Equal(
+            LocalBindingNameProvenance.ApproximatePdb,
+            binding.Provenance);
+    }
+
+    [Fact]
     public void ApproximatePdbMode_ResolvesCollisionWithoutDisplacingParameter()
     {
         var block = new Block(0);
@@ -155,6 +262,16 @@ public class ReadableLocalNamesTests
         var body = new BlockContainer();
         body.Add(block);
         return new IrFunction("M", Holder, new MethodSignature(returnType, [], HasThis: false, GenericParameterCount: 0), [.. locals], body);
+    }
+
+    static BlockContainer Body(params IrNode[] statements)
+    {
+        var block = new Block(0);
+        foreach (var statement in statements)
+            block.Add(statement);
+        var body = new BlockContainer();
+        body.Add(block);
+        return body;
     }
 
     static DecompilerFidelityCause ScopedNameUnavailable(

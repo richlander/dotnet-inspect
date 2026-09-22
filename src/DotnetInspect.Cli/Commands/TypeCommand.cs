@@ -325,6 +325,15 @@ public static class TypeCommand
                         options.TypeName))
             {
                 // No type specified - list all types
+                if (loadedSurface is null
+                    && TryExecuteMetadataTypeCount(
+                        source,
+                        options)
+                    is int countExitCode)
+                {
+                    return countExitCode;
+                }
+
                 var loaded = loadedSurface
                     ?? ApiServices.LoadTypeApi(
                         source,
@@ -1777,6 +1786,60 @@ public static class TypeCommand
                         "Unknown inspection diagnostic severity.");
             }
         }
+    }
+
+    private static int? TryExecuteMetadataTypeCount(
+        ApiSourceResult source,
+        TypeOptions options)
+    {
+        if (!options.Count
+            || !string.Equals(
+                source.ApiSource,
+                SourceKind.Platform,
+                StringComparison.Ordinal)
+            || source.RuntimeAssemblyPath is null
+            || options.IncludeAll
+            || options.TypeFilter is not null
+            || options.KindFilter.Count > 0
+            || options.UnsafeOnly
+            || options.TypeListingRowSelection is not null
+            || options.Limit.HasValue
+            || options.Rows is not null
+            || options.Columns is { Length: > 0 }
+            || options.Fields is { Length: > 0 }
+            || options.EffectiveDiscovery
+            || options.EnvelopeOutput
+            || options.PerformanceTriage.HasFilters
+            || options.BodyKindQuery.HasFilter
+            || options.CloneCandidateQuery.HasPredicates
+            || options.IncludeSections
+                is not { Count: 1 } sections)
+        {
+            return null;
+        }
+
+        ApiTypeInventoryKind? kind = sections.Single() switch
+        {
+            SectionNames.Classes => ApiTypeInventoryKind.Class,
+            SectionNames.Structs => ApiTypeInventoryKind.Struct,
+            SectionNames.Interfaces =>
+                ApiTypeInventoryKind.Interface,
+            SectionNames.Enums => ApiTypeInventoryKind.Enum,
+            SectionNames.Delegates =>
+                ApiTypeInventoryKind.Delegate,
+            _ => null,
+        };
+        if (kind is null)
+            return null;
+
+        if (ApiServices.CountTypeListing(source)
+            is not ApiTypeInventoryCountResult.Counted counted)
+        {
+            return null;
+        }
+
+        CountOutput.WriteCount(counted.Count.Count(kind.Value));
+        return 0;
     }
 
     private static bool CanUsePlatformSummary(

@@ -190,9 +190,7 @@ nested bodies, and supplies the emitted scopes consumed by exact-name
 allocation. Existing output behavior remains covered by
 `PdbLocalNameScopeTests`, `PdbLocalScopeFidelityTests`,
 `NestedScopeNameCollisionTests`, `ReadableLocalNamesTests`, and
-`ByteNeutralityGateTests`. Completing final approximate, synthesized, and
-fallback allocation as one closed plan remains **unverified** until later
-adoption slices.
+`ByteNeutralityGateTests`.
 
 An eventual claim that no semantic declaration or local-name decision remains
 in the printer is a composition absence claim. Before making it, the operator
@@ -237,6 +235,19 @@ function planning. It does not repeat the projection's reaching assignment,
 address-use, scope-entry, storage, or collision proof. Those admission and
 refusal boundaries remain owned by
 [Decompiler name and symbol preservation](decompiler-symbol-preservation.md).
+
+The plan also issues the final binding for every retained materialized local.
+It applies the established exact, approximate PDB, pass-synthesized, readable,
+and stable slot-fallback precedence; records the winning provenance, exact-name
+disposition, and preferred stem; and carries the explicit presentation options
+used for that render. `CSharpPrinter` now spells that binding and lowers
+approximate provenance into the existing Applied Taste decision. It no longer
+allocates materialized-local names or collision suffixes. Residual stack-slot
+and printer-generated helper names remain on their separately owned paths.
+`ReadableLocalNamesTests`, `NestedScopeNameCollisionTests`,
+`PdbLocalNameScopeTests`, and `LambdaRaisingPassTests` gate the plan and its
+method, raised-lambda, raised-local-function, disclosure, and collision
+consumers.
 
 ## Pathological case
 

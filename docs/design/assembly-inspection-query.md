@@ -1573,6 +1573,41 @@ project-to-binary provenance, or choose presentation. The vocabulary and
 cross-layer composition of those later answers remain owned by
 [`memory-safety-models.md`](memory-safety-models.md).
 
+## Compact Type-inventory cardinality
+
+Metadata owns one selective exact Count capability for the compact public Type
+inventory. `ApiSurfaceExtractor.CountSummaryTypes` walks the same public,
+non-compiler-generated, non-hidden Type population and the same compact member
+admission used by `ExtractSummary`, but retains no `ApiType` or `ApiMember`
+rows. A successful `ApiTypeInventoryCount` carries the module MVID and exact
+Class, Struct, Interface, Enum, and Delegate counts, so the scalar remains
+bound to the inspected image rather than becoming an independently minted
+integer.
+
+The capability returns `Declined`, never zero or a partial Count, when
+image-local metadata is insufficient. A missing MVID cannot bind the witness;
+Type forwarders require assembly resolution; malformed Type identity, generic
+parameter ordering, kind, or compact member evidence requires the existing
+evidence-bearing extraction path. Decline permits a caller to fall back before
+accepting execution and does not change the population.
+
+The first production adopter is deliberately narrower than the Metadata API:
+the `type` command accepts this Count only for an installed Platform image, one
+explicit Type-kind section, and no filter, row selection, limit, field/column
+projection, or other plan that changes membership. Every other topology uses
+the materialized path. This slice establishes neither a public `MoveNext`
+contract nor random access; Rows remain a separate terminal until multiple
+inventories demonstrate the same lower-layer cursor boundary.
+
+`CountSummaryTypes_MatchesCompactInventory`,
+`CountSummaryTypes_MatchesCoreLibraryFullSurface`,
+`CountSummaryTypes_CyclicTypeDeclinesWithoutPartialCount`,
+`SummaryAndCount_InvalidGenericParameterOrderReject`,
+`CountSummaryTypes_MissingMvidDeclines`,
+`CountSummaryTypes_DeclinesTypeForwarders`, and
+`Type_ListingKindCount_MatchesMetadataInventory` gate the accepted population,
+snapshot binding, pathological decline, and CLI adoption.
+
 ## The sibling seam: method-body / coordinate inspection
 
 Assembly-level inspection is only half the surface. The other half is **method-body /
