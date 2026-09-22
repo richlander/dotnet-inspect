@@ -68,6 +68,12 @@ public class MetricSectionTests
         Assert.Contains(
             "logical owners",
             result.Output);
+        Assert.Contains(
+            result.Output.Split('\n'),
+            line => line.Contains(
+                    "ScopedAsyncAllocationHotspotLambdaOwner()",
+                    StringComparison.Ordinal)
+                && line.Contains("MoveNext()", StringComparison.Ordinal));
     }
 
     [Fact]

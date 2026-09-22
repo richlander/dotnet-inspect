@@ -1128,10 +1128,16 @@ public class LibraryInspectionView
                 TextPolicy.Field,
                 string.Join(
                     "; ",
-                    bodies.Select(static body =>
-                        MarkoutInline.Code(
-                            LibraryMetadataService.FormatMethod(
-                                body.EvidenceMethod)))));
+                    bodies.Select(FormatMaximumBodyText)));
+
+    private static string FormatMaximumBodyText(
+        LibraryStructuralExtremeBody body) =>
+        "logical owner "
+        + MarkoutInline.Code(
+            LibraryMetadataService.FormatMethod(body.LogicalOwner))
+        + " evidence "
+        + MarkoutInline.Code(
+            LibraryMetadataService.FormatMethod(body.EvidenceMethod));
 
     private static string? FormatReasonCounts(
         IReadOnlyCollection<LibraryStructuralReasonCount> counts) =>
