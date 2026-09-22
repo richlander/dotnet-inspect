@@ -280,7 +280,9 @@ internal static class PlatformTypeCatalogRouting
         PlatformTypeCatalogQueryOutcome full =
             PlatformTypeCatalogQuery.Execute(
                 catalog,
-                target,
+                PlatformTypeCatalogQuery.ResolvePattern(
+                    target,
+                    cancellationToken),
                 cancellationToken);
         switch (full)
         {
@@ -323,7 +325,9 @@ internal static class PlatformTypeCatalogRouting
             PlatformTypeCatalogQueryOutcome prefix =
                 PlatformTypeCatalogQuery.Execute(
                     catalog,
-                    target[..index],
+                    PlatformTypeCatalogQuery.ResolvePattern(
+                        target[..index],
+                        cancellationToken),
                     cancellationToken);
             switch (prefix)
             {
