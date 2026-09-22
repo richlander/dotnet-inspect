@@ -30,6 +30,7 @@ public sealed class IrFunction : IrNode
     public TypeRef DeclaringType { get; }
     public string? AssemblyPath { get; set; }
     public int MetadataToken { get; set; }
+    internal MetadataMethodAddress? SourceMethodAddress { get; init; }
     public TypeRef? BaseType { get; set; }
     public MethodSignature Signature { get; }
     internal Parameter? ReceiverParameter { get; }
