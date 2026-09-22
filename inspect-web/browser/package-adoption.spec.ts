@@ -903,6 +903,32 @@ function deferred<T>(): Deferred<T> {
   return { promise, resolve: complete };
 }
 
+test("product navigation discloses startup-dependent destinations", async ({
+  context,
+  page,
+}) => {
+  await context.route("**/*.wasm", () => {});
+  await page.goto("/");
+  await expect(page.locator(".home-search.engine-pending")).toBeVisible();
+  const historyLength = await page.evaluate(() => history.length);
+
+  await page.locator("[data-product-navigation-button]").click();
+  for (const destination of ["query", "activity"] as const) {
+    const item = page.locator(
+      `[data-product-destination="${destination}"]`);
+    await expect(item).toHaveAttribute("aria-disabled", "true");
+    await expect(item).toHaveAccessibleDescription(
+      "Available after runtime startup completes");
+    await item.focus();
+    await page.keyboard.press("Enter");
+    await expect(page).toHaveURL("http://127.0.0.1:4187/");
+    await expect(page.locator(".home-title")).toBeVisible();
+    await expect(page.locator("[data-product-navigation-menu]")).toBeVisible();
+    await expect(item).toBeFocused();
+    expect(await page.evaluate(() => history.length)).toBe(historyLength);
+  }
+});
+
 test.describe("Package Query website over real Wasm", () => {
   test("qualifies package Results by decoded library literal and opens the exact Root", async ({
     page,

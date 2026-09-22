@@ -13,7 +13,7 @@ export type ProductDestination = "home" | "query" | "workspace" | "activity";
 export interface ProductNavigationActions {
   currentDestination: () => ProductDestination | null;
   onNavigate: (destination: ProductDestination) => void;
-  workspaceAvailable: () => boolean;
+  unavailableReason: (destination: ProductDestination) => string | null;
 }
 
 export interface ProductNavigationBinding {
@@ -121,12 +121,11 @@ function synchronizeProductNavigation(
     if (!isProductDestination(destination)) continue;
     if (destination === current) item.setAttribute("aria-current", "page");
     else item.removeAttribute("aria-current");
-    const workspaceUnavailable =
-      destination === "workspace" && !actions.workspaceAvailable();
-    if (workspaceUnavailable) {
+    const unavailableReason = actions.unavailableReason(destination);
+    if (unavailableReason !== null) {
       item.setAttribute("aria-disabled", "true");
-      item.setAttribute("aria-description", "No workspace is open");
-      item.title = "No workspace is open";
+      item.setAttribute("aria-description", unavailableReason);
+      item.title = unavailableReason;
     } else {
       item.removeAttribute("aria-disabled");
       item.removeAttribute("aria-description");

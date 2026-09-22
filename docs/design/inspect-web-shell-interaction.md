@@ -198,8 +198,12 @@ popover containing Home, Query, Workspace, and Activity in that order. The
 current routed destination is marked with `aria-current="page"`; ordinary
 inspection has no falsely selected destination. Workspace remains visible but
 is `aria-disabled` with an accessible reason when no Workspace is available.
-It remains in managed Arrow-key focus so keyboard and assistive-technology
-users can discover that reason, while activation has no effect.
+Query and Activity likewise remain visible but are `aria-disabled` with an
+accessible reason while runtime startup, inspection loading, or an inspection
+error prevents their route handlers from entering those destinations.
+Unavailable items remain in managed Arrow-key focus so keyboard and
+assistive-technology users can discover the reason, while activation has no
+effect.
 
 The product-navigation popover is viewport-constrained and renders above the
 shell without reflowing or clipping the Subject and Inspector region. Down or

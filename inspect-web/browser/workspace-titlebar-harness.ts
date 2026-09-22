@@ -1013,7 +1013,7 @@ bindProductNavigation(appRoot, {
   onNavigate: destination => {
     document.body.dataset.productDestination = destination;
   },
-  workspaceAvailable: () => true,
+  unavailableReason: () => null,
 });
 
 function setApplicationDialog(

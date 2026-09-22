@@ -62,6 +62,40 @@ test("rejected Platform Workspace history retains the catalog", async ({ page })
   await expect(page.locator("[data-product-navigation-button]")).toBeFocused();
 });
 
+for (const [destination, label] of [
+  ["home", "Home"],
+  ["query", "Query"],
+  ["activity", "Activity"],
+] as const) {
+  test(`rejected Platform ${label} history retains the catalog`, async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await openPlatform(page);
+    const catalogLocation = page.url();
+    const historyLength = await page.evaluate(() => history.length);
+    const predecessor = await currentWorkspaceHistoryState(page);
+    await page.evaluate(() => {
+      history.pushState = () => {
+        throw new DOMException("Fixture history rejection.", "SecurityError");
+      };
+    });
+
+    await openProductDestination(page, destination);
+
+    await expect(page.locator('.toast[role="status"]'))
+      .toContainText(
+        `Opening ${label} failed: Browser history could not be updated.`);
+    await expect(page).toHaveURL(catalogLocation);
+    await expect(subjectTab(page, "platform"))
+      .toHaveAttribute("aria-selected", "true");
+    expect(await page.evaluate(() => history.length)).toBe(historyLength);
+    expect(await currentWorkspaceHistoryState(page)).toEqual(predecessor);
+    await expect(page.locator("[data-product-navigation-button]"))
+      .toBeFocused();
+  });
+}
+
 test("pending Platform Workspace entry retains the catalog and newer Search focus", async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
   await openPlatform(page);

@@ -3804,7 +3804,7 @@ const app = requireElement("#app");
 bindProductNavigation(app, {
   currentDestination: currentProductDestination,
   onNavigate: navigateProductDestination,
-  workspaceAvailable: productWorkspaceAvailable,
+  unavailableReason: productNavigationUnavailableReason,
 });
 const graphExplorer = createGraphExplorer(document);
 let graphExplorerNavigationFocusPending = false;
@@ -13753,18 +13753,40 @@ function failWorkspaceCatalogAction(
 // Return to the intro/home page without tearing down the warm engine or the loaded packages.
 // Soft in-app navigation (pushState "/") so a refresh stays on home and Back returns to the
 // workbench; the home search reuses the still-resident package list.
-function goHome() {
-  navigationSequence.begin();
+function goHome(): boolean {
+  if (!clearWorkspaceRouteFailure()) {
+    render();
+    return false;
+  }
+  const navigationSeq = navigationSequence.begin();
+  const initiatingFocusGeneration = documentFocusGeneration;
+  try {
+    supersedeRetainedLocationIntentForRoutedNavigation();
+  } catch (error) {
+    reportProductNavigationFailure(
+      "home",
+      error,
+      navigationSeq,
+      initiatingFocusGeneration,
+      true,
+    );
+    return false;
+  }
+  if (!workspaceLocation.push("/")) {
+    reportProductNavigationFailure(
+      "home",
+      new Error("Browser history could not be updated."),
+      navigationSeq,
+      initiatingFocusGeneration,
+      true,
+    );
+    return false;
+  }
   state.loading = false;
   state.memberCallGraphSeq++;
   state.memberCallGraphExpanding = false;
   invalidateGraphMemberNavigation();
   clearNavigationError();
-  if (!clearWorkspaceRouteFailure()) {
-    render();
-    return;
-  }
-  supersedeRetainedLocationIntentForRoutedNavigation();
   discardPackageQueryTermEditors();
   state.packageQueryOpen = false;
   state.packageActivityOpen = false;
@@ -13773,8 +13795,8 @@ function goHome() {
   state.credits = false;
   state.home = true;
   spotlight.reset();
-  workspaceLocation.push("/");
   render();
+  return true;
 }
 
 function currentProductDestination(): ProductDestination | null {
@@ -13788,9 +13810,19 @@ function currentProductDestination(): ProductDestination | null {
   return null;
 }
 
-function productWorkspaceAvailable(): boolean {
-  return state.package !== null
-    || state.platformSelection !== null;
+function productNavigationUnavailableReason(
+  destination: ProductDestination,
+): string | null {
+  if (destination === "workspace"
+    && state.package === null
+    && state.platformSelection === null) {
+    return "No workspace is open";
+  }
+  if (destination !== "query" && destination !== "activity") return null;
+  if (!state.engineReady) return "Available after runtime startup completes";
+  if (state.loading) return "Available after the current inspection loads";
+  if (state.error) return "Available after the current inspection error is resolved";
+  return null;
 }
 
 function focusProductNavigationButton(): void {
@@ -13812,8 +13844,9 @@ function navigateProductDestination(destination: ProductDestination): void {
     return;
   }
   if (destination === "home") {
-    goHome();
-    afterCurrentNavigationFrame(() => focusLevelOneHeading());
+    if (goHome()) {
+      afterCurrentNavigationFrame(() => focusLevelOneHeading());
+    }
     return;
   }
   if (destination === "query") {
@@ -14287,11 +14320,42 @@ function openPackageQueryRoute(
     preserveState?: boolean;
     returnFocus?: PackageQueryReturnFocus;
   } = {},
-) {
-  if (!state.engineReady || state.loading || state.error) return;
+): boolean {
+  if (!state.engineReady || state.loading || state.error) return false;
+  const returnFocus: PackageQueryReturnFocus = options.returnFocus
+    ?? (state.home ? "home-search" : "package-search");
+  const navigationSeq = navigationSequence.begin();
+  const initiatingFocusGeneration = documentFocusGeneration;
+  try {
+    supersedeRetainedLocationIntentForRoutedNavigation();
+  } catch (error) {
+    reportProductNavigationFailure(
+      "query",
+      error,
+      navigationSeq,
+      initiatingFocusGeneration,
+      returnFocus === "application-query",
+    );
+    return false;
+  }
+  const predecessorEntryId = ensureCurrentHistoryEntryId();
+  const successorState = predecessorEntryId
+    ? packageQueryHistoryState(
+        null,
+        crypto.randomUUID(),
+        { predecessorEntryId, returnFocus })
+    : null;
+  if (!workspaceLocation.push("/query", successorState)) {
+    reportProductNavigationFailure(
+      "query",
+      new Error("Browser history could not be updated."),
+      navigationSeq,
+      initiatingFocusGeneration,
+      returnFocus === "application-query",
+    );
+    return false;
+  }
   dismissModalsForRoutedNavigation();
-  supersedeRetainedLocationIntentForRoutedNavigation();
-  navigationSequence.begin();
   packageQueryController.cancel();
   packageChangesController.cancel("disposed");
   packageQueryHandoffNavigationSeq = null;
@@ -14303,9 +14367,6 @@ function openPackageQueryRoute(
     state.packageQueryPrefix = validPackageQuerySearchText(seed);
   }
   state.packageQueryNavigationError = "";
-  const returnFocus: PackageQueryReturnFocus = options.returnFocus
-    ?? (state.home ? "home-search" : "package-search");
-  const predecessorEntryId = ensureCurrentHistoryEntryId();
   if (predecessorEntryId) {
     state.packageQueryOpenedFromApp = true;
     state.packageQueryPredecessorEntryId = predecessorEntryId;
@@ -14318,64 +14379,82 @@ function openPackageQueryRoute(
   state.packageActivityOpen = false;
   state.credits = false;
   state.home = false;
-  workspaceLocation.push(
-    "/query",
-    predecessorEntryId
-      ? packageQueryHistoryState(
-          null,
-          crypto.randomUUID(),
-          { predecessorEntryId, returnFocus })
-      : null);
   render();
   focusPackageQueryInput();
+  return true;
 }
 
 function openPackageActivityRoute(
   returnFocus: PackageActivityReturnFocus =
   state.home ? "home-search" : "package-search",
-) {
-  if (!state.engineReady || state.loading || state.error) return;
+): boolean {
+  if (!state.engineReady || state.loading || state.error) return false;
+  const navigationSeq = navigationSequence.begin();
+  const initiatingFocusGeneration = documentFocusGeneration;
+  try {
+    supersedeRetainedLocationIntentForRoutedNavigation();
+  } catch (error) {
+    reportProductNavigationFailure(
+      "activity",
+      error,
+      navigationSeq,
+      initiatingFocusGeneration,
+      returnFocus === "application-activity",
+    );
+    return false;
+  }
+  const predecessorEntryId = ensureCurrentHistoryEntryId();
+  const successorState = predecessorEntryId
+    ? packageActivityHistoryState(
+        null,
+        crypto.randomUUID(),
+        { predecessorEntryId, returnFocus })
+    : null;
+  if (!workspaceLocation.push(PACKAGE_ACTIVITY_PATH, successorState)) {
+    reportProductNavigationFailure(
+      "activity",
+      new Error("Browser history could not be updated."),
+      navigationSeq,
+      initiatingFocusGeneration,
+      returnFocus === "application-activity",
+    );
+    return false;
+  }
   dismissModalsForRoutedNavigation();
-  supersedeRetainedLocationIntentForRoutedNavigation();
-  navigationSequence.begin();
   packageQueryController.cancel();
   packageChangesController.cancel("superseded");
   discardPackageQueryTermEditors();
-  const predecessorEntryId = ensureCurrentHistoryEntryId();
   if (predecessorEntryId) {
-  state.packageActivityOpenedFromApp = true;
-  state.packageActivityPredecessorEntryId = predecessorEntryId;
-  state.packageActivityReturnFocus = returnFocus;
-  state.packageActivityReturnFocusPending = false;
+    state.packageActivityOpenedFromApp = true;
+    state.packageActivityPredecessorEntryId = predecessorEntryId;
+    state.packageActivityReturnFocus = returnFocus;
+    state.packageActivityReturnFocusPending = false;
   } else {
-  applyPackageActivityHistory(null);
+    applyPackageActivityHistory(null);
   }
   state.packageQueryOpen = false;
   state.packageActivityOpen = true;
   state.credits = false;
   state.home = false;
-  workspaceLocation.push(
-  PACKAGE_ACTIVITY_PATH,
-  predecessorEntryId
-    ? packageActivityHistoryState(
-        null,
-        crypto.randomUUID(),
-        { predecessorEntryId, returnFocus })
-    : null);
   render();
   focusPackageActivityInput();
+  return true;
 }
 
-function reportWorkspaceProductNavigationFailure(
+function reportProductNavigationFailure(
+  destination: ProductDestination,
   error: unknown,
   navigationSeq: number,
   initiatingFocusGeneration: number,
+  restoreProductNavigationFocus: boolean,
 ): void {
-  console.error("Opening Workspace failed.", error);
+  const label = destination[0]!.toUpperCase() + destination.slice(1);
+  console.error(`Opening ${label} failed.`, error);
   const message =
-    `Opening Workspace failed: ${errorMessage(error) || "Unknown error."}`;
+    `Opening ${label} failed: ${errorMessage(error) || "Unknown error."}`;
   const restoreInvokerFocus =
-    initiatingFocusGeneration === documentFocusGeneration;
+    restoreProductNavigationFocus
+    && initiatingFocusGeneration === documentFocusGeneration;
   if (state.packageQueryOpen) {
     state.packageQueryNavigationError = message;
   } else {
@@ -14438,10 +14517,12 @@ async function openWorkspaceProductDestination(): Promise<{
   }
   if (!navigationSequence.isCurrent(navigationSeq)) return null;
   if (!fallbackPackage && projectionError !== null) {
-    reportWorkspaceProductNavigationFailure(
+    reportProductNavigationFailure(
+      "workspace",
       projectionError,
       navigationSeq,
       initiatingFocusGeneration,
+      true,
     );
     return null;
   }
@@ -14471,10 +14552,12 @@ async function openWorkspaceProductDestination(): Promise<{
       return fallback;
     });
   if (!workspaceLocation.push(successor.url.toString())) {
-    reportWorkspaceProductNavigationFailure(
+    reportProductNavigationFailure(
+      "workspace",
       new Error("Browser history could not be updated."),
       navigationSeq,
       initiatingFocusGeneration,
+      true,
     );
     return null;
   }
