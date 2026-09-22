@@ -1796,10 +1796,7 @@ public partial class LibraryCommand
     private static bool RejectSingleLibraryInfoCardinality(
         LibraryOptions options)
     {
-        if (string.Equals(
-                options.Tfm,
-                "all",
-                StringComparison.OrdinalIgnoreCase)
+        if (IsAllTfmPackageSelection(options)
             || options.IncludeSections is not { Count: 1 }
                 sections
             || !sections.Contains(SectionNames.LibraryInfo))

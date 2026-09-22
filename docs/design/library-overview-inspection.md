@@ -327,6 +327,9 @@ The complete initial operation adoption has six owner-scoped steps:
    before acquisition while preserving `-n` rendered-line clipping. Reject
    package, Platform, Workspace, and NuGet-source controls that cannot affect
    this direct-file-only envelope path rather than silently ignoring them.
+   Only the actual package-backed all-TFM operation retains its independently
+   declared aggregate cardinality; raw `--tfm all` text does not reclassify an
+   exact direct or Platform Library.
 4. Adopt the same operation for the PackageHouse CLI route.
 5. Adopt the same operation for the PlatformHouse CLI route.
 6. Consume the same envelope in Inspect Web's Library overview, then retire

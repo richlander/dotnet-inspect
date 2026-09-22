@@ -357,6 +357,27 @@ public partial class CommandExecutionTests
             "1",
             "--tips",
             "q");
+        var countWithAllTfm = await RunAppAsync(
+            "library",
+            "missing-library-info-count-all.dll",
+            "--tfm",
+            "all",
+            "-S",
+            SectionNames.LibraryInfo,
+            "--count",
+            "--tips",
+            "q");
+        var rowsWithAllTfm = await RunAppAsync(
+            "library",
+            "missing-library-info-rows-all.dll",
+            "--tfm",
+            "all",
+            "-S",
+            SectionNames.LibraryInfo,
+            "--rows",
+            "1",
+            "--tips",
+            "q");
 
         Assert.Equal(1, count.Exit);
         Assert.Empty(count.Output);
@@ -387,6 +408,24 @@ public partial class CommandExecutionTests
             "does not exist",
             rows.Error,
             StringComparison.Ordinal);
+
+        foreach (var result in new[]
+        {
+            countWithAllTfm,
+            rowsWithAllTfm,
+        })
+        {
+            Assert.Equal(1, result.Exit);
+            Assert.Empty(result.Output);
+            Assert.Contains(
+                "is scalar and does not support",
+                result.Error,
+                StringComparison.Ordinal);
+            Assert.DoesNotContain(
+                "does not exist",
+                result.Error,
+                StringComparison.Ordinal);
+        }
     }
 
     [Fact]
