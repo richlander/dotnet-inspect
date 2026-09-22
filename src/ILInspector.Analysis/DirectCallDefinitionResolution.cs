@@ -362,26 +362,6 @@ public static class DirectCallDefinitionResolver
             cancellationToken);
 
     internal static DirectCallDefinitionResolutionOutcome
-        ResolveCandidates(
-            IAssemblyBindingPolicy bindingPolicy,
-            IEnumerable<CatalogCallGraphParticipant> participants,
-            IDirectCallDefinitionCandidateSelector candidateSelector,
-            DirectCallDefinitionResolutionLimits? limits = null,
-            TypeResolutionContextOptions? options = null,
-            CancellationToken cancellationToken = default)
-    {
-        ArgumentNullException.ThrowIfNull(candidateSelector);
-        return ResolveCore(
-            bindingPolicy,
-            participants,
-            limits,
-            options,
-            extension: null,
-            candidateSelector,
-            cancellationToken);
-    }
-
-    internal static DirectCallDefinitionResolutionOutcome
         ResolveWithGenerationExtension(
             IAssemblyBindingPolicy bindingPolicy,
             IEnumerable<CatalogCallGraphParticipant> participants,

@@ -53,23 +53,18 @@ public static class ResourceEffectResolver
         ArgumentNullException.ThrowIfNull(participants);
         ImmutableArray<CatalogCallGraphParticipant> population =
             participants.ToImmutableArray();
+        ResourceEffectInterfaceApplicationLimits effectiveInterfaceLimits =
+            interfaceLimits
+                ?? new ResourceEffectInterfaceApplicationLimits();
         var extension =
             new ResourceEffectInterfaceApplicationExtension(
                 admission,
-                interfaceLimits
-                    ?? new ResourceEffectInterfaceApplicationLimits());
+                effectiveInterfaceLimits);
         var candidateSelector =
-            new ResourceEffectDirectCallCandidateSelector(admission);
-        DirectCallDefinitionResolutionOutcome provisional =
-            DirectCallDefinitionResolver.ResolveCandidates(
+            new ResourceEffectDirectCallCandidateSelector(
+                admission,
                 bindingPolicy,
-                population,
-                candidateSelector,
-                directCallLimits,
-                options,
-                cancellationToken);
-        candidateSelector.IncludePotentialInterfaceImplementations(
-            provisional);
+                effectiveInterfaceLimits.MaxMethodImplementations);
         DirectCallDefinitionResolutionOutcome directCalls =
             DirectCallDefinitionResolver.ResolveWithGenerationExtension(
                 bindingPolicy,

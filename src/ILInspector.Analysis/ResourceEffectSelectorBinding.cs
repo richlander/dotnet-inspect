@@ -445,7 +445,24 @@ public static class ResourceEffectSelectorBinder
 
     internal static bool CouldMatchInterfaceImplementation(
         ResourceEffectMemberSelector selector,
-        MemberRef member)
+        MemberRef member) =>
+        CouldMatchInterfaceImplementation(
+            selector,
+            member,
+            allowAnyName: false);
+
+    internal static bool CouldMatchInterfaceImplementationBodyShape(
+        ResourceEffectMemberSelector selector,
+        MemberRef member) =>
+        CouldMatchInterfaceImplementation(
+            selector,
+            member,
+            allowAnyName: true);
+
+    static bool CouldMatchInterfaceImplementation(
+        ResourceEffectMemberSelector selector,
+        MemberRef member,
+        bool allowAnyName)
     {
         if (selector.Kind
                 is ResourceEffectMemberKind.Field
@@ -458,21 +475,12 @@ public static class ResourceEffectSelectorBinder
         }
         if (member.Kind == MemberKind.Unsupported)
             return true;
-        if (selector.GenericArity != member.GenericArity
-            || selector.HasThis != member.HasThis
-            || selector.ExplicitThis
-                != ((member.SignatureHeader & ExplicitThis) != 0)
-            || !ParameterCountsCouldMatch(
-                selector.CallingConvention,
-                selector.Parameters.Length,
-                member))
-        {
-            return false;
-        }
-        ResourceEffectCallingConvention? callingConvention =
-            CallingConvention(member.SignatureHeader);
-        if (callingConvention is not null
-            && callingConvention != selector.CallingConvention)
+        if (!MemberShapeCouldMatch(
+                selector,
+                allowAnyName
+                    ? member with { Name = selector.MetadataName }
+                    : member,
+                allowExplicitInterfaceName: !allowAnyName))
         {
             return false;
         }

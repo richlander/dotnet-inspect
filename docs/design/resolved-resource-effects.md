@@ -286,12 +286,14 @@ member facts and exact retained target-definition facts:
 - direct candidates preserve the existing metadata name, declaring-type,
   member-kind, staticness, generic-arity, calling-convention, and parameter-
   count prefilter;
-- a provisional direct-candidate resolution may prove that a selector's exact
-  declaring type is not an interface for that participant registration; the
-  provisional occurrence generation is discarded and every published
-  occurrence is reissued against the final generation;
-- possible interface-implementation candidates preserve instance member and
-  signature shapes unless that participant-scoped proof excludes them; and
+- possible implicit interface implementations preserve the selected member
+  name and instance signature shape;
+- a name-disjoint local MethodDef remains a candidate exactly when the
+  participant's bounded MethodImpl census names its token as a body;
+- a name-disjoint external member remains a candidate when the exact
+  source-relative assembly selection's bounded MethodImpl census contains its
+  name; forwarded, multi-module, unavailable, malformed, or budget-incomplete
+  targets remain candidates; and
 - unsupported or indeterminate shape remains a candidate.
 
 The resulting definition occurrences remain the exact invocation currency.
@@ -299,6 +301,11 @@ The candidate index is neither definition identity nor interface-application
 proof. Exact selector binding and interface application still run over every
 retained candidate, and participant body diagnostics remain visible even when
 no invocation from that participant is retained.
+
+Candidate omission never derives interface kind from another selector
+occurrence. In particular, one class definition selected under an
+assembly-version-agnostic selector cannot suppress a possible interface
+implementation from another exact assembly identity.
 
 Repeated candidates with the same participant registration and exact nonzero
 operand token may share one definition-resolution plan. Each physical

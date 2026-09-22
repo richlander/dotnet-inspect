@@ -1743,9 +1743,10 @@ public sealed partial class DirectCallDefinitionResolutionTests
         {
             MethodDefinitionHandle target =
                 targetMetadata.AddMethodDefinition(
-                    MethodAttributes.Public | MethodAttributes.Static,
+                    options.TargetAttributes,
                     MethodImplAttributes.IL,
-                    targetMetadata.GetOrAddString("Target"),
+                    targetMetadata.GetOrAddString(
+                        options.TargetName),
                     targetMetadata.GetOrAddBlob(
                         options.TargetSignature),
                     targetBody,
@@ -1825,7 +1826,8 @@ public sealed partial class DirectCallDefinitionResolutionTests
         MemberReferenceHandle memberReference =
             callerMetadata.AddMemberReference(
                 targetTypeReference,
-                callerMetadata.GetOrAddString("Target"),
+                callerMetadata.GetOrAddString(
+                    options.TargetName),
                 callerMetadata.GetOrAddBlob(
                     options.MemberReferenceSignature));
         EntityHandle callTarget = memberReference;
@@ -1951,7 +1953,7 @@ public sealed partial class DirectCallDefinitionResolutionTests
             default);
         metadata.AddAssembly(
             metadata.GetOrAddString(options.AssemblyName),
-            options.AssemblyVersion,
+            new Version(1, 0, 0, 0),
             culture: default,
             publicKey: default,
             flags: default,
@@ -2821,6 +2823,133 @@ public sealed partial class DirectCallDefinitionResolutionTests
             new ExactPolicy([assembly, CoreLibraryAssembly]));
     }
 
+    static SyntheticParticipant CreateVersionSplitInterfaceCaller(
+        SyntheticParticipant versionTwo)
+    {
+        string assemblyName =
+            versionTwo.Participant.Assembly.Identity.Name;
+        var metadata = new MetadataBuilder();
+        metadata.AddModule(
+            0,
+            metadata.GetOrAddString(assemblyName + ".dll"),
+            metadata.GetOrAddGuid(Guid.NewGuid()),
+            default,
+            default);
+        metadata.AddAssembly(
+            metadata.GetOrAddString(assemblyName),
+            new Version(1, 0, 0, 0),
+            default,
+            default,
+            default,
+            AssemblyHashAlgorithm.Sha1);
+        AssemblyReferenceHandle versionTwoReference =
+            metadata.AddAssemblyReference(
+                metadata.GetOrAddString(
+                    versionTwo.Participant.Assembly.Identity.Name),
+                versionTwo.Participant.Assembly.Identity.Version
+                    ?? throw new InvalidOperationException(
+                        "Version-two fixture identity is unversioned."),
+                default,
+                default,
+                default,
+                default);
+        TypeReferenceHandle implementationType =
+            metadata.AddTypeReference(
+                versionTwoReference,
+                metadata.GetOrAddString("N"),
+                metadata.GetOrAddString("Implementation"));
+        BlobHandle instanceVoidSignature =
+            metadata.GetOrAddBlob(
+                new byte[] { 0x20, 0x00, 0x01 });
+        MemberReferenceHandle implementationTarget =
+            metadata.AddMemberReference(
+                implementationType,
+                metadata.GetOrAddString("ExplicitTarget"),
+                instanceVoidSignature);
+        metadata.AddTypeDefinition(
+            default,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        metadata.AddTypeDefinition(
+            TypeAttributes.Public,
+            metadata.GetOrAddString("N"),
+            metadata.GetOrAddString("IContract"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        metadata.AddTypeDefinition(
+            TypeAttributes.Public
+                | TypeAttributes.Abstract
+                | TypeAttributes.Sealed,
+            metadata.GetOrAddString("N"),
+            metadata.GetOrAddString("Calls"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(2));
+        var bodies = new BlobBuilder();
+        var targetIl = new BlobBuilder();
+        var targetInstructions = new InstructionEncoder(targetIl);
+        targetInstructions.OpCode(ILOpCode.Ret);
+        var bodyEncoder = new MethodBodyStreamEncoder(bodies);
+        int targetBody =
+            bodyEncoder.AddMethodBody(targetInstructions);
+        MethodDefinitionHandle classTarget =
+            metadata.AddMethodDefinition(
+                MethodAttributes.Public,
+                MethodImplAttributes.IL,
+                metadata.GetOrAddString("Target"),
+                instanceVoidSignature,
+                targetBody,
+                MetadataTokens.ParameterHandle(1));
+        var il = new BlobBuilder();
+        var instructions = new InstructionEncoder(
+            il,
+            new ControlFlowBuilder());
+        instructions.OpCode(ILOpCode.Ldnull);
+        instructions.OpCode(ILOpCode.Callvirt);
+        instructions.Token(classTarget);
+        instructions.OpCode(ILOpCode.Ldnull);
+        instructions.OpCode(ILOpCode.Callvirt);
+        instructions.Token(implementationTarget);
+        instructions.OpCode(ILOpCode.Ret);
+        int body = bodyEncoder
+            .AddMethodBody(instructions, maxStack: 1);
+        metadata.AddMethodDefinition(
+            MethodAttributes.Public | MethodAttributes.Static,
+            MethodImplAttributes.IL,
+            metadata.GetOrAddString("Call"),
+            metadata.GetOrAddBlob(
+                new byte[] { 0x00, 0x00, 0x01 }),
+            body,
+            MetadataTokens.ParameterHandle(1));
+
+        byte[] image = Serialize(metadata, bodies);
+        ResolvedAssemblyReference assembly =
+            ResolvedAssemblyReference.CreateFromStreamIfManaged(
+                () => new MemoryStream(image, writable: false),
+                AssemblyResolutionProvenance.Local(
+                    "version-split interface caller"))!;
+        LibraryBodyIndex bodyIndex =
+            LibraryBodyIndex.OpenFromPrefetchedImage(
+                assemblyName + ".dll",
+                ImmutableArray.CreateRange(image),
+                LibraryBodyAnalysisFeatures.MethodEvidence);
+        return new(
+            image,
+            new CatalogCallGraphParticipant(
+                bodyIndex,
+                assembly),
+            new ExactPolicy(
+                [
+                    assembly,
+                    versionTwo.Participant.Assembly,
+                    CoreLibraryAssembly,
+                ]));
+    }
+
     static byte[] GenericInstanceSignature(
         TypeDefinitionHandle genericType,
         byte[] argumentSignature)
@@ -2854,6 +2983,9 @@ public sealed partial class DirectCallDefinitionResolutionTests
 
     sealed record ExternalSyntheticOptions
     {
+        internal string TargetName { get; init; } = "Target";
+        internal MethodAttributes TargetAttributes { get; init; } =
+            MethodAttributes.Public | MethodAttributes.Static;
         internal byte[] TargetSignature { get; init; } =
             [0x00, 0x00, 0x01];
         internal byte[] MemberReferenceSignature { get; init; } =
@@ -2873,8 +3005,6 @@ public sealed partial class DirectCallDefinitionResolutionTests
     {
         internal string AssemblyName { get; init; } =
             "SyntheticDirectCalls";
-        internal Version AssemblyVersion { get; init; } =
-            new(1, 0, 0, 0);
         internal MethodAttributes TargetAttributes { get; init; } =
             MethodAttributes.Public | MethodAttributes.Static;
         internal string TargetName { get; init; } = "Target";
