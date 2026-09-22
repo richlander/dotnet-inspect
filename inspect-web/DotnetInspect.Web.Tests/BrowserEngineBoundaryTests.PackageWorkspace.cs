@@ -865,6 +865,24 @@ public sealed partial class BrowserEngineBoundaryTests
     }
 
     [Fact]
+    public void DependencyCallGraph_UsesBrowserAssemblyRealizationPolicy()
+    {
+        PackageAssemblyContextRealizationOptions policy =
+            BrowserPackageWorkspace.DependencyCallGraphRealizationPolicy;
+
+        Assert.Equal(
+            BrowserInspectionScope.MaxAssembliesPerRole,
+            policy.MaxAssembliesPerRole);
+        Assert.Equal(
+            BrowserInspectionScope.MaxRetainedImageBytes,
+            policy.MaxAggregateRetainedImageBytes);
+        Assert.Equal(
+            BrowserInspectionScope.MaxRetainedImageBytes,
+            policy.MaxAssemblyEntryBytes);
+        Assert.True(policy.RequireDeclaredEntryLengths);
+    }
+
+    [Fact]
     public async Task QueryPackage_AllSelectedFailuresPreserveKindWithoutArtifactDetail()
     {
         const string packageId = "Malformed.Surface";

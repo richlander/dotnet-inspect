@@ -470,6 +470,24 @@ public partial class LibraryCommand
             IncludeSections =
                 implementationProfilesSelection.Sections,
         };
+        var libraryMetricsSelection =
+            SelectResolver.NormalizeExactOnlySection(
+                options.Select,
+                options.IncludeSections,
+                options.ExactIncludeSections,
+                sections.SelectableSectionNames,
+                SectionNames.LibraryMetrics);
+        if (libraryMetricsSelection.Error is not null)
+        {
+            CommandError.Write(
+                libraryMetricsSelection.Error);
+            return 1;
+        }
+        options = options with
+        {
+            IncludeSections =
+                libraryMetricsSelection.Sections,
+        };
 
         if (MetadataRootSelectionError(options) is { } metadataRootError)
         {
@@ -591,6 +609,13 @@ public partial class LibraryCommand
             {
                 CommandError.Write(
                     "Document --json cannot represent Member Metrics analysis. "
+                    + "Use --jsonl, --tsv, or --table.");
+            }
+            else if (options.IncludeSections.Contains(
+                    SectionNames.LibraryMetrics))
+            {
+                CommandError.Write(
+                    "Document --json cannot represent Library Metrics analysis. "
                     + "Use --jsonl, --tsv, or --table.");
             }
             else

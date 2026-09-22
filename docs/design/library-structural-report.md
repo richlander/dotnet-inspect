@@ -192,11 +192,12 @@ the report preserves them and derives report-local distributions. No host
 rebuilds coverage, completeness, or a statistic from display text.
 
 The resource-free Research document is the structured rendering input. The CLI
-adoption owns a `Markout` lowering that renders population receipt,
-distributions, maximum evidence, and diagnostics as separate sections.
-Markout's existing Markdown, table, TSV, JSONL, and projected-JSON lowerings
-remain format mechanics; numeric measures and coverage states stay typed until
-that boundary.
+adoption owns the exact-name-only `Library Metrics` section and its `Markout`
+lowering. That section renders population receipt rows, distribution rows,
+maximum evidence, async disposition, and diagnostic rows without changing their
+Research-owned meaning. Markout's existing Markdown, table, TSV, JSONL, and
+projected-JSON lowerings remain format mechanics; numeric measures and
+coverage states stay typed until that boundary.
 
 Browser/Wasm deliberately bypasses Markout for its interactive Library-detail
 view. Its later host design serializes the same typed document through the
@@ -260,15 +261,16 @@ hosts:
 1. Analysis publishes the profile-coverage receipt tracked by #7989.
 2. Research publishes the document and typed unavailable outcome.
 3. A Research-backed L1 query carries that completed document without rendering
-   it.
-4. The CLI adopts an explicit `Library Metrics` section. It is
-   exact-name-only and outside default `-v:m` output; the existing
-   `Member Metrics` inventory remains the detail surface.
+   it. Implemented as `LibraryMetricsQuery`.
+4. The CLI adopts an explicit `Library Metrics` section. It is exact-name-only
+   and outside default `-v:m` output; the existing `Member Metrics` inventory
+   remains the detail surface.
 5. Browser/Wasm adopts the same document through its settled Library detail
    path after shared Navigation and terminal-result prerequisites land. It
    presents the library summary at the Library boundary and preserves
    Type/Member drill-down rather than adding method rows to Compare.
 
 The CLI path has four steps and the Browser/Wasm path has four steps; the
-first three are shared. This document establishes no command spelling,
-renderer, Browser component, or Compare UX.
+first three are shared. The completed CLI adoption establishes the
+`Library Metrics` section spelling and Markout row-group renderer. This
+document still establishes no Browser component or Compare UX.

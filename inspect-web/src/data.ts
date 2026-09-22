@@ -1297,6 +1297,7 @@ export interface CallGraphDiagnostics {
   incompleteEdges?: number;
   bindingIdentityConflicts?: number;
   hasAnalysisFailureBoundary?: boolean;
+  unavailableDependencyRoutes?: number;
 }
 
 export function callGraphDiagnosticsMessage(diagnostics: CallGraphDiagnostics | null | undefined): string {
@@ -1310,6 +1311,8 @@ export function callGraphDiagnosticsMessage(diagnostics: CallGraphDiagnostics | 
     evidence.push(`${diagnostics.bindingIdentityConflicts} binding identity conflict${diagnostics.bindingIdentityConflicts === 1 ? "" : "s"}`);
   if (diagnostics.hasAnalysisFailureBoundary)
     evidence.push("one or more method bodies could not be analyzed");
+  if ((diagnostics.unavailableDependencyRoutes ?? 0) > 0)
+    evidence.push(`${diagnostics.unavailableDependencyRoutes} unavailable dependency route${diagnostics.unavailableDependencyRoutes === 1 ? "" : "s"}`);
   if (!evidence.length) return "";
   const detail = evidence.length === 1
     ? evidence[0]

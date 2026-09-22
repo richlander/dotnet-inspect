@@ -130,6 +130,9 @@ public static class LibrarySections
             .Add<MemberMetrics>(
                 ImplementationProfilesQuery.Definition,
                 HasMethodBodies)
+            .Add<LibraryMetrics>(
+                LibraryMetricsQuery.Definition,
+                HasMethodBodies)
             .Add<BodyShapes>(
                 BodyShapesQuery.Definition,
                 HasMethodBodies)
@@ -374,6 +377,9 @@ public static class LibrarySections
             .Add(
                 ImplementationProfilesQuery.Definition,
                 ExecuteImplementationProfilesQuery)
+            .Add(
+                LibraryMetricsQuery.Definition,
+                ExecuteLibraryMetricsQuery)
             .AddSourceLinkQueries(RequireSourceLinkContext)
             .Compile();
     }
@@ -472,6 +478,13 @@ public static class LibrarySections
             _ = context.DrillMap();
         return result;
     }
+
+    internal static LibraryMetricsResult
+        ExecuteLibraryMetricsQuery(
+            InspectionQueryContext context)
+        => ExecuteLibraryMetricsQuery(
+            context.MetadataContext?.HasMetadata != false,
+            () => context.BodyAnalysis().ImplementationProfiles);
 
     internal static OptimizationOpportunitiesResult
         ExecuteOptimizationOpportunitiesQuery(InspectionQueryContext context)
@@ -621,6 +634,32 @@ public static class LibrarySections
         catch (Exception ex)
         {
             return new ImplementationProfilesResult.Failed(ex);
+        }
+    }
+
+    internal static LibraryMetricsResult
+        ExecuteLibraryMetricsQuery(
+            bool hasMetadata,
+            Func<ILInspector.Analysis.LibraryImplementationProfileAnalysisResult>
+                acquireAnalysis)
+    {
+        ArgumentNullException.ThrowIfNull(acquireAnalysis);
+
+        if (!hasMetadata)
+            return new LibraryMetricsResult.NoMetadata();
+
+        try
+        {
+            return LibraryMetricsQuery.Execute(
+                acquireAnalysis());
+        }
+        catch (CostDeclarationException)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            return new LibraryMetricsResult.Failed(ex);
         }
     }
 
@@ -972,6 +1011,21 @@ public static class LibrarySections
             => model.ImplementationProfilesQueryResult
                 is ImplementationProfilesResult.Available
                 { Profiles.IsEmpty: false };
+    }
+
+    public sealed class LibraryMetrics
+        : ISectionDescriptor<LibraryInspection>
+    {
+        public static string Name => SectionNames.LibraryMetrics;
+        public static bool IsExpensive => false;
+        public static bool ExplicitOnly => true;
+        public static SectionSizeClass SizeClass =>
+            SectionSizeClass.Verbose;
+        public static SectionCost Cost => SectionCost.Unbounded;
+        public static bool CanRender(LibraryInspection model)
+            => model.LibraryMetricsQueryResult
+                is LibraryMetricsResult.Available
+                    or LibraryMetricsResult.Unavailable;
     }
 
     public sealed class BodyShapes : ISectionDescriptor<LibraryInspection>

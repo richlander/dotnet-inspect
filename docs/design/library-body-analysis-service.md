@@ -38,6 +38,14 @@ root-path analysis accepts that result rather than requiring the compatibility
 aggregate. Existing pair completion, path limits, diagnostics, and output
 remain unchanged.
 
+The group-wide call-census adoption uses the same focused execution boundary.
+`AssemblyContextCallCensusQuery` acquires every available participant from one
+admitted assembly group, while `CatalogCallGraphScope` owns exact member and
+static-call correspondence, physical occurrence retention, canonical ordering,
+unresolved physical occurrences, and graph diagnostics. Acquisition failures
+remain Query evidence beside the positive census; no compatibility index
+participates.
+
 The first Research adoption publishes `LibraryAllocationAnalysisResult`,
 extends `LibrarySafetyAnalysisResult` with its producer-owned occurrence map,
 and lets `LibraryCallGraphAnalysisResult` publish its detached method signals.
@@ -271,6 +279,12 @@ the service over its retained participant image and passes the focused result
 to the bounded path operation. The wider member Research projection retains
 its compatibility index for unrelated evidence but passes its associated
 call-graph result to root-path analysis.
+
+The following slice shares that participant-analysis path with
+`AssemblyContextCallCensusQuery`. Analysis publishes one generation-bound
+graph-wide census over the focused results; Queries projects its exact members,
+physical call occurrences, ordering keys, and graph diagnostics onto inert
+assembly-context subjects while retaining typed acquisition failures.
 
 The first sequence-5 slice moves member Research fact production from
 `LibraryBodyIndex` and `ResearchAssemblyContext` to four exact focused results:

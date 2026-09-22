@@ -7,8 +7,9 @@ bare type or member target to the target-bound Platform type catalog.
 
 > The CLI selects one explicit dotnet hive, authorizes the named runtime
 > family-default policy, obtains one complete resource-free Platform type
-> catalog, and projects only a resolved structured catalog entry to an
-> explicit downstream command route.
+> catalog, retains resolved correspondence in the query owner's inspection
+> envelope, and projects only that structured Content to an explicit
+> downstream command route.
 
 [PlatformHouse reference processing](platform-house-reference-processing.md)
 owns target selection, source settlement, complete reference-population
@@ -38,8 +39,13 @@ The host adapter returns one resource-free catalog outcome:
 - `Incomplete`, when finite work prevents a complete result; or
 - `Failed`, when source work or authority retirement fails.
 
-The router applies `PlatformTypeCatalogQuery` to the complete catalog. A
-resolved entry projects:
+The router applies `PlatformTypeCatalogRouteInspection` to the complete
+catalog. Its completed `InspectionEnvelope<TContent>` retains the original
+query, parsed Type/member target, selected target, structured declaration,
+exact assembly identity, and MVID as primary Content. This correspondence is
+not a diagnostic or Debug-only supplemental evidence.
+
+A resolved Content value projects:
 
 - the declaration's structured type name;
 - the exact managed assembly identity carried by its API content; and
@@ -56,6 +62,10 @@ No assembly display-name prefix is treated as identity. Ambiguous or rejected
 query outcomes fail visibly. `Missing` is valid only because the catalog is
 complete; it permits the router to continue ordinary non-runtime
 classification.
+
+Ordinary CLI output does not render successful route provenance and does not
+write a success note to stderr. Ambiguous, rejected, catalog-realization, and
+cleanup failures retain their visible failure presentation.
 
 ## Desktop source composition
 
@@ -145,13 +155,18 @@ PlatformHouse adoption supplies package-backed capabilities directly.
 Release tests prove:
 
 - real `System.Text.Json.JsonSerializer` routing through an exact selected
-  catalog entry and `System.Text.Json` assembly identity;
+  catalog entry and `System.Text.Json` assembly identity, with the original
+  query, target, MVID, and member split retained in envelope Content after
+  authority retirement;
 - generic `System.Collections.Generic.List<T>.Add` member routing through the
   same catalog path;
 - installed completion without package discovery;
 - resource-free catalog use after every population authority retires;
 - typed ambiguity, rejection, and true missing outcomes from the retired
   catalog;
+- a source-generated envelope JSON round trip preserving typed route
+  correspondence;
+- successful short-name routes producing no stderr note;
 - visible ambiguity from the production router;
 - a true catalog miss returning control to ordinary router classification; and
 - explicit `runtime@version` bypassing the family-default path.

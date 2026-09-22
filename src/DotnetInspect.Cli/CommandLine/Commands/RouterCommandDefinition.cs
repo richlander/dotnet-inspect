@@ -6,6 +6,7 @@ using DotnetInspect.Cli.Inspectors;
 using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Output;
 using DotnetInspector.Packages;
+using DotnetInspector.Sections;
 using DotnetInspect.Cli.Planning;
 using DotnetInspector.Services;
 using DotnetInspect.Cli.Services;
@@ -624,30 +625,28 @@ public static class RouterCommandDefinition
                 switch (catalogOutcome)
                 {
                     case CliPlatformTypeCatalogOutcome.Completed completed:
-                        CliPlatformTypeRouteOutcome route =
+                        InspectionEnvelope<PlatformTypeCatalogRouteOutcome>
+                            route =
                             PlatformTypeCatalogRouting.Resolve(
                                 completed.Catalog,
                                 target,
                                 cancellationToken);
-                        switch (route)
+                        switch (route.Content)
                         {
-                            case CliPlatformTypeRouteOutcome.Resolved resolved:
-                                if (resolved.MemberSelector is null
-                                    && !resolved.InputWasFullName)
-                                {
-                                    CommandError.WriteNote(
-                                        $"Type '{target}' resolved via the target-bound Platform catalog to {resolved.TypeName} in {resolved.AssemblyName}.");
-                                }
+                            case PlatformTypeCatalogRouteOutcome.Resolved
+                                resolved:
                                 return RoutePlatformCatalogResult(
                                     resolved,
                                     tail);
-                            case CliPlatformTypeRouteOutcome.Ambiguous ambiguous:
+                            case PlatformTypeCatalogRouteOutcome.Ambiguous
+                                ambiguous:
                                 CommandError.Write(
-                                    $"Type '{ambiguous.Pattern}' matched multiple platform types. The target-bound catalog contains {ambiguous.Query.Candidates.Length} equally preferred candidates.");
+                                    $"Type '{ambiguous.Request.TypePattern}' matched multiple platform types. The target-bound catalog contains {ambiguous.Candidates.Length} equally preferred candidates.");
                                 return tokens;
-                            case CliPlatformTypeRouteOutcome.Rejected rejected:
+                            case PlatformTypeCatalogRouteOutcome.Rejected
+                                rejected:
                                 CommandError.Write(
-                                    $"Platform type lookup failed ({rejected.Query.Kind}).");
+                                    $"Platform type lookup failed ({rejected.Rejection}).");
                                 return tokens;
                         }
                         break;
@@ -885,8 +884,7 @@ public static class RouterCommandDefinition
                 || (hasLibraryValue
                     && !hasPackageLibraryValue);
             bool hasVersionQuery =
-                ContainsOption(tokens, "--version")
-                || ContainsOption(tokens, "--versions")
+                ContainsOption(tokens, "--versions")
                 || ContainsOption(
                     tokens,
                     "--versions-with-feed");
@@ -1411,29 +1409,38 @@ public static class RouterCommandDefinition
         }
 
         private static string[] RoutePlatformCatalogResult(
-            CliPlatformTypeRouteOutcome.Resolved resolved,
-            string[] tail) =>
-            resolved.MemberSelector is null
+            PlatformTypeCatalogRouteOutcome.Resolved resolved,
+            string[] tail)
+        {
+            string typeName =
+                MetadataTypeNameFormatter.FormatGenericTypeName(
+                    resolved.Candidate.Type.ToMetadataFullName());
+            string assemblyName =
+                resolved.Candidate.Assembly.Identity.Name;
+            string framework =
+                $"runtime@{resolved.Target.Version}";
+            return resolved.Request.MemberSelector is null
                 ? [
                     "type",
-                    resolved.TypeName,
+                    typeName,
                     "--platform",
-                    resolved.AssemblyName,
+                    assemblyName,
                     "--framework",
-                    resolved.Framework,
+                    framework,
                     .. tail,
                 ]
                 : [
                     "member",
-                    resolved.TypeName,
+                    typeName,
                     "--platform",
-                    resolved.AssemblyName,
+                    assemblyName,
                     "--framework",
-                    resolved.Framework,
+                    framework,
                     "-m",
-                    resolved.MemberSelector,
+                    resolved.Request.MemberSelector,
                     .. tail,
                 ];
+        }
 
         private static string[] RouteExactGenericPlatformType(
             PlatformTypeLookupOutcome.Resolved resolved,

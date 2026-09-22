@@ -135,11 +135,41 @@ public static class AssemblyPairCallUseQuery
             ImmutableArray.CreateBuilder<AssemblyPairCallUseFailure>();
         foreach (AssemblyContextParticipant participant in requested)
         {
-            BuildResult result = BuildCallGraph(group, participant);
-            if (result is BuildResult.Available analyzed)
-                available.Add(analyzed.Participant);
-            else if (result is BuildResult.Unavailable unavailable)
-                failures.Add(unavailable.Failure);
+            switch (AssemblyContextCallGraphAnalysis.Execute(
+                group,
+                participant))
+            {
+                case AssemblyContextCallGraphAnalysisResult
+                    .Available result:
+                    available.Add(
+                        new AnalyzedParticipant(
+                            result.Participant.ContextParticipant,
+                            result.Participant.Assembly,
+                            result.Participant.CallGraph,
+                            new AssemblyPairCallUseParticipant(
+                                result.Participant.Subject,
+                                result.Participant.CallGraph
+                                    .ModuleIdentity.ModuleVersionId,
+                                result.Participant.CallGraph.Diagnostics)));
+                    break;
+                case AssemblyContextCallGraphAnalysisResult
+                    .Rejected rejected:
+                    failures.Add(
+                        new AssemblyPairCallUseFailure.Rejected(
+                            rejected.Subject,
+                            rejected.Failure));
+                    break;
+                case AssemblyContextCallGraphAnalysisResult
+                    .InvalidImage invalid:
+                    failures.Add(
+                        new AssemblyPairCallUseFailure.InvalidImage(
+                            invalid.Subject,
+                            invalid.Error));
+                    break;
+                default:
+                    throw new InvalidOperationException(
+                        "Unknown call-graph analysis result.");
+            }
         }
 
         if (available.Count != 2)
@@ -323,82 +353,11 @@ public static class AssemblyPairCallUseQuery
             "The assembly does not belong to the context group.",
             nameof(assembly));
 
-    static BuildResult BuildCallGraph(
-        AssemblyContextGroup group,
-        AssemblyContextParticipant participant)
-    {
-        AssemblyContextSubject subject =
-            new(participant.Assembly);
-        AssemblyImageAccessResult<BuildResult> access =
-            group.UseSnapshot<BuildResult>(
-                participant.Assembly,
-                snapshot =>
-                {
-                    try
-                    {
-                        Analysis.LibraryCallGraphAnalysisResult callGraph =
-                            Analysis.LibraryBodyAnalysisService.ExecuteImage(
-                                participant.Assembly.Path
-                                    ?? participant.Assembly.Identity.Name,
-                                snapshot.Content,
-                                Analysis.LibraryBodyAnalysisRequest.Create(
-                                    Analysis.LibraryBodyAnalysisFeatures
-                                        .MethodEvidence))
-                            .CallGraph;
-                        ResolvedAssemblyReference assembly =
-                            snapshot.RetainAssemblyReference(
-                                participant.Assembly);
-                        return new BuildResult.Available(
-                            new AnalyzedParticipant(
-                                participant,
-                                assembly,
-                                callGraph,
-                                new AssemblyPairCallUseParticipant(
-                                    subject,
-                                    callGraph.ModuleIdentity.ModuleVersionId,
-                                    callGraph.Diagnostics)));
-                    }
-                    catch (Exception exception)
-                        when (MemberCallGraphSession
-                            .IsInvalidImageException(exception))
-                    {
-                        return new BuildResult.Unavailable(
-                            new AssemblyPairCallUseFailure.InvalidImage(
-                                subject,
-                                exception));
-                    }
-                });
-
-        return access switch
-        {
-            AssemblyImageAccessResult<BuildResult>.Available available =>
-                available.Value,
-            AssemblyImageAccessResult<BuildResult>.Rejected rejected =>
-                new BuildResult.Unavailable(
-                    new AssemblyPairCallUseFailure.Rejected(
-                        subject,
-                        rejected.Failure)),
-            _ => throw new InvalidOperationException(
-                "Unknown assembly image access result."),
-        };
-    }
-
     sealed record AnalyzedParticipant(
         AssemblyContextParticipant Participant,
         ResolvedAssemblyReference Assembly,
         Analysis.LibraryCallGraphAnalysisResult CallGraph,
         AssemblyPairCallUseParticipant ResultParticipant);
-
-    abstract record BuildResult
-    {
-        internal sealed record Available(
-            AnalyzedParticipant Participant)
-            : BuildResult;
-
-        internal sealed record Unavailable(
-            AssemblyPairCallUseFailure Failure)
-            : BuildResult;
-    }
 
     readonly record struct PhysicalCallSite(
         AssemblyAcquisitionRegistration Source,
