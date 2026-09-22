@@ -206,8 +206,16 @@ Only the current authorized operation may publish a pane. Changing the Package
 Diff baseline, navigating away from the Member, replacing or removing the
 Package model, or closing the viewer supersedes pending pane work; cancellation
 is best-effort and a late completion publishes nothing. Closing disposes the
-viewer's operations through the existing authority boundary. Reopening runs
-the requests again; pane results are not retained across viewer sessions.
+viewer's operations through the existing authority boundary.
+
+Settled pane results are retained as Compare-local state keyed by the exact
+destination, the retained Package model, and the Diff result they were opened
+from. Reopening the viewer for the same key presents the retained panes
+without running their requests again; a pane whose request failed or was
+canceled is not retained and runs again on reopen. The retained results are
+discarded when the Diff result is replaced, the Package Diff baseline changes,
+or the Package model is replaced or removed. Retention is a snapshot of
+settled evidence, never a cache consulted across Package models or baselines.
 
 The viewer is transient. It creates no Navigation subject, lens, canonical
 location, history entry, or Workspace packet. Refresh and shared links restore
