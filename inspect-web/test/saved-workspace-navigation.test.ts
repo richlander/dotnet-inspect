@@ -126,7 +126,8 @@ const hostNames = new Set([
   "parseWorkspaceHref", "beginDemoNavigation", "stageDemoNavigation",
   "commitDemoNavigation", "cancelDemoNavigation", "commitRestoredWorkspaceNavigation",
   "captureCanonicalWorkspaceRestoreSnapshot", "restoreCanonicalWorkspaceRestoreSnapshot",
-  "captureWorkspaceNavigationRollback", "openFreshWorkspaceLink",
+  "captureWorkspaceNavigationRollback", "restoreWorkspaceNavigationRollback",
+  "openFreshWorkspaceLink",
   "captureCanonicalWorkspaceUrl", "projectCurrentWorkspaceUrl",
   "normalizeWorkspaceAsyncSnapshotState", "settleInterruptedPlatformStatus",
   "cloneCanonicalWorkspaceSnapshotForRetention",
@@ -542,6 +543,7 @@ function harness() {
     packageContentLoadingSequence: null as number | null,
     activeWorkspaceUrl: null as string | null,
     workspaceFeedActivation: null,
+    workspaceFeedRollbackTransfers: new WeakMap(),
     failedWorkspaceUrlState: null, spotlightCache: null as object | null,
     platformLibraryRetry: null, platformCatalogRetry: null,
     spotlightMemberCache: null as object | null,
@@ -1447,10 +1449,23 @@ test("failed ordinary navigation restores the committed source incumbent", async
   h.state.package = tentative;
   h.state.workspaceFeedUrl = "https://inspect.test/?w=source-A";
   h.context.activeWorkspaceUrl = h.state.workspaceFeedUrl;
+  let managedDefinition = "source-B";
+  let recoveryCompleted = false;
   Object.assign(h.context, {
     workspaceFeedActivation: {
       captureCommittedRollback: () => committed,
-      transferCommittedRollback: () => committed,
+      transferCommittedRollback: () => ({
+        snapshot: committed,
+        async restore() {
+          managedDefinition = "source-A";
+          runInNewContext(
+            "restoreCanonicalWorkspaceRestoreSnapshot(snapshot)",
+            { ...h.context, snapshot: committed });
+          recoveryCompleted = true;
+          return true;
+        },
+        release() {},
+      }),
     },
     loadPackage: async () => null,
     focusWorkbenchSearchOrHeading: () => true,
@@ -1470,6 +1485,8 @@ test("failed ordinary navigation restores the committed source incumbent", async
   assert.equal(h.state.package?.id, sourcePackage.id);
   assert.equal(h.state.workspaceFeedUrl, null);
   assert.match(h.state.queryNotice, /Couldn’t load Missing.Package/);
+  assert.equal(recoveryCompleted, true);
+  assert.equal(managedDefinition, "source-A");
 });
 
 test("retained selection commits over a tentative source publication", () => {
@@ -1500,13 +1517,28 @@ test("retained selection commits over a tentative source publication", () => {
       },
       transferCommittedRollback() {
         transferred = true;
-        return "C";
+        return {
+          snapshot: "C",
+          async restore() {
+            visible = "C";
+            return true;
+          },
+          release() {},
+        };
       },
       clearActiveUrl() {
         sourceCleared = true;
       },
     },
     captureRetainedWorkspaceSnapshot: () => "A",
+    cloneCanonicalWorkspaceSnapshotForRetention: (snapshot: string) => snapshot,
+    workspaceFeedRollbackTransfers: new Map(),
+    releaseRetainedWorkspaceSnapshot() {},
+    setWorkspaceConstructionPending() {},
+    restoreWorkspaceNavigationRollback: async () => {},
+    observeAsync(promise: Promise<unknown>) {
+      void promise;
+    },
     invalidateWorkspaceAsyncOwners() {},
     activateRetainedWorkspaceState,
     restoreRetainedWorkspaceSnapshot(snapshot: string) {
@@ -1566,7 +1598,13 @@ test("successful ordinary navigation excludes a late source rollback", async () 
       captureCommittedRollback: () => committed,
       transferCommittedRollback() {
         transferred = true;
-        return committed;
+        return {
+          snapshot: committed,
+          async restore() {
+            return true;
+          },
+          release() {},
+        };
       },
       clearActiveUrl() {},
     },

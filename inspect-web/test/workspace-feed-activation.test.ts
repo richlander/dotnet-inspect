@@ -754,9 +754,8 @@ test("successor transfer revokes an awaited rollback restoration", async () => {
   await restoreStarted.promise;
   harness.advance("committed-successor");
 
-  assert.equal(
-    harness.coordinator.transferCommittedRollback(),
-    "https://example.test/?w=saved");
+  const transfer = harness.coordinator.transferCommittedRollback();
+  assert.equal(transfer?.snapshot, "https://example.test/?w=saved");
   assert.equal(harness.coordinator.blocksUrlSynchronization, false);
   releaseRestore.resolve(true);
   assert.equal(await opening, true);
@@ -765,7 +764,7 @@ test("successor transfer revokes an awaited rollback restoration", async () => {
   assert.equal(restoredVisible, "");
 });
 
-test("failed rollback recovery remains blocking until superseded", async () => {
+test("failed rollback recovery remains blocking through a source successor", async () => {
   const htmlElement = Object.getOwnPropertyDescriptor(
     globalThis,
     "HTMLElement");
@@ -889,6 +888,15 @@ test("failed rollback recovery remains blocking until superseded", async () => {
     assert.equal(applicationRoot.inert, true);
     assert.equal(coordinator.blocksUrlSynchronization, true);
     assert.equal(events.some(event => event.startsWith("failure:")), false);
+
+    navigationSequence++;
+    await coordinator.tryOpen(
+      new URL("https://example.test/?w=private-C"),
+      navigationSequence,
+      true);
+    coordinator.cancelPrompt();
+    assert.equal(applicationRoot.inert, true);
+    assert.equal(coordinator.blocksUrlSynchronization, true);
 
     failRollbackRestoration = false;
     await submitCredentials();
@@ -1422,9 +1430,8 @@ test("a successor can transfer rollback ownership before it commits", async () =
   await completionStarted.promise;
   harness.advance("successor-under-construction");
 
-  assert.equal(
-    harness.coordinator.transferCommittedRollback(),
-    "incumbent");
+  const transfer = harness.coordinator.transferCommittedRollback();
+  assert.equal(transfer?.snapshot, "incumbent");
   assert.equal(harness.coordinator.captureCommittedRollback(), null);
   assert.equal(harness.coordinator.blocksUrlSynchronization, false);
 

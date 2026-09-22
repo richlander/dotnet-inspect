@@ -100,7 +100,7 @@ export interface WorkspaceFeedActivationCoordinator<TRollback = never> {
   readonly activeUrl: string | null;
   readonly blocksUrlSynchronization: boolean;
   captureCommittedRollback(): TRollback | null;
-  transferCommittedRollback(): TRollback | null;
+  transferCommittedRollback(): WorkspaceFeedRollbackTransfer<TRollback> | null;
   ownsRetainedDefinition(retainedDefinitionId: string): boolean;
   deactivateRetainedDefinition(
     retainedDefinitionId: string,
@@ -120,6 +120,12 @@ export interface WorkspaceFeedActivationCoordinator<TRollback = never> {
   ): Promise<boolean>;
   cancelPrompt(showFailure?: boolean): void;
   clearActiveUrl(): void;
+}
+
+export interface WorkspaceFeedRollbackTransfer<TRollback> {
+  readonly snapshot: TRollback;
+  restore(): Promise<boolean>;
+  release(): void;
 }
 
 interface PendingWorkspaceCredentialPrompt {
@@ -143,6 +149,7 @@ export function createWorkspaceFeedActivationCoordinator<TRollback>(
     readonly incumbentDefinitionId: string | null;
     readonly state: TRollback;
     readonly sourceUrl: string | null;
+    readonly recoveryFailure: string | null;
   };
   type RollbackRestoration = {
     readonly rollback: RollbackState;
@@ -157,6 +164,7 @@ export function createWorkspaceFeedActivationCoordinator<TRollback>(
   } | null = null;
   let rollback: RollbackState | null = null;
   let rollbackRestoration: RollbackRestoration | null = null;
+  const rollbackTransfers = new Set<WorkspaceFeedRollbackTransfer<TRollback>>();
   const activationSequences = new Map<string, number>();
   const retainedDefinitionIds = new Set<string>();
   const deliveredDefinitionIds = new Set<string>();
@@ -282,8 +290,15 @@ export function createWorkspaceFeedActivationCoordinator<TRollback>(
         ...rollbackRestoration.rollback,
         retainedDefinitionId,
         navigationSequence,
+        recoveryFailure: rollbackRestoration.failure,
       };
       rollbackRestoration = null;
+    } else if (rollback !== null && rollback.recoveryFailure !== null) {
+      rollback = {
+        ...rollback,
+        retainedDefinitionId,
+        navigationSequence,
+      };
     } else if (!ownsTentativeVisibleProjection()) {
       releaseRollback();
       rollback = {
@@ -293,6 +308,7 @@ export function createWorkspaceFeedActivationCoordinator<TRollback>(
           activationController().state.activeDefinitionId,
         state: dependencies.captureRollback(),
         sourceUrl: activeUrl,
+        recoveryFailure: null,
       };
     }
     const required = description.sources.filter(
@@ -445,6 +461,7 @@ export function createWorkspaceFeedActivationCoordinator<TRollback>(
           ...rollbackRestoration.rollback,
           retainedDefinitionId,
           navigationSequence: current.navigationSequence,
+          recoveryFailure: rollbackRestoration.failure,
         };
         rollbackRestoration = null;
       }
@@ -456,6 +473,7 @@ export function createWorkspaceFeedActivationCoordinator<TRollback>(
             activationController().state.activeDefinitionId,
           state: dependencies.captureRollback(),
           sourceUrl: activeUrl,
+          recoveryFailure: null,
         };
       }
       const succeeded = await activate(
@@ -714,6 +732,7 @@ export function createWorkspaceFeedActivationCoordinator<TRollback>(
           activationController().state.activeDefinitionId,
         state: dependencies.captureRollback(),
         sourceUrl: prior.sourceUrl,
+        recoveryFailure: null,
       };
     }
   }
@@ -722,12 +741,17 @@ export function createWorkspaceFeedActivationCoordinator<TRollback>(
     current: PendingWorkspaceCredentialPrompt,
   ): boolean {
     const restoration = rollbackRestoration;
-    return restoration !== null
+    const failedRestoration = restoration !== null
       && restoration.failure !== null
       && restoration.rollback.retainedDefinitionId
         === current.retainedDefinitionId
       && restoration.rollback.navigationSequence
         === current.navigationSequence;
+    const failedTransferredRestoration = rollback !== null
+      && rollback.recoveryFailure !== null
+      && rollback.retainedDefinitionId === current.retainedDefinitionId
+      && rollback.navigationSequence === current.navigationSequence;
+    return failedRestoration || failedTransferredRestoration;
   }
 
   function releaseRollbackRestoration(): void {
@@ -778,12 +802,40 @@ export function createWorkspaceFeedActivationCoordinator<TRollback>(
 
   function ownsTentativeVisibleProjection(): boolean {
     return rollbackRestoration !== null
+      || (rollback !== null && rollback.recoveryFailure !== null)
       || (posted !== null
       && posted.published
       && !deliveredDefinitionIds.has(posted.value.retainedDefinitionId)
       && rollback?.retainedDefinitionId
         === posted.value.retainedDefinitionId
       && rollback.navigationSequence === posted.navigationSequence);
+  }
+
+  function createRollbackTransfer(
+    ownedRollback: RollbackState,
+  ): WorkspaceFeedRollbackTransfer<TRollback> {
+    const snapshot = dependencies.cloneRollback(ownedRollback.state);
+    let active = true;
+    const transfer: WorkspaceFeedRollbackTransfer<TRollback> = {
+      snapshot,
+      async restore() {
+        if (!active) return false;
+        await dependencies.restoreRollback(snapshot, () => active);
+        if (!active) return false;
+        active = false;
+        rollbackTransfers.delete(transfer);
+        activeUrl = ownedRollback.sourceUrl;
+        return true;
+      },
+      release() {
+        if (!active) return;
+        active = false;
+        rollbackTransfers.delete(transfer);
+        dependencies.releaseRollback(snapshot);
+      },
+    };
+    rollbackTransfers.add(transfer);
+    return transfer;
   }
 
   return {
@@ -806,14 +858,14 @@ export function createWorkspaceFeedActivationCoordinator<TRollback>(
     },
     transferCommittedRollback() {
       if (rollbackRestoration !== null) {
-        const transferred = dependencies.cloneRollback(
-          rollbackRestoration.rollback.state);
+        const transferred = createRollbackTransfer(
+          rollbackRestoration.rollback);
         releaseRollbackRestoration();
         posted = null;
         return transferred;
       }
       if (!ownsTentativeVisibleProjection() || rollback === null) return null;
-      const transferred = dependencies.cloneRollback(rollback.state);
+      const transferred = createRollbackTransfer(rollback);
       releaseRollback();
       posted = null;
       return transferred;
@@ -890,6 +942,7 @@ export function createWorkspaceFeedActivationCoordinator<TRollback>(
     clearActiveUrl() {
       releaseRollback();
       releaseRollbackRestoration();
+      for (const transfer of rollbackTransfers) transfer.release();
       posted = null;
       activeUrl = null;
       for (const retainedDefinitionId of retainedCredentials.keys()) {

@@ -123,6 +123,7 @@ import {
   createWorkspaceFeedActivationCoordinator,
   type RetainedWorkspaceModels,
   type WorkspaceFeedActivationCoordinator,
+  type WorkspaceFeedRollbackTransfer,
 } from "./workspace-feed-activation.ts";
 import {
   createAppMemberSurface,
@@ -1443,6 +1444,10 @@ let workspaceFeedActivation:
   WorkspaceFeedActivationCoordinator<
     CanonicalWorkspaceRestoreSnapshot
   > | null = null;
+const workspaceFeedRollbackTransfers = new WeakMap<
+  CanonicalWorkspaceRestoreSnapshot,
+  WorkspaceFeedRollbackTransfer<CanonicalWorkspaceRestoreSnapshot>
+>();
 let pendingWorkspaceConstruction: {
   navigationSeq: number;
   supersessionSnapshot: CanonicalWorkspaceRestoreSnapshot;
@@ -1853,8 +1858,26 @@ function captureWorkspaceMutationSnapshot(
 
 function captureWorkspaceNavigationRollback():
 CanonicalWorkspaceRestoreSnapshot {
-  return workspaceFeedActivation?.transferCommittedRollback()
-    ?? captureCanonicalWorkspaceRestoreSnapshot();
+  const transfer = workspaceFeedActivation?.transferCommittedRollback();
+  if (transfer === undefined || transfer === null) {
+    return captureCanonicalWorkspaceRestoreSnapshot();
+  }
+  workspaceFeedRollbackTransfers.set(transfer.snapshot, transfer);
+  return transfer.snapshot;
+}
+
+async function restoreWorkspaceNavigationRollback(
+  snapshot: CanonicalWorkspaceRestoreSnapshot,
+): Promise<void> {
+  const transfer = workspaceFeedRollbackTransfers.get(snapshot);
+  if (transfer === undefined) {
+    restoreCanonicalWorkspaceRestoreSnapshot(snapshot);
+    return;
+  }
+  if (!await transfer.restore()) {
+    throw new Error("The incumbent Workspace recovery was superseded.");
+  }
+  workspaceFeedRollbackTransfers.delete(snapshot);
 }
 
 function setWorkspaceConstructionPending(pending: boolean): void {
@@ -2751,11 +2774,18 @@ function activateRetainedWorkspaceProjection(
   workspaceId: string,
   restoreUrl = true,
 ): boolean {
-  const sourceRollback =
+  const sourceRollbackTransfer =
     workspaceFeedActivation?.transferCommittedRollback() ?? null;
-  const currentSnapshot =
-    sourceRollback ?? captureRetainedWorkspaceSnapshot();
-  if (sourceRollback !== null) invalidateWorkspaceAsyncOwners();
+  if (sourceRollbackTransfer !== null) {
+    workspaceFeedRollbackTransfers.set(
+      sourceRollbackTransfer.snapshot,
+      sourceRollbackTransfer);
+  }
+  const currentSnapshot = sourceRollbackTransfer !== null
+    ? cloneCanonicalWorkspaceSnapshotForRetention(
+      sourceRollbackTransfer.snapshot)
+    : captureRetainedWorkspaceSnapshot();
+  if (sourceRollbackTransfer !== null) invalidateWorkspaceAsyncOwners();
   const priorCollection = retainedWorkspaces;
   try {
     const transition = activateRetainedWorkspaceState(
@@ -2763,8 +2793,15 @@ function activateRetainedWorkspaceProjection(
       workspaceId,
       currentSnapshot);
     if (!transition.activatedSnapshot) {
-      if (sourceRollback !== null) {
-        restoreRetainedWorkspaceSnapshot(sourceRollback, false);
+      if (sourceRollbackTransfer !== null) {
+        releaseRetainedWorkspaceSnapshot(currentSnapshot);
+        setWorkspaceConstructionPending(true);
+        observeAsync(
+          restoreWorkspaceNavigationRollback(
+            sourceRollbackTransfer.snapshot).finally(
+              () => setWorkspaceConstructionPending(false)),
+          "Restoring the prior Workspace",
+        );
       }
       return false;
     }
@@ -2776,8 +2813,15 @@ function activateRetainedWorkspaceProjection(
     return true;
   } catch (error) {
     retainedWorkspaces = priorCollection;
-    if (sourceRollback !== null) {
-      restoreRetainedWorkspaceSnapshot(sourceRollback, false);
+    if (sourceRollbackTransfer !== null) {
+      releaseRetainedWorkspaceSnapshot(currentSnapshot);
+      setWorkspaceConstructionPending(true);
+      observeAsync(
+        restoreWorkspaceNavigationRollback(
+          sourceRollbackTransfer.snapshot).finally(
+            () => setWorkspaceConstructionPending(false)),
+        "Restoring the prior Workspace",
+      );
     }
     throw error;
   }
@@ -13848,6 +13892,32 @@ function failWorkspaceCatalogAction(
   retry: RetryAction,
   restoreFocus: () => boolean,
 ): void {
+  if (snapshot && workspaceFeedRollbackTransfers.has(snapshot)) {
+    setWorkspaceConstructionPending(true);
+    observeAsync(
+      restoreWorkspaceNavigationRollback(snapshot).then(
+        () => failWorkspaceCatalogAction(
+          message,
+          snapshot,
+          retry,
+          restoreFocus),
+        (error: unknown) => {
+          discardPendingWorkspaceConstruction();
+          clearWorkspacePackages();
+          state.loading = false;
+          state.home = false;
+          state.errorTitle = "Workspace recovery failed";
+          state.error =
+            `${message} The prior Workspace could not be restored: ${
+              errorMessage(error)
+            }`;
+          state.retryAction = retry;
+          render();
+        }),
+      "Restoring the prior Workspace",
+    );
+    return;
+  }
   discardPendingWorkspaceConstruction();
   if (snapshot) restoreCanonicalWorkspaceRestoreSnapshot(snapshot);
   state.loading = false;
@@ -14699,10 +14769,6 @@ async function openPackageQueryRow(
       ...(rootRequest === undefined ? {} : { rootRequest }),
       failureHandler: (message: string) => {
         loadFailure = message;
-        discardPendingWorkspaceConstruction();
-        if (rollbackSnapshot) {
-          restoreCanonicalWorkspaceRestoreSnapshot(rollbackSnapshot);
-        }
       },
     });
   if (!navigationSequence.isCurrent(navigationSeq)) {
@@ -14711,6 +14777,13 @@ async function openPackageQueryRow(
     return;
   }
   if (!loaded) {
+    try {
+      await restoreWorkspaceNavigationRollback(rollbackSnapshot);
+    } catch (error) {
+      loadFailure =
+        `${loadFailure || "The Package could not be opened."} `
+        + `The prior Workspace could not be restored: ${errorMessage(error)}`;
+    }
     discardPendingWorkspaceConstruction();
     packageQueryHandoffNavigationSeq = null;
     const failure = loadFailure || state.error || state.queryNotice
@@ -14738,10 +14811,16 @@ async function openPackageQueryRow(
     destination = (await buildStateUrl()).toString();
   } catch (error) {
     if (!navigationSequence.isCurrent(navigationSeq)) return;
-    discardPendingWorkspaceConstruction();
-    if (rollbackSnapshot) {
-      restoreCanonicalWorkspaceRestoreSnapshot(rollbackSnapshot);
+    let recoveryFailure = "";
+    try {
+      await restoreWorkspaceNavigationRollback(rollbackSnapshot);
+    } catch (restoreError) {
+      recoveryFailure =
+        ` The prior Workspace could not be restored: ${
+          errorMessage(restoreError)
+        }`;
     }
+    discardPendingWorkspaceConstruction();
     state.loading = false;
     state.error = "";
     state.errorTitle = "";
@@ -14751,7 +14830,9 @@ async function openPackageQueryRow(
     state.queryNoticeRetryAction = null;
     state.packageQueryOpen = true;
     state.packageQueryNavigationError =
-      `Couldn’t open ${packageId}@${version}: ${errorMessage(error)}`;
+      `Couldn’t open ${packageId}@${version}: ${
+        errorMessage(error)
+      }${recoveryFailure}`;
     render();
     afterCurrentNavigationFrame(() =>
       document.querySelector<HTMLElement>(
@@ -18751,6 +18832,34 @@ function failCanonicalWorkspaceRestore(
   retryAction: RetryAction =
     () => restoreWorkspaceFromLocation(loc, deep),
 ) {
+  if (snapshot && workspaceFeedRollbackTransfers.has(snapshot)) {
+    setWorkspaceConstructionPending(true);
+    observeAsync(
+      restoreWorkspaceNavigationRollback(snapshot).then(
+        () => failCanonicalWorkspaceRestore(
+          loc,
+          deep,
+          message,
+          snapshot,
+          retryAction),
+        (error: unknown) => {
+          discardPendingWorkspaceConstruction();
+          clearWorkspacePackages();
+          state.credits = false;
+          state.loading = false;
+          state.home = false;
+          state.errorTitle = "Workspace recovery failed";
+          state.error =
+            `${message} The prior Workspace could not be restored: ${
+              errorMessage(error)
+            }`;
+          state.retryAction = retryAction;
+          render();
+        }),
+      "Restoring the prior Workspace",
+    );
+    return;
+  }
   discardPendingWorkspaceConstruction();
   const failedUrl = location.href;
   const ownedRetryAction = retryAction
@@ -18891,11 +19000,9 @@ async function restoreWorkspaceFeedRollback(
             throw new Error(
               "The incumbent Workspace recovery was superseded.");
           }
+          snapshot.activeRetainedWorkspacePosting = posting;
+          snapshot.retainedWorkspaceInitialDetailAuthority = null;
           restoreCanonicalWorkspaceRestoreSnapshot(snapshot);
-          activeRetainedWorkspacePosting = posting;
-          retainedWorkspacePresentation =
-            createNavigationDescriptorPresentation(posting);
-          retainedWorkspaceInitialDetailAuthority = null;
           activeWorkspaceUrl = snapshot.url;
           render({ synchronizeUrl: false });
         });

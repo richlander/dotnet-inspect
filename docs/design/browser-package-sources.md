@@ -1198,11 +1198,13 @@ incumbent source-bearing URL until its replacement commits. Navigation supersess
 alone does not retire the last committed incumbent while a visibly published
 activation still awaits consumer completion; only a committed replacement
 retires that rollback. Dismissing a prompt cannot retire the rollback when its
-posting has already committed. Concurrent ordinary construction and retained
-selection transfer an owned clone of the committed incumbent from the source
-coordinator before successor work can yield; the coordinator then cannot apply
-a late rollback to shared application state. Successor failure restores that
-owned incumbent, while successful commit retires the prior source identity.
+posting has already committed. Concurrent source preflight, ordinary
+construction, and retained selection transfer one owned incumbent-recovery
+responsibility from the source coordinator before successor work can yield; the
+coordinator then cannot apply a late rollback to shared application state.
+Successor failure uses that responsibility to reactivate managed authority and
+install its fresh posting before exposing the restored incumbent, while
+successful commit retires the prior source identity.
 URL synchronization remains blocked while the tentative projection owns
 visible state even after another navigation becomes current. An identical active
 definition may reuse its posting only after that posting completed consumer
@@ -1227,8 +1229,11 @@ new realization before restoring its presentation. Restored Package and
 Platform rows therefore carry current managed admission authority rather than
 only the appearance of the incumbent. That recovery retains one revocable
 rollback owner across every await. A successor may transfer the incumbent
-snapshot or retire it on commit; either action revokes the recovery, which
-rechecks ownership before managed cutover, posting, and visible restoration.
+snapshot together with its managed-recovery obligation or retire both on
+commit; either action revokes the prior recovery, which rechecks ownership
+before managed cutover, posting, and visible restoration. A source successor
+also inherits unresolved recovery failure state, so its credential prompt
+cannot dismiss the blocking rollback merely by changing navigation identity.
 If incumbent reactivation fails, the credential prompt remains non-dismissible
 and the tentative Workspace remains inert until credential retry or a
 superseding navigation claims the rollback. Dismissing an error therefore
