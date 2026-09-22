@@ -18873,7 +18873,9 @@ function workspaceFeedActivationCoordinator():
 
 async function restoreWorkspaceFeedRollback(
   snapshot: CanonicalWorkspaceRestoreSnapshot,
+  isCurrent: () => boolean,
 ): Promise<void> {
+  if (!isCurrent()) return;
   const priorPosting = snapshot.activeRetainedWorkspacePosting;
   if (priorPosting !== null
     && retainedWorkspaceActivation?.state.definitions.some(
@@ -18883,7 +18885,12 @@ async function restoreWorkspaceFeedRollback(
       .reactivateRetainedDefinition(
         priorPosting.retainedDefinitionId,
         navigationSequence.current(),
+        isCurrent,
         posting => {
+          if (!isCurrent()) {
+            throw new Error(
+              "The incumbent Workspace recovery was superseded.");
+          }
           restoreCanonicalWorkspaceRestoreSnapshot(snapshot);
           activeRetainedWorkspacePosting = posting;
           retainedWorkspacePresentation =
@@ -18892,12 +18899,14 @@ async function restoreWorkspaceFeedRollback(
           activeWorkspaceUrl = snapshot.url;
           render({ synchronizeUrl: false });
         });
+    if (!isCurrent()) return;
     if (!restored) {
       throw new Error(
         "The incumbent retained Workspace could not be reactivated.");
     }
     return;
   }
+  if (!isCurrent()) return;
   restoreCanonicalWorkspaceRestoreSnapshot(snapshot);
   activeWorkspaceUrl = snapshot.url;
   render({ synchronizeUrl: false });

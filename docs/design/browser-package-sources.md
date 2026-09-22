@@ -1225,7 +1225,14 @@ If managed cutover occurs before source publication later fails, rollback
 reactivates the incumbent definition and replaces its retired posting with the
 new realization before restoring its presentation. Restored Package and
 Platform rows therefore carry current managed admission authority rather than
-only the appearance of the incumbent.
+only the appearance of the incumbent. That recovery retains one revocable
+rollback owner across every await. A successor may transfer the incumbent
+snapshot or retire it on commit; either action revokes the recovery, which
+rechecks ownership before managed cutover, posting, and visible restoration.
+If incumbent reactivation fails, the credential prompt remains non-dismissible
+and the tentative Workspace remains inert until credential retry or a
+superseding navigation claims the rollback. Dismissing an error therefore
+cannot expose a Workspace that failed consumer completion.
 
 Browser/Wasm supports anonymous sources and explicit page-session credentials.
 It cannot launch a NuGet credential-provider plugin, so an

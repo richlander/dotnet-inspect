@@ -488,7 +488,10 @@ function createCoordinatorHarness(
   events: string[],
   initialVisible = "incumbent",
   activationController?: RetainedWorkspaceActivationController,
-  restoreRollback?: (rollback: string) => void | Promise<void>,
+  restoreRollback?: (
+    rollback: string,
+    isCurrent: () => boolean,
+  ) => void | Promise<void>,
 ) {
   let navigationSequence = 1;
   let visible = initialVisible;
@@ -683,6 +686,7 @@ test("post-publication rollback reactivates incumbent authority", async () => {
         .reactivateRetainedDefinition(
           saved.id,
           harness.sequence,
+          () => true,
           restoredPosting => {
             restoredVisible = restoredPosting.canonicalLocation;
           });
@@ -700,6 +704,209 @@ test("post-publication rollback reactivates incumbent authority", async () => {
   assert.match(harness.failure ?? "", /Consumer completion/);
 });
 
+test("successor transfer revokes an awaited rollback restoration", async () => {
+  const events: string[] = [];
+  const client = createWorkspaceTestClient(events);
+  const controller = createRetainedWorkspaceActivationController(client, {
+    post() {},
+    clear() {},
+    predecessorSettled() {},
+    predecessorObservationFailed() {},
+  });
+  const saved = controller.retain({
+    label: "Saved",
+    canonicalLocation: "https://example.test/?w=saved",
+    canonicalPacket: "saved",
+  });
+  await controller.activate(saved.id);
+  const completeActivation =
+    client.completeRetainedWorkspaceActivation.bind(client);
+  let failNextSuccessfulCompletion = true;
+  client.completeRetainedWorkspaceActivation = async (
+    receipt,
+    succeeded,
+    failure,
+  ) => {
+    if (succeeded && failNextSuccessfulCompletion) {
+      failNextSuccessfulCompletion = false;
+      throw new Error("Consumer completion delivery failed.");
+    }
+    return completeActivation(receipt, succeeded, failure);
+  };
+  const restoreStarted = deferred<boolean>();
+  const releaseRestore = deferred<boolean>();
+  let restoredVisible = "";
+  const harness = createCoordinatorHarness(
+    client,
+    events,
+    "https://example.test/?w=saved",
+    controller,
+    async (restored, isCurrent) => {
+      restoreStarted.resolve(true);
+      await releaseRestore.promise;
+      if (isCurrent()) restoredVisible = restored;
+    });
+
+  const opening = harness.coordinator.tryOpen(
+    new URL("https://example.test/?w=source"),
+    harness.sequence,
+    true);
+  await restoreStarted.promise;
+  harness.advance("committed-successor");
+
+  assert.equal(
+    harness.coordinator.transferCommittedRollback(),
+    "https://example.test/?w=saved");
+  assert.equal(harness.coordinator.blocksUrlSynchronization, false);
+  releaseRestore.resolve(true);
+  assert.equal(await opening, true);
+
+  assert.equal(harness.visible, "committed-successor");
+  assert.equal(restoredVisible, "");
+});
+
+test("failed rollback recovery remains blocking until superseded", async () => {
+  const htmlElement = Object.getOwnPropertyDescriptor(
+    globalThis,
+    "HTMLElement");
+  Object.defineProperty(globalThis, "HTMLElement", {
+    configurable: true,
+    value: Object,
+  });
+  try {
+    const events: string[] = [];
+    const client = createWorkspaceTestClient(events);
+    client.describeWorkspacePackageSources = () => ({
+      succeeded: true,
+      sources: [{
+        endpoint: "https://packages.example.test/v3/index.json",
+        authentication: "AuthenticationRequired",
+      }],
+      failure: null,
+    });
+    let failNextSuccessfulCompletion = false;
+    const completeActivation =
+      client.completeRetainedWorkspaceActivation.bind(client);
+    client.completeRetainedWorkspaceActivation = async (
+      receipt,
+      succeeded,
+      failure,
+    ) => {
+      if (succeeded && failNextSuccessfulCompletion) {
+        failNextSuccessfulCompletion = false;
+        throw new Error("Consumer completion delivery failed.");
+      }
+      return completeActivation(receipt, succeeded, failure);
+    };
+    const controller = createRetainedWorkspaceActivationController(client, {
+      post() {},
+      clear() {},
+      predecessorSettled() {},
+      predecessorObservationFailed() {},
+    });
+    let navigationSequence = 1;
+    let visible = "committed-incumbent";
+    let failRollbackRestoration = false;
+    const applicationRoot = { inert: false };
+    const promptDocument = createPromptTestDocument();
+    const coordinator = createWorkspaceFeedActivationCoordinator({
+      client,
+      activationController: controller,
+      // @ts-expect-error This fixture supplies only the DOM members the prompt uses.
+      document: promptDocument.document,
+      applicationRoot,
+      maxVisibleModels: 8,
+      isCurrent: sequence => sequence === navigationSequence,
+      beginNavigation: () => ++navigationSequence,
+      hasVisibleWorkspace: () => true,
+      captureRollback: () => visible,
+      cloneRollback: rollback => rollback,
+      restoreRollback() {
+        if (failRollbackRestoration) {
+          throw new Error("The incumbent source is unavailable.");
+        }
+      },
+      releaseRollback(released) {
+        events.push(`release:${released}`);
+      },
+      publish(activationPosting) {
+        visible = activationPosting.canonicalLocation;
+      },
+      setLoading() {},
+      pushLocation() {},
+      reportFailure(message) {
+        events.push(`failure:${message}`);
+      },
+      reportPredecessorFailure(error) {
+        assert.fail(String(error));
+      },
+      observe() {},
+      errorMessage: String,
+      escapeHtml: String,
+      trapModalTab() {},
+    });
+
+    async function submitCredentials(): Promise<void> {
+      const form = promptDocument.form();
+      const username = form.querySelector(
+        "#workspace-source-username-0");
+      const pat = form.querySelector(
+        "#workspace-source-pat-0");
+      assert.ok(username);
+      assert.ok(pat);
+      username.value = "example";
+      pat.value = "page-session-pat";
+      const submit = form.listeners.get("submit");
+      if (typeof submit !== "function") {
+        assert.fail("The credential form did not bind submission.");
+      }
+      submit(new Event("submit"));
+      for (let index = 0; index < 10; index++) {
+        await new Promise<void>(resolve => setImmediate(resolve));
+      }
+    }
+
+    await coordinator.tryOpen(
+      new URL("https://example.test/?w=private-A"),
+      navigationSequence,
+      true);
+    await submitCredentials();
+    const incumbentDefinitionId = controller.state.activeDefinitionId;
+    assert.ok(incumbentDefinitionId);
+
+    navigationSequence++;
+    failNextSuccessfulCompletion = true;
+    failRollbackRestoration = true;
+    await coordinator.tryOpen(
+      new URL("https://example.test/?w=private-B"),
+      navigationSequence,
+      true);
+    await submitCredentials();
+
+    assert.equal(applicationRoot.inert, true);
+    assert.equal(coordinator.blocksUrlSynchronization, true);
+    coordinator.cancelPrompt();
+    assert.equal(applicationRoot.inert, true);
+    assert.equal(coordinator.blocksUrlSynchronization, true);
+    assert.equal(events.some(event => event.startsWith("failure:")), false);
+
+    failRollbackRestoration = false;
+    await submitCredentials();
+    assert.equal(applicationRoot.inert, false);
+    assert.equal(coordinator.blocksUrlSynchronization, false);
+    assert.equal(
+      controller.state.definitions.some(
+        definition => definition.id === incumbentDefinitionId),
+      true);
+  } finally {
+    if (htmlElement) {
+      Object.defineProperty(globalThis, "HTMLElement", htmlElement);
+    } else {
+      Reflect.deleteProperty(globalThis, "HTMLElement");
+    }
+  }
+});
+
 test("credential prompt names endpoints without retaining credential fields", () => {
   const html = workspaceCredentialPromptHtml({
     requirements: [{
@@ -707,6 +914,7 @@ test("credential prompt names endpoints without retaining credential fields", ()
       authentication: "AuthenticationRequired",
     }],
     submitting: false,
+    cancellable: true,
     error: "",
   }, String);
 
@@ -717,6 +925,15 @@ test("credential prompt names endpoints without retaining credential fields", ()
     /not\s+added to the Workspace link or browser storage/);
   assert.equal(html.match(/autocomplete="off"/g)?.length, 3);
   assert.doesNotMatch(html, /value="[^"]+"[^>]*name="pat-/);
+  assert.match(workspaceCredentialPromptHtml({
+    requirements: [{
+      endpoint: "https://nuget.pkg.github.com/example/index.json",
+      authentication: "AuthenticationRequired",
+    }],
+    submitting: false,
+    cancellable: false,
+    error: "The incumbent Workspace could not be restored.",
+  }, String), /id="workspace-credential-cancel" type="button"\s+disabled/);
 });
 
 test("retained package admission joins all Type pages", async () => {

@@ -405,7 +405,7 @@ test("source-bearing Workspace URLs use page-session retained activation", () =>
     /function publishSourceBearingWorkspace\([\s\S]*activeRetainedWorkspacePosting = posting;[\s\S]*retainedWorkspacePresentation =\s*createNavigationDescriptorPresentation\(posting\)/);
   assert.match(
     appSource,
-    /restoreRollback: restoreWorkspaceFeedRollback[\s\S]*async function restoreWorkspaceFeedRollback\([\s\S]*reactivateRetainedDefinition\([\s\S]*activeRetainedWorkspacePosting = posting;[\s\S]*createNavigationDescriptorPresentation\(posting\)/);
+    /restoreRollback: restoreWorkspaceFeedRollback[\s\S]*async function restoreWorkspaceFeedRollback\([\s\S]*isCurrent: \(\) => boolean[\s\S]*reactivateRetainedDefinition\([\s\S]*isCurrent,[\s\S]*if \(!isCurrent\(\)\)[\s\S]*activeRetainedWorkspacePosting = posting;[\s\S]*createNavigationDescriptorPresentation\(posting\)/);
   assert.match(
     appSource,
     /function clearWorkspaceFeedIdentity\(\): void \{[\s\S]*workspaceFeedActivation\?\.ownsRetainedDefinition\([\s\S]*activeRetainedWorkspacePosting = null;[\s\S]*retainedWorkspacePresentation = null;[\s\S]*workspaceFeedActivation\?\.clearActiveUrl\(\)/);
@@ -461,6 +461,12 @@ test("source-bearing Workspace URLs use page-session retained activation", () =>
   assert.match(
     workspaceFeedActivationSource,
     /get blocksUrlSynchronization\(\) \{\s*return ownsTentativeVisibleProjection\(\)/);
+  assert.match(
+    workspaceFeedActivationSource,
+    /const restoration = rollbackRestoration;[\s\S]*dependencies\.restoreRollback\([\s\S]*\(\) => rollbackRestoration === restoration\)[\s\S]*if \(rollbackRestoration !== restoration\) return/);
+  assert.match(
+    workspaceFeedActivationSource,
+    /cancellable: !hasFailedRollbackRestoration\(current\)[\s\S]*if \(showFailure && hasFailedRollbackRestoration\(current\)\) return/);
   assert.doesNotMatch(
     workspaceFeedActivationSource,
     /localStorage|sessionStorage|console\.(?:log|info|warn|error)/);

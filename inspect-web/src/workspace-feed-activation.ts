@@ -57,6 +57,7 @@ export interface RetainedWorkspaceModels {
 export interface WorkspaceCredentialPromptModel {
   readonly requirements: readonly BrowserWorkspacePackageSourceRequirement[];
   readonly submitting: boolean;
+  readonly cancellable: boolean;
   readonly error: string;
 }
 
@@ -76,7 +77,10 @@ export interface WorkspaceFeedActivationDependencies<TRollback> {
   hasVisibleWorkspace(): boolean;
   captureRollback(): TRollback;
   cloneRollback(rollback: TRollback): TRollback;
-  restoreRollback(rollback: TRollback): void | Promise<void>;
+  restoreRollback(
+    rollback: TRollback,
+    isCurrent: () => boolean,
+  ): void | Promise<void>;
   releaseRollback(rollback: TRollback): void;
   publish(
     posting: BrowserRetainedWorkspacePosting,
@@ -105,6 +109,7 @@ export interface WorkspaceFeedActivationCoordinator<TRollback = never> {
   reactivateRetainedDefinition(
     retainedDefinitionId: string,
     navigationSequence: number,
+    isCurrent: () => boolean,
     complete: (posting: BrowserRetainedWorkspacePosting) =>
       void | Promise<void>,
   ): Promise<boolean>;
@@ -135,8 +140,13 @@ export function createWorkspaceFeedActivationCoordinator<TRollback>(
   type RollbackState = {
     readonly retainedDefinitionId: string;
     readonly navigationSequence: number;
+    readonly incumbentDefinitionId: string | null;
     readonly state: TRollback;
     readonly sourceUrl: string | null;
+  };
+  type RollbackRestoration = {
+    readonly rollback: RollbackState;
+    failure: string | null;
   };
   let controller = dependencies.activationController ?? null;
   let prompt: PendingWorkspaceCredentialPrompt | null = null;
@@ -146,7 +156,7 @@ export function createWorkspaceFeedActivationCoordinator<TRollback>(
     readonly published: boolean;
   } | null = null;
   let rollback: RollbackState | null = null;
-  let pendingRollbackRestoration: RollbackState | null = null;
+  let rollbackRestoration: RollbackRestoration | null = null;
   const activationSequences = new Map<string, number>();
   const retainedDefinitionIds = new Set<string>();
   const deliveredDefinitionIds = new Set<string>();
@@ -220,6 +230,8 @@ export function createWorkspaceFeedActivationCoordinator<TRollback>(
     const protectedIds = new Set([
       currentController.state.activeDefinitionId,
       currentController.state.pendingDefinitionId,
+      rollback?.incumbentDefinitionId ?? null,
+      rollbackRestoration?.rollback.incumbentDefinitionId ?? null,
       ...currentController.state.unsettledDefinitionIds,
     ]);
     for (const definition of currentController.state.definitions) {
@@ -265,11 +277,20 @@ export function createWorkspaceFeedActivationCoordinator<TRollback>(
       packet);
     if (!dependencies.isCurrent(navigationSequence)) return false;
     pendingNavigationSequence = navigationSequence;
-    if (!ownsTentativeVisibleProjection()) {
+    if (rollbackRestoration !== null) {
+      rollback = {
+        ...rollbackRestoration.rollback,
+        retainedDefinitionId,
+        navigationSequence,
+      };
+      rollbackRestoration = null;
+    } else if (!ownsTentativeVisibleProjection()) {
       releaseRollback();
       rollback = {
         retainedDefinitionId,
         navigationSequence,
+        incumbentDefinitionId:
+          activationController().state.activeDefinitionId,
         state: dependencies.captureRollback(),
         sourceUrl: activeUrl,
       };
@@ -314,6 +335,7 @@ export function createWorkspaceFeedActivationCoordinator<TRollback>(
     template.innerHTML = workspaceCredentialPromptHtml({
       requirements: current.requirements,
       submitting: current.submitting,
+      cancellable: !hasFailedRollbackRestoration(current),
       error: current.error,
     }, value => dependencies.escapeHtml(value));
     const backdrop = template.content.firstElementChild;
@@ -333,7 +355,9 @@ export function createWorkspaceFeedActivationCoordinator<TRollback>(
     }
     dialog.addEventListener("keydown", event => {
       if (event.key === "Tab") dependencies.trapModalTab(dialog, event);
-      if (event.key === "Escape" && !current.submitting) {
+      if (event.key === "Escape"
+        && !current.submitting
+        && !hasFailedRollbackRestoration(current)) {
         event.preventDefault();
         cancelPrompt();
       }
@@ -353,6 +377,7 @@ export function createWorkspaceFeedActivationCoordinator<TRollback>(
   function cancelPrompt(showFailure = true): void {
     const current = prompt;
     if (current === null) return;
+    if (showFailure && hasFailedRollbackRestoration(current)) return;
     const preserveCommittedRollback =
       ownsTentativeVisibleProjection();
     const cancelled = activationController().cancelPending();
@@ -415,10 +440,20 @@ export function createWorkspaceFeedActivationCoordinator<TRollback>(
           current.navigationSequence);
         current.retainedDefinitionId = retainedDefinitionId;
       }
+      if (rollbackRestoration !== null) {
+        rollback = {
+          ...rollbackRestoration.rollback,
+          retainedDefinitionId,
+          navigationSequence: current.navigationSequence,
+        };
+        rollbackRestoration = null;
+      }
       if (rollback === null) {
         rollback = {
           retainedDefinitionId,
           navigationSequence: current.navigationSequence,
+          incumbentDefinitionId:
+            activationController().state.activeDefinitionId,
           state: dependencies.captureRollback(),
           sourceUrl: activeUrl,
         };
@@ -568,7 +603,7 @@ export function createWorkspaceFeedActivationCoordinator<TRollback>(
       return false;
     } catch (error) {
       lastFailure = dependencies.errorMessage(error);
-      if (pendingRollbackRestoration !== null) {
+      if (rollbackRestoration !== null) {
         posted = null;
         await restoreStagedRollback();
       } else if (publicationAttempted
@@ -648,24 +683,58 @@ export function createWorkspaceFeedActivationCoordinator<TRollback>(
       dependencies.releaseRollback(prior.state);
       return;
     }
-    pendingRollbackRestoration = prior;
+    rollbackRestoration = {
+      rollback: prior,
+      failure: null,
+    };
   }
 
   async function restoreStagedRollback(): Promise<void> {
-    const prior = pendingRollbackRestoration;
-    if (prior === null) return;
-    pendingRollbackRestoration = null;
-    await dependencies.restoreRollback(prior.state);
+    const restoration = rollbackRestoration;
+    if (restoration === null) return;
+    const prior = restoration.rollback;
+    try {
+      await dependencies.restoreRollback(
+        prior.state,
+        () => rollbackRestoration === restoration);
+    } catch (error) {
+      if (rollbackRestoration !== restoration) return;
+      restoration.failure = dependencies.errorMessage(error);
+      throw error;
+    }
+    if (rollbackRestoration !== restoration) return;
+    rollbackRestoration = null;
     activeUrl = prior.sourceUrl;
     if (prompt?.retainedDefinitionId === prior.retainedDefinitionId
       && prompt.navigationSequence === prior.navigationSequence) {
       rollback = {
         retainedDefinitionId: prior.retainedDefinitionId,
         navigationSequence: prior.navigationSequence,
+        incumbentDefinitionId:
+          activationController().state.activeDefinitionId,
         state: dependencies.captureRollback(),
         sourceUrl: prior.sourceUrl,
       };
     }
+  }
+
+  function hasFailedRollbackRestoration(
+    current: PendingWorkspaceCredentialPrompt,
+  ): boolean {
+    const restoration = rollbackRestoration;
+    return restoration !== null
+      && restoration.failure !== null
+      && restoration.rollback.retainedDefinitionId
+        === current.retainedDefinitionId
+      && restoration.rollback.navigationSequence
+        === current.navigationSequence;
+  }
+
+  function releaseRollbackRestoration(): void {
+    const restoration = rollbackRestoration;
+    if (restoration === null) return;
+    rollbackRestoration = null;
+    dependencies.releaseRollback(restoration.rollback.state);
   }
 
   function rememberRetainedCredentials(
@@ -708,12 +777,13 @@ export function createWorkspaceFeedActivationCoordinator<TRollback>(
   }
 
   function ownsTentativeVisibleProjection(): boolean {
-    return posted !== null
+    return rollbackRestoration !== null
+      || (posted !== null
       && posted.published
       && !deliveredDefinitionIds.has(posted.value.retainedDefinitionId)
       && rollback?.retainedDefinitionId
         === posted.value.retainedDefinitionId
-      && rollback.navigationSequence === posted.navigationSequence;
+      && rollback.navigationSequence === posted.navigationSequence);
   }
 
   return {
@@ -726,11 +796,22 @@ export function createWorkspaceFeedActivationCoordinator<TRollback>(
           && dependencies.isCurrent(pendingNavigationSequence));
     },
     captureCommittedRollback() {
+      if (rollbackRestoration !== null) {
+        return dependencies.cloneRollback(
+          rollbackRestoration.rollback.state);
+      }
       return ownsTentativeVisibleProjection() && rollback !== null
         ? dependencies.cloneRollback(rollback.state)
         : null;
     },
     transferCommittedRollback() {
+      if (rollbackRestoration !== null) {
+        const transferred = dependencies.cloneRollback(
+          rollbackRestoration.rollback.state);
+        releaseRollbackRestoration();
+        posted = null;
+        return transferred;
+      }
       if (!ownsTentativeVisibleProjection() || rollback === null) return null;
       const transferred = dependencies.cloneRollback(rollback.state);
       releaseRollback();
@@ -764,6 +845,7 @@ export function createWorkspaceFeedActivationCoordinator<TRollback>(
     async reactivateRetainedDefinition(
       retainedDefinitionId,
       navigationSequence,
+      isCurrent,
       complete,
     ) {
       const currentController = activationController();
@@ -777,14 +859,21 @@ export function createWorkspaceFeedActivationCoordinator<TRollback>(
       try {
         const result = await currentController.activate(
           retainedDefinitionId,
-          () => true,
-          complete,
+          () => isCurrent(),
+          posting => {
+            if (!isCurrent()) {
+              throw new Error(
+                "The incumbent Workspace recovery was superseded.");
+            }
+            return complete(posting);
+          },
           undefined,
           credentials,
-          undefined,
+          () => isCurrent(),
           sourceOwned ? activationHooks : undefined,
         );
         if (result.status === "noEffect" && result.posting !== null) {
+          if (!isCurrent()) return false;
           await complete(result.posting);
         }
         return result.status === "activated" || result.status === "noEffect";
@@ -800,6 +889,7 @@ export function createWorkspaceFeedActivationCoordinator<TRollback>(
     cancelPrompt,
     clearActiveUrl() {
       releaseRollback();
+      releaseRollbackRestoration();
       posted = null;
       activeUrl = null;
       for (const retainedDefinitionId of retainedCredentials.keys()) {
@@ -863,7 +953,7 @@ export function workspaceCredentialPromptHtml(
           : ""}
         <div class="workspace-credential-actions">
           <button id="workspace-credential-cancel" type="button"
-            ${model.submitting ? "disabled" : ""}>Cancel</button>
+            ${model.submitting || !model.cancellable ? "disabled" : ""}>Cancel</button>
           <button type="submit" ${model.submitting ? "disabled" : ""}>
             ${model.submitting ? "Opening…" : "Open Workspace"}
           </button>
