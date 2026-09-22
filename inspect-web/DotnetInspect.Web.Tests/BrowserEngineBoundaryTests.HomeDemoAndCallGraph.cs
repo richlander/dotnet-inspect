@@ -612,6 +612,13 @@ public sealed partial class BrowserEngineBoundaryTests
                     SourceBoundedRoots: 0,
                     PartialRoots: 0),
                 [],
+                [
+                    new PackageDependencyMemberCallGraphPackageSubject(
+                        NodeId: 1,
+                        PackageId: "dependency.library",
+                        PackageVersion: "1.2.3",
+                        TargetFramework: "net8.0"),
+                ],
                 graph);
 
         BrowserCallGraphInfo projected =
@@ -621,11 +628,14 @@ public sealed partial class BrowserEngineBoundaryTests
         Assert.Equal(
             "Invoke",
             Assert.Single(projected.Callees.Children).MemberName);
-        Assert.Contains(
+        BrowserCallGraphTargetInfo dependencyTarget = Assert.Single(
             projected.Targets,
             target =>
                 target.Assembly == "Dependency.Library"
                 && target.MemberName == "Invoke");
+        Assert.Equal("dependency.library", dependencyTarget.PackageId);
+        Assert.Equal("1.2.3", dependencyTarget.PackageVersion);
+        Assert.Equal("net8.0", dependencyTarget.PackageFramework);
         Assert.Contains("Example.Worker.Run", projected.Mermaid);
         Assert.Equal("CrossLibrary", projected.Scope.CalleeScope);
 
@@ -641,6 +651,13 @@ public sealed partial class BrowserEngineBoundaryTests
             1,
             wire.Diagnostics.UnavailableDependencyRoutes);
         Assert.True(wire.Diagnostics.IsIncomplete);
+        DotnetInspect.Web.Interop.CallGraph.BrowserCallGraphTarget wireTarget =
+            Assert.Single(
+                wire.Targets,
+                target => target.MemberName == "Invoke");
+        Assert.Equal("dependency.library", wireTarget.PackageId);
+        Assert.Equal("1.2.3", wireTarget.PackageVersion);
+        Assert.Equal("net8.0", wireTarget.PackageFramework);
     }
 
     [Fact]

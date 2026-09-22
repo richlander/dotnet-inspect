@@ -434,6 +434,9 @@ async function installFacades(
         kind: "method",
         platformPack: null,
         surfaceAssemblyId: graphTargetLibrary.id,
+        packageId: null,
+        packageVersion: null,
+        packageFramework: null,
       }
     : null;
   const graphTargetNode = graphTarget

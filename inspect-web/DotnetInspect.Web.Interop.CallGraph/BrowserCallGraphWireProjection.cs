@@ -75,5 +75,8 @@ internal static class BrowserCallGraphWireProjection
             target.SelectorKey,
             target.Kind,
             target.PlatformPack,
-            target.SurfaceAssemblyId);
+            target.SurfaceAssemblyId,
+            target.PackageId,
+            target.PackageVersion,
+            target.PackageFramework);
 }

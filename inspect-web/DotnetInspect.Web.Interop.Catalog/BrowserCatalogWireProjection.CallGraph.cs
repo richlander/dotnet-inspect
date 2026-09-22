@@ -61,5 +61,8 @@ internal static partial class BrowserCatalogWireProjection
             target.SelectorKey,
             target.Kind,
             target.PlatformPack,
-            target.SurfaceAssemblyId);
+            target.SurfaceAssemblyId,
+            target.PackageId,
+            target.PackageVersion,
+            target.PackageFramework);
 }
