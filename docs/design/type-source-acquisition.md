@@ -225,8 +225,10 @@ shared lifetime rather than a CLI-owned House composition.
 
 `TypeSourceInspection.ExecuteAsync` is the completed serial host-neutral facade,
 returning `InspectionEnvelope<AssemblyTypeSourceEntry>` with explicit
-non-projectable Share and result-relevant PDB diagnostics. Browser Type Source
-instead consumes
+non-projectable Share and result-relevant PDB diagnostics.
+The explicit CLI [Source section](cli-source-section.md)
+consumes this ordinary authored-first operation, retaining its document scope
+and failed-attempt evidence. Browser Type Source instead consumes
 `ExecuteWithPdbLatencyHedgeAsync` through the existing browser projection and
 operation/cancellation bridge. The source case now preserves the shared
 envelope's Share and diagnostics beside the existing browser source value; its

@@ -595,6 +595,7 @@ public static class ApiSectionDemandIndex
             SectionNames.CostOverlay,
             SectionNames.SemanticsOverlay,
             SectionNames.PdbSource,
+            SectionNames.Source,
             SectionNames.SourceDiff,
             SectionNames.Calls,
             SectionNames.ExceptionRegions,

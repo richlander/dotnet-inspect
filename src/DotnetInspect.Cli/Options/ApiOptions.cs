@@ -311,6 +311,7 @@ public partial record ApiOptions : IProjectionOptions
         && IncludeSections is { Count: 1 } sections
         && sections.First() is
             SectionNames.ApiDeclarations
+            or SectionNames.Source
             or SectionNames.DecompiledSource
             or SectionNames.AnnotatedSource
             or SectionNames.PdbSource
@@ -354,6 +355,12 @@ public record TypeOptions : ApiOptions
     public bool AllowPlatformPrefixFallback { get; init; }
     public InspectionEnvelope<AssemblyTypeDecompilationEntry>?
         TypeDecompilationInspection
+    {
+        get;
+        init;
+    }
+    public InspectionEnvelope<AssemblyTypeSourceEntry>?
+        TypeSourceInspection
     {
         get;
         init;
@@ -431,6 +438,12 @@ public record MemberOptions : ApiOptions
     }
     public InspectionEnvelope<AssemblyMemberDecompilationEntry>?
         MemberDecompilationInspection
+    {
+        get;
+        init;
+    }
+    public InspectionEnvelope<AssemblyMemberSourceEntry>?
+        MemberSourceInspection
     {
         get;
         init;

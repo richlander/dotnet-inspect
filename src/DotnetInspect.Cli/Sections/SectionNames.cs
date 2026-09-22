@@ -111,6 +111,9 @@ public static class SectionNames
     /// <summary>Section for method source selected and checksum-verified through a Portable PDB.</summary>
     public const string PdbSource = "PDB Source";
 
+    /// <summary>Section for authored-first source with typed decompiler fallback.</summary>
+    public const string Source = "Source";
+
     /// <summary>Section for a line diff between PDB-selected and decompiled method source.</summary>
     public const string SourceDiff = "Source Diff";
 
