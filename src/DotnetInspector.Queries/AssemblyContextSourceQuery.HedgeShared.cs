@@ -1,6 +1,7 @@
 using System.Collections.Immutable;
 
 using DotnetInspector.Libraries;
+using DotnetInspector.Packages;
 using DotnetInspector.Services;
 using DotnetInspector.SourceHouse;
 using ILInspector.Decompiler;
@@ -217,12 +218,14 @@ public static partial class AssemblyContextSourceQuery
         ResolvedAssemblyReference retained,
         AssemblyContextSourceQueryContext context,
         AssemblyBindingPolicyVersion bindingPolicyVersion,
+        PortablePdbAcquisitionEvidenceCollector? pdbEvidence,
         CancellationToken cancellationToken)
     {
         SourceLinkOpenResult opened =
             await OpenSourceLinkAsync(
                     retained,
                     context,
+                    pdbEvidence,
                     cancellationToken)
                 .ConfigureAwait(false);
         if (opened.Source is not { } source)

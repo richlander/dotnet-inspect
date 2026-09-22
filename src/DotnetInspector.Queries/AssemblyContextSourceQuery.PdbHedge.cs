@@ -1,4 +1,5 @@
 using DotnetInspector.Libraries;
+using DotnetInspector.Packages;
 using DotnetInspector.Services;
 using DotnetInspector.SourceHouse;
 using ILInspector.Decompiler;
@@ -19,6 +20,7 @@ public static partial class AssemblyContextSourceQuery
             ResolvedAssemblyReference retained,
             AssemblyBindingPolicyVersion bindingPolicyVersion,
             TypeSourcePdbLatencyHedge latencyHedge,
+            PortablePdbAcquisitionEvidenceCollector? pdbEvidence,
             CancellationToken cancellationToken)
     {
         using var hedgeCancellation =
@@ -30,6 +32,7 @@ public static partial class AssemblyContextSourceQuery
                 retained,
                 context,
                 bindingPolicyVersion,
+                pdbEvidence,
                 hedgeCancellation.Token);
         Exception? primaryFailure = null;
         try

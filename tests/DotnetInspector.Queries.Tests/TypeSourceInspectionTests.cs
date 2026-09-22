@@ -1,5 +1,6 @@
 using System.Collections.Immutable;
 using System.Net;
+using System.Text.Json;
 
 using DotnetInspector.Fixtures;
 using DotnetInspector.Packages;
@@ -37,10 +38,11 @@ public sealed partial class AssemblyContextSourceQueryTests
             workspace.CreateAssemblyContextGroup(
                 [assembly.Participant]);
 
-        InspectionEnvelope<AssemblyTypeSourceEntry>
-            inspection =
+        EvidenceInspectionEnvelope<
+            AssemblyTypeSourceEntry,
+            TypeSourcePdbAcquisitionEvidence> enriched =
                 await TypeSourceInspection
-                    .ExecuteWithPdbLatencyHedgeAsync(
+                    .ExecuteWithPdbLatencyHedgeAndEvidenceAsync(
                         group,
                         assembly.Participant,
                         assembly.TypeRequest("Counter"),
@@ -49,6 +51,8 @@ public sealed partial class AssemblyContextSourceQueryTests
                             TimeSpan.FromSeconds(1),
                             time),
                         TestContext.Current.CancellationToken);
+        InspectionEnvelope<AssemblyTypeSourceEntry> inspection =
+            enriched.Inspection;
 
         var available =
             Assert.IsType<
@@ -66,6 +70,57 @@ public sealed partial class AssemblyContextSourceQueryTests
                     .AuthoredBeforeDecompilation),
             available.LatencyHedgeEvidence);
         Assert.Single(host.SourceRequests);
+        Assert.Equal(
+            TypeSourcePortablePdbDisposition.Available,
+            enriched.Evidence.Disposition);
+        Assert.True(
+            enriched.Evidence.UsedForAuthoredSource);
+        Assert.False(
+            enriched.Evidence.UsedForDecompilation);
+        Assert.Equal(
+            PortablePdbExternalAcquisitionOutcome.Acquired,
+            enriched.Evidence.ExternalAcquisition.Outcome);
+        Assert.False(
+            enriched.Evidence.ExternalAcquisition.FromCache);
+        Assert.Collection(
+            enriched.Evidence.ExternalAcquisition.NetworkAttempts,
+            attempt =>
+            {
+                Assert.Equal(
+                    PortablePdbAcquisitionNetworkRoute
+                        .SymbolPackage,
+                    attempt.Route);
+                Assert.Equal(
+                    PortablePdbNetworkAttemptOutcome.Succeeded,
+                    attempt.Outcome);
+                Assert.Equal(1, attempt.RequestCount);
+                Assert.True(attempt.BodyBytesRead > 0);
+                Assert.True(attempt.Elapsed >= TimeSpan.Zero);
+            });
+        AssertDiagnostic(
+            inspection,
+            "type-source.portable-pdb.available",
+            InspectionDiagnosticSeverity.Information);
+        string evidenceJson = JsonSerializer.Serialize(
+            enriched.Evidence,
+            TypeSourceInspectionJsonContext.Default
+                .TypeSourcePdbAcquisitionEvidence);
+        TypeSourcePdbAcquisitionEvidence roundTrip =
+            JsonSerializer.Deserialize(
+                evidenceJson,
+                TypeSourceInspectionJsonContext.Default
+                    .TypeSourcePdbAcquisitionEvidence)!;
+        Assert.Equal(
+            enriched.Evidence.Disposition,
+            roundTrip.Disposition);
+        Assert.Equal(
+            enriched.Evidence.ExternalAcquisition.Outcome,
+            roundTrip.ExternalAcquisition.Outcome);
+        Assert.Equal(
+            enriched.Evidence.ExternalAcquisition
+                .NetworkAttempts.Length,
+            roundTrip.ExternalAcquisition
+                .NetworkAttempts.Length);
     }
 
     // PR-fast: a prompt PDB keeps authored settlement serial even after the
@@ -191,6 +246,64 @@ public sealed partial class AssemblyContextSourceQueryTests
                 .DecompiledAfterPdbUnavailable,
             Assert.IsType<TypeSourceLatencyHedgeEvidence>(
                 available.LatencyHedgeEvidence).Selection);
+        AssertDiagnostic(
+            inspection,
+            "type-source.portable-pdb.unavailable",
+            InspectionDiagnosticSeverity.Information);
+    }
+
+    [Fact]
+    public async Task
+        TypeSourcePdbLatencyHedge_FailedProviderReportsAcquisitionFailure()
+    {
+        TestAssembly assembly =
+            TestAssembly.Create(
+                fixture:
+                    FixtureCatalog.SourceDiffV1);
+        using var host =
+            QueryHost.WithFailedPdbProvider();
+        await using var workspace =
+            new InspectionWorkspace();
+        using AssemblyContextGroup group =
+            workspace.CreateAssemblyContextGroup(
+                [assembly.Participant]);
+
+        EvidenceInspectionEnvelope<
+            AssemblyTypeSourceEntry,
+            TypeSourcePdbAcquisitionEvidence> enriched =
+                await TypeSourceInspection
+                    .ExecuteWithPdbLatencyHedgeAndEvidenceAsync(
+                        group,
+                        assembly.Participant,
+                        assembly.TypeRequest("Counter"),
+                        host.Context,
+                        new TypeSourcePdbLatencyHedge(
+                            TimeSpan.FromSeconds(1)),
+                        TestContext.Current.CancellationToken);
+
+        var available =
+            Assert.IsType<
+                AssemblyTypeSourceEntry.Available>(
+                    enriched.Inspection.Content);
+        var source =
+            Assert.IsType<
+                AssemblyTypeSource.Decompiled>(
+                    available.Source);
+        Assert.Equal(
+            PdbTypeSourceOutcome
+                .PortablePdbAcquisitionFailed,
+            source.PdbAttempt.Outcome);
+        Assert.Equal(
+            TypeSourcePortablePdbDisposition
+                .AcquisitionFailed,
+            enriched.Evidence.Disposition);
+        Assert.Equal(
+            PortablePdbExternalAcquisitionOutcome.Failed,
+            enriched.Evidence.ExternalAcquisition.Outcome);
+        AssertDiagnostic(
+            enriched.Inspection,
+            "type-source.portable-pdb.acquisition-failed",
+            InspectionDiagnosticSeverity.Warning);
     }
 
     // PR-fast: expiry of the PDB-only window publishes available no-PDB
@@ -241,10 +354,12 @@ public sealed partial class AssemblyContextSourceQueryTests
             workspace.CreateAssemblyContextGroup(
                 [assembly.Participant]);
 
-        Task<InspectionEnvelope<AssemblyTypeSourceEntry>>
+        Task<EvidenceInspectionEnvelope<
+            AssemblyTypeSourceEntry,
+            TypeSourcePdbAcquisitionEvidence>>
             operation =
                 TypeSourceInspection
-                    .ExecuteWithPdbLatencyHedgeAsync(
+                    .ExecuteWithPdbLatencyHedgeAndEvidenceAsync(
                         group,
                         assembly.Participant,
                         assembly.TypeRequest("Counter"),
@@ -263,8 +378,12 @@ public sealed partial class AssemblyContextSourceQueryTests
         await symbolCancelled.Task.WaitAsync(
             TestContext.Current.CancellationToken);
 
-        InspectionEnvelope<AssemblyTypeSourceEntry>
-            inspection = await operation;
+        EvidenceInspectionEnvelope<
+            AssemblyTypeSourceEntry,
+            TypeSourcePdbAcquisitionEvidence> enriched =
+                await operation;
+        InspectionEnvelope<AssemblyTypeSourceEntry> inspection =
+            enriched.Inspection;
 
         var available =
             Assert.IsType<
@@ -290,6 +409,22 @@ public sealed partial class AssemblyContextSourceQueryTests
                     .DecompiledAfterPdbPreferenceWindow),
             available.LatencyHedgeEvidence);
         Assert.Empty(host.SourceRequests);
+        Assert.Equal(
+            TypeSourcePortablePdbDisposition
+                .PreferenceWindowElapsed,
+            enriched.Evidence.Disposition);
+        Assert.Equal(
+            PortablePdbExternalAcquisitionOutcome.Canceled,
+            enriched.Evidence.ExternalAcquisition.Outcome);
+        Assert.Contains(
+            enriched.Evidence.ExternalAcquisition.NetworkAttempts,
+            attempt =>
+                attempt.Outcome
+                    == PortablePdbNetworkAttemptOutcome.Canceled);
+        AssertDiagnostic(
+            inspection,
+            "type-source.portable-pdb.preference-window-elapsed",
+            InspectionDiagnosticSeverity.Information);
     }
 
     // PR-fast: unavailable no-PDB decompilation cannot truncate the only
@@ -460,6 +595,17 @@ public sealed partial class AssemblyContextSourceQueryTests
             decompilation,
             unavailable.LibraryFailure);
         Assert.Empty(host.SourceRequests);
+    }
+
+    private static void AssertDiagnostic<TContent>(
+        InspectionEnvelope<TContent> inspection,
+        string code,
+        InspectionDiagnosticSeverity severity)
+    {
+        InspectionDiagnostic diagnostic =
+            Assert.Single(inspection.Diagnostics);
+        Assert.Equal(code, diagnostic.Code);
+        Assert.Equal(severity, diagnostic.Severity);
     }
 
     sealed class ObservedFakeTimeProvider : TimeProvider
@@ -1059,15 +1205,26 @@ public sealed partial class AssemblyContextSourceQueryTests
             FindRepositoryRoot(), "src", "ILInspector.SourceLink", fileName));
         using var host = QueryHost.WithPdb(pdbPath, bytes);
         var request = AssemblyTypeSourceRequest.AuthoredDocument(ordinary.Type, selected.FilePath);
-        InspectionEnvelope<AssemblyTypeSourceEntry> inspection;
+        EvidenceInspectionEnvelope<
+            AssemblyTypeSourceEntry,
+            TypeSourcePdbAcquisitionEvidence> enriched;
         await using (var workspace = new InspectionWorkspace())
         {
             using AssemblyContextGroup group =
                 workspace.CreateAssemblyContextGroup([assembly.Participant]);
-            inspection = await TypeSourceInspection.ExecuteAsync(
-                group, assembly.Participant, request, host.Context,
-                TestContext.Current.CancellationToken);
+            enriched = await TypeSourceInspection
+                .ExecuteWithPdbLatencyHedgeAndEvidenceAsync(
+                    group,
+                    assembly.Participant,
+                    request,
+                    host.Context,
+                    new TypeSourcePdbLatencyHedge(
+                        TimeSpan.FromSeconds(1),
+                        new ObservedFakeTimeProvider()),
+                    TestContext.Current.CancellationToken);
         }
+        InspectionEnvelope<AssemblyTypeSourceEntry> inspection =
+            enriched.Inspection;
 
         var available = Assert.IsType<AssemblyTypeSourceEntry.Available>(inspection.Content);
         var source = Assert.IsType<AssemblyTypeSource.Pdb>(available.Source);
@@ -1087,6 +1244,13 @@ public sealed partial class AssemblyContextSourceQueryTests
         Assert.Equal(SourceHouseLibraryLeaseConsumer.SourceHouse, house.Receipt.LeaseSettlement.Consumer);
         Assert.Equal(0, assembly.Policy.SelectionCount);
         Assert.IsType<InspectionShare.NonProjectable>(inspection.Share);
+        Assert.Equal(
+            PortablePdbExternalAcquisitionOutcome.Acquired,
+            enriched.Evidence.ExternalAcquisition.Outcome);
+        Assert.False(
+            enriched.Evidence.ExternalAcquisition.FromCache);
+        Assert.NotEmpty(
+            enriched.Evidence.ExternalAcquisition.NetworkAttempts);
     }
 
     [Theory]
@@ -1303,7 +1467,10 @@ public sealed partial class AssemblyContextSourceQueryTests
         Assert.Equal(0, assembly.Policy.SelectionCount);
         Assert.Equal("type-source/share",
             Assert.IsType<InspectionShare.NonProjectable>(inspection.Share).Path);
-        Assert.Empty(inspection.Diagnostics);
+        AssertDiagnostic(
+            inspection,
+            "type-source.portable-pdb.available",
+            InspectionDiagnosticSeverity.Information);
     }
 
     [Theory]
@@ -1427,12 +1594,20 @@ public sealed partial class AssemblyContextSourceQueryTests
         Assert.Null(available.LibraryFailure);
     }
 
-    [Fact]
-    public async Task TypeSourceInspection_LibraryAdmissionLimitCannotBecomeDecompilerFallback()
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task
+        TypeSourceInspection_LibraryAdmissionLimitPreservesPdbAvailability(
+        bool pdbAvailable)
     {
         TestAssembly assembly = TestAssembly.Create(fixture: FixtureCatalog.SourceDiffV1);
-        using var host = QueryHost.WithPdb(
-            assembly.PdbPath, SourcePairBytes(FixtureCatalog.SourceDiffV1));
+        using var host = pdbAvailable
+            ? QueryHost.WithPdb(
+                assembly.PdbPath,
+                SourcePairBytes(
+                    FixtureCatalog.SourceDiffV1))
+            : QueryHost.WithoutPdb();
         SourceHouseLimits defaults = host.Context.TypeSourceLimits;
         var context = new AssemblyContextSourceQueryContext(
             host.Context.SymbolClient, host.Context.PdbStore,
@@ -1461,6 +1636,16 @@ public sealed partial class AssemblyContextSourceQueryTests
         Assert.Null(unavailable.HouseOutcome);
         Assert.Null(unavailable.DecompilationHouseOutcome);
         Assert.Null(unavailable.DecompiledAttempt);
+        Assert.Equal(
+            pdbAvailable,
+            unavailable.PdbAttempt
+                ?.PortablePdbAvailable);
+        AssertDiagnostic(
+            inspection,
+            pdbAvailable
+                ? "type-source.portable-pdb.available"
+                : "type-source.portable-pdb.unavailable",
+            InspectionDiagnosticSeverity.Information);
         Assert.Empty(host.SourceRequests);
     }
 

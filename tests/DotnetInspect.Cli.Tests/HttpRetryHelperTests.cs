@@ -702,6 +702,8 @@ public class HttpRetryHelperTests
         Assert.Equal(HttpRetryHelper.HttpBodyFetchStatus.Unavailable, result.Status);
         Assert.Null(result.Bytes);
         Assert.Equal(2, handler.RequestCount);
+        Assert.Equal(2, result.RequestCount);
+        Assert.Equal(HttpStatusCode.OK, result.StatusCode);
     }
 
     [Fact]
@@ -719,7 +721,9 @@ public class HttpRetryHelperTests
 
         Assert.Equal(HttpRetryHelper.HttpBodyFetchStatus.TooLarge, result.Status);
         Assert.Null(result.Bytes);
+        Assert.Equal(HttpStatusCode.OK, result.StatusCode);
         Assert.Equal(9, result.BodyBytesRead);
+        Assert.Equal(1, result.RequestCount);
     }
 
     [Fact]

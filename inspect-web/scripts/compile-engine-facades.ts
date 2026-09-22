@@ -20,6 +20,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 const facadeModules = [
   "inspect-web-host",
   "inspect-web-package",
+  "inspect-web-library",
   "inspect-web-metadata",
   "inspect-web-analysis",
   "inspect-web-source",

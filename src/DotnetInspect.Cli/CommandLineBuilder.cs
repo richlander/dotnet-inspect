@@ -74,6 +74,43 @@ public static class CommandLineBuilder
             args,
             out error);
 
+    internal static bool TryGetPackageVersionValueError(
+        string[] args,
+        RootCommand rootCommand,
+        out string? error)
+    {
+        ParseResult rawParse = rootCommand.Parse(args);
+        bool explicitPackage =
+            rawParse.CommandResult.Command.Name == PackageCommand.Name;
+        bool implicitPackage =
+            ArgumentPreprocessor.IsImplicitPackageCandidate(args);
+        if (!explicitPackage && !implicitPackage)
+        {
+            error = null;
+            return false;
+        }
+
+        string[] packageArgs =
+            implicitPackage
+                ? [PackageCommand.Name, .. args]
+                : args;
+        ParseResult packageParse = rootCommand.Parse(packageArgs);
+        CliOptionValueFailure? failure =
+            CliOptionValueValidation.FindFailure(
+                packageParse,
+                packageArgs);
+        if (failure?.Error !=
+            CliOptionValueValidation.DoesNotAcceptValue("--version"))
+        {
+            error = null;
+            return false;
+        }
+
+        error = "'--version' does not accept a value. "
+            + "Use 'Package@Version' to select a Package version.";
+        return true;
+    }
+
     /// <summary>
     /// Reports stale direction syntax using the active command's count unit.
     /// </summary>
@@ -333,6 +370,34 @@ public static class CommandLineBuilder
         ArgumentPreprocessor.SetLineWindow(
             headLines: null,
             tailLines: null);
+        if (rawArgs is not null
+            && parseResult.CommandResult.Command.Name
+                is PackageCommand.Name or "router")
+        {
+            string[] versionArgs =
+                rawArgs.FirstOrDefault() == "router"
+                    ? rawArgs[1..]
+                    : rawArgs;
+            if (versionArgs.Any(static argument =>
+                    argument.Equals(
+                        "--version",
+                        StringComparison.Ordinal)
+                    || argument.StartsWith(
+                        "--version=",
+                        StringComparison.Ordinal)
+                    || argument.StartsWith(
+                        "--version:",
+                        StringComparison.Ordinal))
+                && TryGetPackageVersionValueError(
+                    versionArgs,
+                    CreateRootCommand(),
+                    out string? packageVersionValueError))
+            {
+                CommandError.Write(packageVersionValueError!);
+                return 1;
+            }
+        }
+
         CliRowSelectionPreparation rowSelection;
         try
         {
