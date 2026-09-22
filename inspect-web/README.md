@@ -2308,7 +2308,8 @@ navigation binding and controlled facade completions.
 
 The loading cost includes acquiring a compressed NuGet runtime archive on a
 cold cache, validating cached archive content, realizing the selected assembly,
-and projecting its bounded API surface. Bundled catalog targets avoid a live catalog scan; other versions can
+and projecting its bounded API surface. Bundled catalog targets avoid a live
+catalog scan; other versions can
 require reference/runtime catalog inspection. QuerySpace row selection and its
 count-only execution cannot eliminate this source or API-surface work:
 `BrowserPlatformSurfaceProjection` requests
