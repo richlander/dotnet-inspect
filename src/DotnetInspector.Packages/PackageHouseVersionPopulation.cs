@@ -16,6 +16,23 @@ public sealed class PackageHouseVersionPopulationRequest
         bool includePrerelease = false,
         PackageHouseRequestAssociation? association = null,
         bool includeUnlisted = false)
+        : this(
+            range,
+            operation,
+            PackageVersionPopulationPolicy.ExactEndpoints,
+            includePrerelease,
+            association,
+            includeUnlisted)
+    {
+    }
+
+    public PackageHouseVersionPopulationRequest(
+        PackageVersionRange range,
+        PackageHouseOperation operation,
+        PackageVersionPopulationPolicy policy,
+        bool includePrerelease = false,
+        PackageHouseRequestAssociation? association = null,
+        bool includeUnlisted = false)
     {
         ArgumentNullException.ThrowIfNull(range);
         ArgumentNullException.ThrowIfNull(operation);
@@ -31,12 +48,15 @@ public sealed class PackageHouseVersionPopulationRequest
                 "A version-population request requires a Settle operation.",
                 nameof(operation));
         }
+        if (!Enum.IsDefined(policy))
+            throw new ArgumentOutOfRangeException(nameof(policy));
 
         Range = range;
         Operation = operation;
         IncludePrerelease = includePrerelease;
         IncludeUnlisted = includeUnlisted;
         Association = association;
+        Policy = policy;
     }
 
     public PackageVersionRange Range { get; }
@@ -48,6 +68,8 @@ public sealed class PackageHouseVersionPopulationRequest
     public bool IncludeUnlisted { get; }
 
     public PackageHouseRequestAssociation? Association { get; }
+
+    public PackageVersionPopulationPolicy Policy { get; }
 }
 
 /// <summary>
@@ -240,10 +262,16 @@ public abstract class PackageHouseVersionPopulationResult
             Vector = PackageVersionVector.Create(
                 evidence.Request.Range,
                 discovery.Versions,
-                evidence.Request.IncludePrerelease);
+                evidence.Request.IncludePrerelease,
+                evidence.Request.Policy);
         }
 
         public PackageVersionVector Vector { get; }
+
+        public PackageVersionMajorRepresentativeProjection
+            ProjectMajorRepresentatives(
+                PackageVersionMajorRepresentativePolicy policy) =>
+            Vector.ProjectMajorRepresentatives(policy);
 
         public PackageHouseVersionPopulationCell SelectCell(
             PackageVersionAddress address)
