@@ -12,8 +12,10 @@ import {
   empty,
   surface,
   installFacades,
+  releaseFacade,
   root,
   currentWorkspaceHistoryState,
+  openProductDestination,
 } from "./library-hierarchy.support.ts";
 
 test.use({ viewport: { width: 900, height: 900 } });
@@ -177,7 +179,7 @@ test("Workspace occurrence activation retains Package Info", async ({ page }) =>
   const overview = page.locator(".package-overview-surface");
   await expect(overview.locator(".package-info-rows")).toBeVisible();
 
-  await page.locator('[data-application-scope="workspace"]').click();
+  await openProductDestination(page, "workspace");
   const occurrence = page.locator("[data-workspace-activate]");
   await expect(occurrence).toBeEnabled();
   await occurrence.click();
@@ -188,6 +190,58 @@ test("Workspace occurrence activation retains Package Info", async ({ page }) =>
   await expect(overview.locator(
     ".package-overview-summary .section-title h2"))
     .toHaveText("Package Info");
+});
+
+test("Workspace product navigation exits every routed product surface", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await installFacades(page);
+  await page.goto(root);
+
+  const openWorkspace = async () => {
+    await openProductDestination(page, "workspace");
+    await expect(page.locator("#inspector-panel h1")).toHaveText("Workspace");
+  };
+
+  await openProductDestination(page, "home");
+  await expect(page).toHaveURL("/");
+  await openWorkspace();
+
+  await openProductDestination(page, "query");
+  await expect(page).toHaveURL(/\/query$/);
+  await openWorkspace();
+
+  await openProductDestination(page, "activity");
+  await expect(page).toHaveURL(/\/activity$/);
+  await openWorkspace();
+
+  await page.getByRole("link", { name: "Credits" }).click();
+  await expect(page).toHaveURL("/credits");
+  await openWorkspace();
+});
+
+test("Workspace projection failure pushes a degraded package successor", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await installFacades(page);
+  await page.goto(root);
+  await openProductDestination(page, "query");
+  await expect(page).toHaveURL(/\/query$/);
+
+  await releaseFacade(page, "fail-workspace-encode");
+  await openProductDestination(page, "workspace");
+
+  await expect(page.locator("#inspector-panel h1")).toHaveText("Workspace");
+  await expect(page).not.toHaveURL(/\/query$/);
+  await expect(page.locator(".query-notice"))
+    .toContainText("Fixture workspace projection failure.");
+
+  await page.goBack();
+  await expect(page).toHaveURL(/\/query$/);
+  await expect(page.locator("#package-query-heading"))
+    .toHaveText("Package query");
 });
 
 for (const width of [1440, 800, 390]) {
@@ -971,7 +1025,7 @@ test("browser history from before reload reuses the active Workspace", async ({ 
   await expect(page.locator(".inspected-target")).toContainText("Second.Package");
   await expect.poll(() =>
     currentWorkspaceHistoryState(page)).toEqual(reloadedWorkspace);
-  await page.locator('[data-application-scope="workspace"]').click();
+  await openProductDestination(page, "workspace");
   await expect(page.locator(".workspace-card")).toHaveCount(1);
   await expect(page.locator(".query-notice-text", {
     hasText: "Workspace limit reached",
