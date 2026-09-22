@@ -66,6 +66,9 @@
   replay preserves focus independently from selected context, while Inspect Web
   activation and deletion settle as consumer-accepted transactions (#7505,
   #7509, #7542, #7615, #7756, #7836, #7873, #7909, #7949, #8011).
+  Retained-Workspace package-source credentials now keep a typed C#/TypeScript
+  contract through the generated facade while preserving the private string
+  ABI and page-session-only credential constraints (#8238).
 - Adds canonical Workspace component paths and immutable
   `workspace package add|update|remove` editing, plus nested packet
   encode/decode commands. Inspect Web now saves and reopens complete Workspace
@@ -74,6 +77,9 @@
 - Adds bounded picker, drop, and paste opening of one standalone managed
   assembly in Inspect Web, with typed rejection and Library-to-Type-to-Member
   navigation (#8051).
+- Moves Inspect Web product navigation into the `dotnet-inspect` brand menu,
+  keeping Home, Query, Workspace, and Activity durable without competing with
+  inspected-subject navigation (#8047).
 - Adds focus-first `library coordinate <coordinate>` and bounded
   `library coordinate --file <path>` for exact IL and metadata-heap inspection,
   retaining source context and typed malformed-record evidence. File mode
