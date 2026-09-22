@@ -239,14 +239,22 @@ does not collapse them into one source-owned profile.
 The implementation belongs in the Release
 `ILInspector.Research.Tests` executable. It must demonstrate:
 
-| Gate | Required observation |
-| --- | --- |
-| `LibraryStructuralReport_RejectsScopedProfilePopulation` | A profile result from scoped method evidence is unavailable and retains its receipt. |
-| `LibraryStructuralReport_PreservesIssuedBodyCoverage` | The Analysis-issued coverage receipt survives unchanged beside report-local complete, incomplete, physical, and logical-owner counts. |
-| `LibraryStructuralReport_ExcludesIncompleteProfilesFromStatistics` | Incomplete evidence remains visible in the receipt but contributes to no numeric denominator or percentile. |
-| `LibraryStructuralReport_PreservesMultipleEvidenceBodiesPerLogicalOwner` | One logical async source with multiple physical bodies retains both bodies and the correct denominators. |
-| `LibraryStructuralReport_UsesDeterministicNearestRankAndMaximumTies` | The fixed metric fixture proves percentile positions, exact maxima, deterministic ordering, and the additional-tie count. |
-| `LibraryStructuralReport_RejectsDuplicateOrUnaccountedEvidenceIdentity` | Invalid owner input cannot issue a plausible report. |
+- `LibraryStructuralReport_RejectsScopedProfilePopulation`: A profile result
+  from scoped method evidence is unavailable and retains its receipt.
+- `LibraryStructuralReport_PreservesIssuedBodyCoverage`: The Analysis-issued
+  coverage receipt survives unchanged beside report-local complete, incomplete,
+  physical, and logical-owner counts.
+- `LibraryStructuralReport_ExcludesIncompleteProfilesFromStatistics`:
+  Incomplete evidence remains visible in the receipt but contributes to no
+  numeric denominator or percentile.
+- `LibraryStructuralReport_PreservesMultipleEvidenceBodiesPerLogicalOwner`:
+  One logical async source with multiple physical bodies retains both bodies
+  and the correct denominators.
+- `LibraryStructuralReport_UsesDeterministicNearestRankAndMaximumTies`: The
+  fixed metric fixture proves percentile positions, exact maxima, deterministic
+  ordering, and the additional-tie count.
+- `LibraryStructuralReport_RejectsDuplicateOrUnaccountedEvidenceIdentity`:
+  Invalid owner input cannot issue a plausible report.
 
 The probe command is reproducible design evidence, not a CI gate. Fixture
 tests establish the deterministic contract; an eventual pinned package corpus
@@ -266,11 +274,14 @@ hosts:
    and outside default `-v:m` output; the existing `Member Metrics` inventory
    remains the detail surface.
 5. Browser/Wasm adopts the same document through its settled Library detail
-   path after shared Navigation and terminal-result prerequisites land. It
-   presents the library summary at the Library boundary and preserves
-   Type/Member drill-down rather than adding method rows to Compare.
+   path. Its managed Analysis facade runs the host-neutral
+   `AssemblyContextLibraryMetricsQuery` over the exact implementation
+   participant, and its explicit `Metrics` lens presents the library summary
+   while preserving Type/Member drill-down rather than adding method rows to
+   Compare.
 
-The CLI path has four steps and the Browser/Wasm path has four steps; the
-first three are shared. The completed CLI adoption establishes the
-`Library Metrics` section spelling and Markout row-group renderer. This
-document still establishes no Browser component or Compare UX.
+The CLI path has four steps and the Browser/Wasm path has five steps; the first
+three are shared. The completed CLI adoption establishes the `Library Metrics`
+section spelling and Markout row-group renderer. Browser deliberately lowers
+the same typed document into its interactive summary instead of introducing a
+second Research model or using Markout for the Library-detail view.

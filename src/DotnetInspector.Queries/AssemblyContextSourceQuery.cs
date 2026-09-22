@@ -1294,6 +1294,35 @@ public static partial class AssemblyContextSourceQuery
         string operationName,
         CancellationToken cancellationToken)
     {
+        SourceHouseDecompilationOutcome outcome =
+            await DecompileHouseAsync(
+                    participant,
+                    target,
+                    printerOptions,
+                    completed,
+                    bindingPolicyVersion,
+                    limits,
+                    context,
+                    operationName,
+                    SourceHouseDecompilationProduct.SourceText,
+                    cancellationToken)
+                .ConfigureAwait(false);
+        return (DecompilationAttempt(outcome), outcome);
+    }
+
+    static async ValueTask<SourceHouseDecompilationOutcome>
+        DecompileHouseAsync(
+        AssemblyContextParticipant participant,
+        SourceHouseTarget target,
+        PrinterOptions? printerOptions,
+        AssemblyContextLibraryAdapterResult.Completed completed,
+        AssemblyBindingPolicyVersion bindingPolicyVersion,
+        SourceHouseDecompilationLimits limits,
+        AssemblyContextSourceQueryContext context,
+        string operationName,
+        SourceHouseDecompilationProduct product,
+        CancellationToken cancellationToken)
+    {
         cancellationToken.ThrowIfCancellationRequested();
         EnsureBindingPolicyVersion(
             participant,
@@ -1317,7 +1346,8 @@ public static partial class AssemblyContextSourceQuery
                 completed.Reference,
                 completed.Reference.ImplementationAssembly!,
                 target,
-                plan);
+                plan,
+                product);
         if (completed.Owner.IssueOperationLease(completed.Reference)
             is not LibraryOperationLeaseIssueOutcome.Issued issued)
         {
@@ -1336,7 +1366,7 @@ public static partial class AssemblyContextSourceQuery
         EnsureBindingPolicyVersion(
             participant,
             bindingPolicyVersion);
-        return (DecompilationAttempt(outcome), outcome);
+        return outcome;
     }
 
     static CSharpDecompilationAttempt DecompilationAttempt(
@@ -1357,6 +1387,25 @@ public static partial class AssemblyContextSourceQuery
                 HouseAttempt(
                     CSharpDecompilationStatus.Failed,
                     $"SourceHouse decompilation failed: {failed.Failure.Code}: {failed.Failure.Detail}"),
+            _ => throw new InvalidOperationException(
+                "Unknown SourceHouse decompilation outcome."),
+        };
+
+    static CSharpTypeDocumentOutcome TypeDocumentOutcome(
+        SourceHouseDecompilationOutcome outcome) =>
+        outcome switch
+        {
+            SourceHouseDecompilationOutcome.Completed completed =>
+                completed.TypeDocument,
+            SourceHouseDecompilationOutcome.Incomplete incomplete =>
+                new CSharpTypeDocumentOutcome.Unavailable(
+                    $"SourceHouse Type document production exceeded its {incomplete.Boundary} boundary."),
+            SourceHouseDecompilationOutcome.Rejected rejected =>
+                new CSharpTypeDocumentOutcome.Rejected(
+                    $"SourceHouse Type document production rejected the request: {rejected.Rejection.Kind}."),
+            SourceHouseDecompilationOutcome.Failed failed =>
+                new CSharpTypeDocumentOutcome.Unavailable(
+                    $"SourceHouse Type document production failed: {failed.Failure.Code}: {failed.Failure.Detail}"),
             _ => throw new InvalidOperationException(
                 "Unknown SourceHouse decompilation outcome."),
         };
