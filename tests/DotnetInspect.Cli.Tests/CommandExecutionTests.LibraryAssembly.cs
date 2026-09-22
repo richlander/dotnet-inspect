@@ -290,6 +290,258 @@ public partial class CommandExecutionTests
     // ── library command ─────────────────────────────────────────────
 
     [Fact]
+    public async Task
+        Library_DirectEnvelope_EmitsHostNeutralOverview()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "library",
+            TestAssemblyPath,
+            "--envelope",
+            "--compact",
+            "--tips",
+            "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.DoesNotContain('\n', output.TrimEnd());
+        using JsonDocument json = JsonDocument.Parse(output);
+        JsonElement root = json.RootElement;
+        Assert.Equal(
+            "library-overview",
+            root.GetProperty("result_kind").GetString());
+        Assert.Equal(
+            "available",
+            root.GetProperty("content")
+                .GetProperty("kind")
+                .GetString());
+        JsonElement document =
+            root.GetProperty("content")
+                .GetProperty("document");
+        Assert.Equal(
+            "DotnetInspect.Cli.Tests",
+            document.GetProperty("assembly")
+                .GetProperty("name")
+                .GetString());
+        Assert.True(
+            document.GetProperty("publicTypeCount")
+                .GetInt32() > 0);
+        Assert.Equal(
+            "nonProjectable",
+            root.GetProperty("share")
+                .GetProperty("kind")
+                .GetString());
+        Assert.Empty(
+            root.GetProperty("diagnostics")
+                .EnumerateArray());
+    }
+
+    [Fact]
+    public async Task
+        Library_DirectEnvelope_OutPublishesAfterCompletion()
+    {
+        string outputPath =
+            Path.Combine(
+                Path.GetTempPath(),
+                $"library-overview-{Guid.NewGuid():N}.json");
+        try
+        {
+            var (exit, output, error) = await RunAppAsync(
+                "library",
+                TestAssemblyPath,
+                "--envelope",
+                "--compact",
+                "--out",
+                outputPath,
+                "--tips",
+                "q");
+
+            Assert.Equal(0, exit);
+            Assert.Empty(output);
+            Assert.Empty(error);
+            string payload =
+                await File.ReadAllTextAsync(
+                    outputPath,
+                    TestContext.Current.CancellationToken);
+            Assert.DoesNotContain('\n', payload.TrimEnd());
+            using JsonDocument json =
+                JsonDocument.Parse(payload);
+            Assert.Equal(
+                "library-overview",
+                json.RootElement
+                    .GetProperty("result_kind")
+                    .GetString());
+        }
+        finally
+        {
+            File.Delete(outputPath);
+        }
+    }
+
+    [Fact]
+    public async Task
+        Library_EnvelopeRejectsNonFileBeforeSourceAcquisition()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "library",
+            "Definitely.Not.A.Local.Library",
+            "--envelope",
+            "--tips",
+            "q");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains(
+            "direct Library file does not exist",
+            error,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "NuGet",
+            error,
+            StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task
+        Library_EnvelopeRejectsLegacyRoutesBeforeAcquisition()
+    {
+        var section = await RunAppAsync(
+            "library",
+            "missing.dll",
+            "--envelope",
+            "-S",
+            SectionNames.References,
+            "--tips",
+            "q");
+        var package = await RunAppAsync(
+            "library",
+            "missing.dll",
+            "--envelope",
+            "--package",
+            "Definitely.No.Such.Package",
+            "--tips",
+            "q");
+        var count = await RunAppAsync(
+            "library",
+            "missing.dll",
+            "--envelope",
+            "--count",
+            "--tips",
+            "q");
+        var rows = await RunAppAsync(
+            "library",
+            "missing.dll",
+            "--envelope",
+            "--rows",
+            "1",
+            "--tips",
+            "q");
+        var source = await RunAppAsync(
+            "library",
+            "missing.dll",
+            "--envelope",
+            "--source",
+            "https://example.invalid/v3/index.json",
+            "--tips",
+            "q");
+        var addSource = await RunAppAsync(
+            "library",
+            "missing.dll",
+            "--envelope",
+            "--add-source",
+            "https://example.invalid/v3/index.json",
+            "--tips",
+            "q");
+        var nugetConfig = await RunAppAsync(
+            "library",
+            "missing.dll",
+            "--envelope",
+            "--nugetconfig",
+            "missing.nuget.config",
+            "--tips",
+            "q");
+        var row = await RunAppAsync(
+            "library",
+            "missing.dll",
+            "--envelope",
+            "--row",
+            "5",
+            "--tips",
+            "q");
+        var where = await RunAppAsync(
+            "library",
+            "missing.dll",
+            "--envelope",
+            "--where",
+            "integration=integration.dependency-injection",
+            "--tips",
+            "q");
+        var existingWhere = await RunAppAsync(
+            "library",
+            TestAssemblyPath,
+            "--envelope",
+            "--where",
+            "integration=integration.dependency-injection",
+            "--tips",
+            "q");
+
+        Assert.Equal(1, section.Exit);
+        Assert.Empty(section.Output);
+        Assert.Contains(
+            "does not accept section selection",
+            section.Error,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "does not exist",
+            section.Error,
+            StringComparison.Ordinal);
+
+        Assert.Equal(1, package.Exit);
+        Assert.Empty(package.Output);
+        Assert.Contains(
+            "--envelope cannot be combined with --package",
+            package.Error,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "does not exist",
+            package.Error,
+            StringComparison.Ordinal);
+
+        Assert.Equal(1, count.Exit);
+        Assert.Empty(count.Output);
+        Assert.Contains(
+            "--envelope cannot be combined with --count",
+            count.Error,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "does not exist",
+            count.Error,
+            StringComparison.Ordinal);
+
+        foreach (var (result, option) in new[]
+        {
+            (source, "--source"),
+            (addSource, "--add-source"),
+            (nugetConfig, "--nugetconfig"),
+            (row, "--row"),
+            (rows, "--rows"),
+            (where, "--where"),
+            (existingWhere, "--where"),
+        })
+        {
+            Assert.Equal(1, result.Exit);
+            Assert.Empty(result.Output);
+            Assert.Contains(
+                $"--envelope cannot be combined with {option}",
+                result.Error,
+                StringComparison.Ordinal);
+            Assert.DoesNotContain(
+                "does not exist",
+                result.Error,
+                StringComparison.Ordinal);
+        }
+    }
+
+    [Fact]
     public async Task Assembly_PlatformLibrary_ShowsInfo()
     {
         var options = new LibraryOptions { PlatformAssembly = "System.Text.Json" };
