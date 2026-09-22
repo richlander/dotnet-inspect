@@ -342,27 +342,61 @@ public static partial class SourceHouse
             target.Value.Type.Members = [target.Value.Member!];
         }
 
-        CSharpDecompilationAttempt attempt;
+        SourceHouseDecompilationContent content;
+        int bodyProjectionsAttempted;
         try
         {
-            attempt = target.Value.Member is { } member
-                ? CSharpDecompilerService.ProduceMember(
-                    target.Value.Type,
-                    member,
-                    descriptor,
-                    request.Plan.BindingPolicy,
-                    pdbImage,
-                    request.Plan.PrinterOptions,
-                    request.Plan.MaximumBodyProjections,
-                    cancellationToken)
-                : CSharpDecompilerService.ProduceType(
-                    target.Value.Type,
-                    descriptor,
-                    request.Plan.BindingPolicy,
-                    pdbImage,
-                    request.Plan.PrinterOptions,
-                    request.Plan.MaximumBodyProjections,
-                    cancellationToken);
+            switch (request.Product)
+            {
+                case SourceHouseDecompilationProduct
+                    .StructuredTypeDocument:
+                {
+                    CSharpTypeDocumentOutcome document =
+                        CSharpDecompilerService.ProduceTypeDocument(
+                            target.Value.Type,
+                            descriptor,
+                            request.Plan.BindingPolicy,
+                            pdbImage,
+                            request.Plan.PrinterOptions,
+                            request.Plan.MaximumBodyProjections,
+                            cancellationToken);
+                    content = new SourceHouseDecompilationContent
+                        .StructuredTypeDocument(document);
+                    bodyProjectionsAttempted =
+                        document.BodyProjectionsAttempted;
+                    break;
+                }
+                case SourceHouseDecompilationProduct.SourceText:
+                {
+                    CSharpDecompilationAttempt attempt =
+                        target.Value.Member is { } member
+                        ? CSharpDecompilerService.ProduceMember(
+                            target.Value.Type,
+                            member,
+                            descriptor,
+                            request.Plan.BindingPolicy,
+                            pdbImage,
+                            request.Plan.PrinterOptions,
+                            request.Plan.MaximumBodyProjections,
+                            cancellationToken)
+                        : CSharpDecompilerService.ProduceType(
+                            target.Value.Type,
+                            descriptor,
+                            request.Plan.BindingPolicy,
+                            pdbImage,
+                            request.Plan.PrinterOptions,
+                            request.Plan.MaximumBodyProjections,
+                            cancellationToken);
+                    content = new SourceHouseDecompilationContent
+                        .SourceText(attempt);
+                    bodyProjectionsAttempted =
+                        attempt.BodyProjectionsAttempted;
+                    break;
+                }
+                default:
+                    throw new InvalidOperationException(
+                        "Unknown SourceHouse decompilation product.");
+            }
         }
         finally
         {
@@ -372,12 +406,12 @@ public static partial class SourceHouse
         var completedWork = snapshotWork with
         {
             BodyProjectionsAttempted =
-                attempt.BodyProjectionsAttempted,
+                bodyProjectionsAttempted,
         };
         return new SourceHouseDecompilationOutcome.Completed(
             evidence,
             pdbContribution,
-            attempt,
+            content,
             completedWork,
             settlement);
     }

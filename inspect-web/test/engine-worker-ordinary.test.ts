@@ -136,6 +136,10 @@ const defaultFacades: EngineWorkerOrdinaryFacades = {
       unexpected("queryPlatformOpportunities"),
     queryPackagePerformance: () =>
       unexpected("queryPackagePerformance"),
+    queryPackageLibraryMetrics: () =>
+      unexpected("queryPackageLibraryMetrics"),
+    queryPlatformLibraryMetrics: () =>
+      unexpected("queryPlatformLibraryMetrics"),
     queryPlatformPerformance: () =>
       unexpected("queryPlatformPerformance"),
   },
@@ -1684,9 +1688,11 @@ test("the page client and Worker catalog expose only the closed allow-list", () 
       "queryCloneCandidates",
       "queryMemberFacts",
       "queryPackageIntegrations",
+      "queryPackageLibraryMetrics",
       "queryPackageOpportunities",
       "queryPackagePerformance",
       "queryPlatformIntegrations",
+      "queryPlatformLibraryMetrics",
       "queryPlatformOpportunities",
       "queryPlatformPerformance",
     ],
@@ -1744,7 +1750,7 @@ test("the page client and Worker catalog expose only the closed allow-list", () 
     [...engineWorkerOrdinaryOperationKinds].sort(),
     expectedKinds,
   );
-  assert.equal(engineWorkerOrdinaryOperationKinds.length, 78);
+  assert.equal(engineWorkerOrdinaryOperationKinds.length, 80);
 
   const state = fixture();
   const groups = [

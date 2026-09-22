@@ -56,8 +56,8 @@ async function waitForWorkspaceReady(page: Page) {
     .not.toHaveAttribute("aria-busy", "true");
 }
 
-async function openLibraryFromApplicationMenu(page: Page) {
-  await page.locator("#application-menu-button").click();
+async function openLibraryFromBrandMenu(page: Page) {
+  await page.locator("[data-product-navigation-button]").click();
   await page.getByRole(
     "menuitem",
     { name: "Open Library…", exact: true },
@@ -92,15 +92,15 @@ test("Open dismissal restores its logical invoker", async ({ page }) => {
 
   await page.goto(root);
   await waitForWorkspaceReady(page);
-  await openLibraryFromApplicationMenu(page);
+  await openLibraryFromBrandMenu(page);
   await page.keyboard.press("Escape");
-  await expect(page.locator("#application-menu-button")).toBeFocused();
+  await expect(page.locator("[data-product-navigation-button]")).toBeFocused();
 
-  await openLibraryFromApplicationMenu(page);
+  await openLibraryFromBrandMenu(page);
   await page.locator("#library-open-backdrop").click({
     position: { x: 5, y: 5 },
   });
-  await expect(page.locator("#application-menu-button")).toBeFocused();
+  await expect(page.locator("[data-product-navigation-button]")).toBeFocused();
 });
 
 test("global drop replaces another modal and inerts its surface", async ({

@@ -1605,13 +1605,20 @@ static class CSharpTypeDocumentValidator
 
 public abstract record CSharpTypeDocumentOutcome
 {
-    private CSharpTypeDocumentOutcome()
+    private CSharpTypeDocumentOutcome(
+        int bodyProjectionsAttempted)
     {
+        ArgumentOutOfRangeException.ThrowIfNegative(
+            bodyProjectionsAttempted);
+        BodyProjectionsAttempted = bodyProjectionsAttempted;
     }
+
+    public int BodyProjectionsAttempted { get; }
 
     public sealed record Available : CSharpTypeDocumentOutcome
     {
         public Available(CSharpTypeDocument document)
+            : base(CountAttemptedBodyProjections(document))
         {
             ArgumentNullException.ThrowIfNull(document);
             if (document.Bodies.Any(static body =>
@@ -1633,6 +1640,7 @@ public abstract record CSharpTypeDocumentOutcome
         public Incomplete(
             CSharpTypeDocument document,
             ImmutableArray<int> failedBodyIds)
+            : base(CountAttemptedBodyProjections(document))
         {
             ArgumentNullException.ThrowIfNull(document);
             if (failedBodyIds.IsDefaultOrEmpty)
@@ -1668,7 +1676,10 @@ public abstract record CSharpTypeDocumentOutcome
 
     public sealed record Unavailable : CSharpTypeDocumentOutcome
     {
-        public Unavailable(string reason)
+        public Unavailable(
+            string reason,
+            int bodyProjectionsAttempted = 0)
+            : base(bodyProjectionsAttempted)
         {
             ArgumentException.ThrowIfNullOrWhiteSpace(reason);
             AnnotatedSourceText.ValidateWellFormedUtf16(
@@ -1683,7 +1694,10 @@ public abstract record CSharpTypeDocumentOutcome
 
     public sealed record Rejected : CSharpTypeDocumentOutcome
     {
-        public Rejected(string reason)
+        public Rejected(
+            string reason,
+            int bodyProjectionsAttempted = 0)
+            : base(bodyProjectionsAttempted)
         {
             ArgumentException.ThrowIfNullOrWhiteSpace(reason);
             AnnotatedSourceText.ValidateWellFormedUtf16(
@@ -1694,5 +1708,16 @@ public abstract record CSharpTypeDocumentOutcome
         }
 
         public string Reason { get; }
+    }
+
+    private static int CountAttemptedBodyProjections(
+        CSharpTypeDocument document)
+    {
+        ArgumentNullException.ThrowIfNull(document);
+        return document.Bodies.Count(static body =>
+            body.HasManagedBody
+            && !body.Diagnostics.Any(static diagnostic =>
+                diagnostic.Id
+                    == DiagnosticIds.CompositionBudgetExceeded));
     }
 }

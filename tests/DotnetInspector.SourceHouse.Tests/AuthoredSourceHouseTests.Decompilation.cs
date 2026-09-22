@@ -1,4 +1,6 @@
+using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
+using System.Reflection.PortableExecutable;
 
 using DotnetInspector.Libraries;
 using DotnetInspector.Services;
@@ -602,6 +604,375 @@ public sealed partial class AuthoredSourceHouseTests
             rejected.Rejection.Kind);
     }
 
+    [Fact]
+    public async Task
+        TypeDocumentDecompilation_NoPdbPreservesNativeOutcomeAndLease()
+    {
+        string assemblyPath =
+            typeof(DecompilationFixture.DocumentInterface)
+                .Assembly.Location;
+        SourceHouseTarget.TypeTarget target = TypeTarget(
+            assemblyPath,
+            typeof(DecompilationFixture.DocumentInterface)
+                .FullName!
+                .Replace('+', '.'));
+        await using LibraryFixture library =
+            await LibraryFixture.CreateAsync(assemblyPath);
+        LibraryOperationLease operation =
+            library.IssueOperation();
+
+        SourceHouseDecompilationOutcome.Completed completed =
+            Assert.IsType<SourceHouseDecompilationOutcome.Completed>(
+                await SourceHouse.ExecuteDecompilationAsync(
+                    DecompilationRequest(
+                        library,
+                        target,
+                        assemblyPath,
+                        product: SourceHouseDecompilationProduct
+                            .StructuredTypeDocument),
+                    operation,
+                    TestContext.Current.CancellationToken));
+
+        AssertOperationSettled(
+            operation,
+            library.Reference.ApiAssembly);
+        Assert.Equal(
+            SourceHouseDecompilationProduct.StructuredTypeDocument,
+            completed.Request.Product);
+        Assert.IsType<
+            SourceHouseDecompilationContent.StructuredTypeDocument>(
+                completed.Content);
+        CSharpTypeDocument document =
+            Assert.IsType<CSharpTypeDocumentOutcome.Available>(
+                completed.TypeDocument)
+                .Document;
+        Assert.Equal(target.Type, document.TypeName);
+        Assert.False(document.Source.PdbSupplied);
+        Assert.Equal(
+            SourceHousePdbContributionKind.Unavailable,
+            completed.PdbContribution.Kind);
+        Assert.Equal(
+            completed.TypeDocument.BodyProjectionsAttempted,
+            completed.Work.BodyProjectionsAttempted);
+        Assert.Equal(
+            SourceHouseLibraryLeaseConsumer.SourceHouse,
+            completed.LeaseSettlement.Consumer);
+    }
+
+    [Fact]
+    public async Task
+        TypeDocumentDecompilation_CompanionPdbPreservesNativeProvenance()
+    {
+        string assemblyPath =
+            typeof(DecompilationFixture.DocumentInterface)
+                .Assembly.Location;
+        string pdbPath =
+            Path.ChangeExtension(assemblyPath, ".pdb");
+        SourceHouseTarget.TypeTarget target = TypeTarget(
+            assemblyPath,
+            typeof(DecompilationFixture.DocumentInterface)
+                .FullName!
+                .Replace('+', '.'));
+        await using LibraryFixture library =
+            await LibraryFixture.CreateAsync(
+                assemblyPath,
+                pdbPath);
+
+        SourceHouseDecompilationOutcome.Completed completed =
+            Assert.IsType<SourceHouseDecompilationOutcome.Completed>(
+                await SourceHouse.ExecuteDecompilationAsync(
+                    DecompilationRequest(
+                        library,
+                        target,
+                        assemblyPath,
+                        product: SourceHouseDecompilationProduct
+                            .StructuredTypeDocument),
+                    library.IssueOperation(),
+                    TestContext.Current.CancellationToken));
+
+        CSharpTypeDocument document =
+            Assert.IsType<CSharpTypeDocumentOutcome.Available>(
+                completed.TypeDocument)
+                .Document;
+        Assert.True(document.Source.PdbSupplied);
+        Assert.Equal(
+            SourceHousePdbContributionKind.SuppliedCompanion,
+            completed.PdbContribution.Kind);
+        Assert.Same(
+            library.PortablePdb,
+            completed.PdbContribution.Content);
+    }
+
+    [Fact]
+    public async Task
+        TypeDocumentDecompilation_CompanionLimitRetainsPdbFreeDocument()
+    {
+        string assemblyPath =
+            typeof(DecompilationFixture.DocumentInterface)
+                .Assembly.Location;
+        string pdbPath =
+            Path.ChangeExtension(assemblyPath, ".pdb");
+        SourceHouseTarget.TypeTarget target = TypeTarget(
+            assemblyPath,
+            typeof(DecompilationFixture.DocumentInterface)
+                .FullName!
+                .Replace('+', '.'));
+        await using LibraryFixture library =
+            await LibraryFixture.CreateAsync(
+                assemblyPath,
+                pdbPath);
+
+        SourceHouseDecompilationOutcome.Completed completed =
+            Assert.IsType<SourceHouseDecompilationOutcome.Completed>(
+                await SourceHouse.ExecuteDecompilationAsync(
+                    DecompilationRequest(
+                        library,
+                        target,
+                        assemblyPath,
+                        limits: DecompilationLimits(
+                            maximumPortablePdbBytes: 1),
+                        product: SourceHouseDecompilationProduct
+                            .StructuredTypeDocument),
+                    library.IssueOperation(),
+                    TestContext.Current.CancellationToken));
+
+        CSharpTypeDocument document =
+            Assert.IsType<CSharpTypeDocumentOutcome.Available>(
+                completed.TypeDocument)
+                .Document;
+        Assert.False(document.Source.PdbSupplied);
+        Assert.Equal(
+            SourceHousePdbContributionKind.Incomplete,
+            completed.PdbContribution.Kind);
+        Assert.True(completed.Work.PortablePdbBytesObserved > 1);
+    }
+
+    [Fact]
+    public async Task
+        TypeDocumentDecompilation_ZeroBudgetPreservesNativeIncomplete()
+    {
+        string assemblyPath =
+            typeof(DecompilationFixture.DocumentInterface)
+                .Assembly.Location;
+        SourceHouseTarget.TypeTarget target = TypeTarget(
+            assemblyPath,
+            typeof(DecompilationFixture.DocumentInterface)
+                .FullName!
+                .Replace('+', '.'));
+        await using LibraryFixture library =
+            await LibraryFixture.CreateAsync(assemblyPath);
+
+        SourceHouseDecompilationOutcome.Completed completed =
+            Assert.IsType<SourceHouseDecompilationOutcome.Completed>(
+                await SourceHouse.ExecuteDecompilationAsync(
+                    DecompilationRequest(
+                        library,
+                        target,
+                        assemblyPath,
+                        maximumBodyProjections: 0,
+                        product: SourceHouseDecompilationProduct
+                            .StructuredTypeDocument),
+                    library.IssueOperation(),
+                    TestContext.Current.CancellationToken));
+
+        var incomplete =
+            Assert.IsType<CSharpTypeDocumentOutcome.Incomplete>(
+                completed.TypeDocument);
+        Assert.Equal(0, incomplete.BodyProjectionsAttempted);
+        Assert.Equal(0, completed.Work.BodyProjectionsAttempted);
+        Assert.Contains(
+            incomplete.Document.Bodies,
+            body =>
+                body.Diagnostics.Any(diagnostic =>
+                    diagnostic.Id
+                        == DiagnosticIds.CompositionBudgetExceeded));
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task
+        TypeDocumentDecompilation_InvalidPdbPreservesNativeTerminalOutcome(
+            bool empty)
+    {
+        string assemblyPath =
+            typeof(DecompilationFixture.DocumentInterface)
+                .Assembly.Location;
+        SourceHouseTarget.TypeTarget target = TypeTarget(
+            assemblyPath,
+            typeof(DecompilationFixture.DocumentInterface)
+                .FullName!
+                .Replace('+', '.'));
+        await using LibraryFixture library =
+            await LibraryFixture.CreateAsync(
+                assemblyPath,
+                empty ? [] : [1, 2, 3, 4]);
+
+        SourceHouseDecompilationOutcome.Completed completed =
+            Assert.IsType<SourceHouseDecompilationOutcome.Completed>(
+                await SourceHouse.ExecuteDecompilationAsync(
+                    DecompilationRequest(
+                        library,
+                        target,
+                        assemblyPath,
+                        product: SourceHouseDecompilationProduct
+                            .StructuredTypeDocument),
+                    library.IssueOperation(),
+                    TestContext.Current.CancellationToken));
+
+        if (empty)
+        {
+            Assert.IsType<CSharpTypeDocumentOutcome.Rejected>(
+                completed.TypeDocument);
+        }
+        else
+        {
+            Assert.IsType<CSharpTypeDocumentOutcome.Unavailable>(
+                completed.TypeDocument);
+        }
+    }
+
+    [Fact]
+    public async Task
+        TypeDocumentDecompilation_LateMalformedBodyPreservesAttemptedWork()
+    {
+        string assemblyPath =
+            typeof(DecompilationFixture.SurfaceSelection)
+                .Assembly.Location;
+        SourceHouseTarget.TypeTarget target = TypeTarget(
+            assemblyPath,
+            typeof(DecompilationFixture.SurfaceSelection)
+                .FullName!
+                .Replace('+', '.'));
+        byte[] assembly = MalformSecondManagedBody(
+            assemblyPath,
+            nameof(DecompilationFixture.SurfaceSelection));
+        await using LibraryFixture library =
+            await LibraryFixture.CreateAsync(
+                assembly,
+                ReadAssemblyIdentity(assembly));
+
+        SourceHouseDecompilationOutcome.Completed completed =
+            Assert.IsType<SourceHouseDecompilationOutcome.Completed>(
+                await SourceHouse.ExecuteDecompilationAsync(
+                    DecompilationRequest(
+                        library,
+                        target,
+                        assemblyPath,
+                        maximumBodyProjections: 1,
+                        product: SourceHouseDecompilationProduct
+                            .StructuredTypeDocument),
+                    library.IssueOperation(),
+                    TestContext.Current.CancellationToken));
+
+        var unavailable =
+            Assert.IsType<CSharpTypeDocumentOutcome.Unavailable>(
+                completed.TypeDocument);
+        Assert.Contains(
+            nameof(BadImageFormatException),
+            unavailable.Reason,
+            StringComparison.Ordinal);
+        Assert.Equal(1, unavailable.BodyProjectionsAttempted);
+        Assert.Equal(1, completed.Work.BodyProjectionsAttempted);
+    }
+
+    [Fact]
+    public async Task
+        TypeDocumentDecompilation_AssemblyLimitIsIncompleteAndSettlesLease()
+    {
+        string assemblyPath =
+            typeof(DecompilationFixture.DocumentInterface)
+                .Assembly.Location;
+        SourceHouseTarget.TypeTarget target = TypeTarget(
+            assemblyPath,
+            typeof(DecompilationFixture.DocumentInterface)
+                .FullName!
+                .Replace('+', '.'));
+        await using LibraryFixture library =
+            await LibraryFixture.CreateAsync(assemblyPath);
+        LibraryOperationLease operation =
+            library.IssueOperation();
+
+        SourceHouseDecompilationOutcome.Incomplete incomplete =
+            Assert.IsType<SourceHouseDecompilationOutcome.Incomplete>(
+                await SourceHouse.ExecuteDecompilationAsync(
+                    DecompilationRequest(
+                        library,
+                        target,
+                        assemblyPath,
+                        limits: DecompilationLimits(
+                            maximumAssemblyBytes: 1),
+                        product: SourceHouseDecompilationProduct
+                            .StructuredTypeDocument),
+                    operation,
+                    TestContext.Current.CancellationToken));
+
+        AssertOperationSettled(
+            operation,
+            library.Reference.ApiAssembly);
+        Assert.Equal(
+            SourceHouseDecompilationProduct.StructuredTypeDocument,
+            incomplete.Request.Product);
+        Assert.Equal(
+            SourceHouseIncompleteBoundary.AssemblyBytes,
+            incomplete.Boundary);
+        Assert.True(incomplete.Work.AssemblyBytesObserved > 1);
+    }
+
+    [Fact]
+    public async Task
+        TypeDocumentDecompilation_CancellationSettlesOperationLease()
+    {
+        string assemblyPath =
+            typeof(DecompilationFixture.DocumentInterface)
+                .Assembly.Location;
+        SourceHouseTarget.TypeTarget target = TypeTarget(
+            assemblyPath,
+            typeof(DecompilationFixture.DocumentInterface)
+                .FullName!
+                .Replace('+', '.'));
+        await using LibraryFixture library =
+            await LibraryFixture.CreateAsync(assemblyPath);
+        LibraryOperationLease operation =
+            library.IssueOperation();
+        using var cancellation = new CancellationTokenSource();
+        cancellation.Cancel();
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(
+            async () =>
+                await SourceHouse.ExecuteDecompilationAsync(
+                    DecompilationRequest(
+                        library,
+                        target,
+                        assemblyPath,
+                        product: SourceHouseDecompilationProduct
+                            .StructuredTypeDocument),
+                    operation,
+                    cancellation.Token));
+
+        AssertOperationSettled(
+            operation,
+            library.Reference.ApiAssembly);
+    }
+
+    [Fact]
+    public async Task
+        TypeDocumentDecompilation_RequiresExactTypeTarget()
+    {
+        RealAsset asset = MemberSlicingAsset();
+        await using LibraryFixture library =
+            await LibraryFixture.CreateAsync(asset.AssemblyPath);
+
+        Assert.Throws<ArgumentException>(
+            "target",
+            () => DecompilationRequest(
+                library,
+                asset.MemberTarget,
+                asset.AssemblyPath,
+                product: SourceHouseDecompilationProduct
+                    .StructuredTypeDocument));
+    }
+
     private static SourceHouseDecompilationRequest
         DecompilationRequest(
             LibraryFixture library,
@@ -609,7 +980,9 @@ public sealed partial class AuthoredSourceHouseTests
             string assemblyPath,
             SourceHouseDecompilationLimits? limits = null,
             int maximumBodyProjections =
-                CSharpDecompilerService.DefaultMaxBodyProjections) =>
+                CSharpDecompilerService.DefaultMaxBodyProjections,
+            SourceHouseDecompilationProduct product =
+                SourceHouseDecompilationProduct.SourceText) =>
         new(
             SourceHouseRequestIdentity.Create(
                 "test-decompilation"),
@@ -626,7 +999,8 @@ public sealed partial class AuthoredSourceHouseTests
                     new AssemblyDependencyResolutionOptions(
                         assemblyPath)),
                 maximumBodyProjections:
-                    maximumBodyProjections));
+                    maximumBodyProjections),
+            product);
 
     private static SourceHouseDecompilationLimits
         DecompilationLimits(
@@ -641,6 +1015,54 @@ public sealed partial class AuthoredSourceHouseTests
                     maximumPortablePdbBytes,
                 maxMapBytes: 16 * 1024 * 1024,
                 maxMappings: 100_000));
+
+    private static byte[] MalformSecondManagedBody(
+        string assemblyPath,
+        string typeName)
+    {
+        byte[] assembly = File.ReadAllBytes(assemblyPath);
+        int bodyOffset;
+        using (var stream =
+            new MemoryStream(assembly, writable: false))
+        using (var pe = new PEReader(stream))
+        {
+            MetadataReader reader = pe.GetMetadataReader();
+            TypeDefinitionHandle typeHandle = Assert.Single(
+                reader.TypeDefinitions,
+                handle =>
+                    reader.GetString(
+                        reader.GetTypeDefinition(handle).Name)
+                    == typeName);
+            MethodDefinitionHandle[] managedBodies =
+            [
+                .. reader.GetTypeDefinition(typeHandle)
+                    .GetMethods()
+                    .Where(handle =>
+                        reader.GetMethodDefinition(handle)
+                            .RelativeVirtualAddress != 0),
+            ];
+            Assert.True(managedBodies.Length >= 2);
+            int bodyRva = reader
+                .GetMethodDefinition(managedBodies[1])
+                .RelativeVirtualAddress;
+            SectionHeader section = Assert.Single(
+                pe.PEHeaders.SectionHeaders,
+                candidate =>
+                    bodyRva >= candidate.VirtualAddress
+                    && bodyRva
+                        < candidate.VirtualAddress
+                            + Math.Max(
+                                candidate.VirtualSize,
+                                candidate.SizeOfRawData));
+            bodyOffset =
+                bodyRva
+                - section.VirtualAddress
+                + section.PointerToRawData;
+        }
+
+        assembly[bodyOffset] = 0;
+        return assembly;
+    }
 
     private static SourceHouseTarget.MemberTarget AccessorTarget(
         string assemblyPath,
@@ -682,6 +1104,11 @@ public sealed partial class AuthoredSourceHouseTests
             public int Included() => ConcealedCore();
 
             private static int ConcealedCore() => 1;
+        }
+
+        public interface DocumentInterface
+        {
+            int Read() => 7;
         }
     }
 }
