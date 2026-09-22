@@ -100,6 +100,10 @@ public sealed class CSharpDecompilerTypeDocumentTests
 
         AssertCompiles(bodies.Text);
         AssertCompiles(skeleton.Text);
+        var replay = CSharpTypeDocumentJson.Deserialize(
+            CSharpTypeDocumentJson.Serialize(document));
+        Assert.Equal(document.Revision, replay.Revision);
+        Assert.Equal(bodies.Text, Project(replay, new()).Text);
     }
 
     [Theory]
@@ -162,26 +166,39 @@ public sealed class CSharpDecompilerTypeDocumentTests
                 "struct Inner<U>",
                 StringComparison.Ordinal),
             projection.Text);
+        AssertCompiles(projection.Text);
     }
 
-    [Fact]
-    public void ProduceTypeDocument_BudgetExhaustionRetainsCompleteSkeleton()
+    [Theory]
+    [InlineData(0)]
+    [InlineData(1)]
+    public void ProduceTypeDocument_BudgetExhaustionRetainsCompleteSkeleton(int budget)
     {
         CSharpTypeDocumentOutcome.Incomplete incomplete =
             Assert.IsType<CSharpTypeDocumentOutcome.Incomplete>(
-                Produce(Type<StructuredSample>(), maxBodyProjections: 0));
+                Produce(Type<StructuredSample>(), maxBodyProjections: budget));
 
         Assert.NotEmpty(incomplete.Document.Artifacts);
         Assert.NotEmpty(incomplete.Document.Declarations);
         Assert.Equal(
             incomplete.Document.Bodies.Count(static body =>
-                body.HasManagedBody),
+                body.HasManagedBody) - budget,
             incomplete.FailedBodyIds.Length);
         CSharpTypeDocumentProjection skeleton = Project(
             incomplete.Document,
             new(CSharpTypeBodyMode.Skeleton));
         Assert.Contains("class StructuredSample", skeleton.Text);
         AssertCompiles(skeleton.Text);
+        var replay = CSharpTypeDocumentJson.Deserialize(
+            CSharpTypeDocumentJson.Serialize(incomplete.Document));
+        Assert.Equal(incomplete.Document.Revision, replay.Revision);
+        if (budget > 0)
+        {
+            var constructor = replay.Declarations.Single(declaration =>
+                declaration.Kind == CSharpTypeDeclarationKind.Constructor);
+            AssertCompiles(Project(replay, new(
+                CSharpTypeBodyMode.SelectedBody, constructor.Anchor)).Text);
+        }
     }
 
     [Fact]
@@ -277,6 +294,8 @@ public sealed class CSharpDecompilerTypeDocumentTests
         Assert.Equal(withoutPdb.Revision, repeated.Revision);
         Assert.IsType<CSharpTypeDocumentOutcome.Rejected>(
             Produce(type, []));
+        Assert.IsType<CSharpTypeDocumentOutcome.Unavailable>(
+            Produce(type, [1, 2, 3, 4]));
     }
 
     [Theory]

@@ -462,6 +462,18 @@ failure and projection diagnostic; it does not emit an empty body or pretend
 that decompilation succeeded. Hosts render that failure adjacent to the
 declaration without rewriting the C# fragment.
 
+Implicit auto-property and field-like-event accessors are explicitly
+`ImplicitAccessors` slots. They retain their managed physical body rows but
+have no explicit body syntax or drill-down range in the Type projection.
+Their full and skeleton alternatives are identical; the producer must prove
+the backing-storage/accessor association before issuing this kind.
+Unavailable bodies likewise retain a non-navigable empty evidence range and
+identical valid skeleton alternatives. Neither case claims an available empty
+method body. Ordinary available body ranges keep the strict rule: an empty
+range is permitted only for a genuinely empty block with identical alternatives.
+The producer's complete-inventory and budget-exhaustion gates cover these
+distinctions alongside `CSharpTypeDocumentTests`.
+
 ### Structural selection
 
 The same projection request may select:

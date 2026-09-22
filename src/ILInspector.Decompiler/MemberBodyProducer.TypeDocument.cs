@@ -63,6 +63,23 @@ public static partial class MemberBodyProducer
         var logicalMembers = SelectLogicalMembers(
             type,
             directArtifactTokens);
+        foreach (ApiMember member in logicalMembers)
+        {
+            if (member.SetterToken is { } setterToken
+                && member.SignatureModel is { } signature
+                && MetadataDeclarationQuery.IsInitOnlySetter(
+                    reader,
+                    definition,
+                    reader.GetMethodDefinition(MetadataTokens.MethodDefinitionHandle(
+                        setterToken & 0x00FFFFFF))))
+            {
+                foreach (ApiAccessor accessor in signature.Accessors.Where(
+                    accessor => accessor.Kind == "set"))
+                {
+                    accessor.Kind = "init";
+                }
+            }
+        }
         var declarationIdByToken = logicalMembers
             .Select((member, index) => (Token: DeclarationToken(member), index))
             .Where(static entry => entry.Token is not null)
@@ -614,6 +631,7 @@ public static partial class MemberBodyProducer
                 {
                     HasBodyEvidence = bodyByToken[binding.MethodToken].Outcome
                         == CSharpTypeBodyOutcome.Available,
+                    HasManagedBody = bodyByToken[binding.MethodToken].HasManagedBody,
                 })];
             if (IsPropertyMember(member))
             {
@@ -974,6 +992,8 @@ public static partial class MemberBodyProducer
                         CSharpTypeImplementationKind.Body,
                     CSharpStructuredImplementationKind.Initializer =>
                         CSharpTypeImplementationKind.Initializer,
+                    CSharpStructuredImplementationKind.ImplicitAccessors =>
+                        CSharpTypeImplementationKind.ImplicitAccessors,
                     _ => null,
                 },
                 owned,

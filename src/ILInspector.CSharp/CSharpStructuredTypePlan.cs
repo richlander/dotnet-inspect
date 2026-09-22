@@ -26,12 +26,14 @@ public enum CSharpStructuredImplementationKind
 {
     Body,
     Initializer,
+    ImplicitAccessors,
 }
 
 public sealed record CSharpStructuredBodyBinding(
     int MethodToken,
     CSharpStructuredBodyRole Role,
-    bool HasBodyEvidence = true);
+    bool HasBodyEvidence = true,
+    bool HasManagedBody = true);
 
 public sealed record CSharpStructuredBodyPlacement(
     CSharpStructuredBodyBinding Binding,
@@ -447,10 +449,17 @@ public static class CSharpStructuredTypePlanProducer
                     : "\n" + accessorPad + head + "\n"
                         + CSharpSourceLayout.RenderBlock("throw null;", accessorPad);
             }
+            if (!binding.HasManagedBody)
+            {
+                parts.Add(Fixed(full));
+                continue;
+            }
             parts.Add(Implementation(
                 full,
-                skeleton,
-                CSharpStructuredImplementationKind.Body,
+                binding.HasBodyEvidence ? skeleton : full,
+                accessor?.Kind == CSharpAccessorBodyKind.Auto
+                    ? CSharpStructuredImplementationKind.ImplicitAccessors
+                    : CSharpStructuredImplementationKind.Body,
                 [new(binding, binding.HasBodyEvidence ? range : new(0, 0))]));
         }
         parts.Add(Fixed("\n" + pad + "}"
@@ -511,7 +520,7 @@ public static class CSharpStructuredTypePlanProducer
                 + CSharpSourceLayout.RenderBlock("throw null;", accessorPad);
             parts.Add(Implementation(
                 full,
-                skeleton,
+                binding.HasBodyEvidence ? skeleton : full,
                 CSharpStructuredImplementationKind.Body,
                 [new(binding, binding.HasBodyEvidence ? range : new(0, 0))]));
         }
@@ -559,10 +568,12 @@ public static class CSharpStructuredTypePlanProducer
     {
         foreach (CSharpStructuredBodyBinding body in bodies)
         {
+            if (!body.HasManagedBody)
+                continue;
             parts.Add(Implementation(
                 "",
                 "",
-                CSharpStructuredImplementationKind.Body,
+                CSharpStructuredImplementationKind.ImplicitAccessors,
                 [new(body, new(0, 0))]));
         }
     }
