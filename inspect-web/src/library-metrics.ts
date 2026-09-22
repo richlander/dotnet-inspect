@@ -57,8 +57,25 @@ export function renderLibraryMetricsSurface(
         <td>${distribution.p90 ?? "\u2014"}</td>
         <td>${distribution.maximum ?? "\u2014"}</td>
       </tr>`).join("");
-      const incomplete = population && population.incompleteProfileCount > 0
-        ? `<section class="document-section metadata-warning"><strong>&#x26A0; Some method bodies are incomplete</strong><p>${population.incompleteProfileCount.toLocaleString()} of ${population.profiledPhysicalEvidenceBodyCount.toLocaleString()} profiled bodies have incomplete metrics.</p></section>`
+      const coverageGap = population
+        && population.profiledPhysicalEvidenceBodyCount
+          < population.physicalEvidenceBodyCount;
+      const incomplete = population && (
+        coverageGap || population.incompleteProfileCount > 0)
+        ? `<section class="document-section metadata-warning"><strong>&#x26A0; Metrics are qualified</strong><p>${
+          coverageGap
+            ? `${population.profiledPhysicalEvidenceBodyCount.toLocaleString()} of ${population.physicalEvidenceBodyCount.toLocaleString()} physical bodies were profiled.`
+            : ""
+        }${
+          population.incompleteProfileCount > 0
+            ? ` ${population.incompleteProfileCount.toLocaleString()} profiled bodies have incomplete metrics.`
+            : ""
+        }</p>${
+          resolved.diagnostics.length > 0
+            ? `<ul>${resolved.diagnostics.map(diagnostic =>
+              `<li>${escapeHtml(diagnostic)}</li>`).join("")}</ul>`
+            : ""
+        }</section>`
         : "";
       content = `${incomplete}
         <section class="document-section">

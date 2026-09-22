@@ -9620,6 +9620,7 @@ async function openPlatformLensLibrary(
     else await loadPackageIntegrations();
   }
   else if (lens === "analysis") await loadPackagePerformance();
+  else if (lens === "metrics") await loadPackageLibraryMetrics();
   else await loadPackageMetadata();
 }
 
