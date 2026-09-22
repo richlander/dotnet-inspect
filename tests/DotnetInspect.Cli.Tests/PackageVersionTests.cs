@@ -159,7 +159,7 @@ public class PackageVersionTests
         Assert.Empty(result.Error);
         using JsonDocument json = JsonDocument.Parse(result.Output);
         JsonElement root = json.RootElement;
-        Assert.Equal(1, root.GetProperty("schema_version").GetInt32());
+        Assert.Equal(2, root.GetProperty("schema_version").GetInt32());
         Assert.Equal(
             "package-version-listing",
             root.GetProperty("result_kind").GetString());
@@ -828,7 +828,7 @@ public class PackageVersionTests
         Assert.Empty(result.Error);
         using JsonDocument json = JsonDocument.Parse(result.Output);
         JsonElement root = json.RootElement;
-        Assert.Equal(1, root.GetProperty("schema_version").GetInt32());
+        Assert.Equal(2, root.GetProperty("schema_version").GetInt32());
         Assert.Equal(
             "package-version-population",
             root.GetProperty("result_kind").GetString());

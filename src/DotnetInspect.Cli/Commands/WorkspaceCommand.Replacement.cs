@@ -59,7 +59,7 @@ public static partial class WorkspaceCommand
                 inspection,
                 new InspectionEnvelopeJsonContract<WorkspacePortableCoordinateReplacementOutcome>(
                     "workspace-package-update",
-                    1,
+                    2,
                     WorkspacePortableCoordinateReplacementJsonContext.Default
                         .WorkspacePortableCoordinateReplacementOutcome),
                 includeEnvelope: true))

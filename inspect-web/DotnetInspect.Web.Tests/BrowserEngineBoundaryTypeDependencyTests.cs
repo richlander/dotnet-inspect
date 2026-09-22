@@ -175,6 +175,9 @@ public sealed partial class BrowserEngineBoundaryTests
             typeName,
             workspace.TypeDependencyInspection.Content
                 .QueryResult.Dependency.MatchedType);
+        Assert.Equal(
+            InspectionContentKind.Document,
+            workspace.TypeDependencyInspection.ContentKind);
         InspectionPortableProjection.Available share =
             Assert.IsType<InspectionPortableProjection.Available>(
                 workspace.TypeDependencyInspection.PortableProjection);

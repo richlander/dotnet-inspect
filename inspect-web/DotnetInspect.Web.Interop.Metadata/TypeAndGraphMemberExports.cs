@@ -195,7 +195,7 @@ public static partial class MetadataExports
                 typeName);
         return new InspectionEnvelope<TypeDependencySectionResult>(
             new ResourcePath("type-dependencies"),
-            InspectionContentKind.Result,
+            InspectionContentKind.Document,
             dependencies,
             share,
             diagnostics);

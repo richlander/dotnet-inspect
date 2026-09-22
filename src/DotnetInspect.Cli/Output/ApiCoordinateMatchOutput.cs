@@ -13,7 +13,7 @@ internal static class ApiCoordinateMatchOutput
         JsonContract =
             new(
                 "api-coordinate-match",
-                1,
+                2,
                 ApiCoordinateMatchJsonContext.Default.ApiCoordinateMatchContent);
 
     internal static int Write(

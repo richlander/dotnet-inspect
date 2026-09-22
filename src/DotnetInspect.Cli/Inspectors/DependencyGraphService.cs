@@ -74,7 +74,7 @@ internal sealed record TypeDependencyExecutionResult(
         return new(
             new InspectionEnvelope<TypeDependencySectionResult>(
                 new ResourcePath("type-dependencies"),
-                InspectionContentKind.Result,
+                InspectionContentKind.Document,
                 content,
                 portableProjection,
                 diagnostics),

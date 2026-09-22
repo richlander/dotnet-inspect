@@ -33,7 +33,7 @@ public static class TypeCommand
         ExactTypeInspectionResult> ExactTypeJsonContract =
             new(
                 "exact-type",
-                1,
+                2,
                 ExactTypeInspectionJsonContext.Default
                     .ExactTypeInspectionResult);
 
@@ -41,7 +41,7 @@ public static class TypeCommand
         ExactLibraryApiInspectionResult> ExactLibraryApiJsonContract =
             new(
                 "exact-library-api",
-                1,
+                2,
                 ExactLibraryApiInspectionJsonContext.Default
                     .ExactLibraryApiInspectionResult);
 

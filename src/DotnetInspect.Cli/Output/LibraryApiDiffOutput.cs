@@ -14,7 +14,7 @@ namespace DotnetInspect.Cli.Output;
 internal static class LibraryApiDiffOutput
 {
     static readonly InspectionEnvelopeJsonContract<LibraryApiDiffOutcome> JsonContract =
-        new("library-api-diff", 1, LibraryApiDiffJsonContext.Default.LibraryApiDiffOutcome);
+        new("library-api-diff", 2, LibraryApiDiffJsonContext.Default.LibraryApiDiffOutcome);
 
     internal static int Write(
         InspectionEnvelope<LibraryApiDiffOutcome> envelope,

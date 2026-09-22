@@ -27,7 +27,7 @@ internal static class DiffHistoryCommand
         JsonContract =
             new(
                 "diff-history",
-                1,
+                2,
                 DiffHistoryJsonOutput.Write);
 
     internal static async Task<int> ExecuteAsync(

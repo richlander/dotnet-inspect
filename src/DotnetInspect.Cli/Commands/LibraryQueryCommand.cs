@@ -17,7 +17,7 @@ internal static class LibraryQueryCommand
         LibraryQueryDocument> JsonContract =
             new(
                 "library-query",
-                1,
+                2,
                 LibraryQueryJsonContext.Default.LibraryQueryDocument);
 
     internal static async Task<int> ExecuteAsync(

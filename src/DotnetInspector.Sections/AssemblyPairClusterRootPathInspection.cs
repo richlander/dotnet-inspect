@@ -27,7 +27,7 @@ public static class AssemblyPairClusterRootPathInspection
                 cancellationToken);
         return new(
             new ResourcePath("assembly-pair/cluster-public-root-paths"),
-            InspectionContentKind.Result,
+            InspectionContentKind.Document,
             result,
             new InspectionPortableProjection.NonProjectable(
                 InspectionPortableProjectionFailureReason.NotSupported),

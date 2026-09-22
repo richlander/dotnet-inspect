@@ -19,7 +19,7 @@ internal static class PackageQueryCommand
         PackageQueryDocument> PackageQueryJsonContract =
             new(
                 "package-query",
-                1,
+                2,
                 PackageQueryJsonContext.Default.PackageQueryDocument);
 
     internal static async Task<int> ExecuteAsync(

@@ -66,7 +66,7 @@ public partial class DependsAssetCommandTests
                 sidecar,
                 TestContext.Current.CancellationToken));
         JsonElement root = document.RootElement;
-        Assert.Equal(1, root.GetProperty("schema_version").GetInt32());
+        Assert.Equal(2, root.GetProperty("schema_version").GetInt32());
         Assert.Equal(
             "asset-dependencies",
             root.GetProperty("result_kind").GetString());
@@ -568,6 +568,31 @@ public partial class DependsAssetCommandTests
         Assert.Equal(
             WorkspaceShareOutput.UrlPrefix + packet,
             share.GetProperty("full_url").GetString());
+
+        var envelope = await RunCapturedAsync(
+        [
+            "depends",
+            "--package",
+            "System.Text.Json@10.0.0",
+            "--tfm",
+            "net10.0",
+            "--envelope",
+            "--compact",
+        ]);
+
+        Assert.Equal(0, envelope.ExitCode);
+        Assert.Empty(envelope.Error);
+        using JsonDocument envelopeDocument =
+            JsonDocument.Parse(envelope.Output);
+        JsonElement envelopeProjection =
+            envelopeDocument.RootElement.GetProperty(
+                "portable_projection");
+        Assert.Equal(
+            "available",
+            envelopeProjection.GetProperty("kind").GetString());
+        Assert.Equal(
+            packet,
+            envelopeProjection.GetProperty("packet").GetString());
     }
 
     [Fact]

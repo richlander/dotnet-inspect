@@ -33,21 +33,21 @@ public partial class PackageCommand
         PackageVersionListingJson =
             new(
                 "package-version-listing",
-                1,
+                2,
                 PackageVersionListingJsonContext.Default.PackageVersionListingOutcome);
 
     private static readonly InspectionEnvelopeJsonContract<int>
         PackageVersionCountJson =
             new(
                 "package-version-count",
-                1,
+                2,
                 PackageVersionCountJsonContext.Default.Int32);
 
     private static readonly InspectionEnvelopeJsonContract<PackageVersionPopulationOutcome>
         PackageVersionPopulationJson =
             new(
                 "package-version-population",
-                1,
+                2,
                 PackageVersionPopulationJsonContext.Default.PackageVersionPopulationOutcome);
 
     private static async Task<int> ExecuteOnlineVersionQueryAsync(

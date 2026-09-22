@@ -1016,7 +1016,7 @@ both derive from the same evidence-enabled execution, as specified by
 [Output Shapes](output-shapes.md#envelope-transport).
 
 Asset-mode dependency inspection registers `result_kind`
-`asset-dependencies` at `schema_version` `1` for the Debug evidence capability.
+`asset-dependencies` at `schema_version` `2` for the Debug evidence capability.
 The baseline form binds `content` to the source-generated
 `DependencyInspectionJsonContext` metadata for
 `DependencyInspectionContent`; the enriched form retains that exact binding

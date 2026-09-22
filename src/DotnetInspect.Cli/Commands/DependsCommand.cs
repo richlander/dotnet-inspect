@@ -22,7 +22,7 @@ public partial class DependsCommand
     private static readonly InspectionEnvelopeJsonContract<TypeDependencySectionResult>
         TypeDependencyJson = new(
             "type-dependencies",
-            1,
+            2,
             TypeDependencySectionJsonContext.Default.TypeDependencySectionResult);
 
     /// <summary>

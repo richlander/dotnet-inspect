@@ -633,6 +633,9 @@ public sealed class AssemblyPairCallUseQueryTests
                 },
                 TestContext.Current.CancellationToken);
 
+        Assert.Equal(
+            InspectionContentKind.Document,
+            inspection.ContentKind);
         Assert.False(inspection.Content.IsComplete);
         Assert.Contains(
             inspection.Diagnostics,

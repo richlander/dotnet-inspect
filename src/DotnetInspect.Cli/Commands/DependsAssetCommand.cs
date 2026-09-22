@@ -30,7 +30,7 @@ public partial class DependsCommand
         InspectionEnvelopeJsonContract<DependencyInspectionContent>
         AssetDependencyJson = new(
             "asset-dependencies",
-            1,
+            2,
             DependencyInspectionJsonContext.Default
                 .DependencyInspectionContent);
 
@@ -153,6 +153,8 @@ public partial class DependsCommand
         {
             DependsShareProjection.AssetSharePreparation? sharePreparation =
                 options.ShareFormat is null
+                && !options.EnvelopeOutput
+                && !evidenceEnvelopeRequested
                     ? null
                     : await DependsShareProjection.PrepareAssetAsync(
                         options,

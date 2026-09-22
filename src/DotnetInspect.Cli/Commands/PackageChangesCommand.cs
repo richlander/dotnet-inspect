@@ -21,7 +21,7 @@ internal static class PackageChangesCommand
         EcosystemChangeReportDocument> JsonContract =
             new(
                 "ecosystem-change-report",
-                1,
+                2,
                 EcosystemChangeReportJsonContext.Default
                     .EcosystemChangeReportDocument);
 

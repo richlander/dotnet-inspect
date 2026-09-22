@@ -124,7 +124,7 @@ public partial class PackageCommand
                     new InspectionEnvelopeJsonContract<
                         WorkspacePackageInspectionContent>(
                         "package-workspace",
-                        1,
+                        2,
                         JsonContext.Default.WorkspacePackageInspectionContent);
                 if (!InspectionEnvelopeOutput.TrySerializeEvidence(
                         envelope,

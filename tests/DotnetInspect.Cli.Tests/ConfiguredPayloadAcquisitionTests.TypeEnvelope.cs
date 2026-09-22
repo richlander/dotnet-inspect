@@ -28,8 +28,9 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
         using JsonDocument contentDocument = JsonDocument.Parse(content.Output);
         using JsonDocument envelopeDocument = JsonDocument.Parse(envelope.Output);
         JsonElement root = envelopeDocument.RootElement;
-        Assert.Equal(1, root.GetProperty("schema_version").GetInt32());
+        Assert.Equal(2, root.GetProperty("schema_version").GetInt32());
         Assert.Equal("type-dependencies", root.GetProperty("result_kind").GetString());
+        Assert.Equal("document", root.GetProperty("content_kind").GetString());
         Assert.True(JsonElement.DeepEquals(contentDocument.RootElement, root.GetProperty("content")));
         Assert.False(root.TryGetProperty("evidence", out _));
         Assert.Equal("nonProjectable", root.GetProperty("portable_projection").GetProperty("kind").GetString());

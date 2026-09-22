@@ -48,7 +48,7 @@ public sealed partial class WorkspaceCommandTests
         Assert.Equal(
             "workspace-package-update",
             envelope.GetProperty("result_kind").GetString());
-        Assert.Equal(1, envelope.GetProperty("schema_version").GetInt32());
+        Assert.Equal(2, envelope.GetProperty("schema_version").GetInt32());
         JsonElement content = envelope.GetProperty("content");
         Assert.True(content.GetProperty("succeeded").GetBoolean());
         Assert.Equal(

@@ -1391,7 +1391,7 @@ public sealed class ExactPackageWorkspaceRouteTests
                 sidecar,
                 TestContext.Current.CancellationToken));
         JsonElement root = document.RootElement;
-        Assert.Equal(1, root.GetProperty("schema_version").GetInt32());
+        Assert.Equal(2, root.GetProperty("schema_version").GetInt32());
         Assert.Equal(
             "package-workspace",
             root.GetProperty("result_kind").GetString());

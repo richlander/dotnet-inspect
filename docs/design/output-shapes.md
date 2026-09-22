@@ -73,7 +73,7 @@ Library API Diff with exactly one Library per endpoint, Package Activity,
 ordinary Package Query, Package Query assembly-semantic evaluation, and exact
 package-backed Type and Library API inspection.
 The dependency operation registers `result_kind` `type-dependencies` at
-`schema_version` `1` and uses one host-neutral
+`schema_version` `2` and uses one host-neutral
 `TypeDependencySectionJsonContext` for both Content-only `--json` and the
 Content subtree of `--envelope`.
 
@@ -328,8 +328,9 @@ The baseline object's required members are:
 
 | Member | JSON kind | Meaning |
 | --- | --- | --- |
-| `schema_version` | Integer | Version of the wire contract selected by `result_kind`, initially `1`. |
+| `schema_version` | Integer | Version of the wire contract selected by `result_kind`. |
 | `result_kind` | String | Stable registered content-contract identity, independent of command spelling and CLR type names. |
+| `resource_path` | String | Canonical installed product-resource identity, independent of inspected subject and projection availability. |
 | `content_kind` | String | Semantic extent of `content`: `result`, `document`, or `outcome`. |
 | `content` | Owner-defined, non-null | Complete owner-issued Content, including any Outcome discriminator. |
 | `portable_projection` | Object, non-null | Complete owner-issued portable projection. |
@@ -349,6 +350,14 @@ schema, requires a version increment and change disclosure. A version is
 specific to its result kind; an unrelated result kind need not advance.
 This is schema identification, not a version-negotiation option or a promise
 to retain obsolete serializers.
+
+Envelope framing version 2 adds required `resource_path` and `content_kind`,
+renames required `share` to `portable_projection`, and replaces free-form
+non-projectable reasons with typed `reason`, optional operation-local
+`location`, and optional trusted `explanation`. Every registered envelope
+contract using this common framing advances from version 1 to version 2;
+owner-defined Content and Evidence schemas advance only when their own
+contracts change.
 
 The registered adopter identities are:
 

@@ -284,7 +284,7 @@ public sealed class PackageChangesCommandTests
         using JsonDocument envelopeDocument =
             JsonDocument.Parse(envelope.Output);
         JsonElement root = envelopeDocument.RootElement;
-        Assert.Equal(1, root.GetProperty("schema_version").GetInt32());
+        Assert.Equal(2, root.GetProperty("schema_version").GetInt32());
         Assert.Equal(
             "ecosystem-change-report",
             root.GetProperty("result_kind").GetString());

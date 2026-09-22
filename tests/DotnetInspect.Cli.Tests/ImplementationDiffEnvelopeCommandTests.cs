@@ -39,7 +39,7 @@ public sealed class ImplementationDiffEnvelopeCommandTests
         using JsonDocument contentJson = JsonDocument.Parse(content.Output);
         using JsonDocument envelopeJson = JsonDocument.Parse(envelope.Output);
         JsonElement root = envelopeJson.RootElement;
-        Assert.Equal(1, root.GetProperty("schema_version").GetInt32());
+        Assert.Equal(2, root.GetProperty("schema_version").GetInt32());
         Assert.Equal(
             "implementation-diff",
             root.GetProperty("result_kind").GetString());
