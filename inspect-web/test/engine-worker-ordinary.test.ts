@@ -124,6 +124,7 @@ const defaultFacades: EngineWorkerOrdinaryFacades = {
       unexpected("queryGraphMemberSurface"),
   },
   analysis: {
+    queryCloneCandidates: () => unexpected("queryCloneCandidates"),
     queryMemberFacts: () => unexpected("queryMemberFacts"),
     queryPackageIntegrations: () =>
       unexpected("queryPackageIntegrations"),
@@ -1663,6 +1664,7 @@ test("the page client and Worker catalog expose only the closed allow-list", () 
       "queryTypeProjection",
     ],
     analysis: [
+      "queryCloneCandidates",
       "queryMemberFacts",
       "queryPackageIntegrations",
       "queryPackageOpportunities",

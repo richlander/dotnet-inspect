@@ -87,10 +87,10 @@ test("platform type and member navigation hides package-only operations", () => 
     ["overview", "call-graph"]);
   assert.deepEqual(
     memberSectionIdsFor({ kind: "method" }, false),
-    ["overview", "call-graph", "facts", "source", "annotated"]);
+    ["overview", "call-graph", "facts", "source", "annotated", "compare"]);
   assert.deepEqual(
     memberSectionIdsFor({ kind: "property" }, false, true),
-    ["overview", "call-graph", "facts", "annotated"]);
+    ["overview", "call-graph", "facts", "annotated", "compare"]);
 });
 
 test("platform call graphs carry the target pack into lazy acquisition", () => {
