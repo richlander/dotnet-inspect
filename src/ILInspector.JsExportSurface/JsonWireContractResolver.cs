@@ -167,6 +167,7 @@ public static class JsonWireContractResolver
                 parameterContextScopeKeys.UnionWith(contextScopeKeys);
                 if (authenticatedShape is not null
                     && TryResolveParameterIndex(
+                        bodyIndex,
                         call,
                         function,
                         out int parameterIndex))
@@ -255,21 +256,58 @@ public static class JsonWireContractResolver
     }
 
     static bool TryResolveParameterIndex(
+        LibraryBodyIndex bodyIndex,
         DirectCall deserializerCall,
         JsExportFunction function,
         out int parameterIndex)
     {
         parameterIndex = -1;
         if (deserializerCall.IsReachable != true
-            || deserializerCall.Caller != deserializerCall.EvidenceMethod
             || !deserializerCall.Caller.IsStatic
             || deserializerCall.ResolvedArgumentValues.Count == 0
             || deserializerCall.ResolvedArgumentValues[0].Single is not
+                { } source)
+        {
+            return false;
+        }
+
+        int sourceIndex;
+        if (deserializerCall.Caller == deserializerCall.EvidenceMethod
+            && source is
                 {
                     Kind: ResolvedValueSourceKind.Argument,
-                    ArgumentIndex: var sourceIndex,
+                    ArgumentIndex: var directSourceIndex,
+                })
+        {
+            sourceIndex = directSourceIndex;
+        }
+        else if (deserializerCall.Caller
+                    != deserializerCall.EvidenceMethod
+            && source is
+                {
+                    Kind: ResolvedValueSourceKind.InstanceFieldLoad,
+                    ArgumentIndex: 0,
+                    FieldIdentity:
+                    {
+                        LocalDefinitionToken: not 0,
+                    } field,
                 }
-            || sourceIndex < 0
+            && field.DeclaringType.Equals(
+                deserializerCall.EvidenceMethod.DeclaringType)
+            && TryResolveHoistedParameterIndex(
+                bodyIndex,
+                deserializerCall,
+                field,
+                out int hoistedSourceIndex))
+        {
+            sourceIndex = hoistedSourceIndex;
+        }
+        else
+        {
+            return false;
+        }
+
+        if (sourceIndex < 0
             || sourceIndex >= function.Parameters.Count
             || sourceIndex >= deserializerCall.Caller.ParameterTypes.Length
             || !IsTrustedSystemString(
@@ -280,6 +318,45 @@ public static class JsonWireContractResolver
 
         parameterIndex = sourceIndex;
         return true;
+    }
+
+    static bool TryResolveHoistedParameterIndex(
+        LibraryBodyIndex bodyIndex,
+        DirectCall deserializerCall,
+        FieldIdentity field,
+        out int parameterIndex)
+    {
+        parameterIndex = -1;
+        FieldStoreFact? sourceStore = null;
+        foreach (FieldStoreFact store in bodyIndex.FieldStores)
+        {
+            if (store.Caller != deserializerCall.Caller
+                || !field.MightBeSameFieldAs(store.Identity)
+                || store.IsReachable == false)
+            {
+                continue;
+            }
+
+            if (store.Identity is null
+                || !field.Equals(store.Identity)
+                || store.IsReachable != true
+                || store.IsStatic
+                || store.EvidenceMethod != deserializerCall.Caller
+                || store.Value.Single is not
+                    {
+                        Kind: ResolvedValueSourceKind.Argument,
+                        ArgumentIndex: var sourceIndex,
+                    }
+                || sourceStore is not null)
+            {
+                return false;
+            }
+
+            sourceStore = store;
+            parameterIndex = sourceIndex;
+        }
+
+        return sourceStore is not null;
     }
 
     static IReadOnlyList<JsExportParameterWireBinding>

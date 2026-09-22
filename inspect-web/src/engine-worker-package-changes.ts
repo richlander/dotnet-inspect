@@ -1071,7 +1071,7 @@ export function registerEngineWorkerPackageChangesOperation(
     invoke: async (input, context) => {
       const result = await facade().runPackageActivity(
         context.operation.operationId,
-        JSON.stringify(input),
+        input,
         createManagedEventSink(context),
       );
       return mapEngineWorkerPackageChangesResult(result);

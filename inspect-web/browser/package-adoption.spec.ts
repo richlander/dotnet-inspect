@@ -507,7 +507,13 @@ declare global {
         currentVersion: string,
       ): Promise<PackageVersions>;
       cacheStats(): Promise<CacheStats>;
-      queryOccurrences(workspaceJson: string): Promise<OccurrenceView>;
+      queryOccurrences(
+        workspace: readonly {
+          package: string;
+          version: string;
+          framework: string;
+        }[],
+      ): Promise<OccurrenceView>;
       activate(action: string): Promise<OccurrenceActivation>;
       clearOccurrences(): Promise<void>;
       queryDependencies(
@@ -674,8 +680,8 @@ function driver(page: Page): {
     cacheStats: () => page.evaluate(() => window.__adoption!.cacheStats()),
     queryOccurrences: workspace =>
       page.evaluate(
-        json => window.__adoption!.queryOccurrences(json),
-        JSON.stringify(workspace),
+        value => window.__adoption!.queryOccurrences(value),
+        workspace,
       ),
     activate: action =>
       page.evaluate(token => window.__adoption!.activate(token), action),

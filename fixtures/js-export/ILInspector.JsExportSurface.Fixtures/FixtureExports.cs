@@ -35,6 +35,35 @@ public static partial class FixtureExports
     }
 
     [JSExport]
+    public static async Task<string> RenameWidgetAsync(
+        string widgetJson,
+        string newName)
+    {
+        WidgetDto widget = JsonSerializer.Deserialize(
+            widgetJson,
+            FixtureJsonContext.Default.WidgetDto)!;
+        await Task.Yield();
+        return JsonSerializer.Serialize(
+            widget with { Name = newName },
+            FixtureJsonContext.Default.WidgetDto);
+    }
+
+    [JSExport]
+    public static async Task<string> RenameNormalizedWidgetAsync(
+        string widgetJson,
+        string newName)
+    {
+        widgetJson = widgetJson.Trim();
+        WidgetDto widget = JsonSerializer.Deserialize(
+            widgetJson,
+            FixtureJsonContext.Default.WidgetDto)!;
+        await Task.Yield();
+        return JsonSerializer.Serialize(
+            widget with { Name = newName },
+            FixtureJsonContext.Default.WidgetDto);
+    }
+
+    [JSExport]
     public static async Task<string>
         GetWidgetSerializedBeforeAwait(string name)
     {

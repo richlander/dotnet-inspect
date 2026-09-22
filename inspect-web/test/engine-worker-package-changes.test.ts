@@ -375,8 +375,8 @@ test("Package Activity cancellation preserves the first managed reason", () => {
 test("Package Activity publishes progress, rows, and failures before settlement", async () => {
   const published: unknown[] = [];
   const facade: EngineWorkerPackageChangesFacade = {
-    async runPackageActivity(_operationId, requestJson, eventSink) {
-      assert.deepEqual(JSON.parse(requestJson), request);
+    async runPackageActivity(_operationId, receivedRequest, eventSink) {
+      assert.deepEqual(receivedRequest, request);
       if ((typeof eventSink !== "object" && typeof eventSink !== "function")
         || eventSink === null) {
         throw new TypeError("Test event sink is unavailable.");
@@ -463,7 +463,7 @@ test("Package Activity publishes progress, rows, and failures before settlement"
 
   const pending = binding.runPackageActivity(
     "package-changes-1",
-    JSON.stringify(request),
+    request,
     eventSink,
   );
   await environment.flushAsync();

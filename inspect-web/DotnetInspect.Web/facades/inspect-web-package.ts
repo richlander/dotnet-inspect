@@ -1948,8 +1948,8 @@ export async function queryPackageDependencies(packageId: string, version: strin
   return $parsed as BrowserPackageDependencies;
 }
 
-export async function queryPackagePruning(packageId: string, version: string, targetFramework: string, requestJson: string): Promise<BrowserPackagePruningResult> {
-  const $result = await $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Package"]["PackageExports"]["QueryPackagePruning.1579276339"](packageId, version, targetFramework, requestJson);
+export async function queryPackagePruning(packageId: string, version: string, targetFramework: string, requestJson: BrowserPackagePruningRequest): Promise<BrowserPackagePruningResult> {
+  const $result = await $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Package"]["PackageExports"]["QueryPackagePruning.1579276339"](packageId, version, targetFramework, $serializeJsonInput(requestJson, "DotnetInspect.Web.Interop.Package.PackageExports.QueryPackagePruning.1579276339", "requestJson"));
   const $parsed: unknown = JSON.parse($result);
   return $parsed as BrowserPackagePruningResult;
 }
@@ -1972,8 +1972,8 @@ export async function queryPlatformMemberDocumentation(framework: string, platfo
   return $parsed as CompiledDocumentationOutcome;
 }
 
-export async function queryWorkspacePackageOccurrences(workspaceJson: string): Promise<BrowserWorkspacePackageOccurrenceView> {
-  const $result = await $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Package"]["PackageExports"]["QueryWorkspacePackageOccurrences.976702342"](workspaceJson);
+export async function queryWorkspacePackageOccurrences(workspaceJson: ReadonlyArray<BrowserWorkspacePackage>): Promise<BrowserWorkspacePackageOccurrenceView> {
+  const $result = await $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Package"]["PackageExports"]["QueryWorkspacePackageOccurrences.976702342"]($serializeJsonInput(workspaceJson, "DotnetInspect.Web.Interop.Package.PackageExports.QueryWorkspacePackageOccurrences.976702342", "workspaceJson"));
   const $parsed: unknown = JSON.parse($result);
   return $parsed as BrowserWorkspacePackageOccurrenceView;
 }
@@ -1988,14 +1988,14 @@ export async function resolvePackageDependencyVersion(packageId: string, declare
   return await $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Package"]["PackageExports"]["ResolvePackageDependencyVersion.451505237"](packageId, declaredRange);
 }
 
-export async function runPackageActivity(operationId: string, requestJson: string, eventSink: unknown): Promise<BrowserPackageChangesResult> {
-  const $result = await $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Package"]["PackageExports"]["RunPackageActivity.1791926993"](operationId, requestJson, eventSink);
+export async function runPackageActivity(operationId: string, requestJson: BrowserPackageChangesRequest, eventSink: unknown): Promise<BrowserPackageChangesResult> {
+  const $result = await $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Package"]["PackageExports"]["RunPackageActivity.1791926993"](operationId, $serializeJsonInput(requestJson, "DotnetInspect.Web.Interop.Package.PackageExports.RunPackageActivity.1791926993", "requestJson"), eventSink);
   const $parsed: unknown = JSON.parse($result);
   return $parsed as BrowserPackageChangesResult;
 }
 
-export async function runPackageQuery(operationId: string, prefix: string, termsJson: string, targetFramework: string | null, maximumCandidates: number, maximumMatches: number, includePrerelease: boolean, initialMatchCredit: number, eventSink: unknown): Promise<BrowserPackageQueryResult> {
-  const $result = await $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Package"]["PackageExports"]["RunPackageQuery.1685943924"](operationId, prefix, termsJson, targetFramework, maximumCandidates, maximumMatches, includePrerelease, initialMatchCredit, eventSink);
+export async function runPackageQuery(operationId: string, prefix: string, termsJson: ReadonlyArray<BrowserPackageQueryTerm>, targetFramework: string | null, maximumCandidates: number, maximumMatches: number, includePrerelease: boolean, initialMatchCredit: number, eventSink: unknown): Promise<BrowserPackageQueryResult> {
+  const $result = await $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Package"]["PackageExports"]["RunPackageQuery.1685943924"](operationId, prefix, $serializeJsonInput(termsJson, "DotnetInspect.Web.Interop.Package.PackageExports.RunPackageQuery.1685943924", "termsJson"), targetFramework, maximumCandidates, maximumMatches, includePrerelease, initialMatchCredit, eventSink);
   const $parsed: unknown = JSON.parse($result);
   return $parsed as BrowserPackageQueryResult;
 }

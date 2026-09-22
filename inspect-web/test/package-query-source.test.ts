@@ -416,7 +416,14 @@ test("Browser source dispatches exact and prefix package input with unchanged K"
           assert.deepEqual(args.slice(0, 8), [
             "package-query-operation",
             searchText,
-            '[{"key":"readme","operator":"eq","value":"true"},{"key":"depends","operator":"eq","value":"Microsoft.Extensions.Hosting"}]',
+            [
+              { key: "readme", operator: "eq", value: "true" },
+              {
+                key: "depends",
+                operator: "eq",
+                value: "Microsoft.Extensions.Hosting",
+              },
+            ],
             null, 200, matchLimit, true, 20,
           ]);
           assert.ok(typeof args[8] === "object" && args[8] !== null);
@@ -443,7 +450,11 @@ test("Browser source composes library-literal terms and uses terminal Document t
       assert.deepEqual(args.slice(0, 8), [
         "package-query-operation",
         "Contoso.Package",
-        '[{"key":"library-literal","operator":"eq","value":"shared-literal-use-marker"}]',
+        [{
+          key: "library-literal",
+          operator: "eq",
+          value: "shared-literal-use-marker",
+        }],
         "net10.0",
         5,
         100,
@@ -727,9 +738,9 @@ test("Browser source forwards repeated active terms as exact generic triples", a
     async run(
       _operationId,
       _searchText,
-      termsJson,
+      terms,
     ) {
-      assert.deepEqual(JSON.parse(termsJson), [
+      assert.deepEqual(terms, [
         {
           key: "depends",
           operator: "eq",
@@ -1436,7 +1447,7 @@ test("Browser data source streams matches and failures before terminal completio
   assert.equal(typeof receivedArguments[0], "string");
   assert.deepEqual(receivedArguments.slice(1, 8), [
     "Microsoft.",
-    '[{"key":"dependency-depth","operator":"eq","value":"2"}]',
+    [{ key: "dependency-depth", operator: "eq", value: "2" }],
     null,
     5,
     100,

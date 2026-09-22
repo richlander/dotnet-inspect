@@ -1,4 +1,5 @@
 using System.Runtime.Versioning;
+using DotnetInspector.Sections;
 
 namespace DotnetInspect.Web.Interop.CallGraph;
 
@@ -9,7 +10,9 @@ namespace DotnetInspect.Web.Interop.CallGraph;
 [SupportedOSPlatform("browser")]
 internal static class BrowserCallGraphWireProjection
 {
-    internal static BrowserCallGraph Project(BrowserCallGraphInfo graph)
+    internal static BrowserCallGraph Project(
+        BrowserCallGraphInfo graph,
+        IEnumerable<InspectionDiagnostic>? inspectionDiagnostics = null)
     {
         ArgumentNullException.ThrowIfNull(graph);
         return new(
@@ -18,7 +21,7 @@ internal static class BrowserCallGraphWireProjection
             Project(graph.Callees),
             Project(graph.Scope),
             [.. graph.Targets.Select(Project)],
-            Project(graph.Diagnostics),
+            Project(graph.Diagnostics, inspectionDiagnostics),
             graph.NoBody);
     }
 
@@ -41,13 +44,18 @@ internal static class BrowserCallGraphWireProjection
             scope.CalleeScope);
 
     internal static BrowserCallGraphDiagnostics Project(
-        BrowserCallGraphDiagnosticsInfo diagnostics) =>
+        BrowserCallGraphDiagnosticsInfo diagnostics,
+        IEnumerable<InspectionDiagnostic>? inspectionDiagnostics = null) =>
         new(
             diagnostics.IncompleteNodes,
             diagnostics.IncompleteEdges,
             diagnostics.BindingIdentityConflicts,
             diagnostics.HasUnexploredTraversalBoundary,
-            diagnostics.HasAnalysisFailureBoundary);
+            diagnostics.HasAnalysisFailureBoundary,
+            inspectionDiagnostics?.Count(static diagnostic =>
+                diagnostic.Code
+                    == "package-dependency-member-call-graph.route-unavailable")
+                ?? 0);
 
     internal static BrowserCallGraphTarget Project(BrowserCallGraphTargetInfo target) =>
         new(

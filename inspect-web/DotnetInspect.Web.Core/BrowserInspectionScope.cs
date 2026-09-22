@@ -145,7 +145,7 @@ internal sealed class BrowserInspectionScope : IAsyncDisposable
             realization =
                 await workspace.RealizePackageAssemblyContextRolesAsync(
                         binding,
-                        RealizationOptions,
+                        RealizationPolicy,
                         cancellationToken)
                     .ConfigureAwait(false);
             return new BrowserInspectionScope(
@@ -194,7 +194,7 @@ internal sealed class BrowserInspectionScope : IAsyncDisposable
         {
             realization = workspace.RealizePackageAssemblyContextRoles(
                 coordinates.Select(coordinate => coordinate.Root),
-                RealizationOptions);
+                RealizationPolicy);
             return new BrowserInspectionScope(
                 coordinates,
                 workspace,
@@ -224,7 +224,8 @@ internal sealed class BrowserInspectionScope : IAsyncDisposable
         }
     }
 
-    static PackageAssemblyContextRealizationOptions RealizationOptions =>
+    internal static PackageAssemblyContextRealizationOptions
+        RealizationPolicy =>
         new()
         {
             MaxAssembliesPerRole = MaxAssembliesPerRole,

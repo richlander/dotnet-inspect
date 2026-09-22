@@ -150,14 +150,16 @@ public sealed record BrowserCallGraphDiagnostics(
     int IncompleteEdges,
     int BindingIdentityConflicts,
     bool HasUnexploredTraversalBoundary,
-    bool HasAnalysisFailureBoundary)
+    bool HasAnalysisFailureBoundary,
+    int UnavailableDependencyRoutes)
 {
     public bool IsIncomplete =>
         IncompleteNodes > 0
         || IncompleteEdges > 0
         || BindingIdentityConflicts > 0
         || HasUnexploredTraversalBoundary
-        || HasAnalysisFailureBoundary;
+        || HasAnalysisFailureBoundary
+        || UnavailableDependencyRoutes > 0;
 }
 
 public sealed record BrowserCallGraphTarget(

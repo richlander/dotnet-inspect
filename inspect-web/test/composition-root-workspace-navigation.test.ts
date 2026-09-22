@@ -365,21 +365,23 @@ test("the frontend delegates compact packet syntax to the product codec", () => 
     /encodedWorkspaceSharePacket\(\s*(?:await )?encode\(workspaceShareState\(state\)\)\)/);
 });
 
-test("the selected canonical context bounds call graph workspace membership", () => {
-  const selection = appSource.match(
-    /function selectedCallGraphWorkspacePackages\(\)[\s\S]*?\n}/)?.[0] ?? "";
+test("package call graph traversal policy is independent of saved workspace membership", () => {
   const loader = appSource.match(
     /async function loadSelectedMemberCallGraph\([\s\S]*?\n}/)?.[0] ?? "";
 
   assert.match(
-    selection,
-    /selectedBrowserCallGraphPackageTabIds\(basis\)/);
-  assert.match(
-    selection,
-    /packageTabIds\.includes\(activeTab\.id\)/);
+    loader,
+    /const traversalFramework = state\.callGraphTraversalFramework/);
   assert.match(
     loader,
-    /workspacePackages = selectedCallGraphWorkspacePackages\(\)/);
+    /\|traversal:\$\{traversalFramework\}/);
+  assert.match(
+    loader,
+    /const memberSignature =\s*memberRequestSignature\(type, overload, true\)/);
+  assert.match(
+    loader,
+    /isCurrent: \(\) =>\s*memberRequestIsCurrent\(memberSignature, true\)\s*&& state\.callGraphTraversalFramework === traversalFramework/);
+  assert.doesNotMatch(loader, /workspacePackages|selectedCallGraphWorkspacePackages/);
   assert.match(
     appSource,
     /callGraphCaptureTopology\(\s*captured\.tabs,\s*activeIndex,\s*participantTabIds\)/);
@@ -469,7 +471,7 @@ test("canonical restoration is atomic and history adopts the active packet basis
     /invalidateMemberDestinationWork\(state\)[\s\S]*captureCanonicalWorkspaceRestoreSnapshot/);
   assert.match(
     appSource,
-    /const \{ tabs, resolvedTabs, preservesBasis \} = capturedShareTabs\(\);[\s\S]*activeShareTabIndex\(tabs, resolvedTabs\)[\s\S]*browserCreatedCallGraphTabIds\(tabs, activeIndex\)/);
+    /const captured = capturedShareTabs\(\);\s*const tabs = captured\.tabs;\s*const activeIndex = activeShareTabIndex\(tabs, captured\.resolvedTabs\)/);
   assert.match(
     appSource,
     /captured\.preservesBasis,[\s\S]*state\.memberSection === "call-graph"/);
@@ -906,9 +908,9 @@ test("catalog rollback reacquires Workspace occurrences with current authority",
     ?? "";
   assert.match(
     ensureOccurrence,
-    /const signature = JSON\.stringify\(workspaceOccurrenceRequest\(\)\);\s*if \(state\.workspaceOccurrenceLoading\) return;\s*if \(signature === state\.workspaceOccurrenceSignature\) return;/);
+    /const request = workspaceOccurrenceRequest\(\);\s*const signature = JSON\.stringify\(request\);\s*if \(state\.workspaceOccurrenceLoading\) return;\s*if \(signature === state\.workspaceOccurrenceSignature\) return;[\s\S]*queryWorkspaceOccurrenceView\(request, signature\)/);
   const occurrenceQuery =
-    appSource.match(/async function queryWorkspaceOccurrenceView\(\)[\s\S]*?\n}/)?.[0]
+    appSource.match(/async function queryWorkspaceOccurrenceView\([\s\S]*?\n}/)?.[0]
     ?? "";
   assert.match(
     occurrenceQuery,
@@ -939,7 +941,7 @@ test("Workspace occurrence rerenders preserve catalog failure focus", () => {
     )?.length,
     2);
   const occurrenceQuery =
-    appSource.match(/async function queryWorkspaceOccurrenceView\(\)[\s\S]*?\n}/)?.[0]
+    appSource.match(/async function queryWorkspaceOccurrenceView\([\s\S]*?\n}/)?.[0]
     ?? "";
   assert.match(occurrenceQuery, /finally \{[\s\S]*render\(\);\s*}/);
 });
@@ -1473,17 +1475,23 @@ test("metadata explorer request coordination stays outside the composition root"
 
 test("call graph request coordination stays outside the composition root", () => {
   const loader =
-    appSource.match(/async function loadSelectedMemberCallGraph\([\s\S]*?\n}\n\n\/\/ Update just/)?.[0]
+    appSource.match(/async function loadSelectedMemberCallGraph\([\s\S]*?\n}/)?.[0]
     ?? "";
   assert.match(
     loader,
-    /return callGraphInspection\.load\(\{[\s\S]*type: type\.queryId \?\? type\.id,[\s\S]*typeIdentity: type\.definitionId \?\? type\.id,[\s\S]*platformType:\s*type\.definitionId \?\? type\.metadataId \?\? type\.queryId \?\? type\.id,[\s\S]*platformPack:\s*platformPackForAssembly\(type\.assembly, type\.platformPack\) \?\? "",[\s\S]*isCurrent: \(\) => memberRequestIsCurrent\(signature, true\)/);
+    /return callGraphInspection\.load\(\{[\s\S]*type: type\.queryId \?\? type\.id,[\s\S]*typeIdentity: type\.definitionId \?\? type\.id,[\s\S]*platformType:\s*type\.definitionId \?\? type\.metadataId \?\? type\.queryId \?\? type\.id,[\s\S]*platformPack:\s*platformPackForAssembly\(type\.assembly, type\.platformPack\) \?\? "",[\s\S]*traversalFramework,[\s\S]*isCurrent: \(\) =>\s*memberRequestIsCurrent\(memberSignature, true\)\s*&& state\.callGraphTraversalFramework === traversalFramework/);
   assert.doesNotMatch(
     loader,
     /memberCallGraphSeq|inspectMemberCallGraph|inspectExpandPlatformCallGraph/);
   assert.match(
     callGraphInspectionSource,
-    /dependencies\.queryWorkspace\(request, \[\]\)[\s\S]*dependencies\.nextPaint\(\)[\s\S]*request\.workspacePackages[\s\S]*dependencies\.patchCallGraphSection\(previousMermaid\)/);
+    /const graph = await dependencies\.queryPackage\(request\)[\s\S]*state\.memberCallGraph = graph/);
+  assert.equal(
+    [...callGraphInspectionSource.matchAll(/dependencies\.queryPackage\(request\)/g)].length,
+    1);
+  assert.doesNotMatch(
+    callGraphInspectionSource,
+    /queryWorkspace|nextPaint|workspacePackages|patchCallGraphSection/);
   assert.match(
     callGraphInspectionSource,
     /request\.isRuntimePack[\s\S]*loadPlatformGraph\(request\)/);
