@@ -1433,8 +1433,7 @@ function renderMemberSubject(
       <div class="library-api-diff-member-detail">
         ${memberIdentityEvidence("Before", member.before, escapeHtml)}
         ${memberIdentityEvidence("After", member.after, escapeHtml)}
-      </div>
-      <p class="library-api-diff-note">Correspondence identifier <code>${escapeHtml(member.documentIdentifier)}</code></p>`,
+      </div>`,
   };
 }
 
