@@ -25,10 +25,11 @@
 - Clarifies discovery routing: bare targets remain the omni-space when intent
   is unclear; `find` discovers API symbols, `package query` discovers package
   IDs, and `library query` discovers Libraries. Unscoped `find` searches the
-  installed .NET Runtime and ASP.NET Core populations, while package APIs
-  require explicit `--package`, restored `--project`, or patterned
-  `--package-prefix` scope. Empty human output suggests `package query` for
-  package-like input without changing structured output (#8262).
+  installed .NET Runtime, ASP.NET Core, and .NET Standard populations, while
+  package APIs require explicit `--package`, restored `--project`, or
+  patterned `--package-prefix` scope. Empty human output suggests
+  `package query` for package-like input without changing structured output
+  (#8262).
 - Moves online version listing, exact-pin verification, latest/wildcard
   selection, Package Info, and Browser package inventories onto shared
   PackageHouse settlement. Package Info now reports the selected TFM, ordered
