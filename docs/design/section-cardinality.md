@@ -171,6 +171,13 @@ beside the section's stable identity. Hosts consume that declaration; they do
 not infer shape from section names, rendered schemas, CLR collection types, or
 sample output.
 
+`SectionCardinalityDeclaration` is the shared declaration:
+`DiscoveryResource.Cardinality` associates it with one stable section
+identity, while categories and discovery items cannot declare cardinality.
+`Scalar` carries no semantic terminals; `Inventory` carries exactly `Rows` and
+`Count`. A missing declaration means the section owner has not adopted this
+contract yet, not that the section is scalar.
+
 For a scalar declaration:
 
 - structural discovery advertises neither Rows nor Count;
@@ -223,7 +230,7 @@ consumer before implementation.
 | Gate | Property | Status |
 | --- | --- | --- |
 | `Type_ListingKindCount_MatchesMetadataInventory` and the compact Type Count gates named in [Assembly inspection query](assembly-inspection-query.md#compact-type-inventory-cardinality) | One inventory's optimized Count and Rows retain the same population and MVID binding. | Verified by merged #8221. |
-| `SectionCapabilitiesPairRowsAndCount` | Resource-free declarations expose Rows and Count together or neither, including direct .NET and structural-discovery projections. | Unverified until the declaration substrate lands. |
+| `SectionCapabilitiesPairRowsAndCount`, `Cardinality_RoundTripsForScalarAndInventoryDiscovery`, and `SectionCardinality_ProjectsBesideFormatCapabilities` | Resource-free declarations expose Rows and Count together or neither, including direct .NET and structural-discovery projections, without changing existing format capabilities. | Verified by #8227. |
 | `SingleLibraryInfoHasNoRowsOrCount` | `System.Text.Json` single-assembly `Library Info` retains its typed fields/value projections while Count and row selection fail before acquisition or rendering. | Unverified until the CLI adoption slice lands. |
 | `AggregateLibraryInfoCountsLibraries` | An all-libraries survey counts library rows rather than properties and preserves the owner-declared aggregate scope. | Unverified until the CLI adoption slice lands. |
 | `BrowserCountThenRowsPreservesGeneration` | Inspect Web obtains Count and continued Rows from one immutable comparison generation and rejects stale or incompatible population bindings. | Unverified until the Browser adoption slice lands. |

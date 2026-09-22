@@ -22,7 +22,10 @@ internal static class DiscoveryDocumentFactory
         IReadOnlyDictionary<string, string>? sectionCostAnnotations,
         IReadOnlySet<string>? exactOnlySections,
         OutputCapabilityCatalog capabilities,
-        bool requireExactSelection = false) =>
+        bool requireExactSelection = false,
+        IReadOnlyDictionary<
+            string,
+            SectionCardinalityDeclaration>? sectionCardinalities = null) =>
         CreateCore(
             catalog,
             discover,
@@ -34,6 +37,7 @@ internal static class DiscoveryDocumentFactory
             exactOnlySections,
             capabilities,
             requireExactSelection,
+            sectionCardinalities,
             includeResourcePaths: false)?.Document;
 
     public static Projection? CreateProjection(
@@ -46,7 +50,10 @@ internal static class DiscoveryDocumentFactory
         IReadOnlyDictionary<string, string>? sectionCostAnnotations,
         IReadOnlySet<string>? exactOnlySections,
         OutputCapabilityCatalog capabilities,
-        bool requireExactSelection = false) =>
+        bool requireExactSelection = false,
+        IReadOnlyDictionary<
+            string,
+            SectionCardinalityDeclaration>? sectionCardinalities = null) =>
         CreateCore(
             catalog,
             discover,
@@ -58,6 +65,7 @@ internal static class DiscoveryDocumentFactory
             exactOnlySections,
             capabilities,
             requireExactSelection,
+            sectionCardinalities,
             includeResourcePaths: true);
 
     private static Projection? CreateCore(
@@ -71,10 +79,19 @@ internal static class DiscoveryDocumentFactory
         IReadOnlySet<string>? exactOnlySections,
         OutputCapabilityCatalog capabilities,
         bool requireExactSelection,
+        IReadOnlyDictionary<
+            string,
+            SectionCardinalityDeclaration>? sectionCardinalities,
         bool includeResourcePaths)
     {
         IReadOnlyDictionary<string, string[]> categories =
             FilterCategories(sectionCategories, schema.SectionNames);
+        IReadOnlyDictionary<
+            string,
+            SectionCardinalityDeclaration> cardinalities =
+            NormalizeCardinalities(
+                sectionCardinalities,
+                schema.SectionNames);
         var resourcePaths =
             new List<StructuralResourcePathRegistration>();
         List<DiscoveryResource> resources =
@@ -83,6 +100,7 @@ internal static class DiscoveryDocumentFactory
                 schema,
                 categories,
                 capabilities,
+                cardinalities,
                 includeResourcePaths ? resourcePaths : null);
         List<DiscoveryResourceIdentity> catalogEntries =
             CreateCatalogEntries(
@@ -117,6 +135,9 @@ internal static class DiscoveryDocumentFactory
         DocumentSchema schema,
         IReadOnlyDictionary<string, string[]> categories,
         OutputCapabilityCatalog capabilities,
+        IReadOnlyDictionary<
+            string,
+            SectionCardinalityDeclaration> cardinalities,
         List<StructuralResourcePathRegistration>? resourcePaths)
     {
         var resources = new List<DiscoveryResource>();
@@ -197,12 +218,16 @@ internal static class DiscoveryDocumentFactory
             ];
             DiscoveryResourceIdentity sectionIdentity =
                 SectionIdentity(sectionName);
+            cardinalities.TryGetValue(
+                sectionName,
+                out SectionCardinalityDeclaration? cardinality);
             resources.Add(
                 new DiscoveryResource(
                     sectionIdentity,
                     members: itemIdentities,
                     outputModes:
-                        capabilities.FormatsForSection(sectionName)));
+                        capabilities.FormatsForSection(sectionName),
+                    cardinality: cardinality));
             if (resourcePaths is not null)
             {
                 AddPath(
@@ -233,6 +258,48 @@ internal static class DiscoveryDocumentFactory
         }
 
         return resources;
+    }
+
+    private static IReadOnlyDictionary<
+        string,
+        SectionCardinalityDeclaration> NormalizeCardinalities(
+        IReadOnlyDictionary<
+            string,
+            SectionCardinalityDeclaration>? cardinalities,
+        IReadOnlyList<string> sectionNames)
+    {
+        var normalized =
+            new Dictionary<
+                string,
+                SectionCardinalityDeclaration>(
+                StringComparer.OrdinalIgnoreCase);
+        if (cardinalities is null)
+            return normalized;
+
+        var known = sectionNames.ToDictionary(
+            static name => name,
+            StringComparer.OrdinalIgnoreCase);
+        foreach ((string name, SectionCardinalityDeclaration declaration)
+                 in cardinalities)
+        {
+            if (!known.TryGetValue(name, out string? canonicalName))
+            {
+                throw new ArgumentException(
+                    $"Section cardinality declaration '{name}' does not "
+                        + "name a section in the structural schema.",
+                    nameof(cardinalities));
+            }
+            ArgumentNullException.ThrowIfNull(declaration);
+            if (!normalized.TryAdd(canonicalName, declaration))
+            {
+                throw new ArgumentException(
+                    $"Section cardinality declaration '{name}' duplicates "
+                        + $"section '{canonicalName}'.",
+                    nameof(cardinalities));
+            }
+        }
+
+        return normalized;
     }
 
     private static List<DiscoveryResourceIdentity> CreateCatalogEntries(
