@@ -16,10 +16,11 @@ public static partial class ApiSurfaceExtractor
     private static void CountSummaryMembers(
         MetadataReader reader,
         TypeDefinition typeDef,
-        ApiType apiType,
+        ApiType? apiType,
         ApiSurface surface,
         bool isExtensionClass,
-        Dictionary<ApiMember, MetadataTypeDefinitionName> extensionReceiverDefinitions)
+        Dictionary<ApiMember, MetadataTypeDefinitionName>?
+            extensionReceiverDefinitions)
     {
         var explicitImplementationBodies = GetExplicitImplementationBodies(reader, typeDef);
         var accessorMethods = GetSemanticAccessorMethods(reader, typeDef);
@@ -51,32 +52,55 @@ public static partial class ApiSurfaceExtractor
                 continue;
             }
 
-            var member = new ApiMember
-            {
-                Name = methodName,
-                Kind = "method",
-                IsStatic = (method.Attributes & MethodAttributes.Static) != 0
-            };
+            bool isStatic =
+                (method.Attributes & MethodAttributes.Static) != 0;
             if (isExtensionClass
-                && member.IsStatic
+                && isStatic
                 && AttributeReader.HasExtensionAttribute(
                     reader,
                     method.GetCustomAttributes()))
             {
                 int token = MetadataTokens.GetToken(methodHandle);
-                member.IsExtension = true;
-                member.ExtendedType = GetFirstParameterType(reader, typeDef, method);
-                if (GetFirstParameterDefinitionName(reader, typeDef, method)
-                    is { } receiverDefinition)
+                string? extendedType =
+                    GetFirstParameterType(reader, typeDef, method);
+                MetadataTypeDefinitionName? receiverDefinition =
+                    GetFirstParameterDefinitionName(
+                        reader,
+                        typeDef,
+                        method);
+                if (apiType is not null)
                 {
-                    extensionReceiverDefinitions.Add(member, receiverDefinition);
+                    var member = new ApiMember
+                    {
+                        Name = methodName,
+                        Kind = "method",
+                        IsStatic = true,
+                        IsExtension = true,
+                        ExtendedType = extendedType,
+                        DeclaringType = apiType.FullName,
+                        MetadataToken = token,
+                        Signature = token.ToString(
+                            "X8",
+                            CultureInfo.InvariantCulture),
+                    };
+                    apiType.Members.Add(member);
+                    if (receiverDefinition is not null)
+                    {
+                        extensionReceiverDefinitions!.Add(
+                            member,
+                            receiverDefinition);
+                    }
                 }
-                member.DeclaringType = apiType.FullName;
-                member.MetadataToken = token;
-                member.Signature = token.ToString("X8", CultureInfo.InvariantCulture);
             }
-
-            apiType.Members.Add(member);
+            else if (apiType is not null)
+            {
+                apiType.Members.Add(new ApiMember
+                {
+                    Name = methodName,
+                    Kind = "method",
+                    IsStatic = isStatic,
+                });
+            }
             surface.PublicMethodCount++;
         }
 
@@ -104,7 +128,7 @@ public static partial class ApiSurfaceExtractor
                 continue;
             }
 
-            apiType.Members.Add(new ApiMember
+            apiType?.Members.Add(new ApiMember
             {
                 Name = reader.GetString(property.Name),
                 Kind = "property"
@@ -126,7 +150,11 @@ public static partial class ApiSurfaceExtractor
                 continue;
             }
 
-            apiType.Members.Add(new ApiMember { Name = fieldName, Kind = "field" });
+            apiType?.Members.Add(new ApiMember
+            {
+                Name = fieldName,
+                Kind = "field",
+            });
             surface.PublicFieldCount++;
         }
 
@@ -144,7 +172,7 @@ public static partial class ApiSurfaceExtractor
                 continue;
             }
 
-            apiType.Members.Add(new ApiMember
+            apiType?.Members.Add(new ApiMember
             {
                 Name = reader.GetString(evt.Name),
                 Kind = "event"
