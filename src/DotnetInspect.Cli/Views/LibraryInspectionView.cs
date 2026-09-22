@@ -1133,11 +1133,15 @@ public class LibraryInspectionView
     private static string FormatMaximumBodyText(
         LibraryStructuralExtremeBody body) =>
         "logical owner "
-        + MarkoutInline.Code(
-            LibraryMetadataService.FormatMethod(body.LogicalOwner))
+        + FormatMaximumBodyIdentity(body.LogicalOwner)
         + " evidence "
-        + MarkoutInline.Code(
-            LibraryMetadataService.FormatMethod(body.EvidenceMethod));
+        + FormatMaximumBodyIdentity(body.EvidenceMethod);
+
+    private static string FormatMaximumBodyIdentity(
+        ILInspector.Analysis.MethodIdentity method) =>
+        MarkoutInline.Code(LibraryMetadataService.FormatMethod(method))
+        + " token "
+        + MarkoutInline.Code($"0x{method.MetadataToken:X8}");
 
     private static string? FormatReasonCounts(
         IReadOnlyCollection<LibraryStructuralReasonCount> counts) =>

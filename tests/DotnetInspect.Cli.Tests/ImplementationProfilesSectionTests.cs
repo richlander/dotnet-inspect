@@ -1,11 +1,15 @@
 using System.Text.Json;
 using DotnetInspect.Cli.Commands;
+using DotnetInspect.Cli.Models;
 using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Output;
 using DotnetInspect.Cli.Sections;
+using DotnetInspect.Cli.Views;
 using DotnetInspector.Fixtures;
+using DotnetInspector.Queries;
 using ILInspector.Analysis;
 using ILInspector.Metadata;
+using ILInspector.Research;
 
 namespace DotnetInspect.Cli.Tests;
 
@@ -112,6 +116,86 @@ public class MetricSectionTests
                 "Analyze(int)",
                 StringComparison.Ordinal));
     }
+
+    [Fact]
+    public void
+        LibraryMetrics_MaximumBodiesPreserveReturnOverloadTokens()
+    {
+        var first = ReturnOverload(0x06000001, TypeRef.CoreLib("System", "Int32"));
+        var second = ReturnOverload(0x06000002, TypeRef.CoreLib("System", "String"));
+        var coverage = new ImplementationProfilePopulationCoverageReceipt(
+            WasRequested: true,
+            HasFullMethodEvidenceScope: true,
+            DeclaredMethods: [first, second],
+            ManagedMethodBodies: [first, second],
+            ProfiledEvidenceBodies: [first, second],
+            UnavailableBodies: [],
+            Diagnostics: []);
+        var document = new LibraryStructuralReportDocument(
+            new(
+                "ReturnOverloads.dll",
+                null!,
+                LibraryBodyAnalysisFeatures.ImplementationProfiles,
+                HasFullMethodEvidenceScope: true,
+                Diagnostics: []),
+            LibraryStructuralReport.CurrentMethodologyVersion,
+            new(
+                coverage,
+                PhysicalEvidenceBodyCount: 2,
+                ProfiledPhysicalEvidenceBodyCount: 2,
+                LogicalOwnerCount: 2,
+                CompleteProfileCount: 2,
+                IncompleteProfileCount: 0,
+                IncompleteReasons: [],
+                UnavailableReasons: []),
+            [
+                new(
+                    LibraryStructuralMetric.InstructionCount,
+                    CompleteBodyCount: 2,
+                    Minimum: 1,
+                    P50: 1,
+                    P90: 1,
+                    P95: 1,
+                    P99: 1,
+                    Maximum: 1,
+                    MaximumBodies:
+                    [
+                        new(first, first, 1),
+                        new(second, second, 1),
+                    ],
+                    AdditionalMaximumBodyCount: 0),
+            ],
+            new(
+                "Async state-machine bodies",
+                CompleteBodyCount: 2,
+                PresentCount: 0,
+                AbsentCount: 2),
+            Diagnostics: []);
+        var view = new LibraryInspectionView(new LibraryInspection
+        {
+            FileName = "ReturnOverloads.dll",
+            LibraryMetricsQueryResult = new LibraryMetricsResult.Available(document),
+        });
+
+        LibraryMetricRow row = Assert.Single(
+            view.LibraryMetricsSection!,
+            row => row.Category == "Distribution");
+
+        Assert.Contains("ReturnOverloads.Same()", row.MaximumBodies);
+        Assert.Contains("0x06000001", row.MaximumBodies);
+        Assert.Contains("0x06000002", row.MaximumBodies);
+    }
+
+    private static MethodIdentity ReturnOverload(int metadataToken, TypeRef returnType) =>
+        new(
+            "ReturnOverloads",
+            Guid.Parse("00112233-4455-6677-8899-AABBCCDDEEFF"),
+            TypeRef.Definition("ReturnOverloads", "Probe", "ReturnOverloads"),
+            "Same",
+            [],
+            returnType,
+            metadataToken,
+            IsStatic: true);
 
     [Fact]
     public async Task
