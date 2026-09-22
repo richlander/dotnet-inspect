@@ -1397,7 +1397,7 @@ test("managed Saved Open keeps compact rows, packet fidelity, and focus ownershi
     /presentationCurrent = true[\s\S]*if \(presentationCurrent\) \{[\s\S]*captureWorkspaceFocus\(focusedElement\)[\s\S]*focusApplicationMenuButton\(document\)[\s\S]*activeRetainedWorkspacePosting = posting;\s*retainedWorkspaceInitialDetailAuthority = \{[\s\S]*navigationSeq: navigationSequence\.current\(\),\s*presentationCurrent,[\s\S]*createNavigationDescriptorPresentation\(posting\);\s*if \(!presentationCurrent\) return;[\s\S]*render\(\{ synchronizeUrl: false \}\)/);
   assert.match(
     install,
-    /const detailAuthority = retainedWorkspaceInitialDetailAuthority;[\s\S]*detailAuthority\?\.realizationId !== posting\.realizationId[\s\S]*const detailNavigationSeq = detailAuthority\.navigationSeq;[\s\S]*if \(detailAuthority\.presentationCurrent\s*&& navigationSequence\.isCurrent\(detailNavigationSeq\)\)/);
+    /const detailAuthority = retainedWorkspaceInitialDetailAuthority;[\s\S]*detailAuthority\?\.realizationId !== posting\.realizationId[\s\S]*const detailNavigationSeq = detailAuthority\.navigationSeq;\s*const admitInitialDetail = detailAuthority\.presentationCurrent\s*&& navigationSequence\.isCurrent\(detailNavigationSeq\);[\s\S]*if \(admitInitialDetail\) \{[\s\S]*admitRetainedPackage[\s\S]*admitRetainedPlatform[\s\S]*if \(admitInitialDetail\s*&& navigationSequence\.isCurrent\(detailNavigationSeq\)\)/);
   assert.doesNotMatch(install, /Promise\.all/);
   assert.match(
     install,
@@ -1422,10 +1422,13 @@ test("managed Saved Open keeps compact rows, packet fidelity, and focus ownershi
     /function retainedLocationPresentationCurrent\([\s\S]*retainedLocationIntents\.currentIntentId === intent\.id[\s\S]*retainedLocationIntents\.currentIntentId === null[\s\S]*installedRetainedLocation\?\.canonicalLocation === canonicalLocation[\s\S]*location\.href === canonicalLocation/);
   assert.match(
     appSource,
-    /async function openSavedWorkspaceEntry\([\s\S]*result\.status === "activated" \|\| result\.status === "noEffect"[\s\S]*render\(\{ synchronizeUrl: false \}\);\s*afterCurrentNavigationFrame\(focusWorkspaceOrHeading\)/);
+    /function completeRetainedActivationPresentation\([\s\S]*result\.posting === null[\s\S]*retainedLocationPresentationCurrent\(\s*locationIntent,\s*result\.posting\.canonicalLocation,[\s\S]*render\(\{ synchronizeUrl: false \}\);\s*afterCurrentNavigationFrame\(focusWorkspaceOrHeading\)/);
   assert.match(
     appSource,
-    /async function activateManagedRetainedWorkspace\([\s\S]*result\.status === "activated" \|\| result\.status === "noEffect"[\s\S]*render\(\{ synchronizeUrl: false \}\);\s*afterCurrentNavigationFrame\(focusWorkspaceOrHeading\)/);
+    /async function openSavedWorkspaceEntry\([\s\S]*result\.status === "activated" \|\| result\.status === "noEffect"[\s\S]*completeRetainedActivationPresentation\(result, locationIntent\)/);
+  assert.match(
+    appSource,
+    /async function activateManagedRetainedWorkspace\([\s\S]*result\.status === "activated" \|\| result\.status === "noEffect"[\s\S]*completeRetainedActivationPresentation\(result, locationIntent\)/);
   assert.match(
     packageAction,
     /catch \(error\) \{[\s\S]*withNavigationPackageDetailFailure\([\s\S]*render\(\{ synchronizeUrl: false \}\);[\s\S]*return;/);

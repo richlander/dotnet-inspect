@@ -92,6 +92,9 @@ function retainedWorkspaceInstallationHarness(options: {
   };
   let sequence = 1;
   let renders = 0;
+  let focusSchedules = 0;
+  let workspaceFocuses = 0;
+  let initialAdmissions = 0;
   const historyWrites: string[] = [];
   const routedLocations: string[] = [];
   const location = { href: "/incumbent" };
@@ -155,15 +158,23 @@ function retainedWorkspaceInstallationHarness(options: {
     admitRetainedPackage: (
       _posting: unknown,
       inventory: TestPresentationItem,
-    ) => inventory.navigationId === activeNavigationId
-      ? options.initial.promise
-      : options.newer(),
+    ) => {
+      if (inventory.navigationId !== activeNavigationId) {
+        return options.newer();
+      }
+      initialAdmissions += 1;
+      return options.initial.promise;
+    },
     admitRetainedPlatform: (
       _posting: unknown,
       inventory: TestPresentationItem,
-    ) => inventory.navigationId === activeNavigationId
-      ? options.initial.promise
-      : options.newer(),
+    ) => {
+      if (inventory.navigationId !== activeNavigationId) {
+        return options.newer();
+      }
+      initialAdmissions += 1;
+      return options.initial.promise;
+    },
     createNuGetPackageModel: (surface: TestPackage) => surface,
     createRuntimePackageModel: (surface: TestPackage) => surface,
     errorMessage: (error: unknown) =>
@@ -205,6 +216,13 @@ function retainedWorkspaceInstallationHarness(options: {
     render: () => {
       renders += 1;
     },
+    afterCurrentNavigationFrame: (action: () => void) => {
+      focusSchedules += 1;
+      action();
+    },
+    focusWorkspaceOrHeading: () => {
+      workspaceFocuses += 1;
+    },
     posting,
     locationIntent,
     newerNavigationId,
@@ -214,6 +232,7 @@ function retainedWorkspaceInstallationHarness(options: {
     "retainedLocationPresentationCurrent",
     "supersedeRetainedLocationIntentForRoutedNavigation",
     "installRetainedWorkspacePosting",
+    "completeRetainedActivationPresentation",
     "activateRetainedPackageAction",
     "activateRetainedPlatformAction",
     "goHome",
@@ -233,6 +252,9 @@ function retainedWorkspaceInstallationHarness(options: {
     historyWrites: () => historyWrites,
     routedLocations: () => routedLocations,
     renders: () => renders,
+    focusSchedules: () => focusSchedules,
+    workspaceFocuses: () => workspaceFocuses,
+    initialAdmissions: () => initialAdmissions,
     presentationCurrent: () => Boolean(runInNewContext(
       "retainedLocationPresentationCurrent(locationIntent, posting.canonicalLocation)",
       context,
@@ -247,6 +269,12 @@ function retainedWorkspaceInstallationHarness(options: {
       "installRetainedWorkspacePosting(posting, locationIntent)",
       context,
     )),
+    completePresentation: () => {
+      runInNewContext(
+        "completeRetainedActivationPresentation({ posting }, locationIntent)",
+        context,
+      );
+    },
     activatePackage: () => Promise.resolve(runInNewContext(
       "activateRetainedPackageAction(newerNavigationId)",
       context,
@@ -297,6 +325,11 @@ test("stale initial Package detail cannot replace a newer row selection", async 
   assert.equal(harness.context.activeWorkspaceUrl, "/workspace");
   assert.deepEqual(harness.historyWrites(), ["/workspace"]);
   assert.equal(harness.presentationCurrent(), true);
+  const rendersBeforeCompletion = harness.renders();
+  harness.completePresentation();
+  assert.equal(harness.renders(), rendersBeforeCompletion + 1);
+  assert.equal(harness.focusSchedules(), 1);
+  assert.equal(harness.workspaceFocuses(), 1);
 });
 
 test("stale initial Platform detail preserves a newer row failure", async () => {
@@ -359,13 +392,6 @@ test("posting captures initial detail authority before rows become interactive",
   })();
   await harness.activatePackage();
   postingRecord.resolve();
-  initial.resolve({
-    surface: {
-      id: "stale-package",
-      isRuntimePack: false,
-      source: { kind: "package" },
-    },
-  });
   await installation;
 
   assert.equal(harness.state.package, newer);
@@ -374,6 +400,7 @@ test("posting captures initial detail authority before rows become interactive",
   assert.equal(harness.state.packages[0], newer);
   assert.equal(harness.context.activeWorkspaceUrl, "/workspace");
   assert.deepEqual(harness.historyWrites(), ["/workspace"]);
+  assert.equal(harness.initialAdmissions(), 0);
 });
 
 for (const route of ["home", "credits"] as const) {
@@ -389,14 +416,8 @@ for (const route of ["home", "credits"] as const) {
     else harness.openCredits();
     harness.post(false);
     const installation = harness.install();
-    initial.resolve({
-      surface: {
-        id: "stale-package",
-        isRuntimePack: false,
-        source: { kind: "package" },
-      },
-    });
     await installation;
+    harness.completePresentation();
 
     assert.equal(harness.context.activeWorkspaceUrl, "/workspace");
     assert.ok(harness.context.activeRetainedWorkspacePosting);
@@ -411,6 +432,9 @@ for (const route of ["home", "credits"] as const) {
     );
     assert.deepEqual(harness.historyWrites(), []);
     assert.equal(harness.presentationCurrent(), false);
+    assert.equal(harness.initialAdmissions(), 0);
+    assert.equal(harness.focusSchedules(), 0);
+    assert.equal(harness.workspaceFocuses(), 0);
     assert.equal(harness.renders(), 1);
   });
 
@@ -431,13 +455,6 @@ for (const route of ["home", "credits"] as const) {
     if (route === "home") harness.goHome();
     else harness.openCredits();
     postingRecord.resolve();
-    initial.resolve({
-      surface: {
-        id: "stale-package",
-        isRuntimePack: false,
-        source: { kind: "package" },
-      },
-    });
     await installation;
 
     assert.equal(harness.context.activeWorkspaceUrl, "/workspace");
@@ -450,5 +467,11 @@ for (const route of ["home", "credits"] as const) {
     );
     assert.deepEqual(harness.historyWrites(), []);
     assert.equal(harness.presentationCurrent(), false);
+    assert.equal(harness.initialAdmissions(), 0);
+    const rendersBeforeCompletion = harness.renders();
+    harness.completePresentation();
+    assert.equal(harness.renders(), rendersBeforeCompletion);
+    assert.equal(harness.focusSchedules(), 0);
+    assert.equal(harness.workspaceFocuses(), 0);
   });
 }

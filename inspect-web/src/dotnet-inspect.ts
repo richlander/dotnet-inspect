@@ -2036,6 +2036,8 @@ async function installRetainedWorkspacePosting(
     );
   }
   const detailNavigationSeq = detailAuthority.navigationSeq;
+  const admitInitialDetail = detailAuthority.presentationCurrent
+    && navigationSequence.isCurrent(detailNavigationSeq);
   const activeTabId = posting.definition.activeTabId;
   const packageInventory = activeTabId === null
     ? posting.packages[0]
@@ -2050,23 +2052,25 @@ async function installRetainedWorkspacePosting(
   let admittedPackage: BrowserRetainedWorkspacePackage | null = null;
   let admittedPlatform: BrowserRetainedWorkspacePlatform | null = null;
   let detailFailure: string | null = null;
-  try {
-    if (packageInventory !== undefined) {
-      admittedPackage = await admitRetainedPackage(posting, packageInventory);
-    } else if (selectedPlatformInventory !== undefined) {
-      admittedPlatform = await admitRetainedPlatform(
-        posting,
-        selectedPlatformInventory,
-      );
+  if (admitInitialDetail) {
+    try {
+      if (packageInventory !== undefined) {
+        admittedPackage = await admitRetainedPackage(posting, packageInventory);
+      } else if (selectedPlatformInventory !== undefined) {
+        admittedPlatform = await admitRetainedPlatform(
+          posting,
+          selectedPlatformInventory,
+        );
+      }
+    } catch (error) {
+      detailFailure = errorMessage(error) || "The active row details are unavailable.";
     }
-  } catch (error) {
-    detailFailure = errorMessage(error) || "The active row details are unavailable.";
   }
   if (activeRetainedWorkspacePosting?.realizationId !== posting.realizationId) {
     throw new Error("A newer retained Workspace replaced this installation.");
   }
 
-  if (detailAuthority.presentationCurrent
+  if (admitInitialDetail
     && navigationSequence.isCurrent(detailNavigationSeq)) {
     let packageModel: AppPackage | null = null;
     let platformModel: AppPackage | null = null;
@@ -2153,6 +2157,21 @@ async function installRetainedWorkspacePosting(
   }
   installedRetainedLocation = association;
   render({ synchronizeUrl: false });
+}
+
+function completeRetainedActivationPresentation(
+  result: BrowserRetainedWorkspaceActivationResult,
+  locationIntent: LocationIntentDeclaration,
+): void {
+  if (result.posting === null
+    || !retainedLocationPresentationCurrent(
+      locationIntent,
+      result.posting.canonicalLocation,
+    )) {
+    return;
+  }
+  render({ synchronizeUrl: false });
+  afterCurrentNavigationFrame(focusWorkspaceOrHeading);
 }
 
 async function activateRetainedPackageAction(
@@ -2593,8 +2612,7 @@ async function activateManagedRetainedWorkspace(
     }
     if (result.status === "activated" || result.status === "noEffect") {
       failedManagedRetainedDefinitionId = null;
-      render({ synchronizeUrl: false });
-      afterCurrentNavigationFrame(focusWorkspaceOrHeading);
+      completeRetainedActivationPresentation(result, locationIntent);
     }
 }
 
@@ -13351,8 +13369,7 @@ async function openSavedWorkspaceEntry(entry: SavedWorkspace): Promise<void> {
   }
   if (result.status === "activated" || result.status === "noEffect") {
     failedManagedRetainedDefinitionId = null;
-    render({ synchronizeUrl: false });
-    afterCurrentNavigationFrame(focusWorkspaceOrHeading);
+    completeRetainedActivationPresentation(result, locationIntent);
   }
 }
 
