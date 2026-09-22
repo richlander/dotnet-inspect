@@ -349,6 +349,9 @@ identity collapse, edge direction, occurrence deduplication, node-kind
 precedence, and deterministic first-seen ordering. Shared helpers appear once;
 disconnected roots remain present. When the combined node budget stops
 expansion, `HasUnexploredTraversalBoundary` remains true.
+Traversal completeness is likewise projection-wide: one complete expansion of
+an identity satisfies a depth-limited or already-shown occurrence reached from
+another equal root.
 
 Analysis and the consuming query continue to own traversal depth. Each supplied
 tree retains its Analysis-issued depth, external, unresolved-dispatch, and
@@ -363,8 +366,9 @@ projection and is tracked by issue #8258.
 `EqualRootsCombineTraversalAndAnalysisBoundaries` gate shared topology, the
 combined bound, root ordering, occurrence reuse, and failure preservation.
 `EqualRootsRetainDisconnectedNeighborhoods` and
-`EqualRootsPreserveCyclesWithoutChoosingFocus` gate the pathological graph
-shapes. The pinned `System.Text.Json` gate
+`EqualRootCycleIsCompleteWithoutChoosingFocus` gate the pathological graph
+shapes. `EqualRootExpansionCompletesBoundaryDuplicate` gates completeness
+composition across roots. The pinned `System.Text.Json` gate
 `MultiRootProjection_SystemTextJsonRetainsEverySerializeRootAndSharedHelper`
 retains all 15 public `JsonSerializer.Serialize` roots and a downstream helper
 reached from more than one root.

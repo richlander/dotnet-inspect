@@ -739,11 +739,11 @@ public sealed partial class CallGraphProjection
         return builder.Build(
             rootNodeIds.MoveToImmutable(),
             nodeBoundReached
-                || roots.Any(root =>
-                    !IsTraversalComplete(
-                        root,
-                        useGraphEvidence)
-                    || HasUnresolvedDispatch(root)),
+                || !IsTraversalComplete(
+                    roots,
+                    useGraphEvidence)
+                || roots.Any(static root =>
+                    HasUnresolvedDispatch(root)),
             roots.Any(static root => HasAnalysisFailure(root)));
     }
 
@@ -1264,9 +1264,19 @@ public sealed partial class CallGraphProjection
         if (root is null)
             return false;
 
+        return IsTraversalComplete(
+            [root],
+            useGraphEvidence);
+    }
+
+    static bool IsTraversalComplete(
+        IEnumerable<CallTreeNode> roots,
+        bool useGraphEvidence)
+    {
         var completeByIdentity =
             new Dictionary<GraphNodeIdentity, bool>();
-        Add(root);
+        foreach (CallTreeNode root in roots)
+            Add(root);
         return completeByIdentity.Values.All(
             static complete => complete);
 

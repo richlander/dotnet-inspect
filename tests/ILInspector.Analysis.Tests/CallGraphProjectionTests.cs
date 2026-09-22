@@ -285,7 +285,7 @@ public class CallGraphProjectionTests
     }
 
     [Fact]
-    public void EqualRootsPreserveCyclesWithoutChoosingFocus()
+    public void EqualRootCycleIsCompleteWithoutChoosingFocus()
     {
         MemberRef first = Member("Api", "First");
         MemberRef second = Member("Api", "Second");
@@ -318,6 +318,41 @@ public class CallGraphProjectionTests
                 (edge.From, edge.To)));
         Assert.Throws<InvalidOperationException>(
             () => projection.Focus);
+        Assert.False(projection.HasUnexploredTraversalBoundary);
+    }
+
+    [Fact]
+    public void EqualRootExpansionCompletesBoundaryDuplicate()
+    {
+        MemberRef first = Member("Api", "First");
+        MemberRef second = Member("Api", "Second");
+        MemberRef sink = Member("Core", "Sink");
+        CallGraphProjection projection =
+            CallGraphProjection.FromCallees(
+                [
+                    Node(
+                        first,
+                        CallTreeStatus.Expanded,
+                        [
+                            Leaf(
+                                second,
+                                CallTreeStatus.DepthLimited),
+                        ]),
+                    Node(
+                        second,
+                        CallTreeStatus.Expanded,
+                        [Leaf(sink)]),
+                ],
+                maxNodes: 3);
+
+        Assert.Equal(
+            ["First", "Second", "Sink"],
+            projection.Nodes.Select(static node => node.Member.Name));
+        Assert.Equal(
+            [(0, 1), (1, 2)],
+            projection.Edges.Select(static edge =>
+                (edge.From, edge.To)));
+        Assert.False(projection.HasUnexploredTraversalBoundary);
     }
 
     [Fact]
