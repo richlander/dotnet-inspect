@@ -344,6 +344,7 @@ import {
   activateRetainedWorkspace as activateRetainedWorkspaceState,
   createRetainedWorkspaceCollection,
   deleteRetainedWorkspace as deleteRetainedWorkspaceState,
+  detachActiveRetainedWorkspace,
   MAX_RETAINED_WORKSPACES,
   publishRetainedWorkspace,
   type RetainedWorkspaceCollection,
@@ -16100,6 +16101,9 @@ async function openUploadedLibraryFile(
       return;
     }
 
+    const retainedSnapshot = retainedWorkspaces.activeWorkspaceId === null
+      ? null
+      : captureRetainedWorkspaceSnapshot();
     const packageModel =
       createUploadedLibraryModel(inspection.content);
     activatePackage(packageModel, { resetAccessibility: true });
@@ -16128,6 +16132,12 @@ async function openUploadedLibraryFile(
     state.libraryOpen = false;
     state.libraryOpenFileName = "";
     state.libraryOpenError = "";
+    if (retainedSnapshot !== null) {
+      retainedWorkspaces = detachActiveRetainedWorkspace(
+        retainedWorkspaces,
+        retainedSnapshot);
+    }
+    activeWorkspaceUrl = null;
     activatedLibrary = true;
     workspaceLocation.replace("/");
   } catch (error) {

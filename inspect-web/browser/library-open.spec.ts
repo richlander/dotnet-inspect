@@ -219,6 +219,35 @@ test("successful upload replaces stale Package URL with Home", async ({ page }) 
     .toHaveText("Inspect .NET packages and libraries in your browser.");
 });
 
+test("successful upload is excluded from retained Workspace restoration", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await installLibraryUploadFacades(page, "available");
+  await page.goto(root);
+  await waitForWorkspaceReady(page);
+
+  await dropLibrary(page, "Uploaded.Library.dll", [1, 2, 3, 4]);
+  await expect(page.getByText("Browser upload", { exact: true }))
+    .toBeVisible();
+
+  await page.getByRole("button", { name: /Search/ }).click();
+  await page.locator("#spotlight-input").fill("Other.Package@1.0.0");
+  await page.locator('[data-sl-pkg-load="Other.Package"]').click();
+  await expect(page.locator(".inspected-target"))
+    .toContainText("Other.Package");
+
+  await page.locator('[data-application-scope="workspace"]').click();
+  await page.locator('[data-workspace-switch="workspace-1"]').click();
+
+  await expect(page.getByText("Browser upload", { exact: true }))
+    .toHaveCount(0);
+  await expect(page.locator(".inspected-target"))
+    .toContainText("Example.Package");
+  await expect.poll(() => new URL(page.url()).searchParams.get("package"))
+    .toBe("Example.Package");
+});
+
 test("upload retires an older in-flight Package transition", async ({ page }) => {
   await installLibraryUploadFacades(page, "available", {
     deferChanges: true,
