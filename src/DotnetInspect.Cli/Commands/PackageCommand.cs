@@ -617,7 +617,7 @@ public partial class PackageCommand
                             range!, rangeListings, options.IncludePrerelease);
                         // Materialized once: counting a lazy sequence and then re-enumerating it
                         // for the render is how a count starts to disagree with its payload.
-                        var rangeRows = unlistedVector.Take(options.Limit ?? int.MaxValue).ToList();
+                        var rangeRows = unlistedVector.ToList();
                         if (!TrySelectVersionRows(
                                 rangeRows,
                                 options,
@@ -648,7 +648,6 @@ public partial class PackageCommand
                     if (options.VersionRowSelection is not null)
                         WritePartialVersionFeedWarning(range!.PackageId);
                     var rangeVersions = vector.Addresses
-                        .Take(options.Limit ?? int.MaxValue)
                         .Select(address => address.Version.ToNormalizedString())
                         .ToList();
                     if (!TrySelectVersionRows(
@@ -691,8 +690,7 @@ public partial class PackageCommand
                 options = options with { ForceLatest = true };
             }
             bool singleVersionListing =
-                options.Limit == 1
-                || HasSemanticSingleVersionLimit(
+                HasSemanticSingleVersionLimit(
                     options.VersionRowSelection);
             using var requestScope = RequestTelemetry.Scope($"package {normalizedName}", "package versions");
 
@@ -847,48 +845,6 @@ public partial class PackageCommand
                 return 0;
             }
 
-            if (versionQueryPinned is null
-                && options.Limit == 1
-                && !options.IncludeUnlisted
-                && !options.ListVersionsWithFeed
-                && DotnetInspector.Networking.HttpClientFactory.IsOffline)
-            {
-                List<string>? singleVersions =
-                    await PackageExtractor.GetSingleVersionListingAsync(
-                    context.HttpClient,
-                    normalizedName,
-                    options.IncludePrerelease,
-                    logger.Log,
-                    options.SourceOptions);
-                if (singleVersions is null)
-                {
-                    WriteVersionLookupFailure(
-                        normalizedName,
-                        $"Package '{packageArgs[0]}' not found on eligible configured sources.");
-                    return 1;
-                }
-
-                if (!TrySelectVersionRows(
-                        singleVersions,
-                        options,
-                        out IReadOnlyList<string> visibleSingleVersions))
-                {
-                    return 1;
-                }
-                if (LensProjection.TryProject(
-                        options,
-                        "--versions",
-                        visibleSingleVersions.Count,
-                        out var cachedLatestExit,
-                        ["Version"]))
-                {
-                    return cachedLatestExit;
-                }
-
-                WriteVersions(visibleSingleVersions, options);
-                return 0;
-            }
-
             if (options.ListVersionsWithFeed)
             {
                 bool hasPinnedSemanticCoordinate =
@@ -975,7 +931,7 @@ public partial class PackageCommand
             {
                 var listings = await PackageExtractor.GetVersionListingsAsync(
                     context.HttpClient, normalizedName, options.IncludePrerelease,
-                    includeUnlisted: true, options.Limit, logger.Log, options.SourceOptions);
+                    includeUnlisted: true, limit: null, logger.Log, options.SourceOptions);
                 if (listings == null)
                 {
                     WriteVersionLookupFailure(
@@ -1010,7 +966,7 @@ public partial class PackageCommand
                 context.HttpClient,
                 normalizedName,
                 options.IncludePrerelease,
-                options.Limit,
+                limit: null,
                 logger.Log,
                 options.SourceOptions);
 

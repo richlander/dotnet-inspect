@@ -71,7 +71,7 @@ public partial class PackageCommand
             || string.Equals(requestedVersion, "latest", StringComparison.OrdinalIgnoreCase));
         bool pinned = !isRange && !latest
             && !string.IsNullOrEmpty(requestedVersion)
-            && (options.Limit == 1 || HasSemanticSingleVersionLimit(options.VersionRowSelection));
+            && HasSemanticSingleVersionLimit(options.VersionRowSelection);
         bool ordinaryListing = !pinned && !options.SingleVersionQuery;
         NuGet.Versioning.NuGetVersion? pinnedVersion = null;
         if (pinned && !NuGet.Versioning.NuGetVersion.TryParse(requestedVersion, out pinnedVersion))
@@ -609,8 +609,7 @@ public partial class PackageCommand
         IEnumerable<string> versions,
         InspectionOptions options)
     {
-        if (options.JsonOutput
-            && options.Limit is null)
+        if (options.JsonOutput)
         {
             Console.Out.WriteLine(
                 JsonSerializer.Serialize(
