@@ -2,6 +2,7 @@ import type {
   BrowserRetainedWorkspaceActivationResult,
   BrowserRetainedWorkspaceConsumerCompletionResult,
   BrowserRetainedWorkspaceDeactivationResult,
+  BrowserRetainedWorkspacePackageSourceCredential,
   BrowserRetainedWorkspacePosting,
   BrowserRetainedWorkspacePreparedPosting,
   BrowserRetainedWorkspacePreparationResult,
@@ -36,11 +37,6 @@ interface SoleDeactivationIntent {
   readonly retainedDefinitionId: string;
 }
 
-interface RetainedWorkspacePackageSourceCredential {
-  readonly username: string;
-  readonly pat: string;
-}
-
 export interface RetainedWorkspaceActivationClient {
   describeWorkspacePackageSources?(
     canonicalPacket: string,
@@ -57,7 +53,9 @@ export interface RetainedWorkspaceActivationClient {
     label: string,
     canonicalLocation: string,
     canonicalPacket: string,
-    packageSourceCredentialsJson: string,
+    packageSourceCredentials: Readonly<
+      Record<string, BrowserRetainedWorkspacePackageSourceCredential>
+    >,
   ): Promise<BrowserRetainedWorkspacePreparationResult>;
   commitRetainedWorkspaceActivation(
     receipt: string,
@@ -153,7 +151,7 @@ export interface RetainedWorkspaceActivationController {
     ) => void | Promise<void>,
     committed?: () => void,
     packageSourceCredentials?: Readonly<
-      Record<string, RetainedWorkspacePackageSourceCredential>
+      Record<string, BrowserRetainedWorkspacePackageSourceCredential>
     >,
     isPresentationCurrent?: (
       posting: BrowserRetainedWorkspacePosting,
@@ -514,7 +512,7 @@ export function createRetainedWorkspaceActivationController(
     ) => void | Promise<void> = () => {},
     committed: () => void = () => {},
     packageSourceCredentials: Readonly<
-      Record<string, RetainedWorkspacePackageSourceCredential>
+      Record<string, BrowserRetainedWorkspacePackageSourceCredential>
     > = {},
     isPresentationCurrent: (
       posting: BrowserRetainedWorkspacePosting,
@@ -576,7 +574,7 @@ export function createRetainedWorkspaceActivationController(
             definition.label,
             definition.canonicalLocation,
             definition.canonicalPacket,
-            JSON.stringify(packageSourceCredentials),
+            packageSourceCredentials,
           );
         }
         switch (preparation.status) {

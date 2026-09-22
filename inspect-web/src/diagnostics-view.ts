@@ -65,7 +65,6 @@ export interface DiagnosticsViewModel {
 
 export interface DiagnosticsViewActions {
   onBack: () => void;
-  onHome: () => void;
 }
 
 function formatDuration(milliseconds: number | null): string {
@@ -310,8 +309,6 @@ export function diagnosticsViewHtml(
   return `<div class="diagnostics-view">
     <header class="diagnostics-header">
       ${renderBrand({
-        ariaLabel: "dotnet-inspect workspace",
-        href: "/",
         id: "diagnostics-product",
       })}
       <button id="diagnostics-back" class="diagnostics-back" type="button"
@@ -342,12 +339,9 @@ export function bindDiagnosticsView(
   root: ParentNode,
   actions: DiagnosticsViewActions,
 ): void {
-  const activate = (action: () => void) => (event: Event) => {
-    event.preventDefault();
-    action();
-  };
-  root.querySelector<HTMLElement>("#diagnostics-product")
-    ?.addEventListener("click", activate(actions.onHome));
   root.querySelector<HTMLButtonElement>("#diagnostics-back")
-    ?.addEventListener("click", activate(actions.onBack));
+    ?.addEventListener("click", event => {
+      event.preventDefault();
+      actions.onBack();
+    });
 }
