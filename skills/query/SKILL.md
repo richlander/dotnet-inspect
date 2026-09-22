@@ -25,14 +25,16 @@ first where available, then select and project.
 dnx dotnet-inspect -y -- <command>
 ```
 
-Choose the desired result entity/space before shaping output; do not route by
-the English verb "find." If the result space is unclear, start with a bare
-target and let the router choose. In API-symbol space, `find <pattern>` searches
-type names, or member names with `--members`. In package space, use
-`package query <exact-id>` or `package query '<prefix>*'` to discover package
-IDs, then `package <exact-id>` to inspect one. In Library space, use
-`library query <pattern-or-scope>` for discovery, then `library <source>` to
-inspect a known Library. `find` never searches package IDs.
+Use this skill to shape the result the user needs. Start by identifying its
+result space. If the intent or space is unclear, use a bare target and let the
+router choose. Otherwise, enter the matching space directly:
+
+- API-symbol space: `find <pattern>` searches type names, or member names with
+  `--members`.
+- Package space: `package query <exact-id>` or `package query '<prefix>*'`
+  discovers package IDs; `package <exact-id>` then inspects one.
+- Library space: `library query <pattern-or-scope>` discovers Libraries, then
+  `library <source>` inspects a known Library.
 
 ## Output formats
 

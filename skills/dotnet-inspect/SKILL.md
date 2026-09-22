@@ -6,14 +6,14 @@ description: Find and share evidence instead of guessing about .NET packages, li
 
 # dotnet-inspect
 
-Choose by desired result entity/space, not the English verb "find." If the result space is unclear, start with bare `dnx dotnet-inspect -y -- <target>` and let the router choose; `-y` skips confirmation and `--` passes arguments to dotnet-inspect.
+Use dotnet-inspect to find evidence about compiled .NET APIs, packages, libraries, dependencies, source, and version changes. Start by identifying what kind of result the user needs. If the intent or result space is unclear, use bare `dnx dotnet-inspect -y -- <target>` and let the router choose. Otherwise, enter the matching space directly; `-y` skips confirmation and `--` passes arguments to dotnet-inspect.
 
 ## Common starts
 
 | Goal | Command |
 | ---- | ------- |
 | Discover or inspect a package | `package query Foo` discovers an exact package ID; use `package query 'Foo.*'` for a literal package-ID prefix. Then use `package <exact-id>` to inspect the known package. |
-| Discover an API symbol | `find Pattern` searches type names, or member names with `--members`; it does not search package IDs. It includes platform/BCL types; add `--project path/to/project` when project references should be in scope. Exact `--package Foo@version` or explicit `--platform Library` searches with `--tfm` use the Workspace locator internally while preserving Find's existing Markdown, tips, tables, and root-array JSON. Selected Package Type/Member handoff retains the exact implementation asset and compatible TFM. |
+| Discover an API symbol | `find Pattern` searches type names, or member names with `--members`. It includes platform/BCL types; add `--project path/to/project` when project references should be in scope. Exact `--package Foo@version` or explicit `--platform Library` searches with `--tfm` use the Workspace locator internally while preserving Find's existing Markdown, tips, tables, and root-array JSON. Selected Package Type/Member handoff retains the exact implementation asset and compatible TFM. |
 | Inspect a type | `type Type --package Foo`; add `--all` for non-public/hidden members. Select `-S Source` for authored-first source with explicit fallback context; `PDB Source` and `Decompiled Source` remain provider-specific views. |
 | Inspect overloads | `member Type --platform Lib -m Name -S "Member Index"` |
 | Select an overload | `member Type --platform Lib Name:1` or `Name~digest` |

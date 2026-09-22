@@ -10,13 +10,13 @@ ones relevant to the current task. This default workflow is agent-driven and
 does not change the repository. Persist skills only when the user explicitly
 asks for repository installation.
 
-Route by desired result entity/space, not the English verb "find." If that
-space is unclear, start with a bare target and let the router choose. For
-package space, discover an unknown ID with `package query <exact-id>` or
-`package query '<prefix>*'`, then inspect it with `package <exact-id>`.
-`find <pattern>` belongs to API-symbol space and searches types/members, not
-package IDs. `library query <pattern-or-scope>` and `library <source>` are the
-corresponding Library-space discovery and inspection routes.
+Use this workflow to reach the right package-authored skill efficiently. Start
+by identifying what kind of result the user needs. If the intent or result
+space is unclear, use a bare target and let the router choose. Otherwise, enter
+the matching space directly: `find <pattern>` searches API types/members;
+`package query <exact-id>` or `package query '<prefix>*'` discovers package IDs;
+and `library query <pattern-or-scope>` discovers Libraries. Inspect known
+results with `package <exact-id>` or `library <source>`.
 
 ## Default: use skills without changing the repository
 

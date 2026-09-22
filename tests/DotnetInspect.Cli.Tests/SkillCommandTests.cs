@@ -182,11 +182,20 @@ public class SkillCommandTests
         var (_, packageSkills, _) = await ConsoleCapture.RunAsync(
             () => Task.FromResult(SkillCommand.ExecuteSkill("package-skills")));
 
+        Assert.Contains(
+            "Use dotnet-inspect to find evidence",
+            router);
+        Assert.Contains(
+            "Use this skill to shape the result",
+            query);
+        Assert.Contains(
+            "Use this workflow to reach the right package-authored skill",
+            packageSkills);
+
         foreach (string output in new[] { router, query, packageSkills })
         {
-            Assert.Contains("desired result", output);
+            Assert.Contains("router choose", output);
             Assert.Contains("package query", output);
-            Assert.Contains("package IDs", output);
             Assert.Contains("library query", output);
             Assert.Contains("types", output);
             Assert.Contains("members", output);
