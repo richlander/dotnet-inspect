@@ -714,8 +714,8 @@ positional Packages, an explicit target framework, preview/latest selection,
 version populations or ranges, Package discovery, or a Package child command.
 
 The first slice requires one positional canonical NuGet Package ID. The
-existing `ID@VERSION` and `ID --version VERSION` forms may additionally require
-one exact effective version. Bare `--version`, `--versions`,
+`ID@VERSION` form may additionally require one exact effective version. Bare
+`--version`, `--versions`,
 `--versions-with-feed`, range selection, and multi-Package execution remain
 outside this route. ID and version comparison use their existing Package-owned
 canonical semantics; packet adoption does not add prefix, fuzzy, display-text,
@@ -803,7 +803,7 @@ An explicit version requirement applied to a floating Package member may
 validate the current ordinary inspection, but it is not faithfully projectable:
 the derived packet preserves the original floating definition and the active
 Package state has no separate version predicate. Share therefore succeeds for
-an explicit `ID@VERSION` or `--version VERSION` request only when the preserved
+an explicit `ID@VERSION` request only when the preserved
 Package member is already pinned to that exact version. It never silently pins
 or otherwise mutates the input Workspace definition.
 
