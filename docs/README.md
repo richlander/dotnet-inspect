@@ -35,15 +35,17 @@ running without a global install, use `dnx dotnet-inspect -y -- skill`.
 | <https://coreclr.dotnet-inspect.ca> | Nightly CoreCLR interpreter version. | .NET 12 daily build |
 | <https://coreclr-r2r.dotnet-inspect.ca> | Nightly CoreCLR ReadyToRun version; the same commit as the interpreter version. | .NET 12 daily build |
 
-This page is curated navigation for users and contributors. For the full
-product guide, current commands, examples, supported behavior, and
-user-visible limitations, continue with the root [README](../README.md).
+This page is curated navigation for users and contributors. Start with the
+bounded product [landing page](../README.md), then use the
+[CLI reference](cli-reference.md) for detailed commands, examples, supported
+behavior, and user-visible limitations.
 
 ## Documentation entrypoint ownership
 
 | Surface | Owns | Update when |
 | --- | --- | --- |
-| [`README.md`](../README.md) | Full product guide: overview, canonical acquisition, primary workflows, capability and command inventory, examples, requirements, and top-level limitations. | One of those current product claims changes or a capability earns top-level discovery. |
+| [`README.md`](../README.md) | Product landing page: canonical acquisition, three website channels, and only daily-driver or distinctive demo capabilities. Every featured capability has a runnable CLI example and production website link; the file stays at or below 120 lines. | Canonical acquisition or website links change, or a capability earns or loses landing-page discovery. |
+| [`docs/cli-reference.md`](cli-reference.md) | Detailed CLI behavior, command and capability inventory, examples, requirements, and user-visible limitations. | A documented command, workflow, requirement, or limitation changes. |
 | [`docs/README.md`](README.md) | User and contributor landing page: minimal acquisition and agent guidance, website channels, curated documentation routes, and the boundaries in this table. | Canonical acquisition, skill guidance, website channels, a high-value route, or an entrypoint's role changes. |
 | [`docs/overview.md`](overview.md) | Subsystem topology and the map from cross-subsystem composition to normative owners. | A subsystem boundary, owner, or cross-subsystem relationship changes. |
 | [`docs/architecture.md`](architecture.md) | Current implementation composition, project boundaries, shared currencies, and code location. | Current code structure or an explicit migration boundary changes. |
@@ -53,9 +55,9 @@ Update only the surfaces whose owned claims change. Adding or editing a focused
 document does not by itself require a root README, documentation index,
 overview, or architecture edit.
 
-The acquire-and-run commands are intentional duplication between the two
-README entrypoints because both audiences need them immediately. Keep that
-small block aligned; do not copy the rest of the product guide here.
+The acquire-and-run commands are intentional duplication between the landing
+page and this index because both audiences need them immediately. Keep that
+small block aligned; do not copy the CLI reference here.
 
 Detailed user behavior belongs with its focused guide or product skill. The
 root README remains current without cataloging every focused capability.
@@ -64,7 +66,8 @@ root README remains current without cataloging every focused capability.
 
 | Need | Entry point |
 | --- | --- |
-| Use the current product | [Root README](../README.md) |
+| Discover and acquire the product | [Root README](../README.md) |
+| Look up CLI behavior and examples | [CLI reference](cli-reference.md) |
 | Understand cross-subsystem ownership | [Overview](overview.md) |
 | Locate current implementation and project boundaries | [Architecture](architecture.md) |
 | Understand the target workspace, query, cache, and safety model | [Inspection Space Architecture](inspection-space.md) |

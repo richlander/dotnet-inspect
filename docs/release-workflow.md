@@ -218,9 +218,9 @@ not product release artifacts. Do not register or embed them.
 A change to `VersionPrefix` is therefore a documentation checkpoint. Consult
 both before dispatching, and expect to update them:
 
-- Do the commands, flags, defaults, and example output in `README.md` still
-  match the tool? Re-run any example whose command surface changed rather than
-  eyeballing it.
+- Do the featured commands in `README.md` and the detailed commands, flags,
+  defaults, and example output in `docs/cli-reference.md` still match the tool?
+  Re-run any example whose command surface changed rather than eyeballing it.
 - Does each product `skills/*/SKILL.md` still describe capabilities the release
   actually has, and is a new capability discoverable from the product skill
   that owns it? A product skill's YAML frontmatter `description:` is the single
