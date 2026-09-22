@@ -2507,6 +2507,8 @@ test.describe("bounded network-backed two-host demo", () => {
     })).toBeEnabled({ timeout: 180_000 });
     await expect(page.locator('[data-workspace-select]').first())
       .toBeFocused({ timeout: 180_000 });
+    await expect(page.locator(".workspace-list .workspace-row"))
+      .toHaveCount(2);
     await page.getByRole(
       "button",
       { name: "Save Workspace", exact: true },
@@ -2543,6 +2545,46 @@ test.describe("bounded network-backed two-host demo", () => {
       .toBe(persisted.entries[0]!.packet);
     const managedUrl = page.url();
     expect(managedUrl).not.toBe(compatibilityUrl);
+
+    await page.locator('[data-application-scope="query"]').click();
+    await expect(page).toHaveURL(/\/query$/);
+    await expect(page.locator("#package-query-heading"))
+      .toHaveText("Package query");
+    await page.evaluate(() => history.back());
+    await expect.poll(() => page.url()).toBe(managedUrl);
+    await expect(page.locator("[data-navigation-order]"))
+      .toContainText("System.Text.Json");
+    await expect(page.locator("#package-query-heading")).toHaveCount(0);
+    await expect(page.locator(".workspace-list .workspace-row"))
+      .toHaveCount(2);
+    await page.evaluate(() => history.forward());
+    await expect(page).toHaveURL(/\/query$/);
+    await expect(page.locator("#package-query-heading"))
+      .toHaveText("Package query");
+    await page.evaluate(() => history.back());
+    await expect.poll(() => page.url()).toBe(managedUrl);
+    await expect(page.locator(".workspace-list .workspace-row"))
+      .toHaveCount(2);
+
+    await page.locator('[data-application-scope="activity"]').click();
+    await expect(page).toHaveURL(/\/activity$/);
+    await expect(page.locator("#package-changes-heading"))
+      .toHaveText("Package Activity");
+    await page.evaluate(() => history.back());
+    await expect.poll(() => page.url()).toBe(managedUrl);
+    await expect(page.locator("[data-navigation-order]"))
+      .toContainText("System.Text.Json");
+    await expect(page.locator("#package-changes-heading")).toHaveCount(0);
+    await expect(page.locator(".workspace-list .workspace-row"))
+      .toHaveCount(2);
+    await page.evaluate(() => history.forward());
+    await expect(page).toHaveURL(/\/activity$/);
+    await expect(page.locator("#package-changes-heading"))
+      .toHaveText("Package Activity");
+    await page.evaluate(() => history.back());
+    await expect.poll(() => page.url()).toBe(managedUrl);
+    await expect(page.locator(".workspace-list .workspace-row"))
+      .toHaveCount(2);
 
     await page.evaluate(() => history.back());
     await expect.poll(() => page.url()).toBe(compatibilityUrl);

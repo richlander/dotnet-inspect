@@ -107,15 +107,27 @@ function retainedWorkspaceInstallationHarness(options: {
         : candidate),
   });
   const context = {
-    activeRetainedWorkspacePosting: posting,
+    activeRetainedWorkspacePosting: null as typeof posting | null,
     activeWorkspaceUrl: null as string | null,
     installedRetainedLocation: null as unknown,
-    retainedWorkspacePresentation: {
-      packages: options.activeKind === "package" ? inventories : [],
-      platforms: options.activeKind === "platform" ? inventories : [],
-    },
+    retainedWorkspacePresentation: null as TestPresentation | null,
+    retainedWorkspaceInitialDetailAuthority: null as {
+      realizationId: string;
+      navigationSeq: number;
+    } | null,
+    retainedWorkspacePostings: new Map<string, typeof posting>(),
     state,
     navigationSequence,
+    document: { activeElement: null },
+    HTMLElement: Object,
+    captureWorkspaceFocus: () => null,
+    focusApplicationMenuButton: () => {},
+    parkActiveCompatibilityWorkspace: () => {},
+    createNavigationDescriptorPresentation: () => ({
+      packages: options.activeKind === "package" ? inventories : [],
+      platforms: options.activeKind === "platform" ? inventories : [],
+    }),
+    prepareUnpublishedWorkspace: () => {},
     admitRetainedPackage: (
       _posting: unknown,
       inventory: TestPresentationItem,
@@ -160,6 +172,7 @@ function retainedWorkspaceInstallationHarness(options: {
     newerNavigationId,
   };
   const declarations = [
+    "postRetainedWorkspace",
     "installRetainedWorkspacePosting",
     "activateRetainedPackageAction",
     "activateRetainedPlatformAction",
@@ -177,6 +190,9 @@ function retainedWorkspaceInstallationHarness(options: {
     newerNavigationId,
     published: () => published,
     renders: () => renders,
+    post: () => {
+      runInNewContext("postRetainedWorkspace(posting)", context);
+    },
     install: () => Promise.resolve(runInNewContext(
       "installRetainedWorkspacePosting(posting, locationIntent)",
       context,
@@ -205,6 +221,7 @@ test("stale initial Package detail cannot replace a newer row selection", async 
     newer: () => Promise.resolve({ surface: newer }),
   });
 
+  harness.post();
   const installation = harness.install();
   await harness.activatePackage();
   initial.reject(new Error("stale initial failure"));
@@ -214,8 +231,10 @@ test("stale initial Package detail cannot replace a newer row selection", async 
   assert.equal(harness.state.workspaceSubjectOpen, false);
   assert.equal(harness.state.packages.length, 1);
   assert.equal(harness.state.packages[0], newer);
+  const presentation = harness.context.retainedWorkspacePresentation;
+  assert.ok(presentation);
   assert.equal(
-    harness.context.retainedWorkspacePresentation.packages[0]?.detailFailure,
+    presentation.packages[0]?.detailFailure,
     null,
   );
   assert.equal(harness.state.loading, false);
@@ -231,6 +250,7 @@ test("stale initial Platform detail preserves a newer row failure", async () => 
     newer: () => Promise.reject(new Error("newer Platform failure")),
   });
 
+  harness.post();
   const installation = harness.install();
   await harness.activatePlatform();
   initial.resolve({
@@ -245,16 +265,56 @@ test("stale initial Platform detail preserves a newer row failure", async () => 
   assert.equal(harness.state.package, null);
   assert.deepEqual(harness.state.packages, []);
   assert.equal(harness.state.workspaceSubjectOpen, true);
+  const presentation = harness.context.retainedWorkspacePresentation;
+  assert.ok(presentation);
   assert.equal(
-    harness.context.retainedWorkspacePresentation.platforms[0]?.detailFailure,
+    presentation.platforms[0]?.detailFailure,
     null,
   );
   assert.equal(
-    harness.context.retainedWorkspacePresentation.platforms[1]?.detailFailure,
+    presentation.platforms[1]?.detailFailure,
     "newer Platform failure",
   );
   assert.equal(harness.state.loading, false);
   assert.equal(harness.context.activeWorkspaceUrl, "/workspace");
   assert.equal(harness.published(), 1);
   assert.ok(harness.renders() >= 2);
+});
+
+test("posting captures initial detail authority before rows become interactive", async () => {
+  const initial = deferred<{ surface: TestPackage }>();
+  const postingRecord = deferred<void>();
+  const newer: TestPackage = {
+    id: "newer-package",
+    isRuntimePack: false,
+    source: { kind: "package" },
+  };
+  const harness = retainedWorkspaceInstallationHarness({
+    activeKind: "package",
+    initial,
+    newer: () => Promise.resolve({ surface: newer }),
+  });
+
+  harness.post();
+  const installation = (async () => {
+    await postingRecord.promise;
+    await harness.install();
+  })();
+  await harness.activatePackage();
+  postingRecord.resolve();
+  initial.resolve({
+    surface: {
+      id: "stale-package",
+      isRuntimePack: false,
+      source: { kind: "package" },
+    },
+  });
+  await installation;
+
+  assert.equal(harness.state.package, newer);
+  assert.equal(harness.state.workspaceSubjectOpen, false);
+  assert.equal(harness.state.packages.length, 1);
+  assert.equal(harness.state.packages[0], newer);
+  assert.equal(harness.context.activeWorkspaceUrl, "/workspace");
+  assert.equal(harness.published(), 1);
 });

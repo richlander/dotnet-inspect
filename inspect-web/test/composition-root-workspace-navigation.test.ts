@@ -1291,6 +1291,12 @@ test("browser history reuses available identities and publishes only unavailable
     /managedHistoryWorkspaceAvailable[\s\S]*selectBrowserEntry\(\{[\s\S]*retainedDefinitionId: historyWorkspaceId[\s\S]*activate\(\s*historyWorkspaceId,[\s\S]*installRetainedWorkspacePosting\([\s\S]*posting\.canonicalLocation === location\.href \? "exact" : "changed"/);
   assert.match(
     history,
+    /let restoredActiveManagedWorkspace = false;[\s\S]*activeDefinitionId\s*=== historyWorkspaceId[\s\S]*restoredActiveManagedWorkspace = true;[\s\S]*if \(!restoredActiveManagedWorkspace\) return;[\s\S]*if \(isPackageQueryPath\(location\.pathname\)\)[\s\S]*if \(state\.packageQueryOpen \|\| leftPackageQueryHandoff\)[\s\S]*if \(restoredActiveManagedWorkspace\) \{\s*render\(\{ synchronizeUrl: false \}\);\s*return;\s*\}[\s\S]*const loc = await parseLocation\(\)/);
+  assert.match(
+    history,
+    /const unavailableGlobalWorkspace =\s*historyWorkspaceReferenced\s*&& !managedHistoryWorkspaceAvailable\s*&& !historyWorkspaceAvailable/);
+  assert.match(
+    history,
     /historyWorkspaceAvailable[\s\S]*activeDefinitionId !== null[\s\S]*activateCompatibilityRetainedWorkspace\(historyWorkspaceId, \{[\s\S]*declaration: locationIntent,[\s\S]*restoration:/);
   assert.match(
     history,
@@ -1373,7 +1379,10 @@ test("managed Saved Open keeps compact rows, packet fidelity, and focus ownershi
 
   assert.match(
     post,
-    /captureWorkspaceFocus\(focusedElement\)[\s\S]*focusApplicationMenuButton\(document\)[\s\S]*activeRetainedWorkspacePosting = posting;[\s\S]*render\(\{ synchronizeUrl: false \}\)/);
+    /captureWorkspaceFocus\(focusedElement\)[\s\S]*focusApplicationMenuButton\(document\)[\s\S]*activeRetainedWorkspacePosting = posting;\s*retainedWorkspaceInitialDetailAuthority = \{[\s\S]*navigationSeq: navigationSequence\.current\(\),[\s\S]*render\(\{ synchronizeUrl: false \}\)/);
+  assert.match(
+    install,
+    /const detailAuthority = retainedWorkspaceInitialDetailAuthority;[\s\S]*detailAuthority\?\.realizationId !== posting\.realizationId[\s\S]*const detailNavigationSeq = detailAuthority\.navigationSeq;/);
   assert.doesNotMatch(install, /Promise\.all/);
   assert.match(
     install,

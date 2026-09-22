@@ -1379,6 +1379,10 @@ let activeRetainedWorkspacePosting: BrowserRetainedWorkspacePosting | null =
   null;
 let retainedWorkspacePresentation: NavigationDescriptorPresentation | null =
   null;
+let retainedWorkspaceInitialDetailAuthority: {
+  realizationId: string;
+  navigationSeq: number;
+} | null = null;
 const retainedWorkspacePostings =
   new Map<string, BrowserRetainedWorkspacePosting>();
 const issuedManagedRetainedDefinitionIds = new Set<string>();
@@ -1844,6 +1848,10 @@ function postRetainedWorkspace(posting: BrowserRetainedWorkspacePosting): void {
   }
   parkActiveCompatibilityWorkspace();
   activeRetainedWorkspacePosting = posting;
+  retainedWorkspaceInitialDetailAuthority = {
+    realizationId: posting.realizationId,
+    navigationSeq: navigationSequence.current(),
+  };
   retainedWorkspacePostings.set(posting.retainedDefinitionId, posting);
   retainedWorkspacePresentation =
     createNavigationDescriptorPresentation(posting);
@@ -1858,6 +1866,7 @@ function postRetainedWorkspace(posting: BrowserRetainedWorkspacePosting): void {
 function clearRetainedWorkspacePosting(): void {
   activeRetainedWorkspacePosting = null;
   retainedWorkspacePresentation = null;
+  retainedWorkspaceInitialDetailAuthority = null;
   installedRetainedLocation = null;
   prepareUnpublishedWorkspace();
   state.loading = false;
@@ -2008,7 +2017,13 @@ async function installRetainedWorkspacePosting(
   locationIntent: LocationIntentDeclaration,
   browserRestoration?: "exact" | "changed",
 ): Promise<void> {
-  const detailNavigationSeq = navigationSequence.current();
+  const detailAuthority = retainedWorkspaceInitialDetailAuthority;
+  if (detailAuthority?.realizationId !== posting.realizationId) {
+    throw new Error(
+      "The retained Workspace initial detail authority is unavailable.",
+    );
+  }
+  const detailNavigationSeq = detailAuthority.navigationSeq;
   const activeTabId = posting.definition.activeTabId;
   const packageInventory = activeTabId === null
     ? posting.packages[0]
@@ -19528,6 +19543,7 @@ window.addEventListener("popstate", () => {
   const managedHistoryWorkspaceAvailable = historyWorkspaceId !== null
     && retainedWorkspaceActivation?.state.definitions.some(
       definition => definition.id === historyWorkspaceId) === true;
+  let restoredActiveManagedWorkspace = false;
   if (managedHistoryWorkspaceAvailable && historyWorkspaceId !== null) {
     const locationIntent = retainedLocationIntents.selectBrowserEntry({
       url: location.href,
@@ -19545,6 +19561,7 @@ window.addEventListener("popstate", () => {
           browserRestoration: "exact",
         });
         retainedLocationIntents.publish(effect, history);
+        restoredActiveManagedWorkspace = true;
       } else {
         const result = await requireRetainedWorkspaceActivation().activate(
           historyWorkspaceId,
@@ -19567,7 +19584,7 @@ window.addEventListener("popstate", () => {
       realignRetainedLocationIntent(locationIntent, "failed");
       showToast(`Could not restore Workspace: ${errorMessage(error)}`);
     }
-    return;
+    if (!restoredActiveManagedWorkspace) return;
   }
   const historyWorkspaceAvailable = historyWorkspaceId !== null
     && retainedWorkspaces.workspaces.some(
@@ -19619,6 +19636,7 @@ window.addEventListener("popstate", () => {
   }
   const unavailableGlobalWorkspace =
     historyWorkspaceReferenced
+    && !managedHistoryWorkspaceAvailable
     && !historyWorkspaceAvailable
     && (isDiagnosticsPath(location.pathname)
       || isPackageQueryPath(location.pathname)
@@ -19746,6 +19764,10 @@ window.addEventListener("popstate", () => {
       afterCurrentNavigationFrame(() =>
         focusWorkspaceOrHeading());
     }
+    return;
+  }
+  if (restoredActiveManagedWorkspace) {
+    render({ synchronizeUrl: false });
     return;
   }
   if (leftPackageQueryForWorkspaceSuccessor) {
