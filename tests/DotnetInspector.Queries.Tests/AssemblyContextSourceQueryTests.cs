@@ -2703,7 +2703,8 @@ public sealed partial class AssemblyContextSourceQueryTests
                     host.Context,
                     retained,
                     assembly.Policy.Version,
-                    cancellation.Token));
+                    pdbEvidence: null,
+                    cancellationToken: cancellation.Token));
         }
         else
         {

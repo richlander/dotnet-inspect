@@ -39,6 +39,16 @@ import type {
   BrowserParameterSurface as ParameterSurfaceFromMetadataFacade,
   BrowserTypeSurface as TypeSurfaceFromMetadataFacade,
 } from "./facades/inspect-web-metadata.d.ts";
+import type {
+  BrowserLibraryAccessibilityDescriptor as AccessibilityDescriptorFromLibraryFacade,
+  BrowserLibraryAssemblySurface as AssemblySurfaceFromLibraryFacade,
+  BrowserLibraryExceptionSurface as ExceptionSurfaceFromLibraryFacade,
+  BrowserLibraryMemberBodySelector as MemberBodySelectorFromLibraryFacade,
+  BrowserLibraryMemberSurface as MemberSurfaceFromLibraryFacade,
+  BrowserLibraryParameterSurface as ParameterSurfaceFromLibraryFacade,
+  BrowserLibraryTypeSurface as TypeSurfaceFromLibraryFacade,
+  BrowserUploadedLibraryResult,
+} from "./facades/inspect-web-library.d.ts";
 import type { BodyTarget } from "./member-filtering.ts";
 
 // The package, catalog and metadata facades each declare their own structurally equal
@@ -50,26 +60,31 @@ import type { BodyTarget } from "./member-filtering.ts";
 
 export type InspectedAccessibilityDescriptor =
   | AccessibilityDescriptorFromPackageFacade
-  | AccessibilityDescriptorFromCatalogFacade;
+  | AccessibilityDescriptorFromCatalogFacade
+  | AccessibilityDescriptorFromLibraryFacade;
 
 export type InspectedAssemblySurface =
   | AssemblySurfaceFromPackageFacade
-  | AssemblySurfaceFromCatalogFacade;
+  | AssemblySurfaceFromCatalogFacade
+  | AssemblySurfaceFromLibraryFacade;
 
 export type InspectedExceptionSurface =
   | ExceptionSurfaceFromPackageFacade
   | ExceptionSurfaceFromCatalogFacade
-  | ExceptionSurfaceFromMetadataFacade;
+  | ExceptionSurfaceFromMetadataFacade
+  | ExceptionSurfaceFromLibraryFacade;
 
 export type InspectedMemberBodySelector =
   | MemberBodySelectorFromPackageFacade
   | MemberBodySelectorFromCatalogFacade
-  | MemberBodySelectorFromMetadataFacade;
+  | MemberBodySelectorFromMetadataFacade
+  | MemberBodySelectorFromLibraryFacade;
 
 export type InspectedMemberSurface =
   | MemberSurfaceFromPackageFacade
   | MemberSurfaceFromCatalogFacade
-  | MemberSurfaceFromMetadataFacade;
+  | MemberSurfaceFromMetadataFacade
+  | MemberSurfaceFromLibraryFacade;
 
 export type InspectedPackageDocument =
   | PackageDocumentFromPackageFacade
@@ -86,12 +101,14 @@ export type InspectedPackageSurface =
 export type InspectedParameterSurface =
   | ParameterSurfaceFromPackageFacade
   | ParameterSurfaceFromCatalogFacade
-  | ParameterSurfaceFromMetadataFacade;
+  | ParameterSurfaceFromMetadataFacade
+  | ParameterSurfaceFromLibraryFacade;
 
 export type InspectedTypeSurface =
   | TypeSurfaceFromPackageFacade
   | TypeSurfaceFromCatalogFacade
-  | TypeSurfaceFromMetadataFacade;
+  | TypeSurfaceFromMetadataFacade
+  | TypeSurfaceFromLibraryFacade;
 
 export interface AppParameterSurface
   extends Omit<InspectedParameterSurface, "description"> {
@@ -430,6 +447,51 @@ export function createWorkspaceOccurrencePackageModel(
     ...(retained?.packageInfo
       ? { packageInfo: retained.packageInfo }
       : {}),
+  };
+}
+
+export function createUploadedLibraryModel(
+  result: BrowserUploadedLibraryResult,
+): AppPackage {
+  const surface = result.surface;
+  const assembly = result.assembly;
+  const descriptor = surface?.assemblies[0];
+  if (result.outcome !== "Available"
+    || !surface
+    || !assembly
+    || !descriptor) {
+    throw new Error(
+      result.failure?.detail
+      || "The uploaded file did not produce an available managed Library.");
+  }
+
+  const inspectionErrors = surface.inspectionErrors?.length
+    ? [...surface.inspectionErrors]
+    : mergeInspectionErrorEntries([], surface.inspectionError
+      ? [surface.inspectionError]
+      : []);
+  const types = (surface.types ?? []).map(createAppTypeSurface);
+  return {
+    id: assembly.name,
+    version: assembly.version,
+    frameworks: ["uploaded"],
+    activeFramework: "uploaded",
+    assembly: descriptor.name,
+    assemblyId: descriptor.id,
+    assemblyAsset: descriptor.asset,
+    source: { kind: "file" },
+    producerLabel: "Browser upload",
+    assemblies: [...surface.assemblies],
+    types,
+    accessibility: [...surface.accessibility],
+    totalTypes: types.length,
+    totalMembers: surface.totalMembers,
+    documents: [],
+    icon: null,
+    inspectionErrors,
+    inspectionError: renderInspectionErrors(inspectionErrors),
+    isRuntimePack: false,
+    surfaceRevision: 0,
   };
 }
 
