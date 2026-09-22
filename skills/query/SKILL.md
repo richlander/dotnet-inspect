@@ -29,8 +29,11 @@ Use this skill to shape the result the user needs. Start by identifying its
 result space. If the intent or space is unclear, use a bare target and let the
 router choose. Otherwise, enter the matching space directly:
 
-- API-symbol space: `find <pattern>` searches type names, or member names with
-  `--members`.
+- API-symbol space: unscoped `find` searches installed .NET Runtime and ASP.NET
+  Core platform populations, including Microsoft.Extensions assemblies shipped
+  in those frameworks. Try `find JsonSerializer -n 5 --table` or
+  `find ControllerBase -n 5 --table`; add `--members` for member names. Package
+  APIs enter scope through explicit `--package` or a restored `--project`.
 - Package space: `package query <exact-id>` or `package query '<prefix>*'`
   discovers package IDs; `package <exact-id>` then inspects one.
 - Library space: `library query <pattern-or-scope>` discovers Libraries, then

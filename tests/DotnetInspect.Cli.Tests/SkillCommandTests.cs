@@ -185,6 +185,10 @@ public class SkillCommandTests
         Assert.Contains(
             "Use dotnet-inspect to find evidence",
             router);
+        Assert.Contains("installed .NET Runtime and ASP.NET Core", router);
+        Assert.Contains("find JsonSerializer", router);
+        Assert.Contains("find ControllerBase", router);
+        Assert.Contains("find OptionsBuilder", router);
         Assert.Contains(
             "Use this skill to shape the result",
             query);
@@ -192,14 +196,28 @@ public class SkillCommandTests
             "Use this workflow to reach the right package-authored skill",
             packageSkills);
 
-        foreach (string output in new[] { router, query, packageSkills })
+        foreach (string output in new[] { router, query, packageSkills }
+            .Select(text => string.Join(
+                ' ',
+                text.Split(
+                    (char[]?)null,
+                    StringSplitOptions.RemoveEmptyEntries))))
         {
             Assert.Contains("router choose", output);
+            Assert.Contains("installed .NET Runtime", output);
+            Assert.Contains("ASP.NET Core", output);
+            Assert.Contains("Microsoft.Extensions", output);
+            Assert.Contains("`--package", output);
+            Assert.Contains("`--project", output);
             Assert.Contains("package query", output);
             Assert.Contains("library query", output);
             Assert.Contains("types", output);
             Assert.Contains("members", output);
         }
+
+        Assert.Contains("find JsonSerializer -n 5 --table", router);
+        Assert.Contains("find ControllerBase -n 5 --table", router);
+        Assert.Contains("find OptionsBuilder -n 5 --table", router);
     }
 
     [Fact]
