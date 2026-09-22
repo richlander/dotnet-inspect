@@ -158,7 +158,9 @@ The graph package set always contains the focused root binding. For each
 canonical package ID, it selects at most one exact final Workspace occurrence:
 another traversal root precedes dependency routes; dependency routes select
 the nearest root-relative occurrence, then the highest resolved version at
-that distance. Scope order remains the final binding order.
+that distance. The Packages layer owns NuGet version-precedence comparison;
+PackageQueries consumes that result without acquiring NuGet libraries. Scope
+order remains the final binding order.
 
 This graph-only coalescing prevents multiple routed versions of one package
 from contributing duplicate assembly identities. Completed routes retain

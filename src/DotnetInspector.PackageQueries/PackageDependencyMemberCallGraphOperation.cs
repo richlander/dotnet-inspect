@@ -5,7 +5,6 @@ using DotnetInspector.Packages;
 using DotnetInspector.Platforms;
 using DotnetInspector.Queries;
 using Inspector.Artifacts.Workspaces;
-using NuGet.Versioning;
 using NuGetFetch;
 
 namespace DotnetInspector.PackageQueries;
@@ -655,10 +654,9 @@ public static class PackageDependencyMemberCallGraphOperation
                 out GraphBindingSelection? selected)
             && (selected.Distance < distance
                 || selected.Distance == distance
-                    && NuGetVersion.Parse(
-                            selected.Binding.Root.PackageVersion)
-                        >= NuGetVersion.Parse(
-                            binding.Root.PackageVersion)))
+                    && PackageVersionPrecedence.Compare(
+                            selected.Binding.Root.PackageVersion,
+                            binding.Root.PackageVersion) >= 0))
         {
             return;
         }
