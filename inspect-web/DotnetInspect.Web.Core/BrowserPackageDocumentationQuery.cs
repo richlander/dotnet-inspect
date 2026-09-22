@@ -35,6 +35,8 @@ internal static class BrowserPackageDocumentationQuery
             await PackageHouseLibraryMaterializer.MaterializeAsync(
                     settlement,
                     handoff,
+                    PackageHouseLibraryOptionalArtifacts
+                        .ImplementationPortablePdb,
                     queryLimits.Materialization,
                     cancellationToken)
                 .ConfigureAwait(false);

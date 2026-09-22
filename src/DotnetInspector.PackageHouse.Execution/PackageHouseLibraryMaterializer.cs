@@ -9,15 +9,37 @@ namespace DotnetInspector.Packages;
 
 public static class PackageHouseLibraryMaterializer
 {
+    public static ValueTask<
+        PackageHouseLibraryMaterializationOutcome> MaterializeAsync(
+        PackageHouseSettlement.Acquired settlement,
+        PackageHouseLibraryHandoff.Compile handoff,
+        PackageHouseLibraryMaterializationLimits? limits = null,
+        CancellationToken cancellationToken = default) =>
+        MaterializeAsync(
+            settlement,
+            handoff,
+            PackageHouseLibraryOptionalArtifacts.None,
+            limits,
+            cancellationToken);
+
     public static async ValueTask<
         PackageHouseLibraryMaterializationOutcome> MaterializeAsync(
         PackageHouseSettlement.Acquired settlement,
         PackageHouseLibraryHandoff.Compile handoff,
+        PackageHouseLibraryOptionalArtifacts optionalArtifacts,
         PackageHouseLibraryMaterializationLimits? limits = null,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(settlement);
         ArgumentNullException.ThrowIfNull(handoff);
+        if ((optionalArtifacts
+                & ~PackageHouseLibraryOptionalArtifacts
+                    .ImplementationPortablePdb)
+            != PackageHouseLibraryOptionalArtifacts.None)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(optionalArtifacts));
+        }
         limits ??= new PackageHouseLibraryMaterializationLimits();
         limits.Validate();
         cancellationToken.ThrowIfCancellationRequested();
@@ -54,6 +76,9 @@ public static class PackageHouseLibraryMaterializer
 
         string? portablePdbPath =
             implementationAsset is null
+            || optionalArtifacts
+                != PackageHouseLibraryOptionalArtifacts
+                    .ImplementationPortablePdb
                 ? null
                 : TryGetCompanionPath(
                     implementationAsset.Path,

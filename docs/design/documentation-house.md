@@ -1128,7 +1128,7 @@ Implementation and adoption slices own these Release gates:
 | --- | --- |
 | Library-scoped subject | Equal XML IDs in two assemblies cannot cross-satisfy one request. |
 | Library correspondence | A foreign Library reference, selected content reference, or operation lease rejects before parsing. |
-| Explicit authorization | No SourceHouse, source/PDB discovery or acquisition, repository, content-store, or network work occurs without authored demand and a pre-authorized deferred operation. Snapshots of already-realized XML require compiled demand and the transferred Library lease. |
+| Explicit authorization | No SourceHouse, source/PDB discovery or acquisition, repository, content-store, or network work occurs without authored demand and a pre-authorized deferred operation. Snapshots of already-realized XML require compiled demand and the transferred Library lease. A PDB-bearing package with an over-budget PDB still settles compiled-only documentation without discovering, budgeting, or acquiring that PDB. |
 | Cheap-first ordering | Operation construction starts no source work; combined demand reaches a terminal detached compiled-XML attempt and ends every borrow before the operation receives the lease once, and XML availability does not suppress the requested source attempt. |
 | Exact XML lookup | Compiled XML uses the Metadata-issued compiler ID and associated contribution. |
 | Split implementation targeting | A build-attested package with distinct `ref` and `lib` assemblies assigns different MethodDef tokens and member anchors to the same compiler XML identity; the authored channel resolves and uses the implementation-issued target. |

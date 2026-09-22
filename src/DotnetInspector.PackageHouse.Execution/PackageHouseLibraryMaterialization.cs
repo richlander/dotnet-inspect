@@ -33,6 +33,13 @@ public sealed record PackageHouseLibraryMaterializationLimits
 }
 
 [Flags]
+public enum PackageHouseLibraryOptionalArtifacts
+{
+    None = 0,
+    ImplementationPortablePdb = 1,
+}
+
+[Flags]
 public enum PackageHouseLibraryArtifactRole
 {
     ApiAssembly = 1,

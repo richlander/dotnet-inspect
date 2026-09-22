@@ -50,6 +50,8 @@ public sealed partial class PackageHouseExecutionTests
                 await PackageHouseLibraryMaterializer.MaterializeAsync(
                     settlement,
                     handoff,
+                    PackageHouseLibraryOptionalArtifacts
+                        .ImplementationPortablePdb,
                     cancellationToken:
                         TestContext.Current.CancellationToken));
 
