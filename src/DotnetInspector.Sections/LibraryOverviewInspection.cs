@@ -72,6 +72,23 @@ public sealed record LibraryOverviewDocument(
     int RetainedTextCharacters,
     ApiSurfaceExtractionBounds Bounds);
 
+/// <summary>
+/// The terminal result of applying Count to one Library overview operation.
+/// </summary>
+public abstract record LibraryOverviewCountResult
+{
+    private LibraryOverviewCountResult()
+    {
+    }
+
+    public sealed record Completed(InspectionEnvelope<int> Inspection)
+        : LibraryOverviewCountResult;
+
+    public sealed record NotAvailable(
+        InspectionEnvelope<LibraryOverviewOutcome> Inspection)
+        : LibraryOverviewCountResult;
+}
+
 [JsonPolymorphic(TypeDiscriminatorPropertyName = "kind")]
 [JsonDerivedType(
     typeof(LibraryOverviewIncompleteReason.ExtractionBound),

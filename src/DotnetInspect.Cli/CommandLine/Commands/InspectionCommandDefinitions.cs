@@ -356,6 +356,11 @@ public static class InspectionCommandDefinitions
         {
             Description = "Extract embedded resources beneath a directory without overwriting files"
         };
+        var compactOption = new Option<bool>("--compact")
+        {
+            Description =
+                "Minified JSON (use with --envelope)",
+        };
         var outOption = SharedOptions.CreateOutputPathOption();
         assemblyCommand.Arguments.Add(assemblyPathArg);
         assemblyCommand.Options.Add(referencesOption);
@@ -374,6 +379,7 @@ public static class InspectionCommandDefinitions
         assemblyCommand.Options.Add(detailsOption);
         assemblyCommand.Options.Add(opts.PreferRenderedUrls);
         assemblyCommand.Options.Add(extractResourcesOption);
+        assemblyCommand.Options.Add(compactOption);
         assemblyCommand.Options.Add(outOption);
         SharedOptions.AddOutputPathValidator(assemblyCommand, outOption);
         // Registered per-command rather than in AddOutputOptionsTo: only the commands that build a
@@ -386,6 +392,66 @@ public static class InspectionCommandDefinitions
         opts.AddPrintOptionTo(assemblyCommand);
         opts.AddShapeProjectionOptionsTo(assemblyCommand);
         opts.AddPerformanceTriageOptionsTo(assemblyCommand);
+        opts.AddEnvelopeOptionTo(
+            assemblyCommand,
+            opts.Discover,
+            opts.Schema,
+            opts.Verbosity,
+            opts.Rows,
+            opts.Limit,
+            opts.Head,
+            opts.Tail,
+            opts.Lines,
+            opts.TailLines,
+            opts.Trace,
+            opts.Effective,
+            referencesOption,
+            dependenciesOption,
+            referenceDepthOption,
+            asmPlatformOption,
+            asmPackageOption,
+            workspaceOption,
+            namesakeLibraryOption,
+            asmPrereleaseOption,
+            asmFrameworkOption,
+            asmVersionOption,
+            asmTfmOption,
+            typeFilterOption,
+            metadataRootOption,
+            detailsOption,
+            extractResourcesOption);
+        assemblyCommand.Validators.Add(result =>
+        {
+            if (result.GetResult(compactOption)
+                    is { Implicit: false }
+                && !result.GetValue(opts.Envelope))
+            {
+                result.AddError(
+                    "--compact requires library --envelope.");
+            }
+            if (!result.GetValue(opts.Envelope))
+                return;
+
+            string? selected = result.GetValue(opts.Select);
+            bool count = result.GetValue(opts.Count);
+            if (!count && selected is not null)
+            {
+                result.AddError(
+                    "library --envelope does not accept section "
+                        + "selection unless --count selects "
+                        + $"\"{SectionNames.LibraryInfo}\".");
+            }
+            else if (count
+                && !string.Equals(
+                        selected,
+                        SectionNames.LibraryInfo,
+                        StringComparison.OrdinalIgnoreCase))
+            {
+                result.AddError(
+                    "library --envelope --count requires exactly "
+                        + $"-S \"{SectionNames.LibraryInfo}\".");
+            }
+        });
         assemblyCommand.Subcommands.Add(
             LibraryCoordinateCommandDefinitions.Create(
                 opts,
@@ -472,7 +538,11 @@ public static class InspectionCommandDefinitions
                         + "combined with an exact Library source.");
                 return 1;
             }
-            if (workspacePacket is not null)
+            if (parseResult.GetValue(opts.Envelope))
+            {
+                assemblyPath = source;
+            }
+            else if (workspacePacket is not null)
             {
                 if (string.IsNullOrWhiteSpace(explicitPackage))
                 {
@@ -754,6 +824,10 @@ public static class InspectionCommandDefinitions
                 FieldsExplicitlySet =
                     parseResult.GetResult(opts.Fields) is { Implicit: false },
                 Count = parseResult.GetValue(opts.Count),
+                EnvelopeOutput =
+                    parseResult.GetValue(opts.Envelope),
+                CompactJson =
+                    parseResult.GetValue(compactOption),
                 Print = parseResult.GetValue(opts.Print),
                 Value = parseResult.GetValue(opts.Value),
                 Urls = parseResult.GetValue(opts.Urls),
@@ -783,7 +857,7 @@ public static class InspectionCommandDefinitions
                 ExtractResources = parseResult.GetValue(extractResourcesOption)
             };
 
-            return await LibraryCommand.ExecuteAsync(options);
+            return await LibraryCommand.ExecuteAsync(options, ct);
         });
 
         CliRowSelectionCommandRegistry.Register(

@@ -4,6 +4,7 @@ using DotnetInspector.LibraryMetadata;
 using DotnetInspector.Libraries;
 using ILInspector.Metadata;
 using InertText;
+using QuerySpace.Composition;
 
 namespace DotnetInspector.Sections;
 
@@ -20,6 +21,161 @@ public static class LibraryOverviewInspectionOperation
         LibraryOverviewRequest request,
         LibraryOperationLease lease,
         CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(lease);
+        LibraryOverviewQueryPlan plan;
+        try
+        {
+            plan = LibraryOverviewQuery.CreatePlan(
+                QuerySpaceTerminalRequirement.Rows);
+        }
+        catch
+        {
+            lease.Dispose();
+            throw;
+        }
+
+        return Execute(
+            request,
+            plan,
+            lease,
+            cancellationToken);
+    }
+
+    public static InspectionEnvelope<LibraryOverviewOutcome> Execute(
+        LibraryOverviewRequest request,
+        LibraryOverviewQueryPlan plan,
+        LibraryOperationLease lease,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(lease);
+        try
+        {
+            ArgumentNullException.ThrowIfNull(plan);
+            if (plan.Terminal != QuerySpaceTerminalRequirement.Rows)
+            {
+                throw new ArgumentException(
+                    "Library overview Execute requires a Rows QuerySpace plan.",
+                    nameof(plan));
+            }
+        }
+        catch
+        {
+            lease.Dispose();
+            throw;
+        }
+
+        InspectionEnvelope<LibraryOverviewOutcome> envelope =
+            ExecuteCore(request, lease, cancellationToken);
+        if (envelope.Content
+            is not LibraryOverviewOutcome.Available available)
+        {
+            return envelope;
+        }
+
+        SectionRowsOutcome<string, LibraryOverviewDocument> rows =
+            LibraryOverviewQuery.ApplyRows(
+                plan,
+                available.Document);
+        if (!rows.IsSuccess)
+        {
+            throw new InvalidOperationException(
+                "The owner-issued Library overview Rows plan failed.");
+        }
+
+        return new InspectionEnvelope<LibraryOverviewOutcome>(
+            new LibraryOverviewOutcome.Available(
+                rows.Rebind(available.Document)),
+            envelope.Share,
+            envelope.Diagnostics);
+    }
+
+    public static LibraryOverviewCountResult ExecuteCount(
+        LibraryOverviewRequest request,
+        LibraryOperationLease lease,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(lease);
+        LibraryOverviewQueryPlan plan;
+        try
+        {
+            plan = LibraryOverviewQuery.CreatePlan(
+                QuerySpaceTerminalRequirement.Count);
+        }
+        catch
+        {
+            lease.Dispose();
+            throw;
+        }
+
+        return ExecuteCount(
+            request,
+            plan,
+            lease,
+            cancellationToken);
+    }
+
+    public static LibraryOverviewCountResult ExecuteCount(
+        LibraryOverviewRequest request,
+        LibraryOverviewQueryPlan plan,
+        LibraryOperationLease lease,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(lease);
+        try
+        {
+            ArgumentNullException.ThrowIfNull(plan);
+            if (plan.Terminal != QuerySpaceTerminalRequirement.Count)
+            {
+                throw new ArgumentException(
+                    "Library overview Count requires a Count QuerySpace plan.",
+                    nameof(plan));
+            }
+        }
+        catch
+        {
+            lease.Dispose();
+            throw;
+        }
+
+        InspectionEnvelope<LibraryOverviewOutcome> overview =
+            ExecuteCore(request, lease, cancellationToken);
+        if (overview.Content
+            is not LibraryOverviewOutcome.Available available)
+        {
+            return new LibraryOverviewCountResult.NotAvailable(overview);
+        }
+
+        SectionCountOutcome<string, string> count =
+            LibraryOverviewQuery.ApplyCount(
+                plan,
+                available.Document);
+        var completed =
+            count as SectionCountOutcome<string, string>.Completed
+            ?? throw new InvalidOperationException(
+                "The owner-issued Library overview Count plan failed.");
+        SectionCountEntry<string> entry =
+            completed.Counts.Single();
+        if (!string.Equals(
+                entry.Identity,
+                LibraryOverviewQuery.OverviewRowSet,
+                StringComparison.Ordinal))
+        {
+            throw new InvalidOperationException(
+                "The Library overview Count result named an unknown row set.");
+        }
+
+        return new LibraryOverviewCountResult.Completed(
+            new InspectionEnvelope<int>(
+                entry.Value,
+                overview.Share,
+                overview.Diagnostics));
+    }
+
+    private static InspectionEnvelope<LibraryOverviewOutcome> ExecuteCore(
+        LibraryOverviewRequest request,
+        LibraryOperationLease lease,
+        CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(lease);
         try

@@ -18,11 +18,14 @@ repository command inventory in
 `DotnetInspector.Sections` owns this claim:
 
 > Given one exact realized Library, a transferred operation lease, and one
-> bounded overview request, inspect the owner-attested API assembly once and
-> return one `InspectionEnvelope<LibraryOverviewOutcome>` containing a
-> resource-free portable outcome, the required Share outcome for the same
-> semantic request, and ordered typed diagnostics, after settling the
-> transferred lease on every terminal path.
+> bounded overview request, resolve its owner-issued QuerySpace Rows or Count
+> terminal, inspect the owner-attested API assembly once, and return a
+> resource-free portable envelope for that terminal after settling the
+> transferred lease on every terminal path. Rows returns
+> `InspectionEnvelope<LibraryOverviewOutcome>`; an available Count returns
+> `InspectionEnvelope<int>` with exact cardinality `1`. A non-available
+> overview remains its typed overview outcome and never becomes a successful
+> zero count.
 
 The available outcome contains one `LibraryOverviewDocument`. Expected cases
 that cannot construct that Document remain typed non-available outcomes.
@@ -94,9 +97,12 @@ envelope crosses the boundary.
 - the exact `LibraryReference`;
 - explicit finite API-surface extraction bounds.
 
-The initial request has one Execute purpose. It does not expose section names,
-verbosity, fields, columns, row windows, output format, or Browser navigation.
-Effective-section discovery remains outside this first operation.
+The operation declares one QuerySpace row set containing the overview
+Document. Its row scope admits no predicates, order, or row-selection stages,
+and its operation route admits no query terms. Rows and Count are its only
+terminals. It does not expose section names, verbosity, fields, columns, row
+windows, output format, or Browser navigation. Effective-section discovery
+remains outside this operation.
 
 The overview always inspects the public API assembly and reports the complete
 bounded summary defined below. A host cannot request only the assembly name to
@@ -155,6 +161,12 @@ The total public-member count is the checked 64-bit sum of method, property,
 event, and field counts. It is presentation-independent summary data, not a
 second scan or a count of rendered rows.
 
+The complete Document is also the operation's one declared logical row. Its
+Count cardinality is therefore `1`, independently of how many property lines
+a host renders from it. Count is derived by the shared QuerySpace-to-Sections
+executor over that declaration; the operation and its hosts do not count
+rendered lines or hard-code a presentation-specific result.
+
 ### Non-available outcomes
 
 `Incomplete` identifies the exact owner-issued extraction bound that prevented
@@ -179,6 +191,10 @@ same-named assembly.
 `Failed` preserves unsupported or malformed managed content, a managed module,
 Windows Metadata, or an empty module-version identity. These cases do not
 become an available zero-count Document.
+
+Count is applied only after an available complete Document exists.
+`Incomplete`, `Rejected`, and `Failed` preserve the original typed overview
+envelope and produce no successful `InspectionEnvelope<int>`.
 
 Cancellation and unexpected implementation failure produce no envelope.
 They propagate only after the transferred operation lease has settled.
@@ -311,8 +327,9 @@ The complete initial operation adoption has six owner-scoped steps:
 2. Implement the request, portable outcome and Document, envelope assembly,
    required non-projectable Share, diagnostics, and lease settlement in
    `DotnetInspector.Sections`.
-3. Adopt the operation for one ordinary direct-file CLI Library overview
-   through direct-Library realization and an ephemeral Workspace.
+3. Adopt the operation for one ordinary direct-file CLI Library overview and
+   its exact `Library Info --count` projection through direct-Library
+   realization and an ephemeral Workspace.
 4. Adopt the same operation for the PackageHouse CLI route.
 5. Adopt the same operation for the PlatformHouse CLI route.
 6. Consume the same envelope in Inspect Web's Library overview, then retire
@@ -349,6 +366,9 @@ provides Release gates for:
 
 - real `System.Text.Json` produces the expected managed identity, non-empty
   MVID, public API counts, measured work, and finite bounds;
+- the available Document is one declared QuerySpace row, Rows preserves it,
+  and Count produces exact cardinality `1`;
+- non-available outcomes do not produce a successful zero count;
 - equivalent independently realized Libraries produce equal portable
   Documents without accepting one another's leases;
 - each Library operation lease is settled on available, incomplete, rejected,

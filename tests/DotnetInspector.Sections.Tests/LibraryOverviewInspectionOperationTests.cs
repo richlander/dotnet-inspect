@@ -4,6 +4,7 @@ using System.Text.Json;
 using DotnetInspector.Libraries;
 using ILInspector.Metadata;
 using InertText;
+using QuerySpace.Composition;
 
 namespace DotnetInspector.Sections.Tests;
 
@@ -65,6 +66,98 @@ public sealed class LibraryOverviewInspectionOperationTests
             share.Reason.ToString());
         await library.RetireAsync();
         AssertDetachedContract();
+    }
+
+    [Fact]
+    public async Task
+        AvailableOverviewIsOneDeclaredRowAndCountIsOne()
+    {
+        byte[] content =
+            await LibraryOverviewTestLibrary.RealSystemTextJsonAsync();
+        await using LibraryOverviewTestLibrary rowsLibrary =
+            await LibraryOverviewTestLibrary.CreateAsync(
+                content,
+                LibraryOverviewTestLibrary.Identity(content));
+        LibraryOverviewQueryPlan rowsPlan =
+            LibraryOverviewQuery.CreatePlan(
+                QuerySpaceTerminalRequirement.Rows);
+
+        InspectionEnvelope<LibraryOverviewOutcome> rows =
+            LibraryOverviewInspectionOperation.Execute(
+                new LibraryOverviewRequest(
+                    rowsLibrary.Reference,
+                    s_bounds),
+                rowsPlan,
+                rowsLibrary.IssueOperation(),
+                TestContext.Current.CancellationToken);
+
+        LibraryOverviewDocument document = AvailableDocument(rows);
+        Assert.True(document.PublicTypeCount > 0);
+        Assert.Equal(
+            LibraryOverviewQuery.RowsResultContractIdentity,
+            rowsPlan.Request.ResultContract);
+        await rowsLibrary.RetireAsync();
+
+        await using LibraryOverviewTestLibrary countLibrary =
+            await LibraryOverviewTestLibrary.CreateAsync(
+                content,
+                LibraryOverviewTestLibrary.Identity(content));
+        LibraryOverviewQueryPlan countPlan =
+            LibraryOverviewQuery.CreatePlan(
+                QuerySpaceTerminalRequirement.Count);
+
+        LibraryOverviewCountResult.Completed counted =
+            Assert.IsType<LibraryOverviewCountResult.Completed>(
+                LibraryOverviewInspectionOperation.ExecuteCount(
+                    new LibraryOverviewRequest(
+                        countLibrary.Reference,
+                        s_bounds),
+                    countPlan,
+                    countLibrary.IssueOperation(),
+                    TestContext.Current.CancellationToken));
+
+        Assert.Equal(1, counted.Inspection.Content);
+        Assert.Equal(rows.Share, counted.Inspection.Share);
+        Assert.Empty(counted.Inspection.Diagnostics);
+        Assert.Equal(
+            LibraryOverviewQuery.CountResultContractIdentity,
+            countPlan.Request.ResultContract);
+        await countLibrary.RetireAsync();
+    }
+
+    [Fact]
+    public async Task
+        CountPreservesNonAvailableOverviewInsteadOfReturningZero()
+    {
+        byte[] content =
+            await LibraryOverviewTestLibrary.RealSystemTextJsonAsync();
+        await using LibraryOverviewTestLibrary library =
+            await LibraryOverviewTestLibrary.CreateAsync(
+                content,
+                LibraryOverviewTestLibrary.Identity(content));
+        var zeroTypes = new ApiSurfaceExtractionBounds(
+            maxTypes: 0,
+            maxMembers: int.MaxValue,
+            maxInspectionFailures: int.MaxValue,
+            maxTypeForwarders: int.MaxValue,
+            maxMetadataRows: int.MaxValue,
+            maxRetainedTextCharacters: int.MaxValue);
+
+        LibraryOverviewCountResult.NotAvailable result =
+            Assert.IsType<LibraryOverviewCountResult.NotAvailable>(
+                LibraryOverviewInspectionOperation.ExecuteCount(
+                    new LibraryOverviewRequest(
+                        library.Reference,
+                        zeroTypes),
+                    LibraryOverviewQuery.CreatePlan(
+                        QuerySpaceTerminalRequirement.Count),
+                    library.IssueOperation(),
+                    TestContext.Current.CancellationToken));
+
+        Assert.IsType<LibraryOverviewOutcome.Incomplete>(
+            result.Inspection.Content);
+        Assert.Single(result.Inspection.Diagnostics);
+        await library.RetireAsync();
     }
 
     [Fact]
@@ -331,6 +424,21 @@ public sealed class LibraryOverviewInspectionOperationTests
                 invalid.IssueOperation(),
                 TestContext.Current.CancellationToken));
         await invalid.RetireAsync();
+
+        await using LibraryOverviewTestLibrary invalidPlan =
+            await LibraryOverviewTestLibrary.CreateAsync(
+                content,
+                LibraryOverviewTestLibrary.Identity(content));
+        Assert.Throws<ArgumentException>(
+            () => LibraryOverviewInspectionOperation.Execute(
+                new LibraryOverviewRequest(
+                    invalidPlan.Reference,
+                    s_bounds),
+                LibraryOverviewQuery.CreatePlan(
+                    QuerySpaceTerminalRequirement.Count),
+                invalidPlan.IssueOperation(),
+                TestContext.Current.CancellationToken));
+        await invalidPlan.RetireAsync();
     }
 
     [Fact]

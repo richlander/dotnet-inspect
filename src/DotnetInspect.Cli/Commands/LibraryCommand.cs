@@ -127,11 +127,23 @@ public partial class LibraryCommand
         ];
 
     public static Task<int> ExecuteAsync(LibraryOptions options) =>
-        ExecuteAsync(options, workspaceLoadOptions: null);
+        ExecuteAsync(
+            options,
+            workspaceLoadOptions: null,
+            CancellationToken.None);
+
+    public static Task<int> ExecuteAsync(
+        LibraryOptions options,
+        CancellationToken cancellationToken) =>
+        ExecuteAsync(
+            options,
+            workspaceLoadOptions: null,
+            cancellationToken);
 
     internal static async Task<int> ExecuteAsync(
         LibraryOptions options,
-        WorkspaceContextLoadOptions? workspaceLoadOptions)
+        WorkspaceContextLoadOptions? workspaceLoadOptions,
+        CancellationToken cancellationToken = default)
     {
         if (!LibrarySourceAdapter.TryBind(
                 options,
@@ -143,6 +155,16 @@ public partial class LibraryCommand
         }
 
         options = source!.ApplyTo(options);
+        if (DirectLibraryOverviewCommand.ShouldExecute(
+                options,
+                source))
+        {
+            return await DirectLibraryOverviewCommand.ExecuteAsync(
+                    options,
+                    source,
+                    cancellationToken)
+                .ConfigureAwait(false);
+        }
         if (source.Selector is SourceSelector.PackageSource
             && (options.WorkspacePacket is not null
                 || options.NamesakeLibrary
