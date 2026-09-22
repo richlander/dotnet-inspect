@@ -1905,6 +1905,7 @@ function recoverWorkspaceNavigationRollback(
     restoreWorkspaceNavigationRollback(snapshot).then(
       restored => {
         if (restored) complete();
+        return undefined;
       },
       (error: unknown) => reportWorkspaceNavigationRollbackFailure(
         snapshot,
