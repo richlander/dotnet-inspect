@@ -91,6 +91,33 @@ public sealed record PackageVersionRange
 }
 
 /// <summary>
+/// Controls how a package version population admits the range boundaries.
+/// </summary>
+public enum PackageVersionPopulationPolicy
+{
+    /// <summary>Require both literal range endpoint versions to be published.</summary>
+    ExactEndpoints,
+
+    /// <summary>Use the endpoint majors as semantic population boundaries.</summary>
+    MajorBounds,
+}
+
+/// <summary>
+/// Selects one deterministic representative from each admitted major bucket.
+/// </summary>
+public enum PackageVersionMajorRepresentativePolicy
+{
+    /// <summary>
+    /// Select the lowest admitted stable version in each major, falling back to
+    /// the highest admitted prerelease when that major has no stable version.
+    /// </summary>
+    FirstStable,
+
+    /// <summary>Select the highest admitted version in each major.</summary>
+    Latest,
+}
+
+/// <summary>
 /// One stable address in an ordered package-version vector.
 /// </summary>
 public sealed record PackageVersionAddress
@@ -111,6 +138,36 @@ public sealed record PackageVersionAddress
     public NuGetVersion Version { get; }
     public string NormalizedVersion => Version.ToNormalizedString();
     public IReadOnlyList<string> ReportingSourceUrls { get; }
+}
+
+/// <summary>
+/// A typed projection of a version vector's original addresses, with one
+/// representative retained for each admitted major.
+/// </summary>
+public sealed class PackageVersionMajorRepresentativeProjection
+{
+    internal PackageVersionMajorRepresentativeProjection(
+        PackageVersionMajorRepresentativePolicy policy,
+        ImmutableArray<PackageVersionAddress> addresses)
+    {
+        if (!Enum.IsDefined(policy))
+            throw new ArgumentOutOfRangeException(nameof(policy));
+        if (addresses.IsDefault)
+            throw new ArgumentException(
+                "A representative projection requires initialized addresses.",
+                nameof(addresses));
+        if (addresses.Any(address => address is null))
+            throw new ArgumentException(
+                "A representative projection cannot contain a null address.",
+                nameof(addresses));
+
+        Policy = policy;
+        Addresses = addresses;
+    }
+
+    public PackageVersionMajorRepresentativePolicy Policy { get; }
+
+    public ImmutableArray<PackageVersionAddress> Addresses { get; }
 }
 
 /// <summary>
@@ -146,6 +203,21 @@ public sealed class PackageVersionVector
         NuGetSourceOptions? sourceOptions = null,
         Action<string>? log = null,
         bool includePrerelease = false)
+        => await ResolveAsync(
+            client,
+            range,
+            sourceOptions,
+            log,
+            includePrerelease,
+            PackageVersionPopulationPolicy.ExactEndpoints).ConfigureAwait(false);
+
+    public static async Task<PackageVersionVector> ResolveAsync(
+        HttpClient client,
+        PackageVersionRange range,
+        NuGetSourceOptions? sourceOptions,
+        Action<string>? log,
+        bool includePrerelease,
+        PackageVersionPopulationPolicy policy)
     {
         ArgumentNullException.ThrowIfNull(client);
         ArgumentNullException.ThrowIfNull(range);
@@ -166,7 +238,8 @@ public sealed class PackageVersionVector
         PackageVersionVector vector = Create(
             range,
             candidates.Select(candidate => candidate.Version),
-            includePrerelease);
+            includePrerelease,
+            policy);
         var addresses = vector.Addresses
             .Select(address =>
             {
@@ -197,9 +270,26 @@ public sealed class PackageVersionVector
         PackageVersionRange range,
         IEnumerable<string> availableVersions,
         bool includePrerelease = false)
+        => Create(
+            range,
+            availableVersions,
+            includePrerelease,
+            PackageVersionPopulationPolicy.ExactEndpoints);
+
+    /// <summary>
+    /// Creates a vector using either literal endpoint admission or semantic
+    /// major-bound admission while preserving the caller's direction.
+    /// </summary>
+    public static PackageVersionVector Create(
+        PackageVersionRange range,
+        IEnumerable<string> availableVersions,
+        bool includePrerelease,
+        PackageVersionPopulationPolicy policy)
     {
         ArgumentNullException.ThrowIfNull(range);
         ArgumentNullException.ThrowIfNull(availableVersions);
+        if (!Enum.IsDefined(policy))
+            throw new ArgumentOutOfRangeException(nameof(policy));
 
         var parsedVersions = availableVersions
             .Select(version =>
@@ -215,10 +305,13 @@ public sealed class PackageVersionVector
                 .Any(previous => VersionComparer.Equals(previous, version)))
             .ToArray();
 
-        if (!versions.Any(version => VersionComparer.Equals(version, range.Start)))
-            throw new ArgumentException($"Package '{range.PackageId}' does not contain range endpoint {range.Start}.", nameof(range));
-        if (!versions.Any(version => VersionComparer.Equals(version, range.End)))
-            throw new ArgumentException($"Package '{range.PackageId}' does not contain range endpoint {range.End}.", nameof(range));
+        if (policy == PackageVersionPopulationPolicy.ExactEndpoints)
+        {
+            if (!versions.Any(version => VersionComparer.Equals(version, range.Start)))
+                throw new ArgumentException($"Package '{range.PackageId}' does not contain range endpoint {range.Start}.", nameof(range));
+            if (!versions.Any(version => VersionComparer.Equals(version, range.End)))
+                throw new ArgumentException($"Package '{range.PackageId}' does not contain range endpoint {range.End}.", nameof(range));
+        }
 
         int direction = VersionComparer.Compare(range.Start, range.End);
         var minimum = direction <= 0 ? range.Start : range.End;
@@ -231,6 +324,19 @@ public sealed class PackageVersionVector
                 && (range.IncludesPrerelease || includePrerelease || !version.IsPrerelease))
             .OrderBy(version => version, SortComparer);
 
+        if (policy == PackageVersionPopulationPolicy.MajorBounds)
+        {
+            ordered = ordered.ToArray();
+            if (!ordered.Any(version => version.Major == range.Start.Major))
+                throw new ArgumentException(
+                    $"Package '{range.PackageId}' does not contain an admitted version in lower boundary major {range.Start.Major}.",
+                    nameof(range));
+            if (!ordered.Any(version => version.Major == range.End.Major))
+                throw new ArgumentException(
+                    $"Package '{range.PackageId}' does not contain an admitted version in upper boundary major {range.End.Major}.",
+                    nameof(range));
+        }
+
         if (direction > 0)
             ordered = ordered.Reverse();
 
@@ -239,6 +345,83 @@ public sealed class PackageVersionVector
             .ToImmutableArray();
 
         return new PackageVersionVector(range.PackageId, range.Start, range.End, addresses);
+    }
+
+    /// <summary>
+    /// Returns whether a complete candidate set contains an admitted version
+    /// in both semantic boundary majors.
+    /// </summary>
+    internal static bool ContainsMajorBounds(
+        PackageVersionRange range,
+        IEnumerable<string> availableVersions,
+        bool includePrerelease = false)
+    {
+        ArgumentNullException.ThrowIfNull(range);
+        ArgumentNullException.ThrowIfNull(availableVersions);
+
+        var versions = availableVersions
+            .Select(version =>
+            {
+                if (!NuGetVersion.TryParse(version, out var parsed))
+                    return null;
+                return parsed;
+            })
+            .Where(version => version is not null)
+            .Select(version => version!)
+            .Distinct(VersionComparer)
+            .ToArray();
+        int direction = VersionComparer.Compare(range.Start, range.End);
+        var minimum = direction <= 0 ? range.Start : range.End;
+        var maximum = direction <= 0 ? range.End : range.Start;
+        var admitted = versions.Where(version =>
+            VersionComparer.Compare(version, minimum) >= 0
+            && VersionComparer.Compare(version, maximum) <= 0
+            && (range.IncludesPrerelease || includePrerelease || !version.IsPrerelease));
+
+        return admitted.Any(version => version.Major == range.Start.Major)
+            && admitted.Any(version => version.Major == range.End.Major);
+    }
+
+    /// <summary>
+    /// Selects one original vector address for each admitted major in the
+    /// caller-directed major order.
+    /// </summary>
+    public PackageVersionMajorRepresentativeProjection
+        ProjectMajorRepresentatives(
+            PackageVersionMajorRepresentativePolicy policy)
+    {
+        if (!Enum.IsDefined(policy))
+            throw new ArgumentOutOfRangeException(nameof(policy));
+
+        ImmutableArray<PackageVersionAddress> addresses =
+        [
+            .. Addresses
+                .GroupBy(address => address.Version.Major)
+                .Select(group =>
+                {
+                    IEnumerable<PackageVersionAddress> stable =
+                        group.Where(address => !address.Version.IsPrerelease);
+                    return policy switch
+                    {
+                        PackageVersionMajorRepresentativePolicy.FirstStable =>
+                            stable.OrderBy(address => address.Version, SortComparer)
+                                .FirstOrDefault()
+                            ?? group
+                                .OrderByDescending(
+                                    address => address.Version,
+                                    SortComparer)
+                                .FirstOrDefault(),
+                        PackageVersionMajorRepresentativePolicy.Latest =>
+                            group.OrderByDescending(
+                                    address => address.Version,
+                                    SortComparer)
+                                .FirstOrDefault(),
+                        _ => throw new ArgumentOutOfRangeException(nameof(policy)),
+                    };
+                })
+                .Where(address => address is not null)!,
+        ];
+        return new PackageVersionMajorRepresentativeProjection(policy, addresses);
     }
 
     internal static bool ContainsVersion(
@@ -263,6 +446,17 @@ public sealed class PackageVersionVector
         PackageVersionRange range,
         IReadOnlyCollection<PackageVersionInfo> listings,
         bool includePrerelease = false)
+        => CreateListingAware(
+            range,
+            listings,
+            includePrerelease,
+            PackageVersionPopulationPolicy.ExactEndpoints);
+
+    public static IEnumerable<PackageVersionInfo> CreateListingAware(
+        PackageVersionRange range,
+        IReadOnlyCollection<PackageVersionInfo> listings,
+        bool includePrerelease,
+        PackageVersionPopulationPolicy policy)
     {
         ArgumentNullException.ThrowIfNull(range);
         ArgumentNullException.ThrowIfNull(listings);
@@ -272,7 +466,11 @@ public sealed class PackageVersionVector
             if (NuGetVersion.TryParse(listing.Version, out var parsed))
                 listedByVersion[parsed.ToNormalizedString()] = listing.Listed;
 
-        var vector = Create(range, listings.Select(listing => listing.Version), includePrerelease);
+        var vector = Create(
+            range,
+            listings.Select(listing => listing.Version),
+            includePrerelease,
+            policy);
         return vector.Addresses.Select(address =>
         {
             var normalized = address.Version.ToNormalizedString();
