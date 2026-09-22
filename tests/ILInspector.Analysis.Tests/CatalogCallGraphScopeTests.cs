@@ -431,6 +431,63 @@ public class CatalogCallGraphScopeTests
     }
 
     [Fact]
+    public void CensusKeepsAmbiguousUniqueStructuralMatchUnresolved()
+    {
+        (string directory, string callerPath, string selectedPath,
+            string shadowPath) =
+                BuildSameIdentityCallFixture(
+                    shadowDeclaresPing: false);
+        try
+        {
+            LibraryBodyIndex caller = LibraryBodyIndex.Open(callerPath);
+            LibraryBodyIndex selected =
+                LibraryBodyIndex.Open(selectedPath);
+            LibraryBodyIndex shadow = LibraryBodyIndex.Open(shadowPath);
+            ResolvedAssemblyReference callerAssembly =
+                Descriptor(caller);
+            ResolvedAssemblyReference selectedAssembly =
+                Descriptor(selected);
+            ResolvedAssemblyReference shadowAssembly =
+                Descriptor(shadow);
+            var policy = new SourceRelativeAssemblyGroupBindingPolicy(
+                new[]
+                {
+                    callerAssembly,
+                    selectedAssembly,
+                    shadowAssembly,
+                }.Select(assembly => (
+                    assembly,
+                    Policy: (IAssemblyBindingPolicy)
+                        UnavailablePolicy.Instance)));
+            using var scope = new CatalogCallGraphScope(
+                policy,
+                [
+                    new(caller, callerAssembly),
+                    new(selected, selectedAssembly),
+                    new(shadow, shadowAssembly),
+                ]);
+
+            CatalogCallCensus census = scope.Census();
+
+            Assert.DoesNotContain(
+                census.Occurrences,
+                occurrence =>
+                    occurrence.SourceMethod.Name == "Run"
+                    && occurrence.TargetMethod.Name == "Ping");
+            Assert.Contains(
+                census.UnresolvedOccurrences,
+                occurrence =>
+                    occurrence.SourceMethod.Name == "Run"
+                    && occurrence.Call.Callee.Name == "Ping");
+            Assert.False(census.IsComplete);
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Fact]
     public void FallbackSignatureRequiresCompleteRetainedTypeIdentity()
     {
         var targetIdentity = new AssemblyReferenceIdentity(
@@ -1241,6 +1298,11 @@ public class CatalogCallGraphScopeTests
 
     static (string Directory, string CallerPath, string SelectedPath,
         string ShadowPath) BuildSameIdentityCallFixture()
+        => BuildSameIdentityCallFixture(shadowDeclaresPing: true);
+
+    static (string Directory, string CallerPath, string SelectedPath,
+        string ShadowPath) BuildSameIdentityCallFixture(
+            bool shadowDeclaresPing)
     {
         string directory = Path.Combine(
             Path.GetTempPath(),
@@ -1258,7 +1320,10 @@ public class CatalogCallGraphScopeTests
             selectedPath);
         string shadowPath =
             Path.Combine(directory, "shadow.dll");
-        _ = BuildTarget(targetName, shadowPath);
+        _ = BuildTarget(
+            targetName,
+            shadowPath,
+            shadowDeclaresPing ? "Ping" : "Other");
 
         var callerName = new AssemblyName("CallCensusShadowCaller")
         {
@@ -1290,7 +1355,8 @@ public class CatalogCallGraphScopeTests
 
         static MethodBuilder BuildTarget(
             AssemblyName assemblyName,
-            string path)
+            string path,
+            string methodName = "Ping")
         {
             var assembly = new PersistedAssemblyBuilder(
                 assemblyName,
@@ -1302,15 +1368,15 @@ public class CatalogCallGraphScopeTests
                 TypeAttributes.Public
                     | TypeAttributes.Abstract
                     | TypeAttributes.Sealed);
-            MethodBuilder ping = type.DefineMethod(
-                "Ping",
+            MethodBuilder method = type.DefineMethod(
+                methodName,
                 MethodAttributes.Public | MethodAttributes.Static,
                 typeof(void),
                 Type.EmptyTypes);
-            ping.GetILGenerator().Emit(OpCodes.Ret);
+            method.GetILGenerator().Emit(OpCodes.Ret);
             _ = type.CreateType();
             assembly.Save(path);
-            return ping;
+            return method;
         }
     }
 

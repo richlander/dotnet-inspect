@@ -1,3 +1,6 @@
+using System.Reflection;
+using System.Reflection.Emit;
+
 using DotnetInspector.Fixtures;
 using DotnetInspector.Services;
 using ILInspector.Metadata;
@@ -200,6 +203,51 @@ public sealed class AssemblyContextCallCensusQueryTests
                     == new Version(1, 0, 0, 0));
     }
 
+    [Fact]
+    public async Task ExecutePreservesExactParticipantPolicySelection()
+    {
+        (string directory, ResolvedAssemblyReference caller,
+            ResolvedAssemblyReference selected,
+            ResolvedAssemblyReference shadow) =
+                BuildSameIdentityCallFixture();
+        try
+        {
+            var policy = new SelectedAssemblyPolicy(
+                [caller, selected, shadow],
+                selected);
+            await using CensusContext context =
+                CensusContext.Create(
+                    policy,
+                    caller,
+                    selected,
+                    shadow);
+
+            AssemblyContextCallCensusResult result =
+                AssemblyContextCallCensusQuery.Execute(
+                    context.Group,
+                    TestContext.Current.CancellationToken);
+
+            AssemblyContextCallCensusOccurrence occurrence =
+                Assert.Single(
+                    result.Occurrences,
+                    occurrence =>
+                        occurrence.SourceMethod.Name == "Run"
+                        && occurrence.TargetMethod.Name == "Ping");
+            Assert.Same(
+                selected.Registration,
+                occurrence.Target.Registration);
+            Assert.DoesNotContain(
+                result.UnresolvedOccurrences,
+                occurrence =>
+                    occurrence.SourceMethod.Name == "Run"
+                    && occurrence.Call.Callee.Name == "Ping");
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
     static string MemberFingerprint(
         AssemblyContextCallCensusMember member) =>
         string.Join(
@@ -234,6 +282,133 @@ public sealed class AssemblyContextCallCensusQueryTests
             evidence.Selected,
             string.Join(",", evidence.AdmittedAlternatives));
 
+    static (string Directory, ResolvedAssemblyReference Caller,
+        ResolvedAssemblyReference Selected,
+        ResolvedAssemblyReference Shadow)
+        BuildSameIdentityCallFixture()
+    {
+        string directory = Path.Combine(
+            Path.GetTempPath(),
+            "dotnet-inspect-call-census-query-"
+                + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(directory);
+        var targetName = new AssemblyName("CallCensusQueryTarget")
+        {
+            Version = new Version(1, 0, 0, 0),
+        };
+        string selectedPath =
+            Path.Combine(directory, "selected.dll");
+        MethodBuilder selectedMethod =
+            BuildTarget(targetName, selectedPath);
+        string shadowPath =
+            Path.Combine(directory, "shadow.dll");
+        _ = BuildTarget(targetName, shadowPath);
+
+        var callerName = new AssemblyName("CallCensusQueryCaller")
+        {
+            Version = new Version(1, 0, 0, 0),
+        };
+        var callerAssembly = new PersistedAssemblyBuilder(
+            callerName,
+            typeof(object).Assembly);
+        ModuleBuilder callerModule =
+            callerAssembly.DefineDynamicModule(callerName.Name!);
+        TypeBuilder callerType = callerModule.DefineType(
+            "Consumer.Entry",
+            TypeAttributes.Public
+                | TypeAttributes.Abstract
+                | TypeAttributes.Sealed);
+        MethodBuilder run = callerType.DefineMethod(
+            "Run",
+            MethodAttributes.Public | MethodAttributes.Static,
+            typeof(void),
+            Type.EmptyTypes);
+        ILGenerator il = run.GetILGenerator();
+        il.Emit(OpCodes.Call, selectedMethod);
+        il.Emit(OpCodes.Ret);
+        _ = callerType.CreateType();
+        string callerPath =
+            Path.Combine(directory, "caller.dll");
+        callerAssembly.Save(callerPath);
+        return (
+            directory,
+            Reference(callerPath),
+            Reference(selectedPath),
+            Reference(shadowPath));
+
+        static MethodBuilder BuildTarget(
+            AssemblyName assemblyName,
+            string path)
+        {
+            var assembly = new PersistedAssemblyBuilder(
+                assemblyName,
+                typeof(object).Assembly);
+            ModuleBuilder module =
+                assembly.DefineDynamicModule(assemblyName.Name!);
+            TypeBuilder type = module.DefineType(
+                "Target.Api",
+                TypeAttributes.Public
+                    | TypeAttributes.Abstract
+                    | TypeAttributes.Sealed);
+            MethodBuilder ping = type.DefineMethod(
+                "Ping",
+                MethodAttributes.Public | MethodAttributes.Static,
+                typeof(void),
+                Type.EmptyTypes);
+            ping.GetILGenerator().Emit(OpCodes.Ret);
+            _ = type.CreateType();
+            assembly.Save(path);
+            return ping;
+        }
+
+        static ResolvedAssemblyReference Reference(string path) =>
+            ResolvedAssemblyReference.CreateFromPath(
+                path,
+                AssemblyResolutionProvenance.Local(
+                    "call-census query policy test"));
+    }
+
+    sealed class SelectedAssemblyPolicy(
+        IReadOnlyList<ResolvedAssemblyReference> assemblies,
+        ResolvedAssemblyReference selected)
+        : IAssemblyBindingPolicy
+    {
+        public AssemblyBindingPolicyVersion Version { get; } = new();
+
+        public AssemblyBindingSelectionSnapshot Select(
+            AssemblyBindingRequest request)
+        {
+            if (request.Target
+                    is not AssemblyBindingTarget.AssemblyReference reference)
+            {
+                return Unavailable();
+            }
+
+            ResolvedAssemblyReference? match =
+                assemblies.FirstOrDefault(assembly =>
+                    assembly.Identity.IsEquivalentTo(
+                        reference.Identity));
+            if (match is null)
+                return Unavailable();
+
+            return new(
+                Version,
+                AssemblyBindingSelection.Found(
+                    selected.Identity.IsEquivalentTo(
+                        reference.Identity)
+                            ? selected
+                            : match));
+        }
+
+        AssemblyBindingSelectionSnapshot Unavailable() =>
+            new(
+                Version,
+                AssemblyBindingSelection.CannotSelect(
+                    new AssemblyBindingFailure(
+                        AssemblyBindingFailureKind
+                            .CandidateUnavailable)));
+    }
+
     sealed class CensusContext : IAsyncDisposable
     {
         CensusContext(
@@ -259,7 +434,6 @@ public sealed class AssemblyContextCallCensusQueryTests
         internal static CensusContext Create(
             params ResolvedAssemblyReference[] assemblies)
         {
-            var workspace = new InspectionWorkspace();
             var policy =
                 new SourceRelativeAssemblyGroupBindingPolicy(
                     assemblies.Select(assembly => (
@@ -274,6 +448,14 @@ public sealed class AssemblyContextCallCensusQueryTests
                                     AllowPlatformAssemblyVersionRollForward =
                                         true,
                                 }))));
+            return Create(policy, assemblies);
+        }
+
+        internal static CensusContext Create(
+            IAssemblyBindingPolicy policy,
+            params ResolvedAssemblyReference[] assemblies)
+        {
+            var workspace = new InspectionWorkspace();
             AssemblyContextGroup group =
                 workspace.CreateAssemblyContextGroup(
                     assemblies.Select(assembly =>

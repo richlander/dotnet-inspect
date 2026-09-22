@@ -202,10 +202,11 @@ public static class AssemblyContextCallCensusQuery
                 IncompleteEdges: []);
         }
 
-        var policy = new SourceRelativeAssemblyGroupBindingPolicy(
-            orderedAvailable.Select(participant => (
-                participant.Assembly,
-                participant.ContextParticipant.BindingPolicy)));
+        SourceRelativeAssemblyGroupBindingPolicy policy =
+            SourceRelativeAssemblyGroupBindingPolicy.CreateRoutingOnly(
+                orderedAvailable.Select(participant => (
+                    participant.Assembly,
+                    participant.ContextParticipant.BindingPolicy)));
         using var scope = new Analysis.CatalogCallGraphScope(
             policy,
             orderedAvailable.Select(participant =>

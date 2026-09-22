@@ -1607,8 +1607,9 @@ public sealed class CatalogCallGraphScope : IDisposable
                 }
             }
 
-            if (callSite.ResolutionAssemblyRegistration is { } selected
-                && !ReferenceEquals(
+            if (callSite.ResolutionAssemblyRegistration
+                    is not { } selected
+                || !ReferenceEquals(
                     selected,
                     targetAssembly.Registration))
             {
