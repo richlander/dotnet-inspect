@@ -2116,7 +2116,7 @@ test("Annotated Source destination actions use typed graph routes and exact sect
   );
   assert.match(
     appSource,
-    /candidate\.status === "resident" && destination !== "default"[\s\S]*navigateToUnprojectedGraphMember\([\s\S]*section/,
+    /candidate\.status === "resident"[\s\S]*coordinatePackage !== null \|\| destination !== "default"[\s\S]*navigateToUnprojectedGraphMember\([\s\S]*section/,
   );
   assert.match(
     appSource,

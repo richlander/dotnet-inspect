@@ -1578,6 +1578,40 @@ test("call graph navigation rejects assembly identity skew", () => {
     "the exact target type is not projected from the loaded package assembly");
 });
 
+test("loaded exact dependency coordinates project resident graph targets", () => {
+  const target = {
+    assembly: "Example",
+    assemblyVersion: "1.0.0.0",
+    assemblyCulture: null,
+    assemblyPublicKeyToken: null,
+    typeMetadataId: "Example.Widget",
+    kind: "external",
+    packageId: "Example.Package",
+    packageVersion: "2.0.0",
+    packageFramework: "net8.0",
+  };
+  const pkg = {
+    ...packageAt("2.0.0", "net8.0", 0),
+    assemblies: [{
+      id: "example",
+      name: "Example",
+      version: "1.0.0.0",
+      culture: null,
+      publicKeyToken: null,
+    }],
+  };
+  assert.deepEqual(
+    resolveLoadedGraphTargetCandidate([pkg], target),
+    { status: "resident" });
+
+  const binding =
+    appSource.match(/function callGraphNodeBinding\([\s\S]*?\n}(?=\n\nfunction blockedCallGraphNodeBinding)/)?.[0]
+    ?? "";
+  assert.match(
+    binding,
+    /candidate\.status === "resident"[\s\S]*?coordinatePackage !== null \|\| destination !== "default"[\s\S]*?navigateToUnprojectedGraphMember\(\s*residentPackage,\s*target,\s*section,\s*failureSurface\)/);
+});
+
 test("surface asset currency makes repeated graph navigation reuse its type", () => {
   const target = {
     assembly: "Example",

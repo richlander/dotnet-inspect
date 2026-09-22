@@ -16177,7 +16177,8 @@ function callGraphTargetBinding(
     resolveLoadedGraphTargetCandidate<AppPackage, AppTypeSurface>(
       coordinatePackage ? [coordinatePackage] : packages,
       target);
-  if (candidate.status === "resident" && destination !== "default") {
+  if (candidate.status === "resident"
+      && (coordinatePackage !== null || destination !== "default")) {
     const residentPackage =
       coordinatePackage ?? loadedGraphTargetPackage(packages, target);
     if (!residentPackage) {
