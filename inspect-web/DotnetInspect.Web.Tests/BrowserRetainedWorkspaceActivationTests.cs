@@ -1,9 +1,11 @@
 using System.Runtime.Versioning;
+using System.Text.Json;
 using DotnetInspect.Web.Interop.Catalog;
 using DotnetInspector.Packages;
 using DotnetInspector.Queries;
 using DotnetInspector.Queries.Definitions;
 using NuGetFetch;
+using Catalog = DotnetInspect.Web.Interop.Catalog;
 
 namespace DotnetInspect.Web.Tests;
 
@@ -121,22 +123,95 @@ public sealed partial class BrowserRetainedWorkspaceActivationTests
     public void PackageSourceCredentialJson_BindsEndpointUsernameAndPat()
     {
         const string secret = "session-only-secret";
+        Dictionary<string, BrowserRetainedWorkspacePackageSourceCredential>
+            wireCredentials = Assert.IsType<Dictionary<
+                string,
+                BrowserRetainedWorkspacePackageSourceCredential>>(
+                    JsonSerializer.Deserialize(
+                        $$"""
+                        {
+                          "https://nuget.pkg.github.com/example/index.json": {
+                            "username": "example-user",
+                            "pat": "{{secret}}"
+                          }
+                        }
+                        """,
+                        BrowserCatalogJsonContext.Default
+                            .DictionaryStringBrowserRetainedWorkspacePackageSourceCredential));
         IReadOnlyDictionary<string, PackageSourceCredential> credentials =
             BrowserRetainedWorkspaceActivationService
-                .ParsePackageSourceCredentials(
-                    $$"""
-                    {
-                      "https://nuget.pkg.github.com/example/index.json": {
-                        "username": "example-user",
-                        "pat": "{{secret}}"
-                      }
-                    }
-                    """);
+                .BindPackageSourceCredentials(wireCredentials);
 
         PackageSourceCredential credential = Assert.Single(credentials).Value;
         Assert.Equal("example-user", credential.Username);
         Assert.Equal(secret, credential.Password);
         Assert.DoesNotContain(secret, credential.ToString());
+    }
+
+    [Theory]
+    [InlineData("""
+        {
+          "https://nuget.pkg.github.com/example/index.json": {
+            "username": "example-user",
+            "pat": "secret",
+            "token": "unexpected"
+          }
+        }
+        """)]
+    [InlineData("""
+        {
+          "https://nuget.pkg.github.com/example/index.json": {
+            "username": "example-user"
+          }
+        }
+        """)]
+    [InlineData("""
+        {
+          "https://nuget.pkg.github.com/example/index.json": {
+            "username": "first",
+            "username": "second",
+            "pat": "secret"
+          }
+        }
+        """)]
+    public async Task PackageSourceCredentialJson_RejectsUnauthenticatedShapes(
+        string json)
+    {
+        ArgumentException validation = Assert.Throws<ArgumentException>(
+            () => BrowserRetainedWorkspaceActivationService
+                .ValidatePackageSourceCredentialsJson(json));
+
+        Catalog.BrowserRetainedWorkspacePreparationResult preparation =
+            Assert.IsType<Catalog.BrowserRetainedWorkspacePreparationResult>(
+                JsonSerializer.Deserialize(
+                    await CatalogExports
+                        .PrepareRetainedWorkspaceDefinitionWithCredentials(
+                            "workspace-1",
+                            "Private",
+                            "/private",
+                            "packet",
+                            json),
+                    BrowserCatalogJsonContext.Default
+                        .BrowserRetainedWorkspacePreparationResult));
+        Assert.Equal("failed", preparation.Status);
+        Assert.Equal("InvalidRequest", preparation.Failure?.Kind);
+        Assert.Equal(validation.Message, preparation.Failure?.Message);
+
+        Catalog.BrowserRetainedWorkspaceActivationResult activation =
+            Assert.IsType<Catalog.BrowserRetainedWorkspaceActivationResult>(
+                JsonSerializer.Deserialize(
+                    await CatalogExports
+                        .ActivateRetainedWorkspaceDefinitionWithCredentials(
+                            "workspace-1",
+                            "Private",
+                            "/private",
+                            "packet",
+                            json),
+                    BrowserCatalogJsonContext.Default
+                        .BrowserRetainedWorkspaceActivationResult));
+        Assert.Equal("failed", activation.Status);
+        Assert.Equal("InvalidRequest", activation.Failure?.Kind);
+        Assert.Equal(validation.Message, activation.Failure?.Message);
     }
 
     [Fact]
