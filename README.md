@@ -157,13 +157,13 @@ stderr rather than mixed into structured output.
 | Relationships | `graph`, `depends`, `extensions`, `implements` | Integration graphs, type hierarchies, explicit package/nuspec/library/restored-project dependency graphs, reference graphs, extension methods/properties, implementors, and subclasses. |
 | Direct dependency evidence | `depends -S Dependencies` | `depends` combines explicit roots, traversal, and normalized declaration/restored evidence in one sectioned document. |
 | Package pruning policy | `depends -S Pruning` | Explicitly compares source-authorized direct dependency candidates with an exact installed runtime or ASP.NET Core platform inventory, without changing graph traversal. |
-| Source mapping | `library`/`package -S "SourceLink: Files"`, `type -S "Source Files"`, `member -S "Source Locations"` / `"PDB Source"` | SourceLink URLs, member file/line locations, and token+IL-offset to source-line resolution. `PDB Source` is checksum-verified source acquired from the PDB-recorded local path, a caller-supplied Git clone (`--repo`), or remote SourceLink, in that order. |
-| Performance analysis *(experimental)* | `library -S @Performance`, `library -S "Performance: Strings"`, `type`/`member -S "Performance Triage"`, `"Top Leverage"`, `"Resource Triage"`, `"Call Graph"` | Whole-assembly leverage ranking, exact string-materialization operations, actionable rewrite-shape detection, and exception-path resource-lifecycle candidates. |
+| Source | `type`/`member -S Source`, `library`/`package -S "SourceLink: Files"`, `type -S "Source Files"`, `member -S "Source Locations"` / `"PDB Source"` | `Source` is authored-first and retains provider and fallback context. Provider-specific views expose SourceLink URLs, member file/line locations, checksum-verified PDB source, and token+IL-offset mapping; `Decompiled Source` remains the local reconstructed view. |
+| Performance analysis *(experimental)* | `library -S "Library Metrics"`, `library -S @Performance`, `library -S "Performance: Strings"`, `type`/`member -S "Performance Triage"`, `"Top Leverage"`, `"Resource Triage"`, `"Call Graph"` | Whole-library structural metrics, whole-assembly leverage ranking, exact string-materialization operations, actionable rewrite-shape detection, and exception-path resource-lifecycle candidates. |
 | Decompiler *(experimental)* | `member -S @Source`, `member -S "Fidelity Causes"`, `member`/`type`/`library --where "Kind=<ID>"` | Decompiled C#, annotated source, IL, body-shape queries, and typed `DEC####` fidelity causes. |
 | Raw metadata | `library -S @Metadata`, `library coordinate "#Strings:0x1a4"` | Decoded ECMA-335 metadata tables and heap addressing. |
 | Workspace definition, inventory, and navigation | `workspace --package X --tfm TFM --share packet` | Author a durable format-3 Workspace definition without acquisition, or omit `--share` to realize and render typed top-level inventory. Repeat `--package` to compose Package Scope; add `--register-library`, `--register-package-prefix`, or `--register-ecosystem` for registration intent. `--packet` accepts a canonical Base64URL packet string. Add `--active-package N` on the direct inventory route for structural Library, Type, Member, and lens descriptors. |
 | Package Queries | `package query ID --where "library-literal=TEXT" --tfm TFM`, `workspace --root-request TOKEN` | AND-compose ordinary Package Query terms with an ordinal decoded-`ldstr` substring over each prequalified package's selected primary implementation library. Results remain package-grain and carry typed selected-library context, complete occurrences, and exact Root reopening tokens. |
-| Workspace sharing | `workspace-state encode` / `decode` | Convert the canonical browser/CLI base64url workspace packet to or from its bounded JSON shape without acquisition or execution. |
+| Workspace sharing and editing | `workspace packet encode` / `decode`, `workspace component list`, `workspace package add` / `update` / `remove` | Convert canonical browser/CLI packets, discover stable component paths, and immutably derive edited Workspace packets. |
 | Agent-friendly output | global flags | Markdown by default, compact `--table`, normalized `--tsv`, `--jsonl`, `--json`, Mermaid diagrams, section/field projection, `--count`, and row limiting. |
 
 ## Command inventory
@@ -181,7 +181,7 @@ stderr rather than mixed into structured output.
 | `diff X` | Compare API surfaces by default; opt into analysis or implementation evidence. |
 | `timeline X` | Correlate API or member-body Findings across a package version range. |
 | `graph integrations` | Induce extension, observed Integration, and Integration-opportunity relationships over an explicit package set; `-n`, `--tail`, and `--rows` select complete logical edges after graph construction. |
-| `graph calls TYPE MEMBER` | Explain one package member's outgoing calls that cross assembly boundaries, retaining only boundary calls and their shortest local connectors. |
+| `graph calls TYPE MEMBER` | Explain one package member's outgoing calls across its dependency graph, retaining only boundary calls and their shortest local connectors. |
 | `graph libraries` | Show exact resolved cross-library calls, direct-use clusters, and public entrypoint paths to one selected cluster. |
 | `depends [Type]` | With a positional type, walk its hierarchy inside `--package`, `--library`, `--project`, or platform search scopes. Without a positional type, combine repeatable explicit `--package`, `--nuspec`, `--library`, and `--project` roots, or exclusive `--package-prefix`, into one dependency graph and evidence document. |
 | `extensions X` | Find extension methods and C# extension properties for a type. |
@@ -191,7 +191,7 @@ stderr rather than mixed into structured output.
 | `vocabulary` | Discover product-owned query vocabularies such as `Accessibility`, `C# Style Choices`, and `C# Body Kinds`. |
 | `ecosystem [name]` | Inspect the ecosystem knowledge configured into this product build. Omit the name to list packs; use `-S Integrations` for configured Integration concepts, distinct from observations in a library. |
 | `workspace` | Render the typed top-level inventory of one ephemeral Workspace: committed ordered Package occurrences first, then inert Exact Library, Package Prefix, and Ecosystem registrations. Repeat `--package ID@VERSION` coordinates and supply `--tfm`; add `--register-library PACKAGE@VERSION/ASSEMBLY@ASSEMBLY_VERSION`, `--register-package-prefix PREFIX`, or `--register-ecosystem ID`; filter with repeatable `--kind`. Restore a current-format canonical Workspace packet with `--packet PACKET`, or use `--root-request TOKEN` to reopen the exact Package Root a `package query --where "library-literal=..."` result names. Add `--active-package N` on direct construction to evaluate the exact occurrence and expose its Navigation hierarchy, Library asset IDs, Type and Member inventories, lenses, and diagnostics. |
-| `workspace-state encode` / `decode` | Convert validated workspace-state JSON and canonical base64url packets; pass `-` for stdin or use `--file`. |
+| `workspace packet encode` / `decode` | Convert validated Workspace JSON and canonical base64url packets; pass `-` for stdin or use `--file`. |
 | `skill` | Print the base LLM skill and route to focused built-in guidance (`skill list`, `skill query`, `skill decompiler`, `skill relationships`, and more). |
 | `demo [id]` | List or run product-home inspection demos backed by real section output. |
 | `cache` | Inspect or clear dotnet-inspect caches. |
@@ -327,6 +327,7 @@ workflow in more depth.
 
 ```bash
 dotnet-inspect library System.Text.Json -S @Performance
+dotnet-inspect library System.Text.Json -S "Library Metrics"
 dotnet-inspect library System.Text.Json -S @Performance --count
 dotnet-inspect library System.Text.Json -S "Performance: Boxing" --json -T q
 dotnet-inspect library System.Text.Json -S "Performance: Strings" --json -T q
@@ -358,6 +359,8 @@ exception propagates to the selected method.
 
 ```bash
 dotnet-inspect member JsonSerializer --package System.Text.Json Serialize:1 -S @Source
+dotnet-inspect type JsonSerializer --package System.Text.Json -S Source
+dotnet-inspect member JsonSerializer --package System.Text.Json Serialize:1 -S Source
 dotnet-inspect member JsonSerializer --package System.Text.Json Serialize:1 -S "Fidelity Causes"
 dotnet-inspect library coordinate 0x060002EA+0x0 \
   --package System.Text.Json --library System.Text.Json.dll
@@ -477,6 +480,8 @@ single-result projection such as `--tree` or `--mermaid`.
 
 ```bash
 dotnet-inspect package System.Text.Json
+dotnet-inspect package System.Text.Json --version 10.0.0
+dotnet-inspect package System.Text.Json --latest-version
 dotnet-inspect package System.Text.Json --versions -n 6
 dotnet-inspect package System.Text.Json@8.0.0..8.0.5 --versions
 dotnet-inspect package System.Text.Json@8.0.0..8.0.5 --versions --envelope
@@ -859,20 +864,23 @@ controls, `--root-request`, or Package Navigation selectors. Explicit NuGet
 source policy is accepted only for dependency enrichment or coordinate
 replacement; `--preview` is accepted only for dependency enrichment.
 
-To replace one direct Package coordinate in an existing scenario, use its
-one-based **navigation-row order**, not inventory order. Unlike authoring,
-this explicit transformation acquires and realizes the input and destination:
+To edit one direct Package coordinate in an existing scenario, first list the
+packet's typed components and copy the canonical Package path:
 
 ```bash
-dotnet-inspect workspace --packet "$w" \
-  --replace-package 1 --to-version 12.1.2 --share packet
-dotnet-inspect workspace --packet "$w" \
-  --replace-package 1 --to-tfm net9.0 --share url
-dotnet-inspect workspace --packet "$w" \
-  --replace-package 1 --to-version 12.1.2 --json --envelope
+dotnet-inspect workspace component list --packet "$w"
+dotnet-inspect workspace package update \
+  packages/avalonia@11.3.14/net8.0/~ \
+  --packet "$w" --version 12.1.2
+dotnet-inspect workspace package update \
+  packages/avalonia@11.3.14/net8.0/~ \
+  --packet "$w" --tfm net9.0 --share url
+dotnet-inspect workspace package update \
+  packages/avalonia@11.3.14/net8.0/~ \
+  --packet "$w" --version 12.1.2 --json --envelope
 ```
 
-Use `--to-version`, `--to-tfm`, or both, and select either scalar `--share`
+Use `--version`, `--tfm`, or both, and select either scalar `--share`
 output or `--json --envelope`. The envelope includes the derived Share,
 actual Scope outcome, retention/fallback decision and diagnostics. Scalar
 output contains only the complete resulting packet/URL; fallback diagnostics
@@ -888,10 +896,18 @@ An explicitly active Library stays paired with that Library instead.
 Both Versions must be exact pins. Changed TFMs require an unsubscribed
 single-member context; shared-context TFM changes, floating selected sources,
 ambiguous source positions and query-bearing scenarios are visibly refused.
-Do not combine replacement with dependency enrichment, direct construction,
+Do not combine Package update with dependency enrichment, direct construction,
 inventory controls, or
 `--active-package`/Library/Type/Member/inspector selectors: the packet owns that
 intent. Browser coordinate-control and capture adoption remain separate.
+
+Use the same canonical paths for resource-free immutable Package edits:
+
+```bash
+dotnet-inspect workspace package add Markout@0.35.2 --packet "$w"
+dotnet-inspect workspace package remove \
+  packages/markout@0.35.2/net10.0/~ --packet "$w"
+```
 
 The default `workspace` output is the typed top-level inventory. Package
 occurrences appear in committed Scope order, followed by inert registrations
@@ -928,8 +944,9 @@ Packet input is mutually exclusive with direct Package and registration
 construction. Workspace Definitions performs complete restoration, including
 group and non-Package context intent and retained Navigation state, before the
 CLI enters the inventory operation. CLI refinement of that restored Navigation
-state is intentionally deferred. Without `--replace-package`, `--packet`
-combines only with inventory controls when `--share` is absent.
+state is intentionally deferred. Top-level `workspace --packet` combines only
+with inventory controls when `--share` is absent; nested component and Package
+commands own packet editing.
 
 `workspace` never selects an occurrence implicitly, even when the Workspace
 contains exactly one Package.
@@ -1028,6 +1045,8 @@ dotnet-inspect member System.ThrowHelper --platform System.Private.CoreLib --all
   -m ThrowArgumentNullException:1 -S Callers -n 1 --tail --json
 dotnet-inspect member JsonSerializer --package System.Text.Json Serialize:1 --source-parts --json
 dotnet-inspect member JsonSerializer --package System.Text.Json Serialize:1 --print --part xml-docs
+dotnet-inspect member JsonSerializer --package System.Text.Json Serialize:1 \
+  --print --part body --markdown
 dotnet-inspect type JsonSerializer --platform System.Text.Json -S "Source Files" --urls --json-array -T q
 dotnet-inspect library coordinate 0x060002EA+0x0 \
   --package System.Text.Json --library System.Text.Json.dll
@@ -1390,7 +1409,7 @@ dotnet-inspect graph calls \
   Microsoft.Extensions.DependencyInjection.ProviderBuilderServiceCollectionExtensions \
   AddOpenTelemetrySharedProviderBuilderServices~4d95928639 \
   --root-package OpenTelemetry@1.18.0 \
-  --package OpenTelemetry.Api@1.18.0 \
+  --root-tfm net10.0 \
   --tfm net10.0 \
   --all
 dotnet-inspect graph libraries \
@@ -1439,9 +1458,11 @@ and Direct Use Clusters cohorts are described below.
 
 `graph calls` is the integration-style complement to the general
 `member -S "Call Graph"` view. It starts from one exact member in
-`--root-package`, treats repeatable `--package` values as explicit external
-participants, and shows only calls crossing out of the focus assembly plus the
-shortest local paths needed to reach them. Each edge is typed as `connector`,
+`--root-package`, automatically follows the root's authorized dependency
+graph, and shows only calls crossing out of the focus assembly plus the
+shortest local paths needed to reach them. Root asset selection stays exact;
+dependency traversal independently uses `--tfm` or the product default. Each
+edge is typed as `connector`,
 `boundary`, or `unclassified-boundary`, and row-oriented output retains the
 physical MVID, MethodDef token, IL offset, operand token, call kind, dispatch
 kind, and loop state.
@@ -1451,9 +1472,8 @@ nine explanatory edges. Two local connectors retain the path from
 `AddOpenTelemetrySharedProviderBuilderServices` through
 `Sdk.get_SuppressInstrumentation` and
 `SuppressInstrumentationScope.get_IsSuppressed` to
-`OpenTelemetry.Api`'s `RuntimeContextSlot<T>.Get`. Calls into assemblies not
-declared by `--package` remain visible as `unclassified-boundary` edges with an
-incompleteness warning instead of being silently dropped. Use `--table`,
+`OpenTelemetry.Api`'s `RuntimeContextSlot<T>.Get`. Unavailable dependency participants remain visible through typed routes and
+diagnostics rather than being silently dropped. Use `--table`,
 `--jsonl`, or `--json` for exact receipts; `-n`, `--tail`, and `--rows` select
 complete logical edges after graph construction.
 
@@ -1579,10 +1599,10 @@ dotnet-inspect library coordinate "<EvidenceToken>+<ILOffset>" \
 ### Workspace sharing and built-in guidance
 
 ```bash
-dotnet-inspect workspace-state decode "$w"
-dotnet-inspect workspace-state decode "$w" | jq
-dotnet-inspect workspace-state encode --file workspace-state.json
-dotnet-inspect workspace-state encode --file workspace-state.json --url
+dotnet-inspect workspace packet decode "$w"
+dotnet-inspect workspace packet decode "$w" | jq
+dotnet-inspect workspace packet encode --file workspace-state.json
+dotnet-inspect workspace packet encode --file workspace-state.json --url
 dotnet-inspect member JsonConvert \
   --package Newtonsoft.Json@13.0.4 \
   SerializeObject:1 \
@@ -1597,7 +1617,7 @@ dotnet-inspect demo list
 dotnet-inspect demo list -n 3 --json
 ```
 
-`workspace-state encode --url` emits `https://dotnet-inspect.net/?w=<packet>`
+`workspace packet encode --url` emits `https://dotnet-inspect.net/?w=<packet>`
 for the existing share-packet JSON shape. Packet-only output remains the default.
 This is not an encoder for `workspace --json` inventory output. The packet's
 existing limits and the browser's supported restoration shapes still apply.
