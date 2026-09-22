@@ -192,6 +192,7 @@ public class SingleElementListCollectionTests
         var outer = SingleElementList(IEnumerableOf(String), inner);
         var store = new StoreLocal(0, IEnumerableOf(IEnumerableOf(String)), outer);
         var function = Wrap(Container(store, new Return(null)));
+        Assert.Equal(0, function.AddLocal(IEnumerableOf(IEnumerableOf(String))));
 
         new InlineArrayCollectionPass().Run(function, PassContext.None);
 

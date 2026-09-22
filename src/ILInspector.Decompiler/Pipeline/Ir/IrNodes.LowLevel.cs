@@ -396,6 +396,11 @@ public sealed class StoreElement : IrNode
     }
 
     public TypeRef? ElementType { get; }
+    /// <summary>
+    /// Preserves the former statement-level unsafe context when the receiver
+    /// value moved here from an adjacent local store.
+    /// </summary>
+    internal bool ReceiverTempInlined { get; set; }
     public IrExpression Array => (IrExpression)Children[0];
     public IrExpression Index => (IrExpression)Children[1];
     public IrExpression Value => (IrExpression)Children[2];

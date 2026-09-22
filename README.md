@@ -834,6 +834,29 @@ while registration options retain their authored cross-kind order. A
 scanner-bearing Ecosystem fails visibly as non-projectable; the command never
 drops its scanner to manufacture a packet.
 
+Declare an authentication-required package source to author a credential-free
+format-5 Inspect Web URL for a private-feed Workspace:
+
+```bash
+dotnet-inspect workspace \
+  --package Private.Package@1.2.3 \
+  --tfm net10.0 \
+  --nuget-source-auth-required \
+    https://nuget.pkg.github.com/example/index.json \
+  --share url
+```
+
+Inspect Web prompts once per exact authentication-required endpoint for a
+username and personal access token. Credentials remain in page-session memory
+only: activation-local copies are cleared after settlement, while the active
+realization or incumbent-recovery binding may retain them until replacement or
+disposal. They are not placed in the packet or URL, retained definition,
+browser storage, logs, diagnostics, or telemetry. Reloading prompts again.
+Cancellation or failure before publication leaves the prior visible Workspace
+unchanged; if recovery after cutover also fails, Inspect Web enters a blocking
+retry state rather than exposing the failed tentative Workspace. Source
+declarations that do not require authentication activate without a prompt.
+
 Add `--make-package-dependencies-explicit` to acquire every direct Package
 member, resolve its exact direct dependencies for the member's effective
 target, and append those dependencies to the same context before emitting the
@@ -1116,10 +1139,11 @@ context independently of its focused tab. The packet is the sole location
 source, while the receiving command still applies its own NuGet source,
 credential, cache, and offline policy. Optional `--share` keeps ordinary Type
 output on stdout and writes the derived schema-4 packet or URL as the final
-stderr line when the input is schema 4. The current `workspace --share`
-producer emits schema 3, which remains a valid inspection input but cannot
-encode the derived Type scenario; requesting Share from that input fails
-visibly without discarding the Type output.
+stderr line when the input is schema 4. A `workspace --share` producer without
+source declarations emits schema 3; one with source declarations emits schema
+5. Schema 3 remains a valid inspection input but cannot encode the derived Type
+scenario; requesting Share from that input fails visibly without discarding
+the Type output.
 
 ### Compatibility and change tracking
 
