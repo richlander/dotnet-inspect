@@ -363,6 +363,14 @@ Library companion or embedded PDB contribution or no PDB. It performs no
 ambient path, adjacent-file, or network discovery. An authored-document
 selector is not a decompilation target.
 
+Structured whole-Type adoption uses the same exact-Type request, detached
+assembly and PDB snapshots, finite work, and lease settlement with the
+`StructuredTypeDocument` product. That product invokes
+`CSharpDecompilerService.ProduceTypeDocument` instead of scalar
+`ProduceType`; exact-member requests cannot select it. The completed House
+outcome preserves the native `CSharpTypeDocumentOutcome` and its attempted-body
+work charge without replacing or duplicating the scalar source-text path.
+
 An exact type target always composes the complete selected type from
 SourceHouse's own bounded detached metadata model, including non-public
 members. A caller's API listing projection is not decompilation input and
@@ -375,6 +383,14 @@ projections, supplied/consulted symbol evidence, and work charge. The House
 adds exact request correspondence, selected Library content, detached PDB
 contribution evidence, and terminal operation-lease settlement without
 relabeling the result as authored source.
+
+For the structured product, the result remains the native
+`CSharpTypeDocumentOutcome`, including an available or incomplete immutable
+document, exact Type and physical-body provenance, producer diagnostics,
+detached serialization boundary, and unavailable or rejected outcome. Queries
+preserve that outcome beside the House settlement, and Sections publishes it
+as `InspectionEnvelope<CSharpTypeDocumentOutcome>` with operation diagnostics
+and a typed Share result.
 
 The focused #7918 delivery exposes that work through
 `MemberSourceInspection.DecompileAsync`. The operation admits the exact
