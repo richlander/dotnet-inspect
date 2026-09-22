@@ -277,6 +277,7 @@ import {
   type IntegrationMode,
 } from "./integration-inspector.ts";
 import { renderLibraryAnalysisSurface } from "./library-analysis.ts";
+import { renderLibraryMetricsSurface } from "./library-metrics.ts";
 import {
   captureMemberFocus,
   createMemberFocusRestorer,
@@ -451,6 +452,7 @@ import {
 import {
   bindProductNavigation,
   renderBrand,
+  type ProductAction,
   type ProductDestination,
 } from "./brand.ts";
 import {
@@ -738,6 +740,10 @@ let inspectPackageOpportunities:
   EngineClient["analysis"]["queryPackageOpportunities"];
 let inspectPackagePerformance:
   EngineClient["analysis"]["queryPackagePerformance"];
+let inspectPackageLibraryMetrics:
+  EngineClient["analysis"]["queryPackageLibraryMetrics"];
+let inspectPlatformLibraryMetrics:
+  EngineClient["analysis"]["queryPlatformLibraryMetrics"];
 let inspectPlatformIntegrations:
   EngineClient["analysis"]["queryPlatformIntegrations"];
 let inspectPlatformOpportunities:
@@ -885,6 +891,8 @@ async function loadEngineModule() {
       queryPackageIntegrations: inspectPackageIntegrations,
       queryPackageOpportunities: inspectPackageOpportunities,
       queryPackagePerformance: inspectPackagePerformance,
+      queryPackageLibraryMetrics: inspectPackageLibraryMetrics,
+      queryPlatformLibraryMetrics: inspectPlatformLibraryMetrics,
       queryPlatformIntegrations: inspectPlatformIntegrations,
       queryPlatformOpportunities: inspectPlatformOpportunities,
       queryPlatformPerformance: inspectPlatformPerformance,
@@ -1061,7 +1069,7 @@ let homeBotAnimationStartedAt: number | null = null;
 let homeReadyGlintPending = true;
 let homeFocusRenderGeneration = 0;
 let pendingHomeFocusTarget: HomeFocusTarget | null = null;
-type LibraryOpenReturnTarget = "home" | "application" | "surface";
+type LibraryOpenReturnTarget = "home" | "product-navigation" | "surface";
 const initialState = {
   theme: localStorage.getItem("inspect-theme") === "light" ? "light" : "dark",
   memberFiltersExpanded: false,
@@ -1164,6 +1172,10 @@ const initialState = {
   packagePerformanceLoading: false,
   packagePerformanceError: "",
   packagePerformanceKey: "",
+  packageLibraryMetrics: null,
+  packageLibraryMetricsLoading: false,
+  packageLibraryMetricsError: "",
+  packageLibraryMetricsKey: "",
   packageMetadata: null,
   packageMetadataLoading: false,
   packageMetadataError: "",
@@ -3803,6 +3815,7 @@ function requireElement(selector: string): HTMLElement {
 const app = requireElement("#app");
 bindProductNavigation(app, {
   currentDestination: currentProductDestination,
+  onAction: dispatchProductAction,
   onNavigate: navigateProductDestination,
   unavailableReason: productNavigationUnavailableReason,
 });
@@ -5349,6 +5362,7 @@ function libraryLensRequiresExactLibrary(lens: LibraryLens) {
     case "references":
     case "integrations":
     case "analysis":
+    case "metrics":
     case "metadata": return true;
     default: return assertNever(lens, "library lens");
   }
@@ -6596,6 +6610,8 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
     libraryIntegrationsWorkingSurface && state.integrationMode === "opportunities";
   const libraryAnalysisWorkingSurface =
     activeScope === "library" && state.libraryLens === "analysis";
+  const libraryMetricsWorkingSurface =
+    activeScope === "library" && state.libraryLens === "metrics";
   const memberOverloadPicker =
     currentMember !== undefined
     && currentMember.overloads.length > 1
@@ -6641,6 +6657,7 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
     || libraryIntegrationsWorkingSurface
     || libraryOpportunitiesWorkingSurface
     || libraryAnalysisWorkingSurface
+    || libraryMetricsWorkingSurface
     || memberWorkingSurface;
 
   if (scopeBarOwnsFocus) {
@@ -6718,7 +6735,7 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
           ${contentFrameEnabled
             ? renderContentNavigationBar(contentNavigationLabel)
             : ""}
-          <article id="inspector-panel" ${loadingPackageContent ? 'aria-busy="true"' : ""} class="detail-scroll${annotatedWorkingSurface ? " annotated-working-surface" : ""}${sourceWorkingSurface ? " source-working-surface" : ""}${apiWorkingSurface ? " api-working-surface" : ""}${metadataWorkingSurface ? " metadata-working-surface" : ""}${overviewWorkingSurface ? " overview-working-surface" : ""}${packageDependenciesWorkingSurface ? " package-dependencies-working-surface" : ""}${compareWorkingSurface ? " library-api-diff-working-surface" : ""}${libraryMetadataWorkingSurface ? " package-metadata-working-surface" : ""}${libraryReferencesWorkingSurface ? " library-references-working-surface" : ""}${libraryIntegrationsWorkingSurface ? " library-integrations-working-surface" : ""}${libraryOpportunitiesWorkingSurface ? " library-opportunities-working-surface" : ""}${libraryAnalysisWorkingSurface ? " library-analysis-working-surface" : ""}${memberWorkingSurface ? " member-working-surface" : ""}">
+          <article id="inspector-panel" ${loadingPackageContent ? 'aria-busy="true"' : ""} class="detail-scroll${annotatedWorkingSurface ? " annotated-working-surface" : ""}${sourceWorkingSurface ? " source-working-surface" : ""}${apiWorkingSurface ? " api-working-surface" : ""}${metadataWorkingSurface ? " metadata-working-surface" : ""}${overviewWorkingSurface ? " overview-working-surface" : ""}${packageDependenciesWorkingSurface ? " package-dependencies-working-surface" : ""}${compareWorkingSurface ? " library-api-diff-working-surface" : ""}${libraryMetadataWorkingSurface ? " package-metadata-working-surface" : ""}${libraryReferencesWorkingSurface ? " library-references-working-surface" : ""}${libraryIntegrationsWorkingSurface ? " library-integrations-working-surface" : ""}${libraryOpportunitiesWorkingSurface ? " library-opportunities-working-surface" : ""}${libraryAnalysisWorkingSurface || libraryMetricsWorkingSurface ? " library-analysis-working-surface" : ""}${memberWorkingSurface ? " member-working-surface" : ""}">
             ${loadingPackageContent
               ? `<div id="package-content-loading" class="package-content-loading" role="status" tabindex="-1" data-package-loading-control="${packageContentLoadingFocusControl ?? (state.requestedVersion !== pkg.version ? "package-version" : "package-framework")}"${state.requestedVersion !== pkg.version ? "" : ` data-package-loading-framework="${escapeHtml(state.requestedFramework)}"`}><span class="loader" aria-hidden="true"></span><span>Loading ${state.requestedVersion !== pkg.version ? `version ${escapeHtml(state.requestedVersion)}` : escapeHtml(state.requestedFramework)} content…</span></div>`
               : renderLens(current)}
@@ -6835,6 +6852,7 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
     maybeAutoLoadPackageIntegrations();
     maybeAutoLoadPackageOpportunities();
     maybeAutoLoadPackagePerformance();
+    maybeAutoLoadPackageLibraryMetrics();
     maybeAutoLoadPackageMetadata();
   }
   if (scope() === "member"
@@ -7306,6 +7324,7 @@ function renderLibraryView() {
     || state.libraryLens === "references"
     || state.libraryLens === "integrations"
     || state.libraryLens === "analysis"
+    || state.libraryLens === "metrics"
     || state.libraryLens === "metadata") return body;
   return `${libraryHeading()}${body}`;
 }
@@ -7403,6 +7422,7 @@ function libraryLensBody() {
       ? renderPackageOpportunities()
       : renderPackageIntegrations();
     case "analysis": return renderPackagePerformance();
+    case "metrics": return renderPackageLibraryMetrics();
     case "metadata": return renderPackageMetadata();
     default: return assertNever(state.libraryLens, "library lens");
   }
@@ -7845,6 +7865,12 @@ const packageInspection = createPackageInspectionCoordinator({
     packageModel.version,
     packageModel.activeFramework,
     library),
+  queryPackageLibraryMetrics: (packageModel, library) =>
+    inspectPackageLibraryMetrics(
+      packageModel.id,
+      packageModel.version,
+      packageModel.activeFramework,
+      library),
   queryPlatformPerformance: async (
     framework,
     platformVersion,
@@ -7857,6 +7883,17 @@ const packageInspection = createPackageInspectionCoordinator({
         platformVersion,
         assemblyFileName,
         pack)),
+  queryPlatformLibraryMetrics: (
+    framework,
+    platformVersion,
+    assemblyFileName,
+    pack,
+  ) =>
+    inspectPlatformLibraryMetrics(
+      framework,
+      platformVersion,
+      assemblyFileName,
+      pack),
   queryPackageMetadata: (packageModel, library) =>
     inspectPackageMetadata(
       packageModel.id,
@@ -8050,6 +8087,31 @@ function renderPackagePerformance() {
   });
 }
 
+function renderPackageLibraryMetrics() {
+  const pkg = currentPackage();
+  const library = selectedLibrary();
+  const scopedLib = scopedPlatformLibrary();
+  const current = packageScopeSignature();
+  return renderLibraryMetricsSurface({
+    libraryName: library?.name ?? "",
+    assemblyIdentity: library ? libraryIdentity(library) : "No library selected",
+    assetPath: library?.asset ?? "",
+    coordinate: `${pkg.activeFramework} · ${pkg.id}@${pkg.version}`,
+    requireLibrary: pkg.isRuntimePack && !scopedLib,
+    pickerHtml: pkg.isRuntimePack
+      ? platformLibrarySelectHtml({
+          dataAttr: "data-platform-metrics-library",
+          selected: scopedLib || "",
+        })
+      : "",
+    fresh: state.packageLibraryMetricsKey === current,
+    loading: state.packageLibraryMetricsLoading,
+    error: state.packageLibraryMetricsError,
+    data: state.packageLibraryMetrics,
+    escapeHtml,
+  });
+}
+
 async function loadPackagePerformance() {
   const pkg = currentPackage();
   const scopedLib = selectedLibraryRequest() || null;
@@ -8065,6 +8127,23 @@ function maybeAutoLoadPackagePerformance() {
   if (Boolean(state.package?.isRuntimePack) && !scopedPlatformLibrary()) return;
   if (state.packagePerformanceKey === packageScopeSignature()) return;
   observeAsync(loadPackagePerformance(), "Loading package analysis");
+}
+
+function loadPackageLibraryMetrics() {
+  const pkg = currentPackage();
+  const scopedLib = selectedLibraryRequest() || null;
+  return packageInspection.loadLibraryMetrics(
+    pkg,
+    packageScopeSignature(),
+    scopedLib);
+}
+
+function maybeAutoLoadPackageLibraryMetrics() {
+  if (!state.atLibraryRoot || state.libraryLens !== "metrics") return;
+  if (aggregateLibrarySubjectIsActive()) return;
+  if (Boolean(state.package?.isRuntimePack) && !scopedPlatformLibrary()) return;
+  if (state.packageLibraryMetricsKey === packageScopeSignature()) return;
+  observeAsync(loadPackageLibraryMetrics(), "Loading library metrics");
 }
 
 // The Library Metadata lens describes one image-level container: metadata format version,
@@ -9547,6 +9626,7 @@ async function openPlatformLensLibrary(
     else await loadPackageIntegrations();
   }
   else if (lens === "analysis") await loadPackagePerformance();
+  else if (lens === "metrics") await loadPackageLibraryMetrics();
   else await loadPackageMetadata();
 }
 
@@ -17358,9 +17438,6 @@ function clearTaste() {
 
 function dispatchApplicationAction(action: ApplicationAction) {
   switch (action) {
-    case "open-library":
-      openLibraryDialog("application");
-      return;
     case "share":
       if (state.rootKind === "library") {
         showToast("Uploaded Libraries cannot be shared.");
@@ -17374,6 +17451,14 @@ function dispatchApplicationAction(action: ApplicationAction) {
     case "keyboard-help":
       if (state.keyboardHelp) closeKeyboardHelp();
       else openKeyboardHelp();
+      return;
+  }
+}
+
+function dispatchProductAction(action: ProductAction) {
+  switch (action) {
+    case "open-library":
+      openLibraryDialog("product-navigation");
       return;
   }
 }
@@ -17416,9 +17501,10 @@ function closeLibraryDialog() {
     if (returnTarget === "home") {
       document.querySelector<HTMLElement>("#home-open-library")
         ?.focus({ preventScroll: true });
-    } else if (returnTarget === "application") {
+    } else if (returnTarget === "product-navigation") {
       restoreOrdinaryModalDismissFocus(() =>
-        document.querySelector<HTMLElement>("#application-menu-button")
+        document.querySelector<HTMLElement>(
+          "[data-product-navigation-button]")
           ?.focus({ preventScroll: true }));
     } else {
       focusLevelOneHeading();
