@@ -327,7 +327,10 @@ The complete initial operation adoption is staged through focused slices:
    with aggregate all-libraries routes, publish both through structural
    Discovery, and reject exact Count or Rows before direct or package
    acquisition. The legacy multi-TFM package gesture remains undeclared until
-   it receives its own aggregate row-unit contract.
+   it receives its own aggregate row-unit contract. Aggregate detailed
+   Discovery initially publishes only the adopted `Library Info` capability;
+   mixed aggregate JSON plus semantic Rows fails visibly until a structured
+   per-section JSON lowering can preserve independent row windows.
 4. Before content cutover, settle the compatibility boundary between the
    current narrow `LibraryOverviewDocument`, the broader ordinary CLI
    `Library Info` field set, and the Browser overview's current eager API

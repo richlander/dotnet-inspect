@@ -531,6 +531,21 @@ public partial class PackageCommand
             libraryOptions,
             pipeline);
 
+        if (libraryOptions.JsonOutput
+            && !libraryOptions.Count
+            && libraryOptions.Rows is not null
+            && sections.Contains(
+                SectionNames.LibraryInfo,
+                StringComparer.OrdinalIgnoreCase)
+            && sections.Count != 1)
+        {
+            CommandError.Write(
+                "Aggregate JSON row selection with Library Info requires "
+                + "exactly one selected section. Select only Library Info or "
+                + "use Markdown for independent per-section row windows.");
+            return 1;
+        }
+
         if (libraryOptions.JsonOutput && !libraryOptions.Count)
         {
             IReadOnlyList<LibraryInspection> jsonInspections =

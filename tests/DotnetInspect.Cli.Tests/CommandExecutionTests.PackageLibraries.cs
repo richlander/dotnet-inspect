@@ -1410,6 +1410,152 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task
+        PackageCommand_AllLibraries_LibraryInfoDetailedDiscoveryDeclaresInventory()
+    {
+        string package =
+            $"Definitely.Missing.Package.{Guid.NewGuid():N}";
+
+        var result = await RunAppAsync(
+            "package",
+            package,
+            "--library",
+            "-D",
+            SectionNames.LibraryInfo,
+            "--details",
+            "--json",
+            "--tips",
+            "q");
+
+        Assert.Equal(0, result.Exit);
+        Assert.Empty(result.Error);
+        using JsonDocument document =
+            JsonDocument.Parse(result.Output);
+        JsonElement row =
+            Assert.Single(document.RootElement.EnumerateArray());
+        Assert.Equal(
+            SectionNames.LibraryInfo,
+            row.GetProperty("name").GetString());
+        Assert.Equal(
+            "inventory",
+            row.GetProperty("shape").GetString());
+        Assert.Equal(
+            ["rows", "count"],
+            row.GetProperty("terminals")
+                .EnumerateArray()
+                .Select(item => item.GetString()));
+    }
+
+    [Fact]
+    public async Task
+        PackageCommand_ExactLibraryInfoDetailedDiscoveryDeclaresScalar()
+    {
+        string package =
+            $"Definitely.Missing.Package.{Guid.NewGuid():N}";
+
+        var result = await RunAppAsync(
+            "package",
+            package,
+            "--library",
+            "Missing.dll",
+            "-D",
+            SectionNames.LibraryInfo,
+            "--details",
+            "--json",
+            "--tips",
+            "q");
+
+        Assert.Equal(0, result.Exit);
+        Assert.Empty(result.Error);
+        using JsonDocument document =
+            JsonDocument.Parse(result.Output);
+        JsonElement row =
+            Assert.Single(document.RootElement.EnumerateArray());
+        Assert.Equal(
+            "scalar",
+            row.GetProperty("shape").GetString());
+        Assert.Empty(
+            row.GetProperty("terminals").EnumerateArray());
+    }
+
+    [Fact]
+    public async Task
+        PackageCommand_AllLibraries_OtherDetailedDiscoveryFailsVisibly()
+    {
+        string package =
+            $"Definitely.Missing.Package.{Guid.NewGuid():N}";
+
+        var result = await RunAppAsync(
+            "package",
+            package,
+            "--library",
+            "-D",
+            "Symbols",
+            "--details",
+            "--json",
+            "--tips",
+            "q");
+
+        Assert.Equal(1, result.Exit);
+        Assert.Empty(result.Output);
+        Assert.Contains(
+            "Detailed aggregate Library discovery currently supports only "
+                + $"'{SectionNames.LibraryInfo}'",
+            result.Error);
+        Assert.DoesNotContain(package, result.Error);
+    }
+
+    [Fact]
+    public async Task PackageCommand_DetailsRequiresDiscovery()
+    {
+        var result = await RunAppAsync(
+            "package",
+            "Anything",
+            "--library",
+            "--details",
+            "--tips",
+            "q");
+
+        Assert.Equal(1, result.Exit);
+        Assert.Empty(result.Output);
+        Assert.Contains(
+            "--details requires -D/--discover",
+            result.Error);
+    }
+
+    [Fact]
+    public async Task
+        PackageCommand_AllLibraries_MixedJsonLibraryRowsFailVisibly()
+    {
+        var (packagePath, tempDir) = CreateLocalLibPackage();
+        try
+        {
+            var result = await RunAppAsync(
+                "package",
+                packagePath,
+                "--library",
+                "-S",
+                $"{SectionNames.LibraryInfo},Symbols",
+                "--rows",
+                "1",
+                "--json",
+                "--tips",
+                "q");
+
+            Assert.Equal(1, result.Exit);
+            Assert.Empty(result.Output);
+            Assert.Contains(
+                "Aggregate JSON row selection with Library Info requires "
+                    + "exactly one selected section",
+                result.Error);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task PackageCommand_AllLibraries_TfmAllIncludesEveryTfmLibrary()
     {
         var (packagePath, tempDir) = CreateLocalLibPackage();

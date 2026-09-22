@@ -924,6 +924,9 @@ public static class StructuralViewRegistry
                     catalog.Pipeline.GetListedCategoryDoors();
                 catalogHiddenSections =
                     catalog.Pipeline.GetCatalogHiddenSections();
+                outputCapabilities =
+                    LibraryOutputCapabilities
+                        .AggregateCardinalityCatalog;
                 sectionCardinalities =
                     LibrarySectionCardinality.AggregateDeclarations;
                 break;
@@ -1076,6 +1079,19 @@ public static class StructuralViewRegistry
                     : projection.SectionCardinalities;
         if (request.Details)
         {
+            if (route.Catalog
+                    == InspectionCatalogIdentity.LibraryAggregate
+                && (request.Discover is not [var section]
+                    || !section.Equals(
+                        SectionNames.LibraryInfo,
+                        StringComparison.OrdinalIgnoreCase)))
+            {
+                CommandError.Write(
+                    "Detailed aggregate Library discovery currently supports "
+                    + $"only '{SectionNames.LibraryInfo}'.");
+                return 1;
+            }
+
             if (request.Discover is { Length: > 1 })
             {
                 CommandError.Write(

@@ -141,7 +141,7 @@ public partial class PackageCommand
 
         if (packageLibraryMode
             && options.Discover is not null
-            && options.Schema)
+            && (options.Schema || options.DiscoverDetails))
         {
             if (GetLibraryInspectionModeError(
                     options,

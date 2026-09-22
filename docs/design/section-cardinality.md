@@ -220,9 +220,12 @@ The pattern stages through focused owners rather than sweeping every section:
    independently declared library-row inventory. The legacy `--tfm all`
    package gesture remains undeclared until its owner defines one semantic row
    unit; its existing Count and Rows behavior does not inherit the exact scalar
-   declaration. Focused successor slices then move the preserved overview
-   content through one host-neutral operation and envelope in both the CLI and
-   Inspect Web.
+   declaration. Aggregate detailed Discovery is initially limited to
+   `Library Info`, whose supported formats and Rows/Count terminals are known.
+   Mixed aggregate JSON plus semantic Rows fails visibly because the legacy
+   whole-inspection JSON shape cannot preserve independent section row windows.
+   Focused successor slices then move the preserved overview content through
+   one host-neutral operation and envelope in both the CLI and Inspect Web.
 4. Under #8235 and #8278, the Library Type inventory owner publishes exact
    Count, stable row identity, order, population binding, and producer-reaching
    continued Rows through both hosts. A real production asset must require at
@@ -247,7 +250,7 @@ consumer before implementation.
 | `Type_ListingKindCount_MatchesMetadataInventory` and the compact Type Count gates named in [Assembly inspection query](assembly-inspection-query.md#compact-type-inventory-cardinality) | One inventory's optimized Count and Rows retain the same population and MVID binding. | Verified by merged #8221. |
 | `SectionCapabilitiesPairRowsAndCount`, `Cardinality_RoundTripsForScalarAndInventoryDiscovery`, and `SectionCardinality_ProjectsBesideFormatCapabilities` | Resource-free declarations expose Rows and Count together or neither, including direct .NET and structural-discovery projections, without changing existing format capabilities. | Verified by merged #8270. |
 | `Cardinality_IsScalarWithoutTerminals`, `LibraryCommand_DiscoverDetails_LibraryInfoDeclaresScalar`, and `LibraryCommand_LibraryInfoRejectsSemanticTerminalBeforeAcquisition` | The Library overview owner declares scalar shape, exact Library Discovery publishes it, and Count or Rows fails before direct or package acquisition. | Implemented by the #8228 declaration/admission slice; unverified until that slice lands. |
-| `AggregateLibraryInfoCountsLibraries` and `LibraryStructuralRoutesDeclareSubjectScopedCardinality` | An all-libraries survey counts library rows rather than properties, supports row windows, and preserves its independently declared aggregate scope. | Implemented by the #8228 declaration/admission slice; unverified until that slice lands. |
+| `AggregateLibraryInfoCountsLibraries`, `PackageCommand_AllLibraries_LibraryInfoDetailedDiscoveryDeclaresInventory`, `PackageCommand_AllLibraries_MixedJsonLibraryRowsFailVisibly`, and `LibraryStructuralRoutesDeclareSubjectScopedCardinality` | An all-libraries survey counts library rows rather than properties, supports row windows, publishes its Rows/Count terminals, and fails visibly where a legacy mixed JSON shape cannot preserve independent section windows. | Implemented by the #8228 declaration/admission slice; unverified until that slice lands. |
 | Continued Type-inventory host gates named by #8278 | CLI and Inspect Web obtain exact Count and completely drained continued Rows from one immutable Library population; a real production asset requires continuation. | Unverified until #8235 and #8278 land. |
 | Continued Source-line host gates named by #8281 | CLI and Inspect Web preserve scalar document facts while exact Count and completely drained continued Rows observe one immutable ordered line population. | Unverified until #8281 lands. |
 | Compare generation gate named by #8198 | Inspect Web obtains Count and continued Rows from one immutable comparison generation and rejects stale or incompatible population bindings. | Unverified until the later Compare adoption lands. |
