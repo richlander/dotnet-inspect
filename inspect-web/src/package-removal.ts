@@ -21,8 +21,9 @@ export function packageRemoveButton(
   identity: string,
   label: string,
   escapeHtml: (value: unknown) => string,
+  disabled = false,
 ): string {
-  return `<button type="button" class="package-row-remove" ${attribute}="${escapeHtml(identity)}" aria-label="${escapeHtml(label)}" title="${escapeHtml(label)}"><span aria-hidden="true">&times;</span></button>`;
+  return `<button type="button" class="package-row-remove" ${attribute}="${escapeHtml(identity)}" aria-label="${escapeHtml(label)}" title="${escapeHtml(label)}"${disabled ? " disabled" : ""}><span aria-hidden="true">&times;</span></button>`;
 }
 
 export function createPackageRemoval<T extends RemoveWorkspacePackageInput>(

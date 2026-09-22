@@ -214,13 +214,13 @@ test("workspace UI routes replacements and restore notices through bounded paths
     /onClose: closeWorkspacePackage/);
   assert.match(
     appSource,
-    /onSelect: selectRetainedWorkspace,\s+onActivateWorkspace: selectRetainedWorkspace,\s+onDeleteWorkspace: deleteRetainedWorkspace,\s+onActivate: action =>\s+observeAction\(\s+\(\) => activateWorkspacePackageOccurrence\(action\)/);
+    /onSelect: selectRetainedWorkspace,\s+onActivateWorkspace: selectRetainedWorkspace,\s+onDeleteWorkspace: deleteRetainedWorkspace,\s+onProductPackageAction: navigationId => observeAsync\(\s+activateRetainedPackageAction\(navigationId\),\s+"Activating retained Package",\s+\),\s+onProductPlatformAction: navigationId => observeAsync\(\s+activateRetainedPlatformAction\(navigationId\),\s+"Activating retained Platform",\s+\),\s+onActivate: action =>\s+observeAction\(\s+\(\) => activateWorkspacePackageOccurrence\(action\)/);
   assert.match(
     appSource,
     /function selectRetainedWorkspace\(workspaceId: string\): void \{\s*navigationSequence\.begin\(\)/);
   assert.match(
     appSource,
-    /function deleteRetainedWorkspace\(workspaceId: string\): void \{\s*try \{\s*navigationSequence\.begin\(\)/);
+    /function deleteRetainedWorkspace\(workspaceId: string\): void \{\s*if \(retainedWorkspaceActivation\?\.state\.definitions\.some\([\s\S]*deleteManagedRetainedWorkspace\(workspaceId\),\s+"Deleting retained Workspace",\s+\);\s+return;\s+\}\s+try \{\s*navigationSequence\.begin\(\)/);
   assert.match(
     appSource,
     /onScopeSelect: target => \{[\s\S]*if \(target === "workspace"\) \{\s*navigationSequence\.begin\(\);/);
