@@ -3,6 +3,7 @@ import { defineConfig } from "vite";
 const facadeModules = [
   "/inspect-web-host.js",
   "/inspect-web-package.js",
+  "/inspect-web-library.js",
   "/inspect-web-metadata.js",
   "/inspect-web-analysis.js",
   "/inspect-web-source.js",

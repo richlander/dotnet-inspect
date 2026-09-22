@@ -969,6 +969,54 @@ represent incompatible framework or runtime contexts.
 
 The artifact set therefore owns content lifetime but not assembly grouping.
 
+### Embedded managed-Library inspection
+
+One focused operation inspects a caller-supplied immutable managed image as a
+standalone Library. Browser upload is the first production consumer, but the
+operation is host-neutral: its request carries a declared file name, immutable
+bytes, an explicit retained-image bound, and API-projection limits. It carries
+no path, package coordinate, project coordinate, or platform coordinate.
+The declared name is bounded inert display and provenance text; it is not
+normalized or interpreted as a filesystem path, and input that cannot fit the
+declared inert bound is rejected rather than silently truncated.
+
+The operation:
+
+1. rejects empty or over-bound input before descriptor construction;
+2. assigns `AssemblyResolutionProvenance.Embedded` using the declared name and
+   a SHA-256 digest of the supplied bytes;
+3. admits exactly one assembly descriptor, with native images, malformed
+   managed images, netmodules, and Windows Metadata remaining typed
+   rejections;
+4. creates one transient `InspectionWorkspace` and one closed-world
+   `AssemblyContextGroup` containing only that descriptor;
+5. executes the existing bounded assembly-context API-surface query; and
+6. disposes the workspace before returning a resource-free
+   `InspectionEnvelope<EmbeddedLibraryInspectionResult>`.
+
+The returned Content preserves the declared name, digest, byte length,
+embedded provenance, assembly identity, API surface, accessibility buckets,
+completeness, and typed failure. Share is non-projectable because the bytes
+are intentionally session-local. Inspection failures remain visible as
+envelope diagnostics.
+A successful result never implies sibling discovery, dependency acquisition,
+platform closure, package identity, local-file identity, source or PDB
+acquisition, persistence, or restoration.
+
+The Browser host rejects empty input and bounds one upload at 32 MiB before
+materialization and managed dispatch, then reasserts both constraints inside
+the operation. The UI may use the declared bounds to avoid an unnecessary
+browser allocation, but the product operation is the enforcement gate. If
+Browser DTO lowering exceeds its independent retained-text bound or the
+ordinary Worker's serialized-character or collection-entry bound, the Browser
+facade converts that truncation to the same typed `ProjectionTruncated`
+rejection shape; it never serializes partial Library content as available.
+`EmbeddedLibraryInspectionTests` gates
+managed-image projection, upload provenance, byte bounds, native and malformed
+rejection, netmodule rejection, and Windows Metadata rejection. Inspect Web's
+Browser boundary and TypeScript Open tests gate the production call sites and
+Browser transport-truncation rejection.
+
 ### Explicit local/designated/platform assembly context
 
 One focused context shape composes:

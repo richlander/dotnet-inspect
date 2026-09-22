@@ -100,6 +100,8 @@ public sealed record PdbTypeSourceInspection(
             ? PdbTypeSourceOutcome.Complete
             : PdbTypeSourceOutcome.Unspecified;
 
+    public bool? PortablePdbAvailable { get; init; }
+
     public PdbTypeSourceUnitScope? Scope { get; init; }
     public PdbTypeSourceMappingStrength? Strength { get; init; }
     public bool IsPartial { get; init; }

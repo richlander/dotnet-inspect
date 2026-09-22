@@ -3,7 +3,7 @@ using TsJsExport;
 namespace DotnetInspect.Web;
 
 /// <summary>
-/// The compiled production facade recipe. Its roots are the exact seven managed export assemblies
+/// The compiled production facade recipe. Its roots are the exact eight managed export assemblies
 /// the browser application composes; <c>ts-jsexport --context</c> executes it once and emits one
 /// TypeScript module per root.
 /// </summary>
@@ -15,6 +15,7 @@ namespace DotnetInspect.Web;
 /// </remarks>
 [JsExportRoot(typeof(InspectionEngine))]
 [JsExportRoot(typeof(Interop.Package.PackageExports))]
+[JsExportRoot(typeof(Interop.Library.LibraryExports))]
 [JsExportRoot(typeof(Interop.Metadata.MetadataExports))]
 [JsExportRoot(typeof(Interop.Analysis.AnalysisExports))]
 [JsExportRoot(typeof(Interop.Source.SourceExports))]
