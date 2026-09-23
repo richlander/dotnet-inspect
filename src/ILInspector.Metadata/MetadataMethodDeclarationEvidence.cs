@@ -203,9 +203,19 @@ internal sealed class MetadataMethodDeclarationEvidenceOperation
                 MetadataMethodDeclarationMechanism.RowRead, methodHandle);
             MethodDefinition definition = Read(site,
                 () => _reader.GetMethodDefinition(methodHandle));
-            int relativeVirtualAddress = Read(
+            (
+                MethodAttributes attributes,
+                MethodImplAttributes implementationAttributes,
+                int relativeVirtualAddress,
+                StringHandle nameHandle,
+                BlobHandle signatureBlob) = Read(
                 site,
-                () => definition.RelativeVirtualAddress);
+                () => (
+                    definition.Attributes,
+                    definition.ImplAttributes,
+                    definition.RelativeVirtualAddress,
+                    definition.Name,
+                    definition.Signature));
             Charge(site with { Mechanism =
                 MetadataMethodDeclarationMechanism.DirectOwnership },
                 MetadataOperationDimension.RelationshipEdges);
@@ -238,7 +248,6 @@ internal sealed class MetadataMethodDeclarationEvidenceOperation
                 MetadataMethodDeclarationStage.SignatureDecode,
                 MetadataMethodDeclarationMechanism.SignatureDecode,
                 methodHandle);
-            BlobHandle signatureBlob = Read(signatureSite, () => definition.Signature);
             Charge(signatureSite, MetadataOperationDimension.SignatureBytes,
                 Read(signatureSite, () => _reader.GetBlobReader(signatureBlob).Length));
             SignatureBlobGuard.CompleteValidationKind validation = Read(
@@ -282,7 +291,7 @@ internal sealed class MetadataMethodDeclarationEvidenceOperation
                 MetadataMethodDeclarationStage.ResultRetention,
                 MetadataMethodDeclarationMechanism.TextRetention,
                 methodHandle);
-            string name = ReadName(definition.Name, retentionSite);
+            string name = ReadName(nameHandle, retentionSite);
             InertString inertName = Retain(name, retentionSite);
             ImmutableArray<MetadataGenericParameterDeclarationEvidence>
                 typeParameters = ReadGenerics(
@@ -358,8 +367,9 @@ internal sealed class MetadataMethodDeclarationEvidenceOperation
                 MetadataParameterDeclarationEvidence>(rows.Length - 1);
             for (int i = 1; i < rows.Length; i++)
                 parameters.Add(rows[i] ?? noRow);
-            bool special = (definition.Attributes & MethodAttributes.SpecialName) != 0;
-            bool runtimeSpecial = (definition.Attributes & MethodAttributes.RTSpecialName) != 0;
+            bool special = (attributes & MethodAttributes.SpecialName) != 0;
+            bool runtimeSpecial =
+                (attributes & MethodAttributes.RTSpecialName) != 0;
             MetadataConstructorCandidate constructor =
                 special && runtimeSpecial
                     ? name switch
@@ -371,7 +381,7 @@ internal sealed class MetadataMethodDeclarationEvidenceOperation
                     : MetadataConstructorCandidate.None;
             var identity = ProjectSignature(signature, retentionSite);
             bool finalizer = name == "Finalize"
-                && (definition.Attributes & MethodAttributes.Static) == 0
+                && (attributes & MethodAttributes.Static) == 0
                 && signature.Header.IsInstance
                 && signature.ParameterTypes.IsEmpty
                 && signature.ReturnType is PrimitiveTypeNode
@@ -381,8 +391,8 @@ internal sealed class MetadataMethodDeclarationEvidenceOperation
                 MetadataOperationWorkKind.MethodDeclarationPublication);
             token.ThrowIfCancellationRequested();
             return new MetadataMethodDeclarationResult.Posted(
-                new(type, method, inertName, definition.Attributes,
-                    definition.ImplAttributes, relativeVirtualAddress != 0,
+                new(type, method, inertName, attributes,
+                    implementationAttributes, relativeVirtualAddress != 0,
                     identity, typeParameters, methodParameters,
                     rows[0] ?? noRow, parameters.MoveToImmutable(),
                     constructor, IsOperatorCandidate(name, special),

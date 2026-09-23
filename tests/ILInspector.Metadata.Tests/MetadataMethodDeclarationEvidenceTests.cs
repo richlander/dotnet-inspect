@@ -272,6 +272,26 @@ public sealed class MetadataMethodDeclarationEvidenceTests
     }
 
     [Fact]
+    public void WideMethodNameIndexReturnsTypedRejection()
+    {
+        using var fixture = Fixture.Create(
+            invalidWideMethodName: true);
+
+        var rejected = Assert.IsType<MetadataMethodDeclarationResult.Rejected>(
+            Run(fixture));
+
+        Assert.Equal(
+            MetadataMethodDeclarationFailureReason.MalformedMetadata,
+            rejected.Failure.Reason);
+        Assert.Equal(
+            MetadataMethodDeclarationStage.MethodDefinitionRead,
+            rejected.Failure.Stage);
+        Assert.Equal(
+            HandleKind.MethodDefinition,
+            rejected.Failure.RelevantHandle.Kind);
+    }
+
+    [Fact]
     public void MalformedConstraintRejectsTheWholePost()
     {
         using var fixture = Fixture.Create(generic: true,
@@ -775,6 +795,7 @@ public sealed class MetadataMethodDeclarationEvidenceTests
             bool malformedParameterRange = false,
             bool decreasingParameterRange = false,
             bool highBitMethodRva = false,
+            bool invalidWideMethodName = false,
             bool nestedOwner = false,
             bool invalidAncestorGenericIndex = false,
             bool unsortedCustomAttributes = false,
@@ -790,6 +811,11 @@ public sealed class MetadataMethodDeclarationEvidenceTests
             metadata.AddAssembly(metadata.GetOrAddString("MethodPost"),
                 new Version(1, 0), default, default, 0,
                 AssemblyHashAlgorithm.None);
+            if (invalidWideMethodName)
+            {
+                _ = metadata.GetOrAddString(
+                    new string('W', ushort.MaxValue + 1));
+            }
             if (longReturnTypeName)
             {
                 AssemblyReferenceHandle scope =
@@ -995,6 +1021,12 @@ public sealed class MetadataMethodDeclarationEvidenceTests
                         sizeof(uint)),
                     0x8000_0000u);
             }
+            if (invalidWideMethodName)
+            {
+                PatchMethodDefinitionNameToInvalidWideString(
+                    imageBytes,
+                    method);
+            }
             if (invalidConstraintCodedIndex)
             {
                 using var probe = new PEReader(
@@ -1112,6 +1144,29 @@ public sealed class MetadataMethodDeclarationEvidenceTests
             return new(path, MetadataTypeDefinitionAddress.FromHandle(reader, type),
                 MetadataTypeDefinitionAddress.FromHandle(reader, other),
                 MetadataMethodAddress.Create(reader, method));
+        }
+
+        static void PatchMethodDefinitionNameToInvalidWideString(
+            byte[] image,
+            MethodDefinitionHandle handle)
+        {
+            using var pe = new PEReader(
+                new MemoryStream(image, writable: false));
+            MetadataReader reader = pe.GetMetadataReader();
+            Assert.True(
+                reader.GetHeapSize(HeapIndex.String)
+                    > ushort.MaxValue);
+            int offset =
+                pe.PEHeaders.MetadataStartOffset
+                + reader.GetTableMetadataOffset(TableIndex.MethodDef)
+                + ((MetadataTokens.GetRowNumber(handle) - 1)
+                    * reader.GetTableRowSize(TableIndex.MethodDef))
+                + sizeof(uint)
+                + sizeof(ushort)
+                + sizeof(ushort);
+            BinaryPrimitives.WriteUInt32LittleEndian(
+                image.AsSpan(offset, sizeof(uint)),
+                uint.MaxValue);
         }
 
         static void AddMarker(MetadataBuilder metadata, EntityHandle parent,
