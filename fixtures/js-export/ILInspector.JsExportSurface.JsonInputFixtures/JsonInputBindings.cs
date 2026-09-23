@@ -14,4 +14,12 @@ namespace ILInspector.JsExportSurface.JsonInputFixtures;
     nameof(JsonInputExports.WidgetMatchesAudit),
     "widgetJson",
     typeof(JsonInputWidget))]
+[JsExportJsonInput(
+    nameof(JsonInputExports.WidgetsMatch),
+    "leftJson",
+    typeof(JsonInputWidget))]
+[JsExportJsonInput(
+    nameof(JsonInputExports.WidgetsMatch),
+    "rightJson",
+    typeof(JsonInputWidget))]
 public static partial class JsonInputExports;

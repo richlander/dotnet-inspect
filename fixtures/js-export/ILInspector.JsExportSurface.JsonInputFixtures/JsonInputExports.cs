@@ -49,6 +49,20 @@ public static partial class JsonInputExports
     }
 
     [JSExport]
+    public static bool WidgetsMatch(
+        string leftJson,
+        string rightJson)
+    {
+        JsonInputWidget left = JsonSerializer.Deserialize(
+            leftJson,
+            JsonInputJsonContext.Default.JsonInputWidget)!;
+        JsonInputWidget right = JsonSerializer.Deserialize(
+            rightJson,
+            JsonInputJsonContext.Default.JsonInputWidget)!;
+        return left == right;
+    }
+
+    [JSExport]
     public static byte[] EchoBytes(byte[] value) => value;
 
     [JSExport]
@@ -66,6 +80,24 @@ public sealed record JsonInputWidget(string Name);
 
 public sealed record JsonInputAudit(string Name);
 
+public sealed record JsonInputAmbiguous(string Name);
+
+public sealed record JsonInputSerializationOnly(string Name);
+
 [JsonSerializable(typeof(JsonInputWidget))]
 [JsonSerializable(typeof(JsonInputAudit))]
 public sealed partial class JsonInputJsonContext : JsonSerializerContext;
+
+[JsonSerializable(typeof(JsonInputAmbiguous))]
+public sealed partial class JsonInputAmbiguousContextOne :
+    JsonSerializerContext;
+
+[JsonSerializable(typeof(JsonInputAmbiguous))]
+public sealed partial class JsonInputAmbiguousContextTwo :
+    JsonSerializerContext;
+
+[JsonSourceGenerationOptions(
+    GenerationMode = JsonSourceGenerationMode.Serialization)]
+[JsonSerializable(typeof(JsonInputSerializationOnly))]
+public sealed partial class JsonInputSerializationOnlyContext :
+    JsonSerializerContext;

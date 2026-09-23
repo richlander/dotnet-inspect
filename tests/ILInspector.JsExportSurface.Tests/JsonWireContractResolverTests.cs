@@ -1243,6 +1243,74 @@ public sealed class JsonWireContractResolverTests
     }
 
     [Fact]
+    public void Build_AllowsDistinctParametersToShareDeclaredWireType()
+    {
+        ILInspector.JsExportSurface.JsExportSurface surface =
+            BuildJsonInputFixtureSurfaceWithWireContracts();
+
+        JsExportFunction function = Assert.Single(
+            surface.Functions,
+            candidate => candidate.Name
+                == nameof(JsonInputExports.WidgetsMatch));
+
+        Assert.Collection(
+            function.ParameterWireBindings,
+            binding =>
+            {
+                Assert.Equal(0, binding.ParameterIndex);
+                Assert.Equal(
+                    typeof(JsonInputWidget).FullName,
+                    binding.WireType);
+            },
+            binding =>
+            {
+                Assert.Equal(1, binding.ParameterIndex);
+                Assert.Equal(
+                    typeof(JsonInputWidget).FullName,
+                    binding.WireType);
+            });
+    }
+
+    [Fact]
+    public void Build_EqualDeclaredAndInferredInputEmitIdenticalTypeScript()
+    {
+        var (apiSurface, bodyIndex) =
+            ExtractFixtureSurfaceWithWireContracts(
+                typeof(JsonInputExports).Assembly.Location);
+        ApiType exports = JsonInputExportsType(apiSurface);
+        ApiJsExportJsonInputDeclaration declaration =
+            Assert.Single(
+                exports.JsExportJsonInputDeclarations,
+                candidate => candidate.MethodName
+                    == nameof(JsonInputExports.RenameWidget));
+        exports.JsExportJsonInputDeclarations.Clear();
+        exports.JsExportJsonInputDeclarations.Add(declaration);
+
+        ILInspector.JsExportSurface.JsExportSurface declared =
+            JsExportSurfaceBuilder.Build(apiSurface, bodyIndex);
+        exports.JsExportJsonInputDeclarations.Clear();
+        ILInspector.JsExportSurface.JsExportSurface inferred =
+            JsExportSurfaceBuilder.Build(apiSurface, bodyIndex);
+        declared = SelectFunction(
+            declared,
+            nameof(JsonInputExports.RenameWidget));
+        inferred = SelectFunction(
+            inferred,
+            nameof(JsonInputExports.RenameWidget));
+
+        Assert.Equal(
+            DtsEmitter.Emit(inferred),
+            DtsEmitter.Emit(declared));
+        Assert.Equal(
+            TypeScriptFacadeEmitter.Emit(
+                inferred,
+                "./dotnet.js"),
+            TypeScriptFacadeEmitter.Emit(
+                declared,
+                "./dotnet.js"));
+    }
+
+    [Fact]
     public void Extract_RetainsTypedJsonInputDeclarations()
     {
         var (apiSurface, _) =
@@ -1250,24 +1318,49 @@ public sealed class JsonWireContractResolverTests
                 typeof(JsonInputExports).Assembly.Location);
         ApiType exports = JsonInputExportsType(apiSurface);
 
-        Assert.Collection(
-            exports.JsExportJsonInputDeclarations
-                .OrderBy(declaration => declaration.MethodName),
-            declaration => AssertJsonInputDeclaration(
-                declaration,
-                nameof(JsonInputExports.RenameNormalizedWidget),
-                "widgetJson",
-                nameof(JsonInputWidget)),
-            declaration => AssertJsonInputDeclaration(
-                declaration,
-                nameof(JsonInputExports.RenameWidget),
-                "widgetJson",
-                nameof(JsonInputWidget)),
-            declaration => AssertJsonInputDeclaration(
-                declaration,
-                nameof(JsonInputExports.WidgetMatchesAudit),
-                "widgetJson",
-                nameof(JsonInputWidget)));
+        Assert.Equal(5, exports.JsExportJsonInputDeclarations.Count);
+        AssertJsonInputDeclaration(
+            Assert.Single(
+                exports.JsExportJsonInputDeclarations,
+                declaration => declaration.MethodName
+                    == nameof(JsonInputExports.RenameNormalizedWidget)),
+            nameof(JsonInputExports.RenameNormalizedWidget),
+            "widgetJson",
+            nameof(JsonInputWidget));
+        AssertJsonInputDeclaration(
+            Assert.Single(
+                exports.JsExportJsonInputDeclarations,
+                declaration => declaration.MethodName
+                    == nameof(JsonInputExports.RenameWidget)),
+            nameof(JsonInputExports.RenameWidget),
+            "widgetJson",
+            nameof(JsonInputWidget));
+        AssertJsonInputDeclaration(
+            Assert.Single(
+                exports.JsExportJsonInputDeclarations,
+                declaration => declaration.MethodName
+                    == nameof(JsonInputExports.WidgetMatchesAudit)),
+            nameof(JsonInputExports.WidgetMatchesAudit),
+            "widgetJson",
+            nameof(JsonInputWidget));
+        AssertJsonInputDeclaration(
+            Assert.Single(
+                exports.JsExportJsonInputDeclarations,
+                declaration => declaration.MethodName
+                    == nameof(JsonInputExports.WidgetsMatch)
+                    && declaration.ParameterName == "leftJson"),
+            nameof(JsonInputExports.WidgetsMatch),
+            "leftJson",
+            nameof(JsonInputWidget));
+        AssertJsonInputDeclaration(
+            Assert.Single(
+                exports.JsExportJsonInputDeclarations,
+                declaration => declaration.MethodName
+                    == nameof(JsonInputExports.WidgetsMatch)
+                    && declaration.ParameterName == "rightJson"),
+            nameof(JsonInputExports.WidgetsMatch),
+            "rightJson",
+            nameof(JsonInputWidget));
     }
 
     [Fact]
@@ -1423,6 +1516,73 @@ public sealed class JsonWireContractResolverTests
     }
 
     [Fact]
+    public void Build_RejectsAmbiguousJsonInputSerializerOwnership()
+    {
+        var (apiSurface, bodyIndex) =
+            ExtractFixtureSurfaceWithWireContracts(
+                typeof(JsonInputExports).Assembly.Location);
+        ApiType exports = JsonInputExportsType(apiSurface);
+        ApiJsExportJsonInputDeclaration declaration =
+            Assert.Single(
+                exports.JsExportJsonInputDeclarations,
+                candidate => candidate.MethodName
+                    == nameof(JsonInputExports.RenameWidget));
+        ApiTypeShape ambiguousShape =
+            JsonSerializableShape(
+                apiSurface,
+                nameof(JsonInputAmbiguous));
+        exports.JsExportJsonInputDeclarations.Clear();
+        exports.JsExportJsonInputDeclarations.Add(
+            declaration with { WireType = ambiguousShape });
+
+        UnsupportedJsExportSurfaceException exception =
+            Assert.Throws<UnsupportedJsExportSurfaceException>(
+                () => JsExportSurfaceBuilder.Build(
+                    apiSurface,
+                    bodyIndex));
+
+        Assert.Contains(
+            "ambiguous serializer contracts",
+            exception.Message,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Build_RejectsSerializationOnlyJsonInputContract()
+    {
+        var (apiSurface, bodyIndex) =
+            ExtractFixtureSurfaceWithWireContracts(
+                typeof(JsonInputExports).Assembly.Location);
+        ApiType exports = JsonInputExportsType(apiSurface);
+        ApiJsExportJsonInputDeclaration declaration =
+            Assert.Single(
+                exports.JsExportJsonInputDeclarations,
+                candidate => candidate.MethodName
+                    == nameof(JsonInputExports.RenameWidget));
+        ApiTypeShape serializationOnlyShape =
+            JsonSerializableShape(
+                apiSurface,
+                nameof(JsonInputSerializationOnly));
+        exports.JsExportJsonInputDeclarations.Clear();
+        exports.JsExportJsonInputDeclarations.Add(
+            declaration with
+            {
+                WireType = serializationOnlyShape,
+            });
+
+        UnsupportedJsExportSurfaceException exception =
+            Assert.Throws<UnsupportedJsExportSurfaceException>(
+                () => JsExportSurfaceBuilder.Build(
+                    apiSurface,
+                    bodyIndex));
+
+        Assert.Contains(
+            "no authenticated deserialization-capable serializer contract",
+            exception.Message,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void Build_RejectsDeclaredAndObservedJsonInputConflict()
     {
         var (apiSurface, bodyIndex) =
@@ -1493,6 +1653,42 @@ public sealed class JsonWireContractResolverTests
             apiSurface.Types,
             type => type.FullName
                 == typeof(JsonInputExports).FullName);
+
+    private static ApiTypeShape JsonSerializableShape(
+        ApiSurface apiSurface,
+        string typeName)
+    {
+        ApiJsonSerializableRoot root =
+            apiSurface.Types.SelectMany(type =>
+                    type.JsonSerializableRoots)
+                .First(root =>
+                    root.Type?.Definition?.DefinitionName?.Segments
+                        is [var candidate]
+                    && candidate == typeName);
+        return Assert.IsType<ApiTypeShape>(root.Type);
+    }
+
+    private static ILInspector.JsExportSurface.JsExportSurface SelectFunction(
+        ILInspector.JsExportSurface.JsExportSurface surface,
+        string functionName) =>
+        new()
+        {
+            AssemblyIdentity = surface.AssemblyIdentity,
+            Functions =
+            [
+                Assert.Single(
+                    surface.Functions,
+                    function => function.Name == functionName),
+            ],
+            Records = surface.Records,
+            Enums = surface.Enums,
+            Unions = surface.Unions,
+            PolymorphicUnions = surface.PolymorphicUnions,
+            AllTypes = surface.AllTypes,
+            ReferencedTypeDefinitions =
+                surface.ReferencedTypeDefinitions,
+            WireDirections = surface.WireDirections,
+        };
 
     private static void AssertJsonInputDeclaration(
         ApiJsExportJsonInputDeclaration declaration,
