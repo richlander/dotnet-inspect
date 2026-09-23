@@ -4132,9 +4132,7 @@ public sealed partial class CSharpPrinter
             coalesceTarget = EffectiveJoinTarget(integerTarget, [co.Right]);
             primitiveCoercionSourceType =
                 coalesceTarget is not null
-                && EffectiveType(co) is { } nodeType
-                && !nodeType.Equals(coalesceTarget)
-                && CanRenderPrimitiveJoinForTarget(coalesceTarget, nodeType, [co.Right])
+                && co.PrimitiveJoinArmSource(coalesceTarget) is { } nodeType
                     ? nodeType
                     : null;
         }
