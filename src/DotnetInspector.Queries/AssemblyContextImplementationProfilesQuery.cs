@@ -99,53 +99,48 @@ public static class AssemblyContextImplementationProfilesQuery
         AssemblyImageSnapshot snapshot,
         ImplementationProfilePublicMembers publicMembers)
     {
-        LibraryBodyIndex? index = null;
-        try
-        {
-            var resolver = AssemblyContextAnalysisSource.Resolver(
-                group,
-                subject);
-            index = LibraryBodyIndex.OpenFromPrefetchedImage(
+        var resolver = AssemblyContextAnalysisSource.Resolver(
+            group,
+            subject);
+        LibraryBodyAnalysisExecution analysis =
+            LibraryBodyAnalysisService.ExecuteImage(
                 AssemblyContextAnalysisSource.Name(subject),
                 snapshot.Content,
-                LibraryBodyAnalysisFeatures.ImplementationProfiles,
+                LibraryBodyAnalysisRequest.Create(
+                    LibraryBodyAnalysisFeatures.ImplementationProfiles),
                 resolver);
 
-            ImplementationProfilesResult.Available profiles =
-                ImplementationProfilesQuery.Execute(index) switch
-                {
-                    ImplementationProfilesResult.Available available =>
-                        available,
-                    ImplementationProfilesResult.NoMetadata =>
-                        throw new InspectionQueryException(
-                            $"Assembly '{subject.Identity.Name}' has no metadata "
-                                + "for implementation-profile inspection."),
-                    ImplementationProfilesResult.Failed failed =>
-                        throw new InspectionQueryException(
-                            $"Implementation-profile inspection failed for "
-                                + $"'{subject.Identity.Name}'.",
-                            failed.Error),
-                    _ => throw new InvalidOperationException(
-                        "Unknown implementation-profile query result."),
-                };
+        ImplementationProfilesResult.Available profiles =
+            ImplementationProfilesQuery.Execute(
+                analysis.ImplementationProfiles) switch
+            {
+                ImplementationProfilesResult.Available available =>
+                    available,
+                ImplementationProfilesResult.NoMetadata =>
+                    throw new InspectionQueryException(
+                        $"Assembly '{subject.Identity.Name}' has no metadata "
+                            + "for implementation-profile inspection."),
+                ImplementationProfilesResult.Failed failed =>
+                    throw new InspectionQueryException(
+                        $"Implementation-profile inspection failed for "
+                            + $"'{subject.Identity.Name}'.",
+                        failed.Error),
+                _ => throw new InvalidOperationException(
+                    "Unknown implementation-profile query result."),
+            };
 
-            ImmutableArray<AssemblyImplementationProfileMember>
-                attributedProfiles = AttributeProfiles(
-                    profiles.Profiles,
-                    publicMembers.ByDeclaredBodyToken);
-            var result = new AssemblyImplementationProfileInspection(
-                attributedProfiles,
-                profiles.OverloadRelationships,
-                profiles.GeneratedFrameworkTypes,
-                profiles.Diagnostics,
-                publicMembers.InspectionFailures);
-            resolver.ValidateForPublication();
-            return result;
-        }
-        finally
-        {
-            index?.ReleaseCallGraphCaches();
-        }
+        ImmutableArray<AssemblyImplementationProfileMember>
+            attributedProfiles = AttributeProfiles(
+                profiles.Profiles,
+                publicMembers.ByDeclaredBodyToken);
+        var result = new AssemblyImplementationProfileInspection(
+            attributedProfiles,
+            profiles.OverloadRelationships,
+            profiles.GeneratedFrameworkTypes,
+            profiles.Diagnostics,
+            publicMembers.InspectionFailures);
+        resolver.ValidateForPublication();
+        return result;
     }
 
     static ImplementationProfilePublicMembers ProjectPublicMembers(

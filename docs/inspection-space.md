@@ -961,13 +961,15 @@ failures, and unbounded query cost.
 
 `AssemblyContextImplementationProfilesQuery` is the participant-scoped
 whole-assembly implementation-profile seam. It borrows one selected
-participant's retained snapshot, opens one implementation-profile-only body
-index, and preserves every physical profile, exact overload relationship,
+participant's retained snapshot, runs one focused implementation-profile
+Analysis execution without materializing the compatibility body index, and
+preserves every physical profile, exact overload relationship,
 generated-framework Type, Analysis diagnostic, and API-surface inspection
-failure. The query joins physical body tokens to every product-issued public
-API metadata Type identity and stable Member selector that owns that body;
-private and otherwise unattributed profiles remain present with no inferred
-owner. A completed host handoff uses
+failure. The query joins each Analysis-issued logical source body token to every
+product-issued public API metadata Type identity and stable Member selector
+that owns it, then carries the complete physical evidence-token set for that
+owner. Private and otherwise unattributed profiles remain present with no
+inferred owner. A completed host handoff uses
 `ImplementationProfileInspectionOperation` and retains the participant outcome
 as `InspectionEnvelope` content with an explicit non-projectable Share result.
 `AssemblyContextImplementationProfilesQueryTests` gate participant scoping,
