@@ -623,10 +623,22 @@ public class PlatformHouseContractTests
                 new PlatformMetadataRequestEvidence<TypeResolutionRequest>(
                     typeRequest,
                     "type-request-1"),
-                new PlatformReferenceCandidateEvidence<TestReferenceCandidate>(
+                new PlatformTypeResolutionCandidateEvidence<
+                    TestReferenceCandidate>(
                     reference,
                     "reference-1"),
                 PlatformViewDemand.Implementation);
+        var implementation = new TestReferenceCandidate();
+        var resolveImplementation =
+            new PlatformHouseOperation.ResolveTypeDefinition
+                .FromImplementation<TestReferenceCandidate>(
+                    new PlatformMetadataRequestEvidence<TypeResolutionRequest>(
+                        typeRequest,
+                        "type-request-2"),
+                    new PlatformTypeResolutionCandidateEvidence<
+                        TestReferenceCandidate>(
+                            implementation,
+                            "implementation-1"));
 
         Assert.Same(
             library,
@@ -640,6 +652,17 @@ public class PlatformHouseContractTests
                 PlatformHouseOperationSnapshot.ResolveAssemblyReference>(
                     resolveAssembly.Snapshot).Request);
         Assert.Same(reference, resolveType.StartingReference);
+        Assert.Equal(
+            PlatformViewDemand.Reference,
+            ((PlatformHouseOperationSnapshot.ResolveTypeDefinition)
+                resolveType.Snapshot).StartingView);
+        Assert.Same(
+            implementation,
+            resolveImplementation.StartingImplementation);
+        Assert.Equal(
+            PlatformViewDemand.Implementation,
+            ((PlatformHouseOperationSnapshot.ResolveTypeDefinition)
+                resolveImplementation.Snapshot).StartingView);
     }
 
     [Fact]
@@ -1270,7 +1293,8 @@ public class PlatformHouseContractTests
                 new PlatformMetadataRequestEvidence<TypeResolutionRequest>(
                     TypeRequest(),
                     "type-request"),
-                new PlatformReferenceCandidateEvidence<TestReferenceCandidate>(
+                new PlatformTypeResolutionCandidateEvidence<
+                    TestReferenceCandidate>(
                     new TestReferenceCandidate(),
                     "starting-reference"),
                 PlatformViewDemand.Implementation);
@@ -1370,19 +1394,76 @@ public class PlatformHouseContractTests
         Assert.Same(source, Assert.Single(completion.SelectedContributions));
         PlatformTypeDefinitionValue.ReferenceAndImplementation<
             TestMetadataOutcome,
-            TestMetadataOutcome> value = completion.BindImplementation(
-                referenceOutcome,
-                implementationOutcome).Value;
+            TestMetadataOutcome> value =
+                completion.BindReferenceAndImplementation(
+                    referenceOutcome,
+                    implementationOutcome).Value;
         Assert.Same(referenceOutcome.Value, value.ReferenceOutcome);
         Assert.Same(
             implementationOutcome.Value,
             value.ImplementationOutcome);
         Assert.Throws<ArgumentException>(
-            () => completion.BindImplementation(
+            () => completion.BindReferenceAndImplementation(
                 referenceOutcome,
                 new PlatformMetadataOutcomeEvidence<TestMetadataOutcome>(
                     new TestMetadataOutcome(),
                     "other-outcome")));
+        Assert.Same(completion, receipt.Completion);
+    }
+
+    [Fact]
+    public void
+        DirectImplementationTypeCompletionBindsOneMetadataOutcome()
+    {
+        PlatformFamilyTarget target = Target();
+        var demand = new PlatformTargetDemand.Exact(target);
+        var operation = new PlatformHouseOperation.ResolveTypeDefinition
+            .FromImplementation<TestReferenceCandidate>(
+                new PlatformMetadataRequestEvidence<TypeResolutionRequest>(
+                    TypeRequest(),
+                    "implementation-type-request"),
+                new PlatformTypeResolutionCandidateEvidence<
+                    TestReferenceCandidate>(
+                        new TestReferenceCandidate(),
+                        "starting-implementation"));
+        var request = new PlatformHouseRequest(
+            PlatformHouseRequestIdentity.Create(
+                "implementation-type-resolution"),
+            demand,
+            StandaloneOrigin(),
+            operation,
+            Plan(),
+            Work());
+        var metadataOutcome =
+            new PlatformMetadataOutcomeEvidence<TestMetadataOutcome>(
+                new TestMetadataOutcome(),
+                "implementation-outcome");
+        var completion = new PlatformHouseCompletion.TypeDefinition(
+            (PlatformHouseOperationSnapshot.ResolveTypeDefinition)
+                request.Snapshot.Operation,
+            metadataOutcome,
+            implementationOutcome: null,
+            selectedContributions: [],
+            correspondence: null);
+        var receipt = new PlatformHouseReceipt(
+            request.Snapshot,
+            new PlatformTargetSettlement.Exact(demand),
+            [],
+            Consumed(),
+            completion);
+
+        Assert.Equal(
+            PlatformTypeDefinitionCompletionKind.Implementation,
+            completion.Kind);
+        Assert.Null(completion.ReferenceOutcome);
+        Assert.Same(
+            metadataOutcome.Identity,
+            completion.ImplementationOutcome);
+        Assert.Empty(completion.SelectedContributions);
+        Assert.Null(completion.Correspondence);
+        PlatformTypeDefinitionValue.Implementation<TestMetadataOutcome>
+            value = completion.BindImplementation(metadataOutcome).Value;
+        Assert.Same(metadataOutcome.Value, value.Outcome);
         Assert.Same(completion, receipt.Completion);
     }
 

@@ -61,7 +61,7 @@ The `package` command inspects a NuGet package. Its default view is *package ide
 | `--value` | Scalar projection | Prints one scalar cell or field from a selected section; use `--row N\|first\|last` when multiple rows match |
 | `--urls` | URL projection | Prints URL-bearing selected-section rows as a URL list, JSONL rows, or a JSON array |
 | `--paths` | Path projection | Prints path-bearing selected-section rows as a path list, JSONL rows, or a JSON array |
-| `--print` | Row payload | Target: from exactly one selected row set, print one framed or structured result per row; unary `--bare`/unstructured `--out` remove that envelope |
+| `--print` | Row payload | Target: from exactly one selected row set, print one framed or structured result per row; unary `--raw`/unstructured `--out` remove that envelope |
 | `--versions` | Version history | Available versions from nuget.org |
 | `--library` | Library metadata | Delegates to library inspection |
 
@@ -220,9 +220,9 @@ rendered limits. Bounded single-member cases are PR-fast; the measured slow
 native/print comparisons and cost-annotation fixture run in daily Deep Inspect
 and the focused pre-merge gate.
 
-The `type` and `member` commands no longer expose `--bare`; the useful
-single-payload behavior is their default, not a compatibility alias or a new
-`--raw` mode. Other content commands retain their own current presentation
+The `type` and `member` commands do not expose `--raw`; the useful
+single-payload behavior is their default, not a compatibility alias or a
+separate mode. Other content commands retain their own current presentation
 contracts until separately adopted. Native output remains subject to existing
 terminal containment and diagnostic routing, not a promise of original bytes.
 Source origin, accessibility, decompilation scope, and authorization do not

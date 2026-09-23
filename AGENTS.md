@@ -267,10 +267,11 @@ over-broad-design recovery procedure live in
   evidence, CSharpText owns model-free textual grammars and layout, CSharp owns
   model-bound C# spelling and type views, Research composes evidence, and the CLI
   owns command and presentation concerns.
-- Reuse existing typed models, Finding contracts, section schemas, serializers,
-  and resolution services before adding parallel abstractions.
-  Completed host-neutral APIs that hand results to hosts expose
-  `InspectionEnvelope<TContent>`; projections preserve Content, Share, and diagnostics.
+- Use applicable baseline substrate: clearing houses and services; `InertString`, ownership,
+  borrowing, and snapshots; `QuerySpace` queries, rows, and limits; host-neutral APIs, `InspectionEnvelope<TContent>`, and host-specific sinks.
+  Route most host functionality through applicable parts; every low-level substrate
+  capability must have a production caller. Remove superseded models and parallel
+  paths; preserve Content, Share, and diagnostics.
 - Preserve behavior-safe defaults and progressive disclosure. Network,
   source-content, exhaustive, or otherwise expensive work must remain explicit
   or capability-gated.

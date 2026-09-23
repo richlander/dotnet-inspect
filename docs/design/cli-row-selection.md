@@ -1233,7 +1233,7 @@ https://raw.githubusercontent.com/JamesNK/Newtonsoft.Json/.../JsonReader.Async.c
 
 What to notice: `-n 1 --tail` selects the final complete
 library/type/URL row. Markdown, table, TSV, JSONL, complete JSON, Count,
-`--value`/`--urls`, and `--bare` consume that same selected model. Selection
+`--value`/`--urls`, and `--raw` consume that same selected model. Selection
 does not reduce Package or PDB acquisition, compatible-library enumeration, or
 SourceLink collection.
 

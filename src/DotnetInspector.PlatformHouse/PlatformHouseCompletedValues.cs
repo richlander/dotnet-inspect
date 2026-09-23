@@ -1,8 +1,8 @@
 namespace DotnetInspector.PlatformHouse;
 
 /// <summary>
-/// Closed live value returned by a completed type-definition operation.
-/// Resource-free receipts retain the associated Metadata outcome identities.
+/// Resource-free value returned by a completed type-definition operation.
+/// Receipts retain the associated Metadata outcome identities.
 /// </summary>
 public abstract class PlatformTypeDefinitionValue
 {
@@ -17,6 +17,16 @@ public abstract class PlatformTypeDefinitionValue
         internal Reference(TReferenceOutcome outcome) => Outcome = outcome;
 
         public TReferenceOutcome Outcome { get; }
+    }
+
+    public sealed class Implementation<TImplementationOutcome> :
+        PlatformTypeDefinitionValue
+        where TImplementationOutcome : notnull
+    {
+        internal Implementation(TImplementationOutcome outcome) =>
+            Outcome = outcome;
+
+        public TImplementationOutcome Outcome { get; }
     }
 
     public sealed class ReferenceAndImplementation<
