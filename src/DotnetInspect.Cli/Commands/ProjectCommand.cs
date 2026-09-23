@@ -102,7 +102,7 @@ public class ProjectCommand
             return 1;
         }
 
-        if ((options.Print || options.Bare)
+        if ((options.Print || options.Raw)
             && selection.Sections is not { Count: 1 })
         {
             CommandError.Write(
@@ -206,7 +206,7 @@ public class ProjectCommand
         if (shapeCount == 1)
             return WriteShapeProjection(sections[0], options, projectedColumns);
 
-        if (options.Print || options.Bare)
+        if (options.Print || options.Raw)
             return PrintDocument(sections[0], options);
 
         if (options.Count)
@@ -267,51 +267,51 @@ public class ProjectCommand
             return false;
         }
 
-        if (shapeCount == 1 && (options.Count || options.Print || options.Bare))
+        if (shapeCount == 1 && (options.Count || options.Print || options.Raw))
         {
             string optionName = options.Value ? "--value"
                 : options.Urls ? "--urls"
                 : "--paths";
             CommandError.Write(
                 $"{optionName} cannot be combined with --count, --print, "
-                + "or --bare.");
+                + "or --raw.");
             return false;
         }
 
-        if ((options.Print || options.Bare) && options.Count)
+        if ((options.Print || options.Raw) && options.Count)
         {
             CommandError.Write(
-                "--count cannot be combined with --print or --bare.");
+                "--count cannot be combined with --print or --raw.");
             return false;
         }
 
         if (options.PrintRow is not null
             && !options.Print
-            && !options.Bare
+            && !options.Raw
             && shapeCount == 0)
         {
             CommandError.Write(
-                "--row requires --print, --bare, --value, --urls, or --paths.");
+                "--row requires --print, --raw, --value, --urls, or --paths.");
             return false;
         }
 
         if ((options.FrontmatterRequested || options.BodyRequested)
             && !options.Print
-            && !options.Bare)
+            && !options.Raw)
         {
             CommandError.Write(
-                "--frontmatter/--body require --print or --bare.");
+                "--frontmatter/--body require --print or --raw.");
             return false;
         }
 
         if (options.JsonArray
             && shapeCount == 0
             && !options.Print
-            && !options.Bare)
+            && !options.Raw)
         {
             CommandError.Write(
                 "--json-array requires --value, --urls, --paths, --print, "
-                + "or --bare.");
+                + "or --raw.");
             return false;
         }
 

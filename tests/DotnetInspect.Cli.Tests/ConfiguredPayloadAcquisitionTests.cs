@@ -72,7 +72,7 @@ public sealed partial class ConfiguredPayloadAcquisitionTests : IDisposable
         var (exit, output, error) = await RunCommandAsync(
             ["package", $"{id}@{Version}", "--source",
                 hierarchicalFileUri ? new Uri(source).AbsoluteUri : source,
-                "--path", "@readme", "--content", "--bare"]);
+                "--path", "@readme", "--content", "--raw"]);
 
         Assert.True(exit == 0, $"Exit {exit}: {error}");
         Assert.Equal(Readme, output.Trim());
@@ -1790,7 +1790,7 @@ public sealed partial class ConfiguredPayloadAcquisitionTests : IDisposable
         {
             var (exit, output, error) = await RunIsolatedCommandAsync(temporaryRoot,
                 ["package", $"{PayloadId}@{Version}", "--source", localFeed,
-                    "--path", "@readme", "--content", "--bare", "--no-nuget-cache"]);
+                    "--path", "@readme", "--content", "--raw", "--no-nuget-cache"]);
             Assert.True(exit == 0, $"Exit {exit}: {error}");
             Assert.Equal(Readme, output.Trim());
             Assert.Empty(Directory.EnumerateDirectories(temporaryRoot, "inspect-pkg*"));
@@ -1819,7 +1819,7 @@ public sealed partial class ConfiguredPayloadAcquisitionTests : IDisposable
 
                 var (exit, output, error) = await RunIsolatedCommandAsync(temporaryRoot,
                     ["package", $"{WrapperId}@{Version}", "--source", localFeed,
-                        "--source", source, "--path", "@readme", "--content", "--bare",
+                        "--source", source, "--path", "@readme", "--content", "--raw",
                         "--no-nuget-cache"]);
                 Assert.True(exit == 0, $"Exit {exit}: {error}");
                 Assert.Equal(Readme, output.Trim());
