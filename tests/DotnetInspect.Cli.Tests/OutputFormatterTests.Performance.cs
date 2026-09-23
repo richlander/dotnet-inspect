@@ -39,7 +39,9 @@ public partial class OutputFormatterTests
         ApiOutputFormatter.PopulateOptimizationOpportunities(
             view,
             type,
-            ApiAnalysisInspection.OpenTypeAnalysisIndex(typeof(OutputFormatterTests).Assembly.Location),
+            ApiAnalysisInspection.OpenTypeAnalysis(
+                typeof(OutputFormatterTests).Assembly.Location)
+                .CompatibilityIndex(),
             new HashSet<string>(StringComparer.OrdinalIgnoreCase) { SectionNames.PerformanceTriage });
 
         var rows = Assert.IsType<List<OptimizationOpportunityRow>>(view.OptimizationOpportunityRows);
@@ -86,8 +88,9 @@ public partial class OutputFormatterTests
         ApiOutputFormatter.PopulateOptimizationOpportunities(
             view,
             type,
-            ApiAnalysisInspection.OpenTypeAnalysisIndex(
-                typeof(OutputFormatterTests).Assembly.Location),
+            ApiAnalysisInspection.OpenTypeAnalysis(
+                typeof(OutputFormatterTests).Assembly.Location)
+                .CompatibilityIndex(),
             new HashSet<string>(StringComparer.OrdinalIgnoreCase)
             {
                 SectionNames.PerformanceTriage
@@ -132,7 +135,9 @@ public partial class OutputFormatterTests
         ApiOutputFormatter.PopulateOptimizationOpportunities(
             view,
             type,
-            ApiAnalysisInspection.OpenTypeAnalysisIndex(typeof(OutputFormatterTests).Assembly.Location),
+            ApiAnalysisInspection.OpenTypeAnalysis(
+                typeof(OutputFormatterTests).Assembly.Location)
+                .CompatibilityIndex(),
             new HashSet<string>(StringComparer.OrdinalIgnoreCase) { SectionNames.PerformanceTriage },
             new PerformanceTriageOptions { Shapes = ["allocation-fanout"] });
 

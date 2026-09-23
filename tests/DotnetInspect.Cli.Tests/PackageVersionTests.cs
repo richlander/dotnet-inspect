@@ -583,28 +583,64 @@ public class PackageVersionTests
     [InlineData("--table")]
     [InlineData("--markdown")]
     [InlineData("--plaintext")]
-    public async Task Bare_RejectsExplicitFormatsBeforeAcquisition(string format)
+    public async Task Raw_RejectsExplicitFormatsBeforeAcquisition(string format)
     {
         var (exit, output, error) = await RunAppAsync(
-            "package", "ThisQueryMustNotReachTheNetwork", "--versions", "-n", "1", "--bare", format);
+            "package", "ThisQueryMustNotReachTheNetwork", "--versions", "-n", "1", "--raw", format);
 
         Assert.Equal(1, exit);
         Assert.Empty(output);
         Assert.Contains(
-            "--bare cannot be combined with --json, --jsonl, --tsv, --table, --markdown, --plaintext, or --mermaid.",
+            "--raw cannot be combined with --json, --jsonl, --tsv, --table, --markdown, --plaintext, or --mermaid.",
             error);
         Assert.DoesNotContain("not found", error, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
-    public async Task Bare_AloneKeepsTheUndecoratedListing()
+    public async Task Raw_AloneKeepsTheUndecoratedListing()
     {
         var (exit, output, error) = await RunAppAsync(
-            "package", "System.Text.Json", "--versions", "-n", "1", "--bare");
+            "package", "System.Text.Json", "--versions", "-n", "1", "--raw");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
         Assert.Matches(@"^\d+\.\d+\.\d+\S*$", output.Trim());
+    }
+
+    [Fact]
+    public async Task Raw_OutranksTheEnvironmentFormat()
+    {
+        string? originalFormat =
+            Environment.GetEnvironmentVariable("DOTNET_INSPECT_FORMAT");
+        try
+        {
+            Environment.SetEnvironmentVariable("DOTNET_INSPECT_FORMAT", "json");
+
+            var (exit, output, error) = await RunAppAsync(
+                "package", "System.Text.Json", "--versions", "-n", "1", "--raw");
+
+            Assert.Equal(0, exit);
+            Assert.Empty(error);
+            Assert.Matches(@"^\d+\.\d+\.\d+\S*$", output.Trim());
+            Assert.DoesNotContain("{", output, StringComparison.Ordinal);
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("DOTNET_INSPECT_FORMAT", originalFormat);
+        }
+    }
+
+    [Fact]
+    public async Task Bare_IsAnOrdinaryUnrecognizedOption()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "package", "ThisQueryMustNotReachTheNetwork", "--versions", "-n", "1", "--bare");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Equal(
+            $"Error: Unrecognized option '--bare'.{Environment.NewLine}",
+            error);
     }
 
     [Theory]

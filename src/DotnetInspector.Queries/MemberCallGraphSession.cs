@@ -148,6 +148,13 @@ public sealed record MemberCallGraphCalleeNeighborhoodRequest
     public int MaxNodes { get; }
 }
 
+internal enum MemberCallGraphExternalFocusMembership
+{
+    Unknown,
+    Hub,
+    External,
+}
+
 /// <summary>
 /// Acquires and retains the minimum cumulative Analysis state required for
 /// progressively richer member call graphs.
@@ -255,7 +262,25 @@ public sealed class MemberCallGraphSession : IDisposable
         return Execute(() =>
             CrossLibraryCalleeNeighborhoodCore(
                 request,
-                cancellationToken));
+                cancellationToken,
+                classify: null));
+    }
+
+    internal InspectionGraphDocument
+        CrossLibraryCalleeNeighborhoodWithCancellation(
+        MemberCallGraphCalleeNeighborhoodRequest request,
+        Func<CallGraphNode, MemberCallGraphExternalFocusMembership>
+            classify,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        ArgumentNullException.ThrowIfNull(classify);
+        cancellationToken.ThrowIfCancellationRequested();
+        return Execute(() =>
+            CrossLibraryCalleeNeighborhoodCore(
+                request,
+                cancellationToken,
+                classify));
     }
 
     /// <summary>Lazily yields each cumulative graph tier in order.</summary>
@@ -381,7 +406,9 @@ public sealed class MemberCallGraphSession : IDisposable
 
     InspectionGraphDocument CrossLibraryCalleeNeighborhoodCore(
         MemberCallGraphCalleeNeighborhoodRequest request,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        Func<CallGraphNode, MemberCallGraphExternalFocusMembership>?
+            classify)
     {
         cancellationToken.ThrowIfCancellationRequested();
         AnalysisBuildResult.Available root = Require(GetFullRoot());
@@ -399,7 +426,11 @@ public sealed class MemberCallGraphSession : IDisposable
         CallGraphProjection source =
             CallGraphProjection.FromCallees(calleeRoot);
         ExternalFocusedCallGraphProjection externalFocused =
-            CreateExternalFocusedProjection(source, root.ImageIdentity);
+            classify is null
+                ? CreateExternalFocusedProjection(
+                    source,
+                    root.ImageIdentity)
+                : CreateExternalFocusedProjection(source, classify);
         cancellationToken.ThrowIfCancellationRequested();
         return CallGraphInspectionGraphAdapter
             .CreateExternalFocusedOutgoingNeighborhood(
@@ -412,24 +443,54 @@ public sealed class MemberCallGraphSession : IDisposable
     ExternalFocusedCallGraphProjection CreateExternalFocusedProjection(
         CallGraphProjection source,
         AssemblyImageIdentity rootImage)
+        => CreateExternalFocusedProjection(
+            source,
+            node =>
+            {
+                if (!TryGetDefinitionImage(
+                        node,
+                        out AssemblyImageIdentity image))
+                {
+                    return MemberCallGraphExternalFocusMembership.Unknown;
+                }
+
+                return image == rootImage
+                    ? MemberCallGraphExternalFocusMembership.Hub
+                    : _fullAnalysesByImage.ContainsKey(image)
+                        ? MemberCallGraphExternalFocusMembership.External
+                        : MemberCallGraphExternalFocusMembership.Unknown;
+            });
+
+    static ExternalFocusedCallGraphProjection
+        CreateExternalFocusedProjection(
+        CallGraphProjection source,
+        Func<CallGraphNode, MemberCallGraphExternalFocusMembership>
+            classify)
     {
         var hubNodeIds = new List<int>();
         var externalNodeIds = new List<int>();
         foreach (CallGraphNode node in source.Nodes)
         {
-            if (!TryGetDefinitionImage(node, out AssemblyImageIdentity image))
-                continue;
-
-            if (image == rootImage)
-                hubNodeIds.Add(node.Id);
-            else if (_fullAnalysesByImage.ContainsKey(image))
-                externalNodeIds.Add(node.Id);
+            switch (classify(node))
+            {
+                case MemberCallGraphExternalFocusMembership.Hub:
+                    hubNodeIds.Add(node.Id);
+                    break;
+                case MemberCallGraphExternalFocusMembership.External:
+                    externalNodeIds.Add(node.Id);
+                    break;
+                case MemberCallGraphExternalFocusMembership.Unknown:
+                    break;
+                default:
+                    throw new InvalidOperationException(
+                        "The external-focus classifier returned an unsupported membership.");
+            }
         }
 
         if (!hubNodeIds.Contains(source.Focus.Id))
         {
             throw new InspectionQueryException(
-                "The call-graph focus could not be joined to the root assembly generation.");
+                "The call-graph focus could not be joined to the external-focus hub.");
         }
 
         return ExternalFocusedCallGraphProjection.Create(

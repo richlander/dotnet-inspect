@@ -383,12 +383,9 @@ test("source operations cancel when superseded or hidden", () => {
     appSource,
     /const operationAuthority = createOperationAuthorityPage\(\);[\s\S]*createSourceInspectionCoordinator\(\{[\s\S]*operationAuthority,/);
 
-  const renderBody =
-    appSource.match(
-      /function render\(options: \{ synchronizeUrl\?: boolean \} = \{\}\)[\s\S]*?\n}/,
-    )?.[0]
-    ?? "";
-  assert.match(renderBody, /sourceInspection\.cancelHiddenRequest\(\)/);
+  assert.match(
+    appSource,
+    /function renderCore\(options: \{ synchronizeUrl\?: boolean \}\) \{\s*sourceInspection\.cancelHiddenRequest\(\)/);
   assert.match(
     appSource,
     /createSourceInspectionCoordinator\(\{[\s\S]*memberSourceHasConcreteOverload,[\s\S]*cancelEngineSourceRequest: \(\) => \{[\s\S]*observeAsync\(\s*cancelSourceInspection\(\),\s*"Cancelling the Source request"\)/);

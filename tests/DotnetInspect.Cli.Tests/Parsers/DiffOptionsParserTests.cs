@@ -31,6 +31,7 @@ public class DiffOptionsParserTests
         var frameworkOption = new Option<string?>("--framework");
         var tfmOption = new Option<string?>("--tfm");
         var allOption = new Option<bool>("--all");
+        var implementationOption = new Option<bool>("--implementation");
         var historyOption = new Option<bool>("--history");
         var atOption = new Option<string[]>("--at")
         {
@@ -66,6 +67,7 @@ public class DiffOptionsParserTests
         diffCommand.Options.Add(frameworkOption);
         diffCommand.Options.Add(tfmOption);
         diffCommand.Options.Add(allOption);
+        diffCommand.Options.Add(implementationOption);
         diffCommand.Options.Add(historyOption);
         diffCommand.Options.Add(atOption);
         diffCommand.Options.Add(maxProbesOption);
@@ -101,6 +103,7 @@ public class DiffOptionsParserTests
         var root = new RootCommand { diffCommand };
         var args = new DiffOptionsParser.DiffCommandArgs(
             argsArg, packageOption, platformOption, libraryOption, frameworkOption, tfmOption, allOption,
+            implementationOption,
             historyOption, atOption, maxProbesOption, samplePercentOption, majorVersionsOption, prereleaseOption, countOption,
             typeFilterOption, memberFilterOption, opts.NoHeaders, nameOnlyOption, breakingOption, additiveOption,
             changedOption, allocRegressionsOption, pdbSourceOption, legacyAuthoredSourceOption, findingOption, legendOption, repoOption, compactOption);
@@ -156,6 +159,34 @@ public class DiffOptionsParserTests
             "--major-versions");
 
         Assert.True(options.MajorVersions);
+    }
+
+    [Fact]
+    public void ImplementationOptionLowersToExactSectionSelection()
+    {
+        DiffOptions options = ParseSuccess(
+            "diff",
+            "--library", "old/Foo.dll..new/Foo.dll",
+            "--implementation");
+
+        Assert.Equal(
+            ["Implementation Diff"],
+            Assert.IsType<string[]>(options.Select));
+        Assert.False(options.SelectDefault);
+    }
+
+    [Fact]
+    public void ImplementationOptionComposesThroughSectionSelection()
+    {
+        DiffOptions options = ParseSuccess(
+            "diff",
+            "--library", "old/Foo.dll..new/Foo.dll",
+            "-S", "Analysis Diff",
+            "--implementation");
+
+        Assert.Equal(
+            ["Analysis Diff", "Implementation Diff"],
+            Assert.IsType<string[]>(options.Select));
     }
 
     [Fact]

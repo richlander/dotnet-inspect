@@ -217,6 +217,12 @@ Up Arrow on the trigger opens it at the first or last menu item; Arrow keys,
 Home, and End move through destinations and Open Library; Escape closes it and
 returns focus to the trigger. Tab follows ordinary document order. Outside
 pointer or focus movement closes it without stealing focus.
+Shell maintenance that replaces an open menu while the current routed product
+destination remains Home, Query, Workspace, or Activity preserves the open
+state and the focused stable destination. A product-destination change closes
+the outgoing menu and follows the ordinary routed destination-focus contract.
+Surfaces outside that product-destination inventory retain their own
+replacement-focus contract.
 
 Home, Query, Activity, and Workspace continue to use their existing routed
 navigation outcomes, browser-history classification, retained Workspace

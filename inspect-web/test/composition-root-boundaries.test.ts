@@ -96,7 +96,9 @@ test("workspace package models retain the active and newest coordinates within t
     (_, index) => packageAt(`${index}.0.0`, "net10.0"));
   const active = packages[0];
   assert.ok(active, "the workspace fixture must hold at least one package");
-  const incoming = packageAt("13.0.0", "net10.0");
+  const incoming = packageAt(
+    `${MAX_WORKSPACE_PACKAGES}.0.0`,
+    "net10.0");
 
   const retained = retainWorkspacePackage(packages, active, incoming);
 

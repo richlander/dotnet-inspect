@@ -31,7 +31,7 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
 
         List<string> args = ["package", selector is null ? id : $"{id}@{selector}",
             "--source", fileUri ? new Uri(source).AbsoluteUri : source,
-            "--path", "@readme", "--content", "--bare"];
+            "--path", "@readme", "--content", "--raw"];
         if (preview)
             args.Add("--preview");
         var (exit, output, error) = await RunCommandAsync([.. args]);
@@ -53,7 +53,7 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
 
         var (exit, output, error) = await RunCommandAsync(
             ["package", $"{Id}@{selector}", "--source", source,
-                "--path", "@readme", "--content", "--bare"]);
+                "--path", "@readme", "--content", "--raw"]);
 
         Assert.True(exit == 0, error);
         Assert.Equal("package identity, not a file path", output.Trim());
@@ -292,7 +292,7 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
         const string Id = "Selected.Fresh";
         string source = Path.Combine(_root, "fresh");
         WriteLocalPackage(source, Id, "first version");
-        string[] args = ["package", Id, "--source", source, "--path", "@readme", "--content", "--bare"];
+        string[] args = ["package", Id, "--source", source, "--path", "@readme", "--content", "--raw"];
         var first = await RunCommandAsync(args);
         Assert.True(first.Exit == 0, first.Error);
         Assert.Equal("first version", first.Output.Trim());
