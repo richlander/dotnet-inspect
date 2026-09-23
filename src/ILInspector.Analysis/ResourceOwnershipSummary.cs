@@ -25,6 +25,10 @@ public sealed record ResourceOwnershipUse(
     DirectCall? Call = null,
     int CalleeParameterIndex = -1)
 {
+    public ResourceOwnershipUseKind Kind { get; init; } = Kind;
+
+    public int ILOffset { get; init; } = ILOffset;
+
     ImmutableArray<ResourceOccurrenceResourceKind> _resourceKinds =
         ImmutableArrayValueEquality.RequireInitialized(
             ResourceKinds,
@@ -39,6 +43,11 @@ public sealed record ResourceOwnershipUse(
                 nameof(ResourceKinds));
     }
 
+    public DirectCall? Call { get; init; } = Call;
+
+    public int CalleeParameterIndex { get; init; } =
+        CalleeParameterIndex;
+
     public bool IsForwarded =>
         Kind == ResourceOwnershipUseKind.Forwarded;
 }
@@ -51,6 +60,10 @@ public sealed record ResourceOwnershipAcquisitionFlow(
     ImmutableArray<ResourceOwnershipUse> Uses,
     bool IsComplete)
 {
+    public ResourceOccurrenceRoot.Acquisition Obligation { get; init; } =
+        Obligation
+        ?? throw new ArgumentNullException(nameof(Obligation));
+
     ImmutableArray<ResourceOwnershipUse> _uses =
         ImmutableArrayValueEquality.RequireInitialized(
             Uses,
@@ -63,6 +76,8 @@ public sealed record ResourceOwnershipAcquisitionFlow(
             value,
             nameof(Uses));
     }
+
+    public bool IsComplete { get; init; } = IsComplete;
 }
 
 /// <summary>
@@ -73,6 +88,8 @@ public sealed record ResourceOwnershipParameterFlow(
     ImmutableArray<ResourceOwnershipUse> Uses,
     bool IsComplete)
 {
+    public int ParameterIndex { get; init; } = ParameterIndex;
+
     ImmutableArray<ResourceOwnershipUse> _uses =
         ImmutableArrayValueEquality.RequireInitialized(
             Uses,
@@ -85,6 +102,8 @@ public sealed record ResourceOwnershipParameterFlow(
             value,
             nameof(Uses));
     }
+
+    public bool IsComplete { get; init; } = IsComplete;
 }
 
 /// <summary>
@@ -98,6 +117,14 @@ public sealed record ResourceOwnershipMethodSummary(
     ImmutableArray<ResourceOwnershipParameterFlow> Parameters,
     bool IsComplete)
 {
+    public MethodIdentity Method { get; init; } =
+        Method
+        ?? throw new ArgumentNullException(nameof(Method));
+
+    public MemberRef Member { get; init; } =
+        Member
+        ?? throw new ArgumentNullException(nameof(Member));
+
     ImmutableArray<ResourceOwnershipAcquisitionFlow> _acquisitions =
         ImmutableArrayValueEquality.RequireInitialized(
             Acquisitions,
@@ -125,6 +152,8 @@ public sealed record ResourceOwnershipMethodSummary(
                 value,
                 nameof(Parameters));
     }
+
+    public bool IsComplete { get; init; } = IsComplete;
 }
 
 internal static class ResourceOwnershipSummaryAnalysis
