@@ -25,6 +25,10 @@ import type {
   BoundedPayloadDecoder,
 } from "./worker-runtime-protocol.ts";
 import type { WorkerOperationCatalog } from "./worker-runtime-realm.ts";
+import {
+  sourceDiffPayloadDecoder,
+  type BrowserSourceComparisonResult,
+} from "./source-diff-transport.ts";
 
 type AnalysisFacade = typeof AnalysisFacadeModule;
 type CallGraphFacade = typeof CallGraphFacadeModule;
@@ -136,6 +140,16 @@ type AsyncFacadeGroup<TFacade, TName extends keyof TFacade> = {
   readonly [TMember in TName]: AsyncMethod<TFacade[TMember]>;
 };
 
+type SourceWorkerClient =
+  Omit<
+    AsyncFacadeGroup<SourceFacade, SourceOperationName>,
+    "queryMemberSourceComparison"
+  > & {
+    readonly queryMemberSourceComparison: (
+      ...args: Parameters<SourceFacade["queryMemberSourceComparison"]>
+    ) => Promise<BrowserSourceComparisonResult>;
+  };
+
 export interface EngineWorkerOrdinaryFacades {
   readonly package: Pick<PackageFacade, PackageOperationName>;
   readonly library: Pick<LibraryFacade, LibraryOperationName>;
@@ -151,7 +165,7 @@ export interface EngineWorkerOrdinaryClient {
   readonly library: AsyncFacadeGroup<LibraryFacade, LibraryOperationName>;
   readonly metadata: AsyncFacadeGroup<MetadataFacade, MetadataOperationName>;
   readonly analysis: AsyncFacadeGroup<AnalysisFacade, AnalysisOperationName>;
-  readonly source: AsyncFacadeGroup<SourceFacade, SourceOperationName>;
+  readonly source: SourceWorkerClient;
   readonly callGraph: AsyncFacadeGroup<CallGraphFacade, CallGraphOperationName>;
   readonly catalog: AsyncFacadeGroup<CatalogFacade, CatalogOperationName>;
 }
@@ -558,6 +572,15 @@ function createValueDecoder<TResult>(): BoundedPayloadDecoder<TResult> {
   };
 }
 
+const sourceDiffValueDecoder:
+BoundedPayloadDecoder<BrowserSourceComparisonResult> = {
+  decode(value) {
+    const tuple = createValueDecoder<unknown>().decode(value);
+    if (tuple.kind === "rejected") return tuple;
+    return sourceDiffPayloadDecoder.decode(tuple.value);
+  },
+};
+
 export function decodeEngineWorkerJsonValue<TResult>(
   value: unknown,
 ): BoundedPayloadDecodeResult<TResult> {
@@ -665,7 +688,8 @@ function preparationFailureMessage(
 
 function createOrdinaryOperation<
   TArgs extends readonly unknown[],
-  TResult,
+  TRawResult,
+  TResult = TRawResult,
 >(
   kind: string,
   argumentCount: TArgs["length"],
@@ -674,10 +698,10 @@ function createOrdinaryOperation<
   invoke: (
     facades: EngineWorkerOrdinaryFacades,
     ...args: TArgs
-  ) => TResult | PromiseLike<TResult>,
+  ) => TRawResult | PromiseLike<TRawResult>,
   recoverResultEncodingFailure?: (
     facades: EngineWorkerOrdinaryFacades,
-    result: TResult,
+    result: TRawResult,
     error: OrdinaryPayloadError,
   ) => void | PromiseLike<void>,
   inputTransport: OrdinaryInputTransport<TArgs> =
@@ -702,7 +726,7 @@ function createOrdinaryOperation<
         }),
         async invoke(args) {
           const currentFacades = facades();
-          let result: TResult;
+          let result: TRawResult;
           try {
             result = await invoke(currentFacades, ...args);
           } catch (error: unknown) {
@@ -1293,9 +1317,15 @@ export const engineWorkerOrdinaryOperations = {
         ...args: Parameters<SourceFacade["cancelMethodBodyComparison"]>
       ) => facades.source.cancelMethodBodyComparison(...args),
     ),
-    queryMemberSourceComparison: valueOperation(
+    queryMemberSourceComparison: createOrdinaryOperation<
+      Parameters<SourceFacade["queryMemberSourceComparison"]>,
+      Awaited<ReturnType<SourceFacade["queryMemberSourceComparison"]>>,
+      BrowserSourceComparisonResult
+    >(
       "ordinary-source-query-member-comparison",
       2,
+      "value",
+      sourceDiffValueDecoder,
       (
         facades,
         ...args: Parameters<SourceFacade["queryMemberSourceComparison"]>

@@ -1064,7 +1064,10 @@ identity, independent C#/IL outcomes, Source provenance, native line
 relations, typed non-success, and cancellation for reuse by Compare and Omni.
 The published-facade gates in `browser/method-body-production.spec.ts` and
 `browser/source-comparison-production.spec.ts` exercise those contracts
-without recreating the retired dialogs.
+without recreating the retired dialogs. The Source comparison gate enables its
+query-parameter-scoped production bridge to exercise the actual page client,
+Worker, Browser decoder, cancellation, stale-result isolation, and successor
+delivery; the bridge is absent from ordinary sessions.
 
 ## Unsupported
 
