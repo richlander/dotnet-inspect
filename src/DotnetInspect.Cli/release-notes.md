@@ -82,10 +82,10 @@
   Explicit `--raw` overrides `DOTNET_INSPECT_FORMAT` but is rejected when
   combined with an explicit format flag instead of silently winning. The old
   SourceLink URL-shape meaning does not return: fetchable URLs are now the
-  default, browser views use `--prefer-rendered-urls`, and `--blob` remains
-  reserved. A legacy `--raw` invocation fails unless it selects one payload; a
-  single URL section emits the unchanged fetchable values without decoration
-  (#8307, #8322).
+  default, browser views use `--prefer-rendered-urls`, and `--blob` is removed
+  and unrecognized. A legacy `--raw` invocation fails unless it selects one
+  payload; a single URL section emits the unchanged fetchable values without
+  decoration (#8307, #8322).
 
 ### Workspaces and coordinates
 

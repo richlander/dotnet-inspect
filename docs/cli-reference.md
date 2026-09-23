@@ -440,8 +440,8 @@ spelling receives the ordinary unrecognized-input result.
 Source URLs are fetchable by default. `--prefer-rendered-urls` prefers a browser
 view when supported; it changes neither `--print` acquisition nor undecorated
 `--raw` rendering. The former SourceLink URL-shape meaning of `--raw` is
-retired, and `--blob` remains reserved. Use no URL-shape flag for the default
-fetchable form.
+retired, and `--blob` is removed and unrecognized. Use no URL-shape flag for
+the default fetchable form.
 
 `-n N` selects the command's items. It selects semantic rows when the active
 command or lens declares them; otherwise it selects the first N rendered lines.
