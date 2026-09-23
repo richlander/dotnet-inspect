@@ -13,11 +13,11 @@ public sealed record ExternalCallGraphOptions
     public required string RootTfm { get; init; }
     public string? Tfm { get; init; }
     public bool IncludeAll { get; init; }
-    public MemberCallGraphSupplyChainBaseline SupplyChainBaseline
+    public PackageSupplyChainBaseline SupplyChainBaseline
     {
         get;
         init;
-    } = MemberCallGraphSupplyChainBaseline
+    } = PackageSupplyChainBaseline
         .SelfAndRegisteredEcosystems;
     public string[] FirstPartyPackagePrefixes { get; init; } = [];
     public int Depth { get; init; } = 3;

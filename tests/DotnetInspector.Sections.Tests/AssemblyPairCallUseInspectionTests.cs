@@ -161,6 +161,162 @@ public sealed class AssemblyPairCallUseInspectionTests
             diagnostic.Severity);
     }
 
+    [Fact]
+    public async Task ClusterInspection_ReturnsProjectionOverExactPair()
+    {
+        await using PairContext context = PairContext.Create(
+            FixtureCatalog.AnalysisCallerGraphCaller.AssemblyPath(),
+            FixtureCatalog.AnalysisCallerGraphTarget.AssemblyPath());
+        InspectionEnvelope<AssemblyPairCallUseInspectionOutcome> pair =
+            AssemblyPairCallUseInspection.Execute(
+                context.Group,
+                context.First,
+                context.Second);
+        var pairAvailable =
+            Assert.IsType<AssemblyPairCallUseInspectionOutcome.Available>(
+                pair.Content);
+
+        InspectionEnvelope<
+            AssemblyPairDirectUseClusterInspectionOutcome> envelope =
+                AssemblyPairDirectUseClusterInspection.Execute(pair);
+
+        var available =
+            Assert.IsType<
+                AssemblyPairDirectUseClusterInspectionOutcome.Available>(
+                    envelope.Content);
+        Assert.Same(
+            pairAvailable.Projection.Pair,
+            available.Projection.Pair);
+        Assert.Equal(
+            Enumerable.Range(
+                0,
+                pairAvailable.Projection.Pair.Occurrences.Length),
+            available.Projection.Clusters
+                .SelectMany(cluster => cluster.OccurrenceIndexes)
+                .Order());
+        Assert.Equal(pair.Diagnostics, envelope.Diagnostics);
+        var share =
+            Assert.IsType<InspectionShare.NonProjectable>(
+                envelope.Share);
+        Assert.Equal(
+            "assembly-pair/direct-use-clusters",
+            share.Path);
+    }
+
+    [Fact]
+    public async Task ClusterInspection_PreservesRejectedPair()
+    {
+        await using PairContext context = PairContext.Create(
+            FixtureCatalog.AnalysisCallerGraphCaller.AssemblyPath(),
+            FixtureCatalog.AnalysisCallerGraphTarget.AssemblyPath());
+        InspectionEnvelope<AssemblyPairCallUseInspectionOutcome> pair =
+            AssemblyPairCallUseInspection.Execute(
+                context.Group,
+                context.First,
+                context.First);
+        var pairRejected =
+            Assert.IsType<AssemblyPairCallUseInspectionOutcome.Rejected>(
+                pair.Content);
+
+        InspectionEnvelope<
+            AssemblyPairDirectUseClusterInspectionOutcome> envelope =
+                AssemblyPairDirectUseClusterInspection.Execute(pair);
+
+        var rejected =
+            Assert.IsType<
+                AssemblyPairDirectUseClusterInspectionOutcome.Rejected>(
+                    envelope.Content);
+        Assert.Same(pairRejected, rejected.Pair);
+        Assert.Equal(pair.Diagnostics, envelope.Diagnostics);
+    }
+
+    [Fact]
+    public async Task ClusterInspection_CompleteEmptyPairIsAvailable()
+    {
+        await using PairContext context = PairContext.Create(
+            FixtureCatalog.AnalysisCallerGraphTarget.AssemblyPath(),
+            FixtureCatalog.AnalysisCallerGraphTargetV2.AssemblyPath());
+        InspectionEnvelope<AssemblyPairCallUseInspectionOutcome> pair =
+            AssemblyPairCallUseInspection.Execute(
+                context.Group,
+                context.First,
+                context.Second);
+
+        InspectionEnvelope<
+            AssemblyPairDirectUseClusterInspectionOutcome> envelope =
+                AssemblyPairDirectUseClusterInspection.Execute(pair);
+
+        var available =
+            Assert.IsType<
+                AssemblyPairDirectUseClusterInspectionOutcome.Available>(
+                    envelope.Content);
+        Assert.True(available.Projection.IsComplete);
+        Assert.Empty(available.Projection.Pair.Occurrences);
+        Assert.Empty(available.Projection.Clusters);
+        Assert.Empty(envelope.Diagnostics);
+    }
+
+    [Fact]
+    public async Task ClusterInspection_PreservesIncompletePairDiagnostics()
+    {
+        await using PairContext context = PairContext.Create(
+            FixtureCatalog.AnalysisCallerGraphCaller.AssemblyPath(),
+            FixtureCatalog.AnalysisCallerGraphTarget.AssemblyPath());
+        InspectionEnvelope<AssemblyPairCallUseInspectionOutcome> complete =
+            AssemblyPairCallUseInspection.Execute(
+                context.Group,
+                context.First,
+                context.Second);
+        var completeAvailable =
+            Assert.IsType<AssemblyPairCallUseInspectionOutcome.Available>(
+                complete.Content);
+        AssemblyPairCallUseResult incompletePair =
+            completeAvailable.Projection.Pair with
+            {
+                Diagnostics = new AssemblyPairCallUseDiagnostics(1),
+            };
+        var diagnostic = new InspectionDiagnostic(
+            "assembly-pair-call-use.correspondence-incomplete",
+            InspectionDiagnosticSeverity.Warning,
+            "One pair correspondence remained unresolved.");
+        var incomplete =
+            new InspectionEnvelope<AssemblyPairCallUseInspectionOutcome>(
+                new AssemblyPairCallUseInspectionOutcome.Available(
+                    AssemblyPairCallUseProjection.Create(incompletePair)),
+                complete.Share,
+                [diagnostic]);
+
+        InspectionEnvelope<
+            AssemblyPairDirectUseClusterInspectionOutcome> completeClusters =
+                AssemblyPairDirectUseClusterInspection.Execute(complete);
+        InspectionEnvelope<
+            AssemblyPairDirectUseClusterInspectionOutcome> envelope =
+                AssemblyPairDirectUseClusterInspection.Execute(incomplete);
+
+        var available =
+            Assert.IsType<
+                AssemblyPairDirectUseClusterInspectionOutcome.Available>(
+                    envelope.Content);
+        var completeClusterProjection =
+            Assert.IsType<
+                AssemblyPairDirectUseClusterInspectionOutcome.Available>(
+                    completeClusters.Content)
+                .Projection;
+        Assert.False(available.Projection.IsComplete);
+        Assert.Same(incompletePair, available.Projection.Pair);
+        Assert.Equal(
+            completeClusterProjection.Clusters.Select(
+                cluster => cluster.Identity),
+            available.Projection.Clusters.Select(
+                cluster => cluster.Identity));
+        Assert.Equal(
+            completeClusterProjection.Clusters.SelectMany(
+                cluster => cluster.OccurrenceIndexes),
+            available.Projection.Clusters.SelectMany(
+                cluster => cluster.OccurrenceIndexes));
+        Assert.Equal([diagnostic], envelope.Diagnostics);
+    }
+
     sealed class PairContext : IAsyncDisposable
     {
         PairContext(
