@@ -23,7 +23,12 @@ const data: BrowserLibraryMetrics = {
     p99: 1,
     maximum: 1,
   }],
-  asyncStateMachinePresence: null,
+  asyncStateMachinePresence: {
+    name: "AsyncStateMachinePresence",
+    completeBodyCount: 1,
+    presentCount: 0,
+    absentCount: 1,
+  },
   diagnostics: ["One method body could not be analyzed."],
   failure: null,
   compileLibrary: {
@@ -58,6 +63,11 @@ test("partial physical coverage is visibly qualified and diagnostics are escaped
   assert.match(html, /1 of 2 physical bodies were profiled/);
   assert.match(html, /One method body could not be analyzed\./);
   assert.match(html, /1 complete bodies/);
+  assert.match(html, /Physical evidence bodies/);
+  assert.match(html, /Metric distributions/);
+  assert.match(html, /P95/);
+  assert.match(html, /P99/);
+  assert.match(html, /Async State Machine Presence/);
 });
 
 test("fully profiled complete results do not render a qualification warning", () => {
