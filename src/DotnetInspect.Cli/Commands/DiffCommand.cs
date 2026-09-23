@@ -42,10 +42,11 @@ public class DiffCommand
         if (options.At.Length > 0
             || options.MaxProbes is not null
             || options.SamplePercent is not null
+            || options.MajorVersions
             || options.IncludePrerelease)
         {
             CommandError.Write(
-                "--at, --max-probes, --sample-percent, and --preview require --history.");
+                "--at, --max-probes, --sample-percent, --major-versions, and --preview require --history.");
             return 1;
         }
         if (options.Count)
@@ -4010,6 +4011,7 @@ public record DiffOptions : IProjectionOptions
     public string[] At { get; init; } = [];
     public int? MaxProbes { get; init; }
     public int? SamplePercent { get; init; }
+    public bool MajorVersions { get; init; }
     public bool IncludePrerelease { get; init; }
     public bool Count { get; init; }
     public RowSelectionIntent<string>? SemanticRowSelection { get; init; }
