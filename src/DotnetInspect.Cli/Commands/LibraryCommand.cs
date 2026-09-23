@@ -155,9 +155,9 @@ public partial class LibraryCommand
         }
 
         options = source!.ApplyTo(options);
-        if (DirectLibraryOverviewCommand.ShouldExecute(options))
+        if (DirectLibraryInspectionCommand.ShouldExecute(options))
         {
-            return await DirectLibraryOverviewCommand.ExecuteAsync(
+            return await DirectLibraryInspectionCommand.ExecuteAsync(
                     options,
                     source,
                     cancellationToken)

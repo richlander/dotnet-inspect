@@ -10,12 +10,12 @@ using Inspector.Artifacts.Workspaces;
 
 namespace DotnetInspector.Sections.Tests;
 
-internal sealed class LibraryOverviewTestLibrary : IAsyncDisposable
+internal sealed class LibraryInspectionTestLibrary : IAsyncDisposable
 {
     private readonly ArtifactSetSession _session;
     private readonly LibraryContentOwner _owner;
 
-    private LibraryOverviewTestLibrary(
+    private LibraryInspectionTestLibrary(
         ArtifactSetSession session,
         LibraryContentOwner owner)
     {
@@ -27,7 +27,7 @@ internal sealed class LibraryOverviewTestLibrary : IAsyncDisposable
 
     public LibraryContentOwnerState State => _owner.State;
 
-    public static async Task<LibraryOverviewTestLibrary> CreateAsync(
+    public static async Task<LibraryInspectionTestLibrary> CreateAsync(
         byte[] content,
         ManagedMetadataIdentity.Assembly identity)
     {
@@ -39,7 +39,7 @@ internal sealed class LibraryOverviewTestLibrary : IAsyncDisposable
                 (scope, cancellationToken) =>
                 {
                     contribution = scope.Register(
-                        new Provenance("library-overview-test"),
+                        new Provenance("library-inspection-test"),
                         token =>
                         {
                             token.ThrowIfCancellationRequested();
@@ -81,7 +81,7 @@ internal sealed class LibraryOverviewTestLibrary : IAsyncDisposable
                     library,
                     [contentLease]);
                 contentLease = null;
-                return new LibraryOverviewTestLibrary(session, owner);
+                return new LibraryInspectionTestLibrary(session, owner);
             }
             finally
             {

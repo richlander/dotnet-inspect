@@ -291,7 +291,7 @@ public partial class CommandExecutionTests
 
     [Fact]
     public async Task
-        Library_DirectEnvelope_EmitsHostNeutralOverview()
+        Library_DirectEnvelope_EmitsHostNeutralInspection()
     {
         var (exit, output, error) = await RunAppAsync(
             "library",
@@ -307,7 +307,7 @@ public partial class CommandExecutionTests
         using JsonDocument json = JsonDocument.Parse(output);
         JsonElement root = json.RootElement;
         Assert.Equal(
-            "library-overview",
+            "library-inspection",
             root.GetProperty("result_kind").GetString());
         Assert.Equal(
             "available",
@@ -323,7 +323,9 @@ public partial class CommandExecutionTests
                 .GetProperty("name")
                 .GetString());
         Assert.True(
-            document.GetProperty("publicTypeCount")
+            document.GetProperty("types")
+                .GetProperty("count")
+                .GetProperty("total")
                 .GetInt32() > 0);
         Assert.Equal(
             "nonProjectable",
@@ -342,7 +344,7 @@ public partial class CommandExecutionTests
         string outputPath =
             Path.Combine(
                 Path.GetTempPath(),
-                $"library-overview-{Guid.NewGuid():N}.json");
+                $"library-inspection-{Guid.NewGuid():N}.json");
         try
         {
             var (exit, output, error) = await RunAppAsync(
@@ -366,7 +368,7 @@ public partial class CommandExecutionTests
             using JsonDocument json =
                 JsonDocument.Parse(payload);
             Assert.Equal(
-                "library-overview",
+                "library-inspection",
                 json.RootElement
                     .GetProperty("result_kind")
                     .GetString());
