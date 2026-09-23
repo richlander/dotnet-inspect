@@ -448,7 +448,7 @@ Illustrative relationship families include:
 | `integration.observed` | API/type/package -> API/type/package | Metadata |
 | `integration.composed` | API/type/package -> API/type/package | Research |
 | `integration.opportunity` | consumer API/type/package -> candidate API/type/package | Metadata |
-| `analysis.async-sibling-opportunity` | call site or member -> candidate member | Research |
+| `analysis.async-sibling-opportunity` | source member -> candidate member | Analysis |
 | `implementation.structural-match` | member -> member | Analysis |
 
 These ids are examples, not a frozen catalog. The first catalog slice must
@@ -588,6 +588,61 @@ facts; it maps physical coordinates from the selected member's own evidence
 body to stable edge rows and source facts. Receipts from async or lifted
 evidence bodies remain graph occurrences, but do not borrow the declared
 kickoff body's source anchors.
+
+### Async-sibling opportunity composition
+
+`analysis.async-sibling-opportunity` is a current Analysis-owned, derived
+member-to-member relationship. Its semantic source is the authenticated async
+source on `OptimizationOpportunity.Method`; its target is the callable
+`MemberRef` selected by Analysis. One relationship occurrence retains the
+complete raw `OptimizationOpportunity` and derives from the exact ordinary
+`call` occurrence for
+`AsyncSiblingOpportunityEvidence.SynchronousCall`. It does not replace,
+relabel, or annotate that call.
+
+`CallGraphAsyncSiblingDocument` retains the unchanged Analysis receipt, its
+method-evidence coverage and diagnostics, every raw optimization opportunity,
+and one ordered explicit join for each typed async-sibling opportunity. Source,
+candidate, observed call edge, observed call occurrence, relationship edge,
+and relationship occurrence joins each distinguish found, not projected, and
+ambiguous outcomes. A relationship edge and occurrence are emitted only when
+both member endpoints and the exact physical call occurrence are found.
+Missing or logical-fallback-only call evidence therefore remains raw evidence
+with an explicit join outcome rather than becoming a fabricated receipt.
+
+`InspectionGraphRelationshipComposer` preserves all existing document-local
+ids, appends relationship edges and occurrences, deduplicates by the
+descriptor-owned occurrence identity, and binds repeated contributions to the
+same receipt. Contradictory evidence under one occurrence identity fails
+composition. The async-sibling occurrence identity is the authored source,
+exact synchronous `DirectCall`, and resolver-issued async candidate; endpoint
+equality alone does not collapse distinct call sites.
+
+Composition consumes an already-produced call projection and
+`LibraryOptimizationAnalysisResult`. It never requests Analysis or reruns
+candidate resolution. The caller must explicitly select
+`AsyncSiblingOpportunities`; an unselected result is rejected. This keeps
+acquisition and execution planning outside the L1 adapter while allowing one
+Analysis execution and receipt to supply both call and opportunity evidence.
+
+`Create_RealRepositoryAddsSeparateRelationshipFromObservedCall` gates the
+ordinary call plus separate opportunity relationship over the pinned MIT
+licensed
+[`bertt/3dtiles_downloader@f051258`](https://github.com/bertt/3dtiles_downloader/tree/f0512581977194754bde4c5b35eda73716ba3e10)
+fixture. `Create_ClassicAsyncPreservesAuthoredSourceAndMoveNextEvidence` gates
+authored-source versus physical-body identity.
+`Create_RetainsOutsideCandidateAsExplicitNotProjectedJoin` and
+`Create_DoesNotDeriveFromLogicalCallFallback` gate bounded projection and
+missing physical evidence. `Create_RejectsUnrequestedAsyncSiblingEvidence`
+gates explicit selection, and
+`Composer_RepeatedRelationshipContributionReusesOccurrence` and
+`Composer_ContradictoryEvidenceForOccurrenceIdentityFails` gate
+descriptor-owned deduplication and conflict detection.
+
+This is L1 construction only. It adds no default relationship selection,
+traversal, L2 field, Markout lowering, CLI output, or Browser/Wasm transport.
+Those consumers receive the same host-neutral typed document rather than
+reconstructing semantics from presentation text.
 
 ## Characteristics
 
@@ -926,24 +981,24 @@ or reacquired evidence, not string parsing.
 ## Applying in-flight analysis investments
 
 The graph does not absorb analysis algorithms. It gives their typed results a
-shared carrier. The PRs in this section are open and are not part of the current
-product head. The examples describe how their proposed contracts could be
-adopted if they land; each owning PR remains authoritative for its final
-behavior.
+shared carrier. Each subsection names whether its relationship is current or a
+design target; the producer's owning contract remains authoritative.
 
-### Async sibling calls (#4091)
+### Async sibling calls (#4091, #8341)
 
-PR #4091 proposes `sync-call-in-async` analysis with exact
-`analysis.call-site` Finding provenance plus a signature-compatible async
-sibling candidate. If that contract lands, Research can project it as a
-specifically named `analysis.async-sibling-opportunity` relationship:
+Analysis publishes `sync-call-in-async` evidence with exact
+`analysis.call-site` Finding provenance and a typed callable async candidate.
+The current L1 adoption projects it as the Analysis-owned
+`analysis.async-sibling-opportunity` relationship defined under
+[Async-sibling opportunity composition](#async-sibling-opportunity-composition):
 
 - the observed synchronous call remains a `call`;
 - the candidate relationship remains an opportunity;
 - the physical call site and Finding key remain attached;
-- type/package lenses may roll the opportunity up when the descriptor permits.
+- missing graph endpoints or physical evidence remain explicit join outcomes.
 
-The graph must not present the async sibling as a call that already occurred.
+Type/package roll-up and presentation remain design targets. No graph presents
+the async sibling as a call that already occurred.
 
 ### Static performance triage (#4121)
 
