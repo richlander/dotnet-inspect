@@ -8,14 +8,18 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 
 using CSharpText;
+using CSharpText.MemberSlicing;
 using DotnetInspector.DocumentationHouse;
 using DotnetInspector.DocumentationHouse.Source;
 using DotnetInspector.Libraries;
 using DotnetInspector.LibraryMetadata;
 using DotnetInspector.SourceHouse;
-using DotnetInspector.SourceHouse.BuildAttestation;
 using ILInspector.Metadata;
 using ILInspector.SourceLink;
+using Microsoft.CodeAnalysis;
+using Microsoft.CodeAnalysis.CSharp;
+using Microsoft.CodeAnalysis.Emit;
+using Microsoft.CodeAnalysis.Text;
 using QuerySpace;
 using QuerySpace.Composition;
 using QuerySpace.Operations;
@@ -38,10 +42,6 @@ public sealed class DocumentationQueryTests
                 maxTypeForwarders: 10_000,
                 maxMetadataRows: 1_000_000,
                 maxRetainedTextCharacters: 20_000_000);
-    private static readonly Lazy<SourceHouseBuildAttestation>
-        s_documentationQueryBuildAttestation =
-            new(BuildDocumentationQueryAttestation);
-
     [Fact]
     public void UnifiedPortableContract_IsClosedAndQueriesOwned()
     {
@@ -291,13 +291,11 @@ public sealed class DocumentationQueryTests
     {
         const string identity =
             "M:DocumentationQuery.Split.Subject.Target(System.String)";
-        SourceHouseBuildAttestation api =
-            EmitDocumentationQueryAttestation(
+        CompiledSource api =
+            CompileDocumentationQuerySource(
                 "DocumentationQuerySplitFixture",
-                [
-                    new(
-                        "Api.cs",
-                        """
+                "Api.cs",
+                """
                         #nullable enable
                         namespace DocumentationQuery.Split;
 
@@ -306,16 +304,12 @@ public sealed class DocumentationQueryTests
                             public static void Neighbor() { }
                             public static void Target(string value) { }
                         }
-                        """u8.ToArray()),
-                ],
-                "documentation-query-split-api");
-        SourceHouseBuildAttestation implementation =
-            EmitDocumentationQueryAttestation(
+                        """);
+        CompiledSource implementation =
+            CompileDocumentationQuerySource(
                 "DocumentationQuerySplitFixture",
-                [
-                    new(
-                        "Implementation.cs",
-                        """
+                "Implementation.cs",
+                """
                         #nullable enable
                         namespace DocumentationQuery.Split;
 
@@ -324,9 +318,7 @@ public sealed class DocumentationQueryTests
                             public static void Target(string? value) { }
                             public static void Neighbor() { }
                         }
-                        """u8.ToArray()),
-                ],
-                "documentation-query-split-implementation");
+                        """);
         await using LibraryFixture library =
             await LibraryFixture.CreateSplitSourceAsync(
                 api.PeImage.ToArray(),
@@ -367,28 +359,80 @@ public sealed class DocumentationQueryTests
 
     [Fact]
     public async Task
+        ImplementationSubjectResolver_AccessorIsUnavailable()
+    {
+        CompiledSource compiled =
+            CompileDocumentationQuerySource(
+                "DocumentationQueryAccessorFixture",
+                "Accessor.cs",
+                """
+                        namespace DocumentationQuery.Accessor;
+
+                        public interface ISubject
+                        {
+                            int Value { get; }
+                        }
+
+                        public sealed class Subject
+                            : ISubject
+                        {
+                            /// <summary>Property documentation.</summary>
+                            int ISubject.Value => 42;
+                        }
+                        """);
+        await using LibraryFixture library =
+            await LibraryFixture.CreateSourceAsync(
+                compiled.PeImage.ToArray(),
+                compiled.PortablePdbImage.ToArray());
+        LibraryApiSurfaceCorrespondence correspondence =
+            library.ApiSurfaceCorrespondence;
+        ApiType type = Assert.Single(
+            correspondence.Surface.Types,
+            candidate =>
+                candidate.FullName
+                    == "DocumentationQuery.Accessor.Subject");
+        ApiMember getter = Assert.Single(
+            type.Members,
+            candidate =>
+                candidate.MethodSemantics
+                    == ApiMethodSemanticsKind.PropertyGetter);
+        DocumentationSubjectReference subject =
+            DocumentationSubjectReference.ForMember(
+                correspondence,
+                type,
+                getter);
+
+        Assert.IsType<
+            DocumentationImplementationSubjectResolution.Unavailable>(
+                DocumentationImplementationSubjectResolver.Resolve(
+                    library.Reference,
+                    library.Owner,
+                    subject,
+                    ApiSurfaceExtractionScope.Public,
+                    s_documentationQueryApiSurfaceBounds,
+                    TestContext.Current.CancellationToken));
+    }
+
+    [Fact]
+    public async Task
         ImplementationSubjectResolver_ReportsAmbiguousAndBounded()
     {
         const string assemblyName =
             "DocumentationQueryAmbiguousFixture";
         const string identity =
             "M:DocumentationQuery.Ambiguous.Subject.Target";
-        SourceHouseBuildAttestation api =
-            EmitDocumentationQueryAttestation(
+        CompiledSource api =
+            CompileDocumentationQuerySource(
                 assemblyName,
-                [
-                    new(
-                        "Api.cs",
-                        """
+                "Api.cs",
+                """
                         namespace DocumentationQuery.Ambiguous;
 
                         public static class Subject
                         {
                             public static void Target() { }
                         }
-                        """u8.ToArray()),
-                ],
-                "documentation-query-ambiguous-api");
+                        """);
         byte[] implementation = DuplicateTargetAssembly(assemblyName);
         await using LibraryFixture library =
             await LibraryFixture.CreateSplitSourceAsync(
@@ -442,15 +486,13 @@ public sealed class DocumentationQueryTests
         ImplementationResolutionTerminal_PreservesCompiledChannel(
             bool incomplete)
     {
-        SourceHouseBuildAttestation attestation =
-            s_documentationQueryBuildAttestation.Value;
-        var capability = new DocumentationQueryAttestationCapability(
-            attestation);
+        var capability = new DocumentationQuerySourceCapability(
+            DocumentationQuerySourceBytes());
         string identity;
         await using (LibraryFixture probe =
             await LibraryFixture.CreateSourceAsync(
-                attestation.PeImage.ToArray(),
-                attestation.PortablePdbImage.ToArray()))
+                DocumentationQueryAssemblyBytes(),
+                DocumentationQueryPdbBytes()))
         {
             identity = DocumentationQueryAuthoredScenario
                 .Create(probe, capability)
@@ -463,8 +505,8 @@ public sealed class DocumentationQueryTests
         byte[] xml = QueryXml(identity, "compiled-terminal-summary");
         await using LibraryFixture library =
             await LibraryFixture.CreateSourceAsync(
-                attestation.PeImage.ToArray(),
-                attestation.PortablePdbImage.ToArray(),
+                DocumentationQueryAssemblyBytes(),
+                DocumentationQueryPdbBytes(),
                 xml);
         DocumentationQueryAuthoredScenario scenario =
             DocumentationQueryAuthoredScenario.Create(
@@ -552,15 +594,13 @@ public sealed class DocumentationQueryTests
     public async Task
         RealCombinedQuery_ResolvesThroughQuerySpaceAndPublishesConflict()
     {
-        SourceHouseBuildAttestation attestation =
-            s_documentationQueryBuildAttestation.Value;
-        var capability = new DocumentationQueryAttestationCapability(
-            attestation);
+        var capability = new DocumentationQuerySourceCapability(
+            DocumentationQuerySourceBytes());
         string identity;
         await using (LibraryFixture probe =
             await LibraryFixture.CreateSourceAsync(
-                attestation.PeImage.ToArray(),
-                attestation.PortablePdbImage.ToArray()))
+                DocumentationQueryAssemblyBytes(),
+                DocumentationQueryPdbBytes()))
         {
             identity = DocumentationQueryAuthoredScenario
                 .Create(probe, capability)
@@ -573,8 +613,8 @@ public sealed class DocumentationQueryTests
         byte[] xml = QueryXml(identity, "compiled-channel-summary");
         await using LibraryFixture library =
             await LibraryFixture.CreateSourceAsync(
-                attestation.PeImage.ToArray(),
-                attestation.PortablePdbImage.ToArray(),
+                DocumentationQueryAssemblyBytes(),
+                DocumentationQueryPdbBytes(),
                 xml);
         DocumentationQueryAuthoredScenario scenario =
             DocumentationQueryAuthoredScenario.Create(
@@ -661,7 +701,6 @@ public sealed class DocumentationQueryTests
                     StringComparison.Ordinal);
             });
         Assert.Equal(1, capability.SourceReads);
-        Assert.Equal(1, capability.AttestationReads);
         Assert.Equal(
             DocumentationLibraryLeaseConsumer.SourceHouse,
             exact.LeaseSettlement.Consumer);
@@ -840,7 +879,7 @@ public sealed class DocumentationQueryTests
             case DocumentationQueryAuthoredCase.Ambiguous:
                 Assert.Equal(
                     AuthoredDocumentationAmbiguityReason
-                        .PhysicalDeclarationConflict,
+                        .DeclarationAmbiguous,
                     Assert.IsType<
                             AuthoredDocumentationOutcome.Ambiguous>(
                             content.AuthoredSource)
@@ -1010,7 +1049,7 @@ public sealed class DocumentationQueryTests
                 new DocumentationAuthoredSourceOperationOutcome.Unavailable(
                     invocation,
                     DocumentationAuthoredUnavailableKind
-                        .PhysicalDeclarationConflict,
+                        .DeclarationAmbiguous,
                     work,
                     settlement,
                     observation),
@@ -1063,8 +1102,7 @@ public sealed class DocumentationQueryTests
             DocumentationSourceReference.Create(
                 DocumentationSourceKind.SourceHouse,
                 "scripted-query-source"),
-            new DocumentationQuerySourceEvidence(),
-            new DocumentationQueryPhysicalDeclarationEvidence());
+            new DocumentationQuerySourceEvidence());
         return new(
             invocation,
             new(
@@ -1076,7 +1114,6 @@ public sealed class DocumentationQueryTests
                 SourceBytesObserved = source.Length,
                 SourceTextCharactersObserved = source.Length,
                 SourceDocumentsObserved = 1,
-                AttestationContributionsObserved = 1,
                 DocumentationWork = documentation.Work,
             },
             settlement);
@@ -1088,49 +1125,47 @@ public sealed class DocumentationQueryTests
             SourceBytesObserved: 0,
             SourceTextCharactersObserved: 0,
             SourceDocumentsObserved: 0,
-            AttestationContributionsObserved: 0,
             DocumentationWork: null);
 
-    private static SourceHouseBuildAttestation
-        BuildDocumentationQueryAttestation()
-    {
-        return EmitDocumentationQueryAttestation(
-            "DocumentationQueryAuthoredFixture",
-            DocumentationQueryBuildSources(),
-            "documentation-query-authored");
-    }
-
-    private static SourceHouseBuildAttestation
-        EmitDocumentationQueryAttestation(
+    private static CompiledSource CompileDocumentationQuerySource(
             string assemblyName,
-            IReadOnlyList<CSharpBuildSource> sources,
-            string generation)
+            string sourcePath,
+            string source)
     {
-        CSharpBuildAttestationOutcome outcome =
-            CSharpBuildAttestor.EmitAndAttest(
-                new(
-                    assemblyName,
-                    sources,
-                    DocumentationQueryTrustedPlatformAssemblies(),
-                    SourceHouseCapabilityIdentity.Create(
-                        "documentation-query-build-attestor"),
-                    SourceHouseAttestationIssuerIdentity.Create(
-                        "dotnet-inspect-build"),
-                    SourceHouseAttestationProfileIdentity.Create(
-                        "direct-csharp-emit-v1"),
-                    SourceHouseAttestationGeneration.Create(
-                        generation)));
-        if (outcome is CSharpBuildAttestationOutcome.Failed failed)
-        {
-            Assert.Fail(
-                string.Join(
-                    Environment.NewLine,
-                    failed.Diagnostics));
-        }
+            byte[] sourceBytes = Encoding.UTF8.GetBytes(source);
+            SyntaxTree tree = CSharpSyntaxTree.ParseText(
+                SourceText.From(sourceBytes, sourceBytes.Length, Encoding.UTF8),
+                new CSharpParseOptions(LanguageVersion.Preview),
+                sourcePath);
+            CSharpCompilation compilation = CSharpCompilation.Create(
+                assemblyName,
+                [tree],
+                DocumentationQueryTrustedPlatformAssemblies()
+                    .Select(static path =>
+                        MetadataReference.CreateFromFile(path)),
+                new CSharpCompilationOptions(
+                    OutputKind.DynamicallyLinkedLibrary,
+                    deterministic: true));
+            using var pe = new MemoryStream();
+            using var pdb = new MemoryStream();
+            EmitResult result = compilation.Emit(
+                pe,
+                pdb,
+                options: new EmitOptions(
+                    debugInformationFormat: DebugInformationFormat.PortablePdb,
+                    pdbFilePath: $"{assemblyName}.pdb"));
+            if (!result.Success)
+            {
+                Assert.Fail(
+                    string.Join(
+                        Environment.NewLine,
+                        result.Diagnostics));
+            }
 
-        return Assert.IsType<
-                CSharpBuildAttestationOutcome.Available>(outcome)
-            .Attestation;
+            return new(
+                ImmutableArray.CreateRange(pe.ToArray()),
+                ImmutableArray.CreateRange(pdb.ToArray()),
+                sourceBytes);
     }
 
     private static int MethodToken(
@@ -1226,27 +1261,6 @@ public sealed class DocumentationQueryTests
         return image.ToArray();
     }
 
-    private static CSharpBuildSource[] DocumentationQueryBuildSources()
-    {
-        string directory = Path.Combine(
-            RepositoryRootForDocumentationQuery(),
-            "src",
-            "CSharpText.MemberSlicing");
-        return
-        [
-            .. Directory.EnumerateFiles(
-                    directory,
-                    "*.cs",
-                    SearchOption.TopDirectoryOnly)
-                .Order(StringComparer.Ordinal)
-                .Select(
-                    static path =>
-                        new CSharpBuildSource(
-                            path,
-                            File.ReadAllBytes(path))),
-        ];
-    }
-
     private static string RepositoryRootForDocumentationQuery()
     {
         for (DirectoryInfo? directory =
@@ -1283,6 +1297,23 @@ public sealed class DocumentationQueryTests
             typeof(CSharpSourceText).Assembly.Location,
         ];
     }
+
+    private static byte[] DocumentationQueryAssemblyBytes() =>
+        File.ReadAllBytes(typeof(MemberTextSlicer).Assembly.Location);
+
+    private static byte[] DocumentationQueryPdbBytes() =>
+        File.ReadAllBytes(
+            Path.ChangeExtension(
+                typeof(MemberTextSlicer).Assembly.Location,
+                ".pdb"));
+
+    private static byte[] DocumentationQuerySourceBytes() =>
+        File.ReadAllBytes(
+            Path.Combine(
+                RepositoryRootForDocumentationQuery(),
+                "src",
+                "CSharpText.MemberSlicing",
+                "MemberTextSlicer.cs"));
 
     private static DocumentationHouseLimits DocumentationQueryHouseLimits() =>
         new(
@@ -1363,7 +1394,7 @@ public sealed class DocumentationQueryTests
     {
         internal static DocumentationQueryAuthoredScenario Create(
             LibraryFixture library,
-            ISourceHousePhysicalDeclarationCapability capability)
+            ISourceHouseSourceCapability capability)
         {
             LibraryApiSurfaceCorrespondence correspondence =
                 library.ApiSurfaceCorrespondence;
@@ -1425,42 +1456,25 @@ public sealed class DocumentationQueryTests
         }
     }
 
-    private sealed class DocumentationQueryAttestationCapability(
-        SourceHouseBuildAttestation inner)
-        : ISourceHousePhysicalDeclarationCapability
+    private sealed class DocumentationQuerySourceCapability(byte[] source)
+        : ISourceHouseSourceCapability
     {
         public int SourceReads { get; private set; }
-        public int AttestationReads { get; private set; }
-        public SourceHouseCapabilityIdentity Identity => inner.Identity;
-        public SourceHouseCapabilityCategory Category => inner.Category;
-        public SourceHouseAttestationIssuerIdentity Issuer => inner.Issuer;
-        public SourceHouseAttestationProfileIdentity Profile => inner.Profile;
-        public SourceHouseAttestationGeneration Generation =>
-            inner.Generation;
+        public SourceHouseCapabilityIdentity Identity { get; } =
+            SourceHouseCapabilityIdentity.Create(
+                "documentation-query-source");
+        public SourceHouseCapabilityCategory Category =>
+            SourceHouseCapabilityCategory.Repository;
 
         public ValueTask<SourceHouseCapabilityOutcome> ReadAsync(
             SourceHouseSourceCandidate candidate,
             int maximumBytes,
             CancellationToken cancellationToken)
         {
+            cancellationToken.ThrowIfCancellationRequested();
             SourceReads++;
-            return inner.ReadAsync(
-                candidate,
-                maximumBytes,
-                cancellationToken);
-        }
-
-        public ValueTask<SourceHouseAttestationCapabilityOutcome>
-            ReadAttestationsAsync(
-                SourceHousePhysicalDeclarationRequest request,
-                int maximumContributions,
-                CancellationToken cancellationToken)
-        {
-            AttestationReads++;
-            return inner.ReadAttestationsAsync(
-                request,
-                maximumContributions,
-                cancellationToken);
+            return ValueTask.FromResult<SourceHouseCapabilityOutcome>(
+                new SourceHouseCapabilityOutcome.Available(source));
         }
     }
 
@@ -1500,9 +1514,10 @@ public sealed class DocumentationQueryTests
     private sealed class DocumentationQuerySourceEvidence
         : DocumentationAuthoredSourceEvidenceReference;
 
-    private sealed class DocumentationQueryPhysicalDeclarationEvidence
-        : DocumentationPhysicalDeclarationEvidenceReference;
-
+    private sealed record CompiledSource(
+        ImmutableArray<byte> PeImage,
+        ImmutableArray<byte> PortablePdbImage,
+        byte[] SourceBytes);
 }
 
 public sealed partial class CompiledDocumentationQueryTests

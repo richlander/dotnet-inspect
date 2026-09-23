@@ -1979,9 +1979,7 @@ public sealed partial class AuthoredSourceHouseTests
         int maximumTargetMappings = 10_000,
         int maximumCandidateAttempts = 10,
         int maximumSourceBytes = 16 * 1024 * 1024,
-        int maximumSourceTextCharacters = 16 * 1024 * 1024,
-        int maximumAttestationContributions = 16,
-        int maximumPhysicalDeclarationCharacters = 1_000_000) =>
+        int maximumSourceTextCharacters = 16 * 1024 * 1024) =>
         new(
             maximumAssemblyBytes,
             maximumPortablePdbBytes,
@@ -1996,9 +1994,7 @@ public sealed partial class AuthoredSourceHouseTests
             maximumTargetMappings,
             maximumCandidateAttempts,
             maximumSourceBytes,
-            maximumSourceTextCharacters,
-            maximumAttestationContributions,
-            maximumPhysicalDeclarationCharacters);
+            maximumSourceTextCharacters);
 
     private static async Task<SourceHouseOutcome> ExecuteAsync(
         LibraryFixture library,

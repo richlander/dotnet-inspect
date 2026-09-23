@@ -62,9 +62,9 @@ ReadAttachedDocumentation(
 
 `Available` and `Absent` are local CSharpText facts about one supplied source
 buffer. Neither proves that the declaration produced a requested Metadata
-target. A later SourceHouse adapter may use them only beside the independent
-physical-declaration correspondence owned by
-[SourceHouse physical-declaration correspondence](source-house-physical-declaration-correspondence.md).
+target. A SourceHouse adapter may use them only after the exact target-to-source
+mapping, checksum verification, and declaration selection owned by
+[SourceHouse PDB-mapped declaration correspondence](source-house-pdb-mapped-declaration-correspondence.md).
 
 ## Demo and motivating asset
 

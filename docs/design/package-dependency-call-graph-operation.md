@@ -6,7 +6,10 @@ graph before transient Package Source and assembly-context resources close.
 
 Implementation is tracked by
 [#8076](https://github.com/richlander/dotnet-inspect/issues/8076) and
-[#8309](https://github.com/richlander/dotnet-inspect/issues/8309). The broader
+[#8309](https://github.com/richlander/dotnet-inspect/issues/8309).
+[Member call-graph supply-chain focus](member-call-graph-supply-chain-focus.md)
+composes a subtractive Package-interest baseline under
+[#8334](https://github.com/richlander/dotnet-inspect/issues/8334). The broader
 Workspace adoption remains
 [#6638](https://github.com/richlander/dotnet-inspect/issues/6638).
 

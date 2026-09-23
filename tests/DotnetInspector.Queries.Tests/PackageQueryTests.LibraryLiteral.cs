@@ -71,6 +71,7 @@ public sealed partial class PackageQueryTests
             envelope.Content.Summary.Occurrences);
         PackageQueryLibraryLiteralAssessment publishedAssessment =
             Assert.Single(assessmentSink.Assessments);
+        Assert.Same(assessment, publishedAssessment);
         Assert.Equal(assessment, publishedAssessment);
         PackageQueryEvent.Match published = Assert.Single(
             sink.Events.OfType<PackageQueryEvent.Match>());
@@ -147,6 +148,146 @@ public sealed partial class PackageQueryTests
                 StringComparison.OrdinalIgnoreCase));
     }
 
+    [Fact]
+    public async Task LibraryLiteralOperationDeadlineRetainsTerminalAssessment()
+    {
+        const string admittedPackage = "Contoso.Admitted";
+        const string delayedPackage = "Contoso.Delayed";
+        const string literal = "shared-literal-use-marker";
+        await using var fixture = new SemanticQueryFixture();
+        byte[] image = File.ReadAllBytes(
+            FixtureCatalog.AnalysisStringLiterals.AssemblyPath());
+        await fixture.CacheAssemblyAsync(admittedPackage, image);
+        await fixture.CacheAssemblyAsync(delayedPackage, image);
+        var source = new FakePackageSource(
+            [Match(admittedPackage), Match(delayedPackage)],
+            new Dictionary<string, byte[]>());
+        PackageQueryPlan plan = Accepted(PackageQuery.PlanInput(
+            "Contoso.*",
+            [Term(PackageQuery.LibraryLiteralTermKey, literal)],
+            maximumCandidates: 2,
+            maximumMatches: 2,
+            targetFramework: "net11.0"));
+        var assessmentSink =
+            new RecordingLibraryLiteralAssessmentSink();
+        TimeSpan timeout = TimeSpan.FromMilliseconds(100);
+        var semanticExecution = new PackageQueryAssemblySemanticExecution(
+            new DelayedAuthorization(
+                fixture.Authorization,
+                delayOnCall: 2,
+                TimeSpan.FromMilliseconds(250)),
+            cancellationToken =>
+                fixture.IssueOperation(cancellationToken, timeout),
+            fixture.PayloadAcquisition,
+            new PackageAssemblySemanticFindBudget(
+                PackageAssemblySemanticFindBudget.Default.Payload,
+                new PackageAssemblyEvaluationBudget(
+                    PackageAssemblyEvaluationBudget.Default.MaximumEntryBytes,
+                    PackageAssemblyEvaluationBudget.Default
+                        .MaximumRetainedImageBytes,
+                    PackageAssemblyEvaluationBudget.Default.SemanticBudget,
+                    timeout)),
+            assessmentSink);
+
+        PackageQueryDocument document =
+            (await PackageQueryInspection.ExecuteAsync(
+                source,
+                plan,
+                contentProvider: null,
+                dependencyTraversalServices: null,
+                semanticExecution,
+                nonterminalSink: null,
+                TestContext.Current.CancellationToken)).Content;
+
+        Assert.Equal(0, document.Summary.EvaluatedCandidates);
+        Assert.Equal(1, document.Summary.NotEvaluatedCandidates);
+        PackageQueryLibraryLiteralAssessment assessment =
+            Assert.Single(document.LibraryLiteralAssessments);
+        Assert.Equal(
+            admittedPackage.ToLowerInvariant(),
+            assessment.PackageId.ToLowerInvariant());
+        Assert.Equal(
+            PackageQueryLibraryLiteralAssessmentKind.NotEvaluated,
+            assessment.Kind);
+        Assert.Equal(
+            PackageQueryLibraryLiteralNonEvaluationKind.OperationDeadline,
+            assessment.NonEvaluationKind);
+        Assert.Empty(assessmentSink.Assessments);
+        Assert.Empty(document.Results);
+    }
+
+    [Fact]
+    public async Task
+        LibraryLiteralAggregateOccurrenceLimitIsVisibleWithoutPartialMatch()
+    {
+        const string packageId = "Contoso.Aggregate.Limit";
+        const string literal = "shared-literal-use-marker";
+        byte[] image = File.ReadAllBytes(
+            FixtureCatalog.AnalysisStringLiterals.AssemblyPath());
+        await using var fixture = new SemanticQueryFixture();
+        await fixture.CacheAssembliesAsync(
+            packageId,
+            ("A.First.dll", image),
+            ("Z.Second.dll", image));
+        var source = new FakePackageSource(
+            [Match(packageId)],
+            new Dictionary<string, byte[]>());
+        PackageQueryPlan plan = Accepted(PackageQuery.PlanInput(
+            "Contoso.*",
+            [Term(PackageQuery.LibraryLiteralTermKey, literal)],
+            maximumCandidates: 1,
+            maximumMatches: 1,
+            targetFramework: "net11.0"));
+        var assessmentSink =
+            new RecordingLibraryLiteralAssessmentSink();
+        var semanticExecution = new PackageQueryAssemblySemanticExecution(
+            new FixedAuthorization(fixture.Authorization),
+            fixture.IssueOperation,
+            fixture.PayloadAcquisition,
+            new PackageAssemblySemanticFindBudget(
+                PackageAssemblySemanticFindBudget.Default.Payload,
+                PackageAssemblySemanticFindBudget.Default.Evaluation,
+                maximumAggregateOccurrences: 1),
+            assessmentSink);
+
+        PackageQueryDocument document =
+            (await PackageQueryInspection.ExecuteAsync(
+                source,
+                plan,
+                contentProvider: null,
+                dependencyTraversalServices: null,
+                semanticExecution,
+                nonterminalSink: null,
+                TestContext.Current.CancellationToken)).Content;
+
+        Assert.Empty(document.Results);
+        PackageQueryFailure failure = Assert.Single(document.Failures);
+        Assert.Equal(
+            PackageQueryFailureKind.AssemblyEvaluation,
+            failure.Kind);
+        Assert.Contains("aggregate limit of 1", failure.Message);
+        PackageQueryLibraryLiteralAssessment assessment =
+            Assert.Single(document.LibraryLiteralAssessments);
+        Assert.Equal(
+            PackageQueryLibraryLiteralAssessmentKind.Failure,
+            assessment.Kind);
+        Assert.Equal(
+            PackageQueryLibraryLiteralFailureKind.Evaluation,
+            assessment.FailureKind);
+        Assert.Equal(
+            PackageAssemblyFailureStage.SemanticWorkLimit.ToString(),
+            assessment.FailureStage);
+        Assert.NotEmpty(assessment.Libraries);
+        Assert.All(
+            assessment.Libraries,
+            library => Assert.Equal(
+                PackageQueryLibraryLiteralLibraryAssessmentKind.Matched,
+                library.Kind));
+        Assert.Single(assessmentSink.Assessments);
+        Assert.Equal(0, document.Summary.SemanticMatches);
+        Assert.Equal(0, document.Summary.Occurrences);
+    }
+
     private sealed class RecordingLibraryLiteralAssessmentSink
         : IPackageQueryLibraryLiteralAssessmentSink
     {
@@ -170,6 +311,23 @@ public sealed partial class PackageQueryTests
         public PackageSourceAuthorization AuthorizeSourcesFor(
             string packageId) =>
             authorization;
+    }
+
+    private sealed class DelayedAuthorization(
+        PackageSourceAuthorization authorization,
+        int delayOnCall,
+        TimeSpan delay)
+        : IPackageSourceAuthorization
+    {
+        private int _calls;
+
+        public PackageSourceAuthorization AuthorizeSourcesFor(
+            string packageId)
+        {
+            if (Interlocked.Increment(ref _calls) == delayOnCall)
+                Thread.Sleep(delay);
+            return authorization;
+        }
     }
 
     private sealed class SemanticQueryFixture : IAsyncDisposable
@@ -203,10 +361,16 @@ public sealed partial class PackageQueryTests
 
         internal PackageSourceOperationLease IssueOperation(
             CancellationToken cancellationToken) =>
+            IssueOperation(
+                cancellationToken,
+                PackageAssemblySemanticFindBudget.Default.MaximumDuration);
+
+        internal PackageSourceOperationLease IssueOperation(
+            CancellationToken cancellationToken,
+            TimeSpan operationTimeout) =>
             Settlement.IssueOperationLease(
                 cancellationToken,
-                operationTimeout:
-                    PackageAssemblySemanticFindBudget.Default.MaximumDuration);
+                operationTimeout: operationTimeout);
 
         internal Task CacheAssemblyAsync(
             string packageId,
@@ -214,6 +378,17 @@ public sealed partial class PackageQueryTests
             CacheAsync(
                 packageId,
                 ($"lib/{Framework}/{packageId}.dll", image));
+
+        internal Task CacheAssembliesAsync(
+            string packageId,
+            params (string FileName, byte[] Image)[] assemblies) =>
+            CacheAsync(
+                packageId,
+                [
+                    .. assemblies.Select(assembly =>
+                        ($"lib/{Framework}/{assembly.FileName}",
+                            assembly.Image)),
+                ]);
 
         private async Task CacheAsync(
             string packageId,

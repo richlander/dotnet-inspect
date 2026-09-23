@@ -191,6 +191,9 @@ public sealed class Lambda : IrExpression
     public ImmutableArray<PdbLocalDeclaration?> LocalDeclarationBindings { get; init; } = [];
     public ImmutableArray<string?> PdbLocalNameCandidates { get; init; } = [];
     public ImmutableArray<DecompilerFidelityCause> LocalNameImportCauses { get; init; } = [];
+    internal ImmutableDictionary<int, MaterializedStackSlotLocal>
+        MaterializedStackSlotLocals { get; init; } =
+            ImmutableDictionary<int, MaterializedStackSlotLocal>.Empty;
     /// <summary>
     /// Enclosing binders that the final raised body references after
     /// capture substitution. Explicit non-parameter capture evidence is combined
@@ -340,6 +343,9 @@ public sealed class LocalFunctionStatement : IrNode
     public ImmutableArray<PdbLocalDeclaration?> LocalDeclarationBindings { get; init; } = [];
     public ImmutableArray<string?> PdbLocalNameCandidates { get; init; } = [];
     public ImmutableArray<DecompilerFidelityCause> LocalNameImportCauses { get; init; } = [];
+    internal ImmutableDictionary<int, MaterializedStackSlotLocal>
+        MaterializedStackSlotLocals { get; init; } =
+            ImmutableDictionary<int, MaterializedStackSlotLocal>.Empty;
     /// <summary>
     /// Enclosing binders that the final raised body references after
     /// capture substitution. Explicit non-parameter capture evidence is combined

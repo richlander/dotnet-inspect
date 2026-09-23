@@ -1219,7 +1219,9 @@ export function graphTargetNavigationDisposition(
     return "blocked";
   }
   if (candidate.status === "unique") return "loaded";
-  return target?.kind === "external"
+  return (target?.kind === "external"
+      || target?.kind === "boundary"
+      || target?.kind === "unclassified-boundary")
       && Boolean(target.assembly)
       && Boolean(callGraphTargetTypeId(target))
     ? resident ? "resident" : "platform"

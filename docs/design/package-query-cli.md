@@ -155,7 +155,7 @@ The production inspection vocabulary is:
 | `tool-format` | `v1` or `v2` | package content | package content | Tool settings use the selected format |
 | `references` | Assembly simple name | package content | metadata | At least one admitted managed `ref/` or `lib/` asset declares the requested `AssemblyRef` simple name |
 | `skill` | `true` | package content | package content | The archive contains an admitted skill document |
-| `library-literal` | Exact decoded UTF-16 text | package content | metadata-expensive | The selected primary implementation library contains the ordinal text in at least one decoded `ldstr` use |
+| `library-literal` | Exact decoded UTF-16 text | package content | metadata-expensive | The selected implementation-role population contains the ordinal text in at least one decoded `ldstr` use |
 
 Acquisition tier authorizes evidence access and enforces candidate bounds.
 Execution class is the product-owned discovery and UI taxonomy for the work
@@ -932,7 +932,7 @@ order:
   for those prequalified matches. Semantic `-n` then selects final package
   Results. A candidate that fails an ordinary term does not become a semantic
   `NoMatch`, and a semantic survivor does not become a published match until
-  its selected primary implementation library contains the literal.
+  its selected implementation-role population contains the literal.
 
 The implementation must preserve the orderings: candidate admission precedes
 term evaluation, nuspec predicates precede semantic `-n`, the package-content

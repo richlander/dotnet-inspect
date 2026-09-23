@@ -6,6 +6,7 @@
   <Folder Name="/fixtures/">
     <Project Path="fixtures/analysis/ILInspector.Analysis.AsyncSiblingFriendBaseFixtures/ILInspector.Analysis.AsyncSiblingFriendBaseFixtures.csproj" />
     <Project Path="fixtures/analysis/ILInspector.Analysis.AsyncSiblingFriendFixtures/ILInspector.Analysis.AsyncSiblingFriendFixtures.csproj" />
+    <Project Path="fixtures/analysis/ILInspector.Analysis.AsyncSiblingRepositoryFixture/ILInspector.Analysis.AsyncSiblingRepositoryFixture.csproj" />
     <Project Path="fixtures/analysis/ILInspector.Analysis.CallerGraphCaller/ILInspector.Analysis.CallerGraphCaller.csproj" />
     <Project Path="fixtures/analysis/ILInspector.Analysis.CallerGraphCallerTwin/ILInspector.Analysis.CallerGraphCallerTwin.csproj" />
     <Project Path="fixtures/analysis/ILInspector.Analysis.CallerGraphIndirectCaller/ILInspector.Analysis.CallerGraphIndirectCaller.csproj" />
@@ -272,6 +273,5 @@
     <Project Path="tools/InspectWebFixtureResolver/InspectWebFixtureResolver.csproj" />
     <Project Path="tools/RoundTripCompilation/RoundTripCompilation.csproj" />
     <Project Path="tools/SectionRegistrySpike/SectionRegistrySpike.csproj" />
-    <Project Path="tools/SourceBuildAttestation/SourceBuildAttestation.csproj" />
   </Folder>
 </Solution>

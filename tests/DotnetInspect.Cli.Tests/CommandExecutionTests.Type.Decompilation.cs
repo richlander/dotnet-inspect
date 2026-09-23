@@ -6,6 +6,8 @@ using DotnetInspect.Cli.Commands;
 using DotnetInspect.Cli.Options;
 using DotnetInspector.Services;
 using ILInspector.Metadata;
+using Microsoft.CodeAnalysis;
+using Microsoft.CodeAnalysis.CSharp;
 
 namespace DotnetInspect.Cli.Tests;
 
@@ -40,24 +42,34 @@ public partial class CommandExecutionTests
         Assert.Contains("public class Stack<T>", output);
         Assert.Contains("private T[] _array;", output);
         Assert.Contains("public void Push(T item)", output);
-        Assert.Contains("public bool TryPop([System.Diagnostics.CodeAnalysis.MaybeNullWhen(false)] out T result)", output);
+        Assert.Contains("public bool TryPop([MaybeNullWhen(false)] out T result)", output);
         // Using hoisting: qualified names shorten against the metadata
         // namespace tables; the directives appear at the top.
-        Assert.Contains("using System.Runtime.CompilerServices;", output);
-        Assert.Contains(": IEnumerable<T>, IEnumerable, ICollection, IReadOnlyCollection<T>", output);
-        Assert.Contains("RuntimeHelpers.IsReferenceOrContainsReferences", output);
-        Assert.DoesNotContain("System.Collections.Generic.IEnumerable<T>", output);
+        Assert.DoesNotContain(
+            "using System.Runtime.CompilerServices;",
+            output);
+        Assert.Contains(
+            ": IEnumerable<T>, System.Collections.IEnumerable, "
+            + "System.Collections.ICollection, IReadOnlyCollection<T>",
+            output);
+        Assert.Contains(
+            "global::System.Runtime.CompilerServices.RuntimeHelpers"
+                + ".IsReferenceOrContainsReferences",
+            output);
+        Assert.Contains(
+            "IEnumerator<T> System.Collections.Generic.IEnumerable<T>.GetEnumerator()",
+            output);
         // Explicit interface property implementations render exactly once
         // as properties with their selected accessor bodies.
         Assert.Equal(
             1,
             output.Split(
-                "bool ICollection.IsSynchronized => false;",
+                "bool System.Collections.ICollection.IsSynchronized",
                 StringSplitOptions.None).Length - 1);
         Assert.Equal(
             1,
             output.Split(
-                "object ICollection.SyncRoot => this;",
+                "object System.Collections.ICollection.SyncRoot",
                 StringSplitOptions.None).Length - 1);
         Assert.DoesNotContain("private virtual bool ICollection.IsSynchronized", output);
         Assert.DoesNotContain("private virtual object ICollection.SyncRoot", output);
@@ -92,11 +104,17 @@ public partial class CommandExecutionTests
         Assert.Empty(error);
         string normalized = output.ReplaceLineEndings("\n");
         const string values =
-            "    [DataMember(Name = \"values\")]\n"
-            + "    List<int> CommandExecutionTests.IAttributedExplicitValuesFixture.Values => _values;";
+            "        [System.Runtime.Serialization.DataMember(Name = \"values\")]\n"
+            + "        List<int> CommandExecutionTests.IAttributedExplicitValuesFixture.Values\n"
+            + "        {\n"
+            + "            get => _values;\n"
+            + "        }";
         const string otherValues =
-            "    [DataMember(Name = \"other-values\")]\n"
-            + "    List<int> CommandExecutionTests.IAttributedExplicitValuesFixture.OtherValues => _otherValues;";
+            "        [System.Runtime.Serialization.DataMember(Name = \"other-values\")]\n"
+            + "        List<int> CommandExecutionTests.IAttributedExplicitValuesFixture.OtherValues\n"
+            + "        {\n"
+            + "            get => _otherValues;\n"
+            + "        }";
         Assert.Equal(
             1,
             normalized.Split(values, StringSplitOptions.None).Length - 1);
@@ -106,21 +124,21 @@ public partial class CommandExecutionTests
         Assert.Equal(
             1,
             normalized.Split(
-                "[DataMember(Name = \"values\")]",
+                "[System.Runtime.Serialization.DataMember(Name = \"values\")]",
                 StringSplitOptions.None).Length - 1);
         Assert.Equal(
             1,
             normalized.Split(
-                "[DataMember(Name = \"other-values\")]",
+                "[System.Runtime.Serialization.DataMember(Name = \"other-values\")]",
                 StringSplitOptions.None).Length - 1);
         Assert.DoesNotContain(
-            "[DataMember(Name = \"values\")]\n"
-            + "    List<int> CommandExecutionTests.IAttributedExplicitValuesFixture.OtherValues",
+            "[System.Runtime.Serialization.DataMember(Name = \"values\")]\n"
+            + "        List<int> CommandExecutionTests.IAttributedExplicitValuesFixture.OtherValues",
             normalized,
             StringComparison.Ordinal);
         Assert.DoesNotContain(
-            "[DataMember(Name = \"other-values\")]\n"
-            + "    List<int> CommandExecutionTests.IAttributedExplicitValuesFixture.Values",
+            "[System.Runtime.Serialization.DataMember(Name = \"other-values\")]\n"
+            + "        List<int> CommandExecutionTests.IAttributedExplicitValuesFixture.Values",
             normalized,
             StringComparison.Ordinal);
         Assert.DoesNotContain(
@@ -131,7 +149,7 @@ public partial class CommandExecutionTests
 
     [Fact]
     public async Task
-        Type_DecompiledSource_RequiresCompletedSharedInspection()
+        Type_DecompiledSource_RequiresCompletedTypeDocumentInspection()
     {
         ApiSurface surface =
             AssemblyReader.ExtractApiSurface(
@@ -169,7 +187,7 @@ public partial class CommandExecutionTests
         Assert.Empty(output);
         Assert.Contains("DEC0001", error);
         Assert.Contains(
-            "completed type decompilation inspection is unavailable",
+            "completed Type document inspection is unavailable",
             error,
             StringComparison.Ordinal);
     }
@@ -194,7 +212,8 @@ public partial class CommandExecutionTests
         Assert.Equal(0, exit);
         Assert.Empty(error);
         string[] lines = output.ReplaceLineEndings("\n").Split('\n');
-        const string attribute = "[Obsolete(\"Use Value2 instead\", true)]";
+        const string attribute =
+            "[System.Obsolete(\"Use Value2 instead\", true)]";
         Assert.Single(lines, line => line.Trim() == attribute);
         int attributeLine = Array.FindIndex(lines, line => line.Trim() == attribute);
         Assert.InRange(attributeLine, 0, lines.Length - 2);
@@ -204,6 +223,409 @@ public partial class CommandExecutionTests
             StringComparison.Ordinal);
         Assert.DoesNotContain("get_Value", lines[attributeLine + 1]);
     }
+
+    [Fact]
+    public async Task
+        Type_DecompiledSource_ObsoleteErrorMessagesPreserveConstructorValues()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "type",
+            typeof(ObsoleteErrorMessageFixture).FullName!,
+            "--library",
+            TestAssemblyPath,
+            "-S",
+            "Decompiled Source",
+            "--tips",
+            "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains(
+            "[System.Obsolete(\"\", true)]",
+            output,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "[System.Obsolete(null, true)]",
+            output,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task
+        Type_DecompiledSource_QualifiesBodyTypesAcrossNamespaceCollisions()
+    {
+        string fixtureDir = Path.Combine(
+            Path.GetTempPath(),
+            $"dotnet-inspect-type-collision-{Guid.NewGuid():N}");
+        try
+        {
+            string assemblyPath = CompileBodyStateFixture(
+                fixtureDir,
+                "TypeDocumentNamespaceCollision",
+                """
+                namespace Foo
+                {
+                    public sealed class Widget
+                    {
+                    }
+
+                    public static class Helper
+                    {
+                        public static void Use()
+                        {
+                        }
+
+                        public static void Set(out int value)
+                        {
+                            value = 1;
+                        }
+
+                        public static void Use(int value)
+                        {
+                            _ = value;
+                        }
+                    }
+                }
+
+
+                namespace Bar
+                {
+                    public sealed class Widget
+                    {
+                    }
+                }
+
+                namespace Samples
+                {
+                    public sealed class Container
+                    {
+                        public Bar.Widget Create()
+                        {
+                            Foo.Helper.Use();
+                            return new Bar.Widget();
+                        }
+
+                        public Bar.Widget[] CreateMany()
+                        {
+                            Foo.Helper.Use();
+                            return new Bar.Widget[1];
+                        }
+
+                        public Bar.Widget CreateWithLambda()
+                        {
+                            System.Func<Bar.Widget> create = () =>
+                            {
+                                int local;
+                                Foo.Helper.Set(out local);
+                                Foo.Helper.Use(local);
+                                return new Bar.Widget();
+                            };
+                            return create();
+                        }
+                    }
+                }
+                """);
+
+            var (exit, output, error) = await RunAppAsync(
+                "type",
+                "Samples.Container",
+                "--library",
+                assemblyPath,
+                "-S",
+                "Decompiled Source",
+                "--tips",
+                "q",
+                "--all");
+
+            Assert.Equal(0, exit);
+            Assert.Empty(error);
+            Assert.Contains("using Bar;", output);
+            Assert.DoesNotContain("using Foo;", output);
+            Assert.Contains(
+                "public Widget Create()",
+                output,
+                StringComparison.Ordinal);
+            Assert.Contains(
+                "global::Foo.Helper.Use();",
+                output,
+                StringComparison.Ordinal);
+            Assert.Contains(
+                "return new global::Bar.Widget();",
+                output,
+                StringComparison.Ordinal);
+            Assert.Contains(
+                "return new global::Bar.Widget[1];",
+                output,
+                StringComparison.Ordinal);
+            Assert.Contains(
+                "global::Foo.Helper.Set(out ",
+                output,
+                StringComparison.Ordinal);
+            Assert.Contains(
+                "global::Foo.Helper.Use(",
+                output,
+                StringComparison.Ordinal);
+
+            IEnumerable<MetadataReference> references =
+                ((string)AppContext.GetData(
+                    "TRUSTED_PLATFORM_ASSEMBLIES")!)
+                .Split(Path.PathSeparator)
+                .Select(path =>
+                    MetadataReference.CreateFromFile(path))
+                .Append(MetadataReference.CreateFromFile(
+                    assemblyPath));
+            CSharpCompilation compilation =
+                CSharpCompilation.Create(
+                    "TypeDocumentNamespaceCollisionOutput",
+                    [CSharpSyntaxTree.ParseText(
+                        output,
+                        cancellationToken:
+                            TestContext.Current.CancellationToken)],
+                    references,
+                    new CSharpCompilationOptions(
+                        OutputKind.DynamicallyLinkedLibrary,
+                        optimizationLevel:
+                            OptimizationLevel.Release));
+            using var generated = new MemoryStream();
+            var result = compilation.Emit(
+                generated,
+                cancellationToken:
+                    TestContext.Current.CancellationToken);
+            Assert.True(
+                result.Success,
+                string.Join(
+                    Environment.NewLine,
+                    result.Diagnostics));
+        }
+        finally
+        {
+            if (Directory.Exists(fixtureDir))
+            {
+                Directory.Delete(
+                    fixtureDir,
+                    recursive: true);
+            }
+        }
+    }
+
+    [Fact]
+    public async Task
+        Type_DecompiledSource_PreservesInitializerExecutionOrder()
+    {
+        string fixtureDir = Path.Combine(
+            Path.GetTempPath(),
+            $"dotnet-inspect-initializer-order-{Guid.NewGuid():N}");
+        try
+        {
+            string assemblyPath = CompileBodyStateFixture(
+                fixtureDir,
+                "TypeDocumentInitializerOrder",
+                """
+                namespace Samples
+                {
+                    public sealed class InitializerOrder
+                    {
+                        private static int _next;
+
+                        public int First = Next();
+
+                        public int Second { get; } = Next();
+
+                        public int Third = Next();
+
+                        private static int Next() => ++_next;
+                    }
+                }
+                """);
+
+            var (exit, output, error) = await RunAppAsync(
+                "type",
+                "Samples.InitializerOrder",
+                "--library",
+                assemblyPath,
+                "-S",
+                "Decompiled Source",
+                "--tips",
+                "q",
+                "--all");
+
+            Assert.Equal(0, exit);
+            Assert.Empty(error);
+            int first = output.IndexOf(
+                "First = Next();",
+                StringComparison.Ordinal);
+            int second = output.IndexOf(
+                "Second",
+                StringComparison.Ordinal);
+            int third = output.IndexOf(
+                "Third = Next();",
+                StringComparison.Ordinal);
+            Assert.True(first >= 0, output);
+            Assert.True(second > first, output);
+            Assert.True(third > second, output);
+
+            IEnumerable<MetadataReference> references =
+                ((string)AppContext.GetData(
+                    "TRUSTED_PLATFORM_ASSEMBLIES")!)
+                .Split(Path.PathSeparator)
+                .Select(path =>
+                    MetadataReference.CreateFromFile(path));
+            CSharpCompilation compilation =
+                CSharpCompilation.Create(
+                    $"TypeDocumentInitializerOrderOutput{Guid.NewGuid():N}",
+                    [
+                        CSharpSyntaxTree.ParseText(
+                            output,
+                            cancellationToken:
+                                TestContext.Current.CancellationToken),
+                        CSharpSyntaxTree.ParseText(
+                            """
+                            namespace Harness
+                            {
+                                public static class Probe
+                                {
+                                    public static string Run()
+                                    {
+                                        var value =
+                                            new Samples.InitializerOrder();
+                                        return $"{value.First},{value.Second},{value.Third}";
+                                    }
+                                }
+                            }
+                            """,
+                            cancellationToken:
+                                TestContext.Current.CancellationToken),
+                    ],
+                    references,
+                    new CSharpCompilationOptions(
+                        OutputKind.DynamicallyLinkedLibrary,
+                        optimizationLevel:
+                            OptimizationLevel.Release));
+            using var generated = new MemoryStream();
+            var result = compilation.Emit(
+                generated,
+                cancellationToken:
+                    TestContext.Current.CancellationToken);
+            Assert.True(
+                result.Success,
+                string.Join(
+                    Environment.NewLine,
+                    result.Diagnostics));
+            generated.Position = 0;
+            var loadContext =
+                new System.Runtime.Loader.AssemblyLoadContext(
+                    $"initializer-order-{Guid.NewGuid():N}",
+                    isCollectible: true);
+            try
+            {
+                System.Reflection.Assembly assembly =
+                    loadContext.LoadFromStream(generated);
+                object? actual = assembly
+                    .GetType("Harness.Probe", throwOnError: true)!
+                    .GetMethod(
+                        "Run",
+                        System.Reflection.BindingFlags.Public
+                            | System.Reflection.BindingFlags.Static)!
+                    .Invoke(null, null);
+                Assert.Equal("1,2,3", actual);
+            }
+            finally
+            {
+                loadContext.Unload();
+            }
+        }
+        finally
+        {
+            if (Directory.Exists(fixtureDir))
+            {
+                Directory.Delete(
+                    fixtureDir,
+                    recursive: true);
+            }
+        }
+    }
+
+    [Fact]
+    public async Task Type_DecompiledSource_PreservesConstantValues()
+    {
+        string fixtureDir = Path.Combine(
+            Path.GetTempPath(),
+            $"dotnet-inspect-constant-{Guid.NewGuid():N}");
+        try
+        {
+            string assemblyPath = CompileBodyStateFixture(
+                fixtureDir,
+                "TypeDocumentConstant",
+                """
+                namespace Samples
+                {
+                    public static class Constants
+                    {
+                        public const int Constant = 7;
+
+                        public static int Read() => Constant;
+                    }
+                }
+                """);
+
+            var (exit, output, error) = await RunAppAsync(
+                "type",
+                "Samples.Constants",
+                "--library",
+                assemblyPath,
+                "-S",
+                "Decompiled Source",
+                "--tips",
+                "q",
+                "--all");
+
+            Assert.Equal(0, exit);
+            Assert.Empty(error);
+            Assert.Contains(
+                "public const int Constant = 7;",
+                output,
+                StringComparison.Ordinal);
+
+            IEnumerable<MetadataReference> references =
+                ((string)AppContext.GetData(
+                    "TRUSTED_PLATFORM_ASSEMBLIES")!)
+                .Split(Path.PathSeparator)
+                .Select(path =>
+                    MetadataReference.CreateFromFile(path));
+            CSharpCompilation compilation =
+                CSharpCompilation.Create(
+                    $"TypeDocumentConstantOutput{Guid.NewGuid():N}",
+                    [CSharpSyntaxTree.ParseText(
+                        output,
+                        cancellationToken:
+                            TestContext.Current.CancellationToken)],
+                    references,
+                    new CSharpCompilationOptions(
+                        OutputKind.DynamicallyLinkedLibrary,
+                        optimizationLevel:
+                            OptimizationLevel.Release));
+            using var generated = new MemoryStream();
+            var result = compilation.Emit(
+                generated,
+                cancellationToken:
+                    TestContext.Current.CancellationToken);
+            Assert.True(
+                result.Success,
+                string.Join(
+                    Environment.NewLine,
+                    result.Diagnostics));
+        }
+        finally
+        {
+            if (Directory.Exists(fixtureDir))
+            {
+                Directory.Delete(
+                    fixtureDir,
+                    recursive: true);
+            }
+        }
+    }
+
 
     [Fact]
     public async Task
@@ -270,7 +692,7 @@ public partial class CommandExecutionTests
             defaultOutput,
             StringComparison.Ordinal);
         Assert.Contains(
-            "public static int Visible { get; }",
+            "public static int Visible",
             defaultOutput,
             StringComparison.Ordinal);
         Assert.Contains(
@@ -357,7 +779,7 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Type_DecompiledSource_UsesExpressionBodiedSyntaxForTableMembers()
+    public async Task Type_DecompiledSource_UsesStructuredBodySpelling()
     {
         var (exit, output, error) = await RunAppAsync(
             "type", typeof(MemberCallsFixture).FullName!, "--library", TestAssemblyPath,
@@ -365,7 +787,12 @@ public partial class CommandExecutionTests
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
-        Assert.Contains("public static int CallsInterfaceItem(IList<int> values) => values[0];", output);
+        Assert.Contains(
+            "    public static int CallsInterfaceItem(IList<int> values)\n"
+            + "    {\n"
+            + "        return values[0];\n"
+            + "    }",
+            output.ReplaceLineEndings("\n"));
         Assert.Contains("    public static void CallsWriteLineTwice()\n    {", output.ReplaceLineEndings("\n"));
     }
 
@@ -423,7 +850,13 @@ public partial class CommandExecutionTests
         Assert.Equal(0, exit);
         Assert.Empty(error);
         // Native C#: no markdown heading, section title, code fence, or tips.
-        Assert.StartsWith("using System.Collections;", output);
+        Assert.StartsWith("using ", output);
+        Assert.DoesNotContain(
+            "using System.Runtime.CompilerServices;",
+            output);
+        Assert.Contains(
+            "global::System.Runtime.CompilerServices.RuntimeHelpers",
+            output);
         Assert.Contains("namespace System.Collections.Generic;", output);
         Assert.DoesNotContain("# ", output);
         Assert.DoesNotContain("```", output);
@@ -607,6 +1040,21 @@ public partial class CommandExecutionTests
     public interface IBodylessExplicitValueFixture
     {
         int Value { get; }
+    }
+
+    public sealed class ObsoleteErrorMessageFixture
+    {
+        [Obsolete("", true)]
+        public void Empty()
+        {
+        }
+
+#pragma warning disable CS8625
+        [Obsolete(null, true)]
+#pragma warning restore CS8625
+        public void Null()
+        {
+        }
     }
 
     public interface IAbstractExplicitValueFixture : IBodylessExplicitValueFixture

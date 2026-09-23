@@ -147,9 +147,7 @@ public sealed class SourceHouseLimits
         int maximumTargetMappings,
         int maximumCandidateAttempts,
         int maximumSourceBytes,
-        int maximumSourceTextCharacters,
-        int maximumAttestationContributions = 16,
-        int maximumPhysicalDeclarationCharacters = 1_000_000)
+        int maximumSourceTextCharacters)
     {
         ValidateArrayBound(maximumAssemblyBytes, nameof(maximumAssemblyBytes));
         ValidateArrayBound(
@@ -166,10 +164,6 @@ public sealed class SourceHouseLimits
         ValidateArrayBound(maximumSourceBytes, nameof(maximumSourceBytes));
         ArgumentOutOfRangeException.ThrowIfNegative(
             maximumSourceTextCharacters);
-        ArgumentOutOfRangeException.ThrowIfNegative(
-            maximumAttestationContributions);
-        ArgumentOutOfRangeException.ThrowIfNegative(
-            maximumPhysicalDeclarationCharacters);
 
         MaximumAssemblyBytes = maximumAssemblyBytes;
         MaximumPortablePdbBytes = maximumPortablePdbBytes;
@@ -188,10 +182,6 @@ public sealed class SourceHouseLimits
         MaximumCandidateAttempts = maximumCandidateAttempts;
         MaximumSourceBytes = maximumSourceBytes;
         MaximumSourceTextCharacters = maximumSourceTextCharacters;
-        MaximumAttestationContributions =
-            maximumAttestationContributions;
-        MaximumPhysicalDeclarationCharacters =
-            maximumPhysicalDeclarationCharacters;
     }
 
     public int MaximumAssemblyBytes { get; }
@@ -204,8 +194,6 @@ public sealed class SourceHouseLimits
     public int MaximumCandidateAttempts { get; }
     public int MaximumSourceBytes { get; }
     public int MaximumSourceTextCharacters { get; }
-    public int MaximumAttestationContributions { get; }
-    public int MaximumPhysicalDeclarationCharacters { get; }
 
     internal SourceLinkReadLimits EffectiveSourceLinkReadLimits { get; }
 
@@ -338,16 +326,13 @@ public abstract class SourceHouseCapabilityOutcome
     {
         public Available(
             ReadOnlySpan<byte> bytes,
-            SourceHousePhysicalSourceInputIdentity? physicalInput = null,
             SourceHouseCapabilityObservation? observation = null)
             : base(observation)
         {
             Bytes = ImmutableArray.CreateRange(bytes.ToArray());
-            PhysicalInput = physicalInput;
         }
 
         public ImmutableArray<byte> Bytes { get; }
-        public SourceHousePhysicalSourceInputIdentity? PhysicalInput { get; }
     }
 
     public sealed class Unavailable : SourceHouseCapabilityOutcome

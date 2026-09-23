@@ -1799,6 +1799,9 @@ kbd {
 .graph-legend span { display: inline-flex; align-items: center; gap: 7px; }
 .legend-swatch { width: 12px; height: 12px; display: inline-block; border: 1px solid; border-radius: 2px; }
 .legend-swatch.target { background: var(--graph-target-fill); border-color: var(--graph-target-stroke); }
+.legend-swatch.baseline-connector { background: var(--graph-different-type-fill); border-color: var(--graph-different-type-stroke); }
+.legend-swatch.supply-chain-boundary { background: var(--graph-same-type-fill); border-color: var(--graph-same-type-stroke); }
+.legend-swatch.unclassified-boundary { background: var(--graph-different-assembly-fill); border-color: var(--graph-different-assembly-stroke); }
 .legend-swatch.same-type { background: var(--graph-same-type-fill); border-color: var(--graph-same-type-stroke); }
 .legend-swatch.different-type { background: var(--graph-different-type-fill); border-color: var(--graph-different-type-stroke); }
 .legend-swatch.different-assembly { background: var(--graph-different-assembly-fill); border-color: var(--graph-different-assembly-stroke); }

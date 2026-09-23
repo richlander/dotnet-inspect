@@ -26,6 +26,9 @@ public partial class LibraryQueryJsonContext : JsonSerializerContext;
     PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase)]
 [JsonSerializable(typeof(PackageAssemblySemanticQueryDocument))]
 [JsonSerializable(
+    typeof(PackageAssemblySemanticQueryCandidateOutcome.Matched),
+    TypeInfoPropertyName = "PackageAssemblySemanticQueryCandidateMatched")]
+[JsonSerializable(
     typeof(PackageAssemblySemanticQueryCandidateOutcome.NoMatch),
     TypeInfoPropertyName = "PackageAssemblySemanticQueryCandidateNoMatch")]
 [JsonSerializable(
@@ -34,6 +37,12 @@ public partial class LibraryQueryJsonContext : JsonSerializerContext;
 [JsonSerializable(
     typeof(PackageAssemblySemanticQueryCandidateOutcome.Failure),
     TypeInfoPropertyName = "PackageAssemblySemanticQueryCandidateFailure")]
+[JsonSerializable(
+    typeof(PackageAssemblySemanticQueryFailureReason.AggregateOccurrenceLimit),
+    TypeInfoPropertyName = "PackageAssemblySemanticQueryAggregateOccurrenceLimit")]
+[JsonSerializable(
+    typeof(PackageAssemblyEvaluationOutcome.Matched),
+    TypeInfoPropertyName = "PackageAssemblyEvaluationMatched")]
 [JsonSerializable(
     typeof(PackageAssemblyEvaluationOutcome.NoMatch),
     TypeInfoPropertyName = "PackageAssemblyEvaluationNoMatch")]

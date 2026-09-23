@@ -330,6 +330,8 @@ public sealed partial class CSharpPrinter
                 UsesUpdatedMemorySafetyRules = lambda.UsesUpdatedMemorySafetyRules,
                 SkipLocalsInit = lambda.SkipLocalsInit,
             };
+            function.RestoreMaterializedStackSlotLocals(
+                lambda.MaterializedStackSlotLocals);
             function.CopyTypeFactsFrom(_function);
             var printer = new CSharpPrinter(
                 function,
@@ -338,7 +340,8 @@ public sealed partial class CSharpPrinter
                 _stackSlotTelemetry,
                 stackSlotTelemetryScope: lambda,
                 decisions: _decisions,
-                decisionKeys: _decisionKeys)
+                decisionKeys: _decisionKeys,
+                fullyQualifyTypeNames: _fullyQualifyTypeNames)
             {
                 _labelScopeSuffix = AllocateNestedLabelScopeSuffix(),
             };

@@ -6,6 +6,7 @@ using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Output;
 using DotnetInspector.Cache;
 using DotnetInspector.Fixtures;
+using DotnetInspector.PackageQueries;
 using DotnetInspector.Packages;
 using DotnetInspector.Queries;
 using DotnetInspector.Sections;
@@ -68,6 +69,12 @@ public sealed class ExternalCallGraphCommandTests
         Assert.Contains(
             result.CommandResult.Command.Options,
             option => option.Name == "--max-nodes");
+        Assert.Contains(
+            result.CommandResult.Command.Options,
+            option => option.Name == "--baseline");
+        Assert.Contains(
+            result.CommandResult.Command.Options,
+            option => option.Name == "--first-party-prefix");
         Assert.DoesNotContain(
             result.CommandResult.Command.Options,
             option => option.Name == "--direction");
@@ -85,9 +92,92 @@ public sealed class ExternalCallGraphCommandTests
             captured.ExitCode == 0,
             captured.Error);
         Assert.Contains(
-            "Show external package calls",
+            "Show supply-chain package exits",
             captured.Output);
         Assert.Equal("", captured.Error);
+    }
+
+    [Theory]
+    [InlineData(
+        new[]
+        {
+            "--baseline",
+            "everything",
+        },
+        "--baseline must be nothing, self, or self+registered-ecosystems.")]
+    [InlineData(
+        new[]
+        {
+            "--first-party-prefix",
+            "*invalid",
+        },
+        "--first-party-prefix '*invalid' is not a valid package prefix.")]
+    [InlineData(
+        new[]
+        {
+            "--baseline",
+            "nothing",
+            "--first-party-prefix",
+            "Contoso.",
+        },
+        "--first-party-prefix requires the self or self+registered-ecosystems baseline.")]
+    public async Task Command_RejectsInvalidSupplyChainPolicy(
+        string[] policyArguments,
+        string expected)
+    {
+        string[] arguments =
+        [
+            "graph",
+            "calls",
+            "Shared.Entry",
+            "RunOuter",
+            "--root-package",
+            $"{RootPackageId}@{Version}",
+            "--root-tfm",
+            Framework,
+            .. policyArguments,
+        ];
+        var captured = await ConsoleCapture.RunAsync(
+            () => CommandLineBuilder.CreateRootCommand()
+                .Parse(arguments)
+                .InvokeAsync());
+
+        Assert.Equal(1, captured.ExitCode);
+        Assert.Contains(expected, captured.Error);
+    }
+
+    [Fact]
+    public void DefaultSupplyChainPlanIncludesPlatformAndFirstPartyScope()
+    {
+        var options = new ExternalCallGraphOptions
+        {
+            TypeName = "Shared.Entry",
+            Member = "RunOuter",
+            RootPackage = $"{RootPackageId}@{Version}",
+            RootTfm = Framework,
+            FirstPartyPackagePrefixes = ["Contoso."],
+        };
+
+        WorkspacePlan plan =
+            ExternalCallGraphCommand.CreateWorkspacePlan(options);
+
+        Assert.Contains(
+            plan.Registrations,
+            registration =>
+                registration is WorkspaceRegistration.PackagePrefix prefix
+                && prefix.Prefix.Prefix == "Contoso.");
+        Assert.Contains(
+            plan.Registrations,
+            registration =>
+                registration is WorkspaceRegistration.Ecosystem ecosystem
+                && ecosystem.Declaration.Id.Value
+                    == "ecosystem.runtime");
+        Assert.Contains(
+            plan.Registrations,
+            registration =>
+                registration is WorkspaceRegistration.Ecosystem ecosystem
+                && ecosystem.Declaration.Id.Value
+                    == "ecosystem.microsoft-extensions");
     }
 
     [Theory]
@@ -319,10 +409,10 @@ public sealed class ExternalCallGraphCommandTests
             depth: 0);
 
         Assert.Equal(0, execution.ExitCode);
-        Assert.Contains("# External Call Graph", execution.Output);
+        Assert.Contains("# Supply Chain Call Graph", execution.Output);
         Assert.Contains("Shared.Entry::RunOuter", execution.Output);
         Assert.Contains(
-            "No external boundary calls were found",
+            "No out-of-baseline package calls were found",
             execution.Output);
         Assert.Contains(
             "call.traversal-incomplete",
@@ -475,7 +565,8 @@ public sealed class ExternalCallGraphCommandTests
 
     [Fact]
     [Trait("Speed", "Slow")]
-    public async Task OpenTelemetry_ReducesToNineExplanatoryEdges()
+    public async Task
+        OpenTelemetry_DefaultBaselineHighlightsOneKnownDependency()
     {
         var options = new ExternalCallGraphOptions
         {
@@ -501,13 +592,19 @@ public sealed class ExternalCallGraphCommandTests
         string[] edges = captured.Output.Split(
             '\n',
             StringSplitOptions.RemoveEmptyEntries);
-        Assert.Equal(9, edges.Length);
+        Assert.Equal(10, edges.Length);
         Assert.Equal(
-            2,
+            5,
             edges.Count(edge =>
                 edge.Contains(
                     "\"role\":\"connector\"",
                     StringComparison.Ordinal)));
+        Assert.Single(
+            edges,
+            edge =>
+                edge.Contains(
+                    "\"role\":\"boundary\"",
+                    StringComparison.Ordinal));
         Assert.Contains(
             edges,
             edge =>
@@ -519,6 +616,15 @@ public sealed class ExternalCallGraphCommandTests
                     StringComparison.Ordinal)
                 && edge.Contains(
                     "\"target_assembly\":\"OpenTelemetry.Api\"",
+                    StringComparison.Ordinal));
+        Assert.DoesNotContain(
+            edges,
+            edge =>
+                edge.Contains(
+                    "\"role\":\"boundary\"",
+                    StringComparison.Ordinal)
+                && edge.Contains(
+                    "\"target_assembly\":\"Microsoft.Extensions.",
                     StringComparison.Ordinal));
         Assert.Contains(
             "external-boundary-classification-incomplete",
@@ -632,6 +738,19 @@ public sealed class ExternalCallGraphCommandTests
             ignoreCase: true);
         Assert.Equal("3.0.0", package.PackageVersion);
         Assert.Equal("netstandard2.0", package.TargetFramework);
+        Assert.Equal(
+            MemberCallGraphSupplyChainBaseline
+                .SelfAndRegisteredEcosystems,
+            available.Document.Baseline.Kind);
+        Assert.Contains(
+            "ecosystem.runtime",
+            available.Document.Baseline.RegisteredEcosystems);
+        Assert.Contains(
+            "ecosystem.microsoft-extensions",
+            available.Document.Baseline.RegisteredEcosystems);
+        Assert.DoesNotContain(
+            "\"target_assembly\":\"System.Text.Json\"",
+            captured.Output);
     }
 
     [Fact]
@@ -810,6 +929,10 @@ public sealed class ExternalCallGraphCommandTests
                         SourceBoundedRoots: 0,
                         PartialRoots: 0),
                     [],
+                    new PackageDependencyMemberCallGraphBaseline(
+                        MemberCallGraphSupplyChainBaseline.Nothing,
+                        [],
+                        []),
                     [],
                     graph));
         return new InspectionEnvelope<

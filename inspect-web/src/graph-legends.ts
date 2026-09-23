@@ -1,4 +1,14 @@
-export function callGraphLegendHtml(): string {
+export function callGraphLegendHtml(supplyChain = false): string {
+  if (supplyChain) {
+    return `<div class="graph-legend" aria-label="Graph legend">
+      <span><i class="legend-swatch target"></i>target member</span>
+      <span><i class="legend-swatch baseline-connector"></i>baseline connector</span>
+      <span><i class="legend-swatch supply-chain-boundary"></i>highlighted dependency</span>
+      <span><i class="legend-swatch unclassified-boundary"></i>unclassified boundary</span>
+      <span><i class="legend-swatch loaded-node"></i>solid border: no platform lookup</span>
+      <span><i class="legend-swatch platform-node"></i>dashed border: platform lookup on click</span>
+    </div>`;
+  }
   return `<div class="graph-legend" aria-label="Graph legend">
     <span><i class="legend-swatch target"></i>target member</span>
     <span><i class="legend-swatch same-type"></i>same declaring type</span>

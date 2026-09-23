@@ -307,10 +307,6 @@ public static partial class AttributeReader
                 beforeMaterialize);
             if (attrTypeName == ObsoleteAttributeName)
             {
-                message = TryGetAttributeDisplayValue(
-                    reader,
-                    attr,
-                    beforeMaterialize);
                 if (IsCompilerCompatibilityObsolete(
                     reader,
                     attributes,
@@ -322,18 +318,16 @@ public static partial class AttributeReader
                     return false;
                 }
 
-                isError = AttributeDecoder.TryDecode(
+                CustomAttributeValue<string>? decoded =
+                    AttributeDecoder.TryDecode(
                     reader,
                     attr,
-                    beforeMaterialize) is
-                    {
-                        FixedArguments:
-                        [
-                            _,
-                            { Value: bool error },
-                        ],
-                    }
-                    && error;
+                    beforeMaterialize);
+                message = decoded is { FixedArguments.Length: > 0 } value
+                    ? value.FixedArguments[0].Value as string
+                    : null;
+                isError = decoded is { FixedArguments.Length: > 1 } errorValue
+                    && errorValue.FixedArguments[1].Value is true;
                 return true;
             }
         }

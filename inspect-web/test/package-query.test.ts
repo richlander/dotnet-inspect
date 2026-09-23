@@ -175,6 +175,7 @@ const NO_MATCH_ASSESSMENT: QueryAssemblyAssessment = {
   message: "No decoded string literal contained the requested operand.",
   assetPath: "lib/net10.0/Contoso.Library.dll",
   rootRequest: "{\"kind\":\"package\"}",
+  libraries: [],
 };
 
 test("withPreset is idempotent by preset id and withoutPreset removes by id", () => {

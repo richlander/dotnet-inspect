@@ -529,16 +529,6 @@ public static class DocumentationHouse
                 {
                     UnavailableKind:
                         DocumentationAuthoredUnavailableKind
-                            .PhysicalDeclarationConflict,
-                } unavailable =>
-                new DocumentationAuthoredSourceAttempt.Ambiguous(
-                    DocumentationAuthoredSourceAmbiguityKind
-                        .PhysicalDeclarationConflict,
-                    unavailable),
-            DocumentationAuthoredSourceOperationOutcome.Unavailable
-                {
-                    UnavailableKind:
-                        DocumentationAuthoredUnavailableKind
                             .DeclarationAmbiguous,
                 } unavailable =>
                 new DocumentationAuthoredSourceAttempt.Ambiguous(
@@ -581,10 +571,6 @@ public static class DocumentationHouse
             DocumentationAuthoredUnavailableKind.SourceUnavailable =>
                 DocumentationAuthoredSourceUnavailableKind
                     .SourceUnavailable,
-            DocumentationAuthoredUnavailableKind
-                .PhysicalDeclarationUnavailable =>
-                DocumentationAuthoredSourceUnavailableKind
-                    .PhysicalDeclarationUnavailable,
             DocumentationAuthoredUnavailableKind.DeclarationNotFound =>
                 DocumentationAuthoredSourceUnavailableKind
                     .DeclarationNotFound,

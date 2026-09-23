@@ -321,10 +321,27 @@ export interface QueryResultRow {
 export interface QueryAssemblyAssessment {
   packageId: string;
   version: string;
-  disposition: "NoMatch" | "NotApplicable" | "Failure" | "NotEvaluated";
+  disposition:
+    | "Matched"
+    | "NoMatch"
+    | "NotApplicable"
+    | "Failure"
+    | "NotEvaluated";
   message: string;
   assetPath: string | null;
   rootRequest: string | null;
+  libraries: readonly QueryLibraryAssessment[];
+}
+
+interface QueryLibraryAssessment {
+  path: string;
+  assemblyName: string;
+  targetFramework: string;
+  ordinal: number;
+  disposition: "Matched" | "NoMatch" | "Failure";
+  occurrenceCount: number;
+  failureStage: string | null;
+  message: string | null;
 }
 
 export type QueryCompletion =

@@ -50,6 +50,9 @@ public static class ImplementationProfileSample
     public static int Other(int value)
         => value + 1;
 
+    private static int Hidden(int value)
+        => value * 2;
+
     public static void RaiseChanged()
         => Changed?.Invoke();
 }

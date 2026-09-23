@@ -49,6 +49,7 @@ public sealed record PackageDependencyMemberCallGraphRequest
     public PackageDependencyMemberCallGraphRequest(
         InspectionWorkspace workspace,
         WorkspaceScopeSnapshot scope,
+        WorkspaceRegistrationRevision registrations,
         PackageDependencyTraversalOutcome traversal,
         ImmutableArray<PackageRootBinding> rootBindings,
         ImmutableArray<PackageDependencyEdgeRealizationExecution>
@@ -56,16 +57,29 @@ public sealed record PackageDependencyMemberCallGraphRequest
         PackageDependencyMemberCallGraphFocus focus,
         MemberCallGraphCalleeNeighborhoodRequest graph,
         DateTimeOffset workspaceDeadline,
-        PackageAssemblyContextRealizationOptions? realizationOptions = null)
+        PackageAssemblyContextRealizationOptions? realizationOptions = null,
+        MemberCallGraphSupplyChainBaseline supplyChainBaseline =
+            MemberCallGraphSupplyChainBaseline.Nothing)
     {
         ArgumentNullException.ThrowIfNull(workspace);
         ArgumentNullException.ThrowIfNull(scope);
+        ArgumentNullException.ThrowIfNull(registrations);
         ArgumentNullException.ThrowIfNull(traversal);
         ArgumentNullException.ThrowIfNull(focus);
         ArgumentNullException.ThrowIfNull(graph);
 
+        if (!ReferenceEquals(
+                registrations.Workspace,
+                workspace.Identity))
+        {
+            throw new ArgumentException(
+                "The captured registrations belong to another Workspace.",
+                nameof(registrations));
+        }
+
         Workspace = workspace;
         Scope = scope;
+        Registrations = registrations;
         Traversal = traversal;
         RootBindings = rootBindings;
         EdgeExecutions = edgeExecutions;
@@ -73,11 +87,19 @@ public sealed record PackageDependencyMemberCallGraphRequest
         Graph = graph;
         WorkspaceDeadline = workspaceDeadline;
         RealizationOptions = realizationOptions;
+        if (!Enum.IsDefined(supplyChainBaseline))
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(supplyChainBaseline));
+        }
+        SupplyChainBaseline = supplyChainBaseline;
     }
 
     public InspectionWorkspace Workspace { get; }
 
     public WorkspaceScopeSnapshot Scope { get; }
+
+    public WorkspaceRegistrationRevision Registrations { get; }
 
     public PackageDependencyTraversalOutcome Traversal { get; }
 
@@ -97,6 +119,8 @@ public sealed record PackageDependencyMemberCallGraphRequest
     {
         get;
     }
+
+    public MemberCallGraphSupplyChainBaseline SupplyChainBaseline { get; }
 }
 
 /// <summary>
@@ -153,6 +177,14 @@ public sealed record PackageDependencyMemberCallGraphNodePackage(
     int NodeId,
     WorkspacePackageDescriptor Descriptor);
 
+/// <summary>
+/// Detached supply-chain baseline evidence for one completed graph.
+/// </summary>
+public sealed record PackageDependencyMemberCallGraphBaseline(
+    MemberCallGraphSupplyChainBaseline Kind,
+    ImmutableArray<string> FirstPartyPackagePrefixes,
+    ImmutableArray<string> RegisteredEcosystems);
+
 public enum PackageDependencyMemberCallGraphFailureReason
 {
     FocusUnavailable,
@@ -174,6 +206,7 @@ public abstract record PackageDependencyMemberCallGraphOutcome
         PackageDependencyTraversalSummary TraversalSummary,
         WorkspaceScopeRevisionIdentity ScopeRevision,
         ImmutableArray<PackageDependencyMemberCallGraphRoute> Routes,
+        PackageDependencyMemberCallGraphBaseline Baseline,
         ImmutableArray<PackageDependencyMemberCallGraphNodePackage>
             NodePackages,
         InspectionGraphDocument Graph)
@@ -298,6 +331,8 @@ public static class PackageDependencyMemberCallGraphOperation
                     request.Focus.ModuleVersionId,
                     request.Focus.MethodToken),
                 request.Graph,
+                request.SupplyChainBaseline,
+                request.Registrations,
                 cancellationToken);
         }
         catch (Exception exception)
@@ -352,12 +387,32 @@ public static class PackageDependencyMemberCallGraphOperation
             request.Traversal.Summary,
             completedRoutes.Scope.Revision.Identity,
             DetachRoutes(completedRoutes),
+            DetachBaseline(
+                request.SupplyChainBaseline,
+                request.Registrations),
             DetachNodePackages(
                 availableGraph.NodePackages,
                 completedRoutes.Scope,
                 graphBindings),
             availableGraph.Document);
     }
+
+    private static PackageDependencyMemberCallGraphBaseline DetachBaseline(
+        MemberCallGraphSupplyChainBaseline baseline,
+        WorkspaceRegistrationRevision registrations) =>
+        new(
+            baseline,
+            [
+                .. registrations.Registrations
+                    .OfType<WorkspaceRegistration.PackagePrefix>()
+                    .Select(static prefix => prefix.Prefix.Prefix),
+            ],
+            [
+                .. registrations.Registrations
+                    .OfType<WorkspaceRegistration.Ecosystem>()
+                    .Select(static ecosystem =>
+                        ecosystem.Declaration.Id.Value),
+            ]);
 
     internal static PackageDependencyMemberCallGraphOutcome.Failed?
         SettleGraphPhase(

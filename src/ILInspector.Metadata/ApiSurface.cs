@@ -1495,6 +1495,12 @@ public class ApiMember
     public string? ObsoleteMessage { get; set; }
 
     /// <summary>
+    /// True when [Obsolete] makes references a compile-time error.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public bool ObsoleteIsError { get; set; }
+
+    /// <summary>
     /// The type that this extension method extends (first parameter type).
     /// Only populated when IsExtension is true.
     /// </summary>

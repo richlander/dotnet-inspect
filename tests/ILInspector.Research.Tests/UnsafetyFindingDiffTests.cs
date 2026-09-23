@@ -223,8 +223,22 @@ public class UnsafetyFindingDiffTests
         LibraryBodyIndex oldIndex,
         LibraryBodyIndex newIndex)
         => ResearchDiff.Compare(
-            new ResearchDiffInput([], BodyIndexes: [oldIndex]),
-            new ResearchDiffInput([], BodyIndexes: [newIndex]),
+            new ResearchDiffInput([])
+            {
+                BodySignalAnalyses =
+                [
+                    BodySignalAnalysisTestInput.FromIndex(
+                        oldIndex),
+                ],
+            },
+            new ResearchDiffInput([])
+            {
+                BodySignalAnalyses =
+                [
+                    BodySignalAnalysisTestInput.FromIndex(
+                        newIndex),
+                ],
+            },
             new ResearchDiffOptions(ResearchChangeMechanism.BodySignals));
 
     static MethodIdentity DiffMethod(TypeRef declaring, string name)

@@ -829,6 +829,7 @@ public sealed class DeclarationIndex
             return new MemberTextPart(start, end - start, range.Lines);
         }
 
+        var declarationPart = Convert(coordinates.Declaration);
         var signature = Convert(coordinates.Signature);
         var documentation = coordinates.XmlDocumentation.Select(Convert).ToImmutableArray();
         var attributes = coordinates.Attributes.Select(Convert).ToImmutableArray();
@@ -851,6 +852,7 @@ public sealed class DeclarationIndex
 
         return new MemberTextParts(
             member,
+            declarationPart,
             documentation,
             attributes,
             signature,

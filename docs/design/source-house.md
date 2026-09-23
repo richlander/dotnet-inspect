@@ -204,16 +204,16 @@ fetch. The selected member text includes its attached documentation and
 attributes; the ordinary declaration-text demand keeps its existing behavior.
 
 SourceHouse preserves the original member mapping, selected document, checksum
-verification, attempts, bounds, and lease-settlement evidence alongside the
-document and parts. Lexical uncertainty remains unavailable, and lexical
-failure remains a failed attempt. Another source candidate may be attempted
-under the existing policy; decompilation is not an authored-parts substitute.
+verification, attempts, bounds, exact CSharpText-issued declaration span, and
+lease-settlement evidence alongside the document and parts. Lexical
+uncertainty remains unavailable, and lexical failure remains a failed attempt.
+Another source candidate may be attempted under the existing policy;
+decompilation is not an authored-parts substitute.
 
-The result is verified, PDB-correlated source. Neither checksum verification
-nor lexical ranges prove exact Metadata-to-physical-declaration authorship.
-The stronger
-[physical-declaration correspondence](source-house-physical-declaration-correspondence.md)
-tracked by #6584 and parsed documentation in #6583 remain separate.
+The result is verified, PDB-mapped source suitable for authored-documentation
+presentation under
+[PDB-mapped declaration correspondence](source-house-pdb-mapped-declaration-correspondence.md).
+It does not claim independently witnessed build provenance or reproducibility.
 
 This is slice 2 of the three-delivery plan in #7718: CSharpText parts,
 SourceHouse settlement with the shared completed inspection handoff, then CLI

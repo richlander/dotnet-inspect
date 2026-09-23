@@ -22,6 +22,7 @@ public readonly record struct MemberTextPart(
 /// </summary>
 public sealed record MemberTextParts(
     MemberTextPart Member,
+    MemberTextPart Declaration,
     ImmutableArray<MemberTextPart> XmlDocumentation,
     ImmutableArray<MemberTextPart> Attributes,
     MemberTextPart Signature,

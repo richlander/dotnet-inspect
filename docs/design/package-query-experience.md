@@ -294,9 +294,9 @@ Interaction](inspect-web-shell-interaction.md#product-navigation-menu) and its
   prequalify before semantic evaluation. The ordinary query bar remains the
   package selector: exact ID means the latest eligible listed version; one
   terminal `*` admits at most five prefix candidates. The rail states that
-  evaluation covers the selector-issued primary implementation library, not
-  every assembly in a package. Editing either field follows ordinary active-
-  term replacement behavior.
+  evaluation covers the selector-issued implementation Libraries for the
+  requested target, not every assembly in a package. Editing either field
+  follows ordinary active-term replacement behavior.
 - **Result stream**: the Browser initially advertises room for 20 package rows.
   As scrolling approaches the end of the delivered window, it grants 10 more
   row slots. The engine retains the active query and pauses durable match
@@ -606,8 +606,8 @@ preset never needs to "contain" its own history.
   gesture and are product-gated to 20 candidates.
 - No package-wide, all-assembly, arbitrary metadata/IL, regex, byte-pattern,
   RID, or traversal evaluation. `library-literal` accepts one exact decoded
-  `ldstr` substring and evaluates the selected primary implementation library
-  for at most five candidates.
+  `ldstr` substring and evaluates the selected implementation Libraries for at
+  most five candidates.
 - No separate library-literal request kind, Browser export, settlement
   document, or term-exclusive mode.
 - No persistence, sharing, or outcome cache in the current slice.

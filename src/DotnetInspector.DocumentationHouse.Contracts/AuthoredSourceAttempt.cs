@@ -15,13 +15,11 @@ public enum DocumentationAuthoredSourceUnavailableKind
 {
     OperationUnavailable,
     SourceUnavailable,
-    PhysicalDeclarationUnavailable,
     DeclarationNotFound,
 }
 
 public enum DocumentationAuthoredSourceAmbiguityKind
 {
-    PhysicalDeclarationConflict,
     DeclarationAmbiguous,
 }
 

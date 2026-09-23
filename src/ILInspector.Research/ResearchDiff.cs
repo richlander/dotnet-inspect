@@ -30,6 +30,8 @@ public sealed record ResearchDiffInput(
     IReadOnlyList<LibraryBodyIndex>? BodyIndexes = null)
 {
     internal IReadOnlyList<ResearchAssemblyContent>? AssemblyContents { get; init; }
+    public IReadOnlyList<BodySignalAnalysisInput>? BodySignalAnalyses
+    { get; init; }
 
     public static ResearchDiffInput FromAssembly(string assemblyPath, ApiSurface? apiSurface = null, LibraryBodyIndex? bodyIndex = null)
         => new([assemblyPath], apiSurface, bodyIndex is null ? null : [bodyIndex]);
@@ -425,20 +427,23 @@ public static class ResearchDiff
         IReadOnlySet<string> retainedComparisonDescriptorIds)
     {
         ArgumentNullException.ThrowIfNull(retainedComparisonDescriptorIds);
-        foreach (var (oldIndex, newIndex) in PairedBodyIndexes(oldInput, newInput))
+        foreach (var (oldAnalysis, newAnalysis)
+            in PairedBodySignalAnalyses(oldInput, newInput))
         {
             AddAnalysisSignalDiff(
                 builder,
-                oldIndex,
-                newIndex,
+                oldAnalysis,
+                newAnalysis,
                 typeFilters,
                 memberTargetIdentities,
                 retainedComparisonDescriptorIds);
 
-            var methods = MethodSubjectsByBodySignalKey(oldIndex, newIndex);
+            var methods = MethodSubjectsByBodySignalKey(
+                oldAnalysis,
+                newAnalysis);
             foreach (var change in UnsafetyFindingDiff.Compare(
-                oldIndex,
-                newIndex,
+                oldAnalysis,
+                newAnalysis,
                 BodySignalMethodKey))
             {
                 if (!methods.TryGetValue(change.MemberKey, out var subject))
@@ -472,8 +477,8 @@ public static class ResearchDiff
 
         static void AddAnalysisSignalDiff(
             ResultBuilder builder,
-            LibraryBodyIndex oldIndex,
-            LibraryBodyIndex newIndex,
+            BodySignalAnalysisInput oldAnalysis,
+            BodySignalAnalysisInput newAnalysis,
             IReadOnlySet<string>? typeFilters,
             IReadOnlySet<string>? memberTargetIdentities,
             IReadOnlySet<string> retainedComparisonDescriptorIds)
@@ -485,13 +490,13 @@ public static class ResearchDiff
             bool retainUnsafety = retainedComparisonDescriptorIds.Contains(
                 AnalysisFindings.UnsafetyDescriptor.Id);
             var oldSnapshot = BuildAnalysisSnapshot(
-                oldIndex,
+                oldAnalysis,
                 typeFilters,
                 memberTargetIdentities,
                 retainCallSites,
                 retainUnsafety);
             var newSnapshot = BuildAnalysisSnapshot(
-                newIndex,
+                newAnalysis,
                 typeFilters,
                 memberTargetIdentities,
                 retainCallSites,
@@ -539,22 +544,26 @@ public static class ResearchDiff
         }
 
         static Dictionary<string, ResearchAnalysisMethod> BuildAnalysisSnapshot(
-            LibraryBodyIndex index,
+            BodySignalAnalysisInput analysis,
             IReadOnlySet<string>? typeFilters,
             IReadOnlySet<string>? memberTargetIdentities,
             bool includeCallSites,
             bool includeUnsafety)
         {
             var methods = new Dictionary<string, ResearchAnalysisMethod>(StringComparer.Ordinal);
-            var generatedFrameworkTypes = index.GeneratedFrameworkTypes;
-            var signalsByToken = index.GetMethodSignals();
-            var allocationsByToken = index.GetAllocationOccurrences();
+            var generatedFrameworkTypes =
+                analysis.GeneratedFrameworkTypes;
+            var signalsByToken = analysis.MethodSignals;
+            var allocationsByToken =
+                analysis.AllocationOccurrences;
             IReadOnlyDictionary<int, ImmutableArray<DirectCall>>?
                 callsByToken = includeCallSites
-                    ? index.GetDirectCallsByEvidenceMethod()
+                    ? analysis.CallsByEvidenceMethod
                     : null;
-            var unsafetyByToken = includeUnsafety ? index.GetUnsafetyOccurrences() : null;
-            foreach (var method in index.Methods)
+            var unsafetyByToken = includeUnsafety
+                ? analysis.UnsafetyOccurrences
+                : null;
+            foreach (var method in analysis.Methods)
             {
                 if (IsGeneratedMethod(method, generatedFrameworkTypes))
                     continue;
@@ -601,7 +610,7 @@ public static class ResearchDiff
                 }
             }
 
-            foreach (var opportunity in index.OptimizationOpportunities)
+            foreach (var opportunity in analysis.Opportunities)
             {
                 if (IsGeneratedMethod(opportunity.Method, generatedFrameworkTypes))
                     continue;
@@ -1599,8 +1608,63 @@ public static class ResearchDiff
         }
     }
 
-    static IEnumerable<(LibraryBodyIndex Old, LibraryBodyIndex New)> PairedBodyIndexes(ResearchDiffInput oldInput, ResearchDiffInput newInput)
-        => PairedBodyIndexEntries(oldInput, newInput).Select(pair => (pair.Old.Index, pair.New.Index));
+    static IEnumerable<(
+        BodySignalAnalysisInput Old,
+        BodySignalAnalysisInput New)> PairedBodySignalAnalyses(
+        ResearchDiffInput oldInput,
+        ResearchDiffInput newInput)
+    {
+        var oldAnalyses = BodySignalAnalysisEntries(oldInput)
+            .ToDictionary(
+                analysis => AssemblyKey(analysis.Receipt),
+                StringComparer.Ordinal);
+        var newAnalyses = BodySignalAnalysisEntries(newInput)
+            .ToDictionary(
+                analysis => AssemblyKey(analysis.Receipt),
+                StringComparer.Ordinal);
+        foreach (string key in oldAnalyses.Keys
+            .Intersect(newAnalyses.Keys, StringComparer.Ordinal)
+            .Order(StringComparer.Ordinal))
+        {
+            yield return (oldAnalyses[key], newAnalyses[key]);
+        }
+    }
+
+    static IEnumerable<BodySignalAnalysisInput>
+        BodySignalAnalysisEntries(ResearchDiffInput input)
+    {
+        if (input.BodySignalAnalyses is { } analyses)
+        {
+            foreach (BodySignalAnalysisInput analysis in analyses)
+                yield return analysis;
+            yield break;
+        }
+
+        if (input.AssemblyPaths.Count == 0)
+        {
+            throw new ArgumentException(
+                "Body-signal comparison requires focused Analysis inputs "
+                    + "or assembly paths.",
+                nameof(input));
+        }
+
+        const LibraryBodyAnalysisFeatures features =
+            LibraryBodyAnalysisFeatures.MethodEvidence
+            | LibraryBodyAnalysisFeatures.Allocations
+            | LibraryBodyAnalysisFeatures.OptimizationOpportunities;
+        foreach (string path in input.AssemblyPaths)
+        {
+            LibraryBodyAnalysisExecution execution =
+                LibraryBodyAnalysisService.ExecutePath(
+                    path,
+                    LibraryBodyAnalysisRequest.Create(features));
+            yield return new BodySignalAnalysisInput(
+                execution.Allocations,
+                execution.Safety,
+                execution.CallGraph,
+                execution.Optimization);
+        }
+    }
 
     static IEnumerable<(BodyIndexEntry Old, BodyIndexEntry New)> PairedBodyIndexEntries(ResearchDiffInput oldInput, ResearchDiffInput newInput)
     {
@@ -1660,15 +1724,20 @@ public static class ResearchDiff
     }
 
     static Dictionary<string, ResearchSubjectKey> MethodSubjectsByBodySignalKey(
-        LibraryBodyIndex oldIndex,
-        LibraryBodyIndex newIndex,
+        BodySignalAnalysisInput oldAnalysis,
+        BodySignalAnalysisInput newAnalysis,
         IReadOnlySet<string>? memberTargetIdentities = null)
     {
-        var oldGeneratedFrameworkTypes = oldIndex.GeneratedFrameworkTypes;
-        var newGeneratedFrameworkTypes = newIndex.GeneratedFrameworkTypes;
-        return oldIndex.Methods
+        var oldGeneratedFrameworkTypes =
+            oldAnalysis.GeneratedFrameworkTypes;
+        var newGeneratedFrameworkTypes =
+            newAnalysis.GeneratedFrameworkTypes;
+        return oldAnalysis.Methods
             .Where(method => !IsGeneratedMethod(method, oldGeneratedFrameworkTypes))
-            .Concat(newIndex.Methods.Where(method => !IsGeneratedMethod(method, newGeneratedFrameworkTypes)))
+            .Concat(newAnalysis.Methods.Where(method =>
+                !IsGeneratedMethod(
+                    method,
+                    newGeneratedFrameworkTypes)))
             .Select(method => (Key: BodySignalMethodKey(method), Subject: SubjectFromMethod(method)))
             .Where(entry => MatchesMemberTargets(entry.Subject, memberTargetIdentities))
             .GroupBy(entry => entry.Key, StringComparer.Ordinal)
@@ -1900,6 +1969,14 @@ public static class ResearchDiff
                 "Body-index assembly comparison requires an assembly identity; "
                 + "a standalone module has no assembly pairing key.",
                 nameof(index));
+
+    static string AssemblyKey(LibraryBodyAnalysisReceipt receipt)
+        => receipt.ModuleIdentity.AssemblyIdentity?.Name
+            ?? throw new ArgumentException(
+                "Body-signal Analysis comparison requires an assembly "
+                    + "identity; a standalone module has no assembly "
+                    + "pairing key.",
+                nameof(receipt));
 
     static string FormatOperations(IReadOnlyList<IlDiffRow> rows)
         => rows.Count == 0 ? "" : string.Join("; ", rows.Select(row => row.Operation.Display));

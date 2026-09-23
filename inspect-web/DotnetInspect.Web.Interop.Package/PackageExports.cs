@@ -685,62 +685,18 @@ public static partial class PackageExports
         string documentationId)
     {
         DocumentationQueryOutcome documentation =
-            await QueryMemberDocumentationCore(
+            await BrowserPackageWorkspace.QueryMemberDocumentationAsync(
                     packageId,
                     version,
                     framework,
                     assemblyName,
-                    documentationId,
-                    authoredSourceCapabilities: null)
+                    documentationId)
                 .ConfigureAwait(false);
         return JsonSerializer.Serialize(
             documentation,
             DocumentationQueryJsonContext.Default
                 .DocumentationQueryOutcome);
     }
-
-    internal static async Task<string>
-        QueryMemberDocumentationWithCapabilitiesForTest(
-            string packageId,
-            string version,
-            string framework,
-            string assemblyName,
-            string documentationId,
-            IReadOnlyList<ISourceHouseSourceCapability>
-                authoredSourceCapabilities)
-    {
-        DocumentationQueryOutcome documentation =
-            await QueryMemberDocumentationCore(
-                    packageId,
-                    version,
-                    framework,
-                    assemblyName,
-                    documentationId,
-                    authoredSourceCapabilities)
-                .ConfigureAwait(false);
-        return JsonSerializer.Serialize(
-            documentation,
-            DocumentationQueryJsonContext.Default
-                .DocumentationQueryOutcome);
-    }
-
-    private static Task<DocumentationQueryOutcome>
-        QueryMemberDocumentationCore(
-            string packageId,
-            string version,
-            string framework,
-            string assemblyName,
-            string documentationId,
-            IReadOnlyList<ISourceHouseSourceCapability>?
-                authoredSourceCapabilities) =>
-        BrowserPackageWorkspace.QueryMemberDocumentationAsync(
-            packageId,
-            version,
-            framework,
-            assemblyName,
-            documentationId,
-            authoredSourceCapabilities:
-                authoredSourceCapabilities);
 
     /// <summary>
     /// One exact member's shared compiled-documentation outcome from a
