@@ -47,6 +47,8 @@ public sealed class ScalarSelfUpdatePass : IIrPass
             && target.DescendantsAndSelfOutsideNestedFunctions
                 .OfType<LoadLocal>()
                 .Any(load =>
+                    function.Locals[load.Index].Kind == TypeRefKind.ByRef
+                    &&
                     function.TryGetMaterializedStackSlotLocal(
                         load.Index,
                         out _));

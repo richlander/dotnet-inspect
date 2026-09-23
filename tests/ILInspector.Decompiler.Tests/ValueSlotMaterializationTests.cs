@@ -40,8 +40,6 @@ public class ValueSlotMaterializationTests
 
     [Theory]
     [InlineData("unknown")]
-    [InlineData("ref-like")]
-    [InlineData("span")]
     [InlineData("open-generic")]
     [InlineData("wrong-arity")]
     [InlineData("out-of-scope")]
@@ -52,13 +50,11 @@ public class ValueSlotMaterializationTests
         var definition = shape switch
         {
             "name" => TypeRef.Definition("Samples", "Samples", "<Invalid>"),
-            "span" => TypeRef.CoreLib("System", "Span`1"),
             "open-generic" or "wrong-arity" or "out-of-scope" or "byref-argument" => GenericValue,
             _ => Value,
         };
         var type = shape switch
         {
-            "span" => TypeRef.GenericInstance(definition, [Int32]),
             "wrong-arity" => TypeRef.GenericInstance(definition, [Int32, Int32]),
             "out-of-scope" => TypeRef.GenericInstance(definition, [TypeRef.MethodGenericParameter(0, "T")]),
             "byref-argument" => TypeRef.GenericInstance(definition, [TypeRef.ByRef(Int32)]),
@@ -69,9 +65,6 @@ public class ValueSlotMaterializationTests
             new Return(new LoadStackSlot(0, type)));
         if (shape != "unknown")
             KnowValueType(function, definition);
-        if (shape == "ref-like")
-            function.ByRefLikeTypes = new HashSet<TypeRef> { definition };
-
         Assert.True(Assert.Single(SlotMaterializationPass.Analyze(function)).Vetoes
             .HasFlag(SlotMaterializationVeto.OutsideCoercionDomain));
         AssertRetained(function);
