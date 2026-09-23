@@ -812,6 +812,18 @@ dispatch filtering. It consumes builder callbacks for synchronized external
 resolution and the shared local type-definition index without owning metadata
 lifetime. Orchestration, diagnostics, and result ordering remain
 assembly-builder policy.
+Every positive `sync-call-in-async` opportunity publishes
+`AsyncSiblingOpportunityEvidence`: the exact physical `DirectCall` selected by
+the orchestrator and resolver-issued async-candidate `MemberRef`. The parent
+opportunity's `Method` remains the authenticated async source, keeping the
+authored caller distinct from a lowered execution body while retaining the
+synchronous callee, call-site coordinate, and callable alternative without
+parsing finding text or rerunning candidate resolution. Other opportunity
+shapes carry no async-sibling evidence.
+`OptimizationOpportunities_FindSyncCallsWithAsyncSiblings`,
+`OptimizationOpportunities_InheritedSiblingUsesNearestNameLevel`, and
+`OptimizationOpportunities_ClassicAsyncUsesMoveNextEvidenceCoordinate` gate
+the same-image, framework, inherited-generic, and lowered-body contracts.
 `CallerUnsafeMode_PointerSignatureIsImplicitWhenModuleNotOptedIn`,
 `OptimizationOpportunities_AsyncStateMachine_IsAmortized`, and
 `Allocations_ClassifiesCrossAndInAssemblyValueTypeNewobj_ByShape` gate

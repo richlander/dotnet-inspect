@@ -347,6 +347,12 @@ public record TypeOptions : ApiOptions
     public string? WorkspacePacket { get; init; }
     public WorkspaceShareFormat? ShareFormat { get; init; }
     public string? TypeFilter { get; init; }
+
+    /// <summary>
+    /// Bare <c>--count</c> selected the resolved subject's default finding population.
+    /// </summary>
+    internal bool CountDefaultPopulation { get; init; }
+
     public bool EnvelopeOutput { get; init; }
     public RowSelectionIntent<string>? TypeListingRowSelection { get; init; }
     internal int? MemberLimit { get; init; }

@@ -88,6 +88,7 @@ root README remains current without cataloging every focused capability.
 | Output data and rendering | [Output Shapes](design/output-shapes.md), [Style Guide](design/style-guide.md), and [Inspection Envelope](design/inspection-envelope.md) |
 | Metadata and API inspection | [Assembly Inspection Query](design/assembly-inspection-query.md) |
 | Package composition | [PackageHouse](design/package-house.md) |
+| Package version selection and freshness | [Version Resolution](design/version-resolution.md) and [Package Version Service](design/package-version-service.md) |
 | Platform composition | [PlatformHouse](design/platform-house-reference-processing.md) |
 | Source and PDB composition | [SourceHouse](design/source-house.md) and [PDB Acquisition](pdb-acquisition.md) |
 | Documentation composition | [DocumentationHouse](design/documentation-house.md) |

@@ -3142,11 +3142,15 @@ public class SourceForwarderResolutionTests
             typeof(BodyShapeFixture));
         try
         {
-            Analysis.LibraryBodyIndex index = ApiAnalysisInspection.OpenTypeAnalysisIndex(
-                fixture.AssemblyPath,
-                [section],
-                fixture.Type,
-                sourceAssembly: fixture.Loaded.GetSourceAssembly(fixture.Type));
+            Analysis.LibraryBodyIndex index =
+                ApiAnalysisInspection.OpenTypeAnalysis(
+                        fixture.AssemblyPath,
+                        [section],
+                        fixture.Type,
+                        sourceAssembly:
+                            fixture.Loaded.GetSourceAssembly(
+                                fixture.Type))
+                    .CompatibilityIndex();
 
             Assert.Equal(1, opens);
             Assert.Equal(allocations, index.Features.HasFlag(Analysis.LibraryBodyAnalysisFeatures.Allocations));

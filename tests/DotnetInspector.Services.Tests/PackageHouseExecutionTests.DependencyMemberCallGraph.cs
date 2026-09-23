@@ -115,6 +115,9 @@ public sealed partial class PackageHouseExecutionTests
                 GraphMember(
                     available.Document.Graph.Nodes[edge.ToNodeId]).Name));
         Assert.Equal(
+            "boundary",
+            ExternalFocusRole(available.Document.Graph, edge));
+        Assert.Equal(
             [
                 (
                     edge.FromNodeId,
@@ -140,7 +143,6 @@ public sealed partial class PackageHouseExecutionTests
             [
                 "call.traversal-incomplete",
                 "call.correspondence-incomplete",
-                "queries.call.external-boundary-classification-incomplete",
             ],
             envelope.Diagnostics.Select(
                 diagnostic => diagnostic.Correspondence!.ToString()));
@@ -1167,4 +1169,19 @@ public sealed partial class PackageHouseExecutionTests
                 node.Subject)
                 .Identity)
             .Member;
+
+    private static string ExternalFocusRole(
+        InspectionGraphDocument document,
+        InspectionGraphEdge edge) =>
+        Assert.IsType<InspectionGraphValue.Token>(
+            Assert.Single(
+                document.Characteristics,
+                characteristic =>
+                    ReferenceEquals(
+                        characteristic.Descriptor,
+                        ExternalFocusedCallGraphInspectionCatalog.EdgeRole)
+                    && characteristic.Target
+                        == InspectionGraphTarget.Edge(edge.Id))
+                .Value)
+            .Value;
 }

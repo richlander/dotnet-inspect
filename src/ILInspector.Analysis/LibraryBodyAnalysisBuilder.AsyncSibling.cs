@@ -70,6 +70,7 @@ internal sealed partial class LibraryBodyAnalysisBuilder
                 "Name and signature shape establish the sibling relationship; "
                     + "confirm ordering, exception, cancellation, and enumeration semantics.")
             {
+                AsyncSibling = new(call, sibling),
                 EvidenceMethodToken = context.Method.MetadataToken,
             });
         }
