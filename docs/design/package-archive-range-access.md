@@ -25,7 +25,8 @@ The capability owns the byte-range transport rules, the ZIP structure reading
 shared with the local-folder source, the consistency rules across the several
 requests one archive read needs, and the typed outcomes; it places the first
 two in two host-neutral libraries below NuGetFetch (Library placement) and
-owns their contracts until a second consumer adopts them. It consumes, and
+owns their contracts; later consumers adopt them under their own designs
+without moving ownership. It consumes, and
 does not redefine, the source client contract of
 [browser package sources](browser-package-sources.md#one-package-source-contract),
 the operation context and deadline mechanics of the
@@ -96,30 +97,57 @@ the range library; neither lower library references NetworkAccess,
 InertText, or anything NuGet.
 
 - **`BinaryFetch`, range fetch over HTTP.** Owns byte access to one remote
-  representation: the random-access contract (length, read this range), the
-  HTTP implementation (`Range`, `206` versus `200`, `If-Range` with the
-  validator, agreement of totals across requests, the headers-hidden browser
-  mode), and the seekable-stream implementation for local files, so every
-  consumer sees one contract. Its outcomes are about the representation:
-  `RangeIgnored`, `RepresentationChanged`, and ordinary transport failures.
-  It knows nothing about ZIP. The consumer supplies a prepared `HttpClient`
-  and a request-preparation callback; NuGetFetch uses that callback for
-  credentials and its browser request options.
+  representation through a random-access contract with three operations: a
+  **tail read** (the last *n* bytes, or the whole representation when it is
+  shorter; records the visible total or "unknown" and the validator), an
+  **exact range read** (exactly the requested bytes), and **confirm length**
+  (the consumer hands back the length it derived from the bytes; the source
+  refuses a length that disagrees with anything it observed, including a
+  short tail body that is not the whole representation). The HTTP
+  implementation owns every per-response protocol check — status, a visible
+  `Content-Range` range against the request, `Content-Length` against the
+  body, a non-tail body against the requested length, the byte unit — and the
+  agreement of validator and visible total between later requests and the
+  first (`If-Range`, `206` versus `200`). The seekable-stream implementation
+  serves local files through the same contract. Its outcomes are about the
+  representation: `RangeIgnored`, `RepresentationChanged`, `InvalidResponse`
+  (a protocol violation), and transport status; exceptions the consumer's
+  own client raises pass through unchanged. It knows nothing about ZIP and
+  holds no length in headers-hidden mode until the consumer confirms one.
 - **`ZipFetch`, ZIP read over a random-access source, remote or local.** Owns
-  structure: the end-of-central-directory record, the central directory with
-  its caps, local headers, entry extent and clamping, bounded inflate, CRC,
+  structure: the end-of-central-directory record and the **derived total**
+  (directory offset plus directory length plus the record and its comment),
+  which it confirms with the source before any further read, so the short
+  tail and the tail's visible total are checked against the archive's own
+  declaration, as malformed, `InvalidResponse`; the central directory with
+  its caps; local headers; entry extent and clamping; bounded inflate; CRC;
   and the Zip64 and compression-method refusals. Its outcomes are about the
   archive: malformed, over a bound, unsupported. It knows nothing about HTTP;
   remote and local are the same code over different sources.
 - **The NuGetFetch adapter** owns coordinates, flat-container URLs,
   credentials, source identity, the non-ranged memory on the client
   instance, and the mapping of both lower vocabularies into
-  `PackageArchiveReadResult<T>` under the rules in Outcomes.
+  `PackageArchiveReadResult<T>` under the rules in Outcomes. The seam between
+  the adapter and the HTTP source is a **per-request send delegate**
+  (request and token in, response out) that the source calls for every
+  ranged request; the adapter supplies one that applies credentials and its
+  browser request options and wraps each send in the existing retry and
+  per-request deadline mechanics exactly as the full fetch does, so each
+  ranged request is one request under the shared context and a deadline
+  surfaces as the typed timeout the adapter already maps.
+
+Gate attribution follows: the per-response protocol checks (rows 4, 5, 6a,
+6b's slice-length acceptance, and the headers-hidden protocol part of 15)
+belong to the range library's suite; the derived-total rules (row 6's tail
+mismatch, 6b's short-archive acceptance, 9, and the derived-total part of 15)
+and every structural row belong to the ZIP library's suite; rows 12 and 13
+and the adapter's mapping belong to the capability's suite in NuGetFetch.
 
 This document owns the two libraries' contracts as its implementation
-boundary until a second owner adopts them; `SymbolPackageDownloader`, which
-fetches whole `.snupkg` archives to extract one PDB, is the named second
-consumer and adopts both libraries in a later slice under its own design.
+boundary. `SymbolPackageDownloader`, which fetches whole `.snupkg` archives
+to extract one PDB, is the named second consumer and adopts both libraries
+in a later slice under its own design; ownership of the library contracts
+stays here, and that design consumes them.
 
 The memory that a source ignored `Range` lives on the source client
 instance. The client's lifetime belongs to the host's composition, which the
@@ -268,10 +296,11 @@ request), `ArchiveChanged` (validator or total changed between requests), and
 `ArchiveUnsupported` (Zip64, or a compression method other than stored and
 deflate). The first two mean "take the full fetch"; the third means the
 archive cannot be read by range at all. The adapter maps the lower
-vocabularies one to one: the range library's `RangeIgnored` and
-`RepresentationChanged` become `RangeIgnored` and `ArchiveChanged`, its
-transport failures become the ordinary source failures, and the ZIP
-library's malformed, over-a-bound, and unsupported outcomes become
+vocabularies one to one: the range library's `RangeIgnored`,
+`RepresentationChanged`, and `InvalidResponse` become `RangeIgnored`,
+`ArchiveChanged`, and `InvalidResponse`, its transport statuses and the
+passed-through client exceptions become the ordinary source failures, and
+the ZIP library's malformed, over-a-bound, and unsupported outcomes become
 `InvalidResponse`, `ResponseRejected`, and `ArchiveUnsupported`. The
 existing `Unsupported` source failure keeps its meaning, that a client or
 source lacks an operation, and is not reused for per-archive conditions. The
@@ -281,7 +310,7 @@ entry.
 ## Boundary
 
 Inputs: an exact coordinate; an authorized `PackageSourceResultIdentity`; the
-operation context; the caller's `PackageArchiveReadLimits` (archive total,
+operation context; the caller's `ZipReadLimits` (archive total,
 enforced against the derived total before the directory is parsed; directory
 entry and byte caps; per-entry expanded bound; entry-read slack). Outputs:
 the archive directory with its validator kind; per-entry expanded content;
@@ -295,7 +324,10 @@ Non-claims:
   queue, #8386);
 - caching of directories or entries between invocations: a ranged read
   populates no persistent store at this head;
-- symbol packages and any archive other than the package's nupkg;
+- symbol packages and any archive other than the package's nupkg, as uses of
+  this capability (the two libraries' contracts are archive-agnostic, and a
+  later consumer such as the symbol-package downloader adopts them under its
+  own design);
 - Zip64, encrypted entries, and compression methods other than stored and
   deflate.
 
