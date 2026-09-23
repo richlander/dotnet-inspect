@@ -262,7 +262,9 @@ public static class PlatformHouseTypeDefinitionResolver
                 MaxRetainedImageBytes = snapshots.TotalBytes,
                 MaxConcurrentSourceOpens = 1,
                 MaxForwarderHops = Math.Max(0, maximumForwardingHops),
-                MaxTypeResolutionRequests = 1,
+                MaxTypeResolutionRequests =
+                    TypeResolutionContextOptions
+                        .DefaultMaxTypeResolutionRequests,
             });
         using TypeResolutionContext context =
             catalog.CreateContextWithCancellation(
@@ -445,8 +447,7 @@ public static class PlatformHouseTypeDefinitionResolver
                     evidenceName)));
         var receipt = new PlatformHouseReceipt(
             request.Snapshot,
-            new PlatformTargetSettlement.Exact(
-                (PlatformTargetDemand.Exact)request.Target),
+            PlatformHouseLibraryRealizer.TargetSettlement(request.Target),
             [],
             consumedWork,
             termination: termination);
@@ -468,8 +469,7 @@ public static class PlatformHouseTypeDefinitionResolver
             PlatformHouseTerminalEvidenceIdentity.Create(evidenceName));
         var receipt = new PlatformHouseReceipt(
             request.Snapshot,
-            new PlatformTargetSettlement.Exact(
-                (PlatformTargetDemand.Exact)request.Target),
+            PlatformHouseLibraryRealizer.TargetSettlement(request.Target),
             [],
             consumedWork,
             termination: termination);
@@ -495,8 +495,7 @@ public static class PlatformHouseTypeDefinitionResolver
             cancellationObserved);
         var receipt = new PlatformHouseReceipt(
             request.Snapshot,
-            new PlatformTargetSettlement.Exact(
-                (PlatformTargetDemand.Exact)request.Target),
+            PlatformHouseLibraryRealizer.TargetSettlement(request.Target),
             [],
             consumedWork,
             termination: termination);

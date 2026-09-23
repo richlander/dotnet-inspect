@@ -153,6 +153,59 @@ public sealed class PlatformTypeDefinitionResolverTests
 
     [Fact]
     public async Task
+        ResolveImplementationAsync_ResolvesForwardedTypeWithExternalBase()
+    {
+        CancellationToken cancellationToken =
+            TestContext.Current.CancellationToken;
+        PreparedPopulation prepared =
+            await PrepareRuntimePopulationAsync(
+                cancellationToken,
+                "System",
+                "System.ObjectModel",
+                "System.Private.CoreLib");
+        PlatformPopulationMember starting = Member(
+            prepared.Completed,
+            "System");
+        ResolvedAssemblyReference start =
+            SnapshotDescriptor(prepared.Completed, starting);
+        MetadataTypeDefinitionName type =
+            Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
+                MetadataTypeDefinitionName.Create(
+                    "System.Collections.ObjectModel",
+                    ImmutableArray.Create("ObservableCollection`1"))).Name;
+        PlatformHouseRequest request = TypeRequest(
+            prepared,
+            starting,
+            start,
+            type,
+            cancellationToken);
+
+        var completed = Assert.IsType<PlatformHouseOutcome<
+            PlatformTypeDefinitionValue
+                .Implementation<TypeResolutionOutcome>>.Completed>(
+                    await PlatformHouseTypeDefinitionResolver
+                        .ResolveImplementationAsync(
+                            request,
+                            prepared.Completed,
+                            prepared.Consumed));
+        Assert.True(
+            completed.Value.Outcome is TypeResolutionOutcome.Resolved,
+            completed.Value.Outcome is TypeResolutionOutcome.Rejected rejected
+                ? rejected.Failure.ToString()
+                : completed.Value.Outcome.GetType().FullName);
+        var resolved =
+            (TypeResolutionOutcome.Resolved)completed.Value.Outcome;
+        TypeForwardingHop hop = Assert.Single(resolved.Hops);
+        Assert.Equal("System", hop.SourceAssembly.Assembly.Identity.Name);
+        Assert.Equal("System.ObjectModel", hop.TargetReference.Name);
+        Assert.Equal(
+            "System.ObjectModel",
+            resolved.Definition.Assembly.Assembly.Identity.Name);
+        Assert.Equal(type, resolved.Definition.Type);
+    }
+
+    [Fact]
+    public async Task
         ResolveImplementationAsync_PreservesMissingOutcome()
     {
         CancellationToken cancellationToken =
@@ -374,6 +427,59 @@ public sealed class PlatformTypeDefinitionResolverTests
                             request,
                             prepared.Completed,
                             prepared.Consumed));
+        Assert.IsType<LibraryOperationLeaseIssueOutcome.OwnerReleased>(
+            startingOwner.IssueOperationLease(starting.Library));
+    }
+
+    [Fact]
+    public async Task
+        ResolveImplementationAsync_RejectsUnsettledTargetWithoutThrowing()
+    {
+        CancellationToken cancellationToken =
+            TestContext.Current.CancellationToken;
+        PreparedPopulation prepared =
+            await PrepareRuntimePopulationAsync(cancellationToken);
+        PlatformPopulationMember starting = Member(
+            prepared.Completed,
+            "System.Xml");
+        ResolvedAssemblyReference start =
+            SnapshotDescriptor(prepared.Completed, starting);
+        PlatformHouseRequest exactRequest = TypeRequest(
+            prepared,
+            starting,
+            start,
+            XmlReaderName(),
+            cancellationToken);
+        var selecting = new PlatformTargetDemand.Selecting(
+            PlatformFamily.DotNetRuntime,
+            PlatformTargetFramework.Parse("net11.0"),
+            new PlatformVersionSelectionDemand.Requirement(
+                PlatformVersionRequirementIdentity.Create("net11")),
+            [PlatformSourceCapabilityIdentity.Create("target-discovery")],
+            new PlatformTargetDiscoveryBudget(4, 8));
+        var request = new PlatformHouseRequest(
+            exactRequest.Identity,
+            selecting,
+            exactRequest.Origin,
+            exactRequest.Operation,
+            exactRequest.Sources,
+            exactRequest.Work,
+            cancellationToken);
+        LibraryContentOwner startingOwner =
+            Owner(prepared.Completed, starting);
+
+        var rejected = Assert.IsType<PlatformHouseOutcome<
+            PlatformTypeDefinitionValue
+                .Implementation<TypeResolutionOutcome>>.Rejected>(
+                    await PlatformHouseTypeDefinitionResolver
+                        .ResolveImplementationAsync(
+                            request,
+                            prepared.Completed,
+                            prepared.Consumed));
+        var settlement =
+            Assert.IsType<PlatformTargetSettlement.Unsettled>(
+                rejected.Receipt.TargetSettlement);
+        Assert.Same(selecting, settlement.Demand);
         Assert.IsType<LibraryOperationLeaseIssueOutcome.OwnerReleased>(
             startingOwner.IssueOperationLease(starting.Library));
     }
