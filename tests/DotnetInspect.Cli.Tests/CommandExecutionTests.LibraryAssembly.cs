@@ -2297,7 +2297,7 @@ public partial class CommandExecutionTests
     [Fact]
     public async Task LibraryCommand_DefaultPole_IsNotResolvable()
     {
-        var (bareExit, bareOutput, bareError) = await RunAppAsync("library", "System.Text.Json", "-S");
+        var (bareExit, rawOutput, bareError) = await RunAppAsync("library", "System.Text.Json", "-S");
         var (poleExit, poleOutput, poleError) = await RunAppAsync("library", "System.Text.Json", "-S", "@Default");
 
         Assert.Equal(1, poleExit);
@@ -2306,9 +2306,9 @@ public partial class CommandExecutionTests
 
         Assert.Equal(0, bareExit);
         Assert.DoesNotContain("@Default", bareError, StringComparison.Ordinal);
-        Assert.Contains("## Library Info", bareOutput);
-        Assert.Contains("## Signals", bareOutput);
-        Assert.Contains("## Symbols", bareOutput);
+        Assert.Contains("## Library Info", rawOutput);
+        Assert.Contains("## Signals", rawOutput);
+        Assert.Contains("## Symbols", rawOutput);
     }
 
     [Fact]
@@ -2934,7 +2934,7 @@ public partial class CommandExecutionTests
             var (scopedExit, scopedOutput, scopedError) = await RunAppAsync(
                 "library", scopedPath, "-D", "--effective",
                 "-S", "Library Info", "--tips", "q");
-            var (bareExit, bareOutput, bareError) = await RunAppAsync(
+            var (bareExit, rawOutput, bareError) = await RunAppAsync(
                 "library", scopedPath, "-D", "--effective", "--tips", "q");
 
             Assert.Equal(0, controlExit);
@@ -2945,7 +2945,7 @@ public partial class CommandExecutionTests
             Assert.Empty(bareError);
             Assert.Contains("| Library Info | section |", scopedOutput);
             Assert.DoesNotContain("| References | section |", scopedOutput);
-            Assert.Equal(controlOutput, bareOutput);
+            Assert.Equal(controlOutput, rawOutput);
         }
         finally
         {

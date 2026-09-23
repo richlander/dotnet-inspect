@@ -649,7 +649,7 @@ public partial class CommandExecutionTests
                 "-S", "Reference Hierarchy", "--tree", "--markdown", "--tips", "q");
             var bare = await RunAppAsync(
                 "package", packagePath, "--library", "Test.Primary.dll",
-                "-S", "Reference Hierarchy", "--tree", "--bare", "--markdown", "--tips", "q");
+                "-S", "Reference Hierarchy", "--tree", "--raw", "--markdown", "--tips", "q");
             var file = await RunAppAsync(
                 "package", packagePath, "--library", "Test.Primary.dll",
                 "-S", "Reference Hierarchy", "--tree", "--markdown",
@@ -668,7 +668,7 @@ public partial class CommandExecutionTests
             Assert.Equal(1, bare.Exit);
             Assert.Empty(bare.Output);
             Assert.Contains(
-                "--bare cannot be combined with --json, --jsonl, --tsv, --table, --markdown, --plaintext, or --mermaid.",
+                "--raw cannot be combined with --json, --jsonl, --tsv, --table, --markdown, --plaintext, or --mermaid.",
                 bare.Error);
             Assert.Equal(1, file.Exit);
             Assert.Empty(file.Output);
