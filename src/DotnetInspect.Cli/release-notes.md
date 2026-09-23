@@ -75,6 +75,12 @@
   `dotnet-inspect --version` product-version reporting remain. SourceLink
   `--raw` and `--blob` are replaced by `--prefer-rendered-urls`; direct
   fetchable URLs remain the default (#7621, #8204, #8293).
+- **Breaking:** Renames undecorated single-payload Package and Project output
+  from `--bare` to `--raw`; `--bare` is no longer recognized or reserved.
+  Explicit `--raw` overrides `DOTNET_INSPECT_FORMAT` but is rejected when
+  combined with an explicit format flag instead of silently winning. The old
+  SourceLink URL-shape meaning does not return; use
+  `--prefer-rendered-urls` for that choice (#8307, #8322).
 
 ### Workspaces and coordinates
 
