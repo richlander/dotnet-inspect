@@ -219,6 +219,32 @@ public partial class CommandExecutionTests
 
     [Fact]
     public async Task
+        Type_DecompiledSource_ObsoleteErrorMessagesPreserveConstructorValues()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "type",
+            typeof(ObsoleteErrorMessageFixture).FullName!,
+            "--library",
+            TestAssemblyPath,
+            "-S",
+            "Decompiled Source",
+            "--tips",
+            "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains(
+            "[System.Obsolete(\"\", true)]",
+            output,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "[System.Obsolete(null, true)]",
+            output,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task
         Type_DecompiledSource_EmptyType_RemainsAbsent()
     {
         var (exit, output, error) =
@@ -625,6 +651,21 @@ public partial class CommandExecutionTests
     public interface IBodylessExplicitValueFixture
     {
         int Value { get; }
+    }
+
+    public sealed class ObsoleteErrorMessageFixture
+    {
+        [Obsolete("", true)]
+        public void Empty()
+        {
+        }
+
+#pragma warning disable CS8625
+        [Obsolete(null, true)]
+#pragma warning restore CS8625
+        public void Null()
+        {
+        }
     }
 
     public interface IAbstractExplicitValueFixture : IBodylessExplicitValueFixture
