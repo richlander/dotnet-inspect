@@ -267,8 +267,8 @@ over-broad-design recovery procedure live in
   evidence, CSharpText owns model-free textual grammars and layout, CSharp owns
   model-bound C# spelling and type views, Research composes evidence, and the CLI
   owns command and presentation concerns.
-- Treat clearing houses and services; `InertString`, ownership, borrowing, and snapshots;
-  `QuerySpace` queries, rows, and limits; and host-neutral APIs, `InspectionEnvelope<TContent>`, and host-specific sinks as the baseline substrate.
+- Use applicable baseline substrate: clearing houses and services; `InertString`, ownership,
+  borrowing, and snapshots; `QuerySpace` queries, rows, and limits; host-neutral APIs, `InspectionEnvelope<TContent>`, and host-specific sinks.
   Route most host functionality through applicable parts; every low-level substrate
   capability must have a production caller. Remove superseded models and parallel
   paths; preserve Content, Share, and diagnostics.
