@@ -95,7 +95,8 @@ internal sealed class ResourceEffectDirectCallCandidateSelector
                     GetLocalMethodImplBodies(participant);
                 if (bodies.IsComplete
                     && !bodies.Tokens.Contains(methodToken)
-                    && !bodies.Names.Contains(call.Callee.Name))
+                    && !bodies.UnresolvedLocalNames.Contains(
+                        call.Callee.Name))
                 {
                     continue;
                 }
@@ -203,6 +204,9 @@ internal sealed class ResourceEffectDirectCallCandidateSelector
             var tokens = ImmutableHashSet.CreateBuilder<int>();
             var names = ImmutableHashSet.CreateBuilder<string>(
                 StringComparer.Ordinal);
+            var unresolvedLocalNames =
+                ImmutableHashSet.CreateBuilder<string>(
+                    StringComparer.Ordinal);
             foreach (TypeDefinitionHandle typeHandle
                 in reader.TypeDefinitions)
             {
@@ -234,6 +238,8 @@ internal sealed class ResourceEffectDirectCallCandidateSelector
                         nameHandle = reader.GetMemberReference(
                             (MemberReferenceHandle)
                                 implementation.MethodBody).Name;
+                        unresolvedLocalNames.Add(
+                            reader.GetString(nameHandle));
                     }
                     else
                     {
@@ -256,7 +262,8 @@ internal sealed class ResourceEffectDirectCallCandidateSelector
                     reader.ExportedTypes.Count == 0
                     && reader.AssemblyFiles.Count == 0,
                 tokens.ToImmutable(),
-                names.ToImmutable());
+                names.ToImmutable(),
+                unresolvedLocalNames.ToImmutable());
         }
         catch (Exception ex) when (
             ex is IOException or UnauthorizedAccessException)
@@ -309,9 +316,10 @@ internal sealed class ResourceEffectDirectCallCandidateSelector
         bool IsComplete,
         bool CanExcludeExternalNames,
         ImmutableHashSet<int> Tokens,
-        ImmutableHashSet<string> Names)
+        ImmutableHashSet<string> Names,
+        ImmutableHashSet<string> UnresolvedLocalNames)
     {
         internal static MethodImplBodies Incomplete { get; } =
-            new(false, false, [], []);
+            new(false, false, [], [], []);
     }
 }

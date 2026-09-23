@@ -739,6 +739,50 @@ public sealed partial class DirectCallDefinitionResolutionTests
     }
 
     [Fact]
+    public void LocalMethodImplCandidateUsesExactBodyToken()
+    {
+        SyntheticParticipant participant =
+            CreateInterfaceParticipant(
+                explicitImplementation: true,
+                addNonImplementer: true,
+                includeInterfaceCall: false,
+                nonImplementerMethodName: "ExplicitTarget");
+        ResourceEffectAdmission admission = AdmitModels(
+            Model(
+                "example.local-methodimpl-token",
+                InterfaceTarget(participant),
+                new ResourceEffect.Operation(
+                    ResourceOperationBoundary.Ordinary,
+                    ResourceOperationThrows.Possible,
+                    Guard: null)));
+
+        ResourceEffectResolutionOutcome.Complete complete =
+            Assert.IsType<ResourceEffectResolutionOutcome.Complete>(
+                ResourceEffectResolver.Resolve(
+                    participant.Policy,
+                    admission,
+                    [participant.Participant],
+                    directCallLimits:
+                        new DirectCallDefinitionResolutionLimits(
+                            maxInvocationOccurrences: 1),
+                    cancellationToken:
+                        TestContext.Current.CancellationToken));
+
+        DirectCallDefinitionResolution.Resolved result =
+            Assert.IsType<DirectCallDefinitionResolution.Resolved>(
+                Assert.Single(
+                    complete.Receipt.Population.Results));
+        Assert.Equal(
+            "Contract",
+            result.Definition.Member.DeclaringType.Name);
+        ResolvedResourceEffect effect =
+            Assert.Single(complete.Snapshot.Effects);
+        Assert.IsType<
+            ResourceEffectMethodImplementationEvidence.Explicit>(
+                effect.InterfaceApplication!.Method);
+    }
+
+    [Fact]
     public void VersionAgnosticSelectorRetainsSecondVersionImplementationCandidate()
     {
         const string AssemblyName = "VersionSplitInterfaceTarget";
