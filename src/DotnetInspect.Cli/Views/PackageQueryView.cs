@@ -16,6 +16,9 @@ public sealed class PackageQueryView
     [MarkoutSection(Name = "Packages")]
     public required List<PackageQueryRow> Results { get; init; }
 
+    [MarkoutSection(Name = PackageQuerySections.LiteralStringsName)]
+    public required List<PackageQueryLiteralStringRow> LiteralStrings { get; init; }
+
     [MarkoutSection(Name = PackageQuerySections.QuerySummaryName)]
     public required List<PackageQuerySummaryRow> QuerySummary { get; init; }
 }
@@ -69,6 +72,9 @@ public sealed class EmptyPackageQueryView
     [MarkoutIgnoreInTable]
     public required MarkoutTable Results { get; init; }
 
+    [MarkoutSection(Name = PackageQuerySections.LiteralStringsName)]
+    public required List<PackageQueryLiteralStringRow> LiteralStrings { get; init; }
+
     [MarkoutSection(Name = PackageQuerySections.QuerySummaryName)]
     public required List<PackageQuerySummaryRow> QuerySummary { get; init; }
 
@@ -80,6 +86,7 @@ public sealed class EmptyPackageQueryView
                 ["Package", "Version", "Tier", "Source", "Answer"],
                 ["package", "version", "tier", "source", "answer"],
                 []),
+            LiteralStrings = view.LiteralStrings,
             QuerySummary = view.QuerySummary,
         };
 
@@ -88,6 +95,7 @@ public sealed class EmptyPackageQueryView
         {
             TitleText = view.TitleText,
             Results = new(SemanticHeaders, SemanticKeys, []),
+            LiteralStrings = view.LiteralStrings,
             QuerySummary = view.QuerySummary,
         };
 }
@@ -128,8 +136,33 @@ public sealed class PackageQuerySemanticView
     [MarkoutSection(Name = "Packages")]
     public required List<PackageQuerySemanticRow> Results { get; init; }
 
+    [MarkoutSection(Name = PackageQuerySections.LiteralStringsName)]
+    public required List<PackageQueryLiteralStringRow> LiteralStrings { get; init; }
+
     [MarkoutSection(Name = PackageQuerySections.QuerySummaryName)]
     public required List<PackageQuerySummaryRow> QuerySummary { get; init; }
+}
+
+[MarkoutSerializable]
+public sealed class PackageQueryLiteralStringRow(
+    InertString packageText,
+    InertString libraryText,
+    int methodDefinitionToken,
+    int ilOffset,
+    InertString literalText)
+{
+    [MarkoutIgnore] public InertString PackageText { get; } = packageText;
+    [MarkoutIgnore] public InertString LibraryText { get; } = libraryText;
+    [MarkoutIgnore] public int MethodDefinitionToken { get; } = methodDefinitionToken;
+    [MarkoutIgnore] public int ILOffsetValue { get; } = ilOffset;
+    [MarkoutIgnore] public InertString LiteralText { get; } = literalText;
+    public string Package => PackageText.ToString();
+    public string Library => LibraryText.ToString();
+    [MarkoutPropertyName("Method Token")]
+    public string MethodToken => $"0x{MethodDefinitionToken:X8}";
+    [MarkoutPropertyName("IL Offset")]
+    public string ILOffset => $"IL_{ILOffsetValue:X4}";
+    public string Literal => LiteralText.ToString();
 }
 
 [MarkoutSerializable]
