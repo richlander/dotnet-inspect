@@ -946,6 +946,10 @@ public class ApiType
     public List<ApiJsExportJsonInputDeclaration> JsExportJsonInputDeclarations
         { get; set; } = [];
 
+    [JsonIgnore]
+    public List<ApiJsExportJsonOutputDeclaration> JsExportJsonOutputDeclarations
+        { get; set; } = [];
+
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
     public JsonWireNamingPolicy? JsonPropertyNamingPolicy { get; set; }
 
@@ -2011,6 +2015,13 @@ public sealed record ApiJsExportJsonInputDeclaration(
     string? MethodName,
     string? ParameterName,
     ApiTypeShape? WireType,
+    string? UnsupportedReason);
+
+public sealed record ApiJsExportJsonOutputDeclaration(
+    ApiAssemblyIdentity? AttributeAssembly,
+    string? MethodName,
+    ApiTypeShape? WireType,
+    bool DeferParsing,
     string? UnsupportedReason);
 
 public sealed record ApiJsonSerializableRoot(

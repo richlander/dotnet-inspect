@@ -84,6 +84,56 @@ public sealed class DtsEmitterTests
     }
 
     [Fact]
+    public void Emit_UsesBrandedJsonTextForDeferredOutput()
+    {
+        var dto = new ApiType
+        {
+            Namespace = "Fixture",
+            Name = "WidgetDto",
+            Kind = "class",
+        };
+        var surface =
+            new ILInspector.JsExportSurface.JsExportSurface
+            {
+                Functions =
+                [
+                    new JsExportFunction
+                    {
+                        DeclaringType = "Fixture.Exports",
+                        Name = "GetWidgetAsync",
+                        ReturnType = "Task<string>",
+                        ReturnWireType = "Fixture.WidgetDto",
+                        ReturnWireMode = JsExportJsonOutputMode.JsonText,
+                    },
+                ],
+                Records = [dto],
+                WireDirections =
+                    new Dictionary<ApiType, JsonWireDirection>
+                    {
+                        [dto] = JsonWireDirection.Serialize,
+                    },
+            };
+
+        string dts = DtsEmitter.Emit(surface);
+
+        Assert.Contains(
+            """
+            declare const jsonTextBrand: unique symbol;
+
+            export type JsonText<T> = string & {
+              readonly [jsonTextBrand]: T;
+            };
+            """,
+            dts,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "export declare function getWidgetAsync(): "
+                + "Promise<JsonText<WidgetDto>>;",
+            dts,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void Emit_UsesReadonlyPropertiesWithContextNamingPolicy()
     {
         string dts = EmitFixtureDts();
