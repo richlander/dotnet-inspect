@@ -1052,25 +1052,34 @@ measurable, unlike the control-flow rewrite's all-or-nothing invariant relaxatio
 
 ### Exact managed-reference slot storage
 
-A function-scope stack-slot web whose decided type is one complete managed
-reference materializes as a typed ref local before printing. Admission requires
-every load to testify to that exact managed-reference type, every store producer
-to have that same result type, and the managed reference to carry a complete,
-non-unsupported element shape. Direct slot-copy components remain atomic: every
-member must independently satisfy its storage contract before any member
-materializes. This is exact storage, not a conversion, ref-safety inference,
-lifetime extension, or live-range split.
+A function-scope stack-slot web whose exact storage type is established as one
+complete managed reference materializes as a typed ref local before printing.
+Admission requires every present load to testify to that exact
+managed-reference type, every store producer to have that same result type, and
+the managed reference to carry a complete, non-unsupported element shape.
+Direct slot-copy components remain atomic: every member must independently
+satisfy its storage contract before any member materializes. This is exact
+storage, not a conversion, ref-safety inference, lifetime extension, or
+live-range split.
+
+When an earlier honesty pass consumes every load while leaving the synthetic
+stores, unanimous complete managed-reference producers provide the same exact
+storage identity. Such a store-only web materializes from that producer
+testimony; differing, missing, or incomplete producer types remain undecided.
+This does not infer an observer or make producer-only testimony sufficient for
+any other storage family.
 
 Metadata-name spellability is not a storage gate. Both the residual ref-slot
 path and the typed-local path render the same exact type through `TypeText`, and
-the existing fidelity diagnostic independently reports an unrepresentable
-compiler-generated name. Making that presentation fact veto storage would
-retain a second ref-local renderer without producing more valid C#. The first
-implementation probe proved the distinction: a parameter-spellability gate
-materialized 360 of the fixed population but left 91 exact webs whose element
-names are compiler-generated. Those 91 already rendered with the same names;
-admitting their exact storage preserves output and fidelity while retiring the
-duplicate path.
+the existing fidelity diagnostic independently reports the compiler-generated
+metadata name while the printer applies its deterministic identifier spelling.
+Making that presentation fact veto storage would retain a second ref-local
+renderer without producing more valid C#. The first implementation probe
+proved the distinction: a parameter-spellability gate materialized 360 of the
+fixed population but left 91 exact webs whose element names are
+compiler-generated. Those 91 already rendered with the same sanitized type
+spellings; admitting their exact storage preserves output and fidelity while
+retiring the duplicate path.
 
 The rewrite preserves every producer and consumer occurrence in its existing
 order. A managed-reference store rebinds the ref local; it never becomes a
@@ -1080,9 +1089,9 @@ while a cross-block/read-before-store shape retains the existing explicit null
 reference initialization. No address, dereference, side effect, control-flow
 edge, `readonly`, `scoped`, pinned, or unsafe-context decision moves.
 Malformed or unsupported managed-reference shapes, missing or conflicting
-testimony, store-only/load-only webs, nested bodies awaiting their own
-finalization, and components with any independently deferred member remain
-outside admission.
+testimony, load-only webs, non-unanimous store-only webs, nested bodies awaiting
+their own finalization, and components with any independently deferred member
+remain outside admission.
 
 No admitted managed-reference stack slot may reach `CSharpPrinter`. The
 materialization boundary fails visibly if such a decided exact web survives;
@@ -1101,8 +1110,11 @@ materialization must preserve that text, aliasing, and call receiver. The fixed
 341 standalone and 110 members of direct-copy components. Every store producer
 already has the testified managed-reference type, and replaying component
 atomicity with this one admission accepts all 451 with zero measurement
-failures. The contract does not transfer that population result to unseen
-inputs.
+failures. A printer-boundary replay then found two additional store-only
+managed-reference webs after constructor diagnostics consumed their loads;
+their producers are unanimous and exact. The complete printer-owned family is
+therefore 453 webs. The contract does not transfer that population result to
+unseen inputs.
 
 Focused Release gates cover direct and cross-block ref storage, repeated
 rebinding, atomic copies, declaration placement, malformed and unsupported
