@@ -3,6 +3,7 @@ import { test } from "node:test";
 import type {
   BrowserCloneCandidateDocument,
   BrowserCloneCandidateMethod,
+  BrowserCloneCandidateRequest,
   BrowserCloneCandidateResult,
   BrowserCloneCandidateSeedCoverage,
 } from "../src/facades/inspect-web-analysis.d.ts";
@@ -240,7 +241,7 @@ test("Library Clone groups per-seed coverage by exact Type without candidate pai
     input: {
       packageModel,
       request: buildCompareCloneRequest(selection(packageModel)),
-      requestJson: "",
+      requestSignature: "",
     },
     result: available(packageModel, {
       seeds: [
@@ -292,7 +293,7 @@ test("Type Clone lists logical Members with admitted candidates and offers no wh
     input: {
       packageModel,
       request: buildCompareCloneRequest(selection(packageModel)),
-      requestJson: "",
+      requestSignature: "",
     },
     result: available(packageModel, {
       seeds: [
@@ -335,7 +336,7 @@ test("Member Clone ranks candidate pairs, selects one, and keeps retrieval simil
     input: {
       packageModel,
       request: buildCompareCloneRequest(selection(packageModel)),
-      requestJson: "",
+      requestSignature: "",
     },
     result: available(packageModel, {
       rows: [row(1, method(0x06000004)), row(2, method(0x06000003))],
@@ -368,7 +369,7 @@ test("non-available outcomes and unavailable scope stay distinct from empty succ
   const input = {
     packageModel,
     request: buildCompareCloneRequest(selection(packageModel)),
-    requestJson: "",
+    requestSignature: "",
   };
   const options = {
     subject: "library" as const,
@@ -417,11 +418,13 @@ test("superseded Clone work publishes nothing and mode changes retire pending wo
   // host state into `never` between assertions.
   const current = (): CompareCloneState => state.compareClone;
   const pending: ReturnType<typeof deferred<BrowserCloneCandidateResult>>[] = [];
+  const requests: BrowserCloneCandidateRequest[] = [];
   let renders = 0;
   const coordinator = createCompareCloneCoordinator({
     state,
     operationAuthority: createOperationAuthorityPage(),
-    query: () => {
+    query: request => {
+      requests.push(request);
       const result = deferred<BrowserCloneCandidateResult>();
       pending.push(result);
       return result.promise;
@@ -439,6 +442,10 @@ test("superseded Clone work publishes nothing and mode changes retire pending wo
   assert.equal(pending.length, 1);
   coordinator.reconcile({ kind: "selection", selection: selection(packageTwo) });
   assert.equal(pending.length, 2);
+  assert.deepEqual(requests, [
+    buildCompareCloneRequest(selection(packageOne)),
+    buildCompareCloneRequest(selection(packageTwo)),
+  ]);
   pending[0]?.resolve(available(packageOne));
   await Promise.resolve();
   await Promise.resolve();

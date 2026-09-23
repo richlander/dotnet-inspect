@@ -26,9 +26,8 @@ try
     JobInfo[] targetJobs = ReadJobs(Required(options, "--target-jobs"));
     ComparisonInfo comparison = ReadComparison(Required(options, "--comparison"));
     bool allowLaterCommit = bool.Parse(Required(options, "--allow-later-commit"));
-    double maxAgeHours = double.Parse(
-        Required(options, "--max-age-hours"),
-        CultureInfo.InvariantCulture);
+    bool acceptFailedCertification = bool.Parse(
+        Required(options, "--accept-failed-certification"));
     string githubOutput = Required(options, "--github-output");
 
     ValidationResult result = Validate(
@@ -38,19 +37,20 @@ try
         targetJobs,
         comparison,
         allowLaterCommit,
-        TimeSpan.FromHours(maxAgeHours),
-        DateTimeOffset.UtcNow);
+        acceptFailedCertification);
 
     File.AppendAllText(
         githubOutput,
         $"sha={result.TargetSha}\n" +
         $"certified_sha={result.CertifiedSha}\n" +
-        $"later_commit={result.IsLaterCommit.ToString().ToLowerInvariant()}\n");
+        $"later_commit={result.IsLaterCommit.ToString().ToLowerInvariant()}\n" +
+        $"certification_failures_accepted={result.AcceptedFailures.ToString().ToLowerInvariant()}\n");
 
     Console.WriteLine(
         result.IsLaterCommit
-            ? $"Publishing later commit {result.TargetSha}; Deep Inspect certified ancestor {result.CertifiedSha}."
-            : $"Publishing certified commit {result.TargetSha}.");
+            ? $"Publishing later commit {result.TargetSha}; Deep Inspect observed ancestor {result.CertifiedSha}."
+            : $"Publishing observed commit {result.TargetSha}.");
+    Console.WriteLine($"Deep Inspect evidence: {result.OutcomeSummary}.");
 }
 catch (Exception ex)
 {
@@ -65,29 +65,21 @@ static ValidationResult Validate(
     IReadOnlyList<JobInfo> targetJobs,
     ComparisonInfo comparison,
     bool allowLaterCommit,
-    TimeSpan maxAge,
-    DateTimeOffset now)
+    bool acceptFailedCertification)
 {
-    RequireRun(
+    RequireCertificationRun(
         certification,
-        CertificationWorkflow,
-        ["schedule", "workflow_dispatch"],
         "certification");
-    RequireRun(target, TargetWorkflow, ["push"], "target CI");
+    RequireSuccessfulRun(target, TargetWorkflow, ["push"], "target CI", requireMain: true);
 
-    JobInfo certificationJob = RequireSuccessfulJob(certificationJobs, CertificationJob);
-    JobInfo testJob = RequireSuccessfulJob(certificationJobs, TestJob);
-    JobInfo windowsPlatformJob = RequireSuccessfulJob(certificationJobs, WindowsPlatformJob);
-    JobInfo macOSPlatformJob = RequireSuccessfulJob(certificationJobs, MacOSPlatformJob);
-    JobInfo linuxPlatformJob = RequireSuccessfulJob(certificationJobs, LinuxPlatformJob);
-    JobInfo corpusJob = RequireSuccessfulJob(certificationJobs, CorpusJob);
+    JobInfo certificationJob = RequireCompletedEvidenceJob(certificationJobs, CertificationJob);
+    JobInfo testJob = RequireCompletedEvidenceJob(certificationJobs, TestJob);
+    JobInfo windowsPlatformJob = RequireCompletedEvidenceJob(certificationJobs, WindowsPlatformJob);
+    JobInfo macOSPlatformJob = RequireCompletedEvidenceJob(certificationJobs, MacOSPlatformJob);
+    JobInfo linuxPlatformJob = RequireCompletedEvidenceJob(certificationJobs, LinuxPlatformJob);
+    JobInfo corpusJob = RequireCompletedEvidenceJob(certificationJobs, CorpusJob);
     JobInfo targetCiJob = RequireSuccessfulJob(targetJobs, TargetCiJob);
 
-    RequireFresh(testJob, maxAge, now);
-    RequireFresh(windowsPlatformJob, maxAge, now);
-    RequireFresh(macOSPlatformJob, maxAge, now);
-    RequireFresh(linuxPlatformJob, maxAge, now);
-    RequireFresh(corpusJob, maxAge, now);
     if (certificationJob.CompletedAt < testJob.CompletedAt ||
         certificationJob.CompletedAt < windowsPlatformJob.CompletedAt ||
         certificationJob.CompletedAt < macOSPlatformJob.CompletedAt ||
@@ -97,6 +89,30 @@ static ValidationResult Validate(
         throw new InvalidOperationException(
             "Release certification predates a required validation job; rerun the complete test lane.");
     }
+
+    JobInfo[] evidenceJobs =
+    [
+        testJob,
+        windowsPlatformJob,
+        macOSPlatformJob,
+        linuxPlatformJob,
+        corpusJob,
+        certificationJob,
+    ];
+    var failedEvidence = new List<string>();
+    if (certification.Conclusion != "success")
+        failedEvidence.Add($"workflow={certification.Conclusion}");
+    failedEvidence.AddRange(
+        evidenceJobs
+            .Where(job => job.Conclusion != "success")
+            .Select(job => $"{job.Name}={job.Conclusion}"));
+    if (failedEvidence.Count > 0 && !acceptFailedCertification)
+    {
+        throw new InvalidOperationException(
+            $"Deep Inspect evidence is not green ({string.Join(", ", failedEvidence)}). " +
+            "Review these outcomes and explicitly enable accept_failed_certification to publish.");
+    }
+
     if (targetCiJob.CompletedAt < target.UpdatedAt.AddMinutes(-5))
     {
         throw new InvalidOperationException(
@@ -119,10 +135,18 @@ static ValidationResult Validate(
             "Review the intervening commits and explicitly enable allow_later_commit to publish it.");
     }
 
-    return new ValidationResult(certification.HeadSha, target.HeadSha, isLaterCommit);
+    string outcomeSummary = string.Join(
+        ", ",
+        evidenceJobs.Select(job => $"{job.Name}={job.Conclusion}"));
+    return new ValidationResult(
+        certification.HeadSha,
+        target.HeadSha,
+        isLaterCommit,
+        failedEvidence.Count > 0,
+        outcomeSummary);
 }
 
-static JobInfo RequireSuccessfulJob(IReadOnlyList<JobInfo> jobs, string name)
+static JobInfo RequireCompletedEvidenceJob(IReadOnlyList<JobInfo> jobs, string name)
 {
     JobInfo[] matchingJobs = jobs.Where(job => job.Name == name).ToArray();
     if (matchingJobs.Length != 1)
@@ -132,7 +156,20 @@ static JobInfo RequireSuccessfulJob(IReadOnlyList<JobInfo> jobs, string name)
     }
 
     JobInfo job = matchingJobs[0];
-    if (job.Status != "completed" || job.Conclusion != "success")
+    if (job.Status != "completed" || job.Conclusion == "skipped")
+    {
+        throw new InvalidOperationException(
+            $"Required evidence job '{name}' is {job.Status}/{job.Conclusion}; " +
+            "it must complete rather than be skipped.");
+    }
+
+    return job;
+}
+
+static JobInfo RequireSuccessfulJob(IReadOnlyList<JobInfo> jobs, string name)
+{
+    JobInfo job = RequireCompletedEvidenceJob(jobs, name);
+    if (job.Conclusion != "success")
     {
         throw new InvalidOperationException(
             $"Job '{name}' is {job.Status}/{job.Conclusion}, not completed/success.");
@@ -141,20 +178,41 @@ static JobInfo RequireSuccessfulJob(IReadOnlyList<JobInfo> jobs, string name)
     return job;
 }
 
-static void RequireFresh(JobInfo job, TimeSpan maxAge, DateTimeOffset now)
+static void RequireCertificationRun(RunInfo run, string label)
 {
-    TimeSpan age = now - job.CompletedAt;
-    if (age < TimeSpan.FromMinutes(-5))
-        throw new InvalidOperationException($"Job '{job.Name}' completion time is in the future.");
-    if (age > maxAge)
+    RequireRunIdentity(
+        run,
+        CertificationWorkflow,
+        ["schedule", "workflow_dispatch"],
+        label);
+    if (run.Event == "schedule" && run.HeadBranch != "main")
+        throw new InvalidOperationException($"{label} scheduled run targets branch {run.HeadBranch}, not main.");
+    if (run.Status != "completed" ||
+        (run.Conclusion != "success" && run.Conclusion != "failure"))
     {
         throw new InvalidOperationException(
-            $"Job '{job.Name}' is {age.TotalHours:F1} hours old; " +
-            $"maximum age is {maxAge.TotalHours:F1} hours.");
+            $"{label} run is {run.Status}/{run.Conclusion}; expected a completed success or failure.");
     }
 }
 
-static void RequireRun(
+static void RequireSuccessfulRun(
+    RunInfo run,
+    string expectedWorkflow,
+    IReadOnlyCollection<string> allowedEvents,
+    string label,
+    bool requireMain)
+{
+    RequireRunIdentity(run, expectedWorkflow, allowedEvents, label);
+    if (requireMain && run.HeadBranch != "main")
+        throw new InvalidOperationException($"{label} run targets branch {run.HeadBranch}, not main.");
+    if (run.Status != "completed" || run.Conclusion != "success")
+    {
+        throw new InvalidOperationException(
+            $"{label} run is {run.Status}/{run.Conclusion}, not completed/success.");
+    }
+}
+
+static void RequireRunIdentity(
     RunInfo run,
     string expectedWorkflow,
     IReadOnlyCollection<string> allowedEvents,
@@ -164,13 +222,6 @@ static void RequireRun(
         throw new InvalidOperationException($"{label} run uses {run.WorkflowPath}, not {expectedWorkflow}.");
     if (!allowedEvents.Contains(run.Event))
         throw new InvalidOperationException($"{label} run event {run.Event} is not allowed.");
-    if (run.HeadBranch != "main")
-        throw new InvalidOperationException($"{label} run targets branch {run.HeadBranch}, not main.");
-    if (run.Status != "completed" || run.Conclusion != "success")
-    {
-        throw new InvalidOperationException(
-            $"{label} run is {run.Status}/{run.Conclusion}, not completed/success.");
-    }
     if (run.HeadSha.Length != 40 || run.HeadSha.Any(c => !Uri.IsHexDigit(c)))
         throw new InvalidOperationException($"{label} run has invalid head SHA {run.HeadSha}.");
 }
@@ -305,9 +356,9 @@ static void RunSelfTest()
         successfulTargetJobs,
         new("identical", certifiedSha),
         false,
-        TimeSpan.FromHours(36),
-        now);
+        false);
     Assert(!exact.IsLaterCommit, "Exact certified commit should pass without an override.");
+    Assert(!exact.AcceptedFailures, "Green evidence should not report accepted failures.");
 
     ExpectFailure(
         () => Validate(
@@ -317,8 +368,7 @@ static void RunSelfTest()
             successfulTargetJobs,
             new("ahead", certifiedSha),
             false,
-            TimeSpan.FromHours(36),
-            now),
+            false),
         "explicitly enable allow_later_commit");
 
     ValidationResult later = Validate(
@@ -328,25 +378,21 @@ static void RunSelfTest()
         successfulTargetJobs,
         new("ahead", certifiedSha),
         true,
-        TimeSpan.FromHours(36),
-        now);
+        false);
     Assert(later.IsLaterCommit, "Explicitly accepted descendant should pass.");
 
-    ExpectFailure(
-        () => Validate(
-            certification,
-            successfulJobs
-                .Select(job => job.Name == TestJob
-                    ? job with { CompletedAt = now.AddHours(-37) }
-                    : job)
-                .ToArray(),
-            exactTarget,
-            successfulTargetJobs,
-            new("identical", certifiedSha),
-            false,
-            TimeSpan.FromHours(36),
-            now),
-        "maximum age");
+    ValidationResult oldEvidence = Validate(
+        certification with { UpdatedAt = now.AddDays(-30) },
+        successfulJobs
+            .Select(job => job with { CompletedAt = job.CompletedAt.AddDays(-30) })
+            .ToArray(),
+        exactTarget,
+        successfulTargetJobs,
+        new("identical", certifiedSha),
+        false,
+        false);
+    Assert(!oldEvidence.AcceptedFailures, "Age should not turn green evidence into a failure.");
+
     ExpectFailure(
         () => Validate(
             certification,
@@ -359,8 +405,7 @@ static void RunSelfTest()
             successfulTargetJobs,
             new("identical", certifiedSha),
             false,
-            TimeSpan.FromHours(36),
-            now),
+            false),
         "predates a required validation job");
     ExpectFailure(
         () => Validate(
@@ -370,24 +415,48 @@ static void RunSelfTest()
             successfulTargetJobs,
             new("diverged", "3333333333333333333333333333333333333333"),
             true,
-            TimeSpan.FromHours(36),
-            now),
+            false),
         "certified commit or its descendant");
+
+    JobInfo[] failedJobs = successfulJobs
+        .Select(job => job.Name switch
+        {
+            TestJob => job with { Conclusion = "failure" },
+            WindowsPlatformJob => job with { Conclusion = "cancelled" },
+            _ => job,
+        })
+        .ToArray();
     ExpectFailure(
         () => Validate(
-            certification,
-            successfulJobs
-                .Select(job => job.Name == TestJob
-                    ? job with { Conclusion = "failure" }
-                    : job)
-                .ToArray(),
+            certification with { Conclusion = "failure" },
+            failedJobs,
             exactTarget,
             successfulTargetJobs,
             new("identical", certifiedSha),
             false,
-            TimeSpan.FromHours(36),
-            now),
-        "not completed/success");
+            false),
+        "accept_failed_certification");
+
+    ValidationResult acceptedFailures = Validate(
+        certification with
+        {
+            Event = "workflow_dispatch",
+            HeadBranch = "release/0.26.0-certification",
+            Conclusion = "failure",
+        },
+        failedJobs,
+        laterTarget,
+        successfulTargetJobs,
+        new("ahead", certifiedSha),
+        true,
+        true);
+    Assert(acceptedFailures.AcceptedFailures, "Explicitly accepted failed evidence should be reported.");
+    Assert(
+        acceptedFailures.OutcomeSummary.Contains(
+            $"{WindowsPlatformJob}=cancelled",
+            StringComparison.Ordinal),
+        "Accepted evidence should disclose each required job conclusion.");
+
     ExpectFailure(
         () => Validate(
             certification,
@@ -396,24 +465,22 @@ static void RunSelfTest()
             successfulTargetJobs,
             new("identical", certifiedSha),
             false,
-            TimeSpan.FromHours(36),
-            now),
+            false),
         WindowsPlatformJob);
     ExpectFailure(
         () => Validate(
             certification,
             successfulJobs
                 .Select(job => job.Name == MacOSPlatformJob
-                    ? job with { Conclusion = "failure" }
+                    ? job with { Conclusion = "skipped" }
                     : job)
                 .ToArray(),
             exactTarget,
             successfulTargetJobs,
             new("identical", certifiedSha),
             false,
-            TimeSpan.FromHours(36),
-            now),
-        "not completed/success");
+            true),
+        "must complete rather than be skipped");
     ExpectFailure(
         () => Validate(
             certification,
@@ -422,8 +489,7 @@ static void RunSelfTest()
             successfulTargetJobs,
             new("identical", certifiedSha),
             false,
-            TimeSpan.FromHours(36),
-            now),
+            false),
         "expected one");
     ExpectFailure(
         () => Validate(
@@ -433,8 +499,7 @@ static void RunSelfTest()
             successfulTargetJobs,
             new("identical", certifiedSha),
             false,
-            TimeSpan.FromHours(36),
-            now),
+            false),
         "not .github/workflows/ci.yml");
     ExpectFailure(
         () => Validate(
@@ -444,9 +509,18 @@ static void RunSelfTest()
             [new(TargetCiJob, "completed", "failure", now.AddMinutes(1))],
             new("identical", certifiedSha),
             false,
-            TimeSpan.FromHours(36),
-            now),
+            false),
         "ci-required");
+    ExpectFailure(
+        () => Validate(
+            certification with { Conclusion = "cancelled" },
+            failedJobs,
+            exactTarget,
+            successfulTargetJobs,
+            new("identical", certifiedSha),
+            false,
+            true),
+        "completed success or failure");
 
     string scratch = Path.Combine(
         Path.GetTempPath(),
@@ -503,8 +577,7 @@ static void RunSelfTest()
             ReadJobs(targetJobsPath),
             ReadComparison(comparisonPath),
             true,
-            TimeSpan.FromHours(36),
-            now);
+            false);
         Assert(parsed.IsLaterCommit, "GitHub API response parsing should preserve the later commit.");
     }
     finally
@@ -549,4 +622,9 @@ sealed record JobInfo(string Name, string Status, string Conclusion, DateTimeOff
 
 sealed record ComparisonInfo(string Status, string BaseCommitSha);
 
-sealed record ValidationResult(string CertifiedSha, string TargetSha, bool IsLaterCommit);
+sealed record ValidationResult(
+    string CertifiedSha,
+    string TargetSha,
+    bool IsLaterCommit,
+    bool AcceptedFailures,
+    string OutcomeSummary);

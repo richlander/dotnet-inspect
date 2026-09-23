@@ -270,10 +270,9 @@ option with a versioned coordinate is ambiguous and invalid. Bare
 `package Name --version` is invalid because the exact selector requires a
 value. Commandless routing accepts plural version inventory queries but rejects
 the singular `Name --version[ VERSION]` form; it does not establish a generic
-version lens for routable subjects. The removed `--latest-version` token stays
-reserved on the package command and reports its replacement, so it is never
-rebound as an option value or routed elsewhere. Root `dotnet-inspect --version`
-reports the product version.
+version lens for routable subjects. The removed `--latest-version` spelling is
+not reserved; it receives the ordinary unrecognized-input result. Root
+`dotnet-inspect --version` reports the product version.
 
 ### Pinned (`Name@version`)
 

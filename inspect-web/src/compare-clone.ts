@@ -49,7 +49,7 @@ export interface CompareCloneSelection {
 interface CompareCloneOperationInput {
   readonly packageModel: object;
   readonly request: BrowserCloneCandidateRequest;
-  readonly requestJson: string;
+  readonly requestSignature: string;
 }
 
 export type CompareCloneState =
@@ -79,7 +79,7 @@ export type CompareCloneReconcileTarget =
 export interface CompareCloneDependencies {
   readonly state: CompareCloneStateHost;
   readonly operationAuthority: OperationAuthorityPage;
-  query(requestJson: string): Promise<unknown>;
+  query(request: BrowserCloneCandidateRequest): Promise<unknown>;
   describeError(error: unknown): string;
   reportOperationDiagnostic(diagnostic: OperationDiagnostic): undefined;
   render(): void;
@@ -116,7 +116,7 @@ function operationInput(
   return {
     packageModel: selection.packageModel,
     request,
-    requestJson: JSON.stringify(request),
+    requestSignature: JSON.stringify(request),
   };
 }
 
@@ -125,7 +125,7 @@ function sameInput(
   right: CompareCloneOperationInput,
 ): boolean {
   return left.packageModel === right.packageModel
-    && left.requestJson === right.requestJson;
+    && left.requestSignature === right.requestSignature;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -140,7 +140,7 @@ function validateResult(
     throw new Error("Clone result must be an object.");
   if (result.schemaVersion !== 1)
     throw new Error("Unsupported Clone result schema.");
-  if (JSON.stringify(result.request) !== input.requestJson)
+  if (JSON.stringify(result.request) !== input.requestSignature)
     throw new Error("Clone result does not match its request.");
   switch (result.kind) {
     case "Available": {
@@ -262,7 +262,7 @@ export function createCompareCloneCoordinator(
           activate: () => {
             let query: Promise<unknown>;
             try {
-              query = dependencies.query(input.requestJson);
+              query = dependencies.query(input.request);
             } catch (error: unknown) {
               return boundaryFailure(error);
             }

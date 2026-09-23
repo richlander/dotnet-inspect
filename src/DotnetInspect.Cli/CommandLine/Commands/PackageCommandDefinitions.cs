@@ -135,13 +135,6 @@ public static class PackageCommandDefinitions
                 "Select an exact Package version",
             Arity = ArgumentArity.ExactlyOne,
         };
-        // Removed and reserved: the token is recognized only so the parser can reject
-        // it with its replacement instead of rebinding it as an option value.
-        var latestVersionOption = new Option<bool>("--latest-version")
-        {
-            Hidden = true,
-            Arity = ArgumentArity.Zero,
-        };
         packageCommand.Arguments.Add(packageNameArg);
         packageCommand.Options.Add(workspaceOption);
         packageCommand.Options.Add(shareOption);
@@ -172,7 +165,6 @@ public static class PackageCommandDefinitions
         packageCommand.Options.Add(typeFilterOption);
         packageCommand.Options.Add(detailsOption);
         packageCommand.Options.Add(versionOption);
-        packageCommand.Options.Add(latestVersionOption);
         packageCommand.Options.Add(opts.PreferRenderedUrls);
         packageCommand.Options.Add(opts.Bare);
         packageCommand.Options.Add(outOption);
@@ -182,7 +174,6 @@ public static class PackageCommandDefinitions
             contentOption, frontmatterOption, bodyOption,
             tfmOption, depthOption, typeFilterOption, detailsOption,
             versionOption,
-            latestVersionOption,
             opts.Lines, opts.TailLines, outOption, pathMatchOption,
             skipEmptyOption, rootsOption, opts.NoHeaders,
             workspaceOption, shareOption,
@@ -241,8 +232,7 @@ public static class PackageCommandDefinitions
             libraryOption, namesakeLibraryOption, allLibrariesOption,
             contentOption, frontmatterOption, bodyOption, outOption,
             tfmOption, depthOption, typeFilterOption, detailsOption,
-            versionOption,
-            latestVersionOption, rootsOption);
+            versionOption, rootsOption);
         packageCommand.Validators.Add(result =>
         {
             if (result.GetValue(detailsOption)

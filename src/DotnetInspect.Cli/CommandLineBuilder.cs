@@ -92,12 +92,6 @@ public static class CommandLineBuilder
             return true;
         }
 
-        if (HasParsedOption(packageParse, "--latest-version"))
-        {
-            error = ArgumentPreprocessor.RemovedLatestVersionError;
-            return true;
-        }
-
         error = null;
         return false;
     }
@@ -408,18 +402,6 @@ public static class CommandLineBuilder
                 effectiveArguments,
                 rowSelection.PresenceOptions,
                 rowSelection.ArgumentPositions);
-        // The reserved removed token reports its replacement even when written
-        // with a value, instead of the generic zero-arity diagnostic.
-        if (optionValueFailure is not null
-            && optionValueFailure.Error.Equals(
-                CliOptionValueValidation.DoesNotAcceptValue("--latest-version"),
-                StringComparison.Ordinal))
-        {
-            optionValueFailure = optionValueFailure with
-            {
-                Error = ArgumentPreprocessor.RemovedLatestVersionError,
-            };
-        }
         PreparedFailure? preparedFailure =
             SelectPreparedFailure(
                 rowSelection,
