@@ -217,6 +217,20 @@ relations, classified changes, match provenance, and counts. The pairs measured
 in #8198 are the first oracle; the Release gate runs both producers on real
 package fixtures and compares the complete populations, not counts alone.
 
+## Rendering strategy
+
+The row sources preserve the existing typed Type summaries,
+`LibraryApiMemberRelation` values, classifications, identities, and
+dispositions through the rendering boundary. They do not emit display strings
+or define a parallel format model.
+
+[Library API diff presentation](library-api-diff-presentation.md) retains the
+portable document and projection contracts consumed by CLI and Browser hosts.
+Host-specific CLI formatting and Browser DOM lowering consume the typed rows;
+neither host reparses rendered text. Markout remains the lowering for the
+separately owned declaration or source comparison opened from a selected row.
+This owner changes production and delivery units, not format ownership.
+
 ## Non-claims
 
 This design does not claim:
@@ -249,6 +263,13 @@ This design does not claim:
 
 Each stage lands only when its own result and failure states are complete and
 the equivalence gate passes.
+
+Stages 1 and 2 run the incremental producer beside the whole-surface producer
+only in the Release equivalence gate. Stage 3 replaces the Browser inventory's
+whole-document production and retention. Stage 4 replaces the CLI production
+path. After both host adoptions, no product path invokes the whole-surface
+producer; it remains test-only as the equivalence oracle rather than as a
+second supported architecture.
 
 ## Required gates
 
