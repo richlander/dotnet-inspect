@@ -68,3 +68,10 @@ public sealed class GenericOverloadSample<T>
     public int Route<TValue, TOther>()
         => 2;
 }
+
+public interface IImplementationProfileBodylessSample
+{
+    int Route(int value);
+
+    int Route(string value);
+}
