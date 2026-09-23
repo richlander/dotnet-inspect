@@ -34,9 +34,12 @@ Source authorization, source-result adoption, selection semantics
 (`PackageVersionSelectionResolver`), listing operations, and payload
 acquisition stay with their owners.
 
-One claim transfers to version resolution: a new receipt arm, `Prior`,
-described below. This document names it; version resolution adopts it when
-the service is implemented.
+Two claims transfer to version resolution, both described below: a new
+receipt arm, `Prior`, and a new `PackageVersionDiscoveryFreshness` value,
+`ServedPrior`, which only the `Prior` arm may carry. This document names
+them; version resolution adopts them when the service is implemented. One
+bounded rule transfers to PackageHouse: its decision receipt accepts `Prior`
+for a selecting demand. No other owner's contract changes.
 
 ## Basis
 
@@ -131,12 +134,21 @@ regardless of age, and every request without one fails visibly as today.
 A served prior settles the selecting demand as an exact coordinate. The
 service asks the current source generation for the pinned candidate of the
 prior coordinate under the request's authorization; PackageHouse retains that
-candidate and coordinate exactly as it does for an exact demand. If pinned
-resolution or the later acquisition reports that the coordinate is absent
-from every authorized source, the entry is evicted and the request is settled
-by discovery as if no prior existed. That eviction is not a bound request
-degrading: the binding was the product's own prior, not a version the user
-supplied or accepted.
+candidate and coordinate exactly as it does for an exact demand. Pinned
+resolution checks authorization only and never reports absence, so a prior
+whose coordinate has since disappeared from every authorized source is
+detected only when acquisition fails, inside PackageHouse, after the `Prior`
+receipt has been issued.
+
+That failure stays visible, as any acquisition failure does: the request
+fails now with the ordinary not-found result, and the service evicts the
+entry so the next request settles by discovery. The service does not re-enter
+settlement within the same demand; doing so would be a second PackageHouse
+contract change beyond the one this document names. The diagnostic states
+that a retained prior was evicted, so a caller can rerun at once. This is not
+a bound request degrading: the binding was the product's own prior, not a
+version the user supplied or accepted, and the user-visible outcome is one
+visible failure followed by fresh discovery, never a silent substitution.
 
 ### Receipt
 
@@ -147,7 +159,10 @@ issued for it, the freshness (`Current` or `ServedPrior`), and for
 decision receipt accepts `Prior` for a selecting demand when its coordinate and
 candidate match the receipt, alongside the existing `Resolved` rule.
 
-`PackageVersionDiscoveryFreshness` gains `ServedPrior`. A served prior is never
+`PackageVersionDiscoveryFreshness` gains `ServedPrior`. Only the `Prior` arm
+may carry it: version resolution's discovery-compatibility rule rejects
+`ServedPrior` for `Resolved` and every other discovery-backed arm, and the
+`Prior` arm accepts only `Current` or `ServedPrior`. A served prior is never
 labeled `Current`: `Current` means the entry is inside its window;
 `ServedPrior` means a refresh was attempted or skipped and the prior answer
 was used anyway.
@@ -188,7 +203,7 @@ Release.
 | 6. Jitter determinism | same key, same window across processes | contract suite |
 | 7. Refresh cap | with more past-window entries than N, exactly N discoveries, the rest `ServedPrior` | contract suite (fake clock) |
 | 8. `Current` label honesty | no path stamps `Current` on a past-window entry | contract suite |
-| 9. Prior coordinate absent from every source | entry evicted, discovery settles the request | CLI harness (local feed with the version removed) |
+| 9. Prior coordinate absent from every source | first request fails visibly with not-found and the eviction diagnostic; the entry is gone; the next request discovers and settles | CLI harness, two invocations (local feed with the version removed, then restored or replaced) |
 | 10. Authorization change | a prior under one source set is a miss under another | contract suite |
 | 11. `Wildcard` and `Range` keys | a `LatestPrerelease` prior is never served to a `Wildcard` or `Range` request | contract suite |
 
@@ -199,8 +214,10 @@ before this design, with the target under one second warm and no cliff.
 ## Adoption
 
 1. This document; the service with its contract suite; the `Prior` receipt
-   arm and `ServedPrior` freshness value adopted by version resolution; the
-   decision-receipt rule extended in PackageHouse.
+   arm and `ServedPrior` freshness value adopted by version resolution,
+   including the rule that only `Prior` carries `ServedPrior`; the
+   decision-receipt rule extended in PackageHouse; the eviction diagnostic
+   on the not-found acquisition path.
 2. `PackageHouse` selecting demands adopt it for `LatestStable` and
    `LatestPrerelease`. This is the primary CLI path; `Name` and `Name@latest`
    become observable there. Corrective but breaking: `Name` stops discovering
