@@ -177,11 +177,14 @@ fields, columns, or renderer settings. Its first population request is:
 ```text
 LibraryTypePopulationRequest
   facet selection
-  requested terminal projections
+  optional Count request
+  optional Rows request
+
+LibraryTypePopulationRowsRequest
   ordering
-  finite extraction and row bounds
-  optional nested measurements for returned Type rows
-  optional prior population binding or continuation
+  maximum returned rows
+  optional nested Member Count measurement
+  optional continuation
 ```
 
 The first nested measurement is exact Member Count for each returned Type
@@ -212,17 +215,16 @@ BrowserLibraryInspectionRequest
 The adapter resolves the selector to one exact `LibraryReference`, constructs
 the in-process request, and invokes the same operation.
 
-The merged #8328 design allows the producer to associate this request DTO with
-one raw exported JSON string parameter. Its implementation is landing in
-parallel. After that implementation is available, the generated TypeScript
-facade owns `JSON.stringify()` and presents
+The merged #8328 design and #8347 implementation allow the producer to
+associate this request DTO with one raw exported JSON string parameter. The
+generated TypeScript facade owns `JSON.stringify()` and presents
 `BrowserLibraryInspectionRequest` directly while the private JS/.NET ABI
 remains string-valued.
 
-This design does not depend on #8328 implementation for the core request or
-CLI operation. Browser adoption waits for the generated input binding rather
-than adding a handwritten TypeScript request shape, flattened interim export,
-or duplicate JSON wrapper.
+The core request and CLI operation remain independent of Browser adoption.
+Browser adoption uses the generated input binding rather than adding a
+handwritten TypeScript request shape, flattened interim export, or duplicate
+JSON wrapper.
 
 ## Library document
 
@@ -342,6 +344,10 @@ source continuation. Continuation is bound to the complete population
 identity. Changing a facet, ordering, Library generation, or row projection
 invalidates it.
 
+The initial ordering is Metadata order: admitted `TypeDef` declarations in
+table order followed by admitted `ExportedType` declarations in table order.
+Population facets filter that stable sequence without re-sorting it.
+
 One result may contain Count without Rows, Rows without Count, or both. Missing
 terminal results are distinguishable from requested empty success.
 
@@ -373,6 +379,11 @@ Member Count is not zero for a forwarder. The nested measurement is
 not-applicable or otherwise visibly non-successful until a separate exact-Type
 operation resolves a supplying definition.
 
+For a local definition, Member Count is the same public Member population used
+by the compact Type inventory, including local extension methods attached to
+their receiver Type. The producer scans extension declarations as count
+evidence but does not retain `ApiMember` rows.
+
 Intrinsic facet values remain available to structured consumers even when a
 renderer suppresses redundant columns for a homogeneous result group.
 
@@ -398,7 +409,9 @@ The Metadata path may:
 - retain stable Type row locators for requested ordering and continuation;
 - probe only requested forwarder Rows for their bounded intra-image
   `ExportedType` occurrence chain and terminal assembly-reference identity;
-- decode names and row facts only for the requested Rows segment; and
+- retain structured declaration identities for the complete bounded inventory,
+  but decode display text and enriched row facts only for the requested Rows
+  segment; and
 - compute requested nested Member Counts for definitions without materializing
   Member rows.
 
@@ -415,6 +428,13 @@ Metadata-token ordering is naturally resumable. Alphabetical or other semantic
 ordering may require a bounded index or complete lightweight census before the
 first row page. The request and result disclose the chosen ordering and
 applicable work bounds.
+
+The initial continuation is an opaque, versioned source receipt bound to MVID,
+accessibility, ordering, nested-measurement projection, and the next admitted
+population ordinal. Maximum returned rows is a physical segment bound rather
+than population identity: a consumer may change it while draining the same
+population. Malformed, projection-incompatible, stale-MVID, and out-of-range
+receipts are distinct typed rejections.
 
 Signature, attribute, source, body, graph, unsafe, async, and performance
 predicates do not become ordinary cheap facets solely because a host wants to
@@ -455,6 +475,11 @@ inventory construction. Retained text counts the namespace and metadata-name
 segments stored by each structured declaration name. Bound exhaustion reports
 the first measured value beyond the limit and never returns a shortened
 inventory as success.
+
+Rows additionally charges retained display text and forwarded target-identity
+text after inert-text containment. A Rows text-bound failure remains local to
+Rows; an independently requested Count over the already complete inventory may
+still succeed.
 
 Count-only execution may be cheaper than Rows but does not receive weaker
 completion semantics. A specialized Count kernel is an optimization over the
@@ -516,9 +541,8 @@ Adoption is staged through focused slices:
 4. Define the focused section/document composition, then lower direct,
    PackageHouse, and PlatformHouse CLI gestures to explicit plans while
    preserving not-yet-adopted legacy sections on their existing paths.
-5. After the #8328 JSON-input implementation lands, expose one typed
-   `BrowserLibraryInspectionRequest` through the generated facade and consume
-   the same envelope in Inspect Web.
+5. Expose one typed `BrowserLibraryInspectionRequest` through the #8347
+   generated JSON-input facade and consume the same envelope in Inspect Web.
 6. Adopt additional Library facts and populations owner by owner, then retire
    covered portions of the mutable CLI `LibraryInspection`, exact-API summary,
    and package-surface reconstruction only when positive production gates prove

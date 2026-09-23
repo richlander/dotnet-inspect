@@ -74,6 +74,304 @@ public sealed class LibraryInspectionOperationTests
 
     [Fact]
     public async Task
+        RealSystemTextJson_BoundedRowsDrainToCountWithRequestedMemberCounts()
+    {
+        byte[] content =
+            await LibraryInspectionTestLibrary.RealSystemTextJsonAsync();
+        await using LibraryInspectionTestLibrary library =
+            await LibraryInspectionTestLibrary.CreateAsync(
+                content,
+                LibraryInspectionTestLibrary.Identity(content));
+        var rowsRequest = new LibraryTypePopulationRowsRequest(
+            maximumRows: 10,
+            memberCount: new());
+
+        LibraryDocument first = Document(
+            Execute(
+                library,
+                count: true,
+                rowsRequest));
+        LibraryTypePopulationCountOutcome.Counted count =
+            Assert.IsType<LibraryTypePopulationCountOutcome.Counted>(
+                first.Types.Count);
+        LibraryTypePopulationRowsOutcome.Read segment =
+            Assert.IsType<LibraryTypePopulationRowsOutcome.Read>(
+                first.Types.Rows);
+        var rows = segment.Items.ToList();
+        LibraryTypePopulationContinuation? continuation =
+            segment.Continuation;
+        while (continuation is not null)
+        {
+            LibraryDocument next = Document(
+                Execute(
+                    library,
+                    count: false,
+                    new(
+                        maximumRows: 7,
+                        memberCount: new(),
+                        continuation: continuation)));
+            Assert.Null(next.Types.Count);
+            Assert.Equal(first.Types.Binding, next.Types.Binding);
+            segment =
+                Assert.IsType<LibraryTypePopulationRowsOutcome.Read>(
+                    next.Types.Rows);
+            rows.AddRange(segment.Items);
+            continuation = segment.Continuation;
+        }
+
+        Assert.Equal(count.Total, rows.Count);
+        Assert.Equal(
+            rows.Count,
+            rows.Select(static row => row.Identity).Distinct().Count());
+        Assert.All(rows, static row => Assert.True(row.IsPublicSurface));
+        Assert.Equal(
+            16,
+            Assert.IsType<LibraryTypeMemberCountOutcome.Counted>(
+                    rows.Single(
+                        row =>
+                            row.Identity
+                                == Name(
+                                    "System.Text.Json",
+                                    "JsonDocument"))
+                        .MemberCount)
+                .Value);
+        Assert.Equal(
+            9,
+            Assert.IsType<LibraryTypeMemberCountOutcome.Counted>(
+                    rows.Single(
+                        row =>
+                            row.Identity
+                                == Name(
+                                    "System.Text.Json",
+                                    "JsonException"))
+                        .MemberCount)
+                .Value);
+        Assert.All(
+            rows.Where(
+                static row =>
+                    row.DeclarationKind
+                        == LibraryTypeDeclarationKind.Definition),
+            static row =>
+                Assert.IsType<
+                    LibraryTypeMemberCountOutcome.Counted>(
+                    row.MemberCount));
+        await library.RetireAsync();
+    }
+
+    [Fact]
+    public async Task
+        RealFacade_RowsRetainForwarderEvidenceWithoutTargetResolution()
+    {
+        byte[] content =
+            await LibraryInspectionTestLibrary.RealNetstandardAsync();
+        await using LibraryInspectionTestLibrary library =
+            await LibraryInspectionTestLibrary.CreateAsync(
+                content,
+                LibraryInspectionTestLibrary.Identity(content));
+
+        InspectionEnvelope<LibraryInspectionOutcome> envelope =
+            Execute(
+                library,
+                count: false,
+                new(
+                    maximumRows: 5_000,
+                    memberCount: new()));
+        LibraryDocument document = Document(envelope);
+
+        Assert.Null(document.Types.Count);
+        LibraryTypePopulationRowsOutcome.Read rows =
+            Assert.IsType<LibraryTypePopulationRowsOutcome.Read>(
+                document.Types.Rows);
+        Assert.True(rows.IsComplete);
+        LibraryTypeShape systemObject =
+            rows.Items.Single(
+                row => row.Identity == Name("System", "Object"));
+        Assert.Equal(
+            LibraryTypeDeclarationKind.Forwarder,
+            systemObject.DeclarationKind);
+        Assert.Null(systemObject.DefinitionKind);
+        Assert.Null(systemObject.DefinitionAccessibility);
+        LibraryTypeForwardingEvidence forwarding =
+            Assert.IsType<LibraryTypeForwardingEvidence>(
+                systemObject.Forwarding);
+        Assert.Equal(
+            document.ModuleVersionId,
+            forwarding.SourceModuleVersionId);
+        Assert.NotEmpty(forwarding.Declarations);
+        Assert.False(forwarding.TargetAssembly.Name.IsEmpty);
+        Assert.Equal(
+            LibraryTypeMemberCountNotApplicableReason.Forwarder,
+            Assert.IsType<
+                    LibraryTypeMemberCountOutcome.NotApplicable>(
+                    systemObject.MemberCount)
+                .Reason);
+
+        string json = JsonSerializer.Serialize(
+            envelope,
+            LibraryInspectionJsonContext.Default
+                .LibraryInspectionEnvelope);
+        InspectionEnvelope<LibraryInspectionOutcome> roundTrippedEnvelope =
+            JsonSerializer.Deserialize(
+                json,
+                LibraryInspectionJsonContext.Default
+                    .LibraryInspectionEnvelope)
+            ?? throw new InvalidOperationException(
+                "The Library inspection envelope did not deserialize.");
+        LibraryTypeForwardingEvidence roundTrippedForwarding =
+            Assert.IsType<LibraryTypeForwardingEvidence>(
+                Assert.Single(
+                        Assert.IsType<
+                                LibraryTypePopulationRowsOutcome.Read>(
+                                Document(roundTrippedEnvelope).Types.Rows)
+                            .Items,
+                        row =>
+                            row.Identity
+                                == Name("System", "Object"))
+                    .Forwarding);
+        Assert.Equal(
+            forwarding.Declarations.Select(static token => token.Value),
+            roundTrippedForwarding.Declarations.Select(
+                static token => token.Value));
+        Assert.Equal(
+            forwarding.SourceModuleVersionId,
+            roundTrippedForwarding.SourceModuleVersionId);
+        Assert.Equal(
+            forwarding.TargetAssembly,
+            roundTrippedForwarding.TargetAssembly);
+        await library.RetireAsync();
+    }
+
+    [Fact]
+    public async Task
+        ContinuationsRejectMalformedIncompatibleStaleAndOutOfRangeUse()
+    {
+        byte[] jsonContent =
+            await LibraryInspectionTestLibrary.RealSystemTextJsonAsync();
+        byte[] facadeContent =
+            await LibraryInspectionTestLibrary.RealNetstandardAsync();
+        await using LibraryInspectionTestLibrary json =
+            await LibraryInspectionTestLibrary.CreateAsync(
+                jsonContent,
+                LibraryInspectionTestLibrary.Identity(jsonContent));
+        await using LibraryInspectionTestLibrary facade =
+            await LibraryInspectionTestLibrary.CreateAsync(
+                facadeContent,
+                LibraryInspectionTestLibrary.Identity(facadeContent));
+
+        LibraryTypePopulationContinuation continuation =
+            Assert.IsType<LibraryTypePopulationRowsOutcome.Read>(
+                    Document(
+                        Execute(
+                            json,
+                            count: false,
+                            new(maximumRows: 1)))
+                        .Types.Rows)
+                .Continuation!;
+        AssertRowsRejection(
+            Execute(
+                json,
+                count: false,
+                new(
+                    maximumRows: 1,
+                    continuation:
+                        new(
+                            new InertString(
+                                TextPolicy.Field,
+                                "not-base64")))),
+            LibraryTypePopulationRowsRejection.InvalidContinuation);
+        AssertRowsRejection(
+            Execute(
+                json,
+                count: false,
+                new(
+                    maximumRows: 1,
+                    memberCount: new(),
+                    continuation: continuation)),
+            LibraryTypePopulationRowsRejection
+                .IncompatibleContinuation);
+        AssertRowsRejection(
+            Execute(
+                facade,
+                count: false,
+                new(
+                    maximumRows: 1,
+                    continuation: continuation)),
+            LibraryTypePopulationRowsRejection.StaleContinuation);
+
+        byte[] payload =
+            Convert.FromBase64String(
+                continuation.Value.ToString());
+        payload[20] = 0xFF;
+        payload[21] = 0xFF;
+        payload[22] = 0xFF;
+        payload[23] = 0x7F;
+        AssertRowsRejection(
+            Execute(
+                json,
+                count: false,
+                new(
+                    maximumRows: 1,
+                    continuation:
+                        new(
+                            new InertString(
+                                TextPolicy.Field,
+                                Convert.ToBase64String(payload))))),
+            LibraryTypePopulationRowsRejection
+                .ContinuationOutOfRange);
+
+        await json.RetireAsync();
+        await facade.RetireAsync();
+    }
+
+    [Fact]
+    public async Task
+        RowTextBoundLeavesCountAvailableAndRowsIncomplete()
+    {
+        byte[] content =
+            await LibraryInspectionTestLibrary.RealSystemTextJsonAsync();
+        await using LibraryInspectionTestLibrary library =
+            await LibraryInspectionTestLibrary.CreateAsync(
+                content,
+                LibraryInspectionTestLibrary.Identity(content));
+        LibraryDocument countOnly = Document(Execute(library));
+        var bounds = new ApiSurfaceExtractionBounds(
+            s_bounds.MaxTypes,
+            s_bounds.MaxMembers,
+            s_bounds.MaxInspectionFailures,
+            s_bounds.MaxTypeForwarders,
+            s_bounds.MaxMetadataRows,
+            checked((int)countOnly.Work.RetainedTextCharacters));
+
+        InspectionEnvelope<LibraryInspectionOutcome> envelope =
+            Execute(
+                library,
+                count: true,
+                new(maximumRows: 1),
+                bounds);
+
+        LibraryDocument document = Document(envelope);
+        Assert.IsType<LibraryTypePopulationCountOutcome.Counted>(
+            document.Types.Count);
+        LibraryTypePopulationRowsOutcome.Incomplete incomplete =
+            Assert.IsType<LibraryTypePopulationRowsOutcome.Incomplete>(
+                document.Types.Rows);
+        Assert.Equal(
+            LibraryTypePopulationRowsBound.RetainedTextCharacters,
+            incomplete.Bound);
+        Assert.Equal(
+            bounds.MaxRetainedTextCharacters,
+            incomplete.Limit);
+        Assert.True(incomplete.Measured > incomplete.Limit);
+        Assert.Contains(
+            envelope.Diagnostics,
+            diagnostic =>
+                diagnostic.Code
+                    == "library-inspection.types.rows.incomplete.retained-text-characters");
+        await library.RetireAsync();
+    }
+
+    [Fact]
+    public async Task
         DefinitionBoundRetainsDocumentAndIncompleteCount()
     {
         byte[] content =
@@ -397,6 +695,37 @@ public sealed class LibraryInspectionOperationTests
     }
 
     [Fact]
+    public async Task
+        PublicModuleExportMakesRowsUnavailableWithoutReturningAPrefix()
+    {
+        byte[] content =
+            LibraryInspectionTestLibrary.BuildMetadataImage(
+                includeModuleExport: true);
+        await using LibraryInspectionTestLibrary library =
+            await LibraryInspectionTestLibrary.CreateAsync(
+                content,
+                LibraryInspectionTestLibrary.ProbeIdentity());
+
+        InspectionEnvelope<LibraryInspectionOutcome> envelope =
+            Execute(
+                library,
+                count: false,
+                new(maximumRows: 1));
+
+        Assert.Equal(
+            LibraryTypePopulationRowsUnavailableReason
+                .UnsupportedModuleExport,
+            Assert.IsType<
+                    LibraryTypePopulationRowsOutcome.Unavailable>(
+                    Document(envelope).Types.Rows)
+                .Reason);
+        Assert.Equal(
+            "library-inspection.types.rows.unavailable.unsupported-module-export",
+            Assert.Single(envelope.Diagnostics).Code);
+        await library.RetireAsync();
+    }
+
+    [Fact]
     public async Task AssemblyIdentityMismatchReturnsTypedRejection()
     {
         byte[] content =
@@ -529,7 +858,15 @@ public sealed class LibraryInspectionOperationTests
         var plan = new LibraryInspectionPlan(
             new(
                 LibraryTypeAccessibility.Public,
-                new()),
+                new(),
+                new(
+                    maximumRows: 10,
+                    memberCount: new(),
+                    continuation:
+                        new(
+                            new InertString(
+                                TextPolicy.Field,
+                                "opaque-receipt")))),
             s_bounds);
         var document = new LibraryDocument(
             new(
@@ -546,7 +883,28 @@ public sealed class LibraryInspectionOperationTests
                     structs: 2,
                     interfaces: 3,
                     enums: 4,
-                    delegates: 5)),
+                    delegates: 5),
+                new LibraryTypePopulationRowsOutcome.Read(
+                    LibraryTypePopulationOrdering.Metadata,
+                    [
+                        new(
+                            Name("Example", "Widget"),
+                            new InertString(
+                                TextPolicy.Field,
+                                "Example.Widget"),
+                            new InertString(
+                                TextPolicy.Field,
+                                "Example"),
+                            LibraryTypeDeclarationKind.Definition,
+                            ApiTypeInventoryKind.Class,
+                            LibraryTypeDefinitionAccessibility.Public,
+                            isPublicSurface: true,
+                            forwarding: null,
+                            memberCount:
+                                new LibraryTypeMemberCountOutcome.Counted(
+                                    3)),
+                    ],
+                    Continuation: null)),
             new(
                 AssemblyBytes: 1234,
                 MetadataRows: 567,
@@ -597,6 +955,27 @@ public sealed class LibraryInspectionOperationTests
             LibraryInspectionJsonContext.Default.LibraryInspectionPlan);
         Assert.Contains("\"types\"", planJson, StringComparison.Ordinal);
         Assert.Contains("\"count\"", planJson, StringComparison.Ordinal);
+        Assert.Contains("\"rows\"", planJson, StringComparison.Ordinal);
+        Assert.Contains(
+            "\"memberCount\"",
+            planJson,
+            StringComparison.Ordinal);
+        LibraryInspectionPlan roundTrippedPlan =
+            JsonSerializer.Deserialize(
+                planJson,
+                LibraryInspectionJsonContext.Default
+                    .LibraryInspectionPlan)
+            ?? throw new InvalidOperationException(
+                "The Library inspection plan did not deserialize.");
+        Assert.NotNull(roundTrippedPlan.Types.Count);
+        Assert.NotNull(roundTrippedPlan.Types.Rows);
+        Assert.NotNull(
+            roundTrippedPlan.Types.Rows.MemberCount);
+        Assert.Equal(
+            "opaque-receipt",
+            roundTrippedPlan.Types.Rows.Continuation!
+                .Value.ToString());
+        Assert.Equal(plan.Bounds, roundTrippedPlan.Bounds);
         foreach (
             InspectionEnvelope<LibraryInspectionOutcome> envelope
             in envelopes)
@@ -607,6 +986,11 @@ public sealed class LibraryInspectionOperationTests
                     .LibraryInspectionEnvelope);
             Assert.Contains("\"content\"", json, StringComparison.Ordinal);
             Assert.Contains("\"share\"", json, StringComparison.Ordinal);
+            Assert.NotNull(
+                JsonSerializer.Deserialize(
+                    json,
+                    LibraryInspectionJsonContext.Default
+                        .LibraryInspectionEnvelope));
         }
     }
 
@@ -637,6 +1021,44 @@ public sealed class LibraryInspectionOperationTests
                     bounds)),
             library.IssueOperation(),
             TestContext.Current.CancellationToken);
+
+    private static InspectionEnvelope<LibraryInspectionOutcome> Execute(
+        LibraryInspectionTestLibrary library,
+        bool count,
+        LibraryTypePopulationRowsRequest rows,
+        ApiSurfaceExtractionBounds? bounds = null) =>
+        LibraryInspectionOperation.Execute(
+            new(
+                library.Reference,
+                new(
+                    new(
+                        LibraryTypeAccessibility.Public,
+                        count
+                            ? new LibraryTypePopulationCountRequest()
+                            : null,
+                        rows),
+                    bounds ?? s_bounds)),
+            library.IssueOperation(),
+            TestContext.Current.CancellationToken);
+
+    private static void AssertRowsRejection(
+        InspectionEnvelope<LibraryInspectionOutcome> envelope,
+        LibraryTypePopulationRowsRejection expected) =>
+        Assert.Equal(
+            expected,
+            Assert.IsType<
+                    LibraryTypePopulationRowsOutcome.Rejected>(
+                    Document(envelope).Types.Rows)
+                .Reason);
+
+    private static MetadataTypeDefinitionName Name(
+        string @namespace,
+        params string[] segments) =>
+        Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
+                MetadataTypeDefinitionName.Create(
+                    @namespace,
+                    [.. segments]))
+            .Name;
 
     private static InspectionEnvelope<LibraryInspectionOutcome> Envelope(
         LibraryInspectionOutcome outcome) =>
@@ -678,6 +1100,18 @@ public sealed class LibraryInspectionOperationTests
             typeof(LibraryTypePopulationCountOutcome.Counted),
             typeof(LibraryTypePopulationCountOutcome.Unavailable),
             typeof(LibraryTypePopulationCountOutcome.Incomplete),
+            typeof(LibraryTypePopulationRowsOutcome),
+            typeof(LibraryTypePopulationRowsOutcome.Read),
+            typeof(LibraryTypePopulationRowsOutcome.Unavailable),
+            typeof(LibraryTypePopulationRowsOutcome.Rejected),
+            typeof(LibraryTypePopulationRowsOutcome.Incomplete),
+            typeof(LibraryTypePopulationRowsOutcome.Failed),
+            typeof(LibraryTypeShape),
+            typeof(LibraryTypeForwardingEvidence),
+            typeof(LibraryTypeMemberCountOutcome),
+            typeof(LibraryTypeMemberCountOutcome.Counted),
+            typeof(LibraryTypeMemberCountOutcome.NotApplicable),
+            typeof(LibraryTypePopulationContinuation),
             typeof(LibraryInspectionWork),
         ];
         foreach (Type type in contract)

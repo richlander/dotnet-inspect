@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using System.Reflection.Metadata;
 using System.Reflection.PortableExecutable;
 using Inspector.Resources;
@@ -557,6 +558,30 @@ public sealed class AssemblyInspectionSession :
             _image.PEReader,
             maximumRetainedDeclarations,
             maximumRetainedTextCharacters);
+    }
+
+    /// <summary>
+    /// Enriches one bounded declaration segment while this image remains live.
+    /// The returned evidence survives session disposal.
+    /// </summary>
+    public AssemblyTypeDeclarationRowsOutcome TypeDeclarationRows(
+        AssemblyTypeDeclarationInventory inventory,
+        ImmutableArray<AssemblyTypeDeclaration> declarations,
+        bool includeMemberCount,
+        int maximumRetainedTextCharacters,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(inventory);
+        ArgumentOutOfRangeException.ThrowIfNegative(
+            maximumRetainedTextCharacters);
+        _image.EnsureAlive();
+        return AssemblyTypeDeclarationRowsReader.Read(
+            _image.PEReader,
+            inventory,
+            declarations,
+            includeMemberCount,
+            maximumRetainedTextCharacters,
+            cancellationToken);
     }
 
     /// <summary>

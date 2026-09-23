@@ -68,13 +68,32 @@ public sealed class AssemblyTypeDeclaration
         AssemblyTypeDefinitionKind? definitionKind,
         bool? isDefinitionPublic,
         bool isPublicSurface,
+        TypeDefinitionToken? definitionToken,
+        ExportedTypeToken? exportedTypeToken,
         TypeDeclarationDiscoveryAttributes? discoveryAttributes = null)
     {
+        if (kind == AssemblyTypeDeclarationKind.Definition
+            && (definitionToken is null || exportedTypeToken is not null))
+        {
+            throw new ArgumentException(
+                "A Type definition declaration requires only a TypeDef token.",
+                nameof(definitionToken));
+        }
+        if (kind != AssemblyTypeDeclarationKind.Definition
+            && (definitionToken is not null || exportedTypeToken is null))
+        {
+            throw new ArgumentException(
+                "An exported declaration requires only an ExportedType token.",
+                nameof(exportedTypeToken));
+        }
+
         Name = name;
         Kind = kind;
         DefinitionKind = definitionKind;
         IsDefinitionPublic = isDefinitionPublic;
         IsPublicSurface = isPublicSurface;
+        DefinitionToken = definitionToken;
+        ExportedTypeToken = exportedTypeToken;
         DiscoveryAttributes = discoveryAttributes;
     }
 
@@ -89,6 +108,8 @@ public sealed class AssemblyTypeDeclaration
     public bool? IsDefinitionPublic { get; }
 
     public bool IsPublicSurface { get; }
+    public TypeDefinitionToken? DefinitionToken { get; }
+    public ExportedTypeToken? ExportedTypeToken { get; }
 
     /// <summary>
     /// Attributes declared on this definition, without inheritance or filtering.
@@ -408,6 +429,8 @@ public static class AssemblyTypeDeclarationInventoryReader
                 GetDefinitionKind(reader, definition),
                 definition.IsPublic,
                 visibility.IsExternallyVisible(handle),
+                TypeDefinitionToken.FromHandle(reader, handle),
+                exportedTypeToken: null,
                 AttributeReader.ReadTypeDiscoveryAttributes(
                     reader, definition.GetCustomAttributes())));
         }
@@ -462,7 +485,9 @@ public static class AssemblyTypeDeclarationInventoryReader
                         read.Name, AssemblyTypeDeclarationKind.Forwarder,
                         definitionKind: null,
                         isDefinitionPublic: null,
-                        isPublicSurface: true));
+                        isPublicSurface: true,
+                        definitionToken: null,
+                        ExportedTypeToken.FromHandle(reader, handle)));
                     break;
                 case TypeDeclarationCandidate.ModuleExport module:
                     declarations.Add(new AssemblyTypeDeclaration(
@@ -473,7 +498,9 @@ public static class AssemblyTypeDeclarationInventoryReader
                             (reader.GetExportedType(
                                 (ExportedTypeHandle)MetadataTokens.EntityHandle(token.Value))
                                 .Attributes & TypeAttributes.VisibilityMask)
-                            is TypeAttributes.Public or TypeAttributes.NestedPublic)));
+                            is TypeAttributes.Public or TypeAttributes.NestedPublic),
+                        definitionToken: null,
+                        ExportedTypeToken.FromHandle(reader, handle)));
                     break;
                 default:
                     throw new InvalidOperationException("Unknown exported declaration candidate.");

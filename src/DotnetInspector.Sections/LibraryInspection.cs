@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using System.Text.Json.Serialization;
 
 using DotnetInspector.Libraries;
@@ -16,6 +17,70 @@ public enum LibraryTypeAccessibility
 /// </summary>
 public sealed record LibraryTypePopulationCountRequest;
 
+public enum LibraryTypePopulationOrdering
+{
+    Metadata,
+}
+
+/// <summary>
+/// Request for exact Member Count on each returned Type definition row.
+/// </summary>
+public sealed record LibraryTypeMemberCountRequest;
+
+/// <summary>
+/// Opaque source receipt for continuing one exact Type population.
+/// </summary>
+public sealed record LibraryTypePopulationContinuation
+{
+    public LibraryTypePopulationContinuation(InertString value)
+    {
+        if (value.IsEmpty || value.Length > 256)
+        {
+            throw new ArgumentException(
+                "A Library Type continuation must contain a bounded value.",
+                nameof(value));
+        }
+
+        Value = value;
+    }
+
+    [JsonConverter(typeof(InertStringJsonConverter))]
+    public InertString Value { get; }
+}
+
+/// <summary>
+/// Request for one bounded ordered segment of the selected Type population.
+/// </summary>
+public sealed record LibraryTypePopulationRowsRequest
+{
+    public LibraryTypePopulationRowsRequest(
+        int maximumRows,
+        LibraryTypePopulationOrdering ordering =
+            LibraryTypePopulationOrdering.Metadata,
+        LibraryTypeMemberCountRequest? memberCount = null,
+        LibraryTypePopulationContinuation? continuation = null)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(maximumRows);
+        if (!Enum.IsDefined(ordering))
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(ordering),
+                ordering,
+                "Unknown Library Type ordering.");
+        }
+
+        MaximumRows = maximumRows;
+        Ordering = ordering;
+        MemberCount = memberCount;
+        Continuation = continuation;
+    }
+
+    public int MaximumRows { get; }
+    public LibraryTypePopulationOrdering Ordering { get; }
+    public LibraryTypeMemberCountRequest? MemberCount { get; }
+    public LibraryTypePopulationContinuation? Continuation { get; }
+}
+
 /// <summary>
 /// A request for Count over one accessibility-faceted Library Type
 /// population.
@@ -24,7 +89,8 @@ public sealed record LibraryTypePopulationRequest
 {
     public LibraryTypePopulationRequest(
         LibraryTypeAccessibility accessibility,
-        LibraryTypePopulationCountRequest count)
+        LibraryTypePopulationCountRequest? count,
+        LibraryTypePopulationRowsRequest? rows = null)
     {
         if (!Enum.IsDefined(accessibility))
         {
@@ -34,13 +100,20 @@ public sealed record LibraryTypePopulationRequest
                 "Unknown Library Type accessibility.");
         }
 
+        if (count is null && rows is null)
+        {
+            throw new ArgumentException(
+                "A Library Type population must request Count, Rows, or both.");
+        }
+
         Accessibility = accessibility;
-        Count = count
-            ?? throw new ArgumentNullException(nameof(count));
+        Count = count;
+        Rows = rows;
     }
 
     public LibraryTypeAccessibility Accessibility { get; }
-    public LibraryTypePopulationCountRequest Count { get; }
+    public LibraryTypePopulationCountRequest? Count { get; }
+    public LibraryTypePopulationRowsRequest? Rows { get; }
 }
 
 /// <summary>
@@ -212,12 +285,274 @@ public abstract record LibraryTypePopulationCountOutcome
         : LibraryTypePopulationCountOutcome;
 }
 
+public enum LibraryTypeDeclarationKind
+{
+    Definition,
+    Forwarder,
+}
+
+public enum LibraryTypeDefinitionAccessibility
+{
+    Public,
+    NonPublic,
+}
+
+/// <summary>
+/// Detached intra-image evidence for one Library-advertised forwarder.
+/// </summary>
+public sealed record LibraryTypeForwardingEvidence
+{
+    public LibraryTypeForwardingEvidence(
+        Guid sourceModuleVersionId,
+        ImmutableArray<ExportedTypeToken> declarations,
+        LibraryAssemblyIdentity targetAssembly)
+    {
+        if (sourceModuleVersionId == Guid.Empty)
+        {
+            throw new ArgumentException(
+                "Forwarding evidence requires a source MVID.",
+                nameof(sourceModuleVersionId));
+        }
+        if (declarations.IsDefaultOrEmpty)
+        {
+            throw new ArgumentException(
+                "Forwarding evidence requires an ExportedType occurrence chain.",
+                nameof(declarations));
+        }
+
+        SourceModuleVersionId = sourceModuleVersionId;
+        Declarations = declarations;
+        TargetAssembly = targetAssembly
+            ?? throw new ArgumentNullException(nameof(targetAssembly));
+    }
+
+    public Guid SourceModuleVersionId { get; }
+    public ImmutableArray<ExportedTypeToken> Declarations { get; }
+    public LibraryAssemblyIdentity TargetAssembly { get; }
+}
+
+public enum LibraryTypeMemberCountNotApplicableReason
+{
+    Forwarder,
+}
+
+[JsonPolymorphic(TypeDiscriminatorPropertyName = "kind")]
+[JsonDerivedType(
+    typeof(LibraryTypeMemberCountOutcome.Counted),
+    "counted")]
+[JsonDerivedType(
+    typeof(LibraryTypeMemberCountOutcome.NotApplicable),
+    "not-applicable")]
+public abstract record LibraryTypeMemberCountOutcome
+{
+    private protected LibraryTypeMemberCountOutcome()
+    {
+    }
+
+    public sealed record Counted : LibraryTypeMemberCountOutcome
+    {
+        public Counted(int value)
+        {
+            ArgumentOutOfRangeException.ThrowIfNegative(value);
+            Value = value;
+        }
+
+        public int Value { get; }
+    }
+
+    public sealed record NotApplicable(
+        LibraryTypeMemberCountNotApplicableReason Reason)
+        : LibraryTypeMemberCountOutcome;
+}
+
+/// <summary>
+/// One lightweight Type declaration shape owned by a Library document.
+/// </summary>
+public sealed record LibraryTypeShape
+{
+    public LibraryTypeShape(
+        MetadataTypeDefinitionName identity,
+        InertString displayName,
+        InertString @namespace,
+        LibraryTypeDeclarationKind declarationKind,
+        ApiTypeInventoryKind? definitionKind,
+        LibraryTypeDefinitionAccessibility? definitionAccessibility,
+        bool isPublicSurface,
+        LibraryTypeForwardingEvidence? forwarding,
+        LibraryTypeMemberCountOutcome? memberCount)
+    {
+        ArgumentNullException.ThrowIfNull(identity);
+        if (displayName.IsEmpty)
+        {
+            throw new ArgumentException(
+                "A Library Type row requires a display name.",
+                nameof(displayName));
+        }
+        if (!Enum.IsDefined(declarationKind))
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(declarationKind),
+                declarationKind,
+                "Unknown Library Type declaration kind.");
+        }
+        if (definitionKind is { } kind
+            && !Enum.IsDefined(kind))
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(definitionKind),
+                definitionKind,
+                "Unknown API Type kind.");
+        }
+        if (definitionAccessibility is { } accessibility
+            && !Enum.IsDefined(accessibility))
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(definitionAccessibility),
+                definitionAccessibility,
+                "Unknown Library Type definition accessibility.");
+        }
+
+        switch (declarationKind)
+        {
+            case LibraryTypeDeclarationKind.Definition:
+                if (definitionKind is null
+                    || definitionAccessibility is null
+                    || forwarding is not null
+                    || memberCount
+                        is LibraryTypeMemberCountOutcome.NotApplicable)
+                {
+                    throw new ArgumentException(
+                        "A Type definition row requires definition facts and cannot carry forwarding evidence.");
+                }
+                break;
+            case LibraryTypeDeclarationKind.Forwarder:
+                if (definitionKind is not null
+                    || definitionAccessibility is not null
+                    || forwarding is null
+                    || memberCount
+                        is LibraryTypeMemberCountOutcome.Counted)
+                {
+                    throw new ArgumentException(
+                        "A forwarder row requires forwarding evidence and cannot carry definition facts.");
+                }
+                break;
+            default:
+                throw new InvalidOperationException(
+                    "Unknown Library Type declaration kind.");
+        }
+
+        Identity = identity;
+        DisplayName = displayName;
+        Namespace = @namespace;
+        DeclarationKind = declarationKind;
+        DefinitionKind = definitionKind;
+        DefinitionAccessibility = definitionAccessibility;
+        IsPublicSurface = isPublicSurface;
+        Forwarding = forwarding;
+        MemberCount = memberCount;
+    }
+
+    public MetadataTypeDefinitionName Identity { get; }
+
+    [JsonConverter(typeof(InertStringJsonConverter))]
+    public InertString DisplayName { get; }
+
+    [JsonConverter(typeof(InertStringJsonConverter))]
+    public InertString Namespace { get; }
+
+    public LibraryTypeDeclarationKind DeclarationKind { get; }
+    public ApiTypeInventoryKind? DefinitionKind { get; }
+    public LibraryTypeDefinitionAccessibility? DefinitionAccessibility
+    {
+        get;
+    }
+    public bool IsPublicSurface { get; }
+    public LibraryTypeForwardingEvidence? Forwarding { get; }
+    public LibraryTypeMemberCountOutcome? MemberCount { get; }
+}
+
+public enum LibraryTypePopulationRowsUnavailableReason
+{
+    UnsupportedModuleExport,
+}
+
+public enum LibraryTypePopulationRowsRejection
+{
+    InvalidContinuation,
+    IncompatibleContinuation,
+    StaleContinuation,
+    ContinuationOutOfRange,
+}
+
+public enum LibraryTypePopulationRowsBound
+{
+    MetadataRows,
+    RetainedDeclarations,
+    RetainedTextCharacters,
+}
+
+public enum LibraryTypePopulationRowsFailure
+{
+    MalformedMetadata,
+}
+
+[JsonPolymorphic(TypeDiscriminatorPropertyName = "kind")]
+[JsonDerivedType(
+    typeof(LibraryTypePopulationRowsOutcome.Read),
+    "read")]
+[JsonDerivedType(
+    typeof(LibraryTypePopulationRowsOutcome.Unavailable),
+    "unavailable")]
+[JsonDerivedType(
+    typeof(LibraryTypePopulationRowsOutcome.Rejected),
+    "rejected")]
+[JsonDerivedType(
+    typeof(LibraryTypePopulationRowsOutcome.Incomplete),
+    "incomplete")]
+[JsonDerivedType(
+    typeof(LibraryTypePopulationRowsOutcome.Failed),
+    "failed")]
+public abstract record LibraryTypePopulationRowsOutcome
+{
+    private protected LibraryTypePopulationRowsOutcome()
+    {
+    }
+
+    public sealed record Read(
+        LibraryTypePopulationOrdering Ordering,
+        ImmutableArray<LibraryTypeShape> Items,
+        LibraryTypePopulationContinuation? Continuation)
+        : LibraryTypePopulationRowsOutcome
+    {
+        public bool IsComplete => Continuation is null;
+    }
+
+    public sealed record Unavailable(
+        LibraryTypePopulationRowsUnavailableReason Reason)
+        : LibraryTypePopulationRowsOutcome;
+
+    public sealed record Rejected(
+        LibraryTypePopulationRowsRejection Reason)
+        : LibraryTypePopulationRowsOutcome;
+
+    public sealed record Incomplete(
+        LibraryTypePopulationRowsBound Bound,
+        long Limit,
+        long Measured)
+        : LibraryTypePopulationRowsOutcome;
+
+    public sealed record Failed(
+        LibraryTypePopulationRowsFailure Reason)
+        : LibraryTypePopulationRowsOutcome;
+}
+
 /// <summary>
 /// Detached result for one requested Type population.
 /// </summary>
 public sealed record LibraryTypePopulationResult(
     LibraryTypePopulationBinding Binding,
-    LibraryTypePopulationCountOutcome Count);
+    LibraryTypePopulationCountOutcome? Count,
+    LibraryTypePopulationRowsOutcome? Rows = null);
 
 /// <summary>
 /// Measured work retained for one Library inspection.

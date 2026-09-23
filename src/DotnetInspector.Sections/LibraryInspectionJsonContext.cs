@@ -37,6 +37,33 @@ namespace DotnetInspector.Sections;
     typeof(LibraryTypePopulationCountOutcome.Incomplete),
     TypeInfoPropertyName = "LibraryTypePopulationCountIncomplete")]
 [JsonSerializable(
+    typeof(LibraryTypePopulationRowsOutcome),
+    TypeInfoPropertyName = "LibraryTypePopulationRowsOutcome")]
+[JsonSerializable(
+    typeof(LibraryTypePopulationRowsOutcome.Read),
+    TypeInfoPropertyName = "LibraryTypePopulationRowsRead")]
+[JsonSerializable(
+    typeof(LibraryTypePopulationRowsOutcome.Unavailable),
+    TypeInfoPropertyName = "LibraryTypePopulationRowsUnavailable")]
+[JsonSerializable(
+    typeof(LibraryTypePopulationRowsOutcome.Rejected),
+    TypeInfoPropertyName = "LibraryTypePopulationRowsRejected")]
+[JsonSerializable(
+    typeof(LibraryTypePopulationRowsOutcome.Incomplete),
+    TypeInfoPropertyName = "LibraryTypePopulationRowsIncomplete")]
+[JsonSerializable(
+    typeof(LibraryTypePopulationRowsOutcome.Failed),
+    TypeInfoPropertyName = "LibraryTypePopulationRowsFailed")]
+[JsonSerializable(
+    typeof(LibraryTypeMemberCountOutcome),
+    TypeInfoPropertyName = "LibraryTypeMemberCountOutcome")]
+[JsonSerializable(
+    typeof(LibraryTypeMemberCountOutcome.Counted),
+    TypeInfoPropertyName = "LibraryTypeMemberCountCounted")]
+[JsonSerializable(
+    typeof(LibraryTypeMemberCountOutcome.NotApplicable),
+    TypeInfoPropertyName = "LibraryTypeMemberCountNotApplicable")]
+[JsonSerializable(
     typeof(InspectionShare.NonProjectable),
     TypeInfoPropertyName = "InspectionShareNonProjectable")]
 public partial class LibraryInspectionJsonContext : JsonSerializerContext
