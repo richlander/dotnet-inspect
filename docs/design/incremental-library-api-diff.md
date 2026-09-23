@@ -18,11 +18,12 @@ delivery shape. Its normative claim is:
 > One Library API comparison over two retained images is producible as an
 > ordered row source partitioned by exact Type key and materialized per member
 > row. It yields the same relations, classifications, and counts as the
-> whole-surface comparison, answers exact Counts from key-only passes ahead of
-> any row, checkpoints continuation at an owner-issued `(TypeKey, MemberKey)`,
-> and bounds retained text per delivery window rather than per assembly, so
-> that the Compare inventories are delivered through QuerySpace Rows and exact
-> Count over one immutable snapshot generation.
+> whole-surface comparison, answers exact inventory Counts from key-only passes
+> ahead of any row, exposes compatibility totals from a distinct typed change
+> population, checkpoints continuation at an owner-issued
+> `(TypeKey, MemberKey)`, and bounds retained text per delivery window rather
+> than per assembly, so that the Compare inventories are delivered through
+> QuerySpace Rows and exact Count over one immutable snapshot generation.
 
 Nothing in this design changes what a Library API diff means. It changes when
 and in what unit the comparison is evaluated and delivered.
@@ -55,7 +56,8 @@ This owner defines:
   soft correspondence that crosses Types routed by its receiver key;
 - the materialization rule: rows are produced per member, never per whole
   Type;
-- the two row sources, Type summaries and member rows, and their ordering;
+- the three row sources, Type summaries, member rows, and compatibility
+  changes, and their ordering;
 - the key-only pass that answers exact Counts before rows;
 - the snapshot generation that binds Count and Rows executions to one pair of
   retained images;
@@ -105,7 +107,7 @@ same declaring Type. There is no sequence alignment across the surface, so the
 comparison of one Type's members depends only on that Type's members on both
 sides.
 
-Three cases reach across a Type, and each is already keyed:
+Two nontrivial partition cases are already keyed:
 
 - The extension-instance soft correspondence pairs a static extension method
   with the instance method it became. Its soft key carries the receiver Type,
@@ -113,11 +115,16 @@ Three cases reach across a Type, and each is already keyed:
   static class's partition sees the removal. After
   [#8178](https://github.com/richlander/dotnet-inspect/issues/8178) the
   extension enters the finding stream once, on its declaring type.
-- A forwarded Type resolves through
-  [Forwarded API coordinate correspondence](forwarded-api-coordinate-correspondence.md)
-  before it enters a partition; the partition key is the resolved definition.
 - Type-level compatibility changes (kind, base type, interfaces, generic
   parameters, attributes) belong to the Type partition itself.
+
+Type forwarders remain outside the declaration population compared by the
+whole-surface oracle. Partitioning does not resolve a forwarder into another
+Library or change a removal into cross-Library correspondence.
+[Forwarded API coordinate
+correspondence](forwarded-api-coordinate-correspondence.md) is a separate
+operation over an explicit destination population and is not a prerequisite
+of this producer.
 
 Unkeyed renames and moves are not attempted by the whole-surface comparison
 today and are not attempted here. Partitioning loses nothing that exists.
@@ -151,9 +158,11 @@ rendered text.
 One row per changed Type in key order, carrying exactly what the Library
 inventory shows today: exact Type identity on each present side, change
 state, whether the definition changed, distinct changed-member count, and
-breaking, additive, and potentially-breaking counts. Producing a summary row
-requires the Type's key sets and the signature models of its changed members;
-it does not require the members' retained text or their relation rows.
+the complete ordered typed compatibility changes attached to the Type, with
+breaking, additive, and potentially-breaking counts derived from that
+population. Producing a summary row requires the Type's key sets, classified
+Type facets, and the signature models of its changed members; it does not
+require the members' retained text or their relation rows.
 
 ### Member rows
 
@@ -163,27 +172,41 @@ identities on each present side, the classified changes placed on it, and
 match provenance. Member rows are the Type inventory's row set and the
 continuation's checkpoint unit.
 
+### Compatibility change rows
+
+One row per existing typed `ApiChange` occurrence, in Type-key and
+producer-issued change order. A row carries its classification, category,
+change kind, inert message and old/new values, occupied Type identities, and
+optional member identities. This bounded structured classification evidence is
+distinct from retained member signature or display text. The population
+preserves independent Type-facet and member changes: several compatibility
+rows may belong to one Type summary or member relation.
+
 ### Predicates
 
-Both sources accept the exact-Type-identity predicate. The Type inventory is
-therefore its own scoped query, not a narrowing of a parent result, which is
-the rule the Compare experience already applies to Clone.
+All three sources accept the exact-Type-identity predicate. Compatibility
+change rows also accept classification. The Type inventory is therefore its
+own scoped query, not a narrowing of a parent result, which is the rule the
+Compare experience already applies to Clone.
 
 ## Counts
 
-Exact Counts are answered before any row from a key-only pass over the two
-surfaces:
+Exact inventory Counts are answered before any row from a key-only pass over
+the two surfaces:
 
 - changed, added, and removed Types from the Type key sets;
-- changed Members from the member key sets within changed Types; and
-- breaking, additive, and potentially-breaking counts from classification of
-  changed members' signature models.
+- changed Members from the member key sets within changed Types.
 
-These are QuerySpace exact Counts over the selected inventory population. A
-retained-text work bound never redefines that population: a window that could
-not project its text still counts, and its members are reported as
-source-only dispositions rather than dropped. Transport-population counts on a
-delivery receipt are not these Counts.
+These are QuerySpace exact Counts over the selected Type-summary and member-row
+populations. Breaking, additive, and potentially-breaking totals are separate
+exact Counts over the compatibility-change population after its classification
+predicate; they are not Type-row or member-row cardinalities. Classification
+uses Type facets and member signature models without retained text.
+
+A retained-text work bound never redefines any population: a window that could
+not project its text still counts, and its members are reported as source-only
+dispositions rather than dropped. Transport-population counts on a delivery
+receipt are not these Counts.
 
 ## Snapshot generation
 
@@ -243,6 +266,8 @@ This design does not claim:
 - that the Browser wire, envelope, or transport mechanics are defined here;
 - that text-diff values (declaration or authored Source) are produced by
   this row source; they remain whole values under their own owners; or
+- that Type forwarding changes the selected-Library declaration population or
+  establishes cross-Library correspondence; or
 - that whole-ecosystem comparison is delivered here, although it partitions
   one level up by the same rule.
 
@@ -276,7 +301,9 @@ second supported architecture.
 | Gate | Required property |
 | --- | --- |
 | `IncrementalDiffMatchesWholeSurfaceComparison` | On every pair the whole-surface comparison completes, both producers yield identical Type entries, Member relations, classified changes, provenance, and counts. |
-| `TypeSummaryRowsNeedNoRetainedText` | Summary rows and exact Counts are produced with retained-text projection disabled. |
+| `TypeSummaryRowsNeedNoRetainedMemberText` | Summary rows and exact Counts are produced with retained member signature and display-text projection disabled. |
+| `TypeFacetChangesRemainInTypeSummaryRows` | A matched Type whose own facets change and whose member set does not still carries the complete typed compatibility-change population and derived totals. |
+| `CompatibilityCountsUseChangePopulation` | Multiple compatibility changes attached to one Type or member produce separate compatibility-change rows and exact classification-filtered Counts without changing Type-summary or member-row Count. |
 | `MemberRowContinuationResumesInsideAType` | A continuation issued mid-Type resumes at the next `(TypeKey, MemberKey)` with no duplicated or skipped row. |
 | `CountAndRowsBindToOneGeneration` | A Rows execution against a retired generation is refused; Count and Rows from one generation describe the same population. |
 | `TextBoundYieldsSourceOnlyDisposition` | A member whose text exceeds the window bound is delivered with identity and classification, its bound named, and the window complete. |
@@ -298,3 +325,7 @@ second supported architecture.
 5. Run the `LibraryApiDiff` fixtures after #8178; confirm the moved
    `Transform` relation appears once, on `ProjectionReceiver`, and its removal
    on `ProjectionExtensions`.
+6. Compare a matched Type whose base or sealedness changes without a member
+   change; confirm its Type summary retains every typed compatibility change,
+   Type Count remains one, Member Count remains zero, and compatibility Counts
+   equal the classified change-row population.
