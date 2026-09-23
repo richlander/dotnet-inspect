@@ -986,6 +986,12 @@ public static class CommandLineBuilder
         if (!ProjectionAudit.ValidateExclusive(parseResult, message => CommandError.Write(message)))
             return 1;
 
+        // One Package Version Service plan per invocation: every composition
+        // the command creates shares its refresh cap, and the priors it served
+        // without a completed refresh are disclosed once, after the command.
+        using PackageVersionInvocationScope versionSettlement =
+            PackageVersionServicePlan.BeginInvocation(
+                DotnetInspector.Networking.HttpClientFactory.IsOffline);
         try
         {
             using var scope = ProjectionAudit.BeginRequest(parseResult);
@@ -1033,6 +1039,11 @@ public static class CommandLineBuilder
         {
             CommandError.WriteUnhandled(ex);
             return 1;
+        }
+        finally
+        {
+            if (versionSettlement.Owns)
+                PackageVersionDisclosure.WriteServedPriorWarning(versionSettlement.Plan);
         }
     }
 

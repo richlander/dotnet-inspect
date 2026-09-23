@@ -109,18 +109,47 @@ public sealed class PackageHouse
 {
     private readonly IPackageSourceAuthorization _sourceAuthorization;
     private readonly PackagePayloadAcquisitionPlan? _payloadAcquisition;
+    private readonly PackageVersionServicePlan? _versionSettlement;
     private readonly Action<string>? _log;
 
+    /// <param name="versionSettlement">
+    /// The Package Version Service this House consults for its latest
+    /// selecting demands. Without one, every selecting demand discovers.
+    /// </param>
     public PackageHouse(
         IPackageSourceAuthorization sourceAuthorization,
         PackagePayloadAcquisitionPlan? payloadAcquisition = null,
-        Action<string>? log = null)
+        Action<string>? log = null,
+        PackageVersionServicePlan? versionSettlement = null)
     {
         ArgumentNullException.ThrowIfNull(sourceAuthorization);
         _sourceAuthorization = sourceAuthorization;
         _payloadAcquisition = payloadAcquisition;
+        _versionSettlement = versionSettlement;
         _log = log;
     }
+
+    /// <summary>
+    /// The demands the Package Version Service settles at this head: the
+    /// latest family. Wildcard and range demands keep discovering until a
+    /// later slice adopts their keys.
+    /// </summary>
+    private static bool UsesVersionService(
+        PackageVersionSelectionRequest selection) =>
+        selection is PackageVersionSelectionRequest.LatestStable
+            or PackageVersionSelectionRequest.LatestPrerelease
+            or PackageVersionSelectionRequest.AlwaysLatest;
+
+    /// <summary>
+    /// What a retained prior needs for eviction when its coordinate no
+    /// longer acquires: the request, authorization, and contract that
+    /// together identify the store entry.
+    /// </summary>
+    private sealed record PriorSettlementScope(
+        PackageVersionServicePlan Plan,
+        PackageVersionSelectionRequest Request,
+        PackageSourceAuthorization Authorization,
+        PackageVersionDiscoveryContract Contract);
 
     /// <summary>
     /// Consumes one source operation lease to settle an exact, candidate-bound,
@@ -291,6 +320,7 @@ public sealed class PackageHouse
                 PackageHouseDecisionReceipt decision;
                 PackageAcquisitionCandidate candidate;
                 List<PackageHouseFailure> failures;
+                PriorSettlementScope? priorScope = null;
 
                 switch (request.Demand)
                 {
@@ -382,21 +412,115 @@ public sealed class PackageHouse
                                         .IncludePrerelease,
                                     includeUnlisted: false,
                                     limit: null);
-                        PackageVersionDiscoveryResult discovery =
-                            await sourceOperation
-                                .DiscoverVersionsAsync(
-                                    selection.PackageId,
+                        PackageVersionResolutionReceipt resolution;
+                        if (_versionSettlement is { } plan
+                            && UsesVersionService(selection))
+                        {
+                            PackageVersionServiceSettlement settled;
+                            try
+                            {
+                                settled = await plan.Service.SettleAsync(
+                                    selection,
                                     authorization,
                                     discoveryContract,
-                                    _log)
-                                .ConfigureAwait(false);
-                        failures = AdaptFailures(
-                            request,
-                            discovery.Failures);
-                        if (discovery.Failures.Any(
-                                failure => failure.Timeout?.Kind
-                                    == PackageSourceTimeoutKind
-                                        .Operation))
+                                    new PackageVersionServiceOperation
+                                    {
+                                        Discover = scope =>
+                                            scope.Bound is { } bound
+                                                ? sourceOperation
+                                                    .DiscoverVersionsAsync(
+                                                        selection.PackageId,
+                                                        authorization,
+                                                        discoveryContract,
+                                                        bound,
+                                                        _log)
+                                                : sourceOperation
+                                                    .DiscoverVersionsAsync(
+                                                        selection.PackageId,
+                                                        authorization,
+                                                        discoveryContract,
+                                                        _log),
+                                        Pin = coordinate =>
+                                            sourceOperation
+                                                .ResolvePinnedCandidate(
+                                                    authorization,
+                                                    coordinate),
+                                        Budget = plan.Budget,
+                                        Offline = plan.Offline,
+                                    },
+                                    sourceOperation.CancellationToken)
+                                    .ConfigureAwait(false);
+                            }
+                            catch (NuGetOperationTimeoutException)
+                            {
+                                return OperationTimedOut(request);
+                            }
+                            failures = AdaptFailures(
+                                request,
+                                settled.PinFailures);
+                            resolution = settled.Receipt;
+                            if (resolution
+                                is PackageVersionResolutionReceipt
+                                    .Discovered discovered)
+                            {
+                                failures.AddRange(
+                                    AdaptFailures(
+                                        request,
+                                        discovered.Discovery.Failures));
+                            }
+                            else if (resolution
+                                is PackageVersionResolutionReceipt
+                                    .Prior served)
+                            {
+                                priorScope = new(
+                                    plan,
+                                    selection,
+                                    authorization,
+                                    discoveryContract);
+                                // The plan's ledger is what the host discloses
+                                // once per invocation; the per-package detail
+                                // stays at diagnostic verbosity here.
+                                plan.RecordServedPrior(served);
+                                _log?.Invoke(
+                                    served.Age is { } age
+                                        ? $"Version settlement: {served.Coordinate.PackageId}@{served.Coordinate.Version} served from a prior settlement ({settled.Path}, {age.TotalMinutes:F0} min old)."
+                                        : $"Version settlement: {served.Coordinate.PackageId}@{served.Coordinate.Version} served from a prior settlement ({settled.Path}).");
+                                foreach (PackageAuthorityFailure refreshFailure
+                                    in settled.RefreshFailures)
+                                {
+                                    _log?.Invoke(
+                                        $"Version settlement: refresh failure absorbed: {refreshFailure.Authority}: {refreshFailure.Message}");
+                                }
+                            }
+                        }
+                        else
+                        {
+                            PackageVersionDiscoveryResult discovery =
+                                await sourceOperation
+                                    .DiscoverVersionsAsync(
+                                        selection.PackageId,
+                                        authorization,
+                                        discoveryContract,
+                                        _log)
+                                    .ConfigureAwait(false);
+                            failures = AdaptFailures(
+                                request,
+                                discovery.Failures);
+                            resolution =
+                                PackageVersionSelectionResolver.Resolve(
+                                    selection,
+                                    discovery,
+                                    PackageVersionDiscoveryFreshness
+                                        .RefreshedForRequest);
+                        }
+                        if (failures.Any(
+                                failure => failure
+                                    is PackageHouseFailure.Authority
+                                    {
+                                        Failure.Timeout.Kind:
+                                            PackageSourceTimeoutKind
+                                                .Operation,
+                                    }))
                         {
                             return OperationTimedOut(
                                 request,
@@ -412,46 +536,40 @@ public sealed class PackageHouse
                                 request,
                                 failures);
                         }
-                        PackageVersionResolutionReceipt resolution =
-                            PackageVersionSelectionResolver.Resolve(
-                                selection,
-                                discovery,
-                                PackageVersionDiscoveryFreshness
-                                    .RefreshedForRequest);
-                        try
+                        switch (resolution)
                         {
-                            sourceOperation.ThrowIfExpired();
-                        }
-                        catch (NuGetOperationTimeoutException)
-                        {
-                            return OperationTimedOut(
-                                request,
-                                failures);
-                        }
-                        if (resolution
-                            is not PackageVersionResolutionReceipt
-                                .Resolved resolved)
-                        {
-                            decision =
-                                PackageHouseDecisionReceipt.Stop(
+                            case PackageVersionResolutionReceipt
+                                .Resolved resolved:
+                                candidate = resolved.Candidate;
+                                decision =
+                                    PackageHouseDecisionReceipt
+                                        .RetainSelectedPackage(
+                                            request,
+                                            resolved);
+                                break;
+                            case PackageVersionResolutionReceipt
+                                .Prior prior:
+                                candidate = prior.Candidate;
+                                decision =
+                                    PackageHouseDecisionReceipt
+                                        .RetainPriorPackage(
+                                            request,
+                                            prior);
+                                break;
+                            default:
+                                decision =
+                                    PackageHouseDecisionReceipt.Stop(
+                                        request,
+                                        versionResolution: resolution);
+                                PackageHouseEvidence evidence = new(
                                     request,
-                                    versionResolution: resolution);
-                            PackageHouseEvidence evidence = new(
-                                request,
-                                decision,
-                                failures: failures);
-                            return ResourceFree(
-                                CreateResolutionTerminalResult(
-                                    resolution,
-                                    evidence));
+                                    decision,
+                                    failures: failures);
+                                return ResourceFree(
+                                    CreateResolutionTerminalResult(
+                                        resolution,
+                                        evidence));
                         }
-
-                        candidate = resolved.Candidate;
-                        decision =
-                            PackageHouseDecisionReceipt
-                                .RetainSelectedPackage(
-                                    request,
-                                    resolved);
                         break;
 
                     default:
@@ -524,6 +642,29 @@ public sealed class PackageHouse
                     AdaptFailures(request, payloadResult.Failures));
                 if (payloadResult.Payload is not { } payload)
                 {
+                    if (priorScope is { } scope
+                        && PayloadNotFound(candidate, payloadResult)
+                        && !failures.Any(IsOperationTimeout))
+                    {
+                        // The prior coordinate vanished from every authorized
+                        // source. Only the House observes that, so it evicts
+                        // the entry and says so; this request still fails
+                        // with the ordinary not-found result and the next
+                        // one settles by discovery.
+                        scope.Plan.Service.Evict(
+                            scope.Request,
+                            scope.Authorization,
+                            scope.Contract);
+                        string priorCoordinate =
+                            $"{candidate.Coordinate.PackageId}@{candidate.Coordinate.Version}";
+                        failures.Add(
+                            new PackageHouseFailure.Stage(
+                                PackageHouseFailureStage.Acquisition,
+                                Reason(
+                                    $"The retained prior settlement {priorCoordinate} is no longer supplied by any authorized source and was evicted; rerun to settle by discovery.")));
+                        _log?.Invoke(
+                            $"Version settlement: evicted the prior settlement {priorCoordinate} after acquisition found no payload.");
+                    }
                     PackageHouseEvidence evidence = new(
                         request,
                         decision,
@@ -1091,6 +1232,19 @@ public sealed class PackageHouse
                 "A terminal selection result requires a non-resolved receipt."),
         };
 
+    /// <summary>
+    /// Every authority the candidate names reported the exact coordinate
+    /// absent, with no failure: the not-found outcome.
+    /// </summary>
+    private static bool PayloadNotFound(
+        PackageAcquisitionCandidate candidate,
+        ConfiguredPackagePayloadResult result) =>
+        result.Failures.Count == 0
+        && candidate.Authorities.All(evidence =>
+            result.NotFoundAuthorities.Contains(
+                evidence.Authority,
+                ReferenceEqualityComparer.Instance));
+
     private static PackageHouseResult CreatePayloadTerminalResult(
         PackageAcquisitionCandidate candidate,
         ConfiguredPackagePayloadResult result,
@@ -1102,11 +1256,7 @@ public sealed class PackageHouse
                 evidence,
                 Reason("The PackageHouse operation deadline expired."));
         }
-        if (result.Failures.Count == 0
-            && candidate.Authorities.All(evidence =>
-                result.NotFoundAuthorities.Contains(
-                    evidence.Authority,
-                    ReferenceEqualityComparer.Instance)))
+        if (PayloadNotFound(candidate, result))
         {
             return new PackageHouseResult.NotFound(
                 evidence,

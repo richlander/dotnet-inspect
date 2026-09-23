@@ -228,6 +228,7 @@ public sealed partial class DesktopPackageSourceComposition : IAsyncDisposable
         _authoritiesByAssociation =
             new(ReferenceEqualityComparer.Instance);
     private readonly PackageSourceSettlementLease _sourceLease;
+    private readonly PackageVersionServicePlan _versionSettlement;
     private readonly object _disposeGate = new();
     private Task? _disposal;
 
@@ -243,6 +244,7 @@ public sealed partial class DesktopPackageSourceComposition : IAsyncDisposable
         _ownedCredentialSource = provider;
         _createTransport = CreateProductionTransport;
         _sourceLease = PackageSourceSettlementService.IssueLease(GetSourceClient);
+        _versionSettlement = PackageVersionServicePlan.Current ?? CreateVersionSettlementPlan();
     }
 
     /// <summary>
@@ -260,6 +262,7 @@ public sealed partial class DesktopPackageSourceComposition : IAsyncDisposable
         _credentialSource = credentialSource;
         _createTransport = CreateProductionTransport;
         _sourceLease = PackageSourceSettlementService.IssueLease(GetSourceClient);
+        _versionSettlement = PackageVersionServicePlan.Current ?? CreateVersionSettlementPlan();
     }
 
     internal DesktopPackageSourceComposition(
@@ -273,7 +276,22 @@ public sealed partial class DesktopPackageSourceComposition : IAsyncDisposable
         _credentialSource = credentialSource;
         _createTransport = createTransport;
         _sourceLease = PackageSourceSettlementService.IssueLease(GetSourceClient);
+        _versionSettlement = PackageVersionServicePlan.Current ?? CreateVersionSettlementPlan();
     }
+
+    /// <summary>
+    /// The fallback plan for a composition created outside a host invocation
+    /// scope: its refresh cap and disclosure ledger are then per composition.
+    /// Hosts that acquire more than once per invocation open
+    /// <see cref="PackageVersionServicePlan.BeginInvocation"/> so every
+    /// composition shares one plan. Offline is the host's networking policy
+    /// at composition time.
+    /// </summary>
+    private static PackageVersionServicePlan CreateVersionSettlementPlan() =>
+        new(
+            new PackageVersionService(),
+            new PackageVersionRefreshBudget(),
+            offline: DotnetInspector.Networking.HttpClientFactory.IsOffline);
 
     internal NuGetOperationContext CreateOperationContext(CancellationToken cancellationToken = default) =>
         new(_options.RequestTimeout, _options.OperationTimeout, cancellationToken);

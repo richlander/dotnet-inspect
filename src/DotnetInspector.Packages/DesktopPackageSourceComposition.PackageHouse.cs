@@ -16,7 +16,8 @@ public sealed partial class DesktopPackageSourceComposition
         new(
             new SinglePackageAuthorization(
                 packageId, AuthorizeSourcesFor(packageId, sourceOptions)),
-            log: log);
+            log: log,
+            versionSettlement: _versionSettlement);
 
     /// <summary>
     /// Supplies a payload-realizing House whose per-package authorization is
@@ -33,7 +34,8 @@ public sealed partial class DesktopPackageSourceComposition
             new PackagePayloadAcquisitionPlan(
                 createStore,
                 log: log),
-            log);
+            log,
+            _versionSettlement);
     }
 
     /// <summary>Issues the source-owned operation consumed by a shared inspection.</summary>
@@ -254,6 +256,10 @@ public sealed partial class DesktopPackageSourceComposition
             await execution.ConfigureAwait(false);
         ConfiguredPackagePayloadResult? sourceResult =
             settlement.SourcePayloadResult;
+        // The House settlement travels whole: an acquired one carries the
+        // payload, a terminal one carries the typed evidence (including
+        // stage failures such as a prior-settlement eviction) that the
+        // authority-failure projection cannot express.
         return new ConfiguredPackagePayloadResult(
             sourceResult?.Authority,
             sourceResult?.Source,
@@ -262,9 +268,7 @@ public sealed partial class DesktopPackageSourceComposition
             sourceResult?.NotFoundAuthorities,
             sourceResult?.ReportingAuthorities,
             settlement.SelectionUsesOriginalSources,
-            settlement is PackageHouseSettlement.Acquired
-                ? settlement
-                : null);
+            settlement);
     }
 
     private Task<PackageHouseSettlement> ExecuteHouseAsync(
@@ -333,7 +337,8 @@ public sealed partial class DesktopPackageSourceComposition
                     packageId,
                     authorization),
                 payloadAcquisition,
-                log);
+                log,
+                _versionSettlement);
             Task<PackageHouseSettlement> execution =
                 house.ExecuteAsync(
                     request,
@@ -445,16 +450,26 @@ public sealed partial class DesktopPackageSourceComposition
                 "A range address requires a package version range.");
             return false;
         }
-        if (string.IsNullOrEmpty(versionSelector)
-            || versionSelector.Equals(
-                "latest",
-                StringComparison.OrdinalIgnoreCase))
+        if (string.IsNullOrEmpty(versionSelector))
         {
+            // A bare name declares the Current requirement: a prior
+            // settlement inside its window answers it.
             selection = includePrerelease
                 ? new PackageVersionSelectionRequest.LatestPrerelease(
                     packageId)
                 : new PackageVersionSelectionRequest.LatestStable(
                     packageId);
+            return true;
+        }
+        if (versionSelector.Equals(
+                "latest",
+                StringComparison.OrdinalIgnoreCase))
+        {
+            // The explicit spelling is the always-check switch (see
+            // docs/design/version-resolution.md, consistency principles).
+            selection = new PackageVersionSelectionRequest.AlwaysLatest(
+                packageId,
+                includePrerelease);
             return true;
         }
         if (versionSelector.Contains('*'))
