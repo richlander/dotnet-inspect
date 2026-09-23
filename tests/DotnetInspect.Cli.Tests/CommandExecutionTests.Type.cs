@@ -764,6 +764,31 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Type_PlatformPrefixBrowse_DefaultCount_UsesTypePopulation()
+    {
+        var found = await RunAppAsync(
+            "type", "System.IO.Compression.ZipF",
+            "--count", "--tips", "q");
+        var explicitClasses = await RunAppAsync(
+            "type", "System.IO.Compression.ZipF",
+            "-S", SectionNames.Classes,
+            "--count", "--tips", "q");
+
+        Assert.Equal(0, found.Exit);
+        Assert.Equal(0, explicitClasses.Exit);
+        Assert.Equal(explicitClasses.Output, found.Output);
+        Assert.Equal(
+            2,
+            int.Parse(
+                found.Output.Trim(),
+                CultureInfo.InvariantCulture));
+        Assert.Contains(
+            "best-effort platform prefix matches",
+            found.Error,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task Type_PlatformPrefixBrowse_WildcardNote_DoesNotDoubleStar()
     {
         var (exit, output, error) = await RunAppAsync(

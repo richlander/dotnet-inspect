@@ -2213,7 +2213,8 @@ public static class TypeCommand
         if (browseOptions.SelectDeferredToListing
             || browseOptions.DiscoverDeferredToListing
             || browseOptions.Select is { Length: > 0 }
-            || browseOptions.SelectDefault)
+            || browseOptions.SelectDefault
+            || browseOptions.CountDefaultPopulation)
         {
             if (ApiCommand.ReresolveSectionsForListing(browseOptions) is not { } resolvedBrowseOptions)
                 return 1;
