@@ -198,6 +198,11 @@ stderr rather than mixed into structured output.
 | `demo [id]` | List or run product-home inspection demos backed by real section output. |
 | `cache` | Inspect or clear dotnet-inspect caches. |
 
+Bare `type ... --count` follows the resolved subject: a Library subject counts
+Types, while a Type subject counts Members. Add `-S` to count a particular
+section or category instead; several explicitly selected row sets retain their
+per-section count table.
+
 ## Signals, integrations, and focused guidance
 
 `Signals` is an evidence report, not a safety certification. Use `-S Signals`

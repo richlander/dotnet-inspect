@@ -65,6 +65,27 @@ public partial class LibraryBodyIndexTests
         Assert.Equal(
             local.Method.MetadataToken,
             local.EvidenceMethodToken);
+        AsyncSiblingOpportunityEvidence localEvidence =
+            Assert.IsType<AsyncSiblingOpportunityEvidence>(
+                local.AsyncSibling);
+        Assert.Equal(
+            local.Method,
+            localEvidence.SynchronousCall.Caller);
+        Assert.Equal(
+            Assert.IsType<int>(local.EvidenceMethodToken),
+            localEvidence.SynchronousCall
+                .EvidenceMethod.MetadataToken);
+        Assert.Equal(
+            Assert.IsType<int>(local.ILOffset),
+            localEvidence.SynchronousCall.ILOffset);
+        Assert.Equal(
+            nameof(OptimizationOpportunityAsyncSiblingFixtures
+                .ReadValues),
+            localEvidence.SynchronousCall.Callee.Name);
+        Assert.Equal(
+            nameof(OptimizationOpportunityAsyncSiblingFixtures
+                .ReadValuesAsync),
+            localEvidence.AsyncCandidate.Name);
 
         var framework = Assert.Single(opportunities, opportunity =>
             opportunity.Method.Name
@@ -74,6 +95,30 @@ public partial class LibraryBodyIndexTests
             "System.IO.File::ReadLinesAsync(string, System.Threading.CancellationToken)",
             framework.Evidence,
             StringComparison.Ordinal);
+        AsyncSiblingOpportunityEvidence frameworkEvidence =
+            Assert.IsType<AsyncSiblingOpportunityEvidence>(
+                framework.AsyncSibling);
+        Assert.Equal(
+            nameof(File.ReadLines),
+            frameworkEvidence.SynchronousCall.Callee.Name);
+        Assert.Equal(
+            nameof(File.ReadLinesAsync),
+            frameworkEvidence.AsyncCandidate.Name);
+        Assert.Equal(
+            TypeRef.CoreLibrary,
+            frameworkEvidence.AsyncCandidate
+                .DeclaringType.Assembly);
+        Assert.Equal(
+            "System.Threading.CancellationToken",
+            frameworkEvidence.AsyncCandidate
+                .ParameterTypes[^1]
+                .ToQualifiedDisplayString());
+        Assert.All(
+            index.OptimizationOpportunities
+                .Where(opportunity => opportunity.Shape
+                    != "sync-call-in-async"),
+            opportunity => Assert.Null(
+                opportunity.AsyncSibling));
 
         Assert.DoesNotContain(opportunities, opportunity =>
             opportunity.Method.Name
@@ -373,7 +418,7 @@ public partial class LibraryBodyIndexTests
                     == "sync-call-in-async")
                 .ToArray();
 
-        Assert.Contains(
+        OptimizationOpportunity inherited = Assert.Single(
             opportunities,
             opportunity => opportunity.Method.Name
                     == nameof(
@@ -386,6 +431,24 @@ public partial class LibraryBodyIndexTests
                 && opportunity.Evidence.Contains(
                     "InheritedAsyncSiblingBase",
                     StringComparison.Ordinal));
+        AsyncSiblingOpportunityEvidence inheritedEvidence =
+            Assert.IsType<AsyncSiblingOpportunityEvidence>(
+                inherited.AsyncSibling);
+        Assert.Equal(
+            nameof(InheritedAsyncSiblingDerived<int>.Read),
+            inheritedEvidence.SynchronousCall.Callee.Name);
+        Assert.Equal(
+            nameof(InheritedAsyncSiblingBase<int>.ReadAsync),
+            inheritedEvidence.AsyncCandidate.Name);
+        Assert.Equal(
+            TypeRefKind.GenericInstance,
+            inheritedEvidence.AsyncCandidate
+                .DeclaringType.Kind);
+        Assert.Equal(
+            TypeRefKind.GenericParameter,
+            Assert.Single(
+                inheritedEvidence.AsyncCandidate
+                    .ParameterTypes).Kind);
         Assert.DoesNotContain(
             opportunities,
             opportunity => opportunity.Method.Name
@@ -972,10 +1035,30 @@ public partial class LibraryBodyIndexTests
                         .CallsSyncSiblingFromAsync));
         int evidenceMethodToken =
             Assert.IsType<int>(opportunity.EvidenceMethodToken);
+        AsyncSiblingOpportunityEvidence evidence =
+            Assert.IsType<AsyncSiblingOpportunityEvidence>(
+                opportunity.AsyncSibling);
 
         Assert.NotEqual(
             opportunity.Method.MetadataToken,
             evidenceMethodToken);
+        Assert.NotEqual(
+            opportunity.Method,
+            evidence.SynchronousCall.Caller);
+        Assert.Equal(
+            evidenceMethodToken,
+            evidence.SynchronousCall.Caller
+                .MetadataToken);
+        Assert.Equal(
+            evidenceMethodToken,
+            evidence.SynchronousCall
+                .EvidenceMethod.MetadataToken);
+        Assert.Equal(
+            nameof(ClassicAsyncSiblingFixture.ReadValue),
+            evidence.SynchronousCall.Callee.Name);
+        Assert.Equal(
+            nameof(ClassicAsyncSiblingFixture.ReadValueAsync),
+            evidence.AsyncCandidate.Name);
         Assert.Equal(
             "MoveNext",
             Assert.Single(

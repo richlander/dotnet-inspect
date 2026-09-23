@@ -253,6 +253,9 @@ public partial class ApiCommand
         var typePipeline = ApiTypeSectionDescriptors.CreatePipeline();
         var bareSelectSections = typePipeline.FixedOverviewSectionNames;
 
+        if (options.CountDefaultPopulation)
+            options = LowerDefaultCountPopulation(options, singleTypeMode: false);
+
         if (options.DiscoverDeferredToListing)
         {
             SelectResult discoverResult =
@@ -303,7 +306,8 @@ public partial class ApiCommand
         bool hasCatalogDependentSelection =
             options.SelectDeferredToListing
             || options.Select is { Length: > 0 }
-            || options.SelectDefault;
+            || options.SelectDefault
+            || options.CountDefaultPopulation;
         if (hasCatalogDependentSelection)
         {
             if (listingOptions.Discover == null && listingOptions.Count
@@ -311,8 +315,10 @@ public partial class ApiCommand
                         listingOptions.IncludeSections, fixedOverview: false)
                     || !CountOutput.ValidateMapFormat(
                         listingOptions.Format,
-                        OutputFormatter.ResolveCountMapSections(
-                            typePipeline, listingOptions.IncludeSections, fixedOverview: false),
+                        listingOptions.CountDefaultPopulation
+                            ? null
+                            : OutputFormatter.ResolveCountMapSections(
+                                typePipeline, listingOptions.IncludeSections, fixedOverview: false),
                         listingOptions.Tree,
                         listingOptions.EmbeddedMermaid)))
             {
@@ -481,6 +487,31 @@ public partial class ApiCommand
         var knownSections = singleTypeMode
             ? memberPipeline.SelectableSectionNames
             : typePipeline.SelectableSectionNames;
+        if (options is TypeOptions
+            {
+                CountDefaultPopulation: true,
+            } carriedCountOptions)
+        {
+            options = LowerDefaultCountPopulation(
+                carriedCountOptions,
+                singleTypeMode);
+        }
+        else if (options is TypeOptions
+            {
+                Count: true,
+                Discover: null,
+                Select: null,
+                SelectDefault: false,
+                IncludeSections: null,
+            } typeCountOptions
+            && !typeCountOptions.BodyKindQuery.HasFilter
+            && !typeCountOptions.PerformanceTriage.HasFilters
+            && !typeCountOptions.CloneCandidateQuery.HasPredicates)
+        {
+            options = LowerDefaultCountPopulation(
+                typeCountOptions,
+                singleTypeMode);
+        }
         // Bare -S renders the fixed overview: the sections whose length does not depend on which
         // type you are looking at. For a single type that is Type Info, so `type X -S` reports the
         // same shape for a 250-member class and an 8-member enum, where the member sections it used
@@ -670,11 +701,14 @@ public partial class ApiCommand
                 SectionNames.Callers
             };
         }
-        var countMapSections = singleTypeMode
-            ? OutputFormatter.ResolveCountMapSections(
-                memberPipeline, countMapSelectionSections, fixedOverview: false)
-            : OutputFormatter.ResolveCountMapSections(
-                typePipeline, countMapSelectionSections, fixedOverview: false);
+        var countMapSections =
+            options is TypeOptions { CountDefaultPopulation: true }
+                ? null
+                : singleTypeMode
+                    ? OutputFormatter.ResolveCountMapSections(
+                        memberPipeline, countMapSelectionSections, fixedOverview: false)
+                    : OutputFormatter.ResolveCountMapSections(
+                        typePipeline, countMapSelectionSections, fixedOverview: false);
         if (options.Discover == null && options.Count && !options.SelectDeferredToListing
             && (!CountOutput.ValidateSectionsSelected(selectionSections, fixedOverview: false)
                 || !CountOutput.ValidateMapFormat(
@@ -778,6 +812,25 @@ public partial class ApiCommand
         };
 
         return (new PreambleResult(options, typePipeline, memberPipeline), null);
+    }
+
+    private static TypeOptions LowerDefaultCountPopulation(
+        TypeOptions options,
+        bool singleTypeMode)
+    {
+        var sections = new HashSet<string>(
+            singleTypeMode
+                ? [SectionNames.MemberIndex]
+                : ApiTypeSectionDescriptors.FindingSectionNames,
+            StringComparer.OrdinalIgnoreCase);
+        return options with
+        {
+            IncludeSections = sections,
+            ExactIncludeSectionsOverride = new HashSet<string>(
+                sections,
+                StringComparer.OrdinalIgnoreCase),
+            CountDefaultPopulation = true,
+        };
     }
 
     private static (ApiOptions Options, string? Error) NormalizeExactOnlySectionSelection(

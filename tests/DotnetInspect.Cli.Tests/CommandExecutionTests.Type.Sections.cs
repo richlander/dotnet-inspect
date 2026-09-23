@@ -469,6 +469,38 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Type_PrefixBrowse_DefaultCount_UsesTypePopulation()
+    {
+        var (countExit, countOutput, countError) = await RunAppAsync(
+            "type", "Command", "--library", TestAssemblyPath,
+            "--count", "--tips", "q");
+        var (rowsExit, rowsOutput, rowsError) = await RunAppAsync(
+            "type", "Command", "--library", TestAssemblyPath,
+            "--tsv", "--tips", "q");
+
+        Assert.Equal(0, countExit);
+        Assert.Equal(0, rowsExit);
+        Assert.Contains(
+            "Showing best-effort prefix matches",
+            countError,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "Showing best-effort prefix matches",
+            rowsError,
+            StringComparison.Ordinal);
+
+        int rowCount = rowsOutput
+            .Split('\n')
+            .Count(line => line.Trim().Length > 0)
+            - 1;
+        Assert.Equal(
+            rowCount,
+            int.Parse(
+                countOutput.Trim(),
+                CultureInfo.InvariantCulture));
+    }
+
+    [Fact]
     public async Task Type_PrefixBrowse_DiscoveryValidOnlyForListingIsDeferred()
     {
         var (exit, output, error) = await RunAppAsync(
