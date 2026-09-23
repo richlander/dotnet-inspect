@@ -68,6 +68,12 @@ public sealed class HttpRangeSource : RandomAccessSource
     /// <summary>Whether the first response supplied a validator usable for <c>If-Range</c>.</summary>
     public bool HasValidator => _entityTag is not null || _lastModified is not null;
 
+    /// <summary>The validator the first response supplied, recorded so a consumer can report identity-unverified reads.</summary>
+    public RangeValidatorKind Validator =>
+        _entityTag is not null ? RangeValidatorKind.EntityTag
+        : _lastModified is not null ? RangeValidatorKind.LastModified
+        : RangeValidatorKind.None;
+
     public override async ValueTask<ReadOnlyMemory<byte>> ReadTailAsync(
         int maxLength,
         CancellationToken cancellationToken)
