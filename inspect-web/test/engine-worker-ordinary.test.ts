@@ -42,6 +42,7 @@ import type {
 import type {
   BrowserMemberSource,
   BrowserSource,
+  JsonText,
 } from "../src/facades/inspect-web-source.d.ts";
 import type {
   BrowserSourceComparisonResult,
@@ -61,6 +62,24 @@ function contractViolation<T>(value: unknown): T {
   // Tests use this one cast to exercise runtime rejection beyond declarations.
   // oxlint-disable-next-line typescript/no-unsafe-type-assertion
   return value as T;
+}
+
+function isSourceComparisonJsonText(
+  value: unknown,
+): value is JsonText<BrowserSourceComparisonResult> {
+  return typeof value === "string";
+}
+
+function sourceComparisonJsonTextFixture(
+  value: BrowserSourceComparisonResult,
+): JsonText<BrowserSourceComparisonResult> {
+  const encoded: unknown = JSON.stringify(value);
+  if (!isSourceComparisonJsonText(encoded)) {
+    throw new TypeError(
+      "The Source Comparison JSON fixture must remain a string.",
+    );
+  }
+  return encoded;
 }
 
 const defaultFacades: EngineWorkerOrdinaryFacades = {
@@ -1328,13 +1347,14 @@ test("ordinary source comparison transport decodes the bounded typed payload", a
   } satisfies BrowserSourceComparisonResult;
   const state = fixture({
     source: {
-      queryMemberSourceComparison: async () => JSON.stringify(result),
+      queryMemberSourceComparison: async () =>
+        sourceComparisonJsonTextFixture(result),
     },
   });
 
   const pending = state.client.source.queryMemberSourceComparison(
     "source-comparison-operation",
-    JSON.stringify(result.value.request),
+    result.value.request,
   );
   await state.environment.flushAsync();
 

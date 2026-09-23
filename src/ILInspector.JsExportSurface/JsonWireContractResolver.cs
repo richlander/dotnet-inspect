@@ -5,6 +5,13 @@ using ILInspector.Metadata;
 
 namespace ILInspector.JsExportSurface;
 
+internal sealed record DeclaredJsExportReturnWireBinding(
+    string WireType,
+    IReadOnlyList<ApiTypeReferenceIdentity> WireTypeReferences,
+    ApiTypeShape WireTypeShape,
+    IReadOnlyList<string> ContextScopeKeys,
+    JsExportJsonOutputMode Mode);
+
 internal readonly record struct JsonContextGetterIdentity(
     string Assembly,
     string Namespace,
@@ -120,7 +127,8 @@ public static class JsonWireContractResolver
             registeredJsonTypeInfoShapes,
         IReadOnlyDictionary<JsonContextGetterIdentity, string>
             unsupportedJsonTypeInfoGetterReasons,
-        IReadOnlyList<JsExportParameterWireBinding> declaredBindings)
+        IReadOnlyList<JsExportParameterWireBinding> declaredBindings,
+        DeclaredJsExportReturnWireBinding? declaredReturn)
     {
         var parameterTypes = new List<TypeRef>();
         var parameterTypeDisplays = new HashSet<string>(
@@ -215,7 +223,10 @@ public static class JsonWireContractResolver
                                 contextScopeKeys));
                     }
                 }
-                else if (call.IsReachable != false)
+                else if (call.IsReachable != false
+                    && !declaredBindings.Any(binding =>
+                        binding.WireTypeShape?.Equals(
+                            authenticatedShape) == true))
                 {
                     hasUnboundReachableParameterWireType = true;
                 }
@@ -242,8 +253,100 @@ public static class JsonWireContractResolver
             registeredJsonTypeInfoDefaultGetters,
             registeredJsonTypeInfoShapes,
             unsupportedJsonTypeInfoGetterReasons);
+        bool hasUncertifiedReturnEvidence =
+            returnType is null
+            && HasReturnSerializerEvidence(
+                bodyIndex,
+                metadataToken);
+        IReadOnlyList<AuthenticatedWireType> observedReturnTypes =
+            declaredReturn is null
+                ? []
+                : ResolveObservedReturnWireTypes(
+                    bodyIndex,
+                    metadataToken,
+                    registeredJsonTypeInfoGetterModes,
+                    registeredJsonTypeInfoContextScopeKeys,
+                    registeredJsonTypeInfoDefaultGetters,
+                    registeredJsonTypeInfoShapes,
+                    unsupportedJsonTypeInfoGetterReasons);
+        if (declaredReturn is not null
+            && observedReturnTypes.Any(observed =>
+                !declaredReturn.WireTypeShape.Equals(
+                    observed.Shape)))
+        {
+            throw new UnsupportedJsExportSurfaceException(
+                $"{function.DeclaringType}.{function.Name}",
+                "declared JSON output conflicts with serializer evidence");
+        }
+
+        bool hasConflictingParameterWireTypes =
+            HasConflictingParameterWireTypes(
+                parameterBindingCandidates);
+        IReadOnlyList<JsExportParameterWireBinding> inferredBindings =
+            hasUnboundReachableParameterWireType
+                || hasConflictingParameterWireTypes
+                ? []
+                : BuildParameterWireBindings(
+                    parameterBindingCandidates);
+        bool hasDeclarations =
+            declaredBindings.Count > 0 || declaredReturn is not null;
+        bool hasInferredOnlyInput =
+            inferredBindings.Any(inferred =>
+                !declaredBindings.Any(declared =>
+                    declared.ParameterIndex
+                        == inferred.ParameterIndex));
+        bool hasInferredOnlyOutput =
+            returnType is not null && declaredReturn is null;
+        var certificationDiagnostics =
+            new List<JsExportCertificationDiagnostic>();
+        if (hasUnboundReachableParameterWireType)
+        {
+            certificationDiagnostics.Add(
+                new(
+                    "reachable JSON input evidence cannot be associated "
+                        + "with one declared parameter"));
+        }
+        if (hasConflictingParameterWireTypes)
+        {
+            certificationDiagnostics.Add(
+                new(
+                    "reachable JSON input evidence associates one parameter "
+                        + "with conflicting wire roots"));
+        }
+        if (hasUncertifiedReturnEvidence)
+        {
+            certificationDiagnostics.Add(
+                new(
+                    "reachable JSON output evidence does not cover every "
+                        + "return path"));
+        }
+        if (hasDeclarations && hasInferredOnlyInput)
+        {
+            certificationDiagnostics.Add(
+                new(
+                    "JSON input inference is mixed with explicit declarations; "
+                        + "declare every JSON association on this export"));
+        }
+        if (hasDeclarations && hasInferredOnlyOutput)
+        {
+            certificationDiagnostics.Add(
+                new(
+                    "JSON output inference is mixed with explicit declarations; "
+                        + "declare the output association on this export"));
+        }
+
+        JsExportJsonContractCertification certification =
+            certificationDiagnostics.Count > 0
+                ? JsExportJsonContractCertification.Incomplete
+                : hasDeclarations
+                    ? JsExportJsonContractCertification.Declared
+                    : inferredBindings.Count > 0 || returnType is not null
+                        ? JsExportJsonContractCertification.Inferred
+                        : JsExportJsonContractCertification.Intrinsic;
         return new JsExportFunction
         {
+            JsonContractCertification = certification,
+            CertificationDiagnostics = certificationDiagnostics,
             DeclaringType = function.DeclaringType,
             Name = function.Name,
             RuntimeDispatchKey = function.RuntimeDispatchKey,
@@ -252,25 +355,30 @@ public static class JsonWireContractResolver
                 function.ReturnTypeReferences,
             Parameters = function.Parameters,
             DelegateParameters = function.DelegateParameters,
-            ReturnWireType = returnType is not null
-                ? returnType.Value.Type.ToQualifiedDisplayString()
-                : null,
-            ReturnWireTypeReferences = returnType is not null
-                ? [.. ReferencedTypes(returnType.Value.Type).Distinct()]
-                : [],
-            ReturnWireContextScopeKeys = returnType is not null
-                ? returnType.Value.ContextScopeKeys
-                : [],
-            ReturnWireTypeShape = returnType?.Shape,
+            ReturnWireType = declaredReturn?.WireType
+                ?? (returnType is not null
+                    ? returnType.Value.Type.ToQualifiedDisplayString()
+                    : null),
+            ReturnWireTypeReferences = declaredReturn?.WireTypeReferences
+                ?? (returnType is not null
+                    ? [.. ReferencedTypes(returnType.Value.Type).Distinct()]
+                    : []),
+            ReturnWireContextScopeKeys = declaredReturn?.ContextScopeKeys
+                ?? (returnType is not null
+                    ? returnType.Value.ContextScopeKeys
+                    : []),
+            ReturnWireTypeShape = declaredReturn?.WireTypeShape
+                ?? returnType?.Shape,
+            ReturnWireMode = declaredReturn?.Mode
+                ?? (returnType is not null
+                    ? JsExportJsonOutputMode.Parsed
+                    : null),
             ParameterWireTypes =
                 [.. parameterTypeDisplays.Order(StringComparer.Ordinal)],
             ParameterWireBindings =
                 MergeParameterWireBindings(
                     declaredBindings,
-                    hasUnboundReachableParameterWireType
-                        ? []
-                        : BuildParameterWireBindings(
-                            parameterBindingCandidates)),
+                    inferredBindings),
             ParameterWireTypeReferences =
                 [.. declaredBindings
                     .SelectMany(binding =>
@@ -280,7 +388,17 @@ public static class JsonWireContractResolver
                     .Distinct()],
             ParameterWireContextScopeKeys =
                 [.. parameterContextScopeKeys],
-            WireTypeContextPaths = returnType is not null
+            WireTypeContextPaths = declaredReturn is not null
+                ? [.. wireTypeContextPaths,
+                    new JsExportWireTypeContextPath
+                    {
+                        Direction = JsonWireDirection.Serialize,
+                        TypeReferences =
+                            declaredReturn.WireTypeReferences,
+                        ContextScopeKeys =
+                            declaredReturn.ContextScopeKeys,
+                    }]
+                : returnType is not null
                 ? [.. wireTypeContextPaths,
                     new JsExportWireTypeContextPath
                     {
@@ -435,6 +553,24 @@ public static class JsonWireContractResolver
         return bindings;
     }
 
+    static bool HasConflictingParameterWireTypes(
+        IReadOnlyList<AuthenticatedParameterWireType> candidates)
+    {
+        foreach (IGrouping<int, AuthenticatedParameterWireType> group
+            in candidates.GroupBy(candidate =>
+                candidate.ParameterIndex))
+        {
+            AuthenticatedParameterWireType first = group.First();
+            if (group.Any(candidate =>
+                    !WireTypesEqual(candidate.Type, first.Type)
+                    || !candidate.Shape.Equals(first.Shape)))
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+
     static IReadOnlyList<JsExportParameterWireBinding>
         MergeParameterWireBindings(
             IReadOnlyList<JsExportParameterWireBinding> declared,
@@ -461,45 +597,10 @@ public static class JsonWireContractResolver
         IReadOnlyDictionary<JsonContextGetterIdentity, string>
             unsupportedJsonTypeInfoGetterReasons)
     {
-        var sinks = new List<MethodResultSink>();
-        foreach (MethodResultSink sink in bodyIndex.ResultSinks)
-        {
-            if (sink.Caller.MetadataToken != metadataToken)
-                continue;
-
-            if (sink.Kind == MethodResultSinkKind.MethodReturn)
-            {
-                if (IsAuthenticSynchronousResultSink(
-                        bodyIndex,
-                        sink,
-                        metadataToken)
-                    || IsAuthenticRuntimeAsyncResultSink(
-                        bodyIndex,
-                        sink,
-                        metadataToken))
-                {
-                    sinks.Add(sink);
-                }
-                continue;
-            }
-
-            if (sink.Kind != MethodResultSinkKind.SingleArgumentCall)
-                continue;
-
-            DirectCall? consumer = CallAt(
+        IReadOnlyList<MethodResultSink> sinks =
+            ResolveAuthenticReturnSinks(
                 bodyIndex,
-                sink.EvidenceMethod,
-                sink.ILOffset);
-            if (consumer is not null
-                && IsTrustedAsyncResultSink(consumer.Callee)
-                && IsAuthenticStateMachineResultSink(
-                    bodyIndex,
-                    sink,
-                    metadataToken))
-            {
-                sinks.Add(sink);
-            }
-        }
+                metadataToken);
 
         if (sinks.Count == 0)
             return null;
@@ -559,6 +660,167 @@ public static class JsonWireContractResolver
         return dto is not null && dtoShape is not null
             ? new(dto, dtoShape, [.. contextScopeKeys])
             : null;
+    }
+
+    static IReadOnlyList<AuthenticatedWireType>
+        ResolveObservedReturnWireTypes(
+            LibraryBodyIndex bodyIndex,
+            int metadataToken,
+            IReadOnlyDictionary<JsonContextGetterIdentity, JsonSourceGenerationMode>
+                registeredJsonTypeInfoGetterModes,
+            IReadOnlyDictionary<JsonContextGetterIdentity, string>
+                registeredJsonTypeInfoContextScopeKeys,
+            IReadOnlyDictionary<
+                JsonContextGetterIdentity,
+                JsonContextGetterIdentity>
+                registeredJsonTypeInfoDefaultGetters,
+            IReadOnlyDictionary<JsonContextGetterIdentity, ApiTypeShape>
+                registeredJsonTypeInfoShapes,
+            IReadOnlyDictionary<JsonContextGetterIdentity, string>
+                unsupportedJsonTypeInfoGetterReasons)
+    {
+        var observed = new List<AuthenticatedWireType>();
+        foreach (MethodResultSink sink in ResolveAuthenticReturnSinks(
+            bodyIndex,
+            metadataToken))
+        {
+            foreach (int sourceOffset
+                in EnumerateKnownSourceCallOffsets(sink).Distinct())
+            {
+                DirectCall? source = CallAt(
+                    bodyIndex,
+                    sink.EvidenceMethod,
+                    sourceOffset);
+                TypeRef? sourceDto = source is null
+                    ? null
+                    : ResolveSerializeDto(source.Callee);
+                if (source is null
+                    || sourceDto is null
+                    || !HasAuthenticatedJsonTypeInfoArgument(
+                        bodyIndex,
+                        source,
+                        sourceDto,
+                        registeredJsonTypeInfoGetterModes,
+                        registeredJsonTypeInfoContextScopeKeys,
+                        registeredJsonTypeInfoDefaultGetters,
+                        registeredJsonTypeInfoShapes,
+                        unsupportedJsonTypeInfoGetterReasons,
+                        JsonWireDirection.Serialize,
+                        out ApiTypeShape? sourceShape,
+                        out ImmutableArray<string> sourceContextScopeKeys)
+                    || sourceShape is null)
+                {
+                    continue;
+                }
+
+                observed.Add(
+                    new(
+                        sourceDto,
+                        sourceShape,
+                        sourceContextScopeKeys));
+            }
+        }
+        return observed;
+    }
+
+    static IReadOnlyList<MethodResultSink> ResolveAuthenticReturnSinks(
+        LibraryBodyIndex bodyIndex,
+        int metadataToken)
+    {
+        var sinks = new List<MethodResultSink>();
+        foreach (MethodResultSink sink in bodyIndex.ResultSinks)
+        {
+            if (sink.Caller.MetadataToken != metadataToken)
+                continue;
+
+            if (sink.Kind == MethodResultSinkKind.MethodReturn)
+            {
+                if (IsAuthenticSynchronousResultSink(
+                        bodyIndex,
+                        sink,
+                        metadataToken)
+                    || IsAuthenticRuntimeAsyncResultSink(
+                        bodyIndex,
+                        sink,
+                        metadataToken))
+                {
+                    sinks.Add(sink);
+                }
+                continue;
+            }
+
+            if (sink.Kind != MethodResultSinkKind.SingleArgumentCall)
+                continue;
+
+            DirectCall? consumer = CallAt(
+                bodyIndex,
+                sink.EvidenceMethod,
+                sink.ILOffset);
+            if (consumer is not null
+                && IsTrustedAsyncResultSink(consumer.Callee)
+                && IsAuthenticStateMachineResultSink(
+                    bodyIndex,
+                    sink,
+                    metadataToken))
+            {
+                sinks.Add(sink);
+            }
+        }
+        return sinks;
+    }
+
+    static IEnumerable<int> EnumerateKnownSourceCallOffsets(
+        MethodResultSink sink)
+    {
+        if (!sink.SourceCallOffsets.IsDefaultOrEmpty)
+        {
+            foreach (int sourceOffset in sink.SourceCallOffsets)
+                yield return sourceOffset;
+        }
+        if (sink.StateMachineFieldSource is
+            {
+                SourceCallOffsets.IsDefaultOrEmpty: false,
+            } fieldSource)
+        {
+            foreach (int sourceOffset in fieldSource.SourceCallOffsets)
+                yield return sourceOffset;
+        }
+    }
+
+    static bool HasReturnSerializerEvidence(
+        LibraryBodyIndex bodyIndex,
+        int metadataToken)
+    {
+        foreach (MethodResultSink sink in ResolveAuthenticReturnSinks(
+            bodyIndex,
+            metadataToken))
+        {
+            foreach (int sourceOffset
+                in EnumerateKnownSourceCallOffsets(sink))
+            {
+                if (IsSerializerCall(
+                        bodyIndex,
+                        sink.EvidenceMethod,
+                        sourceOffset))
+                {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    static bool IsSerializerCall(
+        LibraryBodyIndex bodyIndex,
+        MethodIdentity evidenceMethod,
+        int sourceOffset)
+    {
+        DirectCall? source = CallAt(
+            bodyIndex,
+            evidenceMethod,
+            sourceOffset);
+        return source is not null
+            && ResolveSerializeDto(source.Callee) is not null;
     }
 
     static bool TryGetCompleteSourceCallOffsets(

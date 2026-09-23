@@ -9,6 +9,44 @@ namespace ILInspector.JsExportSurface.JsonInputFixtures;
 public static partial class JsonInputExports
 {
     [JSExport]
+    public static string CreateWidget(string name) =>
+        JsonSerializer.Serialize(
+            new JsonInputWidget(name),
+            JsonInputJsonContext.Default.JsonInputWidget);
+
+    [JSExport]
+    public static string? CreateNullableWidgetParsed(string name) =>
+        JsonSerializer.Serialize(
+            new JsonInputWidget(name),
+            JsonInputJsonContext.Default.JsonInputWidget);
+
+    [JSExport]
+    public static async Task<string?> CreateNullableWidgetParsedAsync(
+        string name)
+    {
+        await Task.Yield();
+        return JsonSerializer.Serialize(
+            new JsonInputWidget(name),
+            JsonInputJsonContext.Default.JsonInputWidget);
+    }
+
+    [JSExport]
+    public static string? CreateNullableWidgetDeferred(string name) =>
+        JsonSerializer.Serialize(
+            new JsonInputWidget(name),
+            JsonInputJsonContext.Default.JsonInputWidget);
+
+    [JSExport]
+    public static async Task<string?> CreateNullableWidgetDeferredAsync(
+        string name)
+    {
+        await Task.Yield();
+        return JsonSerializer.Serialize(
+            new JsonInputWidget(name),
+            JsonInputJsonContext.Default.JsonInputWidget);
+    }
+
+    [JSExport]
     public static string RenameWidget(
         string widgetJson,
         string newName)
@@ -64,6 +102,13 @@ public static partial class JsonInputExports
 
     [JSExport]
     public static byte[] EchoBytes(byte[] value) => value;
+
+    [JSExport]
+    public static void LogSerializedWidget(string name) =>
+        Console.WriteLine(
+            JsonSerializer.Serialize(
+                new JsonInputWidget(name),
+                JsonInputJsonContext.Default.JsonInputWidget));
 
     [JSExport]
     public static string RenameAmbiguous(string widgetJson) =>
