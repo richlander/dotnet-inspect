@@ -383,6 +383,7 @@ internal static partial class WorkflowContract
         string? workingDirectory = GetOptionalScalar(
             step,
             "working-directory");
+        bool isStepOverride = workingDirectory is not null;
         if (workingDirectory is null
             && TryGetNode(job, "defaults", out YamlNode defaultsNode))
         {
@@ -400,7 +401,9 @@ internal static partial class WorkflowContract
         }
 
         if (workingDirectory is null
-            || IsRepositoryRootWorkingDirectory(workingDirectory))
+            || (isStepOverride
+                ? IsRepositoryRootWorkingDirectory(workingDirectory)
+                : IsStaticRepositoryRootWorkingDirectory(workingDirectory)))
         {
             return;
         }
@@ -416,6 +419,12 @@ internal static partial class WorkflowContract
         {
             return true;
         }
+
+        return IsStaticRepositoryRootWorkingDirectory(value);
+    }
+
+    private static bool IsStaticRepositoryRootWorkingDirectory(string value)
+    {
         if (value.StartsWith('/', StringComparison.Ordinal))
         {
             return false;

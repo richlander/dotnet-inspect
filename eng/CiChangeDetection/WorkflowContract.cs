@@ -154,7 +154,7 @@ internal static partial class WorkflowContract
             run,
             "working-directory",
             "workflow.defaults.run");
-        if (!IsRepositoryRootWorkingDirectory(workingDirectory))
+        if (!IsStaticRepositoryRootWorkingDirectory(workingDirectory))
         {
             throw new InvalidOperationException(
                 "workflow.defaults.run.working-directory must resolve to " +
