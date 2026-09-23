@@ -205,10 +205,10 @@ begun: PR #8018 composes Workspace-backed Library inspection from the selected
 Package aggregate, and PR #8081 adopts the aggregate default plus exact and
 namesake narrowing for direct Package/Library inspection. Direct Package
 selection accepts either `ID@VERSION` or explicit
-`package ID --version VERSION`; `package ID --latest-version` is the scalar
-latest-Version query. Commandless routing deliberately accepts neither
-singular option because a generic version lens does not compose across
-routable subjects. Shared Navigation, API/Type/Member, Find, and Browser
+`package ID --version VERSION`; the latest Version is the one-row inventory
+query `package ID --versions -n 1`. Commandless routing deliberately rejects
+the singular `--version` option because a generic version lens does not
+compose across routable subjects. Shared Navigation, API/Type/Member, Find, and Browser
 adoption remain with their focused slices.
 
 ## Consumer and complexity record

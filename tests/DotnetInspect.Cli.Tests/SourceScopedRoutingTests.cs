@@ -191,7 +191,7 @@ public sealed class SourceScopedRoutingTests : IDisposable
             """);
 
         var (exit, output, error) = await RunCommandAsync(
-            ["package", packageName, "--latest-version", "--nugetconfig", configPath]);
+            ["package", $"{packageName}@latest", "--versions", "--nugetconfig", configPath]);
 
         Assert.Equal(1, exit);
         Assert.Empty(output);
@@ -357,8 +357,8 @@ public sealed class SourceScopedRoutingTests : IDisposable
                 "2.0.0",
                 [
                     "package",
-                    packageName,
-                    "--latest-version",
+                    $"{packageName}@latest",
+                    "--versions",
                     "--jsonl",
                     "--source",
                     ExcludedSource,
@@ -416,12 +416,8 @@ public sealed class SourceScopedRoutingTests : IDisposable
                 "2.0.0",
                 [
                     "package",
-                    requestedVersion == "latest"
-                        ? packageName
-                        : $"{packageName}@{requestedVersion}",
-                    requestedVersion == "latest"
-                        ? "--latest-version"
-                        : "--versions",
+                    $"{packageName}@{requestedVersion}",
+                    "--versions",
                     .. requestedVersion == "latest"
                         ? []
                         : new[] { "-n", "1" },
@@ -629,26 +625,16 @@ public sealed class SourceScopedRoutingTests : IDisposable
     }
 
     [Theory]
-    [InlineData(false, false)]
-    [InlineData(false, true)]
-    [InlineData(true, false)]
-    [InlineData(true, true)]
+    [InlineData(false)]
+    [InlineData(true)]
     public async Task LatestVersionSettlement_PreservesRequestedProgress(
-        bool pluralProjection, bool verbose)
+        bool verbose)
     {
         const string PackageName = "System.Text.Json";
         const string Version = "8.0.5";
-        string target =
-            pluralProjection
-                ? $"{PackageName}@latest"
-                : PackageName;
-        string selector =
-            pluralProjection
-                ? "--versions"
-                : "--latest-version";
         var (exit, output, error, requests) = await RunOnlineVersionFeedCommandAsync(
             PackageName, Version,
-            ["package", target, selector, "--source", SecondSource,
+            ["package", $"{PackageName}@latest", "--versions", "--source", SecondSource,
                 .. verbose ? new[] { "--verbose" } : []]);
 
         Assert.Equal(0, exit);
@@ -676,7 +662,7 @@ public sealed class SourceScopedRoutingTests : IDisposable
         const string Version = "9.0.0-preview.7.24405.7";
         var (exit, output, error, requests) = await RunOnlineVersionFeedCommandAsync(
             PackageName, Version,
-            ["package", PackageName, "--latest-version", "--source", SecondSource,
+            ["package", $"{PackageName}@latest", "--versions", "--source", SecondSource,
                 .. preview ? new[] { "--preview" } : []]);
 
         Assert.Equal(preview ? 0 : 1, exit);
@@ -696,7 +682,7 @@ public sealed class SourceScopedRoutingTests : IDisposable
     {
         var (exit, output, error, requests) = await RunOnlineVersionFeedCommandAsync(
             packageName, "1.0.0",
-            ["package", packageName, "--latest-version", "--source", SecondSource]);
+            ["package", $"{packageName}@latest", "--versions", "--source", SecondSource]);
 
         Assert.Equal(1, exit);
         Assert.Empty(output);
@@ -771,7 +757,7 @@ public sealed class SourceScopedRoutingTests : IDisposable
         string[] queryArgs = query switch
         {
             "pinned" => [$"{packageName}@2.0.0", "--versions", "-n", "1"],
-            "latest" => [packageName, "--latest-version"],
+            "latest" => [$"{packageName}@latest", "--versions"],
             "range" => [$"{packageName}@1.0.0..2.0.0", "--versions"],
             _ => [packageName, "--versions"],
         };
@@ -1028,8 +1014,8 @@ public sealed class SourceScopedRoutingTests : IDisposable
                 "2.0.0",
                 [
                     "package",
-                    packageName,
-                    "--latest-version",
+                    $"{packageName}@latest",
+                    "--versions",
                     "--source",
                     RefusedSource,
                     "--source",
@@ -2677,8 +2663,7 @@ public sealed class SourceScopedRoutingTests : IDisposable
     }
 
     [Theory]
-    [InlineData("", "--latest-version", false, false, "2.0.0")]
-    [InlineData("", "--latest-version", true, false, "3.0.0-preview.1")]
+    [InlineData("@latest", "--versions", false, false, "2.0.0")]
     [InlineData("@latest", "--versions", true, false, "3.0.0-preview.1")]
     [InlineData("@1.0", "--versions", false, true, "1.0.0")]
     [InlineData("@3.0.0-preview.1", "--versions", false, true, "3.0.0-preview.1")]
@@ -2708,7 +2693,7 @@ public sealed class SourceScopedRoutingTests : IDisposable
     }
 
     [Theory]
-    [InlineData("", "--latest-version")]
+    [InlineData("@latest", "--versions")]
     [InlineData("@1.0.0..2.0.0", "--versions")]
     public async Task CliVersionQueries_PartialEvidenceCannotSelectLatestOrRange(
         string suffix, string mode)
@@ -2762,7 +2747,7 @@ public sealed class SourceScopedRoutingTests : IDisposable
         string[] sources = reverse ? [SecondSource, local] : [local, SecondSource];
         var (exit, output, error, _) = await RunOnlineVersionFeedCommandAsync(
             PackageName, "2.0.0",
-            ["package", PackageName, "--latest-version",
+            ["package", $"{PackageName}@latest", "--versions",
                 "--source", sources[0], "--source", sources[1]]);
         Assert.Equal(0, exit);
         Assert.Equal("3.0.0", output.Trim());
