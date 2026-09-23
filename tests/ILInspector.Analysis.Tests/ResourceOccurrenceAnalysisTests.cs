@@ -656,6 +656,14 @@ public sealed class ResourceOccurrenceAnalysisTests
             limitation =>
                 limitation.Kind == ResourceOccurrenceLimitationKind.ValueFlow
                 && limitation.Effect is ResourceEffect.Acquire);
+        ResourceOwnershipMethodSummary ownership =
+            Assert.Single(
+                execution.ResourceOwnership.Methods,
+                summary =>
+                    summary.Method.MetadataToken
+                        == method.Method.MetadataToken);
+        Assert.False(ownership.IsComplete);
+        Assert.False(execution.ResourceOwnership.IsComplete);
     }
 
     [Fact]

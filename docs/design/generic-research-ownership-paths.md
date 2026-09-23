@@ -91,12 +91,19 @@ incoming-parameter flow named by the forwarding use. It never borrows a
 same-shaped body from another image. Missing or ambiguous definition evidence
 is incomplete.
 
+Research carries the physical call site's method generic arguments across each
+forwarding step. Before selecting a typed terminal use, it substitutes that
+context into the definition-local resource domain. The substitution composes
+across multiple generic forwarding steps; an unresolved or non-matching domain
+does not become a typed terminal.
+
 A terminal `ResourceOwnershipPathWitness` contains the obligation, selected
 resource kind, ordered physical forwarding coordinates, typed sink outcome,
 sink method and offset, and path-local completeness. Finding identity uses the
-acquisition coordinate, resource-kind identity, forwarding coordinates, and
-typed sink identity. It does not use labels or projection-local edge row
-numbers, so unrelated graph rows do not rename a Finding.
+acquisition coordinate, resource-kind identity and bound resource arguments,
+forwarding coordinates, and typed sink identity. It does not use labels or
+projection-local edge row numbers, so unrelated graph rows do not rename a
+Finding.
 
 Path-local completeness says whether every Analysis summary traversed by that
 positive witness was complete. Operation completeness remains separate:
@@ -129,6 +136,13 @@ The focused gates establish:
   obligation or Finding-key collision;
 - repeated physical calls mapped to one logical edge retain distinct
   coordinates;
+- call-site method-generic substitution selects a matching typed release both
+  directly and across multiple forwarding steps;
+- one resource-kind identity bound to different resource arguments at one
+  acquisition coordinate retains distinct Finding identity;
+- a resource used as a field receiver is incomplete rather than a proven field
+  store, and an unsupported rootless acquisition or release keeps its method
+  summary incomplete;
 - missing and ambiguous body correspondence remain incomplete;
 - a positive terminal witness survives unrelated incompleteness; and
 - witness and path budgets preserve positive evidence while reporting their

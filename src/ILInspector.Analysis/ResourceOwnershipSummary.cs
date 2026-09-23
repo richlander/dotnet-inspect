@@ -276,7 +276,12 @@ internal static class ResourceOwnershipSummaryAnalysis
             member,
             acquisitions,
             parameters.MoveToImmutable(),
-            IsComplete: true);
+            IsComplete: !occurrences.Limitations.Any(
+                static limitation =>
+                    limitation.Root is null
+                    && limitation.Effect
+                        is ResourceEffect.Acquire
+                            or ResourceEffect.Release));
     }
 
     static ResourceOwnershipMethodSummary Incomplete(
@@ -533,8 +538,18 @@ internal static class ResourceOwnershipSummaryAnalysis
                 return extra == 1 ? ValueUse.Local : ValueUse.Unknown;
             if (IsElementStore(opcode))
                 return extra == 2 ? ValueUse.Local : ValueUse.Unknown;
-            if (IsFieldStore(opcode))
-                return ValueUse.StoreAt(instruction.Offset);
+            if (opcode == ILOpCode.Stsfld)
+            {
+                return extra == 0
+                    ? ValueUse.StoreAt(instruction.Offset)
+                    : ValueUse.Unknown;
+            }
+            if (opcode == ILOpCode.Stfld)
+            {
+                return extra == 0
+                    ? ValueUse.StoreAt(instruction.Offset)
+                    : ValueUse.Unknown;
+            }
             if (IsLocalStore(opcode))
                 return ValueUse.Unknown;
             if (opcode == ILOpCode.Ret)
@@ -619,9 +634,6 @@ internal static class ResourceOwnershipSummaryAnalysis
             or ILOpCode.Stelem_r4
             or ILOpCode.Stelem_r8
             or ILOpCode.Stelem_ref;
-
-    static bool IsFieldStore(ILOpCode opcode) =>
-        opcode is ILOpCode.Stfld or ILOpCode.Stsfld;
 
     static bool IsLocalStore(ILOpCode opcode) =>
         opcode is ILOpCode.Stloc_0

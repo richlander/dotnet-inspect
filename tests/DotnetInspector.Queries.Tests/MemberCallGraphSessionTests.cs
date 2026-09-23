@@ -680,6 +680,16 @@ public sealed class MemberCallGraphSessionTests
         2,
         0)]
     [InlineData(
+        "RentAndReturnThroughGenericHelper",
+        ResourceOwnershipPathOutcome.Released,
+        1,
+        0)]
+    [InlineData(
+        "RentAndReturnThroughNestedGenericHelpers",
+        ResourceOwnershipPathOutcome.Released,
+        2,
+        0)]
+    [InlineData(
         "RentAndStoreThroughHelper",
         ResourceOwnershipPathOutcome.Stored,
         1,
@@ -948,7 +958,6 @@ public sealed class MemberCallGraphSessionTests
                     Analysis.ArrayPoolResourceEffectModel.Create(),
             });
         MemberCallGraphView view = graph.Callers();
-
         ResourceOwnershipPathInspection result =
             ResourceOwnershipPathFindings.Inspect(
                 view,
@@ -1095,6 +1104,129 @@ public sealed class MemberCallGraphSessionTests
             findings[0].Payload.Steps[0].ILOffset,
             findings[1].Payload.Steps[0].ILOffset);
         Assert.NotEqual(findings[0].Key, findings[1].Key);
+    }
+
+    [Fact]
+    public async Task GenericOwnershipKeysIncludeBoundResourceArguments()
+    {
+        await using GraphContext context =
+            GraphContext.Create(OwnershipPath, TargetPath);
+        int root = MemberToken(
+            OwnershipPath,
+            "Entry",
+            "ExerciseGenericResourceArguments");
+        using var graph = new MemberCallGraphSession(
+            context.Group,
+            context.Sources[0].Assembly,
+            root,
+            new MemberCallGraphOptions
+            {
+                Features =
+                    Analysis.LibraryBodyAnalysisFeatures.MethodEvidence,
+                ResourceEffects = TwoResourceAdmission(),
+            });
+        MemberCallGraphView view = graph.Callers();
+        Analysis.ResourceOwnershipMethodSummary focus =
+            Assert.Single(
+                view.ResourceOwnershipSummaries,
+                summary =>
+                    summary.Method.MetadataToken == root);
+        Assert.Equal(2, focus.Acquisitions.Length);
+        Assert.All(
+            focus.Acquisitions,
+            flow => Assert.Contains(
+                flow.Uses,
+                static use => use.IsForwarded));
+        Analysis.ResourceOwnershipMethodSummary store =
+            Assert.Single(
+                view.ResourceOwnershipSummaries,
+                summary =>
+                    summary.Method.Name == "StoreResource");
+        Assert.Contains(
+            Assert.Single(store.Parameters).Uses,
+            static use =>
+                use.Kind
+                    == Analysis.ResourceOwnershipUseKind.Stored);
+
+        ResourceOwnershipPathInspection result =
+            ResourceOwnershipPathFindings.Inspect(
+                view,
+                CallGraphProjection.Create(
+                    view.CallerRoot,
+                    view.CalleeRoot));
+        Finding<ResourceOwnershipPathWitness>[] findings =
+            [.. result.Findings];
+
+        Assert.Equal(2, findings.Length);
+        Assert.Single(
+            findings
+                .Select(finding =>
+                    finding.Payload.ResourceKind.Identity)
+                .Distinct());
+        Assert.Equal(
+            2,
+            findings
+                .Select(finding =>
+                    Assert.Single(
+                        finding.Payload.ResourceKind.Arguments)
+                        .Type
+                        .ToQualifiedDisplayString())
+                .Distinct()
+                .Count());
+        Assert.Equal(
+            2,
+            findings
+                .Select(static finding => finding.Key)
+                .Distinct()
+                .Count());
+    }
+
+    [Fact]
+    public async Task FieldReceiverMutationIsIncompleteNotStored()
+    {
+        await using GraphContext context =
+            GraphContext.Create(OwnershipPath, TargetPath);
+        int root = MemberToken(
+            OwnershipPath,
+            "Entry",
+            "ExerciseTrackedResourceMutation");
+        using var graph = new MemberCallGraphSession(
+            context.Group,
+            context.Sources[0].Assembly,
+            root,
+            new MemberCallGraphOptions
+            {
+                Features =
+                    Analysis.LibraryBodyAnalysisFeatures.MethodEvidence,
+                ResourceEffects = TwoResourceAdmission(),
+            });
+        MemberCallGraphView view = graph.Callers();
+
+        ResourceOwnershipPathInspection result =
+            ResourceOwnershipPathFindings.Inspect(
+                view,
+                CallGraphProjection.Create(
+                    view.CallerRoot,
+                    view.CalleeRoot));
+
+        Assert.Empty(result.Findings);
+        Assert.True(
+            result.Limits.HasFlag(
+                AnnotatedCallGraphOwnershipLimit.AnalysisFailure));
+        Analysis.ResourceOwnershipMethodSummary mutation =
+            Assert.Single(
+                view.ResourceOwnershipSummaries,
+                summary =>
+                    summary.Method.Name
+                        == "MutateTrackedResource");
+        Analysis.ResourceOwnershipParameterFlow parameter =
+            Assert.Single(mutation.Parameters);
+        Assert.False(parameter.IsComplete);
+        Assert.DoesNotContain(
+            parameter.Uses,
+            static use =>
+                use.Kind
+                    == Analysis.ResourceOwnershipUseKind.Stored);
     }
 
     [Fact]
@@ -1947,6 +2079,9 @@ public sealed class MemberCallGraphSessionTests
         var secondKind =
             new Analysis.ResourceKindIdentity(
                 "test.generic-research-ownership.second");
+        var genericKind =
+            new Analysis.ResourceKindIdentity(
+                "test.generic-research-ownership.generic");
         Analysis.ResourceTypeExpression.Named entry =
             FixtureEntryType();
         Analysis.ResourceTypeExpression.Named byteType =
@@ -1955,10 +2090,28 @@ public sealed class MemberCallGraphSessionTests
             new Analysis.ResourceTypeExpression.SzArray(byteType);
         Analysis.ResourceTypeExpression.Named voidType =
             CoreType("Void");
+        Analysis.ResourceTypeExpression.Named objectType =
+            CoreType("Object");
         var first =
             new Analysis.ResourceKindReference(firstKind, []);
         var second =
             new Analysis.ResourceKindReference(secondKind, []);
+        var methodFirst =
+            new Analysis.ResourceEffectGenericVariable(
+                Analysis.ResourceEffectGenericVariableKind.Method,
+                0);
+        var methodSecond =
+            new Analysis.ResourceEffectGenericVariable(
+                Analysis.ResourceEffectGenericVariableKind.Method,
+                1);
+        var genericFirst =
+            new Analysis.ResourceKindReference(
+                genericKind,
+                [methodFirst]);
+        var genericSecond =
+            new Analysis.ResourceKindReference(
+                genericKind,
+                [methodSecond]);
         var definition =
             new Analysis.ResourceEffectModelDefinition(
                 Analysis.ResourceEffectLanguageIdentity.Version1,
@@ -1972,6 +2125,10 @@ public sealed class MemberCallGraphSessionTests
                         secondKind,
                         arity: 0,
                         [Provenance(model, 1)]),
+                    new Analysis.ResourceKindDefinition(
+                        genericKind,
+                        arity: 1,
+                        [Provenance(model, 2)]),
                 ],
                 [],
                 [
@@ -2031,6 +2188,51 @@ public sealed class MemberCallGraphSessionTests
                             Correspondence: null,
                             Observation: null),
                         5),
+                    Declaration(
+                        model,
+                        entry,
+                        "AcquirePair",
+                        [],
+                        objectType,
+                        new Analysis.ResourceEffect.Acquire(
+                            genericFirst,
+                            new Analysis.ResourceEffectLocation.Return(),
+                            new Analysis.ResourceEffectCompletion
+                                .NormalReturn(),
+                            Correspondence: null,
+                            Lender: null),
+                        6,
+                        genericArity: 2),
+                    Declaration(
+                        model,
+                        entry,
+                        "AcquirePair",
+                        [],
+                        objectType,
+                        new Analysis.ResourceEffect.Acquire(
+                            genericSecond,
+                            new Analysis.ResourceEffectLocation.Return(),
+                            new Analysis.ResourceEffectCompletion
+                                .NormalReturn(),
+                            Correspondence: null,
+                            Lender: null),
+                        7,
+                        genericArity: 2),
+                    Declaration(
+                        model,
+                        entry,
+                        "AcquireTrackedResource",
+                        [],
+                        FixtureTrackedResourceType(),
+                        new Analysis.ResourceEffect.Acquire(
+                            genericFirst,
+                            new Analysis.ResourceEffectLocation.Return(),
+                            new Analysis.ResourceEffectCompletion
+                                .NormalReturn(),
+                            Correspondence: null,
+                            Lender: null),
+                        8,
+                        genericArity: 1),
                 ]);
         Analysis.ResourceEffectAdmissionOutcome outcome =
             Analysis.ResourceEffectAdmissionBuilder.Admit([definition]);
@@ -2046,7 +2248,8 @@ public sealed class MemberCallGraphSessionTests
         ImmutableArray<Analysis.ResourceTypeExpression> parameters,
         Analysis.ResourceTypeExpression returnType,
         Analysis.ResourceEffect effect,
-        int ordinal) =>
+        int ordinal,
+        int genericArity = 0) =>
         new(
             new Analysis.ResourceEffectTargetSelector.Member(
                 new Analysis.ResourceEffectMemberSelector(
@@ -2054,7 +2257,7 @@ public sealed class MemberCallGraphSessionTests
                     name,
                     Analysis.ResourceEffectMemberKind.Method,
                     isStatic: true,
-                    genericArity: 0,
+                    genericArity,
                     Analysis.ResourceEffectCallingConvention.Default,
                     hasThis: false,
                     explicitThis: false,
@@ -2076,6 +2279,16 @@ public sealed class MemberCallGraphSessionTests
                 Analysis.ResourceAssemblyVersionPolicy.Any),
             "Ownership",
             [new Analysis.ResourceTypeNameSegment("Entry", 0)]);
+
+    static Analysis.ResourceTypeExpression.Named
+        FixtureTrackedResourceType() =>
+        new(
+            new Analysis.ResourceAssemblySelector(
+                "ILInspector.Analysis.OwnershipFlowFixtures",
+                publicKeyToken: null,
+                Analysis.ResourceAssemblyVersionPolicy.Any),
+            "Ownership",
+            [new Analysis.ResourceTypeNameSegment("TrackedResource", 0)]);
 
     static Analysis.ResourceTypeExpression.Named CoreType(string name) =>
         new(

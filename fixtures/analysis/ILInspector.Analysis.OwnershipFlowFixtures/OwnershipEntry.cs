@@ -19,6 +19,34 @@ public static class Entry
         return buffer.Length;
     }
 
+    public static int RentAndReturnThroughGenericHelper()
+    {
+        byte[] buffer = ArrayPool<byte>.Shared.Rent(16);
+        try
+        {
+            ReturnGeneric(buffer);
+        }
+        finally
+        {
+            s_ownershipProbe++;
+        }
+        return buffer.Length;
+    }
+
+    public static int RentAndReturnThroughNestedGenericHelpers()
+    {
+        byte[] buffer = ArrayPool<byte>.Shared.Rent(16);
+        try
+        {
+            ForwardGeneric(buffer);
+        }
+        finally
+        {
+            s_ownershipProbe++;
+        }
+        return buffer.Length;
+    }
+
     public static int RentAndForwardToReturn()
     {
         byte[] buffer = ArrayPool<byte>.Shared.Rent(16);
@@ -304,6 +332,7 @@ public static class Entry
         buffer = [];
 
     static byte[]? s_rentedArray;
+    static object? s_resource;
     static int s_ownershipProbe;
     static readonly Exception s_lifecycleException =
         new InvalidOperationException();
@@ -564,6 +593,20 @@ public static class Entry
         s_ownershipProbe += second.Length;
     }
 
+    public static void ExerciseGenericResourceArguments()
+    {
+        object resource = AcquirePair<int, string>();
+        KeepLocal(ref resource);
+        StoreResource(resource);
+    }
+
+    public static void ExerciseTrackedResourceMutation()
+    {
+        TrackedResource resource = AcquireTrackedResource<int>();
+        KeepLocal(ref resource);
+        MutateTrackedResource(resource);
+    }
+
     public static void RentAddressThenObserve()
     {
         byte[] buffer = ArrayPool<byte>.Shared.Rent(16);
@@ -582,6 +625,28 @@ public static class Entry
 
     static void ForwardResource(byte[] resource) =>
         ObserveResource(resource);
+
+    static void ReturnGeneric<T>(T[] resource) =>
+        ArrayPool<T>.Shared.Return(resource);
+
+    static void ForwardGeneric<T>(T[] resource) =>
+        ReturnGeneric(resource);
+
+    static object AcquirePair<TFirst, TSecond>() =>
+        new();
+
+    static void KeepLocal<T>(ref T resource)
+    {
+    }
+
+    static void StoreResource(object resource) =>
+        s_resource = resource;
+
+    static TrackedResource AcquireTrackedResource<T>() =>
+        new();
+
+    static void MutateTrackedResource(TrackedResource resource) =>
+        resource.Value = 42;
 
     sealed class OwnershipWorker
     {
@@ -606,6 +671,11 @@ public static class Entry
         internal void Return(int marker, byte[] buffer) =>
             ArrayPool<byte>.Shared.Return(buffer);
     }
+}
+
+public sealed class TrackedResource
+{
+    public int Value;
 }
 
 public delegate T BindingCallback<T>(T value);
