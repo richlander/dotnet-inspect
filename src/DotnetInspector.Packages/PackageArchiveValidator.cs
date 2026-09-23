@@ -13,17 +13,18 @@ public abstract record PackageArchiveValidation
     /// <summary>The archive may be published into a package store.</summary>
     public sealed record Valid : PackageArchiveValidation
     {
-        internal Valid(int entryCount, long expandedBytes)
+        internal Valid(PackageArchivePayload archive)
         {
-            EntryCount = entryCount;
-            ExpandedBytes = expandedBytes;
+            Archive = archive;
         }
 
-        /// <summary>File entries the archive actually contains.</summary>
-        public int EntryCount { get; }
+        internal PackageArchivePayload Archive { get; }
 
-        /// <summary>Bytes actually produced by decompressing every entry.</summary>
-        public long ExpandedBytes { get; }
+        /// <summary>File entries the archive actually contains.</summary>
+        public int EntryCount => Archive.EntryCount;
+
+        /// <summary>Bytes the archive directory declares across all entries.</summary>
+        public long ExpandedBytes => Archive.DeclaredExpandedBytes;
     }
 
     /// <summary>
@@ -44,8 +45,8 @@ public abstract record PackageArchiveValidation
 }
 
 /// <summary>
-/// Decides whether a downloaded archive may become package content, before any
-/// store publishes it.
+/// Builds a bounded structural index before a downloaded archive reaches a
+/// package store.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -62,43 +63,38 @@ public abstract record PackageArchiveValidation
 /// is an allocation the byte cap alone does not bound; and
 /// </item>
 /// <item>
-/// a full pass that validates every entry path against the same containment
-/// rules the stores apply, then reads each central record's exact compressed
-/// byte range and <em>streams it through an independent decompressor</em>,
-/// counting the bytes that actually emerge and checking their CRC.
+/// a bounded directory pass that validates every entry path against the same
+/// containment rules the stores apply, resolves each exact compressed byte
+/// range, and records the declared expansion and CRC needed by checked
+/// extraction or materialization.
 /// </item>
 /// </list>
 /// <para>
 /// Every entry means every entry, including the directory-shaped ones. A store
-/// treats an entry whose name ends in <c>/</c> as a directory and never reads
-/// it, so content hidden inside one is content no budget would ever account
-/// for; such an entry is refused rather than skipped, while an ordinary empty
-/// directory entry passes. Skipping them by shape is what a payload would
-/// exploit to publish expansion or an undecodable compression method.
+/// treats an entry whose name ends in <c>/</c> as a directory. A nonzero
+/// declared body is refused structurally. If the body lies behind a zero
+/// declaration, checked filesystem extraction consumes and rejects it; a
+/// filesystem-free host never expands an unused directory entry.
 /// </para>
 /// <para>
-/// The second stage does not trust <see cref="ZipArchiveEntry.Open"/> to expose
-/// bytes beyond an attacker-declared length: supported runtime versions differ
-/// there. It bounds the raw compressed slice from the local and central
-/// records, independently inflates stored or DEFLATE content, and compares the
-/// actual length and CRC with the directory claims. The declared sizes are
-/// still summed first, as a cheap precheck that rejects an obvious bomb without
-/// decompressing it. The preflight also refuses a directory whose EOCD-declared
+/// The resulting immutable payload does not expand entries as a dry run.
+/// Filesystem extraction and filesystem-free entry materialization consume the
+/// recorded raw compressed slices once, bound the bytes that actually emerge,
+/// and compare their length and CRC with these directory claims. The preflight
+/// also refuses a directory whose EOCD-declared
 /// offset is not exactly the directory this host will decode, so a dual central
 /// directory cannot validate decoy sizes while <see cref="ZipArchive"/> extracts
 /// a different payload. An optional central-directory digital-signature record
 /// may either be excluded from or included in the EOCD size field.
 /// </para>
 /// <para>
-/// Every rejection is a failure of one source. The caller tries the next
-/// authorized source, and nothing reaches a store.
+/// Every structural or checked-production rejection is a failure of one
+/// source. The caller tries the next authorized source, and no incomplete
+/// filesystem tree or selected entry is exposed as package content.
 /// </para>
 /// <para>
 /// Gated by <c>PackageArchiveValidatorTests</c> and, end to end, by
 /// <c>PackagePayloadAcquisitionTests</c>.
-/// <c>Validate_RejectsHiddenContentWhoseCrcIsZero</c> is the
-/// runtime-independent decompression gate and runs under the shipped
-/// <c>net10.0</c> target as well as the development target.
 /// <c>Validate_RejectsTheSameTrailingDirectoryRecordTheDecoderWouldRead</c>
 /// keeps the allocation-free preflight on the same EOCD record as
 /// <see cref="ZipArchive"/>.
@@ -137,6 +133,12 @@ public static class PackageArchiveValidator
         byte[] archive,
         PackagePayloadLimits? limits = null,
         CancellationToken cancellationToken = default)
+        => ValidateOwned(archive, limits, cancellationToken);
+
+    internal static PackageArchiveValidation ValidateOwned(
+        byte[] archive,
+        PackagePayloadLimits? limits = null,
+        CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(archive);
         limits ??= PackagePayloadLimits.Default;
@@ -172,16 +174,13 @@ public static class PackageArchiveValidator
         catch (Exception ex) when (
             ex is InvalidDataException or NotSupportedException)
         {
-            // The archive decoder refused the payload: a corrupt directory, a
-            // truncated entry, a lying declared size caught by its CRC, or a
-            // compression method this runtime does not implement. That is a
-            // rejection like any other, and it is typed here so a caller does
-            // not have to catch it — the whole point of validating before
-            // publication is that the failure lands on the source that served
-            // the bytes. The decoder's message can name an archive entry, so
-            // it is not reproduced.
+            // The runtime archive reader refused the central-directory or
+            // local-header structure. That is a rejection like any other, and
+            // it is typed here so a caller does not have to catch it. The
+            // reader's message can name an archive entry, so it is not
+            // reproduced.
             return new PackageArchiveValidation.Rejected(
-                "the payload is not a readable archive, or uses an archive feature this host cannot decode");
+                "the payload does not have a readable archive structure");
         }
     }
 
@@ -216,6 +215,7 @@ public static class PackageArchiveValidator
             StringComparer.OrdinalIgnoreCase);
         var requiredDirectories = new HashSet<string>(
             StringComparer.OrdinalIgnoreCase);
+        var entries = new PackageArchiveEntry[zip.Entries.Count];
         for (int entryIndex = 0;
             entryIndex < zip.Entries.Count;
             entryIndex++)
@@ -276,79 +276,23 @@ public static class PackageArchiveValidator
             }
 
             declaredBytes += (long)descriptor.UncompressedSize;
+            entries[entryIndex] = new PackageArchiveEntry(
+                entry.FullName,
+                isDirectory,
+                descriptor.CompressionMethod,
+                descriptor.Crc32,
+                descriptor.CompressedSize,
+                descriptor.UncompressedSize,
+                descriptor.DataOffset);
         }
 
-        long expandedBytes = 0;
-        byte[] chunk = new byte[81920];
-        for (int entryIndex = 0;
-            entryIndex < zip.Entries.Count;
-            entryIndex++)
-        {
-            ZipArchiveEntry entry = zip.Entries[entryIndex];
-            ZipEntryDescriptor descriptor = descriptors[entryIndex];
-            cancellationToken.ThrowIfCancellationRequested();
-            bool isDirectory = IsDirectoryEntry(entry.FullName);
-
-            using Stream compressed = new MemoryStream(
+        return new PackageArchiveValidation.Valid(
+            new PackageArchivePayload(
                 archive,
-                descriptor.DataOffset,
-                checked((int)descriptor.CompressedSize),
-                writable: false);
-            using Stream content = descriptor.CompressionMethod switch
-            {
-                0 => compressed,
-                8 => new DeflateStream(
-                    compressed,
-                    CompressionMode.Decompress),
-                _ => throw new NotSupportedException(),
-            };
-            var crc = new ZipCrc32();
-            long entryBytes = 0;
-            while (true)
-            {
-                cancellationToken.ThrowIfCancellationRequested();
-                int read = content.Read(chunk, 0, chunk.Length);
-                if (read == 0)
-                    break;
-
-                if (read > long.MaxValue - entryBytes)
-                {
-                    return new PackageArchiveValidation.Rejected(
-                        "an archive entry expands to an unreadable size");
-                }
-
-                entryBytes += read;
-                crc.Append(chunk.AsSpan(0, read));
-                if (isDirectory)
-                {
-                    // Defense in depth behind the declared-length check above.
-                    // It cannot fire while the decoder enforces an entry's
-                    // declared size and CRC — a directory entry that declares
-                    // nothing and yields something is refused there first — but
-                    // the alternative to checking is accounting for those bytes
-                    // nowhere.
-                    return new PackageArchiveValidation.Rejected(
-                        "a directory-shaped archive entry carries content");
-                }
-
-                if (read > limits.MaxExpandedBytes - expandedBytes)
-                {
-                    return new PackageArchiveValidation.Rejected(
-                        $"the archive expands to more than {limits.MaxExpandedBytes} bytes");
-                }
-
-                expandedBytes += read;
-            }
-
-            if ((ulong)entryBytes != descriptor.UncompressedSize
-                || crc.Value != descriptor.Crc32)
-            {
-                return new PackageArchiveValidation.Rejected(
-                    "an archive entry does not match its declared size or checksum");
-            }
-        }
-
-        return new PackageArchiveValidation.Valid(entryCount, expandedBytes);
+                entries,
+                declaredBytes,
+                requiredDirectories.Count,
+                limits));
     }
 
     /// <summary>

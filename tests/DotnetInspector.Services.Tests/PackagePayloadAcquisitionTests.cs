@@ -73,6 +73,30 @@ public sealed class PackagePayloadAcquisitionTests
             Assert.Single(payload.Content.EnumerateEntries()));
     }
 
+    [Fact]
+    public async Task CacheMiss_TransfersThePreparedArchiveToCapableStores()
+    {
+        byte[] nupkg = TestPackageArchive.Create("lib/net10.0/Sample.dll");
+        var store = new PreparedOnlyStore();
+        using var client = new HttpClient(new NuGetOrgPayloadHandler(nupkg));
+
+        PackagePayloadResult result =
+            await PackagePayloadAcquisition.AcquireAsync(
+                client,
+                Coordinate(NuGetOrg),
+                store,
+                cancellationToken: TestContext.Current.CancellationToken);
+
+        AcquiredPackagePayload payload = Acquired(result);
+        Assert.Equal(1, store.PreparedCommits);
+        Assert.Equal(0, store.LegacyCommits);
+        Assert.Same(store.Content, payload.Content);
+        Assert.IsType<PackageArchiveValidation.Valid>(
+            store.Content!.ValidateArchive(
+                PackagePayloadLimits.Default,
+                TestContext.Current.CancellationToken));
+    }
+
     static byte[] ReadArchive(IPackageContent content)
     {
         Assert.True(content.TryOpenArchive(out Stream? archive));
@@ -3206,6 +3230,50 @@ public sealed class PackagePayloadAcquisitionTests
                 sourceKey,
                 nupkg,
                 cancellationToken);
+        }
+    }
+
+    sealed class PreparedOnlyStore : IPackageStore, IPreparedPackageStore
+    {
+        internal int LegacyCommits { get; private set; }
+
+        internal int PreparedCommits { get; private set; }
+
+        internal InMemoryPackageContent? Content { get; private set; }
+
+        public IPackageContent? TryGetCached(
+            string packageName,
+            string version,
+            IReadOnlyList<string>? allowedSourceKeys,
+            Action<string>? log = null)
+            => null;
+
+        public ValueTask<IPackageContent> CommitAsync(
+            string packageName,
+            string version,
+            string sourceKey,
+            Stream nupkg,
+            CancellationToken cancellationToken = default)
+        {
+            LegacyCommits++;
+            throw new InvalidOperationException(
+                "Prepared stores must not receive the legacy stream commit.");
+        }
+
+        public ValueTask<IPackageContent> CommitPreparedAsync(
+            string packageName,
+            string version,
+            string sourceKey,
+            PackageArchivePayload archive,
+            CancellationToken cancellationToken = default)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            PreparedCommits++;
+            Content = InMemoryPackageContent.CreateOwned(
+                archive,
+                fromCache: false,
+                sourceKey);
+            return ValueTask.FromResult<IPackageContent>(Content);
         }
     }
 

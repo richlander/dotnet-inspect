@@ -6,9 +6,10 @@ namespace DotnetInspector.Packages;
 /// Applies current payload limits to content returned by a package store.
 /// </summary>
 /// <remarks>
-/// Cache hits with a retained archive satisfy the full current archive limit
-/// set. Immutable in-memory content may reuse successful validation under an
-/// equal or looser complete policy; other content is revalidated. Product-owned
+/// Cache hits with a retained archive satisfy the current structural archive
+/// limit set. Immutable in-memory content retains the bounded directory index;
+/// selected entries validate observed length and CRC while materializing.
+/// Product-owned
 /// trees (app-cache slots carrying the commit marker)
 /// must then match the archive entry paths, sizes, and CRC-32 values so a valid
 /// nupkg cannot launder a mutated extract. Foreign trees such as NuGet's global-packages folder are not 1:1 extracts

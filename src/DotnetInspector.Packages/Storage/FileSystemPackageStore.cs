@@ -1,5 +1,3 @@
-using System.IO.Compression;
-
 namespace DotnetInspector.Packages;
 
 /// <summary>
@@ -9,7 +7,7 @@ namespace DotnetInspector.Packages;
 /// unchanged; only the seam through which <see cref="PackageExtractor"/> reaches
 /// persistence is new.
 /// </summary>
-public sealed class FileSystemPackageStore : IPackageStore
+public sealed class FileSystemPackageStore : IPackageStore, IPreparedPackageStore
 {
     /// <inheritdoc />
     public IPackageContent? TryGetCached(
@@ -80,6 +78,21 @@ public sealed class FileSystemPackageStore : IPackageStore
                 extractedPath, nupkgPath, packageName, version, sourceKey),
             cancellationToken);
 
+    ValueTask<IPackageContent> IPreparedPackageStore.CommitPreparedAsync(
+        string packageName,
+        string version,
+        string sourceKey,
+        PackageArchivePayload archive,
+        CancellationToken cancellationToken) =>
+        CommitAsync(
+            packageName,
+            version,
+            archive,
+            () => Directory.CreateTempSubdirectory("inspect-pkg-commit").FullName,
+            (extractedPath, nupkgPath) => NuGetCache.CommitPackage(
+                extractedPath, nupkgPath, packageName, version, sourceKey),
+            cancellationToken);
+
     internal static async ValueTask<IPackageContent> CommitAsync(
         string packageName,
         string version,
@@ -89,6 +102,39 @@ public sealed class FileSystemPackageStore : IPackageStore
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(nupkg);
+        byte[]? bytes = await PackageContentAdmission.ReadBoundedAsync(
+                nupkg,
+                PackagePayloadLimits.Default.MaxArchiveBytes,
+                cancellationToken)
+            .ConfigureAwait(false);
+        if (bytes is null)
+            throw new InvalidDataException("Package archive exceeds the configured byte limit.");
+
+        PackageArchiveValidation validation = PackageArchiveValidator.ValidateOwned(
+            bytes,
+            cancellationToken: cancellationToken);
+        if (validation is PackageArchiveValidation.Rejected rejection)
+            throw new InvalidDataException(rejection.Reason);
+
+        return await CommitAsync(
+                packageName,
+                version,
+                ((PackageArchiveValidation.Valid)validation).Archive,
+                createTemporaryDirectory,
+                commit,
+                cancellationToken)
+            .ConfigureAwait(false);
+    }
+
+    internal static async ValueTask<IPackageContent> CommitAsync(
+        string packageName,
+        string version,
+        PackageArchivePayload archive,
+        Func<string> createTemporaryDirectory,
+        Func<string, string, CommittedPackage> commit,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(archive);
 
         // Validate coordinates before building any path from them, so an
         // absolute or traversal-containing name cannot direct the temp write
@@ -104,11 +150,12 @@ public sealed class FileSystemPackageStore : IPackageStore
             string nupkgPath = Path.Combine(tempDir, "package.nupkg");
             await using (var file = File.Create(nupkgPath))
             {
-                await nupkg.CopyToAsync(file, cancellationToken).ConfigureAwait(false);
+                await using Stream input = archive.OpenArchive();
+                await input.CopyToAsync(file, cancellationToken).ConfigureAwait(false);
             }
 
             string extractPath = Path.Combine(tempDir, "extracted");
-            ZipFile.ExtractToDirectory(nupkgPath, extractPath);
+            archive.ExtractToDirectory(extractPath, cancellationToken);
 
             CommittedPackage committed = commit(extractPath, nupkgPath);
 

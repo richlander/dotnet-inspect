@@ -12,7 +12,7 @@ public sealed class InMemoryPackageAdmissionTests(ITestOutputHelper output)
         "System.Text.Json.10.0.0.nupkg"));
 
     [Fact]
-    public async Task RealPackage_CachedAcquisitionReusesAdmissionWithoutArchiveWalk()
+    public async Task RealPackage_CachedAcquisitionReusesTheOwnedStructuralIndex()
     {
         PackageSource source = PackageSource.NuGetOrg;
         string producer = NuGetCache.GetSourceKey(source.Url);
@@ -46,8 +46,8 @@ public sealed class InMemoryPackageAdmissionTests(ITestOutputHelper output)
         Assert.Same(content.GenerationIdentity, cached.GenerationIdentity);
         Assert.Same(admitted, cached.ValidateArchive(
             PackagePayloadLimits.Default, TestContext.Current.CancellationToken));
-        // A full validator walk alone allocates an 81,920-byte expansion buffer.
-        // This gate catches re-expansion through the actual acquisition boundary.
+        // Cache acquisition retains the owned archive and structural index. It
+        // must not allocate a decompression buffer or rebuild ZipArchive state.
         Assert.True(allocated < 32_768, $"Warm admission allocated {allocated} bytes.");
         Assert.Contains("lib/net10.0/System.Text.Json.dll", cached.EnumerateEntries());
         output.WriteLine($"First admission: {cold.TotalMilliseconds:F2} ms; "
@@ -55,7 +55,7 @@ public sealed class InMemoryPackageAdmissionTests(ITestOutputHelper output)
     }
 
     [Fact]
-    public void CacheViews_ReuseValidationButIndependentArchivesDoNot()
+    public void CacheViews_ReuseTheStructuralReceiptButIndependentArchivesDoNot()
     {
         byte[] archive = TestPackageArchive.Create("lib/net10.0/Sample.dll");
         var content = new InMemoryPackageContent(archive, false, "source");
@@ -76,7 +76,7 @@ public sealed class InMemoryPackageAdmissionTests(ITestOutputHelper output)
     [InlineData("expanded")]
     [InlineData("entries")]
     [InlineData("directories")]
-    public async Task StricterPolicy_CannotReuseLooserSuccess(string dimension)
+    public async Task StricterPolicy_UsesTheRecordedStructuralFacts(string dimension)
     {
         var content = new InMemoryPackageContent(RealArchive(), false, "source");
         PackagePayloadLimits limits = PackagePayloadLimits.Default;
@@ -113,7 +113,7 @@ public sealed class InMemoryPackageAdmissionTests(ITestOutputHelper output)
     }
 
     [Fact]
-    public void LooserPolicy_ReusesSuccessfulStricterValidation()
+    public void LooserPolicy_ReusesTheStructuralReceipt()
     {
         var content = new InMemoryPackageContent(
             TestPackageArchive.Create("lib/net10.0/Sample.dll"), false, "source");

@@ -7,8 +7,8 @@ namespace DotnetInspector.Services.Tests;
 /// <summary>
 /// What a downloaded archive must satisfy before any store may publish it:
 /// a directory small enough to open, entry paths every store can address
-/// safely, and content that actually decompresses within the configured
-/// budget.
+/// safely, and descriptors that checked extraction or materialization can
+/// consume through exact bounded compressed ranges.
 /// </summary>
 public sealed class PackageArchiveValidatorTests
 {
@@ -209,16 +209,17 @@ public sealed class PackageArchiveValidatorTests
     /// longer skipped. Skipping them published this archive as valid.
     /// </summary>
     [Fact]
-    public void Validate_RejectsADirectoryEntryHidingContentBehindAZeroLength()
+    public void CheckedExtraction_RejectsADirectoryEntryHidingContentBehindAZeroLength()
     {
         byte[] archive = WithZeroedUncompressedSize(
             ArchiveWithNames(("lib/", new byte[8192])));
 
-        Assert.IsType<PackageArchiveValidation.Rejected>(
+        var valid = Assert.IsType<PackageArchiveValidation.Valid>(
             PackageArchiveValidator.Validate(
                 archive,
                 new PackagePayloadLimits { MaxExpandedBytes = 16 },
                 TestContext.Current.CancellationToken));
+        AssertExtractionRejected(valid.Archive);
     }
 
     /// <summary>
@@ -227,22 +228,44 @@ public sealed class PackageArchiveValidatorTests
     /// empty entry after both size fields are rewritten to zero.
     /// </summary>
     [Fact]
-    public void Validate_RejectsHiddenContentWhoseCrcIsZero()
+    public void CheckedExtraction_RejectsHiddenContentWhoseCrcIsZero()
     {
         byte[] archive = WithZeroedUncompressedSize(
             ArchiveWithNames(
                 ("lib/", [0x9D, 0x0A, 0xD9, 0x6D])));
 
-        Assert.IsType<PackageArchiveValidation.Rejected>(
+        var valid = Assert.IsType<PackageArchiveValidation.Valid>(
             PackageArchiveValidator.Validate(
                 archive,
                 new PackagePayloadLimits { MaxExpandedBytes = 16 },
                 TestContext.Current.CancellationToken));
+        AssertExtractionRejected(valid.Archive);
+    }
+
+    [Fact]
+    public void CheckedMaterialization_RejectsContentBeyondTheDeclaredLength()
+    {
+        byte[] archive = WithZeroedUncompressedSize(
+            ArchiveWithNames(
+                ("lib/net10.0/Sample.dll", [1, 2, 3, 4])));
+
+        var valid = Assert.IsType<PackageArchiveValidation.Valid>(
+            PackageArchiveValidator.Validate(
+                archive,
+                new PackagePayloadLimits { MaxExpandedBytes = 16 },
+                TestContext.Current.CancellationToken));
+
+        Assert.Throws<InvalidDataException>(() =>
+            valid.Archive.TryOpenEntry(
+                "lib/net10.0/Sample.dll",
+                maxExpandedBytes: 16,
+                out _));
     }
 
     /// <summary>
-    /// An undecodable compression method on a directory-shaped entry is found
-    /// before publication too, because the entry is opened like any other.
+    /// A directory-shaped entry is still subject to the structural compression
+    /// method allow list even though ordinary empty directory content is not
+    /// materialized.
     /// </summary>
     [Fact]
     public void Validate_RejectsADirectoryEntryWithUnsupportedCompression()
@@ -412,11 +435,8 @@ public sealed class PackageArchiveValidatorTests
     }
 
     /// <summary>
-    /// A compression method this runtime cannot decode declares an ordinary
-    /// length and only fails when something opens the entry. Without streaming
-    /// every entry here, that failure lands after publication: the source that
-    /// served the archive has already been credited, the cache holds it, and
-    /// the next authorized source is never tried.
+    /// Compression capability is a structural fact, so an unsupported method
+    /// is rejected without performing a speculative entry expansion.
     /// </summary>
     [Fact]
     public void Validate_RejectsAnUnsupportedCompressionMethod()
@@ -430,19 +450,18 @@ public sealed class PackageArchiveValidatorTests
     }
 
     [Fact]
-    public void Validate_RejectsContentThatExpandsBeyondTheLimit()
+    public void CheckedExtraction_RejectsObservedExpansionBeyondTheLimit()
     {
-        // Declared sizes stay inside the budget; the bytes that actually
-        // emerge do not, which only streaming can see.
-        byte[] archive = TestPackageArchive.CreateWithContent(
-            ("lib/net10.0/Sample.dll", new byte[8192]));
+        byte[] archive = WithZeroedUncompressedSize(
+            TestPackageArchive.CreateWithContent(
+                ("lib/net10.0/Sample.dll", new byte[8192])));
 
-        var rejected = Assert.IsType<PackageArchiveValidation.Rejected>(
+        var valid = Assert.IsType<PackageArchiveValidation.Valid>(
             PackageArchiveValidator.Validate(
                 archive,
                 new PackagePayloadLimits { MaxExpandedBytes = 4096 },
                 TestContext.Current.CancellationToken));
-        Assert.Contains("4096", rejected.Reason, StringComparison.Ordinal);
+        AssertExtractionRejected(valid.Archive);
     }
 
     [Fact]
@@ -653,6 +672,25 @@ public sealed class PackageArchiveValidatorTests
         PackageArchiveValidator.Validate(
             archive,
             cancellationToken: TestContext.Current.CancellationToken);
+
+    static void AssertExtractionRejected(PackageArchivePayload archive)
+    {
+        string root = Path.Combine(
+            Path.GetTempPath(),
+            $"dotnet-inspect-package-{Guid.NewGuid():N}");
+        try
+        {
+            Assert.Throws<InvalidDataException>(() =>
+                archive.ExtractToDirectory(
+                    root,
+                    TestContext.Current.CancellationToken));
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+                Directory.Delete(root, recursive: true);
+        }
+    }
 
     /// <summary>
     /// Builds an archive with entry names a compliant writer would refuse to

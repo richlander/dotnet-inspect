@@ -67,3 +67,13 @@ public interface IPackageStore
         CancellationToken cancellationToken = default);
 
 }
+
+internal interface IPreparedPackageStore
+{
+    ValueTask<IPackageContent> CommitPreparedAsync(
+        string packageName,
+        string version,
+        string sourceKey,
+        PackageArchivePayload archive,
+        CancellationToken cancellationToken = default);
+}

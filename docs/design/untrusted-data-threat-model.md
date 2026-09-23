@@ -637,10 +637,11 @@ and `StorePathTests` gates enforce this boundary.
 
 ### Package archives use traversal-aware extraction
 
-NuGet package extraction uses `ZipFile.ExtractToDirectory`, which rejects
-archive entries that escape the destination directory. Extraction occurs under
-process-created temporary directories before the validated content is committed
-into product caches (`FileSystemPackageStore.CommitAsync`).
+NuGet package extraction resolves each structurally admitted entry through
+`StorePath.ResolveUnderRoot`, streams it into a process-created temporary
+directory with observed expansion, length, and CRC-32 checks, and commits only
+the completed tree into product caches
+(`FileSystemPackageStore.CommitAsync`).
 
 Symbol-package (`.snupkg`) PDB acquisition does not extract the archive to disk.
 `SnupkgPdbReader` opens the archive in memory, matches candidate entries by file
@@ -696,30 +697,51 @@ the narrower bounds: the shared 16 MB text-response cap for a version listing,
 XML entry. It also rejects more than 4,096 archive entries. The shared archive
 validator selects the same highest-offset end record as `ZipArchive` and scans
 its central directory without allocating entry objects before `ZipArchive` can
-materialize them, then applies its path, directory, compression, CRC, and
-observed-expansion checks.
-Immutable in-memory package admission reuses one successful archive-validation
-result across cache views of the same owned byte snapshot. Reuse requires that
-every current payload bound (archive bytes, expanded bytes, entry count, and
-unique directories) is equal to or looser than the validated policy. A stricter
-bound runs full validation again; a failed or canceled attempt never becomes
-success evidence. Cancellation is checked even when evidence is reusable.
-The evidence is process-local, bounded to one successful policy per retained
-archive, and retires with that archive. Equal package coordinates or producer
-labels cannot substitute for the shared immutable bytes. Source authorization
-and filesystem admission retain their existing gates.
+materialize them. Structural admission then requires central and local records
+to agree, bounds declared expansion and unique directories, and applies the
+portable path, destination-collision, and compression-method rules before any
+store receives the payload.
 
-This is conventional memoization of a pure check over owned immutable input,
-not a persistent validation cache. It avoids expanding the entire runtime
-archive on each cached Library acquisition. The motivating real assets are
+Structural admission does not expand every entry as a test. It produces one
+immutable archive payload whose bounded directory index addresses exact
+compressed byte ranges. The store or consumer validates content while doing the
+work that needs those bytes:
+
+- a filesystem store streams every entry once into a temporary extraction
+  tree, bounds aggregate observed expansion, verifies each entry's declared
+  length and CRC-32, and atomically publishes only the completed tree;
+- a filesystem-free store retains the owned archive payload, and each selected
+  entry is streamed directly from its indexed compressed range into one bounded
+  materialization that verifies its declared length and CRC-32 before exposing
+  the bytes.
+
+CRC-32 is ZIP record-consistency evidence, not package authorship or
+cryptographic authenticity. Source authorization remains the provenance gate.
+
+An unused Browser entry is never decompressed merely to establish package
+admission. It cannot consume expansion work until a supported operation selects
+it, and that operation supplies the entry-specific byte bound. Cache views share
+the same immutable archive payload and directory index; they do not copy,
+reparse, or dry-run the retained nupkg. A stricter later policy compares its
+archive, declared-expansion, entry-count, and unique-directory limits with the
+exact structural facts already recorded. Cancellation remains observable while
+constructing or consuming content. Equal package coordinates or producer labels
+cannot substitute for the shared owned payload. Source authorization remains a
+per-acquisition gate.
+
+This checked-production model contains the remote package actor without making
+Browser/Wasm repeatedly decompress a large archive before performing useful
+work. The motivating real assets are
 `Microsoft.NETCore.App.Runtime.linux-x64@11.0.0-rc.1.26425.128` (the Browser
 `System.Text.Json` selection) and `System.Text.Json@10.0.0` (the pinned PR-fast
-regression archive). `InMemoryPackageAdmissionTests` in the Release Services
-suite gates reuse through public payload acquisition, complete policy checking,
-immutable cache-view sharing, independent generations, corrupt input, and
-cancellation. Shared `PackagePayloadAcquisition` adopts the optimization in one
-step for desktop in-memory consumers and Browser/Wasm; filesystem-backed CLI
-consumers continue through ordinary revalidation.
+regression archive). `PackageArchiveValidatorTests` gates allocation-safe
+directory admission and proves that hidden or length-mismatched content is
+rejected by checked extraction or materialization rather than by a dry run.
+`InMemoryPackageAdmissionTests` in the Release Services suite gates the owned
+archive/index handoff through public payload acquisition, complete structural
+policy checking, immutable cache-view sharing, independent generations, corrupt
+input, and cancellation. `PackagePayloadAcquisitionTests` and filesystem-store
+tests gate checked staging extraction before publication.
 
 The non-CI real-runtime probe is reproducible with:
 
@@ -729,10 +751,12 @@ dotnet run eng/measure-in-memory-package-admission.cs -c Release -- \
   Microsoft.NETCore.App.Runtime.linux-x64 11.0.0-rc.1.26425.128
 ```
 
-It exercises public acquisition with network forbidden and reports first and
-repeated cached admission separately. The runtime archive is supplied locally
-rather than added to PR CI; the pinned smaller archive above enforces the reuse
-contract. Timings are environment-specific evidence, not a Browser latency gate.
+It exercises public acquisition with network forbidden and reports checked
+structural commit, repeated cached acquisition, and checked materialization of
+the archive's largest DLL separately. The runtime archive is supplied locally
+rather than added to PR CI; the pinned smaller archive above enforces the
+checked-production contract. Timings are environment-specific evidence, not a
+Browser latency gate.
 
 `InMemoryPackageContent` rejects an entry whose declared expanded length exceeds
 the caller's limit before allocating that length, then verifies the observed
@@ -745,8 +769,8 @@ cannot keep an evicted archive alive outside the advertised budget.
 Package downloads must declare their content length. The Browser implements
 `IPackagePayloadTransferPolicy`, which reserves that length and evicts unleased
 entries after shared transport receives the headers but before it reads the
-body. The reservation becomes a cache entry only after shared archive validation,
-store commit, and re-admission complete.
+body. The reservation becomes a cache entry only after structural archive
+admission and checked store construction complete.
 Composite workspace construction temporarily leases each resolved coordinate,
 so a later acquisition cannot evict an earlier pending coordinate. In-flight
 reservations and retained cache entries share the same 256-entry/128 MB limit.
