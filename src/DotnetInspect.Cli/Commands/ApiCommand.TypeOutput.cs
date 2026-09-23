@@ -827,6 +827,18 @@ public partial class ApiCommand
             return 0;
         }
 
+        if (fullSerializer
+            && (view.EnumValues is not null
+                || view.EnumValuesWithDocs is not null)
+            && ShouldRenderMemberIndex(options))
+        {
+            memberIndexView ??= new MemberIndexView();
+            ApiOutputFormatter.PopulateMemberIndex(
+                memberIndexView,
+                type,
+                options);
+        }
+
         // Whole-type decompilation (type command; member flows populate per
         // member above). Explicit-only: requires -S "Decompiled Source".
         // Sits OUTSIDE the member-sections region so enum types (which
@@ -982,10 +994,13 @@ public partial class ApiCommand
                     options,
                     schema))
                 return 1;
-            var ordered = OutputFormatter.ResolveCountMapSections(
-                ApiMemberSectionPipelines.Create(options),
-                options.IncludeSections,
-                fixedOverview: false);
+            var ordered =
+                options is TypeOptions { CountDefaultPopulation: true }
+                    ? null
+                    : OutputFormatter.ResolveCountMapSections(
+                        ApiMemberSectionPipelines.Create(options),
+                        options.IncludeSections,
+                        fixedOverview: false);
             CountOutput.Write(
                 projection, ordered, options.Format, options.NoHeader);
             ApiOutputFormatter.WriteCallGraphWarning(view);
