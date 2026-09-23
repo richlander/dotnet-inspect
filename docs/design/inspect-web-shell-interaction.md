@@ -347,7 +347,8 @@ effects are separately owned by
 [Inspect Web Navigation Consumer](inspect-web-navigation-consumer.md) and its
 viewer-local interaction is owned by
 [Inspect Web Type Explorer](inspect-web-type-explorer.md). Browser Back returns
-to the prior routed surface and restores focus through the history transition.
+to the prior history destination, including an inspection surface such as Type
+Source, and restores focus through the history transition.
 
 The focus-parking step referenced above, and the effect-authority validation
 that governs whether a result-derived destination actually receives focus, are
