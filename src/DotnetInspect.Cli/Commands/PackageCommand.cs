@@ -1543,7 +1543,7 @@ public partial class PackageCommand
                     WritePackagePrintProjection(result, extractPath, options),
                     result);
 
-            if (options.Bare)
+            if (options.Raw)
             {
                 return PackageIntegrityExitCode(
                     PrintPackageBareSelection(

@@ -175,7 +175,7 @@ public static class MatchCommandDefinitions
                     ? opts.ParseRows(parseResult)
                     : null,
                 Count = parseResult.GetValue(opts.Count),
-                Bare = parseResult.GetValue(opts.Bare),
+                Raw = parseResult.GetValue(opts.Raw),
                 SourceOptions = sourceOptions,
             };
 

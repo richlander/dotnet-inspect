@@ -166,7 +166,7 @@ public static class PackageCommandDefinitions
         packageCommand.Options.Add(detailsOption);
         packageCommand.Options.Add(versionOption);
         packageCommand.Options.Add(opts.PreferRenderedUrls);
-        packageCommand.Options.Add(opts.Bare);
+        packageCommand.Options.Add(opts.Raw);
         packageCommand.Options.Add(outOption);
         var commandArgs = new PackageOptionsParser.PackageCommandArgs(
             packageNameArg, dependenciesOption, layoutOption, pathOption, tfmsOption,
