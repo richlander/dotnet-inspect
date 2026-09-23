@@ -1,6 +1,7 @@
 using System.Collections.ObjectModel;
 using InertText;
 using NuGetFetch;
+using ZipFetch;
 
 namespace DotnetInspector.Packages;
 
@@ -124,7 +125,8 @@ internal sealed class PackageAcquisitionCandidatePayloadAcquirer
         PackagePayloadLimits? limits = null,
         CancellationToken cancellationToken = default,
         IPackagePayloadTransferPolicy? transferPolicy = null,
-        NuGetOperationContext? operationContext = null) =>
+        NuGetOperationContext? operationContext = null,
+        PackageEntrySelector? rangedSelection = null) =>
         AcquireAsync(
             candidate,
             createStore,
@@ -134,8 +136,16 @@ internal sealed class PackageAcquisitionCandidatePayloadAcquirer
             transferPolicy,
             operationContext,
             failures: [],
-            selectionUsesOriginalSources: false);
+            selectionUsesOriginalSources: false,
+            rangedSelection);
 
+    /// <param name="rangedSelection">
+    /// When supplied, an authority whose client exposes
+    /// <see cref="IPackageArchiveRangeSource"/> is read by range on a cache
+    /// miss: the archive directory first, then only the entries this selector
+    /// chooses. A refusal falls back to the complete fetch on the same
+    /// authority.
+    /// </param>
     internal async Task<ConfiguredPackagePayloadResult> AcquireAsync(
         PackageAcquisitionCandidate candidate,
         Func<
@@ -148,7 +158,8 @@ internal sealed class PackageAcquisitionCandidatePayloadAcquirer
         IPackagePayloadTransferPolicy? transferPolicy,
         NuGetOperationContext? operationContext,
         List<PackageAuthorityFailure> failures,
-        bool selectionUsesOriginalSources)
+        bool selectionUsesOriginalSources,
+        PackageEntrySelector? rangedSelection = null)
     {
         ArgumentNullException.ThrowIfNull(candidate);
         ArgumentNullException.ThrowIfNull(createStore);
@@ -229,6 +240,48 @@ internal sealed class PackageAcquisitionCandidatePayloadAcquirer
             foreach (var (authority, client, store) in entries)
             {
                 operation.ThrowIfExpired();
+                if (rangedSelection is not null
+                    && client is IPackageArchiveRangeSource rangedSource)
+                {
+                    RangedAttempt attempt = await TryAcquireRangedAsync(
+                        rangedSource,
+                        client,
+                        authority,
+                        candidate.Coordinate,
+                        rangedSelection,
+                        PackagePayloadAcquisition.ValidateLimits(limits),
+                        operation,
+                        log).ConfigureAwait(false);
+                    operation.ThrowIfExpired();
+                    RequireAuthority(client.Source, authority);
+                    switch (attempt.Outcome)
+                    {
+                        case RangedOutcome.Acquired:
+                            return new(
+                                authority,
+                                client.Source,
+                                attempt.Payload!,
+                                failures,
+                                notFoundAuthorities,
+                                selectedAuthorities,
+                                selectionUsesOriginalSources);
+                        case RangedOutcome.NotFound:
+                            notFoundAuthorities.Add(authority);
+                            continue;
+                        case RangedOutcome.Failed:
+                            // An expired operation ceiling surfaces through
+                            // ThrowIfExpired above; a request-level failure
+                            // leaves the next authority its turn.
+                            failures.Add(attempt.Failure!);
+                            continue;
+                        case RangedOutcome.Fallback:
+                            break;
+                        default:
+                            throw new ArgumentOutOfRangeException(
+                                nameof(attempt));
+                    }
+                }
+
                 log?.Invoke(
                     $"Acquiring {candidate.Coordinate.PackageId} "
                     + $"{candidate.Coordinate.Version} from "
@@ -338,6 +391,189 @@ internal sealed class PackageAcquisitionCandidatePayloadAcquirer
                 failures,
                 notFoundAuthorities);
         }
+    }
+
+    private enum RangedOutcome
+    {
+        Acquired,
+        NotFound,
+        Failed,
+        Fallback,
+    }
+
+    private readonly record struct RangedAttempt(
+        RangedOutcome Outcome,
+        AcquiredPackageSourcePayload? Payload = null,
+        PackageAuthorityFailure? Failure = null);
+
+    /// <summary>
+    /// The archive library's bounds for a ranged read, mapped from the
+    /// payload limits: the archive total, the entry count, the aggregate
+    /// expanded bound, the library's default directory cap, and the largest
+    /// entry-read slack so an entry whose local header is longer than its
+    /// central record still costs one request.
+    /// </summary>
+    internal static ZipReadLimits RangedLimits(PackagePayloadLimits limits) =>
+        new(
+            maxArchiveBytes: limits.MaxArchiveBytes,
+            maxEntryCount: limits.MaxEntryCount,
+            maxDirectoryBytes: ZipReadLimits.Default.MaxDirectoryBytes,
+            maxExpandedBytes: limits.MaxExpandedBytes,
+            entryReadSlack: ZipReadLimits.MaxEntryReadSlack);
+
+    private static async Task<RangedAttempt> TryAcquireRangedAsync(
+        IPackageArchiveRangeSource rangedSource,
+        IPackageSourceClient client,
+        ConfiguredPackageAuthority authority,
+        PackageSourceCoordinate coordinate,
+        PackageEntrySelector selectEntries,
+        PackagePayloadLimits limits,
+        NuGetOperationContext operation,
+        Action<string>? log)
+    {
+        InertString display = PackageSourceDisplay.ForDiagnostics(authority.Source);
+        log?.Invoke(
+            $"Reading {coordinate.PackageId} {coordinate.Version} by range from {display}.");
+        PackageArchiveReadResult<PackageArchiveReader> open =
+            await rangedSource.OpenArchiveAsync(
+                coordinate.PackageId,
+                coordinate.Version,
+                RangedLimits(limits),
+                operation.CancellationToken,
+                operation).ConfigureAwait(false);
+        if (open.Value is not { } reader)
+        {
+            return ClassifyRanged(
+                open.Refusal,
+                open.Failure,
+                authority,
+                client,
+                "opening the archive directory",
+                log);
+        }
+
+        await using (reader.ConfigureAwait(false))
+        {
+            RequireAuthority(reader.Source, authority, client.Source);
+            IReadOnlyList<PackageContentEntry> entries =
+                DirectoryEntries(reader.Directory);
+            string producerKey = client.Source.Producer.Key;
+            RangedPackageContent directory =
+                RangedPackageContent.CreateDirectory(entries, producerKey);
+            IReadOnlyList<string> selected =
+                selectEntries(directory)
+                ?? throw new InvalidOperationException(
+                    "The ranged entry selector returned null.");
+
+            var targets = new List<ZipEntry>();
+            var seen = new HashSet<string>(StringComparer.Ordinal);
+            long declared = 0;
+            foreach (string path in selected)
+            {
+                if (!seen.Add(path))
+                    continue;
+                ZipEntry entry =
+                    reader.Directory.Find(path)
+                    ?? throw new InvalidOperationException(
+                        $"The ranged entry selection named '{path}', which is not in the archive directory.");
+                declared += entry.ExpandedLength;
+                targets.Add(entry);
+            }
+            if (declared > limits.MaxExpandedBytes)
+            {
+                return new(
+                    RangedOutcome.Failed,
+                    Failure: new PackageAuthorityFailure(
+                        display,
+                        PackageAuthorityFailureKind.ResponseRejected,
+                        $"The selected entries declare {declared} expanded bytes, above the payload limit of {limits.MaxExpandedBytes}.")
+                    {
+                        ResultSource = client.Source,
+                    });
+            }
+
+            var materialized = new Dictionary<string, ReadOnlyMemory<byte>>(
+                StringComparer.Ordinal);
+            long remaining = limits.MaxExpandedBytes;
+            foreach (ZipEntry entry in targets)
+            {
+                operation.ThrowIfExpired();
+                PackageArchiveReadResult<PackageArchiveEntryContent> read =
+                    await reader.ReadEntryAsync(
+                        entry,
+                        maxExpandedBytes: remaining,
+                        operation.CancellationToken).ConfigureAwait(false);
+                if (read.Value is not { } content)
+                {
+                    return ClassifyRanged(
+                        read.Refusal,
+                        read.Failure,
+                        authority,
+                        client,
+                        $"reading entry '{entry.Name}'",
+                        log);
+                }
+                materialized[entry.Name] = content.Content;
+                remaining -= content.Content.Length;
+            }
+
+            RangedPackageContent retained = directory.WithMaterialized(materialized);
+            log?.Invoke(
+                $"Read {coordinate.PackageId} {coordinate.Version} by range from {display}: "
+                + $"{materialized.Count} of {entries.Count} entries, "
+                + $"{retained.MaterializedBytes} of {entries.Sum(static entry => entry.Length)} expanded bytes; "
+                + "nothing was cached.");
+            return new(
+                RangedOutcome.Acquired,
+                new AcquiredPackageSourcePayload(
+                    coordinate,
+                    retained,
+                    producerKey,
+                    client.Source.Producer,
+                    PackagePayloadOrigin.Ranged));
+        }
+    }
+
+    private static RangedAttempt ClassifyRanged(
+        PackageArchiveReadRefusal? refusal,
+        PackageSourceFailure? failure,
+        ConfiguredPackageAuthority authority,
+        IPackageSourceClient client,
+        string step,
+        Action<string>? log)
+    {
+        if (refusal is { } reason)
+        {
+            log?.Invoke(
+                $"Ranged read of {PackageSourceDisplay.ForDiagnostics(authority.Source)} "
+                + $"while {step} was refused ({reason}); acquiring the complete archive instead.");
+            return new(RangedOutcome.Fallback);
+        }
+
+        if (failure is null)
+        {
+            throw new InvalidOperationException(
+                "The ranged read completed without a value, failure, or refusal.");
+        }
+        RequireAuthority(failure.Source, authority, client.Source);
+        if (failure.Kind == PackageSourceFailureKind.NotFound)
+            return new(RangedOutcome.NotFound);
+        return new(
+            RangedOutcome.Failed,
+            Failure: DescribePayloadFailure(authority.Source, failure));
+    }
+
+    private static IReadOnlyList<PackageContentEntry> DirectoryEntries(
+        ZipDirectory directory)
+    {
+        var entries = new List<PackageContentEntry>(directory.Entries.Count);
+        foreach (ZipEntry entry in directory.Entries)
+        {
+            if (entry.Name.Length == 0 || entry.Name.EndsWith('/'))
+                continue;
+            entries.Add(new PackageContentEntry(entry.Name, entry.ExpandedLength));
+        }
+        return entries.AsReadOnly();
     }
 
     private static ConfiguredPackagePayloadResult PayloadOperationTimedOut(
