@@ -238,8 +238,7 @@ that side under the `TextFindings` analysis-line model:
 The relations are consumed unchanged, but the characterization accepts only a
 diff whose content assertions it can build on. Two preconditions apply:
 
-- every anchor (defined below) joins two lines with ordinal-equal content;
-  their terminators may differ only in spelling; and
+- every anchor (defined below) joins two lines with ordinal-equal content; and
 - every region with no `Moved` endpoint has region texts that are not
   ordinal-equal.
 
@@ -249,6 +248,12 @@ whitespace-insensitive line key. Such a diff is valid there but can't be
 characterized here. A mismatched endpoint or a violated precondition is an
 argument failure, never an empty or success-shaped characterization. The
 validator checks both preconditions.
+
+Terminators are not part of the anchor precondition. A boundary that follows
+an anchor and precedes region lines belongs to that region, so any difference
+in it is located there. A boundary difference outside every region is either
+spelling between two adjacent anchors, or final-terminator presence after
+anchored last lines. The document summary reports it without locating it.
 
 ### Regions
 
@@ -361,13 +366,14 @@ therefore marks lines too, without any per-line machinery.
 | Summary | Condition |
 | --- | --- |
 | `NoDifference` | The two input texts are ordinal-equal. |
-| `WhitespaceOnly` | The texts differ, and every region is `WhitespaceOnly`. This includes texts that differ only in line-terminator spelling and so have no region. |
+| `WhitespaceOnly` | The texts differ, and every region is `WhitespaceOnly`. This includes texts whose only differences lie outside every region: terminator spelling between adjacent anchors, or final-terminator presence after anchored last lines. |
 | `Changed` | At least one region is `Changed`. |
 
-Terminator spelling between two adjacent anchors lies in no region. The
-summary reports such a CRLF-versus-LF difference without locating it.
-Spelling inside a region is a located `TerminatorSpelling` edit, and the pair
-characterization, which sees both texts, locates it everywhere.
+A boundary difference outside every region is reported by the summary without
+being located. Inside a region, a spelling difference is a located
+`TerminatorSpelling` edit and a presence difference a located `LineBreaks`
+edit. The pair characterization, which sees both texts, locates both
+everywhere.
 
 The relationship with the pair characterization runs one way. A
 `WhitespaceOnly` summary implies that the pair characterization of the same
@@ -477,7 +483,7 @@ their region's changes.
 | YAML nesting | a key indented under a sibling | `WhitespaceOnly`, `Indentation`; structural meaning is not claimed |
 | No-break space | `a b` → `a`U+00A0`b` | `Changed` |
 | Word merge | `foo bar` → `foobar` | `WhitespaceOnly`, `Separation` |
-| Swapped lines | `a` / `b` → `b` / `a` | `Changed` (movement) |
+| Swapped lines | `a` / `b` → `b` / `a` | `Changed`; with a producer that issues a `Moved` correspondence, `Changed` because of movement |
 | Trailing line after an anchor | `a⏎␠` → `a` (via `TextAnalysisDiffPresentation.CreateAnalysisDiff`) | `WhitespaceOnly`, `LineBreaks` covering the anchor's boundary |
 | Final newline | `x` → `x⏎` | `WhitespaceOnly`, `LineBreaks` and `FinalLineTerminator` |
 | Terminator spelling, line diff | `a⏎b` with CRLF → LF | *doc* `WhitespaceOnly`, no region |
@@ -524,10 +530,10 @@ This design does not define:
 - intraline ranges for non-whitespace changes, though a follow-on may reuse the
   splitting alignment;
 - whitespace beyond U+0020, U+0009, and logical line boundaries;
-- locating line-terminator spelling changes between adjacent anchors in the
-  line-diff characterization (spelling inside a region is a
-  `TerminatorSpelling` edit, and the pair characterization locates it
-  everywhere);
+- locating boundary differences outside every region in the line-diff
+  characterization: spelling between adjacent anchors, or final-terminator
+  presence after anchored last lines (inside a region both are located, and
+  the pair characterization locates them everywhere);
 - host rendering, gestures, or interaction; or
 - adoption by any owner other than the first adopter.
 
