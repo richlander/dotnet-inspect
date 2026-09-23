@@ -34,10 +34,13 @@ Source authorization, source-result adoption, selection semantics
 (`PackageVersionSelectionResolver`), listing operations, and payload
 acquisition stay with their owners.
 
-Two claims transfer to version resolution, both described below: a new
-receipt arm, `Prior`, and a new `PackageVersionDiscoveryFreshness` value,
-`ServedPrior`, which only the `Prior` arm may carry. This document names
-them; version resolution adopts them when the service is implemented. Three
+Three claims transfer to version resolution, all described below: a new
+receipt arm, `Prior`; a new `PackageVersionDiscoveryFreshness` value,
+`ServedPrior`, which only the `Prior` arm may carry; and a narrowing of the
+receipt's every-arm invariant, so that a complete discovery result is
+retained by every discovery-backed arm while `Prior` retains none. This
+document names them; version resolution adopts them when the service is
+implemented. Three
 bounded rules transfer to PackageHouse: its decision receipt accepts `Prior`
 for a selecting demand; its terminal-outcome preservation treats `Prior` as
 a settled arm exactly as it treats `Resolved`, so every post-acquisition
@@ -170,7 +173,14 @@ visible failure followed by fresh discovery, never a silent substitution.
 Version resolution gains one receipt arm, `Prior`. It retains the exact
 request, the prior coordinate, the pinned candidate the current generation
 issued for it, the freshness (`Current` or `ServedPrior`), and for
-`ServedPrior` the entry's age. It retains no discovery result. PackageHouse's
+`ServedPrior` the entry's age. It retains no discovery result: the receipt's
+discovery becomes arm-specific, present on every discovery-backed arm and
+absent on `Prior`, and a consumer that needs discovery evidence matches on
+the arm rather than reading the property unconditionally. The two current
+unconditional readers, the settlement inspection's settled path and the
+range projection, are not reachable by a `Prior` receipt (`AlwaysLatest`
+always discovers; range adoption is excluded), and they adopt the arm match
+in step 1 so that no later consumer inherits the assumption. PackageHouse's
 decision receipt accepts `Prior` for a selecting demand when its coordinate and
 candidate match the receipt, alongside the existing `Resolved` rule, and its
 terminal-outcome preservation treats `Prior` as a settled arm exactly as it
@@ -234,8 +244,10 @@ before this design, with the target under one second warm and no cliff.
 1. This document; the service with its contract suite, including its
    eviction entry point; the `Prior` receipt arm and `ServedPrior` freshness
    value adopted by version resolution, including the rule that only `Prior`
-   carries `ServedPrior`; the decision-receipt and terminal-outcome rules
-   extended in PackageHouse so `Prior` is a settled arm.
+   carries `ServedPrior` and the arm-specific discovery invariant with the
+   two existing unconditional readers converted to arm matches; the
+   decision-receipt and terminal-outcome rules extended in PackageHouse so
+   `Prior` is a settled arm.
 2. `PackageHouse` selecting demands adopt it for `LatestStable` and
    `LatestPrerelease`, together with the eviction hook and its
    `Stage(Acquisition)` failure on the not-found path, since this is the
