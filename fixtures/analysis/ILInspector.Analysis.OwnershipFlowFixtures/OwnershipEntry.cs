@@ -106,6 +106,21 @@ public static class Entry
         return buffer.Length;
     }
 
+    public static int RentReturnAndForwardExternally()
+    {
+        byte[] buffer = ArrayPool<byte>.Shared.Rent(16);
+        try
+        {
+            ReturnRentedArray(buffer);
+            GC.KeepAlive(buffer);
+        }
+        finally
+        {
+            s_ownershipProbe++;
+        }
+        return buffer.Length;
+    }
+
     public static int RentAndReturnThroughInstance()
     {
         byte[] buffer = ArrayPool<byte>.Shared.Rent(16);
@@ -539,6 +554,16 @@ public static class Entry
         ObserveTwoResources(first, second);
     }
 
+    public static void ExerciseTwoResourceDomainsThroughHelper()
+    {
+        byte[] first = AcquireFirstResource();
+        ForwardResource(first);
+        s_ownershipProbe += first.Length;
+        byte[] second = AcquireSecondResource();
+        ForwardResource(second);
+        s_ownershipProbe += second.Length;
+    }
+
     public static void RentAddressThenObserve()
     {
         byte[] buffer = ArrayPool<byte>.Shared.Rent(16);
@@ -554,6 +579,9 @@ public static class Entry
     static void ObserveTwoResources(byte[] first, byte[] second)
     {
     }
+
+    static void ForwardResource(byte[] resource) =>
+        ObserveResource(resource);
 
     sealed class OwnershipWorker
     {

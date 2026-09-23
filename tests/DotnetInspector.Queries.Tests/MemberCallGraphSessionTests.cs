@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
@@ -10,6 +11,7 @@ using ILInspector.Decompiler.Pipeline;
 using Inspector.Findings;
 using ILInspector.Metadata;
 using ILInspector.Research;
+using InertText;
 using Analysis = ILInspector.Analysis;
 
 namespace DotnetInspector.Queries.Tests;
@@ -612,6 +614,8 @@ public sealed class MemberCallGraphSessionTests
                 Features =
                     Analysis.LibraryBodyAnalysisFeatures.MethodEvidence
                     | Analysis.LibraryBodyAnalysisFeatures.OwnershipFlow,
+                ResourceEffects =
+                    Analysis.ArrayPoolResourceEffectModel.Create(),
             });
         using var source = MetadataSource.Open(OwnershipPath);
 
@@ -641,16 +645,16 @@ public sealed class MemberCallGraphSessionTests
                         source,
                         fullView)));
 
-        Finding<ArrayPoolOwnershipPathWitness> finding =
+        Finding<ResourceOwnershipPathWitness> finding =
             Assert.Single(
                 full.Document.CallGraph.Ownership.Findings);
         Assert.Equal(
             Analysis.AnalysisFindings.ResourceLifecycleDescriptor,
             finding.Descriptor);
         Assert.Equal(
-            Analysis.ArrayPoolOwnershipUseKind.ReturnedToPool,
+            ResourceOwnershipPathOutcome.Released,
             finding.Payload.Outcome);
-        ArrayPoolOwnershipPathStep step =
+        ResourceOwnershipPathStep step =
             Assert.Single(finding.Payload.Steps);
         Assert.Equal(0, step.CalleeParameterIndex);
         Assert.Contains(
@@ -672,32 +676,32 @@ public sealed class MemberCallGraphSessionTests
     [Theory]
     [InlineData(
         "RentAndForwardToReturn",
-        Analysis.ArrayPoolOwnershipUseKind.ReturnedToPool,
+        ResourceOwnershipPathOutcome.Released,
         2,
         0)]
     [InlineData(
         "RentAndStoreThroughHelper",
-        Analysis.ArrayPoolOwnershipUseKind.Stored,
+        ResourceOwnershipPathOutcome.Stored,
         1,
         0)]
     [InlineData(
         "RentAndReturnFromHelper",
-        Analysis.ArrayPoolOwnershipUseKind.ReturnedToCaller,
+        ResourceOwnershipPathOutcome.ReturnedToCaller,
         1,
         0)]
     [InlineData(
         "RentAndReturnThroughInstance",
-        Analysis.ArrayPoolOwnershipUseKind.ReturnedToPool,
+        ResourceOwnershipPathOutcome.Released,
         1,
         1)]
     [InlineData(
         "RentAndReturnThroughConstructor",
-        Analysis.ArrayPoolOwnershipUseKind.ReturnedToPool,
+        ResourceOwnershipPathOutcome.Released,
         1,
         1)]
     public async Task AnnotatedOwnershipComposesTypedTerminalPaths(
         string methodName,
-        Analysis.ArrayPoolOwnershipUseKind outcome,
+        ResourceOwnershipPathOutcome outcome,
         int edgeCount,
         int firstCalleeParameterIndex)
     {
@@ -713,6 +717,8 @@ public sealed class MemberCallGraphSessionTests
                 Features =
                     Analysis.LibraryBodyAnalysisFeatures.MethodEvidence
                     | Analysis.LibraryBodyAnalysisFeatures.OwnershipFlow,
+                ResourceEffects =
+                    Analysis.ArrayPoolResourceEffectModel.Create(),
             });
         MemberCallGraphView view = graph.Callers();
         using var source = MetadataSource.Open(OwnershipPath);
@@ -722,7 +728,7 @@ public sealed class MemberCallGraphSessionTests
                 AnnotatedMemberDocumentQuery.Execute(
                     new AnnotatedMemberDocumentInput(source, view)));
 
-        Finding<ArrayPoolOwnershipPathWitness> finding =
+        Finding<ResourceOwnershipPathWitness> finding =
             Assert.Single(
                 complete.Document.CallGraph.Ownership.Findings);
         Assert.Equal(outcome, finding.Payload.Outcome);
@@ -733,6 +739,42 @@ public sealed class MemberCallGraphSessionTests
         Assert.Equal(
             finding.Payload.Steps.Select(step => step.EdgeRow),
             finding.Payload.EdgeRows);
+        AnnotatedCallGraphOwnershipInspection legacy =
+            ArrayPoolOwnershipPathFindings.Inspect(
+                view,
+                complete.Document.CallGraph.Projection);
+        Finding<ArrayPoolOwnershipPathWitness> legacyFinding =
+            Assert.Single(legacy.Findings);
+        Assert.Equal(
+            finding.Payload.Steps.Select(step =>
+                (
+                    step.EdgeRow,
+                    step.CallerModuleVersionId,
+                    step.CallerMethodToken,
+                    step.ILOffset,
+                    step.OperandToken,
+                    step.CalleeParameterIndex)),
+            legacyFinding.Payload.Steps.Select(step =>
+                (
+                    step.EdgeRow,
+                    step.CallerModuleVersionId,
+                    step.CallerMethodToken,
+                    step.ILOffset,
+                    step.OperandToken,
+                    step.CalleeParameterIndex)));
+        Assert.Equal(
+            outcome switch
+            {
+                ResourceOwnershipPathOutcome.Released =>
+                    Analysis.ArrayPoolOwnershipUseKind.ReturnedToPool,
+                ResourceOwnershipPathOutcome.Stored =>
+                    Analysis.ArrayPoolOwnershipUseKind.Stored,
+                ResourceOwnershipPathOutcome.ReturnedToCaller =>
+                    Analysis.ArrayPoolOwnershipUseKind.ReturnedToCaller,
+                _ => throw new ArgumentOutOfRangeException(
+                    nameof(outcome)),
+            },
+            legacyFinding.Payload.Outcome);
         Assert.Equal(
             new MemberCallGraphBuildCounts(0, 1, 0),
             graph.BuildCounts);
@@ -757,6 +799,8 @@ public sealed class MemberCallGraphSessionTests
                 Features =
                     Analysis.LibraryBodyAnalysisFeatures.MethodEvidence
                     | Analysis.LibraryBodyAnalysisFeatures.OwnershipFlow,
+                ResourceEffects =
+                    Analysis.ArrayPoolResourceEffectModel.Create(),
             });
         MemberCallGraphView view = graph.Callers();
         CallGraphProjection projection =
@@ -764,11 +808,12 @@ public sealed class MemberCallGraphSessionTests
                 view.CallerRoot,
                 view.CalleeRoot);
 
-        AnnotatedCallGraphOwnershipInspection all =
-            ArrayPoolOwnershipPathFindings.Inspect(
+        ResourceOwnershipPathInspection all =
+            ResourceOwnershipPathFindings.Inspect(
                 view,
-                projection);
-        Finding<ArrayPoolOwnershipPathWitness>[] findings =
+                projection,
+                ResourceOwnershipSearchOptions.ArrayPool);
+        Finding<ResourceOwnershipPathWitness>[] findings =
             [.. all.Findings];
         Assert.Equal(2, findings.Length);
         Assert.Equal(
@@ -779,13 +824,15 @@ public sealed class MemberCallGraphSessionTests
             findings[1].Payload.Steps[0].ILOffset);
         Assert.NotEqual(findings[0].Key, findings[1].Key);
 
-        AnnotatedCallGraphOwnershipInspection bounded =
-            ArrayPoolOwnershipPathFindings.Inspect(
+        ResourceOwnershipPathInspection bounded =
+            ResourceOwnershipPathFindings.Inspect(
                 view,
                 projection,
-                new ArrayPoolOwnershipSearchOptions
+                new ResourceOwnershipSearchOptions
                 {
                     MaxWitnesses = 1,
+                    ResourceKind =
+                        Analysis.ArrayPoolResourceEffectModel.BufferKind,
                 });
         Assert.Single(bounded.Findings);
         Assert.True(
@@ -811,18 +858,23 @@ public sealed class MemberCallGraphSessionTests
                 Features =
                     Analysis.LibraryBodyAnalysisFeatures.MethodEvidence
                     | Analysis.LibraryBodyAnalysisFeatures.OwnershipFlow,
+                ResourceEffects =
+                    Analysis.ArrayPoolResourceEffectModel.Create(),
             });
         MemberCallGraphView view = graph.Callers();
+        Assert.True(view.ResourceOwnershipPublicationComplete);
 
-        AnnotatedCallGraphOwnershipInspection result =
-            ArrayPoolOwnershipPathFindings.Inspect(
+        ResourceOwnershipPathInspection result =
+            ResourceOwnershipPathFindings.Inspect(
                 view,
                 CallGraphProjection.Create(
                     view.CallerRoot,
                     view.CalleeRoot),
-                new ArrayPoolOwnershipSearchOptions
+                new ResourceOwnershipSearchOptions
                 {
                     MaxPaths = 1,
+                    ResourceKind =
+                        Analysis.ArrayPoolResourceEffectModel.BufferKind,
                 });
 
         Assert.Empty(result.Findings);
@@ -849,15 +901,19 @@ public sealed class MemberCallGraphSessionTests
                 Features =
                     Analysis.LibraryBodyAnalysisFeatures.MethodEvidence
                     | Analysis.LibraryBodyAnalysisFeatures.OwnershipFlow,
+                ResourceEffects =
+                    Analysis.ArrayPoolResourceEffectModel.Create(),
             });
         MemberCallGraphView view = graph.Callers();
+        Assert.True(view.ResourceOwnershipPublicationComplete);
 
-        AnnotatedCallGraphOwnershipInspection result =
-            ArrayPoolOwnershipPathFindings.Inspect(
+        ResourceOwnershipPathInspection result =
+            ResourceOwnershipPathFindings.Inspect(
                 view,
                 CallGraphProjection.Create(
                     view.CallerRoot,
-                    view.CalleeRoot));
+                    view.CalleeRoot),
+                ResourceOwnershipSearchOptions.ArrayPool);
 
         Assert.Empty(result.Findings);
         Assert.True(
@@ -866,6 +922,56 @@ public sealed class MemberCallGraphSessionTests
         Assert.True(
             result.Limits.HasFlag(
                 AnnotatedCallGraphOwnershipLimit.TraversalBoundary));
+        Assert.False(
+            result.Limits.HasFlag(
+                AnnotatedCallGraphOwnershipLimit.AnalysisFailure));
+    }
+
+    [Fact]
+    public async Task OwnershipPositiveWitnessSurvivesAnIncompleteSiblingPath()
+    {
+        await using GraphContext context =
+            GraphContext.Create(OwnershipPath, TargetPath);
+        int root = MemberToken(
+            OwnershipPath,
+            "Entry",
+            "RentReturnAndForwardExternally");
+        using var graph = new MemberCallGraphSession(
+            context.Group,
+            context.Sources[0].Assembly,
+            root,
+            new MemberCallGraphOptions
+            {
+                Features =
+                    Analysis.LibraryBodyAnalysisFeatures.MethodEvidence,
+                ResourceEffects =
+                    Analysis.ArrayPoolResourceEffectModel.Create(),
+            });
+        MemberCallGraphView view = graph.Callers();
+
+        ResourceOwnershipPathInspection result =
+            ResourceOwnershipPathFindings.Inspect(
+                view,
+                CallGraphProjection.Create(
+                    view.CallerRoot,
+                    view.CalleeRoot),
+                ResourceOwnershipSearchOptions.ArrayPool);
+        Finding<ResourceOwnershipPathWitness> finding =
+            Assert.Single(result.Findings);
+
+        Assert.Equal(
+            ResourceOwnershipPathOutcome.Released,
+            finding.Payload.Outcome);
+        Assert.True(finding.Payload.IsComplete);
+        Assert.True(
+            result.Limits.HasFlag(
+                AnnotatedCallGraphOwnershipLimit.BodyUnavailable));
+        Assert.True(
+            result.Limits.HasFlag(
+                AnnotatedCallGraphOwnershipLimit.TraversalBoundary));
+        Assert.False(
+            result.Limits.HasFlag(
+                AnnotatedCallGraphOwnershipLimit.AnalysisFailure));
     }
 
     [Theory]
@@ -886,20 +992,109 @@ public sealed class MemberCallGraphSessionTests
                 Features =
                     Analysis.LibraryBodyAnalysisFeatures.MethodEvidence
                     | Analysis.LibraryBodyAnalysisFeatures.OwnershipFlow,
+                ResourceEffects =
+                    Analysis.ArrayPoolResourceEffectModel.Create(),
             });
         MemberCallGraphView view = graph.Callers();
 
-        AnnotatedCallGraphOwnershipInspection result =
-            ArrayPoolOwnershipPathFindings.Inspect(
+        ResourceOwnershipPathInspection result =
+            ResourceOwnershipPathFindings.Inspect(
                 view,
                 CallGraphProjection.Create(
                     view.CallerRoot,
-                    view.CalleeRoot));
+                    view.CalleeRoot),
+                ResourceOwnershipSearchOptions.ArrayPool);
 
         Assert.Empty(result.Findings);
         Assert.True(
             result.Limits.HasFlag(
                 AnnotatedCallGraphOwnershipLimit.AnalysisFailure));
+    }
+
+    [Fact]
+    public async Task GenericOwnershipKeepsResourceKindsDistinctOnOneGraph()
+    {
+        await using GraphContext context =
+            GraphContext.Create(OwnershipPath, TargetPath);
+        int root = MemberToken(
+            OwnershipPath,
+            "Entry",
+            "ExerciseTwoResourceDomainsThroughHelper");
+        using var graph = new MemberCallGraphSession(
+            context.Group,
+            context.Sources[0].Assembly,
+            root,
+            new MemberCallGraphOptions
+            {
+                Features =
+                    Analysis.LibraryBodyAnalysisFeatures.MethodEvidence,
+                ResourceEffects = TwoResourceAdmission(),
+            });
+        MemberCallGraphView view = graph.Callers();
+        Analysis.ResourceOwnershipMethodSummary focus =
+            Assert.Single(
+                view.ResourceOwnershipSummaries,
+                summary =>
+                    summary.Method.MetadataToken == root);
+        Assert.Equal(2, focus.Acquisitions.Length);
+        Assert.Equal(
+            [0, 0],
+            focus.Acquisitions
+                .SelectMany(flow => flow.Uses)
+                .Where(use => use.IsForwarded)
+                .Select(use => use.CalleeParameterIndex)
+                .Order()
+                .ToArray());
+        Analysis.ResourceOwnershipMethodSummary forward =
+            Assert.Single(
+                view.ResourceOwnershipSummaries,
+                summary =>
+                    summary.Method.Name == "ForwardResource");
+        Assert.Equal(
+            [0, 0],
+            forward.Parameters
+                .SelectMany(flow => flow.Uses)
+                .Where(use =>
+                    use.Kind
+                        == Analysis.ResourceOwnershipUseKind.Released)
+                .Select(use => use.CalleeParameterIndex)
+                .Order()
+                .ToArray());
+
+        ResourceOwnershipPathInspection result =
+            ResourceOwnershipPathFindings.Inspect(
+                view,
+                CallGraphProjection.Create(
+                    view.CallerRoot,
+                    view.CalleeRoot));
+        Finding<ResourceOwnershipPathWitness>[] findings =
+            [.. result.Findings];
+
+        Assert.Equal(2, findings.Length);
+        Assert.All(
+            findings,
+            finding =>
+            {
+                Assert.Equal(
+                    ResourceOwnershipPathOutcome.Released,
+                    finding.Payload.Outcome);
+                Assert.True(finding.Payload.IsComplete);
+                Assert.Single(finding.Payload.Steps);
+            });
+        Assert.Equal(
+            2,
+            findings
+                .Select(finding =>
+                    finding.Payload.ResourceKind.Identity)
+                .Distinct()
+                .Count());
+        Assert.Equal(
+            findings[0].Payload.Steps[0].EdgeRow,
+            findings[1].Payload.Steps[0].EdgeRow);
+        Assert.NotEqual(
+            findings[0].Payload.Steps[0].ILOffset,
+            findings[1].Payload.Steps[0].ILOffset);
+        Assert.NotEqual(findings[0].Key, findings[1].Key);
     }
 
     [Fact]
@@ -1740,6 +1935,168 @@ public sealed class MemberCallGraphSessionTests
         pe.Serialize(image);
         return image.ToArray();
     }
+
+    static Analysis.ResourceEffectAdmission TwoResourceAdmission()
+    {
+        var model =
+            new Analysis.ResourceEffectModelIdentity(
+                "test.generic-research-ownership");
+        var firstKind =
+            new Analysis.ResourceKindIdentity(
+                "test.generic-research-ownership.first");
+        var secondKind =
+            new Analysis.ResourceKindIdentity(
+                "test.generic-research-ownership.second");
+        Analysis.ResourceTypeExpression.Named entry =
+            FixtureEntryType();
+        Analysis.ResourceTypeExpression.Named byteType =
+            CoreType("Byte");
+        var byteArray =
+            new Analysis.ResourceTypeExpression.SzArray(byteType);
+        Analysis.ResourceTypeExpression.Named voidType =
+            CoreType("Void");
+        var first =
+            new Analysis.ResourceKindReference(firstKind, []);
+        var second =
+            new Analysis.ResourceKindReference(secondKind, []);
+        var definition =
+            new Analysis.ResourceEffectModelDefinition(
+                Analysis.ResourceEffectLanguageIdentity.Version1,
+                model,
+                [
+                    new Analysis.ResourceKindDefinition(
+                        firstKind,
+                        arity: 0,
+                        [Provenance(model, 0)]),
+                    new Analysis.ResourceKindDefinition(
+                        secondKind,
+                        arity: 0,
+                        [Provenance(model, 1)]),
+                ],
+                [],
+                [
+                    Declaration(
+                        model,
+                        entry,
+                        "AcquireFirstResource",
+                        [],
+                        byteArray,
+                        new Analysis.ResourceEffect.Acquire(
+                            first,
+                            new Analysis.ResourceEffectLocation.Return(),
+                            new Analysis.ResourceEffectCompletion
+                                .NormalReturn(),
+                            Correspondence: null,
+                            Lender: null),
+                        2),
+                    Declaration(
+                        model,
+                        entry,
+                        "AcquireSecondResource",
+                        [],
+                        byteArray,
+                        new Analysis.ResourceEffect.Acquire(
+                            second,
+                            new Analysis.ResourceEffectLocation.Return(),
+                            new Analysis.ResourceEffectCompletion
+                                .NormalReturn(),
+                            Correspondence: null,
+                            Lender: null),
+                        3),
+                    Declaration(
+                        model,
+                        entry,
+                        "ObserveResource",
+                        [byteArray],
+                        voidType,
+                        new Analysis.ResourceEffect.Release(
+                            new Analysis.ResourceEffectLocation.Parameter(0),
+                            new Analysis.ResourceEffectCompletion
+                                .NormalReturn(),
+                            first,
+                            Correspondence: null,
+                            Observation: null),
+                        4),
+                    Declaration(
+                        model,
+                        entry,
+                        "ObserveResource",
+                        [byteArray],
+                        voidType,
+                        new Analysis.ResourceEffect.Release(
+                            new Analysis.ResourceEffectLocation.Parameter(0),
+                            new Analysis.ResourceEffectCompletion
+                                .NormalReturn(),
+                            second,
+                            Correspondence: null,
+                            Observation: null),
+                        5),
+                ]);
+        Analysis.ResourceEffectAdmissionOutcome outcome =
+            Analysis.ResourceEffectAdmissionBuilder.Admit([definition]);
+        return Assert.IsType<
+            Analysis.ResourceEffectAdmissionOutcome.Admitted>(
+                outcome).Admission;
+    }
+
+    static Analysis.ResourceEffectTypedDeclaration Declaration(
+        Analysis.ResourceEffectModelIdentity model,
+        Analysis.ResourceTypeExpression.Named declaringType,
+        string name,
+        ImmutableArray<Analysis.ResourceTypeExpression> parameters,
+        Analysis.ResourceTypeExpression returnType,
+        Analysis.ResourceEffect effect,
+        int ordinal) =>
+        new(
+            new Analysis.ResourceEffectTargetSelector.Member(
+                new Analysis.ResourceEffectMemberSelector(
+                    declaringType,
+                    name,
+                    Analysis.ResourceEffectMemberKind.Method,
+                    isStatic: true,
+                    genericArity: 0,
+                    Analysis.ResourceEffectCallingConvention.Default,
+                    hasThis: false,
+                    explicitThis: false,
+                    [
+                        .. parameters.Select(parameter =>
+                            new Analysis.ResourceEffectParameterSelector(
+                                parameter,
+                                Analysis.ResourceEffectRefKind.Value)),
+                    ],
+                    returnType)),
+            effect,
+            [Provenance(model, ordinal)]);
+
+    static Analysis.ResourceTypeExpression.Named FixtureEntryType() =>
+        new(
+            new Analysis.ResourceAssemblySelector(
+                "ILInspector.Analysis.OwnershipFlowFixtures",
+                publicKeyToken: null,
+                Analysis.ResourceAssemblyVersionPolicy.Any),
+            "Ownership",
+            [new Analysis.ResourceTypeNameSegment("Entry", 0)]);
+
+    static Analysis.ResourceTypeExpression.Named CoreType(string name) =>
+        new(
+            new Analysis.ResourceAssemblySelector(
+                "System.Runtime",
+                "b03f5f7f11d50a3a",
+                Analysis.ResourceAssemblyVersionPolicy.Any,
+                allowCoreLibraryFacade: true),
+            "System",
+            [new Analysis.ResourceTypeNameSegment(name, 0)]);
+
+    static Analysis.ResourceDeclarationProvenance Provenance(
+        Analysis.ResourceEffectModelIdentity model,
+        int ordinal) =>
+        new(
+            model,
+            Analysis.ResourceDeclarationAuthority.CallerSupplied,
+            new InertString(
+                TextPolicy.Field,
+                $"generic-research-ownership-test:{ordinal}"),
+            ordinal);
 
     sealed class GraphContext : IAsyncDisposable
     {
