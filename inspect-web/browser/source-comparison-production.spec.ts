@@ -692,13 +692,16 @@ test.describe("published authored Source comparison transport", () => {
         };
       });
       const canceledId = "source-comparison-worker-canceled";
-      await page.evaluate(({ operationId, request }) => {
+      await page.evaluate(({ operationId, comparisonRequest }) => {
         const target = window as SourceComparisonGateWindow;
         const bridge = target.__inspectWebSourceComparison;
         if (!bridge) throw new Error("Source comparison bridge is unavailable.");
         target.__sourceComparisonPending =
-          bridge.source.queryMemberSourceComparison(operationId, request);
-      }, { operationId: canceledId, request });
+          bridge.source.queryMemberSourceComparison(
+            operationId,
+            comparisonRequest,
+          );
+      }, { operationId: canceledId, comparisonRequest: request });
       await sourceStart;
       await page.evaluate(async operationId => {
         const bridge = (window as SourceComparisonGateWindow)
@@ -722,18 +725,18 @@ test.describe("published authored Source comparison transport", () => {
       expect(canceled.reason).toBe("superseded");
 
       const successor = await page.evaluate(
-        async ({ operationId, request }) => {
+        async ({ operationId, comparisonRequest }) => {
           const bridge = (window as SourceComparisonGateWindow)
             .__inspectWebSourceComparison;
           if (!bridge) throw new Error("Source comparison bridge is unavailable.");
           return await bridge.source.queryMemberSourceComparison(
             operationId,
-            request,
+            comparisonRequest,
           );
         },
         {
           operationId: "source-comparison-worker-successor",
-          request,
+          comparisonRequest: request,
         },
       );
       expect(successor.kind).toBe("Succeeded");
