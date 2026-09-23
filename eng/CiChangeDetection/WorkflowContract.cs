@@ -51,7 +51,18 @@ internal static partial class WorkflowContract
     internal static WorkflowContractResult Load(
         string repository,
         string workflowText,
-        bool validateProvenancePin = true)
+        bool validateProvenancePin = true) =>
+        Load(
+            repository,
+            workflowText,
+            validateProvenancePin,
+            validateProjectGraph: true);
+
+    private static WorkflowContractResult Load(
+        string repository,
+        string workflowText,
+        bool validateProvenancePin,
+        bool validateProjectGraph)
     {
         using TextReader reader = new StringReader(workflowText);
         YamlStream yaml = [];
@@ -62,7 +73,10 @@ internal static partial class WorkflowContract
                 $"Expected one workflow document, found {yaml.Documents.Count}.");
         }
 
-        DecompilerProjectGraphPolicy.Validate(repository);
+        if (validateProjectGraph)
+        {
+            DecompilerProjectGraphPolicy.Validate(repository);
+        }
 
         YamlMappingNode root = RequireMapping(
             yaml.Documents[0].RootNode,
