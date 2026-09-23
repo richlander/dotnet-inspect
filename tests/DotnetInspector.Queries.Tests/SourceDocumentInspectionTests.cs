@@ -177,7 +177,9 @@ public sealed partial class AssemblyContextSourceQueryTests
         SourceDocument typeDocument = projectedType.Content;
 
         Assert.Equal(SourceDocumentProvider.Pdb, typeDocument.Provider);
-        Assert.Equal("csharp", typeDocument.Language);
+        Assert.Equal(
+            SourceDocumentLanguage.CSharp,
+            typeDocument.Language);
         Assert.Equal(
             typeAvailable.Subject.Identity,
             typeDocument.Identity.Assembly);
@@ -202,6 +204,51 @@ public sealed partial class AssemblyContextSourceQueryTests
         Assert.Equal(partialEnvelope.Diagnostics, projectedType.Diagnostics);
         additionalDocuments.Clear();
         Assert.Single(typeMapping.AdditionalDocuments);
+
+        string visualBasicAssemblyPath =
+            FixtureCatalog.SourceLinkVisualBasic.AssemblyPath();
+        TestAssembly visualBasicAssembly =
+            TestAssembly.Create(
+                File.ReadAllBytes(visualBasicAssemblyPath));
+        using var visualBasicHost = QueryHost.WithSource(
+            File.ReadAllBytes(
+                Path.Combine(
+                    FindRepositoryRoot(),
+                    "fixtures",
+                    "sourcelink",
+                    "DotnetInspector.SourceLinkVisualBasicFixtures",
+                    "BodylessSourceFixture.vb")));
+        InspectionEnvelope<AssemblyTypeSourceEntry> visualBasicType;
+        await using (var workspace = new InspectionWorkspace())
+        {
+            using AssemblyContextGroup group =
+                workspace.CreateAssemblyContextGroup(
+                    [visualBasicAssembly.Participant]);
+            visualBasicType = await TypeSourceInspection.ExecuteAsync(
+                group,
+                visualBasicAssembly.Participant,
+                visualBasicAssembly.TypeRequest(
+                    "BodylessSourceFixture"),
+                visualBasicHost.Context,
+                TestContext.Current.CancellationToken);
+        }
+
+        SourceDocument visualBasicDocument =
+            Assert.IsType<
+                    SourceDocumentProjection<AssemblyTypeSourceEntry>
+                        .Available>(
+                    SourceDocumentInspection.Project(visualBasicType))
+                .Inspection.Content;
+        Assert.Equal(
+            SourceDocumentProvider.Pdb,
+            visualBasicDocument.Provider);
+        Assert.Equal(
+            SourceDocumentLanguage.VisualBasic,
+            visualBasicDocument.Language);
+        Assert.Contains(
+            "Public Interface BodylessSourceFixture",
+            Reconstruct(visualBasicDocument),
+            StringComparison.Ordinal);
 
         TestAssembly fallbackAssembly =
             TestAssembly.Create(fixture: FixtureCatalog.SourceDiffV1);
@@ -231,6 +278,9 @@ public sealed partial class AssemblyContextSourceQueryTests
         Assert.Equal(
             SourceDocumentProvider.Decompiled,
             projectedFallback.Content.Provider);
+        Assert.Equal(
+            SourceDocumentLanguage.CSharp,
+            projectedFallback.Content.Language);
         Assert.Null(projectedFallback.Content.Authored);
         var authoredAttempt =
             Assert.IsType<

@@ -14,6 +14,13 @@ public enum SourceDocumentProvider
     Decompiled,
 }
 
+public enum SourceDocumentLanguage
+{
+    CSharp,
+    VisualBasic,
+    FSharp,
+}
+
 public enum SourceDocumentLineTerminator
 {
     None,
@@ -163,6 +170,7 @@ public sealed record SourceDocument
     internal SourceDocument(
         SourceDocumentBinding binding,
         SourceDocumentProvider provider,
+        SourceDocumentLanguage language,
         SourceDocumentIdentity identity,
         SourceDocumentRequest request,
         SourceDocumentAuthoredEvidence? authored,
@@ -172,6 +180,7 @@ public sealed record SourceDocument
     {
         Binding = binding ?? throw new ArgumentNullException(nameof(binding));
         Provider = provider;
+        Language = language;
         Identity = identity ?? throw new ArgumentNullException(nameof(identity));
         Request = request ?? throw new ArgumentNullException(nameof(request));
         Authored = authored;
@@ -188,6 +197,8 @@ public sealed record SourceDocument
 
     public SourceDocumentProvider Provider { get; }
 
+    public SourceDocumentLanguage Language { get; }
+
     public SourceDocumentIdentity Identity { get; }
 
     public SourceDocumentRequest Request { get; }
@@ -197,8 +208,6 @@ public sealed record SourceDocument
     public SourceDocumentAuthoredAttemptEvidence? AuthoredAttempt { get; }
 
     public SourceDocumentTypeMappingEvidence? TypeMapping { get; }
-
-    public string Language => "csharp";
 
     public ImmutableArray<SourceDocumentLine> Lines { get; }
 }
@@ -235,6 +244,7 @@ public static class SourceDocumentInspection
                 Create(
                     available,
                     SourceDocumentProvider.Pdb,
+                    AuthoredLanguage(pdb.Inspection.Document),
                     pdb.Text,
                     new SourceDocumentAuthoredEvidence(
                         pdb.Provenance,
@@ -246,6 +256,7 @@ public static class SourceDocumentInspection
                 Create(
                     available,
                     SourceDocumentProvider.Decompiled,
+                    SourceDocumentLanguage.CSharp,
                     decompiled.Text,
                     authored: null,
                     AuthoredAttempt(decompiled.PdbAttempt),
@@ -273,6 +284,7 @@ public static class SourceDocumentInspection
                 Create(
                     available,
                     SourceDocumentProvider.Pdb,
+                    AuthoredLanguage(pdb.Inspection.Document),
                     pdb.Text,
                     new SourceDocumentAuthoredEvidence(
                         pdb.Provenance,
@@ -283,6 +295,7 @@ public static class SourceDocumentInspection
                 Create(
                     available,
                     SourceDocumentProvider.Decompiled,
+                    SourceDocumentLanguage.CSharp,
                     decompiled.Text,
                     authored: null,
                     AuthoredAttempt(decompiled.PdbAttempt)),
@@ -356,6 +369,7 @@ public static class SourceDocumentInspection
     private static SourceDocument Create(
         AssemblyTypeSourceEntry.Available available,
         SourceDocumentProvider provider,
+        SourceDocumentLanguage language,
         string text,
         SourceDocumentAuthoredEvidence? authored,
         SourceDocumentAuthoredAttemptEvidence? authoredAttempt,
@@ -363,6 +377,7 @@ public static class SourceDocumentInspection
         new(
             new SourceDocumentBinding(Guid.NewGuid()),
             provider,
+            language,
             Identity(available.Subject),
             new SourceDocumentRequest.Type(available.Request),
             authored,
@@ -373,12 +388,14 @@ public static class SourceDocumentInspection
     private static SourceDocument Create(
         AssemblyMemberSourceEntry.Available available,
         SourceDocumentProvider provider,
+        SourceDocumentLanguage language,
         string text,
         SourceDocumentAuthoredEvidence? authored,
         SourceDocumentAuthoredAttemptEvidence? authoredAttempt) =>
         new(
             new SourceDocumentBinding(Guid.NewGuid()),
             provider,
+            language,
             Identity(available.Subject),
             new SourceDocumentRequest.Member(available.Request),
             authored,
@@ -389,6 +406,30 @@ public static class SourceDocumentInspection
     private static SourceDocumentIdentity Identity(
         AssemblyContextSubject subject) =>
         new(subject.Identity, subject.Provenance);
+
+    private static SourceDocumentLanguage AuthoredLanguage(
+        SourceDocumentObservation? document)
+    {
+        string? path = document?.CanonicalPath;
+        return path switch
+        {
+            { } when path.EndsWith(
+                ".cs",
+                StringComparison.OrdinalIgnoreCase) =>
+                SourceDocumentLanguage.CSharp,
+            { } when path.EndsWith(
+                ".vb",
+                StringComparison.OrdinalIgnoreCase) =>
+                SourceDocumentLanguage.VisualBasic,
+            { } when path.EndsWith(
+                ".fs",
+                StringComparison.OrdinalIgnoreCase) =>
+                SourceDocumentLanguage.FSharp,
+            _ => throw new InvalidOperationException(
+                "An available authored Source result does not identify one "
+                + "supported source language."),
+        };
+    }
 
     private static SourceDocumentAuthoredAttemptEvidence.Type AuthoredAttempt(
         PdbTypeSourceInspection inspection) =>
