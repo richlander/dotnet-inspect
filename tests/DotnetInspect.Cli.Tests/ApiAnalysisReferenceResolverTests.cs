@@ -5,8 +5,8 @@ namespace DotnetInspect.Cli.Tests;
 
 /// <summary>
 /// Pins that the API-analysis reference resolver forwards <see cref="ApiOptions"/> inputs. Issue
-/// #2895 deliberately makes the type-scoped analysis index (via
-/// <see cref="ApiAnalysisInspection.OpenTypeAnalysisIndex"/>) honor <c>--project</c> and
+/// #2895 deliberately makes the type-scoped analysis execution (via
+/// <see cref="ApiAnalysisInspection.OpenTypeAnalysis"/>) honor <c>--project</c> and
 /// <c>--tfm</c>, matching the member-analysis path; before the refactor the type path built its
 /// resolver with no options and silently ignored those inputs.
 /// </summary>

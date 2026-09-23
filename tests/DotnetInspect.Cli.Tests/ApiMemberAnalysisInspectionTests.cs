@@ -6,8 +6,10 @@ using DotnetInspect.Cli.Commands;
 using DotnetInspector.Fixtures;
 using DotnetInspect.Cli.Inspectors;
 using DotnetInspect.Cli.Options;
+using DotnetInspect.Cli.Output;
 using DotnetInspector.Sections;
 using DotnetInspect.Cli.Sections;
+using DotnetInspect.Cli.Views;
 using ILInspector.Metadata;
 
 namespace DotnetInspect.Cli.Tests;
@@ -152,8 +154,11 @@ public class ApiMemberAnalysisInspectionTests
             inspection.CallGraphOptimizationResults.Single(result =>
                 result.Receipt.SourceName == CliPath);
 
-        Assert.NotEmpty(inspection.BodyIndex.OptimizationOpportunities);
-        Assert.True(inspection.BodyIndex.Features.HasFlag(
+        ILInspector.Analysis.LibraryBodyAnalysisExecution execution =
+            AnalysisExecution(inspection);
+        Assert.NotEmpty(execution.Optimization.Opportunities);
+        Assert.True(
+            execution.Receipt.Features.HasFlag(
             ILInspector.Analysis.LibraryBodyAnalysisFeatures.Allocations));
         Assert.Empty(cliResult.Opportunities);
         Assert.False(cliResult.Receipt.Features.HasFlag(
@@ -307,18 +312,98 @@ public class ApiMemberAnalysisInspectionTests
         _ = inspection.CallerScopes(includeAllocations: false);
         _ = inspection.BuildCallGraph(root);
 
-        var session = Assert.IsType<MethodBodyInspectionSession>(
-            typeof(ApiMemberAnalysisInspection)
-                .GetField(
-                    "_session",
-                    BindingFlags.Instance | BindingFlags.NonPublic)!
-                .GetValue(inspection));
         Assert.Null(
             typeof(ILInspector.Analysis.LibraryBodyAnalysisExecution)
                 .GetField(
                     "_compatibilityIndex",
                     BindingFlags.Instance | BindingFlags.NonPublic)!
-                .GetValue(session.AnalysisExecution));
+                .GetValue(AnalysisExecution(inspection)));
+    }
+
+    [Fact]
+    public void MemberAnalysisPresentation_DoesNotCreateCompatibilityIndex()
+    {
+        using var stream = File.OpenRead(SelfPath);
+        using var reader = new PEReader(stream);
+        ApiType type = ApiSurfaceExtractor.Extract(
+                reader,
+                includeAll: true)
+            .Types
+            .Single(candidate =>
+                candidate.FullName
+                    == typeof(ApiMemberAnalysisInspectionTests).FullName);
+        ApiMember method = type.Members.Single(candidate =>
+            candidate.Name
+                == nameof(
+                    CallGraphScopeAndProjection_DoNotCreateCompatibilityIndex));
+        var methods = new List<ApiMember> { method };
+        var sections = new HashSet<string>
+        {
+            SectionNames.Calls,
+            SectionNames.UnsafeOperations,
+            SectionNames.AllocationFacts,
+            SectionNames.SafetyFacts,
+            SectionNames.CostFacts,
+        };
+        var inspection = new ApiMemberAnalysisInspection(
+            SelfPath,
+            methods,
+            sections,
+            callerScopeAssemblies: null,
+            options: null);
+
+        ApiOutputFormatter.PopulateIndexSections(
+            new TypeView(),
+            type,
+            methods,
+            SelfPath,
+            overloadIndex: 1,
+            sections,
+            inspection);
+
+        AssertCompatibilityIndexNotMaterialized(
+            AnalysisExecution(inspection));
+    }
+
+    [Fact]
+    public void TypeAnalysisPresentation_DoesNotCreateCompatibilityIndex()
+    {
+        using var stream = File.OpenRead(SelfPath);
+        using var reader = new PEReader(stream);
+        ApiType type = ApiSurfaceExtractor.Extract(
+                reader,
+                includeAll: true)
+            .Types
+            .Single(candidate =>
+                candidate.FullName
+                    == typeof(ApiMemberAnalysisInspectionTests).FullName);
+        var sections = new HashSet<string>
+        {
+            SectionNames.UnsafeMembers,
+            SectionNames.AllocationFacts,
+            SectionNames.SafetyFacts,
+            SectionNames.CostFacts,
+        };
+        ILInspector.Analysis.LibraryBodyAnalysisExecution execution =
+            ApiAnalysisInspection.OpenTypeAnalysis(
+                SelfPath,
+                sections,
+                type);
+        var view = new TypeView();
+
+        ApiOutputFormatter.PopulateUnsafeMembers(
+            view,
+            type,
+            execution.Safety);
+        ApiOutputFormatter.PopulateTypeSemanticFacts(
+            view,
+            type,
+            execution.Allocations,
+            execution.Safety,
+            execution.CallGraph,
+            sections);
+
+        AssertCompatibilityIndexNotMaterialized(execution);
     }
 
     [Fact]
@@ -855,6 +940,29 @@ public class ApiMemberAnalysisInspectionTests
         }
 
         return null;
+    }
+
+    static void AssertCompatibilityIndexNotMaterialized(
+        ILInspector.Analysis.LibraryBodyAnalysisExecution execution)
+    {
+        Assert.Null(
+            typeof(ILInspector.Analysis.LibraryBodyAnalysisExecution)
+                .GetField(
+                    "_compatibilityIndex",
+                    BindingFlags.Instance | BindingFlags.NonPublic)!
+                .GetValue(execution));
+    }
+
+    static ILInspector.Analysis.LibraryBodyAnalysisExecution
+        AnalysisExecution(ApiMemberAnalysisInspection inspection)
+    {
+        var session = Assert.IsType<MethodBodyInspectionSession>(
+            typeof(ApiMemberAnalysisInspection)
+                .GetField(
+                    "_session",
+                    BindingFlags.Instance | BindingFlags.NonPublic)!
+                .GetValue(inspection));
+        return session.AnalysisExecution;
     }
 
     static byte[] BuildMalformedTarget()

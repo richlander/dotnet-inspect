@@ -442,17 +442,22 @@ public partial class ApiCommand
                     sourceAssembly);
             }
 
-            // Type-scope analysis sections share one index build per type (built lazily, only
-            // when such a section is requested) instead of opening one session per section.
-            Analysis.LibraryBodyIndex? typeAnalysisIndex = null;
-            Analysis.LibraryBodyIndex TypeAnalysisIndex() =>
-                typeAnalysisIndex ??= ApiAnalysisInspection.OpenTypeAnalysisIndex(
+            // Type-scope analysis sections share one execution per type (opened lazily, only
+            // when such a section is requested). Compatibility consumers materialize the index.
+            Analysis.LibraryBodyAnalysisExecution? typeAnalysis = null;
+            Analysis.LibraryBodyAnalysisExecution TypeAnalysis() =>
+                typeAnalysis ??= ApiAnalysisInspection.OpenTypeAnalysis(
                     options.DllPath!, GetRequestedMemberSections(type, options), type, options, sourceAssembly);
+            Analysis.LibraryBodyIndex TypeAnalysisIndex() =>
+                TypeAnalysis().CompatibilityIndex();
 
             if (options.DllPath is not null
                 && GetRequestedMemberSections(type, options).Contains(SectionNames.UnsafeMembers))
             {
-                ApiOutputFormatter.PopulateUnsafeMembers(view, type, TypeAnalysisIndex());
+                ApiOutputFormatter.PopulateUnsafeMembers(
+                    view,
+                    type,
+                    TypeAnalysis().Safety);
             }
 
             if (options.DllPath is { } exceptionRegionsDllPath
@@ -479,7 +484,16 @@ public partial class ApiCommand
                 && options.DllPath is not null
                 && semanticSections.Overlaps(SemanticFactSections))
             {
-                ApiOutputFormatter.PopulateTypeSemanticFacts(view, type, TypeAnalysisIndex(), semanticSections, options.IncludeSections);
+                Analysis.LibraryBodyAnalysisExecution execution =
+                    TypeAnalysis();
+                ApiOutputFormatter.PopulateTypeSemanticFacts(
+                    view,
+                    type,
+                    execution.Allocations,
+                    execution.Safety,
+                    execution.CallGraph,
+                    semanticSections,
+                    options.IncludeSections);
             }
 
             if (options.DllPath is not null

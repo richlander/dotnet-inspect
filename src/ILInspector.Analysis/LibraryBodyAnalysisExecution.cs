@@ -94,6 +94,15 @@ public sealed record LibrarySafetyAnalysisResult(
     public bool WasRequested =>
         Receipt.Features.HasFlag(
             LibraryBodyAnalysisFeatures.MethodEvidence);
+
+    /// <summary>Unsafe evidence grouped by the declared member token it describes.</summary>
+    public IReadOnlyDictionary<int, ImmutableArray<UnsafeEvidence>>
+        GetEvidenceByMember() =>
+        Evidence
+            .GroupBy(evidence => evidence.Member.MetadataToken)
+            .ToDictionary(
+                group => group.Key,
+                group => group.ToImmutableArray());
 }
 
 /// <summary>
