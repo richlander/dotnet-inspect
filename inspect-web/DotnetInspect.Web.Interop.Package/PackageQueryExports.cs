@@ -450,7 +450,7 @@ namespace DotnetInspect.Web.Interop.Package
                     new(BrowserPackageQueryEventKind.Assessment, null, null, null, null,
                         new(id, version, BrowserPackageAssemblyAssessmentKind.NoMatch,
                             "The selected implementation assembly has no matching decoded ldstr use.",
-                            selected.Asset.Path.ToString(), rootRequest)),
+                            selected.Asset.Path.ToString(), rootRequest, [])),
                 PackageAssemblyEvaluationOutcome.NotApplicable notApplicable =>
                     new(BrowserPackageQueryEventKind.Assessment, null, null, null, null,
                         new(id, version, BrowserPackageAssemblyAssessmentKind.NotApplicable,
@@ -462,7 +462,9 @@ namespace DotnetInspect.Web.Interop.Package
                                 PackageAssemblyNotApplicableReason.NoImplementationCounterpart => "The primary compile assembly has no implementation counterpart.",
                                 _ => throw new InvalidOperationException("Unknown assembly-query applicability outcome."),
                             },
-                            notApplicable.SelectedAsset?.Asset.Path.ToString(), rootRequest)),
+                            notApplicable.SelectedAsset?.Asset.Path.ToString(),
+                            rootRequest,
+                            [])),
                 PackageAssemblyEvaluationOutcome.Failure failure =>
                     new(BrowserPackageQueryEventKind.Failure, null,
                         new(id, version, subject.Coordinate.Producer,
@@ -597,40 +599,41 @@ namespace DotnetInspect.Web.Interop.Package
                 cancellationToken.ThrowIfCancellationRequested();
                 BrowserPackageAssemblySemanticCandidateOutcome projected =
                     Project(assessment);
-                BrowserPackageAssemblyAssessment? browserAssessment =
+                var browserAssessment = new BrowserPackageAssemblyAssessment(
+                    projected.PackageId,
+                    projected.Version,
                     projected.Kind switch
                     {
                         BrowserPackageAssemblySemanticCandidateOutcomeKind
+                            .Matched =>
+                            BrowserPackageAssemblyAssessmentKind.Matched,
+                        BrowserPackageAssemblySemanticCandidateOutcomeKind
                             .NoMatch =>
-                            new(
-                                projected.PackageId,
-                                projected.Version,
-                                BrowserPackageAssemblyAssessmentKind.NoMatch,
-                                projected.Message!,
-                                projected.SelectedAsset?.Path,
-                                projected.RootRequest!),
+                            BrowserPackageAssemblyAssessmentKind.NoMatch,
                         BrowserPackageAssemblySemanticCandidateOutcomeKind
                             .NotApplicable =>
-                            new(
-                                projected.PackageId,
-                                projected.Version,
-                                BrowserPackageAssemblyAssessmentKind
-                                    .NotApplicable,
-                                projected.Message!,
-                                projected.SelectedAsset?.Path,
-                                projected.RootRequest!),
-                        _ => null,
-                    };
-                if (browserAssessment is not null)
-                {
-                    emit(new(
-                        BrowserPackageQueryEventKind.Assessment,
-                        Row: null,
-                        Failure: null,
-                        Completion: null,
-                        Progress: null,
-                        browserAssessment));
-                }
+                            BrowserPackageAssemblyAssessmentKind.NotApplicable,
+                        BrowserPackageAssemblySemanticCandidateOutcomeKind
+                            .Failure =>
+                            BrowserPackageAssemblyAssessmentKind.Failure,
+                        BrowserPackageAssemblySemanticCandidateOutcomeKind
+                            .NotEvaluated =>
+                            BrowserPackageAssemblyAssessmentKind.NotEvaluated,
+                        _ => throw new InvalidOperationException(
+                            "Unknown library-literal assessment kind."),
+                    },
+                    projected.Message
+                        ?? "The selected implementation libraries contain matching decoded ldstr uses.",
+                    projected.SelectedAsset?.Path,
+                    projected.RootRequest,
+                    projected.Libraries);
+                emit(new(
+                    BrowserPackageQueryEventKind.Assessment,
+                    Row: null,
+                    Failure: null,
+                    Completion: null,
+                    Progress: null,
+                    browserAssessment));
                 return ValueTask.CompletedTask;
             }
         }
@@ -1053,7 +1056,53 @@ namespace DotnetInspect.Web.Interop.Package
                         ? null
                         : "Operation",
                 TimeoutSeconds: null,
-                assessment.Message);
+                assessment.Message,
+                ProjectLibraries(assessment));
+
+        private static BrowserPackageAssemblySemanticLibraryAssessment[]
+            ProjectLibraries(
+                PackageQueryLibraryLiteralAssessment assessment)
+        {
+            if (assessment.Libraries.IsEmpty)
+                return [];
+
+            string rootRequest = assessment.RootRequest?.Encode()
+                ?? throw new InvalidOperationException(
+                    "A per-Library assessment requires a Root request.");
+            return
+            [
+                .. assessment.Libraries.Select(library =>
+                    new BrowserPackageAssemblySemanticLibraryAssessment(
+                        new BrowserPackageAssemblySemanticSelectedAsset(
+                            library.SelectedAsset.Path,
+                            library.SelectedAsset.AssemblyName,
+                            library.SelectedAsset.TargetFramework,
+                            Sequence: "Implementation",
+                            library.SelectedAsset.Ordinal,
+                            library.SelectedAsset.UnevaluatedSiblings,
+                            rootRequest),
+                        library.Kind switch
+                        {
+                            PackageQueryLibraryLiteralLibraryAssessmentKind
+                                .Matched =>
+                                BrowserPackageAssemblySemanticLibraryAssessmentKind
+                                    .Matched,
+                            PackageQueryLibraryLiteralLibraryAssessmentKind
+                                .NoMatch =>
+                                BrowserPackageAssemblySemanticLibraryAssessmentKind
+                                    .NoMatch,
+                            PackageQueryLibraryLiteralLibraryAssessmentKind
+                                .Failure =>
+                                BrowserPackageAssemblySemanticLibraryAssessmentKind
+                                    .Failure,
+                            _ => throw new InvalidOperationException(
+                                "Unknown per-Library assessment kind."),
+                        },
+                        library.Occurrences,
+                        library.FailureStage,
+                        library.Message)),
+            ];
+        }
 
         private static BrowserPackageQueryManifest Project(
             PackageManifestFacts manifest) =>

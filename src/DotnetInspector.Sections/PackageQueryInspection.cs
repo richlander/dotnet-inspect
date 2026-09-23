@@ -340,7 +340,13 @@ public static class PackageQueryInspection
                 semantic.NotApplicableCount,
                 semantic.Completion.IsMatchLimitReached))
         {
-            LibraryLiteralAssessments = [.. semanticSink.Assessments],
+            LibraryLiteralAssessments =
+            [
+                .. semantic.CandidateOutcomes.Select(outcome =>
+                    semanticSink.AssessmentForTerminal(
+                        source.Source,
+                        outcome)),
+            ],
         };
 
         foreach (PackageQueryFailure failure in populationFailures)
@@ -559,6 +565,25 @@ public static class PackageQueryInspection
                             .OfType<
                                 PackageAssemblyEvaluationOutcome.Failure>()),
                 },
+            PackageAssemblySemanticQueryFailureReason
+                .AggregateOccurrenceLimit aggregateLimit =>
+                assessment with
+                {
+                    RootRequest = failure.LibraryEvaluations[0]
+                        .Subject.RootRequest,
+                    SelectedAsset = failure.LibraryEvaluations
+                        .Select(value => value.SelectedAsset)
+                        .FirstOrDefault(value => value is not null)
+                        is { } selected
+                            ? ProjectSelectedAsset(selected)
+                            : null,
+                    FailureKind =
+                        PackageQueryLibraryLiteralFailureKind.Evaluation,
+                    FailureStage =
+                        PackageAssemblyFailureStage.SemanticWorkLimit
+                            .ToString(),
+                    Message = Describe(aggregateLimit),
+                },
             _ => throw new InvalidOperationException(
                 "Unknown assembly-semantic failure reason."),
         };
@@ -605,6 +630,14 @@ public static class PackageQueryInspection
                         failure.LibraryEvaluations
                             .OfType<
                                 PackageAssemblyEvaluationOutcome.Failure>())),
+            PackageAssemblySemanticQueryFailureReason
+                .AggregateOccurrenceLimit aggregateLimit =>
+                new(
+                    failure.Coordinate.PackageId,
+                    failure.Coordinate.Version,
+                    source,
+                    PackageQueryFailureKind.AssemblyEvaluation,
+                    Describe(aggregateLimit)),
             _ => throw new InvalidOperationException(
                 "Unknown assembly-semantic failure reason."),
         };
@@ -727,6 +760,15 @@ public static class PackageQueryInspection
                 $"Package content was not found from {authority}."))
             .DefaultIfEmpty("Package content acquisition failed.")
             .Aggregate((left, right) => $"{left} {right}");
+
+    private static string Describe(
+        PackageAssemblySemanticQueryFailureReason.AggregateOccurrenceLimit
+            limit) =>
+        $"The selected implementation libraries produced "
+        + $"{Count(limit.ObservedOccurrences)} literal occurrences, exceeding "
+        + $"the aggregate limit of {Count(limit.MaximumOccurrences)} after "
+        + $"evaluating {Count(limit.EvaluatedLibraries)} of "
+        + $"{Count(limit.SelectedLibraries)} libraries.";
 
     private static string Describe(
         IEnumerable<PackageAssemblyEvaluationOutcome.Failure> failures)
@@ -866,6 +908,18 @@ public static class PackageQueryInspection
         internal List<PackageQueryLibraryLiteralAssessment> Assessments
             { get; } = [];
 
+        private Dictionary<int, PackageQueryLibraryLiteralAssessment>
+            AssessmentsByOrdinal { get; } = [];
+
+        internal PackageQueryLibraryLiteralAssessment AssessmentForTerminal(
+            PackageSourceResultIdentity source,
+            PackageAssemblySemanticQueryCandidateOutcome outcome) =>
+            AssessmentsByOrdinal.TryGetValue(
+                outcome.CandidateOrdinal,
+                out PackageQueryLibraryLiteralAssessment? retained)
+                ? retained
+                : ProjectAssessment(source, outcome);
+
         public async ValueTask ReportAsync(
             PackageAssemblySemanticQueryCandidateOutcome outcome,
             CancellationToken cancellationToken)
@@ -877,6 +931,13 @@ public static class PackageQueryInspection
                 await assessmentSink.ReportAsync(
                     assessment,
                     cancellationToken).ConfigureAwait(false);
+            }
+            if (!AssessmentsByOrdinal.TryAdd(
+                    outcome.CandidateOrdinal,
+                    assessment))
+            {
+                throw new InvalidOperationException(
+                    "Package Query published more than one assessment for one candidate.");
             }
             Assessments.Add(assessment);
             if (querySink is null)

@@ -19,11 +19,13 @@ public sealed class PackageAssemblySemanticFindBudget
             MaxEntryCount = 4_096,
             MaxUniqueDirectories = 8_192,
         },
-        PackageAssemblyEvaluationBudget.Default);
+        PackageAssemblyEvaluationBudget.Default,
+        maximumAggregateOccurrences: 10_000);
 
     public PackageAssemblySemanticFindBudget(
         PackagePayloadLimits payload,
-        PackageAssemblyEvaluationBudget evaluation)
+        PackageAssemblyEvaluationBudget evaluation,
+        int? maximumAggregateOccurrences = null)
     {
         ArgumentNullException.ThrowIfNull(payload);
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(
@@ -35,14 +37,22 @@ public sealed class PackageAssemblySemanticFindBudget
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(
             payload.MaxUniqueDirectories);
         ArgumentNullException.ThrowIfNull(evaluation);
+        int aggregateOccurrences =
+            maximumAggregateOccurrences
+            ?? evaluation.SemanticBudget.MaximumOccurrences;
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(
+            aggregateOccurrences);
 
         Payload = payload;
         Evaluation = evaluation;
+        MaximumAggregateOccurrences = aggregateOccurrences;
     }
 
     public PackagePayloadLimits Payload { get; }
 
     public PackageAssemblyEvaluationBudget Evaluation { get; }
+
+    public int MaximumAggregateOccurrences { get; }
 
     public TimeSpan MaximumDuration => Evaluation.MaximumDuration;
 }
@@ -165,6 +175,52 @@ public abstract record PackageAssemblySemanticFindFailureReason
         public ImmutableArray<PackageAssemblyEvaluationOutcome> Evaluations
             { get; }
     }
+
+    public sealed record AggregateOccurrenceLimit
+        : PackageAssemblySemanticFindFailureReason
+    {
+        internal AggregateOccurrenceLimit(
+            ImmutableArray<PackageAssemblyEvaluationOutcome> evaluations,
+            int maximumOccurrences,
+            long observedOccurrences,
+            int selectedLibraries)
+        {
+            if (evaluations.IsDefaultOrEmpty)
+            {
+                throw new ArgumentException(
+                    "An aggregate occurrence limit requires initialized library outcomes.",
+                    nameof(evaluations));
+            }
+            ArgumentOutOfRangeException.ThrowIfNegativeOrZero(
+                maximumOccurrences);
+            if (observedOccurrences <= maximumOccurrences)
+            {
+                throw new ArgumentOutOfRangeException(
+                    nameof(observedOccurrences),
+                    "Observed occurrences must exceed the aggregate limit.");
+            }
+            if (selectedLibraries < evaluations.Length)
+            {
+                throw new ArgumentOutOfRangeException(
+                    nameof(selectedLibraries),
+                    "Selected libraries cannot be fewer than evaluated libraries.");
+            }
+
+            Evaluations = evaluations;
+            MaximumOccurrences = maximumOccurrences;
+            ObservedOccurrences = observedOccurrences;
+            SelectedLibraries = selectedLibraries;
+        }
+
+        public ImmutableArray<PackageAssemblyEvaluationOutcome> Evaluations
+            { get; }
+
+        public int MaximumOccurrences { get; }
+
+        public long ObservedOccurrences { get; }
+
+        public int SelectedLibraries { get; }
+    }
 }
 
 /// <summary>One terminal outcome for one admitted package candidate.</summary>
@@ -255,7 +311,10 @@ public abstract record PackageAssemblySemanticFindCandidateOutcome
                 reason is PackageAssemblySemanticFindFailureReason.Evaluation
                     evaluation
                     ? evaluation.Evaluations
-                    : [])
+                    : reason is PackageAssemblySemanticFindFailureReason
+                        .AggregateOccurrenceLimit aggregateLimit
+                        ? aggregateLimit.Evaluations
+                        : [])
         {
             Reason = reason;
         }
@@ -803,17 +862,39 @@ internal static class PackageAssemblySemanticFindQuery
         var evaluations =
             ImmutableArray.CreateBuilder<PackageAssemblyEvaluationOutcome>(
                 selection.ImplementationAssets.Count);
+        long aggregateOccurrences = 0;
         foreach (PackageCompileAsset asset in selection.ImplementationAssets)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            evaluations.Add(
+            PackageAssemblyEvaluationOutcome evaluation =
                 await PackageAssemblyEvaluator
                     .EvaluateImplementationAssetAsync(
                         binding,
                         request.Pattern,
                         request.Budget.Evaluation,
                         asset,
-                        cancellationToken).ConfigureAwait(false));
+                        cancellationToken).ConfigureAwait(false);
+            evaluations.Add(evaluation);
+            if (evaluation is PackageAssemblyEvaluationOutcome.Matched matched)
+            {
+                aggregateOccurrences += matched.Evidence.Occurrences.Length;
+                if (aggregateOccurrences
+                    > request.Budget.MaximumAggregateOccurrences)
+                {
+                    return new(
+                        new PackageAssemblySemanticFindCandidateOutcome.Failure(
+                            candidateOrdinal,
+                            candidate,
+                            new PackageAssemblySemanticFindFailureReason
+                                .AggregateOccurrenceLimit(
+                                    evaluations.ToImmutable(),
+                                    request.Budget
+                                        .MaximumAggregateOccurrences,
+                                    aggregateOccurrences,
+                                    selection.ImplementationAssets.Count)),
+                        []);
+                }
+            }
         }
 
         ImmutableArray<PackageAssemblyEvaluationOutcome> completed =

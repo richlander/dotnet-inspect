@@ -149,6 +149,9 @@ public sealed record PackageAssemblySemanticQueryAcquisitionFailure(
 [JsonDerivedType(
     typeof(PackageAssemblySemanticQueryFailureReason.Evaluation),
     "evaluation")]
+[JsonDerivedType(
+    typeof(PackageAssemblySemanticQueryFailureReason.AggregateOccurrenceLimit),
+    "aggregateOccurrenceLimit")]
 public abstract record PackageAssemblySemanticQueryFailureReason
 {
     private protected PackageAssemblySemanticQueryFailureReason()
@@ -161,6 +164,13 @@ public abstract record PackageAssemblySemanticQueryFailureReason
 
     public sealed record Evaluation(
         PackageAssemblyEvaluationOutcome.Failure Evidence)
+        : PackageAssemblySemanticQueryFailureReason;
+
+    public sealed record AggregateOccurrenceLimit(
+        int MaximumOccurrences,
+        long ObservedOccurrences,
+        int EvaluatedLibraries,
+        int SelectedLibraries)
         : PackageAssemblySemanticQueryFailureReason;
 }
 
@@ -319,6 +329,14 @@ public abstract record PackageAssemblySemanticQueryCandidateOutcome
                 PackageAssemblySemanticFindFailureReason.Evaluation evaluation =>
                     new PackageAssemblySemanticQueryFailureReason.Evaluation(
                         evaluation.Evidence),
+                PackageAssemblySemanticFindFailureReason
+                    .AggregateOccurrenceLimit aggregateLimit =>
+                    new PackageAssemblySemanticQueryFailureReason
+                        .AggregateOccurrenceLimit(
+                            aggregateLimit.MaximumOccurrences,
+                            aggregateLimit.ObservedOccurrences,
+                            aggregateLimit.Evaluations.Length,
+                            aggregateLimit.SelectedLibraries),
                 _ => throw new InvalidOperationException(
                     "Unknown package assembly-semantic failure."),
             };

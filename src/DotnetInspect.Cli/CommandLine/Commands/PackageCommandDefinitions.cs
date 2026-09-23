@@ -556,7 +556,7 @@ public static class PackageCommandDefinitions
         var queryTfmOption = new Option<string?>("--tfm")
         {
             Description =
-                "Select the primary implementation library by TFM "
+                "Select implementation libraries by TFM "
                 + "(required with --where library-literal=...)"
         };
         var compactOption = new Option<bool>("--compact")

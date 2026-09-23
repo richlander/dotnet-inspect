@@ -253,6 +253,56 @@ public sealed class PackageAssemblySemanticFindQueryTests
     }
 
     [Fact]
+    public async Task AggregateLiteralOccurrenceLimitFailsWithoutPartialMatch()
+    {
+        const string packageId = "Contoso.Aggregate.Limit";
+        await using var fixture = new SemanticFindSourceFixture();
+        await fixture.CacheAsync(
+            packageId,
+            ($"lib/{Framework}/A.First.dll", MatchImage),
+            ($"lib/{Framework}/Z.Second.dll", MatchImage));
+        PackageSourceOperationLease operation =
+            fixture.IssueOperation(
+                TestContext.Current.CancellationToken);
+        PackageAcquisitionPopulation population =
+            await fixture.ResolvePopulationAsync(
+                operation,
+                [packageId]);
+        var budget = new PackageAssemblySemanticFindBudget(
+            PackageAssemblySemanticFindBudget.Default.Payload,
+            PackageAssemblySemanticFindBudget.Default.Evaluation,
+            maximumAggregateOccurrences: 3);
+
+        PackageAssemblySemanticQueryDocument document =
+            (await PackageAssemblySemanticQueryInspection.ExecuteAsync(
+                Request(population, budget),
+                operation,
+                fixture.PayloadAcquisition,
+                cancellationToken:
+                    TestContext.Current.CancellationToken)).Content;
+
+        var outcome = Assert.IsType<
+            PackageAssemblySemanticQueryCandidateOutcome.Failure>(
+            Assert.Single(document.CandidateOutcomes));
+        var limit = Assert.IsType<
+            PackageAssemblySemanticQueryFailureReason.AggregateOccurrenceLimit>(
+                outcome.Reason);
+        Assert.Equal(3, limit.MaximumOccurrences);
+        Assert.Equal(4, limit.ObservedOccurrences);
+        Assert.Equal(2, limit.EvaluatedLibraries);
+        Assert.Equal(2, limit.SelectedLibraries);
+        Assert.Equal(2, outcome.LibraryEvaluations.Length);
+        Assert.All(
+            outcome.LibraryEvaluations,
+            evaluation => Assert.IsType<
+                PackageAssemblyEvaluationOutcome.Matched>(evaluation));
+        Assert.Empty(document.Results);
+        Assert.Equal(1, document.FailureCount);
+        Assert.Equal(0, document.MatchedPackageCount);
+        Assert.False(document.Completion.IsSemanticEvaluationComplete);
+    }
+
+    [Fact]
     public async Task AggregateLiteralNoMatchRequiresEveryImplementationLibrary()
     {
         const string packageId = "Contoso.Aggregate.Miss";

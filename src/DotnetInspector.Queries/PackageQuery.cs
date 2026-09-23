@@ -1067,7 +1067,7 @@ public static partial class PackageQuery
         new(
             LibraryLiteralTermKey,
             "library literal",
-            "Downloads the package and matches decoded string-literal uses in the selected primary implementation library.",
+            "Downloads the package and matches decoded string-literal uses across the selected implementation libraries.",
             650,
             PackageQueryAcquisitionTier.PackageContent,
             PackageQueryExecutionClass.MetadataExpensive,
@@ -1079,7 +1079,7 @@ public static partial class PackageQuery
         new(
             LibraryTargetTermKey,
             "library target",
-            "Records the exact target framework used to select the primary implementation library.",
+            "Records the exact target framework used to select the implementation libraries.",
             660,
             PackageQueryAcquisitionTier.PackageContent,
             PackageQueryExecutionClass.MetadataExpensive,

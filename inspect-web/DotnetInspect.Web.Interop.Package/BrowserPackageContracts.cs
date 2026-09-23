@@ -612,6 +612,21 @@ public sealed record BrowserPackageAssemblySemanticResult(
     BrowserPackageAssemblySemanticSelectedAsset SelectedAsset,
     BrowserPackageAssemblySemanticOccurrence[] Occurrences);
 
+[JsonConverter(typeof(JsonStringEnumConverter<BrowserPackageAssemblySemanticLibraryAssessmentKind>))]
+public enum BrowserPackageAssemblySemanticLibraryAssessmentKind
+{
+    Matched,
+    NoMatch,
+    Failure,
+}
+
+public sealed record BrowserPackageAssemblySemanticLibraryAssessment(
+    BrowserPackageAssemblySemanticSelectedAsset SelectedAsset,
+    BrowserPackageAssemblySemanticLibraryAssessmentKind Kind,
+    int Occurrences,
+    string? FailureStage,
+    string? Message);
+
 public sealed record BrowserPackageAssemblySemanticCandidateOutcome(
     BrowserPackageAssemblySemanticCandidateOutcomeKind Kind,
     int CandidateOrdinal,
@@ -627,13 +642,17 @@ public sealed record BrowserPackageAssemblySemanticCandidateOutcome(
     BrowserPackageAssemblySemanticNonEvaluationKind? NonEvaluationKind,
     string? TimeoutKind,
     double? TimeoutSeconds,
-    string? Message);
+    string? Message,
+    BrowserPackageAssemblySemanticLibraryAssessment[] Libraries);
 
 [JsonConverter(typeof(JsonStringEnumConverter<BrowserPackageAssemblyAssessmentKind>))]
 public enum BrowserPackageAssemblyAssessmentKind
 {
+    Matched,
     NoMatch,
     NotApplicable,
+    Failure,
+    NotEvaluated,
 }
 
 public sealed record BrowserPackageAssemblyAssessment(
@@ -642,7 +661,8 @@ public sealed record BrowserPackageAssemblyAssessment(
     BrowserPackageAssemblyAssessmentKind Disposition,
     string Message,
     string? AssetPath,
-    string RootRequest);
+    string? RootRequest,
+    BrowserPackageAssemblySemanticLibraryAssessment[] Libraries);
 
 [JsonConverter(typeof(JsonStringEnumConverter<BrowserPackageQueryEventKind>))]
 public enum BrowserPackageQueryEventKind

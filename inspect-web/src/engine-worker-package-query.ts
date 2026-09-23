@@ -2,6 +2,7 @@ import type {
   BrowserInspectionDiagnostic,
   BrowserInspectionShare,
   BrowserPackageAssemblySemanticCandidateOutcome,
+  BrowserPackageAssemblySemanticLibraryAssessment,
   BrowserPackageAssemblySemanticOccurrence,
   BrowserPackageAssemblySemanticResult,
   BrowserPackageAssemblySemanticSelectedAsset,
@@ -934,6 +935,84 @@ function parseProgress(
   };
 }
 
+function parseAssemblySemanticSelectedAsset(
+  value: unknown,
+  budget: PayloadBudget,
+): BrowserPackageAssemblySemanticSelectedAsset {
+  const selected = dataRecord(value, [
+    "path",
+    "assemblyName",
+    "targetFramework",
+    "sequence",
+    "ordinal",
+    "unevaluatedSiblings",
+    "rootRequest",
+  ], "Package Query assembly-semantic selected asset");
+  return {
+    path: text(selected.path, "selected asset path", budget),
+    assemblyName: text(
+      selected.assemblyName,
+      "selected asset assembly name",
+      budget),
+    targetFramework: text(
+      selected.targetFramework,
+      "selected asset target framework",
+      budget),
+    sequence: text(
+      selected.sequence,
+      "selected asset sequence",
+      budget),
+    ordinal: integer(
+      selected.ordinal,
+      "selected asset ordinal"),
+    unevaluatedSiblings: integer(
+      selected.unevaluatedSiblings,
+      "selected asset unevaluated sibling count"),
+    rootRequest: text(
+      selected.rootRequest,
+      "selected asset Root request",
+      budget),
+  };
+}
+
+function parseAssemblySemanticLibraryAssessment(
+  value: unknown,
+  budget: PayloadBudget,
+): BrowserPackageAssemblySemanticLibraryAssessment {
+  const assessment = dataRecord(value, [
+    "selectedAsset",
+    "kind",
+    "occurrences",
+    "failureStage",
+    "message",
+  ], "Package Query assembly-semantic Library assessment");
+  return {
+    selectedAsset: parseAssemblySemanticSelectedAsset(
+      assessment.selectedAsset,
+      budget),
+    kind: literal(
+      assessment.kind,
+      ["Matched", "NoMatch", "Failure"] as const,
+      "assembly-semantic Library assessment kind"),
+    occurrences: integer(
+      assessment.occurrences,
+      "assembly-semantic Library occurrence count",
+      0),
+    failureStage: assessment.failureStage === null
+      ? null
+      : text(
+          assessment.failureStage,
+          "assembly-semantic Library failure stage",
+          budget),
+    message: assessment.message === null
+      ? null
+      : text(
+          assessment.message,
+          "assembly-semantic Library assessment message",
+          budget),
+  };
+}
+
 function parseAssessment(
   value: unknown,
   budget: PayloadBudget,
@@ -945,6 +1024,7 @@ function parseAssessment(
     "message",
     "assetPath",
     "rootRequest",
+    "libraries",
   ], "Package Query assessment");
   return {
     packageId: text(
@@ -957,7 +1037,7 @@ function parseAssessment(
       budget),
     disposition: literal(
       assessment.disposition,
-      ["NoMatch", "NotApplicable"] as const,
+      ["Matched", "NoMatch", "NotApplicable", "Failure", "NotEvaluated"] as const,
       "Package Query assessment disposition"),
     message: text(
       assessment.message,
@@ -967,10 +1047,15 @@ function parseAssessment(
       assessment.assetPath,
       "Package Query assessment asset path",
       budget),
-    rootRequest: text(
+    rootRequest: nullableText(
       assessment.rootRequest,
       "Package Query assessment Root request",
       budget),
+    libraries: arrayItems(
+      assessment.libraries,
+      "Package Query assessment Libraries",
+      budget).map(item =>
+        parseAssemblySemanticLibraryAssessment(item, budget)),
   };
 }
 
@@ -1298,41 +1383,6 @@ function parseInspection(
     return value === null ? null : finiteNonnegative(value, description);
   }
 
-  function parseAssemblySemanticSelectedAsset(
-    value: unknown,
-    budget: PayloadBudget,
-  ): BrowserPackageAssemblySemanticSelectedAsset {
-    const selected = dataRecord(value, [
-      "path",
-      "assemblyName",
-      "targetFramework",
-      "sequence",
-      "ordinal",
-      "unevaluatedSiblings",
-      "rootRequest",
-    ], "Package Query assembly-semantic selected asset");
-    return {
-      path: text(selected.path, "selected asset path", budget),
-      assemblyName: text(
-        selected.assemblyName,
-        "selected asset assembly name",
-        budget),
-      targetFramework: text(
-        selected.targetFramework,
-        "selected asset target framework",
-        budget),
-      sequence: text(selected.sequence, "selected asset sequence", budget),
-      ordinal: integer(selected.ordinal, "selected asset ordinal"),
-      unevaluatedSiblings: integer(
-        selected.unevaluatedSiblings,
-        "selected asset unevaluated sibling count"),
-      rootRequest: text(
-        selected.rootRequest,
-        "selected asset Root request",
-        budget),
-    };
-  }
-
   function parseAssemblySemanticOccurrence(
     value: unknown,
     budget: PayloadBudget,
@@ -1433,6 +1483,7 @@ function parseInspection(
       "timeoutKind",
       "timeoutSeconds",
       "message",
+      "libraries",
     ], "Package Query assembly-semantic candidate outcome");
     const kind = literal(
       outcome.kind,
@@ -1502,6 +1553,11 @@ function parseInspection(
       message: outcome.message === null
         ? null
         : text(outcome.message, "candidate outcome message", budget),
+      libraries: arrayItems(
+        outcome.libraries,
+        "assembly-semantic candidate Library assessments",
+        budget).map(item =>
+          parseAssemblySemanticLibraryAssessment(item, budget)),
     };
     if (kind === "Matched" && result === null) {
       throw new PackageQueryPayloadError(

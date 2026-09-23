@@ -38,6 +38,9 @@ public partial class LibraryQueryJsonContext : JsonSerializerContext;
     typeof(PackageAssemblySemanticQueryCandidateOutcome.Failure),
     TypeInfoPropertyName = "PackageAssemblySemanticQueryCandidateFailure")]
 [JsonSerializable(
+    typeof(PackageAssemblySemanticQueryFailureReason.AggregateOccurrenceLimit),
+    TypeInfoPropertyName = "PackageAssemblySemanticQueryAggregateOccurrenceLimit")]
+[JsonSerializable(
     typeof(PackageAssemblyEvaluationOutcome.Matched),
     TypeInfoPropertyName = "PackageAssemblyEvaluationMatched")]
 [JsonSerializable(

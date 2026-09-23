@@ -149,6 +149,13 @@ final matches, semantic matches, complete occurrence count, semantic misses,
 not-applicable count, failures, completion, and the aggregate
 implementation-role scope.
 
+Browser streams and retains every candidate disposition. Each Browser
+assessment nests the selector-ordered per-Library assessments, including the
+selected asset identity, matched or no-match occurrence count, and failure
+stage and message. A matching package can therefore present a namesake Library
+with `NoMatch` beside a companion Library with `Matched`; presentation does
+not collapse those outcomes into only the package-level verdict.
+
 An operation deadline does not become an empty success. Population,
 acquisition, evaluation, work-limit, and cleanup failures remain visible.
 `NoMatch` establishes absence only across the complete selector-issued
@@ -178,6 +185,15 @@ Browser delivery consumes one unit of match credit only when a final semantic
 Package Query Result is published. Source progress, ordinary nonmatches,
 prequalification survivors, semantic assessments, failures, and completion do
 not consume match credit.
+
+The aggregate package occurrence budget is 10,000 retained occurrences across
+all selected implementation Libraries. The existing one-Library evaluator
+also retains its own Analysis-owned occurrence budget. If a completed Library
+raises the package total above the aggregate budget, the candidate fails with
+a visible semantic work-limit failure, retains the completed per-Library
+assessments, and publishes no partial Result. Hosts must not truncate the
+occurrence array or reinterpret the failure as `NoMatch`. Browser transport
+uses the same 10,000-occurrence package bound.
 
 `--count` counts the selected final Package Query Result set. It succeeds only
 when source population, ordinary prequalification, semantic evaluation, and
@@ -239,12 +255,16 @@ Focused Release gates must cover:
   package Result with companion provenance;
 - deterministic complete evaluation of multiple matching Libraries without
   value-based deduplication;
+- visible aggregate occurrence-limit failure with completed per-Library
+  assessments and no partial Result;
 - package-wide `NoMatch` only after every selected implementation Library
   succeeds, and visible failure without partial publication when any selected
   Library fails;
 - implementation-body evaluation when an explicit empty compile group still
   has selected implementation Libraries;
 - final-match-only publication and Browser credit consumption;
+- Browser streaming and terminal projection of every candidate disposition
+  with selector-ordered per-Library assessments;
 - complete occurrence retention with bounded presentation preview;
 - physical full-literal CLI rows that preserve package, library, MethodDef, and
   IL-offset coordinates; retain separate IL sites; and do not split one string
