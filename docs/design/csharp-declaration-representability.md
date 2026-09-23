@@ -25,7 +25,7 @@ inputs.
 ## Consumer and adoption
 
 The first production consumer is DecompilerHarness/ReturnToSender through the
-eighteen-step migration in [#6199][issue-6199]. CSharp produces the accepted
+nineteen-step migration in [#6199][issue-6199]. CSharp produces the accepted
 declaration request. ReturnToSender separately owns target population, artifact
 scope, compilation, comparison, fidelity, and reporting.
 

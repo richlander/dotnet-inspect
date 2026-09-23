@@ -28,7 +28,7 @@ This is physical metadata evidence. It is not C# declaration
 representability, source reconstruction, runtime dispatch equivalence, or
 ReturnToSender admission.
 
-The production host is DecompilerHarness through the seventeen-step tools-first
+The production host is DecompilerHarness through the nineteen-step tools-first
 migration in [#6199][issue-6199]. The approved focused path includes the
 owner-backed Metadata session substrate in [#7929][issue-7929], this MethodImpl
 evidence, CSharp representability in [#4852][issue-4852], RTS target selection
