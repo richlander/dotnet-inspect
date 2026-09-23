@@ -484,8 +484,10 @@ public sealed class PackageHouseContractTests
         Assert.All(receipts, receipt =>
         {
             Assert.Same(request, receipt.Request);
+            var discovered = Assert.IsAssignableFrom<
+                PackageVersionResolutionReceipt.Discovered>(receipt);
             Assert.Contains(
-                receipt.Discovery,
+                discovered.Discovery,
                 new[] { authoritative, failed });
         });
     }
@@ -1777,10 +1779,22 @@ public sealed class PackageHouseContractTests
                 family.GetConstructors(
                     BindingFlags.Instance | BindingFlags.NonPublic),
                 constructor => Assert.True(constructor.IsPrivate)));
+        // An arm is sealed, or it is an abstract intermediate whose every
+        // constructor is private or private protected, so nothing outside the
+        // owning assembly can derive from it; the family stays closed either way.
         Assert.All(
             closedFamilies.SelectMany(family =>
                 family.GetNestedTypes(BindingFlags.Public)),
-            arm => Assert.True(arm.IsSealed));
+            arm => Assert.True(
+                arm.IsSealed
+                || (arm.IsAbstract
+                    && arm.GetConstructors(
+                            BindingFlags.Instance
+                            | BindingFlags.Public
+                            | BindingFlags.NonPublic)
+                        .All(constructor =>
+                            constructor.IsPrivate
+                            || constructor.IsFamilyAndAssembly))));
     }
 
     [Fact]

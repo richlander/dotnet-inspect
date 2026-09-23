@@ -291,8 +291,13 @@ exact-coordinate demand. The selecting arm now consumes the owner-issued
 [Package Version Selection](version-resolution.md). A selected package
 decision must use the receipt's exact candidate and coordinate; a typed
 non-success can only stop package settlement without manufacturing either.
-PackageHouse does not interpret selector text or reproduce semantic version
-ordering.
+A `Prior` receipt, issued by the
+[Package Version Service](package-version-service.md) when a retained prior
+settlement is served, is a settled arm exactly like `Resolved`: the decision
+retains its exact coordinate and pinned candidate, and every post-acquisition
+terminal result, success or typed failure, preserves a `Prior` decision as it
+preserves a `Resolved` one. PackageHouse does not interpret selector text or
+reproduce semantic version ordering.
 
 The candidate-bound arm accepts one `PackageAcquisitionCandidate` already
 issued by the supplied operation lease's root generation. A candidate may be

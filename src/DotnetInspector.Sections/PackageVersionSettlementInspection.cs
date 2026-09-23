@@ -80,7 +80,8 @@ public static class PackageVersionSettlementInspection
             PackageVersionResolutionReceipt? resolution =
                 settlement.Decision.VersionResolution;
             if (request.Version is null
-                && resolution is not PackageVersionResolutionReceipt.Resolved)
+                && resolution is not (PackageVersionResolutionReceipt.Resolved
+                    or PackageVersionResolutionReceipt.Prior))
             {
                 throw new InvalidOperationException(
                     "Latest PackageHouse settlement did not retain its version receipt.");
@@ -91,16 +92,20 @@ public static class PackageVersionSettlementInspection
                     PackageSourceCoordinate.Create(request.PackageId, version).Version,
                     coordinate.Version,
                     StringComparison.OrdinalIgnoreCase);
+            // Only discovery-backed arms carry listings; a prior settlement
+            // retains none, so its listing columns are empty by construction.
+            PackageVersionDiscoveryResult? discovery =
+                (resolution as PackageVersionResolutionReceipt.Discovered)?.Discovery;
             return new PackageVersionSettlementOutcome.Settled(
                 new(
                     request,
                     coordinate,
                     includePrerelease,
                     resolution?.Freshness,
-                    resolution is null ? [] :
-                        [.. resolution.Discovery.Listings.Where(row => Matches(row.Version))],
-                    resolution is null ? [] :
-                        [.. resolution.Discovery.SourceListings.Where(row => Matches(row.Version))]));
+                    discovery is null ? [] :
+                        [.. discovery.Listings.Where(row => Matches(row.Version))],
+                    discovery is null ? [] :
+                        [.. discovery.SourceListings.Where(row => Matches(row.Version))]));
         }
 
         (PackageVersionSettlementFailureKind kind, InertString reason) = settlement switch

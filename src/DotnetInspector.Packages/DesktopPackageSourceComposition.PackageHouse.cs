@@ -512,13 +512,14 @@ public sealed partial class DesktopPackageSourceComposition
                         PackageVersionSelectionRequest.Range range,
                 }
             && result.Decision?.VersionResolution
-                is PackageVersionResolutionReceipt.NoMatch
+                is (PackageVersionResolutionReceipt.NoMatch
                     or PackageVersionResolutionReceipt.NotFound)
+                    and PackageVersionResolutionReceipt.Discovered discovered)
         {
             failures.Add(
                 ProjectRangeSelectionFailure(
                     range,
-                    result.Decision.VersionResolution));
+                    discovered));
         }
 
         return failures;
@@ -526,7 +527,7 @@ public sealed partial class DesktopPackageSourceComposition
 
     private static PackageAuthorityFailure ProjectRangeSelectionFailure(
         PackageVersionSelectionRequest.Range range,
-        PackageVersionResolutionReceipt resolution)
+        PackageVersionResolutionReceipt.Discovered resolution)
     {
         string message;
         try

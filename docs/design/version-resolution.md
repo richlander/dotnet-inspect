@@ -202,11 +202,17 @@ Browser/Wasm adoption remain separate slices.
 retains:
 
 - the exact `PackageVersionSelectionRequest`;
-- the complete `PackageVersionDiscoveryResult`, including its discovery
-  contract, admitted observations, state, and typed authority failures;
-- whether discovery was current, refreshed for this exact request, or could
-  not establish freshness; and
+- whether discovery was current, refreshed for this exact request, could not
+  establish freshness, or was skipped in favor of a served prior settlement;
+  and
 - one typed terminal outcome.
+
+Discovery evidence is arm-specific. Every discovery-backed arm, the
+`Discovered` intermediate that `Resolved` and the non-success arms derive
+from, retains the complete `PackageVersionDiscoveryResult`, including its
+discovery contract, admitted observations, state, and typed authority
+failures. `Prior` retains none. A consumer that needs discovery evidence
+matches on `Discovered` rather than reading it from the receipt base.
 
 `Resolved` additionally retains the discovery-issued
 `PackageAcquisitionCandidate`; its normalized `PackageSourceCoordinate` is the
@@ -215,6 +221,14 @@ the retained request and discovery. It therefore rejects a same-ID coordinate
 that does not satisfy the wildcard, range address, prerelease policy, or
 semantic maximum, and it cannot attach a candidate issued outside the retained
 discovery.
+
+`Prior` is the settled arm issued by the
+[Package Version Service](package-version-service.md) when a retained prior
+settlement is served instead of discovery. It retains the request, the exact
+coordinate, and the current source generation's pinned candidate for it, and
+its freshness is `Current` when the entry was inside its window or
+`ServedPrior` with the entry's age when a refresh could not complete. Only
+`Prior` may carry `ServedPrior`; discovery-backed arms reject that value.
 
 The non-success arms are:
 
