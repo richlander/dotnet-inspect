@@ -1343,6 +1343,7 @@ window.rerenderApplicationMenuProbe = () => {
   if (applicationMenuHadFocus) focusApplicationMenuButton(document);
 };
 window.rerenderProductNavigationProbe = () => {
+  productNavigationBinding.beforeRender();
   const button = document.querySelector<HTMLElement>(
     "[data-product-navigation-button]");
   const menu = document.querySelector<HTMLElement>(
@@ -1351,16 +1352,22 @@ window.rerenderProductNavigationProbe = () => {
     document.activeElement === button
     || (document.activeElement instanceof Node
       && menu?.contains(document.activeElement) === true);
-  productNavigationBinding.disconnect();
   menu?.remove();
   if (!button)
     throw new Error("The product-navigation shell is unavailable.");
   button.outerHTML = renderBrand();
-  productNavigationBinding =
-    bindProductNavigation(appRoot, productNavigationActions);
-  if (productNavigationHadFocus) {
-    document.querySelector<HTMLElement>(
-      "[data-product-navigation-button]")?.focus();
+  productNavigationBinding.afterRender();
+  const replacementButton = document.querySelector<HTMLElement>(
+    "[data-product-navigation-button]");
+  const replacementMenu = document.querySelector<HTMLElement>(
+    "[data-product-navigation-menu]");
+  const activeElement = document.activeElement;
+  const replacementOwnsFocus =
+    activeElement === replacementButton
+    || (activeElement instanceof Node
+      && replacementMenu?.contains(activeElement) === true);
+  if (productNavigationHadFocus && !replacementOwnsFocus) {
+    replacementButton?.focus();
   }
 };
 window.rerenderScopeBarProbe = renderHarnessScopeBar;
