@@ -61,6 +61,12 @@ internal static class CSharpSpellability
             && !IsByRefLikeType(type, host)
             && CanSpellExplicitParameterType(type, host, ArgumentRefKind.Value);
 
+    public static bool CanSpellByRefLikeValueStorageType(TypeRef type, IrFunction host)
+        => type.Kind is TypeRefKind.Definition or TypeRefKind.GenericInstance
+            && host.TypeShapes.GetValueOrDefault(CoercionRendering.NamedDefinition(type)) == TypeShape.ValueType
+            && HasExactByRefLikeStorageIdentity(type, host)
+            && CanSpellExplicitParameterType(type, host, ArgumentRefKind.Value);
+
     public static bool CanSpellGenericParameterStorageType(TypeRef type, IrFunction host)
     {
         if (type.Kind is not (TypeRefKind.GenericParameter or TypeRefKind.MethodGenericParameter)
@@ -1942,6 +1948,18 @@ internal static class CSharpSpellability
         string simple = tick < 0 ? definition.Name : definition.Name[..tick];
         return simple is "Span" or "ReadOnlySpan" or "TypedReference"
             or "ArgIterator" or "RuntimeArgumentHandle";
+    }
+
+    static bool HasExactByRefLikeStorageIdentity(TypeRef type, IrFunction host)
+    {
+        var definition = type.Kind == TypeRefKind.GenericInstance ? type.ElementType : type;
+        return definition is not null
+            && (host.ByRefLikeTypes.Contains(definition)
+                || MemberIdentity.IsCoreLibraryType(definition, "System", "Span`1")
+                || MemberIdentity.IsCoreLibraryType(definition, "System", "ReadOnlySpan`1")
+                || MemberIdentity.IsCoreLibraryType(definition, "System", "TypedReference")
+                || MemberIdentity.IsCoreLibraryType(definition, "System", "ArgIterator")
+                || MemberIdentity.IsCoreLibraryType(definition, "System", "RuntimeArgumentHandle"));
     }
 
     static string StripArity(string name)
