@@ -75,7 +75,7 @@ internal static partial class WorkflowContract
                 ["DOTNET_CLI_TELEMETRY_OPTOUT"] = "true",
             },
             "workflow.env");
-        RequireAbsent(root, "defaults", "workflow");
+        ValidateWorkflowRunDefaults(root);
         ValidateWorkflowTriggers(root);
         YamlMappingNode jobs = GetRequiredMapping(root, "jobs", "workflow");
         ValidateAggregateStructuralCheck(jobs);
@@ -129,6 +129,37 @@ internal static partial class WorkflowContract
         return new WorkflowContractResult(
             provenanceRunSha256,
             provenancePin);
+    }
+
+    private static void ValidateWorkflowRunDefaults(YamlMappingNode root)
+    {
+        if (!TryGetNode(root, "defaults", out YamlNode defaultsNode))
+        {
+            return;
+        }
+
+        YamlMappingNode defaults = RequireMapping(
+            defaultsNode,
+            "workflow.defaults");
+        RequireExactKeys(defaults, ["run"], "workflow.defaults");
+        YamlMappingNode run = GetRequiredMapping(
+            defaults,
+            "run",
+            "workflow.defaults");
+        RequireExactKeys(
+            run,
+            ["working-directory"],
+            "workflow.defaults.run");
+        string workingDirectory = GetRequiredScalar(
+            run,
+            "working-directory",
+            "workflow.defaults.run");
+        if (!IsRepositoryRootWorkingDirectory(workingDirectory))
+        {
+            throw new InvalidOperationException(
+                "workflow.defaults.run.working-directory must resolve to " +
+                $"the repository root, got {workingDirectory}.");
+        }
     }
 
     private static void ValidateTestShardMatrix(YamlMappingNode jobs)
