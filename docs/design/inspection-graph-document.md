@@ -14,6 +14,10 @@ Related documents:
 - [Inspection-graph modes](inspection-graph-modes.md) owns single-seed,
   peer-seed, and induced-set requests across member, type, assembly, and package
   subjects.
+- [Inspection Graph focus
+  projection](inspection-graph-focus-projection.md) owns internal,
+  exit-frontier, target-corridor, affiliation, and notable views over one
+  already-produced document.
 - [External-focused Inspection Graph
   composition](external-focused-inspection-graph.md) owns exact
   assembly-generation classification and the cross-library member-neighborhood
