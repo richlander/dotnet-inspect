@@ -504,6 +504,19 @@ test.describe("published authored Source comparison transport", () => {
       await expect(
         applicationPage.getByRole("region", { name: "Whole-Type C#" }),
       ).toContainText("Counter", { timeout: 60_000 });
+      const valueOutline = applicationPage
+        .locator(".type-explorer-outline [data-type-explorer-declaration]")
+        .filter({ hasText: /\bValue\b/u })
+        .first();
+      await valueOutline.click();
+      await expect(valueOutline).toHaveAttribute("aria-current", "true");
+      await expect(valueOutline).toBeFocused();
+      const sourceDeclaration = applicationPage
+        .locator(".type-explorer-source-declaration")
+        .filter({ hasText: /\bCounter\b/u })
+        .first();
+      await sourceDeclaration.click();
+      await expect(sourceDeclaration).toBeFocused();
       await applicationPage.getByLabel("Skeleton").check();
       await expect(
         applicationPage.getByRole("region", { name: "Whole-Type C#" }),

@@ -69,6 +69,8 @@ export type TypeExplorerViewState =
     }
   | { readonly status: "failed"; readonly error: string };
 
+export type TypeExplorerSelectionPane = "outline" | "source";
+
 export interface TypeExplorerViewOptions {
   readonly typeDisplay: string;
   readonly packageDisplay: string;
@@ -94,6 +96,7 @@ export interface TypeExplorerViewActions {
   readonly setIncludeAttributes: (included: boolean) => void;
   readonly selectMember: (
     declaration: TypeExplorerDeclaration,
+    pane: TypeExplorerSelectionPane,
   ) => void;
 }
 
@@ -224,7 +227,13 @@ export function bindTypeExplorerView(
     const select = () => {
       const declaration = declarations.get(
         target.dataset.typeExplorerDeclaration ?? "");
-      if (declaration !== undefined) actions.selectMember(declaration);
+      if (declaration !== undefined) {
+        actions.selectMember(
+          declaration,
+          target.closest(".type-explorer-outline") === null
+            ? "source"
+            : "outline");
+      }
     };
     target.addEventListener("click", select);
     target.addEventListener("keydown", event => {
@@ -233,6 +242,40 @@ export function bindTypeExplorerView(
       select();
     });
   }
+}
+
+export function canceledTypeExplorerView(
+  reason: string | null,
+): TypeExplorerViewState {
+  const error = reason === "worker-restarted"
+    ? "The inspection engine restarted while building Type Explorer. Retry to rebuild the Type document."
+    : reason === "timeout"
+      ? "Type Explorer timed out before the Type document completed. Retry to rebuild it."
+      : "Type Explorer was canceled before the Type document completed. Retry to rebuild it.";
+  return { status: "failed", error };
+}
+
+export function restoreTypeExplorerMemberSelection(
+  root: ParentNode,
+  projection: TypeExplorerProjection,
+  identity: TypeExplorerMemberIdentity,
+  pane: TypeExplorerSelectionPane,
+): boolean {
+  const declaration = projection.declarations.find(candidate =>
+    sameIdentity(candidate.identity, identity));
+  if (declaration === undefined) return false;
+  const selector =
+    `[data-type-explorer-declaration="${declaration.declarationId}"]`;
+  const outline = root.querySelector<HTMLElement>(
+    `.type-explorer-outline ${selector}`);
+  const source = root.querySelector<HTMLElement>(
+    `.type-explorer-source ${selector}`);
+  outline?.scrollIntoView({ block: "nearest" });
+  source?.scrollIntoView({ block: "nearest" });
+  const target = pane === "outline" ? outline : source;
+  if (target === null) return false;
+  target.focus({ preventScroll: true });
+  return true;
 }
 
 function inspectionHtml(
