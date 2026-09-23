@@ -31,6 +31,8 @@
     <ProjectReference Include="../../src/QuerySpace/QuerySpace.csproj" />
     <ProjectReference Include="../DotnetInspector.FixtureInfrastructure/DotnetInspector.FixtureInfrastructure.csproj" />
     <ProjectReference Include="../../fixtures/analysis/ILInspector.Analysis.AsyncSiblingFriendBaseFixtures/ILInspector.Analysis.AsyncSiblingFriendBaseFixtures.csproj" ReferenceOutputAssembly="false" />
+    <ProjectReference Include="../../fixtures/analysis/ILInspector.Analysis.CallerGraphCaller/ILInspector.Analysis.CallerGraphCaller.csproj" ReferenceOutputAssembly="false" />
+    <ProjectReference Include="../../fixtures/analysis/ILInspector.Analysis.CallerGraphTarget/ILInspector.Analysis.CallerGraphTarget.csproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="../../fixtures/analysis/ILInspector.Analysis.Fixtures/ILInspector.Analysis.Fixtures.csproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="../../fixtures/decompiler/ILInspector.Decompiler.Fixtures.NewUnsafe/ILInspector.Decompiler.Fixtures.NewUnsafe.csproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="../../fixtures/metadata/ILInspector.Metadata.ApiDeclarationCorrespondence.V1/ILInspector.Metadata.ApiDeclarationCorrespondence.V1.csproj" ReferenceOutputAssembly="false" />
