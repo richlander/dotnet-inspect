@@ -134,12 +134,15 @@ Primitive integer-family join compatibility is decided before printing
 (#2095). One bounded relation serves `Conditional`, `SwitchExpression`, and
 `Coalesce`. It records whole-join compatibility and, for each target whose
 rendered arms are accepted, the effective source type that licenses
-target-aware arm rendering. The two domains coincide for conditional and
-switch expressions. A coalesce's whole-join check observes both operands,
-while its rendered-arm testimony observes only the right operand; keeping both
-facts preserves that existing asymmetry instead of broadening coalesce
-targetability. This relation is neither a replacement for the join's result
-type nor a general C# conversion classifier.
+target-aware arm rendering. Rendered-arm testimony is issued only for an actual
+retarget; when source and target are equal, arm spelling continues to use each
+arm's own effective type and cannot acquire a narrowing cast from the join
+source. Conditional and switch expressions evaluate the same arm set for both
+facts. A coalesce's whole-join check observes both operands, while its
+rendered-arm testimony observes only the right operand; keeping both facts
+preserves that existing asymmetry instead of broadening coalesce targetability.
+This relation is neither a replacement for the join's result type nor a general
+C# conversion classifier.
 
 The relation admits an integer-like source and target only when the existing
 slot-coercion contract can spell that source at the target and every arm is one
