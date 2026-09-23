@@ -145,6 +145,224 @@ public sealed class PackageAssemblySemanticFindQueryTests
     }
 
     [Fact]
+    public async Task AggregateLiteralQueryMatchesCompanionLibraryWithProvenance()
+    {
+        const string packageId = "Contoso.Aggregate";
+        await using var fixture = new SemanticFindSourceFixture();
+        await fixture.CacheAsync(
+            packageId,
+            ($"lib/{Framework}/{packageId}.dll", NoMatchImage),
+            ($"lib/{Framework}/Z.Companion.dll", MatchImage));
+        PackageSourceOperationLease operation =
+            fixture.IssueOperation(
+                TestContext.Current.CancellationToken);
+        PackageAcquisitionPopulation population =
+            await fixture.ResolvePopulationAsync(
+                operation,
+                [packageId]);
+        var sink = new RecordingQuerySink();
+
+        PackageAssemblySemanticQueryDocument document =
+            (await PackageAssemblySemanticQueryInspection.ExecuteAsync(
+                Request(population),
+                operation,
+                fixture.PayloadAcquisition,
+                sink,
+                TestContext.Current.CancellationToken)).Content;
+
+        var outcome = Assert.IsType<
+            PackageAssemblySemanticQueryCandidateOutcome.Matched>(
+            Assert.Single(document.CandidateOutcomes));
+        Assert.Equal(
+            [
+                $"lib/{Framework}/{packageId}.dll",
+                $"lib/{Framework}/Z.Companion.dll",
+            ],
+            outcome.LibraryEvaluations.Select(
+                evaluation =>
+                    evaluation.SelectedAsset!.Asset.Path.ToString()));
+        Assert.IsType<PackageAssemblyEvaluationOutcome.NoMatch>(
+            outcome.LibraryEvaluations[0]);
+        Assert.IsType<PackageAssemblyEvaluationOutcome.Matched>(
+            outcome.LibraryEvaluations[1]);
+        PackageAssemblySemanticQueryResult result =
+            Assert.Single(document.Results);
+        Assert.Equal(2, result.EvaluatedLibraryCount);
+        Assert.Equal(1, result.MatchedLibraryCount);
+        Assert.Equal(2, result.LibraryOccurrences.Length);
+        Assert.All(
+            result.LibraryOccurrences,
+            occurrence => Assert.Equal(
+                $"lib/{Framework}/Z.Companion.dll",
+                occurrence.SelectedAsset.Asset.Path.ToString()));
+        Assert.Equal(Marker, result.Occurrences[0].LiteralText.ToString());
+        Assert.Equal(Marker, result.Occurrences[1].LiteralText.ToString());
+        var streamed = Assert.IsType<
+            PackageAssemblySemanticQueryCandidateOutcome.Matched>(
+            Assert.Single(sink.Outcomes));
+        Assert.Equal(
+            result.LibraryOccurrences,
+            streamed.Result.LibraryOccurrences);
+    }
+
+    [Fact]
+    public async Task AggregateLiteralQueryPreservesEveryPhysicalOccurrenceInAssetOrder()
+    {
+        const string packageId = "Contoso.Multiple.Matches";
+        await using var fixture = new SemanticFindSourceFixture();
+        await fixture.CacheAsync(
+            packageId,
+            ($"lib/{Framework}/A.First.dll", MatchImage),
+            ($"lib/{Framework}/Z.Second.dll", MatchImage));
+        PackageSourceOperationLease operation =
+            fixture.IssueOperation(
+                TestContext.Current.CancellationToken);
+        PackageAcquisitionPopulation population =
+            await fixture.ResolvePopulationAsync(
+                operation,
+                [packageId]);
+
+        PackageAssemblySemanticQueryResult result =
+            Assert.Single(
+                (await PackageAssemblySemanticQueryInspection.ExecuteAsync(
+                    Request(population),
+                    operation,
+                    fixture.PayloadAcquisition,
+                    cancellationToken:
+                        TestContext.Current.CancellationToken))
+                .Content.Results);
+
+        Assert.Equal(2, result.EvaluatedLibraryCount);
+        Assert.Equal(2, result.MatchedLibraryCount);
+        Assert.Equal(
+            [
+                $"lib/{Framework}/A.First.dll",
+                $"lib/{Framework}/A.First.dll",
+                $"lib/{Framework}/Z.Second.dll",
+                $"lib/{Framework}/Z.Second.dll",
+            ],
+            result.LibraryOccurrences.Select(
+                occurrence =>
+                    occurrence.SelectedAsset.Asset.Path.ToString()));
+        Assert.Equal(4, result.Occurrences.Length);
+        Assert.All(
+            result.Occurrences,
+            occurrence => Assert.Equal(
+                Marker,
+                occurrence.LiteralText.ToString()));
+    }
+
+    [Fact]
+    public async Task AggregateLiteralNoMatchRequiresEveryImplementationLibrary()
+    {
+        const string packageId = "Contoso.Aggregate.Miss";
+        await using var fixture = new SemanticFindSourceFixture();
+        await fixture.CacheAsync(
+            packageId,
+            ($"lib/{Framework}/A.First.dll", NoMatchImage),
+            ($"lib/{Framework}/Z.Second.dll", NoMatchImage));
+        PackageSourceOperationLease operation =
+            fixture.IssueOperation(
+                TestContext.Current.CancellationToken);
+        PackageAcquisitionPopulation population =
+            await fixture.ResolvePopulationAsync(
+                operation,
+                [packageId]);
+
+        PackageAssemblySemanticQueryDocument document =
+            (await PackageAssemblySemanticQueryInspection.ExecuteAsync(
+                Request(population),
+                operation,
+                fixture.PayloadAcquisition,
+                cancellationToken:
+                    TestContext.Current.CancellationToken)).Content;
+
+        var outcome = Assert.IsType<
+            PackageAssemblySemanticQueryCandidateOutcome.NoMatch>(
+            Assert.Single(document.CandidateOutcomes));
+        Assert.Equal(2, outcome.LibraryEvaluations.Length);
+        Assert.All(
+            outcome.LibraryEvaluations,
+            evaluation => Assert.IsType<
+                PackageAssemblyEvaluationOutcome.NoMatch>(evaluation));
+        Assert.Empty(document.Results);
+        Assert.Equal(1, document.SemanticMissCount);
+    }
+
+    [Fact]
+    public async Task AggregateLiteralFailureSuppressesPartialMatch()
+    {
+        const string packageId = "Contoso.Aggregate.Failure";
+        await using var fixture = new SemanticFindSourceFixture();
+        await fixture.CacheAsync(
+            packageId,
+            ($"lib/{Framework}/A.Match.dll", MatchImage),
+            ($"lib/{Framework}/Z.Invalid.dll", [1, 2, 3]));
+        PackageSourceOperationLease operation =
+            fixture.IssueOperation(
+                TestContext.Current.CancellationToken);
+        PackageAcquisitionPopulation population =
+            await fixture.ResolvePopulationAsync(
+                operation,
+                [packageId]);
+
+        PackageAssemblySemanticQueryDocument document =
+            (await PackageAssemblySemanticQueryInspection.ExecuteAsync(
+                Request(population),
+                operation,
+                fixture.PayloadAcquisition,
+                cancellationToken:
+                    TestContext.Current.CancellationToken)).Content;
+
+        var outcome = Assert.IsType<
+            PackageAssemblySemanticQueryCandidateOutcome.Failure>(
+            Assert.Single(document.CandidateOutcomes));
+        Assert.Collection(
+            outcome.LibraryEvaluations,
+            evaluation => Assert.IsType<
+                PackageAssemblyEvaluationOutcome.Matched>(evaluation),
+            evaluation => Assert.IsType<
+                PackageAssemblyEvaluationOutcome.Failure>(evaluation));
+        Assert.Empty(document.Results);
+        Assert.Equal(1, document.FailureCount);
+        Assert.Equal(0, document.MatchedPackageCount);
+        Assert.False(document.Completion.IsSemanticEvaluationComplete);
+    }
+
+    [Fact]
+    public async Task AggregateLiteralInspectsImplementationForEmptyCompileGroup()
+    {
+        const string packageId = "Contoso.Empty.Reference";
+        await using var fixture = new SemanticFindSourceFixture();
+        await fixture.CacheAsync(
+            packageId,
+            ($"ref/{Framework}/_._", []),
+            ($"lib/{Framework}/{packageId}.dll", MatchImage));
+        PackageSourceOperationLease operation =
+            fixture.IssueOperation(
+                TestContext.Current.CancellationToken);
+        PackageAcquisitionPopulation population =
+            await fixture.ResolvePopulationAsync(
+                operation,
+                [packageId]);
+
+        PackageAssemblySemanticQueryResult result =
+            Assert.Single(
+                (await PackageAssemblySemanticQueryInspection.ExecuteAsync(
+                    Request(population),
+                    operation,
+                    fixture.PayloadAcquisition,
+                    cancellationToken:
+                        TestContext.Current.CancellationToken))
+                .Content.Results);
+
+        Assert.Equal(1, result.EvaluatedLibraryCount);
+        Assert.Equal(
+            $"lib/{Framework}/{packageId}.dll",
+            result.SelectedAsset.Asset.Path.ToString());
+    }
+
+    [Fact]
     public async Task MatchLimitStopsAfterNthMatchedCandidate()
     {
         await using var fixture = new SemanticFindSourceFixture();

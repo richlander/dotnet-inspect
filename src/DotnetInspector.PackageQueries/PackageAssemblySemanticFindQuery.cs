@@ -143,10 +143,27 @@ public abstract record PackageAssemblySemanticFindFailureReason
         : PackageAssemblySemanticFindFailureReason
     {
         internal Evaluation(
-            PackageAssemblyEvaluationOutcome.Failure evidence) =>
-            Evidence = evidence;
+            ImmutableArray<PackageAssemblyEvaluationOutcome> evaluations)
+        {
+            if (evaluations.IsDefaultOrEmpty)
+            {
+                throw new ArgumentException(
+                    "An aggregate evaluation failure requires initialized library outcomes.",
+                    nameof(evaluations));
+            }
+            Evaluations = evaluations;
+            Evidence = evaluations
+                .OfType<PackageAssemblyEvaluationOutcome.Failure>()
+                .FirstOrDefault()
+                ?? throw new ArgumentException(
+                    "An aggregate evaluation failure requires at least one failed library.",
+                    nameof(evaluations));
+        }
 
         public PackageAssemblyEvaluationOutcome.Failure Evidence { get; }
+
+        public ImmutableArray<PackageAssemblyEvaluationOutcome> Evaluations
+            { get; }
     }
 }
 
@@ -155,14 +172,22 @@ public abstract record PackageAssemblySemanticFindCandidateOutcome
 {
     private protected PackageAssemblySemanticFindCandidateOutcome(
         int candidateOrdinal,
-        PackageAcquisitionCandidate candidate)
+        PackageAcquisitionCandidate candidate,
+        ImmutableArray<PackageAssemblyEvaluationOutcome> evaluations)
     {
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(candidateOrdinal);
         ArgumentNullException.ThrowIfNull(candidate);
+        if (evaluations.IsDefault)
+        {
+            throw new ArgumentException(
+                "Library evaluations must be initialized.",
+                nameof(evaluations));
+        }
 
         CandidateOrdinal = candidateOrdinal;
         Coordinate = candidate.Coordinate;
         Correspondence = candidate.Correspondence;
+        Evaluations = evaluations;
     }
 
     public int CandidateOrdinal { get; }
@@ -172,14 +197,18 @@ public abstract record PackageAssemblySemanticFindCandidateOutcome
     public PackageAcquisitionCandidateCorrespondence Correspondence
         { get; }
 
+    public ImmutableArray<PackageAssemblyEvaluationOutcome> Evaluations
+        { get; }
+
     public sealed record Matched
         : PackageAssemblySemanticFindCandidateOutcome
     {
         internal Matched(
             int candidateOrdinal,
             PackageAcquisitionCandidate candidate,
-            PackageAssemblyEvaluationOutcome.Matched evaluation)
-            : base(candidateOrdinal, candidate) =>
+            PackageAssemblyEvaluationOutcome.Matched evaluation,
+            ImmutableArray<PackageAssemblyEvaluationOutcome> evaluations)
+            : base(candidateOrdinal, candidate, evaluations) =>
             Evaluation = evaluation;
 
         public PackageAssemblyEvaluationOutcome.Matched Evaluation { get; }
@@ -191,8 +220,9 @@ public abstract record PackageAssemblySemanticFindCandidateOutcome
         internal NoMatch(
             int candidateOrdinal,
             PackageAcquisitionCandidate candidate,
-            PackageAssemblyEvaluationOutcome.NoMatch evaluation)
-            : base(candidateOrdinal, candidate) =>
+            PackageAssemblyEvaluationOutcome.NoMatch evaluation,
+            ImmutableArray<PackageAssemblyEvaluationOutcome> evaluations)
+            : base(candidateOrdinal, candidate, evaluations) =>
             Evaluation = evaluation;
 
         public PackageAssemblyEvaluationOutcome.NoMatch Evaluation { get; }
@@ -205,7 +235,7 @@ public abstract record PackageAssemblySemanticFindCandidateOutcome
             int candidateOrdinal,
             PackageAcquisitionCandidate candidate,
             PackageAssemblyEvaluationOutcome.NotApplicable evaluation)
-            : base(candidateOrdinal, candidate) =>
+            : base(candidateOrdinal, candidate, [evaluation]) =>
             Evaluation = evaluation;
 
         public PackageAssemblyEvaluationOutcome.NotApplicable Evaluation
@@ -219,8 +249,16 @@ public abstract record PackageAssemblySemanticFindCandidateOutcome
             int candidateOrdinal,
             PackageAcquisitionCandidate candidate,
             PackageAssemblySemanticFindFailureReason reason)
-            : base(candidateOrdinal, candidate) =>
+            : base(
+                candidateOrdinal,
+                candidate,
+                reason is PackageAssemblySemanticFindFailureReason.Evaluation
+                    evaluation
+                    ? evaluation.Evaluations
+                    : [])
+        {
             Reason = reason;
+        }
 
         public PackageAssemblySemanticFindFailureReason Reason { get; }
     }
@@ -478,10 +516,10 @@ internal static class PackageAssemblySemanticFindQuery
                         .ConfigureAwait(false);
                     ObserveCancellation();
 
-                    PackageAssemblySemanticFindCandidateOutcome outcome;
+                    CandidateEvaluation evaluated;
                     try
                     {
-                        outcome = await EvaluateCandidateAsync(
+                        evaluated = await EvaluateCandidateAsync(
                             index + 1,
                             candidate,
                             acquired,
@@ -497,26 +535,14 @@ internal static class PackageAssemblySemanticFindQuery
                         ExceptionDispatchInfo.Capture(classified).Throw();
                         throw;
                     }
+                    PackageAssemblySemanticFindCandidateOutcome outcome =
+                        evaluated.Outcome;
                     outcomes.Add(outcome);
                     if (outcome
-                        is PackageAssemblySemanticFindCandidateOutcome.Matched
-                        matched)
+                        is PackageAssemblySemanticFindCandidateOutcome.Matched)
                     {
                         matchedCandidates++;
-                        PackageAssemblySelectedAssetContext selectedAsset =
-                            matched.Evaluation.SelectedAsset
-                            ?? throw new InvalidOperationException(
-                                "A matched candidate must retain its selected asset.");
-                        foreach (StringLiteralUseOccurrence occurrence in
-                                 matched.Evaluation.Evidence.Occurrences)
-                        {
-                            results.Add(
-                                new(
-                                    index + 1,
-                                    candidate,
-                                    selectedAsset,
-                                    occurrence));
-                        }
+                        results.AddRange(evaluated.Results);
                     }
 
                     if (nonterminalSink is not null)
@@ -646,8 +672,11 @@ internal static class PackageAssemblySemanticFindQuery
         return target;
     }
 
-    private static async Task<
-        PackageAssemblySemanticFindCandidateOutcome>
+    private sealed record CandidateEvaluation(
+        PackageAssemblySemanticFindCandidateOutcome Outcome,
+        ImmutableArray<PackageAssemblySemanticFindResult> Results);
+
+    private static async Task<CandidateEvaluation>
         EvaluateCandidateAsync(
             int candidateOrdinal,
             PackageAcquisitionCandidate candidate,
@@ -657,49 +686,205 @@ internal static class PackageAssemblySemanticFindQuery
     {
         if (acquired.Payload is null)
         {
-            return new PackageAssemblySemanticFindCandidateOutcome.Failure(
-                candidateOrdinal,
-                candidate,
-                new PackageAssemblySemanticFindFailureReason.Acquisition(
-                    new(
-                        acquired)));
+            return new(
+                new PackageAssemblySemanticFindCandidateOutcome.Failure(
+                    candidateOrdinal,
+                    candidate,
+                    new PackageAssemblySemanticFindFailureReason.Acquisition(
+                        new(
+                            acquired))),
+                []);
         }
 
         PackageRootBinding binding = PackageRootBinding.CreateFromSource(
             acquired.Payload,
             request.Target.RequestedFramework,
             request.Target.RuntimeIdentifier);
+        if (request.Pattern.Pattern.LibraryScope
+            == PackageAssemblyPatternLibraryScope.AggregateRole)
+        {
+            return await EvaluateAggregateAsync(
+                candidateOrdinal,
+                candidate,
+                binding,
+                request,
+                cancellationToken).ConfigureAwait(false);
+        }
+
         PackageAssemblyEvaluationOutcome evaluation =
             await PackageAssemblyEvaluator.EvaluateAsync(
                 binding,
                 request.Pattern,
                 request.Budget.Evaluation,
                 cancellationToken).ConfigureAwait(false);
-        return evaluation switch
+        PackageAssemblySemanticFindCandidateOutcome outcome =
+            evaluation switch
+            {
+                PackageAssemblyEvaluationOutcome.Matched matched =>
+                    new PackageAssemblySemanticFindCandidateOutcome.Matched(
+                        candidateOrdinal,
+                        candidate,
+                        matched,
+                        [matched]),
+                PackageAssemblyEvaluationOutcome.NoMatch noMatch =>
+                    new PackageAssemblySemanticFindCandidateOutcome.NoMatch(
+                        candidateOrdinal,
+                        candidate,
+                        noMatch,
+                        [noMatch]),
+                PackageAssemblyEvaluationOutcome.NotApplicable notApplicable =>
+                    new PackageAssemblySemanticFindCandidateOutcome.NotApplicable(
+                        candidateOrdinal,
+                        candidate,
+                        notApplicable),
+                PackageAssemblyEvaluationOutcome.Failure failure =>
+                    new PackageAssemblySemanticFindCandidateOutcome.Failure(
+                        candidateOrdinal,
+                        candidate,
+                        new PackageAssemblySemanticFindFailureReason.Evaluation(
+                            [failure])),
+                _ => throw new InvalidOperationException(
+                    "Unknown package assembly evaluation outcome."),
+            };
+        ImmutableArray<PackageAssemblySemanticFindResult> results =
+            evaluation is PackageAssemblyEvaluationOutcome.Matched matchedResult
+                ? Results(candidateOrdinal, candidate, [matchedResult])
+                : [];
+        return new(outcome, results);
+    }
+
+    private static async Task<CandidateEvaluation> EvaluateAggregateAsync(
+        int candidateOrdinal,
+        PackageAcquisitionCandidate candidate,
+        PackageRootBinding binding,
+        PackageAssemblySemanticFindRequest request,
+        CancellationToken cancellationToken)
+    {
+        if (request.Pattern.Pattern.Role
+            != PackageAssemblyPatternRole.ImplementationBody)
         {
-            PackageAssemblyEvaluationOutcome.Matched matched =>
-                new PackageAssemblySemanticFindCandidateOutcome.Matched(
-                    candidateOrdinal,
-                    candidate,
-                    matched),
-            PackageAssemblyEvaluationOutcome.NoMatch noMatch =>
-                new PackageAssemblySemanticFindCandidateOutcome.NoMatch(
-                    candidateOrdinal,
-                    candidate,
-                    noMatch),
-            PackageAssemblyEvaluationOutcome.NotApplicable notApplicable =>
-                new PackageAssemblySemanticFindCandidateOutcome.NotApplicable(
-                    candidateOrdinal,
-                    candidate,
-                    notApplicable),
-            PackageAssemblyEvaluationOutcome.Failure failure =>
+            throw new InvalidOperationException(
+                "Aggregate package assembly evaluation currently requires the implementation-body role.");
+        }
+
+        PackageCompileAssetSelection selection = binding.Root.AssetSelection;
+        if (selection.Status
+                == PackageCompileAssetSelectionStatus.InvalidImplementationAssets
+            || selection.ImplementationAssets.Count == 0)
+        {
+            PackageAssemblyEvaluationOutcome selectionOutcome =
+                await PackageAssemblyEvaluator.EvaluateAsync(
+                    binding,
+                    request.Pattern,
+                    request.Budget.Evaluation,
+                    cancellationToken).ConfigureAwait(false);
+            PackageAssemblySemanticFindCandidateOutcome outcome =
+                selectionOutcome switch
+                {
+                    PackageAssemblyEvaluationOutcome.NotApplicable
+                        notApplicable =>
+                        new PackageAssemblySemanticFindCandidateOutcome
+                            .NotApplicable(
+                                candidateOrdinal,
+                                candidate,
+                                notApplicable),
+                    PackageAssemblyEvaluationOutcome.Failure failure =>
+                        new PackageAssemblySemanticFindCandidateOutcome.Failure(
+                            candidateOrdinal,
+                            candidate,
+                            new PackageAssemblySemanticFindFailureReason
+                                .Evaluation([failure])),
+                    _ => throw new InvalidOperationException(
+                        "An empty implementation role produced an applicable semantic outcome."),
+                };
+            return new(outcome, []);
+        }
+
+        var evaluations =
+            ImmutableArray.CreateBuilder<PackageAssemblyEvaluationOutcome>(
+                selection.ImplementationAssets.Count);
+        foreach (PackageCompileAsset asset in selection.ImplementationAssets)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            evaluations.Add(
+                await PackageAssemblyEvaluator
+                    .EvaluateImplementationAssetAsync(
+                        binding,
+                        request.Pattern,
+                        request.Budget.Evaluation,
+                        asset,
+                        cancellationToken).ConfigureAwait(false));
+        }
+
+        ImmutableArray<PackageAssemblyEvaluationOutcome> completed =
+            evaluations.MoveToImmutable();
+        if (completed.OfType<PackageAssemblyEvaluationOutcome.Failure>().Any())
+        {
+            return new(
                 new PackageAssemblySemanticFindCandidateOutcome.Failure(
                     candidateOrdinal,
                     candidate,
                     new PackageAssemblySemanticFindFailureReason.Evaluation(
-                        failure)),
-            _ => throw new InvalidOperationException(
-                "Unknown package assembly evaluation outcome."),
-        };
+                        completed)),
+                []);
+        }
+
+        ImmutableArray<PackageAssemblyEvaluationOutcome.Matched> matches =
+        [
+            .. completed
+                .OfType<PackageAssemblyEvaluationOutcome.Matched>(),
+        ];
+        if (!matches.IsEmpty)
+        {
+            return new(
+                new PackageAssemblySemanticFindCandidateOutcome.Matched(
+                    candidateOrdinal,
+                    candidate,
+                    matches[0],
+                    completed),
+                Results(candidateOrdinal, candidate, matches));
+        }
+
+        PackageAssemblyEvaluationOutcome.NoMatch firstNoMatch =
+            completed
+                .OfType<PackageAssemblyEvaluationOutcome.NoMatch>()
+                .FirstOrDefault()
+            ?? throw new InvalidOperationException(
+                "A completed aggregate evaluation produced no match, miss, or failure.");
+        return new(
+            new PackageAssemblySemanticFindCandidateOutcome.NoMatch(
+                candidateOrdinal,
+                candidate,
+                firstNoMatch,
+                completed),
+            []);
+    }
+
+    private static ImmutableArray<PackageAssemblySemanticFindResult> Results(
+        int candidateOrdinal,
+        PackageAcquisitionCandidate candidate,
+        IEnumerable<PackageAssemblyEvaluationOutcome.Matched> matches)
+    {
+        var results =
+            ImmutableArray.CreateBuilder<
+                PackageAssemblySemanticFindResult>();
+        foreach (PackageAssemblyEvaluationOutcome.Matched match in matches)
+        {
+            PackageAssemblySelectedAssetContext selectedAsset =
+                match.SelectedAsset
+                ?? throw new InvalidOperationException(
+                    "A matched library must retain its selected asset.");
+            foreach (StringLiteralUseOccurrence occurrence
+                in match.Evidence.Occurrences)
+            {
+                results.Add(
+                    new(
+                        candidateOrdinal,
+                        candidate,
+                        selectedAsset,
+                        occurrence));
+            }
+        }
+        return results.ToImmutable();
     }
 }

@@ -1338,6 +1338,7 @@ function parseInspection(
     budget: PayloadBudget,
   ): BrowserPackageAssemblySemanticOccurrence {
     const occurrence = dataRecord(value, [
+      "libraryPath",
       "moduleVersionId",
       "methodDefinitionToken",
       "ilOffset",
@@ -1346,6 +1347,10 @@ function parseInspection(
       "literalText",
     ], "Package Query assembly-semantic occurrence");
     return {
+      libraryPath: text(
+        occurrence.libraryPath,
+        "occurrence library path",
+        budget),
       moduleVersionId: text(
         occurrence.moduleVersionId,
         "occurrence module version ID",

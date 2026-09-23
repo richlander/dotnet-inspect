@@ -980,19 +980,21 @@ namespace DotnetInspect.Web.Interop.Package
                             result.SelectedAsset.AssemblyName,
                             result.SelectedAsset.TargetFramework,
                             Sequence: "Implementation",
-                            Ordinal: 0,
+                            result.SelectedAsset.Ordinal,
                             result.SelectedAsset.UnevaluatedSiblings,
                             result.RootRequest.Encode()),
                         [
-                            .. result.Occurrences.Select(occurrence =>
+                           .. result.GetLibraryOccurrences().Select(value =>
                                 new BrowserPackageAssemblySemanticOccurrence(
-                                    occurrence.Address.ModuleVersionId
-                                        .ToString("D"),
-                                    occurrence.Address.MethodDefinitionToken,
-                                    occurrence.Address.ILOffset,
-                                    occurrence.UserStringToken,
-                                    occurrence.LiteralCharacterCount,
-                                    occurrence.LiteralText.ToString())),
+                                   value.SelectedAsset.Path,
+                                   value.Evidence.Address.ModuleVersionId
+                                       .ToString("D"),
+                                   value.Evidence.Address
+                                       .MethodDefinitionToken,
+                                   value.Evidence.Address.ILOffset,
+                                   value.Evidence.UserStringToken,
+                                   value.Evidence.LiteralCharacterCount,
+                                   value.Evidence.LiteralText.ToString())),
                         ]),
                 assessment.SelectedAsset is { } selected
                     ? new BrowserPackageAssemblySemanticSelectedAsset(
@@ -1000,7 +1002,7 @@ namespace DotnetInspect.Web.Interop.Package
                         selected.AssemblyName,
                         selected.TargetFramework,
                         Sequence: "Implementation",
-                        Ordinal: 0,
+                        selected.Ordinal,
                         selected.UnevaluatedSiblings,
                         assessment.RootRequest?.Encode() ?? "")
                     : null,

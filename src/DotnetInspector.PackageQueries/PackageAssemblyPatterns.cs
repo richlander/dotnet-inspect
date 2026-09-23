@@ -9,11 +9,18 @@ public enum PackageAssemblyPatternRole
     ImplementationBody,
 }
 
+public enum PackageAssemblyPatternLibraryScope
+{
+    SelectorDefault,
+    AggregateRole,
+}
+
 public sealed record PackageAssemblyPatternDescriptor(
     string Id,
     string Label,
     string Summary,
     PackageAssemblyPatternRole Role,
+    PackageAssemblyPatternLibraryScope LibraryScope,
     string SemanticProducerId,
     int MaximumOperandLength);
 
@@ -38,8 +45,9 @@ public static class PackageAssemblyPatterns
     static readonly PackageAssemblyPatternDescriptor LiteralPattern = new(
         StringLiteralContains,
         "IL string literal contains",
-        "Find an ordinal substring in decoded ldstr occurrences in the selector-issued primary implementation assembly.",
+        "Find an ordinal substring in decoded ldstr occurrences across the selected implementation libraries.",
         PackageAssemblyPatternRole.ImplementationBody,
+        PackageAssemblyPatternLibraryScope.AggregateRole,
         StringLiteralUsePatternAnalysis.ProducerId,
         StringLiteralUseOperand.MaximumLength);
 

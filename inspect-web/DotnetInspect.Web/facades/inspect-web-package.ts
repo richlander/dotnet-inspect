@@ -374,6 +374,7 @@ export interface BrowserPackageAssemblySemanticCandidateOutcome {
 }
 
 export interface BrowserPackageAssemblySemanticOccurrence {
+  readonly libraryPath: string;
   readonly moduleVersionId: string;
   readonly methodDefinitionToken: number;
   readonly ilOffset: number;
@@ -1988,4 +1989,3 @@ export function searchTypes(query: string, candidatesJson: ReadonlyArray<Browser
   const $parsed: unknown = JSON.parse($result);
   return $parsed as ReadonlyArray<BrowserTypeSearchHit>;
 }
-

@@ -311,6 +311,7 @@ function semanticInspected(): BrowserPackageQueryResult {
     rootRequest: "opaque-semantic-root",
   };
   const occurrence = {
+    libraryPath: "lib/net10.0/Contoso.Library.dll",
     moduleVersionId: "00000000-0000-0000-0000-000000000001",
     methodDefinitionToken: 0x06000001,
     ilOffset: 4,

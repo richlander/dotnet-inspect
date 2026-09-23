@@ -117,6 +117,7 @@ function semanticSucceeded(): BrowserPackageQueryResult {
     rootRequest: "opaque-root",
   };
   const occurrences = [{
+    libraryPath: "lib/net10.0/Contoso.Package.dll",
     moduleVersionId: "00000000-0000-0000-0000-000000000001",
     methodDefinitionToken: 0x06000001,
     ilOffset: 4,
@@ -124,6 +125,7 @@ function semanticSucceeded(): BrowserPackageQueryResult {
     literalCharacterCount: 25,
     literalText: "shared-literal-use-marker",
   }, {
+    libraryPath: "lib/net10.0/Contoso.Package.dll",
     moduleVersionId: "00000000-0000-0000-0000-000000000001",
     methodDefinitionToken: 0x06000002,
     ilOffset: 8,

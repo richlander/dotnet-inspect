@@ -396,17 +396,56 @@ public sealed record PackageQueryLibraryLiteralSelectedAsset(
     InertString PathText,
     InertString AssemblyNameText,
     InertString TargetFrameworkText,
-    int UnevaluatedSiblings)
+    int UnevaluatedSiblings,
+    int Ordinal = 0)
 {
     public string Path => PathText.ToString();
     public string AssemblyName => AssemblyNameText.ToString();
     public string TargetFramework => TargetFrameworkText.ToString();
 }
 
+/// <summary>
+/// One package-grain literal result. <c>SelectedAsset</c> is the first matching
+/// implementation Library retained for compatibility; complete provenance is
+/// in <see cref="LibraryOccurrences"/>.
+/// </summary>
 public sealed record PackageQueryLibraryLiteralResult(
     PackageRootReacquisitionRequest RootRequest,
     PackageQueryLibraryLiteralSelectedAsset SelectedAsset,
-    ImmutableArray<StringLiteralUseOccurrence> Occurrences);
+    ImmutableArray<StringLiteralUseOccurrence> Occurrences)
+{
+    public ImmutableArray<PackageQueryLibraryLiteralOccurrence>
+        LibraryOccurrences { get; init; } = [];
+
+    public ImmutableArray<PackageQueryLibraryLiteralOccurrence>
+        GetLibraryOccurrences() =>
+        LibraryOccurrences.IsEmpty
+            ? [.. Occurrences.Select(occurrence =>
+                new PackageQueryLibraryLiteralOccurrence(
+                    SelectedAsset,
+                    occurrence))]
+            : LibraryOccurrences;
+}
+
+public sealed record PackageQueryLibraryLiteralOccurrence(
+    PackageQueryLibraryLiteralSelectedAsset SelectedAsset,
+    StringLiteralUseOccurrence Evidence);
+
+public enum PackageQueryLibraryLiteralLibraryAssessmentKind
+{
+    Matched,
+    NoMatch,
+    Failure,
+}
+
+public sealed record PackageQueryLibraryLiteralLibraryAssessment(
+    PackageQueryLibraryLiteralSelectedAsset SelectedAsset,
+    PackageQueryLibraryLiteralLibraryAssessmentKind Kind,
+    int Occurrences)
+{
+    public string? FailureStage { get; init; }
+    public string? Message { get; init; }
+}
 
 public enum PackageQueryLibraryLiteralAssessmentKind
 {
@@ -452,6 +491,8 @@ public sealed record PackageQueryLibraryLiteralAssessment(
     public PackageQueryLibraryLiteralNonEvaluationKind? NonEvaluationKind
         { get; init; }
     public string? Message { get; init; }
+    public ImmutableArray<PackageQueryLibraryLiteralLibraryAssessment>
+        Libraries { get; init; } = [];
 }
 
 /// <summary>The stage at which one package-query item failed.</summary>

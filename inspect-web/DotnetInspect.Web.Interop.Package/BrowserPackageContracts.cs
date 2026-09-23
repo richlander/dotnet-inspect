@@ -587,6 +587,7 @@ public enum BrowserPackageAssemblyNotApplicableReason
 }
 
 public sealed record BrowserPackageAssemblySemanticOccurrence(
+    string LibraryPath,
     string ModuleVersionId,
     int MethodDefinitionToken,
     int IlOffset,

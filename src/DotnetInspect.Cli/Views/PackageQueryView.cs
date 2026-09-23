@@ -179,20 +179,27 @@ public sealed class PackageQuerySemanticRow
                 string.Join(
                     "; ",
                     match.Answers.Select(item => item.Value))),
-            RequireLiteral(match).SelectedAsset.PathText,
-            RequireLiteral(match).SelectedAsset.AssemblyNameText,
-            RequireLiteral(match).SelectedAsset.TargetFrameworkText,
-            RequireLiteral(match).SelectedAsset.UnevaluatedSiblings,
+            JoinAssets(
+                match,
+                asset => asset.Path),
+            JoinAssets(
+                match,
+                asset => asset.AssemblyName),
+            JoinAssets(
+                match,
+                asset => asset.TargetFramework),
+            Assets(match).Max(asset => asset.UnevaluatedSiblings),
             RequireLiteral(match).Occurrences.Length,
             new InertString(
                 TextPolicy.Field,
                 string.Join(
                     ", ",
-                    RequireLiteral(match).Occurrences
+                    RequireLiteral(match).GetLibraryOccurrences()
                         .Take(PackageQuery.MaximumEvidencePreviewItems)
                         .Select(occurrence =>
-                            $"0x{occurrence.Address.MethodDefinitionToken:X8}"
-                            + $"/IL_{occurrence.Address.ILOffset:X4}"))),
+                            $"{occurrence.SelectedAsset.Path}: "
+                            + $"0x{occurrence.Evidence.Address.MethodDefinitionToken:X8}"
+                            + $"/IL_{occurrence.Evidence.Address.ILOffset:X4}"))),
             new InertString(
                 TextPolicy.Field,
                 RequireLiteral(match).RootRequest.Encode()))
@@ -260,4 +267,20 @@ public sealed class PackageQuerySemanticRow
         ?? throw new ArgumentException(
             "A semantic Package Query row requires library-literal evidence.",
             nameof(match));
+
+    private static PackageQueryLibraryLiteralSelectedAsset[] Assets(
+        PackageQueryMatch match) =>
+    [
+        .. RequireLiteral(match)
+            .GetLibraryOccurrences()
+            .Select(occurrence => occurrence.SelectedAsset)
+            .DistinctBy(asset => asset.Path),
+    ];
+
+    private static InertString JoinAssets(
+        PackageQueryMatch match,
+        Func<PackageQueryLibraryLiteralSelectedAsset, string> selector) =>
+        new(
+            TextPolicy.Field,
+            string.Join(", ", Assets(match).Select(selector).Distinct()));
 }

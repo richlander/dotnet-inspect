@@ -8,7 +8,15 @@ using NuGetFetch;
 
 namespace DotnetInspector.PackageQueries;
 
-/// <summary>One package whose selected implementation library matched.</summary>
+/// <summary>
+/// One literal occurrence and the exact selected implementation asset that
+/// produced it.
+/// </summary>
+public sealed record PackageAssemblySemanticQueryOccurrence(
+    PackageAssemblySelectedAssetContext SelectedAsset,
+    StringLiteralUseOccurrence Evidence);
+
+/// <summary>One package whose selected implementation libraries matched.</summary>
 public sealed record PackageAssemblySemanticQueryResult
 {
     internal PackageAssemblySemanticQueryResult(
@@ -19,11 +27,81 @@ public sealed record PackageAssemblySemanticQueryResult
         CandidateOrdinal = outcome.CandidateOrdinal;
         Coordinate = outcome.Coordinate;
         Correspondence = outcome.Correspondence;
-        SelectedAsset = outcome.Evaluation.SelectedAsset
-            ?? throw new ArgumentException(
-                "A matched package requires selected-asset evidence.",
+        LibraryOccurrences =
+        [
+            .. outcome.Evaluations
+                .OfType<PackageAssemblyEvaluationOutcome.Matched>()
+                .SelectMany(evaluation =>
+                {
+                    PackageAssemblySelectedAssetContext selectedAsset =
+                        evaluation.SelectedAsset
+                        ?? throw new InvalidOperationException(
+                            "A matched library must retain its selected asset.");
+                    return evaluation.Evidence.Occurrences.Select(occurrence =>
+                        new PackageAssemblySemanticQueryOccurrence(
+                            selectedAsset,
+                            occurrence));
+                }),
+        ];
+        if (LibraryOccurrences.IsEmpty)
+        {
+            throw new ArgumentException(
+                "A matched package requires at least one literal occurrence.",
                 nameof(outcome));
-        Occurrences = outcome.Evaluation.Evidence.Occurrences;
+        }
+        SelectedAsset = LibraryOccurrences[0].SelectedAsset;
+        Occurrences =
+        [
+            .. LibraryOccurrences.Select(value => value.Evidence),
+        ];
+        EvaluatedLibraryCount = outcome.Evaluations.Length;
+        MatchedLibraryCount =
+            outcome.Evaluations.Count(value =>
+                value is PackageAssemblyEvaluationOutcome.Matched);
+    }
+
+    internal PackageAssemblySemanticQueryResult(
+        PackageAssemblySemanticFindCandidateOutcome.Matched outcome,
+        IEnumerable<PackageAssemblySemanticFindResult> results)
+    {
+        ArgumentNullException.ThrowIfNull(outcome);
+        ArgumentNullException.ThrowIfNull(results);
+
+        CandidateOrdinal = outcome.CandidateOrdinal;
+        Coordinate = outcome.Coordinate;
+        Correspondence = outcome.Correspondence;
+        LibraryOccurrences =
+        [
+            .. results.Select(result =>
+            {
+                if (result.CandidateOrdinal != CandidateOrdinal
+                    || result.Coordinate != Coordinate
+                    || result.Correspondence != Correspondence)
+                {
+                    throw new ArgumentException(
+                        "Matched package occurrences must retain candidate correspondence.",
+                        nameof(results));
+                }
+                return new PackageAssemblySemanticQueryOccurrence(
+                    result.SelectedAsset,
+                    result.Evidence);
+            }),
+        ];
+        if (LibraryOccurrences.IsEmpty)
+        {
+            throw new ArgumentException(
+                "A matched package requires at least one literal occurrence.",
+                nameof(results));
+        }
+        SelectedAsset = LibraryOccurrences[0].SelectedAsset;
+        Occurrences =
+        [
+            .. LibraryOccurrences.Select(value => value.Evidence),
+        ];
+        EvaluatedLibraryCount = outcome.Evaluations.Length;
+        MatchedLibraryCount =
+            outcome.Evaluations.Count(value =>
+                value is PackageAssemblyEvaluationOutcome.Matched);
     }
 
     public int CandidateOrdinal { get; }
@@ -32,12 +110,23 @@ public sealed record PackageAssemblySemanticQueryResult
 
     public PackageAcquisitionCandidateCorrespondence Correspondence { get; }
 
+    /// <summary>
+    /// The first matching implementation Library. Complete occurrence
+    /// provenance is retained by <see cref="LibraryOccurrences"/>.
+    /// </summary>
     public PackageAssemblySelectedAssetContext SelectedAsset { get; }
 
     public PackageRootReacquisitionRequest RootRequest =>
         SelectedAsset.Subject.RootRequest;
 
+    public ImmutableArray<PackageAssemblySemanticQueryOccurrence>
+        LibraryOccurrences { get; }
+
     public ImmutableArray<StringLiteralUseOccurrence> Occurrences { get; }
+
+    public int EvaluatedLibraryCount { get; }
+
+    public int MatchedLibraryCount { get; }
 }
 
 /// <summary>
@@ -128,11 +217,19 @@ public abstract record PackageAssemblySemanticQueryCandidateOutcome
     private protected PackageAssemblySemanticQueryCandidateOutcome(
         int candidateOrdinal,
         PackageSourceCoordinate coordinate,
-        PackageAcquisitionCandidateCorrespondence correspondence)
+        PackageAcquisitionCandidateCorrespondence correspondence,
+        ImmutableArray<PackageAssemblyEvaluationOutcome> libraryEvaluations)
     {
+        if (libraryEvaluations.IsDefault)
+        {
+            throw new ArgumentException(
+                "Library evaluations must be initialized.",
+                nameof(libraryEvaluations));
+        }
         CandidateOrdinal = candidateOrdinal;
         Coordinate = coordinate;
         Correspondence = correspondence;
+        LibraryEvaluations = libraryEvaluations;
     }
 
     public int CandidateOrdinal { get; }
@@ -141,24 +238,32 @@ public abstract record PackageAssemblySemanticQueryCandidateOutcome
 
     public PackageAcquisitionCandidateCorrespondence Correspondence { get; }
 
+    public ImmutableArray<PackageAssemblyEvaluationOutcome> LibraryEvaluations
+        { get; }
+
     private protected PackageAssemblySemanticQueryCandidateOutcome(
         int candidateOrdinal,
-        PackageAcquisitionCandidate candidate)
+        PackageAcquisitionCandidate candidate,
+        ImmutableArray<PackageAssemblyEvaluationOutcome> libraryEvaluations)
         : this(
             candidateOrdinal,
             candidate?.Coordinate
                 ?? throw new ArgumentNullException(nameof(candidate)),
-            candidate.Correspondence)
+            candidate.Correspondence,
+            libraryEvaluations)
     {
     }
 
     public sealed record Matched : PackageAssemblySemanticQueryCandidateOutcome
     {
-        internal Matched(PackageAssemblySemanticQueryResult result)
+        internal Matched(
+            PackageAssemblySemanticQueryResult result,
+            ImmutableArray<PackageAssemblyEvaluationOutcome> libraryEvaluations)
             : base(
                 result.CandidateOrdinal,
                 result.Coordinate,
-                result.Correspondence) =>
+                result.Correspondence,
+                libraryEvaluations) =>
             Result = result;
 
         public PackageAssemblySemanticQueryResult Result { get; }
@@ -171,7 +276,8 @@ public abstract record PackageAssemblySemanticQueryCandidateOutcome
             : base(
                 outcome.CandidateOrdinal,
                 outcome.Coordinate,
-                outcome.Correspondence) =>
+                outcome.Correspondence,
+                outcome.Evaluations) =>
             Evaluation = outcome.Evaluation;
 
         public PackageAssemblyEvaluationOutcome.NoMatch Evaluation { get; }
@@ -185,7 +291,8 @@ public abstract record PackageAssemblySemanticQueryCandidateOutcome
             : base(
                 outcome.CandidateOrdinal,
                 outcome.Coordinate,
-                outcome.Correspondence) =>
+                outcome.Correspondence,
+                outcome.Evaluations) =>
             Evaluation = outcome.Evaluation;
 
         public PackageAssemblyEvaluationOutcome.NotApplicable Evaluation
@@ -199,7 +306,8 @@ public abstract record PackageAssemblySemanticQueryCandidateOutcome
             : base(
                 outcome.CandidateOrdinal,
                 outcome.Coordinate,
-                outcome.Correspondence)
+                outcome.Correspondence,
+                outcome.Evaluations)
         {
             Reason = outcome.Reason switch
             {
@@ -226,7 +334,7 @@ public abstract record PackageAssemblySemanticQueryCandidateOutcome
             int candidateOrdinal,
             PackageAcquisitionCandidate candidate,
             PackageAssemblySemanticQueryNonEvaluationReason reason)
-            : base(candidateOrdinal, candidate) =>
+            : base(candidateOrdinal, candidate, []) =>
             Reason = reason
                 ?? throw new ArgumentNullException(nameof(reason));
 
@@ -238,7 +346,29 @@ public abstract record PackageAssemblySemanticQueryCandidateOutcome
         outcome switch
         {
             PackageAssemblySemanticFindCandidateOutcome.Matched matched =>
-                new Matched(new PackageAssemblySemanticQueryResult(matched)),
+                new Matched(
+                    new PackageAssemblySemanticQueryResult(matched),
+                    matched.Evaluations),
+            PackageAssemblySemanticFindCandidateOutcome.NoMatch noMatch =>
+                new NoMatch(noMatch),
+            PackageAssemblySemanticFindCandidateOutcome.NotApplicable
+                notApplicable =>
+                new NotApplicable(notApplicable),
+            PackageAssemblySemanticFindCandidateOutcome.Failure failure =>
+                new Failure(failure),
+            _ => throw new InvalidOperationException(
+                "Unknown package assembly-semantic candidate outcome."),
+        };
+
+    internal static PackageAssemblySemanticQueryCandidateOutcome From(
+        PackageAssemblySemanticFindCandidateOutcome outcome,
+        IEnumerable<PackageAssemblySemanticFindResult> results) =>
+        outcome switch
+        {
+            PackageAssemblySemanticFindCandidateOutcome.Matched matched =>
+                new Matched(
+                    new PackageAssemblySemanticQueryResult(matched, results),
+                    matched.Evaluations),
             PackageAssemblySemanticFindCandidateOutcome.NoMatch noMatch =>
                 new NoMatch(noMatch),
             PackageAssemblySemanticFindCandidateOutcome.NotApplicable
@@ -298,16 +428,31 @@ public sealed record PackageAssemblySemanticQueryCompletion(
 public sealed class PackageAssemblySemanticQueryDocument
 {
     internal PackageAssemblySemanticQueryDocument(
-        PackageAssemblySemanticFindDocument evidence)
+        PackageAssemblySemanticFindDocument evidence,
+        IReadOnlyList<PackageAssemblySemanticQueryCandidateOutcome>?
+            projectedOutcomes = null)
     {
         ArgumentNullException.ThrowIfNull(evidence);
+        if (projectedOutcomes is not null
+            && projectedOutcomes.Count != evidence.CandidateOutcomes.Length)
+        {
+            throw new ArgumentException(
+                "Projected candidate outcomes must cover the completed evidence.",
+                nameof(projectedOutcomes));
+        }
 
         Population = evidence.Population;
-        CandidateOutcomes =
-        [
-            .. evidence.CandidateOutcomes.Select(
-                PackageAssemblySemanticQueryCandidateOutcome.From),
-        ];
+        CandidateOutcomes = projectedOutcomes is null
+            ?
+            [
+                .. evidence.CandidateOutcomes.Select(outcome =>
+                    PackageAssemblySemanticQueryCandidateOutcome.From(
+                        outcome,
+                        evidence.Results.Where(result =>
+                            result.CandidateOrdinal
+                                == outcome.CandidateOrdinal))),
+            ]
+            : [.. projectedOutcomes];
         Results =
         [
             .. CandidateOutcomes

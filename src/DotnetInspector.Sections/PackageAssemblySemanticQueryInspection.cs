@@ -65,7 +65,9 @@ public static class PackageAssemblySemanticQueryInspection
                     cancellationToken).ConfigureAwait(false);
 
             return CreateEnvelope(
-                new PackageAssemblySemanticQueryDocument(evidence));
+                new PackageAssemblySemanticQueryDocument(
+                    evidence,
+                    bridge?.Outcomes));
         }
     }
 
@@ -81,11 +83,19 @@ public static class PackageAssemblySemanticQueryInspection
         IPackageAssemblySemanticQueryNonterminalSink sink)
         : IPackageAssemblySemanticFindNonterminalSink
     {
-        public ValueTask ReportAsync(
+        internal List<PackageAssemblySemanticQueryCandidateOutcome> Outcomes
+            { get; } = [];
+
+        public async ValueTask ReportAsync(
             PackageAssemblySemanticFindCandidateOutcome outcome,
-            CancellationToken cancellationToken) =>
-            sink.ReportAsync(
-                PackageAssemblySemanticQueryCandidateOutcome.From(outcome),
-                cancellationToken);
+            CancellationToken cancellationToken)
+        {
+            PackageAssemblySemanticQueryCandidateOutcome projected =
+                PackageAssemblySemanticQueryCandidateOutcome.From(outcome);
+            await sink.ReportAsync(
+                projected,
+                cancellationToken).ConfigureAwait(false);
+            Outcomes.Add(projected);
+        }
     }
 }
