@@ -856,41 +856,43 @@ public partial class ApiCommand
             && options.IncludeSections is { Count: > 0 }
             && GetRequestedMemberSections(type, options).Contains(SectionNames.DecompiledSource))
         {
-            if (decompilationOptions.TypeDecompilationInspection is not { } inspection)
+            if (decompilationOptions.TypeDocumentInspection is not { } inspection)
             {
                 WriteTypeDecompilationFailure(
-                    "The completed type decompilation inspection is unavailable.");
+                    "The completed Type document inspection is unavailable.");
                 return 1;
             }
 
             if (inspection.Content
-                is AssemblyTypeDecompilationEntry.Settled settled)
+                is Decompiler.CSharpTypeDocumentOutcome.Available available)
             {
-                Decompiler.CSharpDecompilationAttempt attempt =
-                    settled.Attempt;
-                if (attempt.Status
-                    is Decompiler.CSharpDecompilationStatus.Failed
-                        or Decompiler.CSharpDecompilationStatus.Incomplete)
+                Decompiler.CSharpTypeDocument document =
+                    available.Document;
+                if (!document.Artifacts.IsEmpty
+                    || !document.Declarations.IsEmpty)
                 {
-                    if (attempt.DiagnosticSummary
-                        is { Length: > 0 } detail)
-                    {
-                        CommandError.Write(detail);
-                    }
-                    else
+                    Decompiler.CSharpTypeProjectionOutcome projection =
+                        Decompiler.CSharpTypeDocumentProjector.Project(
+                            document,
+                            new(Decompiler.CSharpTypeBodyMode.Bodies));
+                    if (projection
+                        is not Decompiler.CSharpTypeProjectionOutcome.Projected
+                            projected)
                     {
                         WriteTypeDecompilationFailure(
-                            $"Type decompilation ended with status {attempt.Status}.");
+                            projection
+                                is Decompiler.CSharpTypeProjectionOutcome.Rejected
+                                    rejected
+                                ? $"Type document Bodies projection was rejected: {rejected.Kind}: {rejected.Message}"
+                                : "Type document Bodies projection did not settle.");
+                        return 1;
                     }
-                    return 1;
-                }
-                if (attempt.Status
-                    == Decompiler.CSharpDecompilationStatus.Available)
-                {
-                    if (attempt.Text is not { } listing)
+
+                    string listing = projected.Projection.Text;
+                    if (string.IsNullOrWhiteSpace(listing))
                     {
                         WriteTypeDecompilationFailure(
-                            "Type decompilation reported available source without text.");
+                            "Type document Bodies projection reported available source without text.");
                         return 1;
                     }
 
@@ -902,15 +904,22 @@ public partial class ApiCommand
                             listing);
                 }
             }
+            else if (inspection.Content
+                is Decompiler.CSharpTypeDocumentOutcome.Incomplete incomplete)
+            {
+                WriteTypeDecompilationFailure(
+                    TypeDocumentIncompleteDetail(incomplete));
+                return 1;
+            }
             else
             {
                 string detail = inspection.Content switch
                 {
-                    AssemblyTypeDecompilationEntry.Unavailable unavailable =>
-                        unavailable.Failure.Detail,
-                    AssemblyTypeDecompilationEntry.Rejected rejected =>
-                        $"{rejected.Failure.Kind}: {rejected.Failure.Detail}",
-                    _ => "Type decompilation did not settle.",
+                    Decompiler.CSharpTypeDocumentOutcome.Unavailable unavailable =>
+                        unavailable.Reason,
+                    Decompiler.CSharpTypeDocumentOutcome.Rejected rejected =>
+                        rejected.Reason,
+                    _ => "Type document production did not settle.",
                 };
                 WriteTypeDecompilationFailure(detail);
                 return 1;
@@ -1499,6 +1508,22 @@ public partial class ApiCommand
             Environment.NewLine,
             failure.Diagnostics.Select(
                 static diagnostic => diagnostic.ToString())));
+    }
+
+    private static string TypeDocumentIncompleteDetail(
+        Decompiler.CSharpTypeDocumentOutcome.Incomplete incomplete)
+    {
+        string[] details =
+        [
+            .. incomplete.Document.Bodies
+                .Where(body => incomplete.FailedBodyIds.Contains(body.Id))
+                .SelectMany(static body => body.Diagnostics)
+                .Select(static diagnostic => diagnostic.ToString())
+                .Distinct(StringComparer.Ordinal),
+        ];
+        return details.Length == 0
+            ? "Type document production is incomplete."
+            : string.Join("; ", details);
     }
 
     private static List<PrintableDocument> CodeSectionDocument(

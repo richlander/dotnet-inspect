@@ -109,6 +109,19 @@ public static class CSharpStructuredTypePlanProducer
             request.Type,
             nested: !request.ContainingTypes.IsEmpty,
             [.. request.Members.Select(static member => member.Member)]);
+        if (declaredType.Members.Count != request.Members.Length)
+        {
+            throw new NotSupportedException(
+                "A structured Type snapshot did not retain every requested declaration.");
+        }
+        ImmutableArray<CSharpStructuredMemberRequest> members =
+        [
+            .. request.Members.Select((member, index) =>
+                member with
+                {
+                    Member = declaredType.Members[index],
+                }),
+        ];
         ImmutableArray<ApiType> containingTypes =
         [
             .. request.ContainingTypes.Select((type, index) =>
@@ -116,21 +129,47 @@ public static class CSharpStructuredTypePlanProducer
                     type,
                     nested: index > 0)),
         ];
+        ImmutableArray<string> namespaces =
+        [
+            .. request.Namespaces
+                .Concat(CSharpDeclarationWriter.DeriveContextualUsings(
+                    [.. containingTypes, declaredType]))
+                .Where(@namespace =>
+                    !IsNamespaceInScope(
+                        @namespace,
+                        declaredType.Namespace))
+                .Where(@namespace =>
+                    !containingTypes.Any(type =>
+                        string.Equals(
+                            type.FullName,
+                            @namespace,
+                            StringComparison.Ordinal)))
+                .Distinct(StringComparer.Ordinal)
+                .Order(StringComparer.Ordinal),
+        ];
         CSharpFormatter formatter = CreateFormatter(
             declaredType,
-            omitPropertyAccessors: false);
+            omitPropertyAccessors: false,
+            namespaces);
         CSharpFormatter propertyFormatter = CreateFormatter(
             declaredType,
-            omitPropertyAccessors: true);
+            omitPropertyAccessors: true,
+            namespaces);
+        CSharpDeclarationOptions attributeOptions = new()
+        {
+            TypeNameMode = CSharpTypeNameMode.ShortWithUsings,
+            ContainingNamespace = declaredType.Namespace,
+            Usings = namespaces,
+        };
 
         int nestingDepth = containingTypes.Length;
         string typePad = "";
         string memberPad = new(' ', (nestingDepth + 1) * 4);
         var prefix = ImmutableArray.CreateBuilder<CSharpStructuredPart>();
         var frame = new StringBuilder();
-        foreach (string @namespace in request.Namespaces)
+        foreach (string @namespace in namespaces)
             frame.Append("using ").Append(CSharpFormatter.EscapeNamespace(@namespace)).Append(";\n");
-        if (request.Namespaces.Length > 0)
+        if (namespaces.Length > 0)
             frame.Append('\n');
         if (!string.IsNullOrWhiteSpace(declaredType.Namespace))
         {
@@ -143,11 +182,16 @@ public static class CSharpStructuredTypePlanProducer
         {
             prefix.Add(Fixed(frame.ToString()));
             frame.Clear();
-            AppendAttributePart(prefix, containing.Attributes, typePad);
+            AppendAttributePart(
+                prefix,
+                containing.Attributes,
+                typePad,
+                attributeOptions);
             frame.Append(typePad)
                 .Append(CreateFormatter(
                     containing,
-                    omitPropertyAccessors: false)
+                    omitPropertyAccessors: false,
+                    namespaces)
                     .FormatTypeDeclaration(containing))
                 .Append("\n")
                 .Append(typePad)
@@ -157,11 +201,15 @@ public static class CSharpStructuredTypePlanProducer
 
         prefix.Add(Fixed(frame.ToString()));
         frame.Clear();
-        AppendAttributePart(prefix, declaredType.Attributes, typePad);
+        AppendAttributePart(
+            prefix,
+            declaredType.Attributes,
+            typePad,
+            attributeOptions);
         frame.Append(typePad);
         if (declaredType.Kind == "delegate")
         {
-            ApiMember invoke = request.Members.Single().Member;
+            ApiMember invoke = members.Single().Member;
             frame.Append(formatter.FormatDelegate(declaredType, invoke))
                 .Append(';');
             prefix.Add(Fixed(frame.ToString()));
@@ -170,7 +218,7 @@ public static class CSharpStructuredTypePlanProducer
                 "",
                 CloseContainingTypes(containingTypes.Length),
                 [],
-                request.Namespaces);
+                namespaces);
         }
 
         frame.Append(formatter.FormatTypeDeclaration(declaredType))
@@ -181,17 +229,22 @@ public static class CSharpStructuredTypePlanProducer
 
         ImmutableArray<CSharpStructuredDeclarationPlan> declarations =
             declaredType.Kind == "enum"
-                ? [.. request.Members.Select((member, index) =>
-                    RenderEnum(member, memberPad))]
-                : [.. request.Members.Select(member =>
+                ? [.. members.Select(member =>
+                    RenderEnum(
+                        member,
+                        memberPad,
+                        attributeOptions))]
+                : [.. members.Select(member =>
                     RenderMember(
                         declaredType,
                         member,
                         formatter,
                         propertyFormatter,
-                        memberPad))];
+                        memberPad,
+                        attributeOptions,
+                        namespaces))];
         string separator = declaredType.Kind == "enum"
-            ? ",\n"
+            ? "\n"
             : "\n\n";
         string suffix = "\n"
             + typePad
@@ -202,26 +255,32 @@ public static class CSharpStructuredTypePlanProducer
             separator,
             suffix,
             declarations,
-            request.Namespaces);
+            namespaces);
     }
 
     static CSharpStructuredDeclarationPlan RenderEnum(
         CSharpStructuredMemberRequest request,
-        string pad)
+        string pad,
+        CSharpDeclarationOptions attributeOptions)
     {
         var parts = ImmutableArray.CreateBuilder<CSharpStructuredPart>();
-        AppendAttributePart(parts, request.Member.Attributes, pad);
+        AppendMemberAttributePart(
+            parts,
+            request.Member,
+            pad,
+            attributeOptions);
         string value = request.Body is CSharpFieldInitializer initializer
             ? $" = {initializer.Source}"
             : "";
         parts.Add(Fixed(
-            $"{pad}{CSharpFormatter.EscapeIdentifier(request.Member.Name)}{value}"));
+            $"{pad}{CSharpFormatter.EscapeIdentifier(request.Member.Name)}{value},"));
         return new(request.Member, parts.ToImmutable());
     }
 
     static CSharpFormatter CreateFormatter(
         ApiType type,
-        bool omitPropertyAccessors)
+        bool omitPropertyAccessors,
+        IReadOnlyCollection<string> namespaces)
     {
         CSharpDeclaredTypeSelfNameAdmission.Admitted? selfName = null;
         if (type.DefinitionName is not null
@@ -247,7 +306,9 @@ public static class CSharpStructuredTypePlanProducer
             IncludeObsoleteAttribute = false,
             OmitInterfaceMemberModifiers = true,
             OmitPropertyAccessors = omitPropertyAccessors,
-            TypeNamePolicy = CSharpTypeNamePolicy.Qualified,
+            TypeNamePolicy = CSharpTypeNamePolicy.ShortWithUsings,
+            ContainingNamespace = type.Namespace,
+            Usings = namespaces,
             DeclaredTypeSelfName = selfName,
         });
     }
@@ -310,11 +371,23 @@ public static class CSharpStructuredTypePlanProducer
         CSharpStructuredMemberRequest request,
         CSharpFormatter formatter,
         CSharpFormatter propertyFormatter,
-        string pad)
+        string pad,
+        CSharpDeclarationOptions attributeOptions,
+        IReadOnlyCollection<string> namespaces)
     {
-        request = request with { Member = PrepareLogicalMember(type, request.Member) };
+        request = request with
+        {
+            Member = PrepareLogicalMember(
+                type,
+                request.Member,
+                namespaces),
+        };
         var parts = ImmutableArray.CreateBuilder<CSharpStructuredPart>();
-        AppendAttributePart(parts, request.Member.Attributes, pad);
+        AppendMemberAttributePart(
+            parts,
+            request.Member,
+            pad,
+            attributeOptions);
         ApiMember member = request.Member;
         if (member.Kind == "field")
         {
@@ -334,7 +407,10 @@ public static class CSharpStructuredTypePlanProducer
             return new(member, parts.ToImmutable());
         }
 
-        static ApiMember PrepareLogicalMember(ApiType type, ApiMember member)
+        static ApiMember PrepareLogicalMember(
+            ApiType type,
+            ApiMember member,
+            IReadOnlyCollection<string> namespaces)
         {
             var accessor = member.SignatureModel?.Accessors.FirstOrDefault(value =>
                 value.IsExplicitInterfaceImplementation == true
@@ -349,7 +425,19 @@ public static class CSharpStructuredTypePlanProducer
             string leaf = member.SignatureModel!.MemberName ?? member.Name;
             leaf = leaf[(leaf.LastIndexOf('.') + 1)..];
             snapshot.Kind = "explicit-interface-implementation";
-            snapshot.Name = name[..separator] + "." + leaf;
+            string qualifier = name[..separator];
+            string? prefix = namespaces
+                .Append(type.Namespace)
+                .Where(static value =>
+                    !string.IsNullOrWhiteSpace(value))
+                .OrderByDescending(static value => value!.Length)
+                .FirstOrDefault(value =>
+                    qualifier.StartsWith(
+                        value + ".",
+                        StringComparison.Ordinal));
+            if (prefix is not null)
+                qualifier = qualifier[(prefix.Length + 1)..];
+            snapshot.Name = qualifier + "." + leaf;
             snapshot.SignatureModel!.MemberName = leaf == "this[]"
                 ? leaf
                 : snapshot.Name;
@@ -599,19 +687,59 @@ public static class CSharpStructuredTypePlanProducer
     static void AppendAttributePart(
         ImmutableArray<CSharpStructuredPart>.Builder parts,
         IReadOnlyList<string> attributes,
-        string pad)
+        string pad,
+        CSharpDeclarationOptions options)
     {
         if (attributes.Count == 0)
             return;
+        (
+            IReadOnlyList<string> rendered,
+            IReadOnlyList<string> diagnostics) =
+                CSharpDeclarationWriter.RenderAttributeBodies(
+                    attributes,
+                    options);
+        if (diagnostics.Count > 0)
+        {
+            throw new NotSupportedException(
+                string.Join("; ", diagnostics));
+        }
         string text = string.Join(
             "\n",
-            attributes.Select(attribute => $"{pad}[{attribute}]"))
+            rendered.Select(attribute => $"{pad}[{attribute}]"))
             + "\n";
         parts.Add(new(
             CSharpStructuredPartKind.Attributes,
             text,
             text));
     }
+
+    static void AppendMemberAttributePart(
+        ImmutableArray<CSharpStructuredPart>.Builder parts,
+        ApiMember member,
+        string pad,
+        CSharpDeclarationOptions options)
+    {
+        IReadOnlyList<string> attributes = member.IsObsolete
+            ? [
+                .. member.Attributes,
+                CSharpDeclarationWriter.RenderObsoleteAttributeBody(
+                    member.ObsoleteMessage),
+            ]
+            : member.Attributes;
+        AppendAttributePart(parts, attributes, pad, options);
+    }
+
+    static bool IsNamespaceInScope(
+        string @namespace,
+        string? containingNamespace)
+        => !string.IsNullOrEmpty(containingNamespace)
+            && (string.Equals(
+                    @namespace,
+                    containingNamespace,
+                    StringComparison.Ordinal)
+                || containingNamespace.StartsWith(
+                    @namespace + ".",
+                    StringComparison.Ordinal));
 
     static void AddInvisibleBodyParts(
         ImmutableArray<CSharpStructuredPart>.Builder parts,
@@ -670,6 +798,8 @@ public static class CSharpStructuredTypePlanProducer
         foreach (var member in request.Members)
         {
             if (member.Member.Kind is "method" or "extension-method" or "field"
+                && !member.Member.IsFinalizer
+                && member.Member.Name is not (".ctor" or ".cctor")
                 && CSharpIdentifier.AdmitTypeDeclaration(member.Member.Name)
                     is not CSharpTypeDeclarationIdentifierAdmission.Admitted)
             {

@@ -40,24 +40,29 @@ public partial class CommandExecutionTests
         Assert.Contains("public class Stack<T>", output);
         Assert.Contains("private T[] _array;", output);
         Assert.Contains("public void Push(T item)", output);
-        Assert.Contains("public bool TryPop([System.Diagnostics.CodeAnalysis.MaybeNullWhen(false)] out T result)", output);
+        Assert.Contains("public bool TryPop([MaybeNullWhen(false)] out T result)", output);
         // Using hoisting: qualified names shorten against the metadata
         // namespace tables; the directives appear at the top.
         Assert.Contains("using System.Runtime.CompilerServices;", output);
-        Assert.Contains(": IEnumerable<T>, IEnumerable, ICollection, IReadOnlyCollection<T>", output);
+        Assert.Contains(
+            ": IEnumerable<T>, System.Collections.IEnumerable, "
+            + "System.Collections.ICollection, IReadOnlyCollection<T>",
+            output);
         Assert.Contains("RuntimeHelpers.IsReferenceOrContainsReferences", output);
-        Assert.DoesNotContain("System.Collections.Generic.IEnumerable<T>", output);
+        Assert.Contains(
+            "IEnumerator<T> System.Collections.Generic.IEnumerable<T>.GetEnumerator()",
+            output);
         // Explicit interface property implementations render exactly once
         // as properties with their selected accessor bodies.
         Assert.Equal(
             1,
             output.Split(
-                "bool ICollection.IsSynchronized => false;",
+                "bool System.Collections.ICollection.IsSynchronized",
                 StringSplitOptions.None).Length - 1);
         Assert.Equal(
             1,
             output.Split(
-                "object ICollection.SyncRoot => this;",
+                "object System.Collections.ICollection.SyncRoot",
                 StringSplitOptions.None).Length - 1);
         Assert.DoesNotContain("private virtual bool ICollection.IsSynchronized", output);
         Assert.DoesNotContain("private virtual object ICollection.SyncRoot", output);
@@ -92,11 +97,17 @@ public partial class CommandExecutionTests
         Assert.Empty(error);
         string normalized = output.ReplaceLineEndings("\n");
         const string values =
-            "    [DataMember(Name = \"values\")]\n"
-            + "    List<int> CommandExecutionTests.IAttributedExplicitValuesFixture.Values => _values;";
+            "        [System.Runtime.Serialization.DataMember(Name = \"values\")]\n"
+            + "        List<int> CommandExecutionTests.IAttributedExplicitValuesFixture.Values\n"
+            + "        {\n"
+            + "            get => _values;\n"
+            + "        }";
         const string otherValues =
-            "    [DataMember(Name = \"other-values\")]\n"
-            + "    List<int> CommandExecutionTests.IAttributedExplicitValuesFixture.OtherValues => _otherValues;";
+            "        [System.Runtime.Serialization.DataMember(Name = \"other-values\")]\n"
+            + "        List<int> CommandExecutionTests.IAttributedExplicitValuesFixture.OtherValues\n"
+            + "        {\n"
+            + "            get => _otherValues;\n"
+            + "        }";
         Assert.Equal(
             1,
             normalized.Split(values, StringSplitOptions.None).Length - 1);
@@ -106,21 +117,21 @@ public partial class CommandExecutionTests
         Assert.Equal(
             1,
             normalized.Split(
-                "[DataMember(Name = \"values\")]",
+                "[System.Runtime.Serialization.DataMember(Name = \"values\")]",
                 StringSplitOptions.None).Length - 1);
         Assert.Equal(
             1,
             normalized.Split(
-                "[DataMember(Name = \"other-values\")]",
+                "[System.Runtime.Serialization.DataMember(Name = \"other-values\")]",
                 StringSplitOptions.None).Length - 1);
         Assert.DoesNotContain(
-            "[DataMember(Name = \"values\")]\n"
-            + "    List<int> CommandExecutionTests.IAttributedExplicitValuesFixture.OtherValues",
+            "[System.Runtime.Serialization.DataMember(Name = \"values\")]\n"
+            + "        List<int> CommandExecutionTests.IAttributedExplicitValuesFixture.OtherValues",
             normalized,
             StringComparison.Ordinal);
         Assert.DoesNotContain(
-            "[DataMember(Name = \"other-values\")]\n"
-            + "    List<int> CommandExecutionTests.IAttributedExplicitValuesFixture.Values",
+            "[System.Runtime.Serialization.DataMember(Name = \"other-values\")]\n"
+            + "        List<int> CommandExecutionTests.IAttributedExplicitValuesFixture.Values",
             normalized,
             StringComparison.Ordinal);
         Assert.DoesNotContain(
@@ -131,7 +142,7 @@ public partial class CommandExecutionTests
 
     [Fact]
     public async Task
-        Type_DecompiledSource_RequiresCompletedSharedInspection()
+        Type_DecompiledSource_RequiresCompletedTypeDocumentInspection()
     {
         ApiSurface surface =
             AssemblyReader.ExtractApiSurface(
@@ -169,7 +180,7 @@ public partial class CommandExecutionTests
         Assert.Empty(output);
         Assert.Contains("DEC0001", error);
         Assert.Contains(
-            "completed type decompilation inspection is unavailable",
+            "completed Type document inspection is unavailable",
             error,
             StringComparison.Ordinal);
     }
@@ -194,7 +205,8 @@ public partial class CommandExecutionTests
         Assert.Equal(0, exit);
         Assert.Empty(error);
         string[] lines = output.ReplaceLineEndings("\n").Split('\n');
-        const string attribute = "[Obsolete(\"Use Value2 instead\", true)]";
+        const string attribute =
+            "[System.Obsolete(\"Use Value2 instead\")]";
         Assert.Single(lines, line => line.Trim() == attribute);
         int attributeLine = Array.FindIndex(lines, line => line.Trim() == attribute);
         Assert.InRange(attributeLine, 0, lines.Length - 2);
@@ -270,7 +282,7 @@ public partial class CommandExecutionTests
             defaultOutput,
             StringComparison.Ordinal);
         Assert.Contains(
-            "public static int Visible { get; }",
+            "public static int Visible",
             defaultOutput,
             StringComparison.Ordinal);
         Assert.Contains(
@@ -357,7 +369,7 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Type_DecompiledSource_UsesExpressionBodiedSyntaxForTableMembers()
+    public async Task Type_DecompiledSource_UsesStructuredBodySpelling()
     {
         var (exit, output, error) = await RunAppAsync(
             "type", typeof(MemberCallsFixture).FullName!, "--library", TestAssemblyPath,
@@ -365,7 +377,12 @@ public partial class CommandExecutionTests
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
-        Assert.Contains("public static int CallsInterfaceItem(IList<int> values) => values[0];", output);
+        Assert.Contains(
+            "    public static int CallsInterfaceItem(IList<int> values)\n"
+            + "    {\n"
+            + "        return values[0];\n"
+            + "    }",
+            output.ReplaceLineEndings("\n"));
         Assert.Contains("    public static void CallsWriteLineTwice()\n    {", output.ReplaceLineEndings("\n"));
     }
 
@@ -423,7 +440,8 @@ public partial class CommandExecutionTests
         Assert.Equal(0, exit);
         Assert.Empty(error);
         // Native C#: no markdown heading, section title, code fence, or tips.
-        Assert.StartsWith("using System.Collections;", output);
+        Assert.StartsWith("using ", output);
+        Assert.Contains("using System.Runtime.CompilerServices;", output);
         Assert.Contains("namespace System.Collections.Generic;", output);
         Assert.DoesNotContain("# ", output);
         Assert.DoesNotContain("```", output);

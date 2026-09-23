@@ -568,7 +568,7 @@ public sealed class CSharpDecompilerTypeDocumentTests
     [Trait("Speed", "Slow")]
     [InlineData(
         "System.Text.Json.JsonSerializerOptions",
-        "<get_CacheContext>g__GetOrCreate|1_0")]
+        "<Default>k__BackingField")]
     [InlineData(
         "System.Collections.Generic.OrderedDictionary`2+Enumerator",
         "inheritance obligations")]

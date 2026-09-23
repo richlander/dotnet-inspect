@@ -493,7 +493,9 @@ public static partial class MemberBodyProducer
                 DeclarationToken(member) is { } declarationToken
                 && directArtifactTokens.Contains(declarationToken)
                 && (member.MetadataToken is not { } methodToken
-                    || !accessorTokens.Contains(methodToken))),
+                    || !accessorTokens.Contains(methodToken)))
+                .OrderBy(static member =>
+                    member.Kind == "field" ? 0 : 1),
         ];
     }
 

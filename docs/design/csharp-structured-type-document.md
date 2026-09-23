@@ -22,8 +22,8 @@ document, its validation, its revision currency, and projection semantics. It
 does not acquire assemblies, redefine Metadata facts or CSharp spelling, join
 analysis, or render a host experience.
 
-SourceHouse, Queries/Sections, CLI, and Browser adoptions follow as
-independently reviewable slices.
+SourceHouse, Queries/Sections, and CLI adoption are implemented. Browser
+adoption follows as an independently reviewable slice.
 
 The immutable document core and the exact-Type decompiled producer are
 implemented. `CSharpDecompilerService.ProduceTypeDocument` opens one
@@ -75,7 +75,8 @@ retain those boundaries while supporting:
   filters;
 - exact declaration selection and member drill-down;
 - later analysis results joined by exact identity and document revision; and
-- unchanged CLI whole-Type text produced from the same document.
+- CLI whole-Type output using CSharp-owned declaration and body spelling from
+  the same document.
 
 ## Relationship to API Declarations
 
@@ -657,9 +658,11 @@ split by owner:
 2. **SourceHouse and Queries/Sections** - preserve the document and native
    outcome through exact-Type decompiled settlement, then expose one completed
    `InspectionEnvelope<CSharpTypeDocumentOutcome>`.
-3. **CLI** - consume the shared envelope and Bodies projection for existing
-   whole-Type Decompiled Source, preserving current text and diagnostics before
-   retiring the scalar attempt path.
+3. **CLI** - complete: existing whole-Type Decompiled Source consumes the shared
+   envelope and Bodies projection, preserves command selection, section shape,
+   diagnostics, and failure behavior, and no longer uses the scalar attempt
+   path. Declaration and body layout now follow the CSharp structured render
+   plan and may normalize scalar-era whitespace or expression-body choices.
 4. **Browser** - consume the same envelope and projector for the static Type
    Explorer, then replace Type Source's Settings destination.
 5. **Metadata contract relationships** - separately define and adopt exact
@@ -684,7 +687,7 @@ Planned Release gates:
 | `CSharpTypeDocumentRevisionTests` | Canonical replay is stable; changing identity, physical-artifact association, classification, source, render policy, body address, physical fingerprint, ownership, or contribution provenance changes the revision; short-anchor collisions cannot merge artifacts or declarations. |
 | `CSharpDecompilerTypeDocumentTests` | Complete same-reader physical artifact, body, and C# declaration populations; non-public and generated members; absorbed backing/enum/delegate artifacts; backing-storage initializer contributions; valid ref-return and implemented-interface-property skeletons; containing-context validity or native unavailability at default and exhausted budgets; accessor body context; constructor-chain validity under exhausted budgets; properties/events with multiple accessors; bodyless and empty Types; visible body failures; and one-load exact body association. |
 | `TypeDocumentInspectionTests` | Exact-Type SourceHouse settlement preserves provenance, typed outcomes, bounds, diagnostics, detached serialization, and `InspectionEnvelope` content across supplied and absent PDB paths. |
-| CLI whole-Type Decompiled Source tests | The existing command text, diagnostics, and failure behavior come from the shared Bodies projection for the real System.Text.Json witnesses and focused fixtures. |
+| CLI whole-Type Decompiled Source tests | Command selection, section shape, diagnostics, failure behavior, semantic source content, and CSharp-owned spelling come from the shared Bodies projection for real platform witnesses and focused fixtures. |
 | Browser Type Explorer production test | Type Source Explore opens the routed viewer; Bodies/Skeleton/Selected body and structural filters consume product projections and exact identities without Browser C# parsing. |
 
 The Type document tests use independently compiled fixtures under the owning

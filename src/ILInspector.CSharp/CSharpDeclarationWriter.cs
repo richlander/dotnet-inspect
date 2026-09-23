@@ -420,6 +420,11 @@ internal static class CSharpDeclarationWriter
         return (attributes.Select(plan.Apply).ToArray(), plan.Diagnostics);
     }
 
+    internal static string RenderObsoleteAttributeBody(string? message)
+        => string.IsNullOrWhiteSpace(message)
+            ? "System.Obsolete"
+            : $"System.Obsolete(\"{EscapeCSharpString(message)}\")";
+
     /// <summary>
     /// Computes a collision-safe set of namespaces that can be imported as
     /// <c>using</c> directives for a compilation unit declaring
@@ -2304,9 +2309,7 @@ internal static class CSharpDeclarationWriter
             : SanitizeIdentifier(typeParameter.Name);
 
     static string FormatObsoleteAttribute(string? message)
-        => string.IsNullOrWhiteSpace(message)
-            ? "[System.Obsolete]"
-            : $"[System.Obsolete(\"{EscapeCSharpString(message)}\")]";
+        => $"[{RenderObsoleteAttributeBody(message)}]";
 
     // The Obsolete message is attacker-controlled attribute text rendered inside a
     // C# string literal. Escaping only the classic C-escapes leaves vertical tabs,

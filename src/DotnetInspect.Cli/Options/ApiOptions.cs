@@ -4,6 +4,7 @@ using DotnetInspector.Packages;
 using DotnetInspector.Presentation;
 using DotnetInspector.Queries;
 using DotnetInspector.Sections;
+using ILInspector.Decompiler;
 using ILInspector.Decompiler.Pipeline;
 using ILInspector.Metadata;
 using Markout;
@@ -353,8 +354,8 @@ public record TypeOptions : ApiOptions
     public string? OriginalTypeQuery { get; init; }
     public string? PlatformPrefixQuery { get; init; }
     public bool AllowPlatformPrefixFallback { get; init; }
-    public InspectionEnvelope<AssemblyTypeDecompilationEntry>?
-        TypeDecompilationInspection
+    public InspectionEnvelope<CSharpTypeDocumentOutcome>?
+        TypeDocumentInspection
     {
         get;
         init;

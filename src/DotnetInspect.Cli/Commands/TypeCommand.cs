@@ -629,7 +629,7 @@ public static class TypeCommand
                             effectiveOptions))
                     {
                         effectiveOptions =
-                            await AttachTypeDecompilationInspectionAsync(
+                            await AttachTypeDocumentInspectionAsync(
                                 apiType,
                                 effectiveOptions,
                                 decompilationPath,
@@ -2071,7 +2071,7 @@ public static class TypeCommand
     }
 
     private static async Task<TypeOptions>
-        AttachTypeDecompilationInspectionAsync(
+        AttachTypeDocumentInspectionAsync(
             ApiType apiType,
             TypeOptions options,
             string apiDllPath,
@@ -2088,7 +2088,7 @@ public static class TypeCommand
                     sourceAssembly,
                     options,
                     httpClient,
-                    "type decompilation",
+                    "type document",
                     cancellationToken)
                 .ConfigureAwait(false);
 
@@ -2097,9 +2097,9 @@ public static class TypeCommand
         using AssemblyContextGroup group =
             workspace.CreateAssemblyContextGroup(
                 [preparation.Participant]);
-        InspectionEnvelope<AssemblyTypeDecompilationEntry>
+        InspectionEnvelope<Decompiler.CSharpTypeDocumentOutcome>
             inspection =
-                await TypeSourceInspection.DecompileAsync(
+                await TypeDocumentInspection.ExecuteAsync(
                         group,
                         preparation.Participant,
                         AssemblyTypeSourceRequest.From(
@@ -2111,7 +2111,7 @@ public static class TypeCommand
                     .ConfigureAwait(false);
         return options with
         {
-            TypeDecompilationInspection = inspection,
+            TypeDocumentInspection = inspection,
         };
     }
 
