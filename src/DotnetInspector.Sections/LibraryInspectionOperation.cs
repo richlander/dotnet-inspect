@@ -1,3 +1,4 @@
+using System.Buffers.Binary;
 using System.Collections.Immutable;
 
 using DotnetInspector.LibraryMetadata;
@@ -27,14 +28,20 @@ public static class LibraryInspectionOperation
         {
             ArgumentNullException.ThrowIfNull(request);
             cancellationToken.ThrowIfCancellationRequested();
+            RowsPreparation rows = PrepareRows(request.Plan.Types);
             LibraryTypeDeclarationInventoryInspectionOutcome outcome =
                 LibraryTypeDeclarationInventoryInspection.Execute(
                     new(
                         request.Library,
-                        InventoryBounds(request.Plan.Bounds)),
+                        InventoryBounds(request.Plan.Bounds),
+                        SourceRows(request.Plan.Types.Rows, rows)),
                     lease,
                     cancellationToken);
-            return Project(outcome, request, cancellationToken);
+            return Project(
+                outcome,
+                request,
+                rows,
+                cancellationToken);
         }
         finally
         {
@@ -45,6 +52,7 @@ public static class LibraryInspectionOperation
     private static InspectionEnvelope<LibraryInspectionOutcome> Project(
         LibraryTypeDeclarationInventoryInspectionOutcome outcome,
         LibraryInspectionRequest request,
+        RowsPreparation rows,
         CancellationToken cancellationToken) =>
         outcome switch
         {
@@ -53,10 +61,11 @@ public static class LibraryInspectionOperation
                 Project(
                     completed.Correspondence,
                     request,
+                    rows,
                     cancellationToken),
             LibraryTypeDeclarationInventoryInspectionOutcome.Incomplete
                 incomplete =>
-                Project(incomplete, request),
+                Project(incomplete, request, rows),
             LibraryTypeDeclarationInventoryInspectionOutcome.Rejected
                 rejected =>
                 Rejected(rejected.Kind),
@@ -69,41 +78,69 @@ public static class LibraryInspectionOperation
     private static InspectionEnvelope<LibraryInspectionOutcome> Project(
         LibraryTypeDeclarationInventoryCorrespondence correspondence,
         LibraryInspectionRequest request,
+        RowsPreparation rows,
         CancellationToken cancellationToken)
     {
-        (
-            LibraryTypePopulationCountOutcome count,
-            ImmutableArray<InspectionDiagnostic> diagnostics) =
-            Count(
-                correspondence.Inventory,
-                request.Plan.Bounds,
-                cancellationToken);
+        var diagnostics =
+            ImmutableArray.CreateBuilder<InspectionDiagnostic>();
+        LibraryTypePopulationCountOutcome? count = null;
+        if (request.Plan.Types.Count is not null)
+        {
+            (
+                count,
+                ImmutableArray<InspectionDiagnostic> countDiagnostics) =
+                Count(
+                    correspondence.Inventory,
+                    request.Plan.Bounds,
+                    cancellationToken);
+            diagnostics.AddRange(countDiagnostics);
+        }
+        LibraryTypePopulationRowsOutcome? rowResult = null;
+        if (request.Plan.Types.Rows is { } rowRequest)
+        {
+            (
+                rowResult,
+                ImmutableArray<InspectionDiagnostic> rowDiagnostics) =
+                Rows(
+                    correspondence,
+                    request.Plan.Types,
+                    rowRequest,
+                    request.Plan.Bounds,
+                    rows,
+                    cancellationToken);
+            diagnostics.AddRange(rowDiagnostics);
+        }
+
         return Available(
             correspondence.Subject,
             request,
             count,
+            rowResult,
             correspondence.MetadataRows,
             correspondence.DeclarationCount,
             correspondence.RetainedTextCharacters,
-            diagnostics);
+            diagnostics.ToImmutable());
     }
 
     private static InspectionEnvelope<LibraryInspectionOutcome> Project(
         LibraryTypeDeclarationInventoryInspectionOutcome.Incomplete incomplete,
-        LibraryInspectionRequest request)
+        LibraryInspectionRequest request,
+        RowsPreparation rows)
     {
         LibraryTypeDeclarationInventorySubject subject =
             incomplete.Subject
             ?? throw new InvalidOperationException(
                 "Library inspection does not impose an assembly-byte bound.");
         (
-            LibraryTypePopulationCountBound bound,
+            LibraryTypePopulationCountBound countBound,
+            LibraryTypePopulationRowsBound rowsBound,
             long limit,
             long measured) = incomplete.Bound switch
             {
                 LibraryTypeDeclarationInventoryInspectionBound.MetadataRows =>
                     (
                         LibraryTypePopulationCountBound.MetadataRows,
+                        LibraryTypePopulationRowsBound.MetadataRows,
                         request.Plan.Bounds.MaxMetadataRows,
                         incomplete.MeasuredMetadataRows
                             ?? throw new InvalidOperationException(
@@ -112,6 +149,7 @@ public static class LibraryInspectionOperation
                         .RetainedDeclarations =>
                     (
                         LibraryTypePopulationCountBound.RetainedDeclarations,
+                        LibraryTypePopulationRowsBound.RetainedDeclarations,
                         MaximumRetainedDeclarations(request.Plan.Bounds),
                         incomplete.MeasuredDeclarations
                             ?? throw new InvalidOperationException(
@@ -120,6 +158,8 @@ public static class LibraryInspectionOperation
                         .RetainedTextCharacters =>
                     (
                         LibraryTypePopulationCountBound
+                            .RetainedTextCharacters,
+                        LibraryTypePopulationRowsBound
                             .RetainedTextCharacters,
                         request.Plan.Bounds.MaxRetainedTextCharacters,
                         incomplete.MeasuredRetainedTextCharacters
@@ -131,55 +171,81 @@ public static class LibraryInspectionOperation
                 _ => throw new InvalidOperationException(
                     "Unknown Library declaration inventory bound."),
             };
-        var count = new LibraryTypePopulationCountOutcome.Incomplete(
-            bound,
-            limit,
-            measured);
+        var diagnostics =
+            ImmutableArray.CreateBuilder<InspectionDiagnostic>();
+        LibraryTypePopulationCountOutcome? count = null;
+        if (request.Plan.Types.Count is not null)
+        {
+            count = new LibraryTypePopulationCountOutcome.Incomplete(
+                countBound,
+                limit,
+                measured);
+            diagnostics.Add(
+                new(
+                    Code(countBound),
+                    InspectionDiagnosticSeverity.Warning,
+                    Message(countBound)));
+        }
+
+        LibraryTypePopulationRowsOutcome? rowResult = null;
+        if (request.Plan.Types.Rows is not null)
+        {
+            LibraryTypePopulationRowsRejection? rejection =
+                ContinuationRejection(
+                    rows,
+                    subject.ModuleVersionId);
+            if (rejection is { } reason)
+            {
+                rowResult =
+                    new LibraryTypePopulationRowsOutcome.Rejected(
+                        reason);
+                diagnostics.Add(RowsDiagnostic(reason));
+            }
+            else
+            {
+                rowResult =
+                    new LibraryTypePopulationRowsOutcome.Incomplete(
+                        rowsBound,
+                        limit,
+                        measured);
+                diagnostics.Add(
+                    new(
+                        Code(rowsBound),
+                        InspectionDiagnosticSeverity.Warning,
+                        Message(rowsBound)));
+            }
+        }
+
         return Available(
             subject,
             request,
             count,
+            rowResult,
             incomplete.MeasuredMetadataRows ?? 0,
             incomplete.MeasuredDeclarations ?? 0,
             incomplete.MeasuredRetainedTextCharacters ?? 0,
-            [
-                new(
-                    Code(bound),
-                    InspectionDiagnosticSeverity.Warning,
-                    Message(bound)),
-            ]);
+            diagnostics.ToImmutable());
     }
 
     private static InspectionEnvelope<LibraryInspectionOutcome> Available(
         LibraryTypeDeclarationInventorySubject subject,
         LibraryInspectionRequest request,
-        LibraryTypePopulationCountOutcome count,
+        LibraryTypePopulationCountOutcome? count,
+        LibraryTypePopulationRowsOutcome? rows,
         long metadataRows,
         long retainedDeclarations,
         long retainedTextCharacters,
         ImmutableArray<InspectionDiagnostic> diagnostics)
     {
-        AssemblyReferenceIdentity identity = subject.AssemblyIdentity;
-        var portableIdentity = new LibraryAssemblyIdentity(
-            new InertString(TextPolicy.Field, identity.Name),
-            identity.Version
-                ?? throw new InvalidOperationException(
-                    "The inspected Library assembly identity has no version."),
-            identity.Culture is null
-                ? null
-                : new InertString(TextPolicy.Field, identity.Culture),
-            identity.PublicKeyToken is null
-                ? null
-                : new InertString(
-                    TextPolicy.Field,
-                    identity.PublicKeyToken));
+        LibraryAssemblyIdentity portableIdentity =
+            PortableIdentity(subject.AssemblyIdentity);
         var binding = new LibraryTypePopulationBinding(
             subject.ModuleVersionId,
-            LibraryTypeAccessibility.Public);
+            request.Plan.Types.Accessibility);
         var document = new LibraryDocument(
             portableIdentity,
             subject.ModuleVersionId,
-            new(binding, count),
+            new(binding, count, rows),
             new(
                 subject.AssemblyBytes,
                 metadataRows,
@@ -192,6 +258,257 @@ public static class LibraryInspectionOperation
                 SharePath,
                 ShareReason),
             diagnostics);
+    }
+
+    private static (
+        LibraryTypePopulationRowsOutcome Rows,
+        ImmutableArray<InspectionDiagnostic> Diagnostics)
+        Rows(
+            LibraryTypeDeclarationInventoryCorrespondence correspondence,
+            LibraryTypePopulationRequest population,
+            LibraryTypePopulationRowsRequest request,
+            ApiSurfaceExtractionBounds bounds,
+            RowsPreparation preparation,
+            CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        if (ContinuationRejection(
+                preparation,
+                correspondence.ModuleVersionId)
+            is { } continuationRejection)
+        {
+            return (
+                new LibraryTypePopulationRowsOutcome.Rejected(
+                    continuationRejection),
+                [RowsDiagnostic(continuationRejection)]);
+        }
+
+        LibraryTypeDeclarationRowsInspectionOutcome source =
+            correspondence.Rows
+            ?? throw new InvalidOperationException(
+                "A requested Type Rows terminal omitted its source outcome.");
+        return source switch
+        {
+            LibraryTypeDeclarationRowsInspectionOutcome.Read read =>
+                (
+                    new LibraryTypePopulationRowsOutcome.Read(
+                        request.Ordering,
+                        [
+                            .. read.Rows.Select(
+                                row => Shape(
+                                    row,
+                                    correspondence.ModuleVersionId,
+                                    request.MemberCount is not null))
+                        ],
+                        read.NextOrdinal is { } next
+                            ? EncodeContinuation(
+                                correspondence.ModuleVersionId,
+                                population.Accessibility,
+                                request.Ordering,
+                                request.MemberCount is not null,
+                                next)
+                            : null),
+                    []),
+            LibraryTypeDeclarationRowsInspectionOutcome.Unavailable
+                unavailable =>
+                RowsUnavailable(unavailable.Reason),
+            LibraryTypeDeclarationRowsInspectionOutcome.Rejected rejected =>
+                RowsRejected(rejected.Kind),
+            LibraryTypeDeclarationRowsInspectionOutcome.Incomplete
+                incomplete =>
+                RowsIncomplete(
+                    correspondence,
+                    bounds,
+                    incomplete.Bound),
+            LibraryTypeDeclarationRowsInspectionOutcome.Failed failed =>
+                RowsFailed(failed.Kind),
+            _ => throw new InvalidOperationException(
+                "Unknown Library declaration Rows outcome."),
+        };
+    }
+
+    private static LibraryTypeShape Shape(
+        AssemblyTypeDeclarationRow row,
+        Guid moduleVersionId,
+        bool includeMemberCount)
+    {
+        AssemblyTypeDeclaration declaration = row.Declaration;
+        LibraryTypeDeclarationKind declarationKind =
+            declaration.Kind switch
+            {
+                AssemblyTypeDeclarationKind.Definition =>
+                    LibraryTypeDeclarationKind.Definition,
+                AssemblyTypeDeclarationKind.Forwarder =>
+                    LibraryTypeDeclarationKind.Forwarder,
+                _ => throw new InvalidOperationException(
+                    "A Library Type row must be a definition or forwarder."),
+            };
+        ApiTypeInventoryKind? definitionKind =
+            declaration.DefinitionKind switch
+            {
+                null => null,
+                AssemblyTypeDefinitionKind.Class =>
+                    ApiTypeInventoryKind.Class,
+                AssemblyTypeDefinitionKind.ValueType =>
+                    ApiTypeInventoryKind.Struct,
+                AssemblyTypeDefinitionKind.Interface =>
+                    ApiTypeInventoryKind.Interface,
+                AssemblyTypeDefinitionKind.Enum =>
+                    ApiTypeInventoryKind.Enum,
+                AssemblyTypeDefinitionKind.Delegate =>
+                    ApiTypeInventoryKind.Delegate,
+                _ => throw new InvalidOperationException(
+                    "Unknown Type definition kind."),
+            };
+        LibraryTypeDefinitionAccessibility? accessibility =
+            declaration.IsDefinitionPublic switch
+            {
+                true => LibraryTypeDefinitionAccessibility.Public,
+                false => LibraryTypeDefinitionAccessibility.NonPublic,
+                null => null,
+            };
+        LibraryTypeForwardingEvidence? forwarding =
+            row.Forwarding is null
+                ? null
+                : new(
+                    moduleVersionId,
+                    row.Forwarding.Declarations,
+                    PortableIdentity(row.Forwarding.Target));
+        LibraryTypeMemberCountOutcome? memberCount =
+            !includeMemberCount
+                ? null
+                : declarationKind switch
+                {
+                    LibraryTypeDeclarationKind.Definition =>
+                        new LibraryTypeMemberCountOutcome.Counted(
+                            row.MemberCount
+                                ?? throw new InvalidOperationException(
+                                    "A requested definition Member Count was omitted.")),
+                    LibraryTypeDeclarationKind.Forwarder =>
+                        new LibraryTypeMemberCountOutcome.NotApplicable(
+                            LibraryTypeMemberCountNotApplicableReason
+                                .Forwarder),
+                    _ => throw new InvalidOperationException(
+                        "Unknown Library Type declaration kind."),
+                };
+        return new(
+            declaration.Name,
+            new InertString(TextPolicy.Field, row.DisplayName),
+            new InertString(TextPolicy.Field, row.Namespace),
+            declarationKind,
+            definitionKind,
+            accessibility,
+            declaration.IsPublicSurface,
+            forwarding,
+            memberCount);
+    }
+
+    private static LibraryAssemblyIdentity PortableIdentity(
+        AssemblyReferenceIdentity identity) =>
+        new(
+            new InertString(TextPolicy.Field, identity.Name),
+            identity.Version
+                ?? throw new InvalidOperationException(
+                    "The assembly identity has no version."),
+            identity.Culture is null
+                ? null
+                : new InertString(TextPolicy.Field, identity.Culture),
+            identity.PublicKeyToken is null
+                ? null
+                : new InertString(
+                    TextPolicy.Field,
+                    identity.PublicKeyToken));
+
+    private static (
+        LibraryTypePopulationRowsOutcome Rows,
+        ImmutableArray<InspectionDiagnostic> Diagnostics)
+        RowsUnavailable(
+            LibraryTypeDeclarationRowsInspectionUnavailableReason reason)
+    {
+        LibraryTypePopulationRowsUnavailableReason portable = reason switch
+        {
+            LibraryTypeDeclarationRowsInspectionUnavailableReason
+                    .UnsupportedModuleExport =>
+                LibraryTypePopulationRowsUnavailableReason
+                    .UnsupportedModuleExport,
+            _ => throw new InvalidOperationException(
+                "Unknown Library Type Rows unavailability."),
+        };
+        return (
+            new LibraryTypePopulationRowsOutcome.Unavailable(portable),
+            [RowsDiagnostic(portable)]);
+    }
+
+    private static (
+        LibraryTypePopulationRowsOutcome Rows,
+        ImmutableArray<InspectionDiagnostic> Diagnostics)
+        RowsRejected(
+            LibraryTypeDeclarationRowsInspectionRejectionKind rejection)
+    {
+        LibraryTypePopulationRowsRejection portable = rejection switch
+        {
+            LibraryTypeDeclarationRowsInspectionRejectionKind
+                    .StaleContinuation =>
+                LibraryTypePopulationRowsRejection.StaleContinuation,
+            LibraryTypeDeclarationRowsInspectionRejectionKind
+                    .ContinuationOutOfRange =>
+                LibraryTypePopulationRowsRejection
+                    .ContinuationOutOfRange,
+            _ => throw new InvalidOperationException(
+                "Unknown Library Type Rows rejection."),
+        };
+        return (
+            new LibraryTypePopulationRowsOutcome.Rejected(portable),
+            [RowsDiagnostic(portable)]);
+    }
+
+    private static (
+        LibraryTypePopulationRowsOutcome Rows,
+        ImmutableArray<InspectionDiagnostic> Diagnostics)
+        RowsIncomplete(
+            LibraryTypeDeclarationInventoryCorrespondence correspondence,
+            ApiSurfaceExtractionBounds bounds,
+            LibraryTypeDeclarationRowsInspectionBound bound)
+    {
+        LibraryTypePopulationRowsBound portable = bound switch
+        {
+            LibraryTypeDeclarationRowsInspectionBound
+                    .RetainedTextCharacters =>
+                LibraryTypePopulationRowsBound.RetainedTextCharacters,
+            _ => throw new InvalidOperationException(
+                "Unknown Library Type Rows bound."),
+        };
+        var outcome = new LibraryTypePopulationRowsOutcome.Incomplete(
+            portable,
+            bounds.MaxRetainedTextCharacters,
+            correspondence.RetainedTextCharacters);
+        return (
+            outcome,
+            [
+                new(
+                    Code(portable),
+                    InspectionDiagnosticSeverity.Warning,
+                    Message(portable)),
+            ]);
+    }
+
+    private static (
+        LibraryTypePopulationRowsOutcome Rows,
+        ImmutableArray<InspectionDiagnostic> Diagnostics)
+        RowsFailed(
+            LibraryTypeDeclarationRowsInspectionFailureKind failure)
+    {
+        LibraryTypePopulationRowsFailure portable = failure switch
+        {
+            LibraryTypeDeclarationRowsInspectionFailureKind
+                    .MalformedMetadata =>
+                LibraryTypePopulationRowsFailure.MalformedMetadata,
+            _ => throw new InvalidOperationException(
+                "Unknown Library Type Rows failure."),
+        };
+        return (
+            new LibraryTypePopulationRowsOutcome.Failed(portable),
+            [RowsDiagnostic(portable)]);
     }
 
     private static (
@@ -313,6 +630,125 @@ public static class LibraryInspectionOperation
                     Message(bound)),
             ]);
 
+    private static RowsPreparation PrepareRows(
+        LibraryTypePopulationRequest population)
+    {
+        if (population.Rows is not { } rows)
+            return RowsPreparation.Unrequested;
+        if (rows.Continuation is null)
+            return new RowsPreparation(0, ExpectedModuleVersionId: null);
+        if (!TryDecodeContinuation(
+                rows.Continuation,
+                out ContinuationPayload payload))
+        {
+            return new RowsPreparation(
+                LibraryTypePopulationRowsRejection.InvalidContinuation);
+        }
+        if (payload.Accessibility != population.Accessibility
+            || payload.Ordering != rows.Ordering
+            || payload.IncludeMemberCount
+                != (rows.MemberCount is not null))
+        {
+            return new RowsPreparation(
+                LibraryTypePopulationRowsRejection
+                    .IncompatibleContinuation);
+        }
+
+        return new RowsPreparation(
+            payload.NextOrdinal,
+            payload.ModuleVersionId);
+    }
+
+    private static LibraryTypeDeclarationRowsInspectionRequest? SourceRows(
+        LibraryTypePopulationRowsRequest? request,
+        RowsPreparation preparation) =>
+        request is null || preparation.Rejection is not null
+            ? null
+            : new(
+                preparation.StartOrdinal,
+                request.MaximumRows,
+                request.MemberCount is not null,
+                preparation.ExpectedModuleVersionId);
+
+    private static LibraryTypePopulationRowsRejection?
+        ContinuationRejection(
+            RowsPreparation preparation,
+            Guid moduleVersionId)
+    {
+        if (preparation.Rejection is { } rejection)
+            return rejection;
+        return preparation.ExpectedModuleVersionId is { } expected
+            && expected != moduleVersionId
+                ? LibraryTypePopulationRowsRejection.StaleContinuation
+                : null;
+    }
+
+    private static LibraryTypePopulationContinuation EncodeContinuation(
+        Guid moduleVersionId,
+        LibraryTypeAccessibility accessibility,
+        LibraryTypePopulationOrdering ordering,
+        bool includeMemberCount,
+        int nextOrdinal)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegative(nextOrdinal);
+        Span<byte> payload = stackalloc byte[24];
+        payload[0] = 1;
+        if (!moduleVersionId.TryWriteBytes(payload[1..17]))
+        {
+            throw new InvalidOperationException(
+                "The Library MVID could not be encoded.");
+        }
+        payload[17] = checked((byte)accessibility);
+        payload[18] = checked((byte)ordering);
+        payload[19] = includeMemberCount ? (byte)1 : (byte)0;
+        BinaryPrimitives.WriteInt32LittleEndian(
+            payload[20..24],
+            nextOrdinal);
+        return new(
+            new InertString(
+                TextPolicy.Field,
+                Convert.ToBase64String(payload)));
+    }
+
+    private static bool TryDecodeContinuation(
+        LibraryTypePopulationContinuation continuation,
+        out ContinuationPayload payload)
+    {
+        payload = default;
+        Span<byte> bytes = stackalloc byte[24];
+        if (!Convert.TryFromBase64String(
+                continuation.Value.ToString(),
+                bytes,
+                out int written)
+            || written != bytes.Length
+            || bytes[0] != 1
+            || bytes[19] > 1)
+        {
+            return false;
+        }
+
+        var accessibility =
+            (LibraryTypeAccessibility)bytes[17];
+        var ordering =
+            (LibraryTypePopulationOrdering)bytes[18];
+        int nextOrdinal =
+            BinaryPrimitives.ReadInt32LittleEndian(bytes[20..24]);
+        if (!Enum.IsDefined(accessibility)
+            || !Enum.IsDefined(ordering)
+            || nextOrdinal < 0)
+        {
+            return false;
+        }
+
+        payload = new(
+            new Guid(bytes[1..17]),
+            accessibility,
+            ordering,
+            bytes[19] == 1,
+            nextOrdinal);
+        return payload.ModuleVersionId != Guid.Empty;
+    }
+
     private static LibraryTypeDeclarationInventoryInspectionBounds
         InventoryBounds(ApiSurfaceExtractionBounds bounds) =>
         new(
@@ -328,6 +764,40 @@ public static class LibraryInspectionOperation
         (int)Math.Min(
             (long)bounds.MaxTypes + bounds.MaxTypeForwarders,
             int.MaxValue);
+
+    private readonly record struct RowsPreparation
+    {
+        internal static RowsPreparation Unrequested { get; } =
+            new(0, ExpectedModuleVersionId: null);
+
+        internal RowsPreparation(
+            int startOrdinal,
+            Guid? ExpectedModuleVersionId)
+        {
+            StartOrdinal = startOrdinal;
+            this.ExpectedModuleVersionId = ExpectedModuleVersionId;
+            Rejection = null;
+        }
+
+        internal RowsPreparation(
+            LibraryTypePopulationRowsRejection rejection)
+        {
+            StartOrdinal = 0;
+            ExpectedModuleVersionId = null;
+            Rejection = rejection;
+        }
+
+        internal int StartOrdinal { get; }
+        internal Guid? ExpectedModuleVersionId { get; }
+        internal LibraryTypePopulationRowsRejection? Rejection { get; }
+    }
+
+    private readonly record struct ContinuationPayload(
+        Guid ModuleVersionId,
+        LibraryTypeAccessibility Accessibility,
+        LibraryTypePopulationOrdering Ordering,
+        bool IncludeMemberCount,
+        int NextOrdinal);
 
     private static InspectionEnvelope<LibraryInspectionOutcome> Rejected(
         LibraryTypeDeclarationInventoryInspectionRejectionKind rejection)
@@ -470,6 +940,117 @@ public static class LibraryInspectionOperation
                 "The public Type Count exceeded its forwarder bound.",
             _ => throw new InvalidOperationException(
                 "Unknown Library Type Count bound."),
+        };
+
+    private static InspectionDiagnostic RowsDiagnostic(
+        LibraryTypePopulationRowsUnavailableReason reason) =>
+        new(
+            Code(reason),
+            InspectionDiagnosticSeverity.Error,
+            reason switch
+            {
+                LibraryTypePopulationRowsUnavailableReason
+                        .UnsupportedModuleExport =>
+                    "The public Type Rows population encountered a module-export declaration that is not an admitted definition or forwarder.",
+                _ => throw new InvalidOperationException(
+                    "Unknown Library Type Rows unavailability."),
+            });
+
+    private static InspectionDiagnostic RowsDiagnostic(
+        LibraryTypePopulationRowsRejection reason) =>
+        new(
+            Code(reason),
+            InspectionDiagnosticSeverity.Error,
+            reason switch
+            {
+                LibraryTypePopulationRowsRejection.InvalidContinuation =>
+                    "The Library Type continuation is malformed.",
+                LibraryTypePopulationRowsRejection
+                        .IncompatibleContinuation =>
+                    "The Library Type continuation does not match the requested population projection.",
+                LibraryTypePopulationRowsRejection.StaleContinuation =>
+                    "The Library Type continuation belongs to a different Library generation.",
+                LibraryTypePopulationRowsRejection
+                        .ContinuationOutOfRange =>
+                    "The Library Type continuation does not identify a resumable population position.",
+                _ => throw new InvalidOperationException(
+                    "Unknown Library Type Rows rejection."),
+            });
+
+    private static InspectionDiagnostic RowsDiagnostic(
+        LibraryTypePopulationRowsFailure reason) =>
+        new(
+            Code(reason),
+            InspectionDiagnosticSeverity.Error,
+            reason switch
+            {
+                LibraryTypePopulationRowsFailure.MalformedMetadata =>
+                    "The requested Library Type rows contain malformed Metadata.",
+                _ => throw new InvalidOperationException(
+                    "Unknown Library Type Rows failure."),
+            });
+
+    private static string Code(
+        LibraryTypePopulationRowsUnavailableReason reason) =>
+        reason switch
+        {
+            LibraryTypePopulationRowsUnavailableReason
+                    .UnsupportedModuleExport =>
+                "library-inspection.types.rows.unavailable.unsupported-module-export",
+            _ => throw new InvalidOperationException(
+                "Unknown Library Type Rows unavailability."),
+        };
+
+    private static string Code(
+        LibraryTypePopulationRowsRejection reason) =>
+        reason switch
+        {
+            LibraryTypePopulationRowsRejection.InvalidContinuation =>
+                "library-inspection.types.rows.rejected.invalid-continuation",
+            LibraryTypePopulationRowsRejection.IncompatibleContinuation =>
+                "library-inspection.types.rows.rejected.incompatible-continuation",
+            LibraryTypePopulationRowsRejection.StaleContinuation =>
+                "library-inspection.types.rows.rejected.stale-continuation",
+            LibraryTypePopulationRowsRejection.ContinuationOutOfRange =>
+                "library-inspection.types.rows.rejected.continuation-out-of-range",
+            _ => throw new InvalidOperationException(
+                "Unknown Library Type Rows rejection."),
+        };
+
+    private static string Code(
+        LibraryTypePopulationRowsFailure reason) =>
+        reason switch
+        {
+            LibraryTypePopulationRowsFailure.MalformedMetadata =>
+                "library-inspection.types.rows.failed.malformed-metadata",
+            _ => throw new InvalidOperationException(
+                "Unknown Library Type Rows failure."),
+        };
+
+    private static string Code(LibraryTypePopulationRowsBound bound) =>
+        bound switch
+        {
+            LibraryTypePopulationRowsBound.MetadataRows =>
+                "library-inspection.types.rows.incomplete.metadata-rows",
+            LibraryTypePopulationRowsBound.RetainedDeclarations =>
+                "library-inspection.types.rows.incomplete.retained-declarations",
+            LibraryTypePopulationRowsBound.RetainedTextCharacters =>
+                "library-inspection.types.rows.incomplete.retained-text-characters",
+            _ => throw new InvalidOperationException(
+                "Unknown Library Type Rows bound."),
+        };
+
+    private static string Message(LibraryTypePopulationRowsBound bound) =>
+        bound switch
+        {
+            LibraryTypePopulationRowsBound.MetadataRows =>
+                "The public Type Rows population exceeded its Metadata-row bound.",
+            LibraryTypePopulationRowsBound.RetainedDeclarations =>
+                "The public Type Rows population exceeded its retained-declaration bound.",
+            LibraryTypePopulationRowsBound.RetainedTextCharacters =>
+                "The public Type Rows population exceeded its retained-text bound.",
+            _ => throw new InvalidOperationException(
+                "Unknown Library Type Rows bound."),
         };
 
     private static string Code(LibraryInspectionRejection reason) =>

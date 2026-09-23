@@ -6,6 +6,7 @@ using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
 using System.Runtime.CompilerServices;
 using System.Text;
+using System.Text.Json.Serialization;
 using CSharpText;
 
 namespace ILInspector.Metadata;
@@ -85,6 +86,7 @@ public sealed record ApiSurfaceExtractionBounds
     {
     }
 
+    [JsonConstructor]
     public ApiSurfaceExtractionBounds(
         int maxTypes,
         int maxMembers,
