@@ -117,9 +117,6 @@ internal static class LibraryTypeListingCommand
             return false;
         }
 
-        if (options.Count)
-            return true;
-
         return options.UserVerbosity
                 is Verbosity.Minimal or Verbosity.Normal
             && !options.JsonOutput

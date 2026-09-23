@@ -1025,6 +1025,86 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task
+        Type_Listing_FacadeExcludedModesKeepCountAndRowsOnSamePopulation()
+    {
+        var detailedCount = await RunAppAsync(
+            "type",
+            "--platform",
+            "System.Xml",
+            "-v:d",
+            "-S",
+            SectionNames.Classes,
+            "--count",
+            "--tips",
+            "q");
+        var detailedRows = await RunAppAsync(
+            "type",
+            "--platform",
+            "System.Xml",
+            "-v:d",
+            "-S",
+            SectionNames.Classes,
+            "--tips",
+            "q");
+        var tableCount = await RunAppAsync(
+            "type",
+            "--platform",
+            "System.Xml",
+            "-S",
+            SectionNames.Classes,
+            "--count",
+            "--table",
+            "--tips",
+            "q");
+        var tableRows = await RunAppAsync(
+            "type",
+            "--platform",
+            "System.Xml",
+            "-S",
+            SectionNames.Classes,
+            "--table",
+            "--tips",
+            "q");
+
+        Assert.Equal(0, detailedCount.Exit);
+        Assert.Equal(0, detailedRows.Exit);
+        Assert.Equal(0, tableCount.Exit);
+        Assert.Equal(0, tableRows.Exit);
+        Assert.Empty(detailedCount.Error);
+        Assert.Empty(detailedRows.Error);
+        Assert.Empty(tableCount.Error);
+        Assert.Empty(tableRows.Error);
+
+        int expected =
+            int.Parse(
+                detailedCount.Output.Trim(),
+                CultureInfo.InvariantCulture);
+        Assert.True(expected > 0);
+        Assert.Equal(
+            expected,
+            detailedRows.Output
+                .Split('\n')
+                .Count(
+                    static line =>
+                        line.StartsWith(
+                            "| `",
+                            StringComparison.Ordinal)));
+        Assert.Equal(
+            expected,
+            int.Parse(
+                tableCount.Output.Trim(),
+                CultureInfo.InvariantCulture));
+        Assert.Equal(
+            expected,
+            tableRows.Output
+                .Split(
+                    '\n',
+                    StringSplitOptions.RemoveEmptyEntries)
+                .Length - 1);
+    }
+
+    [Fact]
     public async Task Type_Listing_FacadeDefaultIncludesForwarders()
     {
         var (defaultExit, defaultOutput, defaultError) =
