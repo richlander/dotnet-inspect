@@ -2293,6 +2293,43 @@ escaping; `test/spotlight-package-search.test.ts` gates debounce, scope and
 query eligibility, cancellation, stale suppression, failure settlement, and
 mounted-result refresh.
 
+### Framework Library loading feedback
+
+An ordinary framework Library selection (for example `System.Text.Json` in
+Spotlight) immediately shows the existing loading interstitial with an
+accessible status and spinner before catalog or assembly acquisition begins.
+The status names the Library; it does not introduce a Platform destination.
+Success replaces it with the selected Library, failure restores the predecessor
+with retryable evidence, and superseded work cannot replace newer navigation.
+This Browser interaction owns the loading presentation; source acquisition and
+managed inspection remain behind the existing worker boundary.
+
+Opening an ordinary Library does not initiate whole-target runtime-pack warmup
+or version discovery. The exact selected Library operation acquires its own
+source dependencies. The explicit Platform catalog retains its broader warmup
+and version picker. This follows the package opening interstitial convention
+and preserves source-owner cache reuse rather than adding another cache.
+`browser/library-hierarchy.platform.spec.ts` gates accessible pending status,
+delayed `System.Text.Json` success, failure, supersession, URL-encoding
+settlement, rejected-history rollback, and selected-Library demand through the
+production navigation binding and controlled facade completions.
+
+The loading cost includes acquiring a compressed NuGet runtime archive on a
+cold cache, validating cached archive content, realizing the selected assembly,
+and projecting its bounded API surface. Bundled catalog targets avoid a live
+catalog scan; other versions can
+require reference/runtime catalog inspection. QuerySpace row selection and its
+count-only execution cannot eliminate this source or API-surface work:
+`BrowserPlatformSurfaceProjection` requests
+`AssemblyContextApiSurfaceQuery.ExecuteBounded` before Browser projection, not a
+QuerySpace row plan. An overview-first operation followed by progressive,
+QuerySpace-selected Type pages is a separate consumer-adoption opportunity.
+Selection must reach the producer before expensive projection, with stable
+ordering and visible partial/failure state; paging an already-built surface
+would not save that work. Overview aggregates and accessibility counts must
+remain complete rather than being inferred from the pages received so far.
+No end-to-end latency reduction is claimed from removing unrelated warmup.
+
 `src/catalog-requests.ts` owns package-version catalog lifecycles: cache and
 loading state, request deduplication, version ordering, package-residency
 guards, and selector-update dispatch. `dotnet-inspect.ts` retains the engine
