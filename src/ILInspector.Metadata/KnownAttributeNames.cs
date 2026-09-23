@@ -48,5 +48,6 @@ public static class KnownAttributeNames
     public const string ScopedRefAttribute = Prefix + "ScopedRefAttribute";
     public const string SkipLocalsInitAttribute = Prefix + "SkipLocalsInitAttribute";
     public const string TupleElementNamesAttribute = Prefix + "TupleElementNamesAttribute";
+    public const string UnscopedRefAttribute = "System.Diagnostics.CodeAnalysis.UnscopedRefAttribute";
     public const string UnionAttribute = Prefix + "UnionAttribute";
 }
