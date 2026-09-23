@@ -409,19 +409,29 @@ internal static partial class WorkflowContract
                 "Expected one jobs.test package-manifest corpus verifier build step.");
         }
 
+        YamlMappingNode verifierBuildStep = verifierBuildSteps[0];
         RequireExactKeys(
-            verifierBuildSteps[0],
-            ["name", "if", "run"],
+            verifierBuildStep,
+            TryGetNode(
+                verifierBuildStep,
+                "working-directory",
+                out _)
+                ? ["name", "if", "run", "working-directory"]
+                : ["name", "if", "run"],
             "jobs.test package-manifest corpus verifier build step");
         RequireScalarValue(
-            verifierBuildSteps[0],
+            verifierBuildStep,
             "if",
             "matrix.shard == 'host-policy'",
             "jobs.test package-manifest corpus verifier build step");
         RequireScalarValue(
-            verifierBuildSteps[0],
+            verifierBuildStep,
             "run",
             "dotnet build eng/verify-package-manifest-corpus.cs -c Release",
+            "jobs.test package-manifest corpus verifier build step");
+        RequireRepositoryRootWorkingDirectory(
+            test,
+            verifierBuildStep,
             "jobs.test package-manifest corpus verifier build step");
     }
 
