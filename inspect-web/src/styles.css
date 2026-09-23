@@ -68,6 +68,8 @@
   border-radius: 5px; padding: 8px;
 }
 .platform-status { padding: 10px 0; }
+.platform-status-loading { display: flex; align-items: center; gap: 9px; }
+.platform-status-loading .loader { width: 16px; height: 16px; flex: none; }
 .platform-library-list { padding: 0; list-style: none; }
 .platform-library-row > button, .platform-library-row > div {
   display: grid; grid-template-columns: 28px minmax(0, 1fr) auto;

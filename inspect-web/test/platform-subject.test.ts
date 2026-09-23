@@ -74,6 +74,7 @@ test("roles distinguish facade, implementation, private implementation and unsup
   assert.match(html, /data-platform-role="private"><button type="button" data-platform-library=/);
   assert.match(html, /Unsupported: no runtime implementation/);
   assert.match(html, /Archive offline[\s\S]*data-platform-retry="warmup"/);
+  assert.match(html, /platform-status-loading" role="status"><span class="loader" aria-hidden="true"><\/span><span>Opening the selected Library\.\.\.<\/span>/);
   assert.doesNotMatch(html, /disabled|data-package-lens|package-version/);
 });
 

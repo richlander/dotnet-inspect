@@ -5,11 +5,12 @@ using System.Security.Cryptography;
 namespace DotnetInspector.Packages;
 
 /// <summary>
-/// In-memory <see cref="IPackageContent"/> that keeps the nupkg bytes and reads
-/// entries from an in-memory <see cref="ZipArchive"/>. For hosts without a
-/// persistent filesystem (browser/WASM) and for tests. <see cref="RootPath"/>
-/// and <see cref="NupkgPath"/> are always <c>null</c> because nothing is
-/// materialized on disk.
+/// In-memory <see cref="IPackageContent"/> that keeps one owned nupkg and its
+/// bounded structural index. Selected entries materialize directly from their
+/// compressed byte ranges with observed-length and CRC checks. For hosts
+/// without a persistent filesystem (browser/WASM) and for tests.
+/// <see cref="RootPath"/> and <see cref="NupkgPath"/> are always <c>null</c>
+/// because nothing is materialized on disk.
 /// </summary>
 public sealed class InMemoryPackageContent :
     IPackageContent,
@@ -21,6 +22,7 @@ public sealed class InMemoryPackageContent :
     private readonly byte[] _nupkgBytes;
     private readonly Lazy<IReadOnlyList<PackageContentEntry>> _entries;
     private readonly PackageContentGenerationIdentity _generationIdentity;
+    private readonly ArchiveAdmission _admission;
 
     public InMemoryPackageContent(
         byte[] nupkgBytes,
@@ -47,11 +49,26 @@ public sealed class InMemoryPackageContent :
             new PackageContentGenerationIdentity());
     }
 
+    internal static InMemoryPackageContent CreateOwned(
+        PackageArchivePayload archive,
+        bool fromCache,
+        string producerKey)
+    {
+        ArgumentNullException.ThrowIfNull(archive);
+        return new InMemoryPackageContent(
+            archive.OwnedBytes,
+            fromCache,
+            producerKey,
+            new PackageContentGenerationIdentity(),
+            new ArchiveAdmission(archive));
+    }
+
     private InMemoryPackageContent(
         byte[] nupkgBytes,
         bool fromCache,
         string producerKey,
-        PackageContentGenerationIdentity generationIdentity)
+        PackageContentGenerationIdentity generationIdentity,
+        ArchiveAdmission? admission = null)
     {
         ArgumentNullException.ThrowIfNull(nupkgBytes);
         ArgumentException.ThrowIfNullOrEmpty(producerKey);
@@ -59,6 +76,7 @@ public sealed class InMemoryPackageContent :
         _nupkgBytes = nupkgBytes;
         _entries = new(ReadEntries);
         _generationIdentity = generationIdentity;
+        _admission = admission ?? new ArchiveAdmission();
         FromCache = fromCache;
         ProducerKey = producerKey;
     }
@@ -68,8 +86,6 @@ public sealed class InMemoryPackageContent :
 
     internal bool ReferencesArchive(ReadOnlyMemory<byte> nupkgBytes) =>
         new ReadOnlyMemory<byte>(_nupkgBytes).Equals(nupkgBytes);
-
-    internal byte[] RetainedArchive => _nupkgBytes;
 
     /// <inheritdoc />
     public string? RootPath => null;
@@ -97,7 +113,8 @@ public sealed class InMemoryPackageContent :
                 _nupkgBytes,
                 fromCache: true,
                 ProducerKey,
-                _generationIdentity);
+                _generationIdentity,
+                _admission);
 
     internal InMemoryPackageContent AsCacheHitForProducer(
         string producerKey)
@@ -110,7 +127,100 @@ public sealed class InMemoryPackageContent :
                     _nupkgBytes,
                     fromCache: true,
                     producerKey,
-                    _generationIdentity);
+                    _generationIdentity,
+                    _admission);
+    }
+
+    // Cache views share this evidence only because they retain the same owned,
+    // immutable archive. Source authorization is still checked by acquisition.
+    internal PackageArchiveValidation ValidateArchive(
+        PackagePayloadLimits limits,
+        CancellationToken cancellationToken) =>
+        _admission.Validate(_nupkgBytes, limits, cancellationToken);
+
+    private sealed class ArchiveAdmission
+    {
+        private readonly object _gate = new();
+        private PackageArchivePayload? _archive;
+        private PackageArchiveValidation.Valid? _validated;
+
+        internal ArchiveAdmission()
+        {
+        }
+
+        internal ArchiveAdmission(PackageArchivePayload archive)
+        {
+            _archive = archive;
+            _validated = new PackageArchiveValidation.Valid(archive);
+        }
+
+        internal PackageArchiveValidation Validate(
+            byte[] archive,
+            PackagePayloadLimits limits,
+            CancellationToken cancellationToken)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            lock (_gate)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                if (_archive is not null)
+                {
+                    return _archive.Satisfies(limits)
+                        ? _validated!
+                        : new PackageArchiveValidation.Rejected(
+                            "the archive exceeds the current payload limits");
+                }
+
+                PackageArchiveValidation result = PackageArchiveValidator.ValidateOwned(
+                    archive, limits, cancellationToken);
+                cancellationToken.ThrowIfCancellationRequested();
+                if (result is PackageArchiveValidation.Valid valid)
+                {
+                    _archive = valid.Archive;
+                    _validated = valid;
+                }
+                return result;
+            }
+        }
+
+        internal bool TryPrepareArchive(
+            byte[] bytes,
+            [NotNullWhen(true)] out PackageArchivePayload? archive)
+        {
+            lock (_gate)
+            {
+                if (_archive is not null)
+                {
+                    archive = _archive;
+                    return true;
+                }
+
+                PackageArchiveValidation validation =
+                    PackageArchiveValidator.ValidateOwned(
+                        bytes,
+                        PackagePayloadLimits.Default);
+                if (validation is PackageArchiveValidation.Rejected)
+                {
+                    archive = null;
+                    return false;
+                }
+
+                _archive = ((PackageArchiveValidation.Valid)validation).Archive;
+                _validated = (PackageArchiveValidation.Valid)validation;
+                archive = _archive;
+                return true;
+            }
+        }
+
+        internal bool TryGetArchive(
+            [NotNullWhen(true)] out PackageArchivePayload? archive)
+        {
+            lock (_gate)
+            {
+                archive = _archive;
+                return archive is not null;
+            }
+        }
     }
 
     static byte[] Copy(byte[] nupkgBytes)
@@ -121,8 +231,8 @@ public sealed class InMemoryPackageContent :
 
     /// <inheritdoc />
     /// <remarks>
-    /// In-memory content has no extracted tree; archive validation alone
-    /// admits the payload.
+    /// In-memory content has no extracted tree; structural archive admission
+    /// plus checked selected-entry materialization owns its containment.
     /// </remarks>
     public bool RequiresArchiveTreeMatch => false;
 
@@ -166,37 +276,49 @@ public sealed class InMemoryPackageContent :
         ArgumentException.ThrowIfNullOrEmpty(relativePath);
         ArgumentOutOfRangeException.ThrowIfNegative(maxExpandedBytes);
 
-        using var archive = OpenArchive();
-        ZipArchiveEntry? entry = FindEntry(archive, relativePath);
+        long effectiveLimit = Math.Min(
+            maxExpandedBytes,
+            MaxEntryMaterializationBytes);
+        if (_admission.TryPrepareArchive(
+                _nupkgBytes,
+                out PackageArchivePayload? archive))
+        {
+            return archive.TryOpenEntry(
+                relativePath,
+                effectiveLimit,
+                out stream);
+        }
+
+        using var zip = new ZipArchive(
+            new MemoryStream(_nupkgBytes, writable: false),
+            ZipArchiveMode.Read);
+        ZipArchiveEntry? entry = zip.GetEntry(relativePath)
+            ?? zip.Entries.FirstOrDefault(candidate =>
+                string.Equals(
+                    candidate.FullName,
+                    relativePath,
+                    StringComparison.OrdinalIgnoreCase));
         if (entry is null)
         {
             stream = null;
             return false;
         }
-
-        long effectiveLimit = Math.Min(
-            maxExpandedBytes,
-            MaxEntryMaterializationBytes);
         if (entry.Length < 0
             || entry.Length > effectiveLimit
             || entry.Length > Array.MaxLength)
         {
-            throw new InvalidDataException("Package entry exceeds the configured byte limit.");
+            throw new InvalidDataException(
+                "Package entry exceeds the configured byte limit.");
         }
 
         byte[] bytes = new byte[(int)entry.Length];
-        using var entryStream = entry.Open();
-        int offset = 0;
-        while (offset < bytes.Length)
+        using Stream input = entry.Open();
+        input.ReadExactly(bytes);
+        if (input.ReadByte() != -1)
         {
-            int read = entryStream.Read(bytes, offset, bytes.Length - offset);
-            if (read == 0)
-                throw new InvalidDataException("Package entry ended before its declared length.");
-            offset += read;
+            throw new InvalidDataException(
+                "Package entry exceeds its declared length.");
         }
-        if (entryStream.ReadByte() != -1)
-            throw new InvalidDataException("Package entry exceeds its declared length.");
-
         stream = new MemoryStream(
             bytes,
             index: 0,
@@ -229,26 +351,18 @@ public sealed class InMemoryPackageContent :
 
     private IReadOnlyList<PackageContentEntry> ReadEntries()
     {
-        using var archive = OpenArchive();
-        return archive.Entries
+        if (_admission.TryGetArchive(out PackageArchivePayload? archive))
+            return archive.GetEntries();
+
+        using var zip = new ZipArchive(
+            new MemoryStream(_nupkgBytes, writable: false),
+            ZipArchiveMode.Read);
+        return zip.Entries
             .Where(entry => !string.IsNullOrEmpty(entry.Name))
             .Select(entry => new PackageContentEntry(entry.FullName, entry.Length))
             .ToList()
             .AsReadOnly();
     }
-
-    private ZipArchive OpenArchive()
-        => new(new MemoryStream(_nupkgBytes, writable: false), ZipArchiveMode.Read);
-
-    static ZipArchiveEntry? FindEntry(ZipArchive archive, string relativePath)
-        // Zip entries are stored with '/' separators. Prefer an exact match, then mirror the
-        // case-insensitive filesystem lookup on Windows and macOS.
-        => archive.GetEntry(relativePath)
-            ?? archive.Entries.FirstOrDefault(entry =>
-                string.Equals(
-                    entry.FullName,
-                    relativePath,
-                    StringComparison.OrdinalIgnoreCase));
 
     static PackageContentEntry? FindEntry(
         IReadOnlyList<PackageContentEntry> entries,

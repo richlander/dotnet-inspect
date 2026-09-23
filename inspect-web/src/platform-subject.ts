@@ -126,7 +126,9 @@ export function renderPlatformSubject(options: PlatformSubjectOptions): string {
   const status = (value: PlatformSubjectStatus, pending: string, retry: string) =>
     value.error
       ? `<p class="platform-status" role="alert">${e(value.error)} <button type="button" data-platform-retry="${retry}">Retry</button></p>`
-      : value.loading ? `<p class="platform-status" role="status">${pending}</p>` : "";
+      : value.loading
+        ? `<p class="platform-status platform-status-loading" role="status"><span class="loader" aria-hidden="true"></span><span>${pending}</span></p>`
+        : "";
   const rows = target && selection
     ? platformInventory(target, selection.includeAllLibraries, selection.filter)
     : [];

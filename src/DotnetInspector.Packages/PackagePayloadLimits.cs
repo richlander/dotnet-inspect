@@ -32,10 +32,11 @@ public sealed record PackagePayloadLimits
     public long MaxArchiveBytes { get; init; } = 500_000_000;
 
     /// <summary>
-    /// The largest total uncompressed size, summed over the archive's entries,
-    /// that may be published. This is what bounds a compression bomb: the ratio
-    /// itself is not limited, because a legitimate package of mostly-textual
-    /// content compresses well.
+    /// The largest total uncompressed size declared across archive entries.
+    /// Filesystem extraction also applies this bound to bytes actually written;
+    /// filesystem-free consumers apply their narrower entry bound while
+    /// materializing selected content. The compression ratio itself is not
+    /// limited because legitimate textual packages compress well.
     /// </summary>
     public long MaxExpandedBytes { get; init; } = 2_000_000_000;
 

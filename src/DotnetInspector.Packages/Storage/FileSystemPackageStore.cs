@@ -1,15 +1,13 @@
-using System.IO.Compression;
-
 namespace DotnetInspector.Packages;
 
 /// <summary>
 /// Filesystem-backed <see cref="IPackageStore"/> that delegates to
-/// <see cref="NuGetCache"/>. Reproduces the exact cache lookup, transactional
-/// commit, and returned paths the desktop CLI has always used, so behavior is
-/// unchanged; only the seam through which <see cref="PackageExtractor"/> reaches
-/// persistence is new.
+/// <see cref="NuGetCache"/>. Structurally admitted payloads are extracted once
+/// through checked staging before transactional cache publication. If an
+/// immutable slot already won, acquisition re-admits that returned generation
+/// under the current caller's limits.
 /// </summary>
-public sealed class FileSystemPackageStore : IPackageStore
+public sealed class FileSystemPackageStore : IPackageStore, IPreparedPackageStore
 {
     /// <inheritdoc />
     public IPackageContent? TryGetCached(
@@ -65,30 +63,91 @@ public sealed class FileSystemPackageStore : IPackageStore
     }
 
     /// <inheritdoc />
-    public ValueTask<IPackageContent> CommitAsync(
+    public async ValueTask<IPackageContent> CommitAsync(
         string packageName,
         string version,
         string sourceKey,
         Stream nupkg,
-        CancellationToken cancellationToken = default) =>
-        CommitAsync(
+        CancellationToken cancellationToken = default)
+    {
+        PreparedPackageCommit prepared = await CommitAsync(
             packageName,
             version,
             nupkg,
             () => Directory.CreateTempSubdirectory("inspect-pkg-commit").FullName,
-            (extractedPath, nupkgPath) => NuGetCache.CommitPackage(
+            (extractedPath, nupkgPath) => NuGetCache.CommitPackageWithDisposition(
+                extractedPath, nupkgPath, packageName, version, sourceKey),
+            cancellationToken).ConfigureAwait(false);
+        if (prepared.RequiresAdmission
+            && !await PackageContentAdmission.IsAdmissibleAsync(
+                    prepared.Content,
+                    PackagePayloadLimits.Default,
+                    cancellationToken).ConfigureAwait(false))
+        {
+            throw new InvalidDataException(
+                "The existing package cache entry does not satisfy the current payload limits.");
+        }
+
+        return prepared.Content;
+    }
+
+    ValueTask<PreparedPackageCommit> IPreparedPackageStore.CommitPreparedAsync(
+        string packageName,
+        string version,
+        string sourceKey,
+        PackageArchivePayload archive,
+        CancellationToken cancellationToken) =>
+        CommitAsync(
+            packageName,
+            version,
+            archive,
+            () => Directory.CreateTempSubdirectory("inspect-pkg-commit").FullName,
+            (extractedPath, nupkgPath) => NuGetCache.CommitPackageWithDisposition(
                 extractedPath, nupkgPath, packageName, version, sourceKey),
             cancellationToken);
 
-    internal static async ValueTask<IPackageContent> CommitAsync(
+    internal static async ValueTask<PreparedPackageCommit> CommitAsync(
         string packageName,
         string version,
         Stream nupkg,
         Func<string> createTemporaryDirectory,
-        Func<string, string, CommittedPackage> commit,
+        Func<string, string, PackageCommitResult> commit,
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(nupkg);
+        byte[]? bytes = await PackageContentAdmission.ReadBoundedAsync(
+                nupkg,
+                PackagePayloadLimits.Default.MaxArchiveBytes,
+                cancellationToken)
+            .ConfigureAwait(false);
+        if (bytes is null)
+            throw new InvalidDataException("Package archive exceeds the configured byte limit.");
+
+        PackageArchiveValidation validation = PackageArchiveValidator.ValidateOwned(
+            bytes,
+            cancellationToken: cancellationToken);
+        if (validation is PackageArchiveValidation.Rejected rejection)
+            throw new InvalidDataException(rejection.Reason);
+
+        return await CommitAsync(
+                packageName,
+                version,
+                ((PackageArchiveValidation.Valid)validation).Archive,
+                createTemporaryDirectory,
+                commit,
+                cancellationToken)
+            .ConfigureAwait(false);
+    }
+
+    internal static async ValueTask<PreparedPackageCommit> CommitAsync(
+        string packageName,
+        string version,
+        PackageArchivePayload archive,
+        Func<string> createTemporaryDirectory,
+        Func<string, string, PackageCommitResult> commit,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(archive);
 
         // Validate coordinates before building any path from them, so an
         // absolute or traversal-containing name cannot direct the temp write
@@ -104,20 +163,22 @@ public sealed class FileSystemPackageStore : IPackageStore
             string nupkgPath = Path.Combine(tempDir, "package.nupkg");
             await using (var file = File.Create(nupkgPath))
             {
-                await nupkg.CopyToAsync(file, cancellationToken).ConfigureAwait(false);
+                await using Stream input = archive.OpenArchive();
+                await input.CopyToAsync(file, cancellationToken).ConfigureAwait(false);
             }
 
             string extractPath = Path.Combine(tempDir, "extracted");
-            ZipFile.ExtractToDirectory(nupkgPath, extractPath);
+            archive.ExtractToDirectory(extractPath, cancellationToken);
 
-            CommittedPackage committed = commit(extractPath, nupkgPath);
-
-            return new FileSystemPackageContent(
-                committed.ExtractPath,
-                committed.NupkgPath,
-                fromCache: true,
-                committed.ProducerKey,
-                requiresArchiveTreeMatch: true);
+            PackageCommitResult committed = commit(extractPath, nupkgPath);
+            return new PreparedPackageCommit(
+                new FileSystemPackageContent(
+                    committed.Package.ExtractPath,
+                    committed.Package.NupkgPath,
+                    fromCache: true,
+                    committed.Package.ProducerKey,
+                    requiresArchiveTreeMatch: true),
+                RequiresAdmission: !committed.PublishedStagedContent);
         }
         finally
         {
