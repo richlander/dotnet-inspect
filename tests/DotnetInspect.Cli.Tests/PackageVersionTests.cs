@@ -91,9 +91,7 @@ public class PackageVersionTests
     [Theory]
     [InlineData("--latest-version")]
     [InlineData("--latest-version=true")]
-    [InlineData("--latest-version:false")]
-    public async Task LatestVersion_RemovedTokenReportsReplacementBeforeAcquisition(
-        string option)
+    public async Task LatestVersion_IsAnOrdinaryUnrecognizedOption(string option)
     {
         var (exit, output, error) = await RunAppAsync(
             "package",
@@ -103,23 +101,7 @@ public class PackageVersionTests
         Assert.Equal(1, exit);
         Assert.Empty(output);
         Assert.Equal(
-            $"Error: {ArgumentPreprocessor.RemovedLatestVersionError}{Environment.NewLine}",
-            error);
-        Assert.DoesNotContain("not found", error, StringComparison.OrdinalIgnoreCase);
-    }
-
-    [Fact]
-    public async Task LatestVersion_RemovedTokenIsRejectedWithVersionedCoordinate()
-    {
-        var (exit, output, error) = await RunAppAsync(
-            "package",
-            "ThisQueryMustNotReachTheNetwork@1.0.0",
-            "--latest-version");
-
-        Assert.Equal(1, exit);
-        Assert.Empty(output);
-        Assert.Equal(
-            $"Error: {ArgumentPreprocessor.RemovedLatestVersionError}{Environment.NewLine}",
+            $"Error: Unrecognized option '{option}'.{Environment.NewLine}",
             error);
     }
 
@@ -592,6 +574,37 @@ public class PackageVersionTests
         Assert.Equal(1, exit);
         Assert.Empty(output);
         Assert.Contains("--json cannot be combined with --table, --tsv, or --jsonl.", error);
+    }
+
+    [Theory]
+    [InlineData("--json")]
+    [InlineData("--jsonl")]
+    [InlineData("--tsv")]
+    [InlineData("--table")]
+    [InlineData("--markdown")]
+    [InlineData("--plaintext")]
+    public async Task Bare_RejectsExplicitFormatsBeforeAcquisition(string format)
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "package", "ThisQueryMustNotReachTheNetwork", "--versions", "-n", "1", "--bare", format);
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains(
+            "--bare cannot be combined with --json, --jsonl, --tsv, --table, --markdown, --plaintext, or --mermaid.",
+            error);
+        Assert.DoesNotContain("not found", error, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task Bare_AloneKeepsTheUndecoratedListing()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "package", "System.Text.Json", "--versions", "-n", "1", "--bare");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Matches(@"^\d+\.\d+\.\d+\S*$", output.Trim());
     }
 
     [Theory]

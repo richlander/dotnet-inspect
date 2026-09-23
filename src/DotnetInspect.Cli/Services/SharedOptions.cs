@@ -707,8 +707,9 @@ public class SharedOptions
         bool tsvFlag = IsExplicitTrue(parseResult, Tsv);
         bool jsonlFlag = IsExplicitTrue(parseResult, Jsonl);
         bool hasVerbosity = parseResult.GetResult(Verbosity) is { Implicit: false };
+        bool bareFlag = IsExplicitTrue(parseResult, Bare);
         Verbosity? verbosity = hasVerbosity ? ParseVerbosity(parseResult) : null;
-        ValidateRendererFlags(jsonFlag, markdownFlag, plainTextFlag, mermaidFlag, tableFlag || tsvFlag || jsonlFlag, hasVerbosity);
+        ValidateRendererFlags(jsonFlag, markdownFlag, plainTextFlag, mermaidFlag, tableFlag || tsvFlag || jsonlFlag, hasVerbosity, bareFlag);
         if (ShouldSuppressEnvironmentTabularFormat(
             parseResult,
             tableFlag || tsvFlag || jsonlFlag,
@@ -888,8 +889,18 @@ public class SharedOptions
         bool plainTextFlag,
         bool mermaidFlag,
         bool tabularFlag,
-        bool hasVerbosity)
+        bool hasVerbosity,
+        bool bareFlag = false)
     {
+        // --bare is a formatter: it selects the undecorated rendering of the payload,
+        // so it cannot be combined with another explicit format.
+        if (bareFlag
+            && (jsonFlag || markdownFlag || plainTextFlag || mermaidFlag || tabularFlag))
+        {
+            CommandError.WriteLine("--bare cannot be combined with --json, --jsonl, --tsv, --table, --markdown, --plaintext, or --mermaid.");
+            throw new OperationCanceledException();
+        }
+
         if (!tabularFlag)
             return;
 
