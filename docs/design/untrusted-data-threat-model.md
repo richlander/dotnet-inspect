@@ -23,6 +23,17 @@ decision the user makes; that this tool is a no-commitment offer, easy to point
 at anything, raises rather than lowers the bar for what it does with what it
 finds.
 
+Package inspection does not independently authenticate a package publisher's
+semantic claims about the package. Inspected packages are commonly
+dependencies whose code the application already loads and executes.
+dotnet-inspect therefore accepts associated PDB and SourceLink data as the
+package's source presentation after exact assembly/PDB association, host-policy
+acquisition, and checksum verification. It does not require a second build
+receipt issued by the same publisher. The security boundary remains malformed
+or unbounded internet data, transport substitution, unsafe rendering, and
+execution: parsing stays bounded, source integrity stays checked, rendered
+content stays inert, and inspected code is never loaded or executed.
+
 The intended consumer raises it further. This tool is built to be handed to
 **autonomous agents**, so its output is frequently acted on without a human
 reading it. Two things follow. A rendering hazard is not bounded by whether

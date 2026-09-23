@@ -157,8 +157,7 @@ parts. The operation does not manufacture empty success for selection failure.
 
 This owner does not claim:
 
-- exact Metadata-to-physical-declaration authorship;
-- that portable-PDB coordinates prove physical declaration provenance;
+- exact Metadata-to-source correspondence;
 - parsed or rendered documentation;
 - source acquisition, checksum, URL, or SourceLink policy;
 - decompiled-source correspondence;
@@ -166,8 +165,9 @@ This owner does not claim:
 - host serialization, section selection, printing, or flags; or
 - support for declarations the existing index cannot vouch for.
 
-In particular, exact lexical parts do not solve the stronger provenance work in
-[#6584](https://github.com/richlander/dotnet-inspect/issues/6584).
+SourceHouse may compose these lexical parts with exact PDB mapping and
+checksum-verified source under the separately owned
+[PDB-mapped declaration correspondence](source-house-pdb-mapped-declaration-correspondence.md).
 
 ## Evidence
 

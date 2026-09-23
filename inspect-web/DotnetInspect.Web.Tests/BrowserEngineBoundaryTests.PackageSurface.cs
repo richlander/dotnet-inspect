@@ -10,6 +10,7 @@ using System.Text;
 using System.Xml;
 using System.Text.Json;
 using CSharpText;
+using CSharpText.MemberSlicing;
 using DotnetInspector.Ecosystems;
 using DotnetInspector.Fixtures;
 using DotnetInspector.PackageQueries;
@@ -26,7 +27,6 @@ using InertText;
 using Inspector.Findings;
 using ILInspector.Metadata;
 using NuGetFetch;
-using DotnetInspector.SourceHouse.BuildAttestation;
 
 using DotnetInspect.Web.Interop.Package;
 using BrowserMetadataJsonContext = DotnetInspect.Web.Interop.Metadata.BrowserMetadataJsonContext;
@@ -499,20 +499,12 @@ public sealed partial class BrowserEngineBoundaryTests
 
     [Fact]
     public async Task
-        QueryMemberDocumentation_CapabilityHarnessPublishesConflict()
+        QueryMemberDocumentation_PublicPackagePathPublishesAuthoredDocumentation()
     {
-        SourceHouseBuildAttestation attestation =
-            BuildBrowserDocumentationAttestation();
-        string documentationId =
-            Assert.Single(
-                attestation.AttestedXmlDocumentationIdentities,
-                identity =>
-                    identity.Value.Contains(
-                        "MemberTextSlicer.ExtractMemberText",
-                        StringComparison.Ordinal))
-                .Value;
         string packageId =
             $"Browser.Documentation.Authored.{Guid.NewGuid():N}";
+        string assemblyPath =
+            typeof(MemberTextSlicer).Assembly.Location;
         byte[] packageBytes = PackageEntries(
             ($"{packageId}.nuspec", Encoding.UTF8.GetBytes(
                 $"""
@@ -521,26 +513,36 @@ public sealed partial class BrowserEngineBoundaryTests
                      <id>{packageId}</id>
                      <version>1.0.0</version>
                      <authors>Tests</authors>
-                     <description>Build-attested browser documentation.</description>
+                     <description>PDB-mapped browser documentation.</description>
                    </metadata>
                  </package>
                  """)),
             ("lib/net11.0/CSharpText.MemberSlicing.dll",
-                attestation.PeImage.ToArray()),
+                File.ReadAllBytes(assemblyPath)),
             ("lib/net11.0/CSharpText.MemberSlicing.pdb",
-                attestation.PortablePdbImage.ToArray()),
-            ("lib/net11.0/CSharpText.MemberSlicing.xml",
-                Encoding.UTF8.GetBytes(
-                    $"""
-                     <?xml version="1.0"?>
-                     <doc>
-                       <members>
-                         <member name="{documentationId}">
-                           <summary>compiled-browser-summary</summary>
-                         </member>
-                       </members>
-                     </doc>
-                     """)));
+                File.ReadAllBytes(
+                    Path.ChangeExtension(assemblyPath, ".pdb"))));
+        await BrowserPackageWorkspace.RegisterAcquiredPackageAsync(
+            new BrowserPackage(
+                packageId,
+                "1.0.0",
+                packageBytes,
+                fromCache: false));
+        BrowserPackageSurface surface = await QueryPackageSurface(
+            packageId,
+            "1.0.0",
+            "net11.0");
+        BrowserTypeSurface type = Assert.Single(
+            surface.Types,
+            candidate =>
+                candidate.DefinitionId
+                    == "CSharpText.MemberSlicing.MemberTextSlicer");
+        string documentationId = Assert.Single(
+                type.Api,
+                member =>
+                    member.Name == nameof(
+                        MemberTextSlicer.ExtractMemberText))
+            .DocumentationId!;
         await BrowserPackageWorkspace.RegisterGalleryPackageAsync(
             new BrowserPackage(
                 packageId,
@@ -549,16 +551,14 @@ public sealed partial class BrowserEngineBoundaryTests
                 fromCache: false,
                 producerKey:
                     BrowserPackageWorkspace.Gallery.Source.Producer.Key));
-
         string json =
             await PackageExports
-                .QueryMemberDocumentationWithCapabilitiesForTest(
+                .QueryMemberDocumentation(
                     packageId,
                     "1.0.0",
                     "net11.0",
                     "CSharpText.MemberSlicing.dll",
-                    documentationId,
-                    [attestation]);
+                    documentationId);
         DocumentationQueryOutcome outcome =
             Assert.IsAssignableFrom<DocumentationQueryOutcome>(
                 JsonSerializer.Deserialize(
@@ -569,270 +569,21 @@ public sealed partial class BrowserEngineBoundaryTests
         var completed =
             Assert.IsType<DocumentationQueryOutcome.Completed>(
                 outcome);
-        var compiled =
-            Assert.IsType<CompiledDocumentationOutcome.Available>(
-                completed.CompiledXml);
         var authored =
             Assert.IsType<AuthoredDocumentationOutcome.Available>(
                 completed.AuthoredSource);
-        Assert.Equal(
-            "compiled-browser-summary",
-            compiled.Documentation.Summary);
         Assert.Contains(
             "Locates the declaration",
             authored.Documentation.Summary,
             StringComparison.Ordinal);
         Assert.Equal(
-            DocumentationQueryFieldEvidenceKind.Conflict,
+            DocumentationQueryFieldEvidenceKind.Selected,
             completed.Fields.Summary.Kind);
-        Assert.Collection(
-            completed.Fields.Summary.Contributions,
-            contribution =>
-            {
-                Assert.Equal(
-                    DocumentationQueryChannel.CompiledXml,
-                    contribution.Channel);
-                Assert.Equal(
-                    "compiled-browser-summary",
-                    contribution.Value);
-            },
-            contribution =>
-            {
-                Assert.Equal(
-                    DocumentationQueryChannel.AuthoredSource,
-                    contribution.Channel);
-                Assert.Contains(
-                    "Locates the declaration",
-                    contribution.Value,
-                    StringComparison.Ordinal);
-            });
-    }
-
-    [Fact]
-    public async Task
-        QueryMemberDocumentation_SplitAssembliesUseImplementationTarget()
-    {
-        const string assemblyName =
-            "InspectWebSplitDocumentationFixture";
-        const string documentationId =
-            "M:InspectWeb.SplitDocumentation.Subject.Target(System.String)";
-        SourceHouseBuildAttestation api =
-            EmitBrowserDocumentationAttestation(
-                assemblyName,
-                [
-                    new(
-                        "Api.cs",
-                        """
-                        #nullable enable
-                        namespace InspectWeb.SplitDocumentation;
-
-                        public static class Subject
-                        {
-                            public static void Neighbor() { }
-                            public static void Target(string value) { }
-                        }
-                        """u8.ToArray()),
-                ],
-                "inspect-web-split-documentation-api");
-        SourceHouseBuildAttestation implementation =
-            EmitBrowserDocumentationAttestation(
-                assemblyName,
-                [
-                    new(
-                        "Implementation.cs",
-                        """
-                        #nullable enable
-                        namespace InspectWeb.SplitDocumentation;
-
-                        public static class Subject
-                        {
-                            /// <summary>authored-split-summary</summary>
-                            public static void Target(string? value) { }
-                            public static void Neighbor() { }
-                        }
-                        """u8.ToArray()),
-                ],
-                "inspect-web-split-documentation-implementation");
-        Assert.NotEqual(
-            MethodToken(api.PeImage, "Target"),
-            MethodToken(implementation.PeImage, "Target"));
-
-        string packageId =
-            $"Browser.Documentation.Split.{Guid.NewGuid():N}";
-        byte[] packageBytes = PackageEntries(
-            ($"{packageId}.nuspec", Encoding.UTF8.GetBytes(
-                $"""
-                 <package>
-                   <metadata>
-                     <id>{packageId}</id>
-                     <version>1.0.0</version>
-                     <authors>Tests</authors>
-                     <description>Split browser documentation.</description>
-                   </metadata>
-                 </package>
-                 """)),
-            ($"ref/net11.0/{assemblyName}.dll",
-                api.PeImage.ToArray()),
-            ($"ref/net11.0/{assemblyName}.xml",
-                Encoding.UTF8.GetBytes(
-                    $"""
-                     <?xml version="1.0"?>
-                     <doc>
-                       <members>
-                         <member name="{documentationId}">
-                           <summary>compiled-split-summary</summary>
-                         </member>
-                       </members>
-                     </doc>
-                     """)),
-            ($"lib/net11.0/{assemblyName}.dll",
-                implementation.PeImage.ToArray()),
-            ($"lib/net11.0/{assemblyName}.pdb",
-                implementation.PortablePdbImage.ToArray()));
-        await BrowserPackageWorkspace.RegisterGalleryPackageAsync(
-            new BrowserPackage(
-                packageId,
-                "1.0.0",
-                packageBytes,
-                fromCache: false,
-                producerKey:
-                    BrowserPackageWorkspace.Gallery.Source.Producer.Key));
-
-        string json =
-            await PackageExports
-                .QueryMemberDocumentationWithCapabilitiesForTest(
-                    packageId,
-                    "1.0.0",
-                    "net11.0",
-                    $"{assemblyName}.dll",
-                    documentationId,
-                    [implementation]);
-        DocumentationQueryOutcome.Completed completed =
-            Assert.IsType<DocumentationQueryOutcome.Completed>(
-                JsonSerializer.Deserialize(
-                    json,
-                    DocumentationQueryJsonContext.Default
-                        .DocumentationQueryOutcome));
-        var authored =
-            Assert.IsType<AuthoredDocumentationOutcome.Available>(
-                completed.AuthoredSource);
+        DocumentationQueryTextFieldContribution contribution =
+            Assert.Single(completed.Fields.Summary.Contributions);
         Assert.Equal(
-            "authored-split-summary",
-            authored.Documentation.Summary);
-        Assert.Equal(
-            DocumentationQueryFieldEvidenceKind.Conflict,
-            completed.Fields.Summary.Kind);
-    }
-
-    private static SourceHouseBuildAttestation
-        BuildBrowserDocumentationAttestation()
-    {
-        string sourceDirectory = Path.Combine(
-            RepositoryRoot(),
-            "src",
-            "CSharpText.MemberSlicing");
-        return EmitBrowserDocumentationAttestation(
-            "InspectWebAuthoredDocumentationFixture",
-            [
-                .. Directory.EnumerateFiles(
-                        sourceDirectory,
-                        "*.cs",
-                        SearchOption.TopDirectoryOnly)
-                    .Order(StringComparer.Ordinal)
-                    .Select(
-                        static path =>
-                            new CSharpBuildSource(
-                                path,
-                                File.ReadAllBytes(path))),
-            ],
-            "inspect-web-authored-documentation");
-    }
-
-    private static SourceHouseBuildAttestation
-        EmitBrowserDocumentationAttestation(
-            string assemblyName,
-            IReadOnlyList<CSharpBuildSource> sources,
-            string generation)
-    {
-        CSharpBuildAttestationOutcome outcome =
-            CSharpBuildAttestor.EmitAndAttest(
-                new(
-                    assemblyName,
-                    sources,
-                    TrustedPlatformAssemblies(),
-                    SourceHouseCapabilityIdentity.Create(
-                        "inspect-web-build-attestor"),
-                    SourceHouseAttestationIssuerIdentity.Create(
-                        "dotnet-inspect-build"),
-                    SourceHouseAttestationProfileIdentity.Create(
-                        "direct-csharp-emit-v1"),
-                    SourceHouseAttestationGeneration.Create(
-                        generation)));
-        if (outcome is CSharpBuildAttestationOutcome.Failed failed)
-        {
-            Assert.Fail(
-                string.Join(
-                    Environment.NewLine,
-                    failed.Diagnostics));
-        }
-
-        return Assert.IsType<
-                CSharpBuildAttestationOutcome.Available>(outcome)
-            .Attestation;
-    }
-
-    private static int MethodToken(
-        ImmutableArray<byte> peImage,
-        string methodName)
-    {
-        using var stream =
-            new MemoryStream(peImage.AsSpan().ToArray());
-        using var reader = new PEReader(stream);
-        MetadataReader metadata = reader.GetMetadataReader();
-        MethodDefinitionHandle method =
-            Assert.Single(
-                metadata.MethodDefinitions,
-                handle =>
-                    metadata.GetString(
-                        metadata.GetMethodDefinition(handle).Name)
-                        == methodName);
-        return MetadataTokens.GetToken(method);
-    }
-
-    private static string[] TrustedPlatformAssemblies()
-    {
-        string runtimeDirectory =
-            Path.GetDirectoryName(typeof(object).Assembly.Location)
-            ?? throw new InvalidOperationException(
-                "The runtime assembly has no directory.");
-        return
-        [
-            .. Directory.EnumerateFiles(
-                runtimeDirectory,
-                "*.dll",
-                SearchOption.TopDirectoryOnly),
-            typeof(CSharpSourceText).Assembly.Location,
-        ];
-    }
-
-    private static string RepositoryRoot()
-    {
-        for (DirectoryInfo? directory =
-                new(AppContext.BaseDirectory);
-            directory is not null;
-            directory = directory.Parent)
-        {
-            if (File.Exists(
-                    Path.Combine(
-                        directory.FullName,
-                        "dotnet-inspect.slnx")))
-            {
-                return directory.FullName;
-            }
-        }
-
-        throw new InvalidOperationException(
-            "Could not locate the repository root.");
+            DocumentationQueryChannel.AuthoredSource,
+            contribution.Channel);
     }
 
     [Fact]

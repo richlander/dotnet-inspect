@@ -39,6 +39,17 @@ public sealed partial class AuthoredSourceHouseTests
         Assert.StartsWith("///", outcome.Source.Text);
         Assert.Contains("public static string? ExtractMemberText(", outcome.Source.Text);
         Assert.DoesNotContain("public static class MemberTextSlicer", outcome.Source.Text);
+        string declaration = original.Substring(
+            document.Parts.Declaration.Start,
+            document.Parts.Declaration.Length);
+        Assert.StartsWith(
+            "public static string? ExtractMemberText(",
+            declaration,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "/// <summary>",
+            declaration,
+            StringComparison.Ordinal);
         Assert.Equal(SourceChecksumVerification.Exact, outcome.Source.Selected.ChecksumVerification);
         var mapping = Assert.IsType<SourceHouseAuthoredMapping.Member>(outcome.Source.Mapping);
         Assert.Equal(asset.MemberTarget.MetadataToken, mapping.Observation.MetadataToken);

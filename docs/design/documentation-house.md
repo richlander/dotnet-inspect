@@ -69,9 +69,10 @@ The design depends on:
 - [#6583](https://github.com/richlander/dotnet-inspect/issues/6583) for the
   separately owned model-free CSharpText operation that extracts documentation
   attached to a caller-correlated declaration;
-- [#6584](https://github.com/richlander/dotnet-inspect/issues/6584) for
-  SourceHouse-owned trusted correspondence between one exact Metadata target
-  and the physical declaration that produced it;
+- [#8342](https://github.com/richlander/dotnet-inspect/issues/8342) and
+  [SourceHouse PDB-mapped declaration correspondence](source-house-pdb-mapped-declaration-correspondence.md)
+  for SourceHouse-owned exact MethodDef/PDB mapping, checksum-verified source,
+  and CSharpText-issued declaration coordinates;
 - [PackageHouse](package-house.md) for package realization, selected assets,
   content generation, and library handoff;
 - [PlatformHouse](platform-house-reference-processing.md) for exact platform
@@ -285,16 +286,15 @@ subject retains:
 - the exact implementation target and `LibraryContentReference` used for
   authored source when that channel is requested.
 
-The initial authored-source channel supports only exact type definitions and
-MethodDefs for which SourceHouse issues both target correspondence and the
-trusted physical-declaration correspondence owned by #6584.
-Properties, events, fields, accessors, bodyless declarations, and other source
-constructs remain unavailable until their owning layer supplies separately
-reviewed exact Metadata-to-source correspondence. DocumentationHouse does not
-invent that correspondence from a member name, containing declaration, or
-nearby sequence point. Portable PDB destination coordinates, SourceLink
-provenance, and a checksum-valid document do not prove this physical
-correspondence.
+The initial authored-source channel supports exact MethodDefs for which
+SourceHouse issues exact PDB mapping, checksum-verified source, and a uniquely
+selected CSharpText declaration. Type source-document correlation does not
+identify one exact type declaration, so type authored documentation remains
+unavailable. Properties, events, fields, accessors, bodyless declarations, and
+other source constructs remain unavailable until their owning layer supplies
+separately reviewed exact target-to-declaration correspondence.
+DocumentationHouse does not invent that correspondence from a member name,
+containing declaration, or nearby sequence point.
 
 An `XmlDocMemberIdentity` is an exact lookup key inside an associated compiler
 artifact. It is not a global subject: two assemblies may legitimately carry
@@ -574,12 +574,11 @@ SourceHouse policy generation, PDB-access policy, request identity, and
 operation-plan identity match the DocumentationHouse request and plan.
 
 After invocation, the returned contribution is eligible only when its
-SourceHouse receipt confirms that binding and supplies the matching result
-identity, source-document identity, checksum evidence, mapping evidence, and
-trusted physical-declaration correspondence identity and generation from
-issue #6584. It must also confirm settlement of the transferred Library lease.
-A result from a different Library, content reference, request, policy, target,
-document, or declaration is rejected rather than reused.
+SourceHouse receipt confirms that binding and supplies the matching
+source-document identity, checksum evidence, exact member mapping, and
+CSharpText-issued declaration coordinates. It must also confirm settlement of
+the transferred Library lease. A result from a different Library, content
+reference, request, policy, target, or document is rejected rather than reused.
 
 The source integration adapter passes the owner-issued authored source and
 correlation evidence to the CSharpText operation owned by #6583. That focused
@@ -597,10 +596,12 @@ invocation validates the exact binding, Library operation lease, remaining
 source/document limits, and deadline before transferring the lease once to
 SourceHouse. Operation-local exits settle the lease locally. After transfer,
 the adapter accepts only the exact SourceHouse request and receipt evidence,
-uses the complete decoded physical document plus the #6584 exact declaration
-span, and invokes `CSharpAuthoredDocumentation`. Its terminal outcomes retain the CSharpText result, bounded work, opaque
-source/declaration evidence references when available, and the final lease
-consumer without retaining SourceHouse types or live authority.
+uses the complete checksum-verified decoded document plus the
+CSharpText-issued exact declaration span and the same PDB active-line evidence
+used for selection, and invokes
+`CSharpAuthoredDocumentation`. Its terminal outcomes retain the CSharpText
+result, bounded work, opaque source evidence when available, and the final
+lease consumer without retaining SourceHouse types or live authority.
 DocumentationHouse core invokes the operation only for explicit authored or
 combined demand. Terminal outcomes and receipts snapshot resource-free request
 and plan evidence, including the authored binding and limits but not the
@@ -608,13 +609,13 @@ one-shot operation capability.
 
 DocumentationHouse consumes the returned owner-issued evidence and preserves
 it with the SourceHouse receipt. It does not upgrade filename inference,
-member-name equality, proximity, inferred mapping, or an unvouched declaration
-span into exact declaration correspondence.
+member-name equality, proximity, inferred type-document mapping, or an
+unvouched declaration span into exact declaration correspondence.
 
-PDB-only evidence cannot produce authored-source **Available** or **Absent**.
-Without the #6584 correspondence, the channel is **Unavailable** even when a
-checksum-valid destination document contains a declaration at the mapped
-lines.
+For an exact MethodDef, associated PDB mapping plus checksum-verified source
+and unique bounded CSharpText selection are sufficient for authored-source
+**Available** or **Absent**. No independent build observer or publisher-issued
+receipt is required.
 
 Bodyless members commonly have no sequence point and therefore no
 PDB-anchored declaration. They remain unavailable unless another focused owner
@@ -647,8 +648,8 @@ without weakening it:
 - documentation attached to one uniquely vouched declaration is
   **Available**;
 - a uniquely vouched declaration with no attached documentation is **Absent**;
-- no trusted physical-declaration correspondence is **Unavailable**;
-- ambiguous or inferred correspondence is **Ambiguous**;
+- no exact MethodDef/PDB mapping or selected declaration is **Unavailable**;
+- ambiguous lexical selection is **Ambiguous**;
 - invalid target, Library, or content correspondence is **Rejected**;
 - malformed attached documentation is **Failed**; and
 - lexical uncertainty, an unvouched span, unresolved conditional or `#line`
@@ -838,9 +839,9 @@ compiled and authored attempts, and detached field settlement. The compiled
 attempt reuses the existing nine-case `CompiledDocumentationOutcome`; the
 authored attempt has closed available, absent, unavailable, ambiguous,
 rejected, failed, and incomplete cases. Its reason enums distinguish operation
-absence and evidence mismatch from SourceHouse, physical-declaration,
-CSharpText, deadline, and budget outcomes. Bounded observation code and detail
-are copied when present. Field settlement copies the requested channel order,
+absence and evidence mismatch from SourceHouse, CSharpText, deadline, and
+budget outcomes. Bounded observation code and detail are copied when present.
+Field settlement copies the requested channel order,
 contribution order, selected/corroborated/conflict/absent kind, scalar fields,
 ordinally ordered parameter names, and typed exception and sample lists.
 Top-level House rejection, failure, and incompleteness remain distinct wire
@@ -959,14 +960,14 @@ The PDB maps a method into source containing an unresolved conditional or
 `#line` remapping that prevents safe physical-line correlation. CSharpText
 reports uncertainty. The House does not search for the method name elsewhere.
 
-### The mapped destination is valid but belongs to another declaration
+### A line directive maps the method into another source document
 
 One compilation input uses `#line` to map a MethodDef into another real source
-document whose checksum and declaration text are valid. SourceHouse may retain
-that destination evidence, but without the stronger #6584 physical-declaration
-correspondence DocumentationHouse reports the authored channel as unavailable.
-It does not attach the destination declaration's comment to the requested
-MethodDef.
+document. SourceHouse treats the PDB destination as authoritative
+presentation, requires that document's checksum-valid bytes, and asks
+CSharpText to select the declaration from the mapped active lines.
+DocumentationHouse accepts only the unique owner-issued declaration span and
+preserves visible uncertainty or ambiguity; it never searches by method name.
 
 ### A bodyless member has no source mapping
 
@@ -1026,10 +1027,14 @@ assembly and XML companion in the .NET 11 reference pack.
     Inspect Web;
 12. **Completed.** Adopt platform reference-pack compiled documentation in the
     CLI;
-13. **Completed.** Lock the focused SourceHouse physical-declaration
-    correspondence contract under #6584;
-14. **Completed.** Implement one production SourceHouse path that issues that
-    trusted correspondence;
+13. **Superseded by
+    [#8342](https://github.com/richlander/dotnet-inspect/issues/8342).** The
+    build-attestation contract under #6584 was not satisfiable for ordinary
+    nuget.org packages;
+14. **In progress under
+    [#8342](https://github.com/richlander/dotnet-inspect/issues/8342).**
+    Adopt exact PDB-mapped, checksum-verified member declarations and remove
+    the cooperating-build attestation substrate;
 15. **Completed.** Lock the focused CSharpText authored-documentation contract
     under #6583;
 16. **Completed.** Implement the owner-issued CSharpText
@@ -1066,17 +1071,14 @@ consumer slice.
 Inspect Web package member documentation requests the unified QuerySpace
 `compiled-xml-and-authored-source` demand and returns the Queries-owned
 `DocumentationQueryOutcome` through the generated package facade. The browser
-host authorizes its existing bounded source-acquisition capabilities but does
-not currently issue a SourceHouse physical-declaration capability. The public
-browser path therefore retains authored unavailability as typed evidence and
-does not infer physical correspondence from PDB, Source Link, paths, names, or
-source text.
+host authorizes its existing bounded source-acquisition capabilities.
+SourceHouse combines those ordinary capabilities with exact PDB mapping,
+checksum verification, and bounded CSharpText declaration selection; no
+privileged build-observer capability is required.
 
-This slice adopts combined demand, transport, and presentation and proves the
-capability-aware lower composition through a build-attested test host. That
-harness is not evidence that the shipped browser can provision the capability.
-Issue #8155 remains open for a separately designed production authorization
-path before the overall Inspect Web authored-documentation slice is complete.
+This slice adopts combined demand, transport, presentation, and the public
+browser authored-documentation path. Issue #8155 tracks the remaining
+Inspect Web adoption and UX work rather than a separate provenance authority.
 
 The Metadata-issued subject and token identify the selected API assembly.
 Before creating an authored-source operation, Queries locates that subject's
@@ -1110,10 +1112,10 @@ availability or authoritative absence can still settle cleanly with typed
 authored unavailability.
 
 The platform member-documentation export remains compiled-only in this slice.
-Its reference-pack Library has no authorized implementation-source or
-physical-declaration capability, so requesting authored source would advertise
-work the host cannot perform. Adding that authority is separately scoped work,
-not a name- or path-based inference in this consumer adoption.
+Its reference-pack Library has no authorized implementation-source operation,
+so requesting authored source would advertise work the host cannot perform.
+Adding that source path is separately scoped work, not a name- or path-based
+inference in this consumer adoption.
 
 ## Evidence and required gates
 
@@ -1131,12 +1133,12 @@ Implementation and adoption slices own these Release gates:
 | Explicit authorization | No SourceHouse, source/PDB discovery or acquisition, repository, content-store, or network work occurs without authored demand and a pre-authorized deferred operation. Snapshots of already-realized XML require compiled demand and the transferred Library lease. A PDB-bearing package with an over-budget PDB still settles compiled-only documentation without discovering, budgeting, or acquiring that PDB. |
 | Cheap-first ordering | Operation construction starts no source work; combined demand reaches a terminal detached compiled-XML attempt and ends every borrow before the operation receives the lease once, and XML availability does not suppress the requested source attempt. |
 | Exact XML lookup | Compiled XML uses the Metadata-issued compiler ID and associated contribution. |
-| Split implementation targeting | A build-attested package with distinct `ref` and `lib` assemblies assigns different MethodDef tokens and member anchors to the same compiler XML identity; the authored channel resolves and uses the implementation-issued target. |
+| Split implementation targeting | A package with distinct `ref` and `lib` assemblies assigns different MethodDef tokens and member anchors to the same compiler XML identity; the authored channel resolves and uses the implementation-issued target and PDB mapping. |
 | Implementation resolution settlement | Missing, duplicate, or over-bound implementation correspondence becomes typed authored unavailability, ambiguity, or incompleteness while compiled XML remains available and the operation settles its Library lease. |
 | Bounded repeated lookup | A multi-subject request scans each selected compiled-XML companion once per matching read policy, retains only that policy's requested exact IDs under independent per-request retained-text budgets, rechecks the latest matching request deadline between snapshot and parse, and reports actual parsing work once. |
 | Authoritative absence | XML absence requires complete readable companion evidence for the exact subject. |
 | Independent channels | Success, absence, failure, or incompleteness in one channel does not rewrite the other. |
-| Authored-source boundary | Source documentation consumes SourceHouse-authored evidence plus #6584 trusted physical-declaration correspondence and never decompiled or PDB-only output. |
+| Authored-source boundary | Source documentation consumes exact SourceHouse MethodDef/PDB mapping, checksum-verified source, and CSharpText-issued declaration coordinates; it never consumes decompiled output or inferred type-document mapping. |
 | Declaration correspondence | The owner-issued CSharpText gate from #6583 returns attached documentation or visible uncertainty without name-based fallback; DocumentationHouse preserves that result. |
 | Field provenance | Filled, corroborated, and conflicting fields retain every contributing value and origin. |
 | Visible failure | Malformed or over-budget XML/comment content never becomes an empty or plain-text success. |
@@ -1163,19 +1165,21 @@ terminal attempt is deadline-incomplete.
 
 `AuthoredSourceDocumentationAdapterTests` gates the SourceHouse integration
 over a real direct C# build of `CSharpText.MemberSlicing`. It demonstrates that
-the exact physical declaration for `MemberTextSlicer.ExtractMemberText`
-produces parsed authored documentation, operation construction starts no source
-work, and SourceHouse is the sole final lease consumer after transfer.
+the exact PDB-mapped, checksum-verified declaration for
+`MemberTextSlicer.ExtractMemberText` produces parsed authored documentation,
+operation construction starts no source work, and SourceHouse is the sole final
+lease consumer after transfer.
 Neighboring gates prove that a foreign DocumentationHouse binding and an
 API-only content from a Library with distinct API and implementation
 assemblies reject before source work; an insufficient remaining source-byte
 budget rejects before source work and settles the lease locally; pre-transfer
 cancellation settles without source work; a second invocation performs no
-additional work and settles its newly supplied lease; and checksum-valid PDB
-source without the #6584 physical-input identity remains unavailable without
-reaching CSharpText. The existing public-outcome closure gate includes the
-authored operation contracts and proves that completed outcomes retain no lease,
-content owner, stream, delegate, or disposable authority. Per the operator's
+additional work and settles its newly supplied lease; and checksum mismatch,
+missing exact MethodDef mapping, or no uniquely selected declaration remains
+unavailable without producing success-shaped output. The existing
+public-outcome closure gate includes the authored operation contracts and
+proves that completed outcomes retain no lease, content owner, stream,
+delegate, or disposable authority. Per the operator's
 issue #8017 evidence choice, this slice adds no repository-wide
 source-dependency absence rule; project references establish the intended
 direction, while Release behavior and adversarial design review provide the
@@ -1183,9 +1187,9 @@ slice evidence.
 
 `AuthoredSourceDocumentationSettlementTests` gates core adoption. Its real
 combined-channel scenario adds an associated compiler-XML companion to the
-build-attested `MemberTextSlicer.ExtractMemberText` Library, proves that XML
-availability does not suppress the exact SourceHouse read or physical
-declaration attestation, retains both available attempts, preserves their
+PDB-mapped `MemberTextSlicer.ExtractMemberText` Library, proves that XML
+availability does not suppress the exact SourceHouse read and lexical
+declaration selection, retains both available attempts, preserves their
 different summaries as one conflict, and names SourceHouse as the final lease
 consumer. Neighboring gates prove operation-unavailable House settlement,
 foreign-binding rejection before either channel, continuation after every
@@ -1250,15 +1254,14 @@ immutable-array, and Queries-owned values.
 QuerySpace descriptor and executable route to agree on the one documentation
 row set, Rows terminal, result contract, and closed demand vocabulary. Missing,
 unknown, conflicting, or foreign structural requests reject before House work.
-A real direct C# build attestation for
+A real direct C# build of
 `CSharpText.MemberSlicing.MemberTextSlicer.ExtractMemberText` resolves combined
 demand through QuerySpace, executes compiled XML and the SourceHouse adapter,
 and publishes both available attempts plus their differing summaries as one
-ordered field conflict. The same gate proves one source read, one attestation
-read, SourceHouse as final lease consumer, exact House-outcome retention, and a
-portable JSON round trip. Neighboring gates cover authored operation absence
-and each authored terminal category with its closed reason and bounded
-observation.
+ordered field conflict. The same gate proves one source read, SourceHouse as
+final lease consumer, exact House-outcome retention, and a portable JSON round
+trip. Neighboring gates cover authored operation absence and each authored
+terminal category with its closed reason and bounded observation.
 
 The CLI documentation command gates require a projected extension method on
 its receiver type to receive the exact declaration-owned compiled
@@ -1272,20 +1275,18 @@ package evidence as direct-Library evidence.
 
 `BrowserEngineBoundaryTests.QueryMemberDocumentation_UsesSharedPackageDocumentationContract`
 executes the production package export over the real `System.Text.Json` 10.0.0
-package and requires compiled availability, independently typed authored
-unavailability without physical-declaration authority, and deterministic
-compiled field selection.
-`BrowserEngineBoundaryTests.QueryMemberDocumentation_CapabilityHarnessPublishesConflict`
-packages a real build-attested assembly, matching portable PDB, source bytes,
-and deliberately differing compiled summary. It executes the capability-aware
-test host over the same package composition and serialization core and requires
-both channels to be available plus the ordered compiled-then-authored summary
-conflict. It does not claim production capability provisioning.
+package and requires compiled availability plus independently typed authored
+settlement through ordinary browser source capabilities.
+`BrowserEngineBoundaryTests.QueryMemberDocumentation_PublishesConflict`
+packages a real assembly, matching portable PDB, source bytes, and deliberately
+differing compiled summary. It executes the public package composition and
+serialization core and requires both channels to be available plus the ordered
+compiled-then-authored summary conflict.
 `BrowserEngineBoundaryTests.QueryMemberDocumentation_SplitAssembliesUseImplementationTarget`
-uses distinct build-attested `ref` and `lib` assemblies whose matching member
-has different MethodDef tokens and nullability-sensitive anchors. It requires
-the implementation-issued target to reach authored availability rather than
-being rejected against the API anchor.
+uses distinct `ref` and `lib` assemblies with matching portable PDB/source
+evidence whose matching member has different MethodDef tokens and
+nullability-sensitive anchors. It requires the implementation-issued target to
+reach authored availability rather than being rejected against the API anchor.
 `DocumentationQueryTests.ImplementationSubjectResolver_ReportsAmbiguousAndBounded`
 gates duplicate exact compiler XML matches and bounded implementation-surface
 extraction as closed resolution outcomes.

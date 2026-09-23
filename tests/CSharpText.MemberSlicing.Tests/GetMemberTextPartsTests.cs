@@ -59,6 +59,18 @@ public class GetMemberTextPartsTests
             14);
         AssertPart(
             source,
+            parts.Declaration,
+            "[First][Second(\r\n" +
+            "        42)]\r\n" +
+            "    public int M(\r\n" +
+            "        int value)\r\n" +
+            "    {\r\n" +
+            "        return value;\r\n" +
+            "    }",
+            8,
+            14);
+        AssertPart(
+            source,
             parts.Member,
             "/// <summary>First.</summary>\r\n" +
             "    /// <remarks>Second.</remarks>\r\n" +
@@ -98,6 +110,7 @@ public class GetMemberTextPartsTests
             "/** <summary>M.</summary> */ void M() { }",
             1,
             1);
+        AssertPart(source, parts.Declaration, "void M() { }", 1, 1);
         Assert.Null(MemberTextSlicer.ExtractMemberText(source, 1, 1, "M"));
     }
 
@@ -249,6 +262,7 @@ public class GetMemberTextPartsTests
 
         var bodyless = Assert.IsType<MemberTextParts>(
             MemberTextSlicer.GetMemberTextParts(source, 3, 3, "Bodyless"));
+        AssertPart(source, bodyless.Declaration, "void Bodyless();", 3, 3);
         AssertPart(source, bodyless.Signature, "void Bodyless();", 3, 3);
         Assert.Null(bodyless.Body);
         Assert.Empty(bodyless.XmlDocumentation);
@@ -612,6 +626,14 @@ public class GetMemberTextPartsTests
 
         string member = Text(source, parts.Member);
         Assert.StartsWith("/// <summary>", member, StringComparison.Ordinal);
+        Assert.StartsWith(
+            "public static string? ExtractMemberText(",
+            Text(source, parts.Declaration),
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "/// <summary>",
+            Text(source, parts.Declaration),
+            StringComparison.Ordinal);
         Assert.Contains(
             "public static string? ExtractMemberText(",
             Text(source, parts.Signature),

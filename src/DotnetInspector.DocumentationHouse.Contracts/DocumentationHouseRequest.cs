@@ -89,6 +89,7 @@ public sealed class DocumentationSubjectReference
         MetadataTypeDefinitionName typeIdentity,
         MemberAnchor? memberIdentity,
         int? metadataToken,
+        ApiMethodSemanticsKind? methodSemantics,
         XmlDocMemberIdentity compiledXmlIdentity,
         LibraryApiSurfaceCorrespondence apiSurfaceCorrespondence)
     {
@@ -96,6 +97,7 @@ public sealed class DocumentationSubjectReference
         TypeIdentity = typeIdentity;
         MemberIdentity = memberIdentity;
         MetadataToken = metadataToken;
+        MethodSemantics = methodSemantics;
         CompiledXmlIdentity = compiledXmlIdentity;
         ApiSurfaceCorrespondence = apiSurfaceCorrespondence;
     }
@@ -105,6 +107,7 @@ public sealed class DocumentationSubjectReference
     public MemberAnchor? MemberIdentity { get; }
     public int? MetadataToken { get; }
     public bool IsMember => MemberIdentity is not null;
+    public ApiMethodSemanticsKind? MethodSemantics { get; }
     public XmlDocMemberIdentity CompiledXmlIdentity { get; }
     public LibraryApiSurfaceCorrespondence ApiSurfaceCorrespondence { get; }
     public LibraryReference Library => ApiSurfaceCorrespondence.Library;
@@ -132,6 +135,7 @@ public sealed class DocumentationSubjectReference
             type.DefinitionName!,
             memberIdentity: null,
             type.MetadataToken,
+            methodSemantics: null,
             compiledXmlIdentity,
             apiSurfaceCorrespondence);
     }
@@ -170,6 +174,7 @@ public sealed class DocumentationSubjectReference
                 declaringType,
                 member),
             member.MetadataToken,
+            member.MethodSemantics,
             compiledXmlIdentity,
             apiSurfaceCorrespondence);
     }
@@ -211,6 +216,7 @@ public sealed class DocumentationImplementationSubjectReference
         MetadataTypeDefinitionName typeIdentity,
         MemberAnchor? memberIdentity,
         int? metadataToken,
+        ApiMethodSemanticsKind? methodSemantics,
         XmlDocMemberIdentity compiledXmlIdentity)
     {
         ArgumentNullException.ThrowIfNull(typeIdentity);
@@ -234,6 +240,7 @@ public sealed class DocumentationImplementationSubjectReference
         TypeIdentity = typeIdentity;
         MemberIdentity = memberIdentity;
         MetadataToken = metadataToken;
+        MethodSemantics = methodSemantics;
         CompiledXmlIdentity = compiledXmlIdentity;
     }
 
@@ -241,6 +248,7 @@ public sealed class DocumentationImplementationSubjectReference
     public MemberAnchor? MemberIdentity { get; }
     public int? MetadataToken { get; }
     public bool IsMember => MemberIdentity is not null;
+    public ApiMethodSemanticsKind? MethodSemantics { get; }
     public XmlDocMemberIdentity CompiledXmlIdentity { get; }
 
     public static DocumentationImplementationSubjectReference FromApiSubject(
@@ -251,6 +259,7 @@ public sealed class DocumentationImplementationSubjectReference
             subject.TypeIdentity,
             subject.MemberIdentity,
             subject.IsMember ? subject.MetadataToken : null,
+            subject.MethodSemantics,
             subject.CompiledXmlIdentity);
     }
 }
