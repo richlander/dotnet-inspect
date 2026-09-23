@@ -1091,10 +1091,12 @@ edge, `readonly`, `scoped`, pinned, or unsafe-context decision moves.
 Malformed or unsupported managed-reference shapes, missing or conflicting
 testimony, load-only webs, non-unanimous store-only webs, nested bodies awaiting
 their own finalization, and components with any independently deferred member
-remain outside admission.
+remain outside admission. A deferred managed-reference slot that reaches
+emission fails visibly at the materialization boundary rather than falling back
+to the retired residual renderer.
 
-No admitted managed-reference stack slot may reach `CSharpPrinter`. The
-materialization boundary fails visibly if such a decided exact web survives;
+No managed-reference stack slot may reach `CSharpPrinter`. The materialization
+boundary fails visibly if one survives;
 the printer's residual-stack-slot ref declaration and `= ref` rebinding
 branches are deleted. Its ordinary typed-local ref spelling remains because
 materialized managed references consume that existing path. Other residual
@@ -1112,26 +1114,43 @@ already has the testified managed-reference type, and replaying component
 atomicity with this one admission accepts all 451 with zero measurement
 failures. A printer-boundary replay then found two additional store-only
 managed-reference webs after constructor diagnostics consumed their loads;
-their producers are unanimous and exact. The complete printer-owned family is
-therefore 453 webs. The contract does not transfer that population result to
-unseen inputs.
+their producers are unanimous and exact. Three more webs belong to nested
+bodies that now complete through their own independently run materialization
+pipelines before the outer census boundary. The complete printer-owned family
+is therefore 456 webs. The contract does not transfer that population result
+to unseen inputs.
+
+On that fixed population, residual materialization moves from 41,415
+materialized and 1,280 deferred slots to 41,868 materialized and 824 deferred
+slots. Residual stores, loads, and distinct slots move from
+2,360/2,280/1,280 to 1,417/1,178/824. The three-web difference between the
+453 additional outer decisions and the 456-slot residual reduction is exactly
+the independently completed nested population. At the printer boundary, stores
+move from 2,353 to 1,410, loads from 2,273 to 1,171, direct copies from 164 to
+108, distinct slots from 1,273 to 817, methods with residual slots from 838 to
+561, and declarations from 811 to 711. All 456 removed slots were
+single-candidate slots; the 305 multi-candidate unified slots and 146 split
+slots are unchanged. Both censuses report zero pass bugs, and exact product-body
+Render A/B reports zero changed methods across all 89,065 inputs.
 
 Focused Release gates cover direct and cross-block ref storage, repeated
 rebinding, atomic copies, declaration placement, malformed and unsupported
-declines, compiler-generated-name independence, raised and lowered pipelines,
-and the pinned Roslyn witness. The fixed-input residual and printer-unifier
-censuses gate the measured population change; product Render A/B gates output
-neutrality. The existing storage-rewrite invariant gates node and occurrence
-preservation. Roslyn's bound ref-local model and ILSpy's typed expression/local
-model provide the same decision-before-emission baseline already surveyed
-above; this slice transfers only that ownership principle, not either
-implementation. The shared host-neutral pipeline adopts the change for CLI and
-Browser/Wasm in this one slice.
+declines and visible boundary failures, compiler-generated-name independence,
+nested callable provenance, raised and lowered pipelines, and the pinned Roslyn
+witness. The fixed-input residual and printer-unifier censuses gate the measured
+population change; product Render A/B gates output neutrality. The existing
+storage-rewrite invariant gates node and occurrence preservation. Roslyn's
+bound ref-local model and ILSpy's typed expression/local model provide the same
+decision-before-emission baseline already surveyed above; this slice transfers
+only that ownership principle, not either implementation. The shared
+host-neutral pipeline adopts the change for CLI and Browser/Wasm in this one
+slice.
 
 ### Storage-rewrite validation
 
 Materialization preserves the ordered IR tree while replacing each converted
-outer slot web with one fresh local at its pre-rewrite testified type.
+outer slot web with one fresh local at its pre-rewrite observer- or
+producer-testified type.
 Every occurrence of that web uses the same local; distinct webs use distinct
 locals, existing local types remain stable, and direct-copy components convert
 atomically. Non-slot nodes, including producers and nested function bodies,

@@ -19,6 +19,7 @@ public sealed class ScalarSelfUpdatePass : IIrPass
                 _ => null,
             };
             ScalarUpdateKind? kind = targetType?.Kind is not (TypeRefKind.Pointer or TypeRefKind.ByRef or TypeRefKind.FunctionPointer)
+                && !TargetUsesMaterializedStackSlot(function, store)
                 && store.Value is Binary binary
                 && ReadsTarget(store, binary.Left, targetType)
                     ? Classify(binary)
@@ -29,6 +30,26 @@ public sealed class ScalarSelfUpdatePass : IIrPass
             context.Stepper.StepOver("decide scalar self-update", store);
             store.UpdateKind = kind;
         }
+    }
+
+    static bool TargetUsesMaterializedStackSlot(
+        IrFunction function,
+        ScalarStore store)
+    {
+        IrExpression? target = store switch
+        {
+            StoreField field => field.Instance,
+            StoreProperty property => property.Instance,
+            StoreIndirect indirect => indirect.Address,
+            _ => null,
+        };
+        return target is not null
+            && target.DescendantsAndSelfOutsideNestedFunctions
+                .OfType<LoadLocal>()
+                .Any(load =>
+                    function.TryGetMaterializedStackSlotLocal(
+                        load.Index,
+                        out _));
     }
 
     internal static ScalarUpdateKind Classify(Binary binary)

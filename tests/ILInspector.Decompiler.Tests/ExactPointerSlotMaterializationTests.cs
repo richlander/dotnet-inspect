@@ -45,7 +45,6 @@ public class ExactPointerSlotMaterializationTests
     [InlineData("pinned-element")]
     [InlineData("name")]
     [InlineData("unbound-generic")]
-    [InlineData("managed-reference")]
     [InlineData("function-pointer")]
     public void UnspellablePointersAndOtherStorageKindsRemainDeferred(string shape)
     {
@@ -55,7 +54,6 @@ public class ExactPointerSlotMaterializationTests
             "pinned-element" => TypeRef.Pointer(TypeRef.Pinned(Int32)),
             "name" => TypeRef.Pointer(TypeRef.Definition("Samples", "Samples", "<Invalid>")),
             "unbound-generic" => TypeRef.Pointer(TypeRef.MethodGenericParameter(0, "T")),
-            "managed-reference" => TypeRef.ByRef(Int32),
             "function-pointer" => TypeRef.FunctionPointer(Int32, [], ""),
             _ => throw new ArgumentOutOfRangeException(nameof(shape)),
         };

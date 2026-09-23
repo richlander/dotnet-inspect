@@ -485,6 +485,20 @@ internal sealed class LocalDeclarationPlan
             slotStoreCounts[store.Slot] =
                 slotStoreCounts.GetValueOrDefault(store.Slot) + 1;
         }
+        var materializedSlotStoreCounts =
+            new Dictionary<int, int>();
+        foreach (var store in _function
+            .DescendantsOutsideNestedFunctions
+            .OfType<StoreLocal>())
+        {
+            if (_function.TryGetMaterializedStackSlotLocal(
+                    store.Index,
+                    out int slot))
+            {
+                materializedSlotStoreCounts[slot] =
+                    materializedSlotStoreCounts.GetValueOrDefault(slot) + 1;
+            }
+        }
 
         foreach (var node in
             _function.DescendantsOutsideNestedFunctions)
@@ -494,13 +508,33 @@ internal sealed class LocalDeclarationPlan
                 case StoreLocal store
                     when !seenLocals.Contains(store.Index):
                     seenLocals.Add(store.Index);
+                    bool materializedSlotLocal =
+                        _function.TryGetMaterializedStackSlotLocal(
+                            store.Index,
+                            out int materializedSlot);
                     if (store.PdbScopeEntryProjection is not null)
                         _scopeEntryProjections.Add(store.Index, store);
+                    if (_function.IsProducerOnlySlotLocal(store.Index))
+                        break;
                     if (entryStatements.Contains(store)
+                        && (!materializedSlotLocal
+                            || materializedSlotStoreCounts[
+                                materializedSlot] == 1)
                         && !ReferencesLocal(store.Value, store.Index)
-                        && !HasBranchTargetAfterStatement(store))
+                        && (materializedSlotLocal
+                            || !HasBranchTargetAfterStatement(store)))
                     {
                         AddLocalDeclaration(store);
+                    }
+                    else if (store.Type.Kind == TypeRefKind.ByRef
+                        && materializedSlotLocal)
+                    {
+                        if (MaterializedSlotLocalReferencesStayInBlockAfterStore(
+                                store))
+                        {
+                            AddLocalDeclaration(store);
+                        }
+                        break;
                     }
                     else if (store.Type.Kind == TypeRefKind.ByRef
                         && LocalReferencesStayInBlockAfterStore(store))
@@ -578,16 +612,6 @@ internal sealed class LocalDeclarationPlan
                     if (entryStatements.Contains(slotStore)
                         && slotStore.Value.ResultType is not null
                         && slotStoreCounts[slotStore.Slot] == 1)
-                    {
-                        supportingStackStores.Add(slotStore);
-                        _unsafeRunDeclarations.Add(slotStore);
-                    }
-                    else if (slotStore.Value.ResultType is
-                    {
-                        Kind: TypeRefKind.ByRef,
-                    }
-                        && StackSlotReferencesStayInBlockAfterStore(
-                            slotStore))
                     {
                         supportingStackStores.Add(slotStore);
                         _unsafeRunDeclarations.Add(slotStore);
@@ -1139,6 +1163,34 @@ internal sealed class LocalDeclarationPlan
             store.Index);
     }
 
+    bool MaterializedSlotLocalReferencesStayInBlockAfterStore(
+        StoreLocal store)
+    {
+        if (store.Parent is not Block block
+            || store.ChildIndex < 0
+            || ReferencesLocal(store.Value, store.Index))
+        {
+            return false;
+        }
+        var allowed = block.Children.Skip(store.ChildIndex).ToList();
+        if (HasBranchTargetAfterStatement(store))
+            return false;
+        bool sawLoad = false;
+        foreach (var node in _function.DescendantsOutsideNestedFunctions)
+        {
+            if (!IsLocalReference(node, store.Index))
+                continue;
+            if (!allowed.Any(statement =>
+                ReferenceEquals(node, statement)
+                || ReferenceOwnership.IsInside(node, statement)))
+            {
+                return false;
+            }
+            sawLoad |= node is LoadLocal;
+        }
+        return sawLoad;
+    }
+
     bool LocalReferencesStayInsideDeclarationBlock(
         IrNode declaration,
         int index)
@@ -1442,14 +1494,10 @@ sealed class LocalDeclarationUnsafeContext(IrFunction function)
             {
                 Value: not StackAllocate,
             } store:
-                TypeRef? slotType = store.Value.ResultType;
                 return AssignmentUnsafeExpressionRoot(
                         store.Value,
                         ResidualSlotUpdateKind(store)) is { } slotRoot
-                    && UnsafeRequirementsAreWithin(
-                        store,
-                        slotType?.Kind == TypeRefKind.ByRef,
-                        slotRoot);
+                    && UnsafeRequirementsAreWithin(store, slotRoot);
             case StoreElement store:
                 return UnsafeRequirementsAreWithin(
                     store,

@@ -1141,10 +1141,8 @@ public class RaisingPassTests
     }
 
     [Fact]
-    public void RefSlot_DeclaredUpFront_InitializesToNullRef()
+    public void ResidualRefSlot_FailsVisiblyAtPrinterBoundary()
     {
-        // The same null-ref zero-init applies to a ref-typed stack slot whose
-        // store is not its declaring site.
         var intType = TypeRef.CoreLib("System", "Int32");
         var refInt = TypeRef.ByRef(intType);
         var container = new BlockContainer();
@@ -1160,8 +1158,13 @@ public class RaisingPassTests
             [], HasThis: false, GenericParameterCount: 0);
         var function = new IrFunction("M", TypeRef.CoreLib("Synthetic", "T"), signature, [], container);
 
-        string output = CSharpPrinter.Print(function).Output!;
-        Assert.Contains("ref int S_0 = ref System.Runtime.CompilerServices.Unsafe.NullRef<int>();", output);
+        var result = CSharpPrinter.Print(function);
+        Assert.False(result.Succeeded);
+        var diagnostic = Assert.Single(result.Diagnostics);
+        Assert.Equal(DiagnosticIds.InternalError, diagnostic.Id);
+        Assert.Equal(
+            "InvalidOperationException: Managed-reference stack slot 0 reached C# emission after slot materialization.",
+            diagnostic.Message);
     }
 
     [Fact]

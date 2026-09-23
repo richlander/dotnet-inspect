@@ -431,6 +431,8 @@ public sealed class LocalFunctionRaisingPass : IIrPass
                 LocalDeclarationBindings = body.LocalDeclarationBindings,
                 PdbLocalNameCandidates = body.PdbLocalNameCandidates,
                 LocalNameImportCauses = body.LocalNameImportCauses,
+                MaterializedStackSlotLocals =
+                    body.MaterializedStackSlotLocals,
                 CapturedBinderNames = candidate.CapturedBinderNames,
             };
             declarations.Add(declaration);
