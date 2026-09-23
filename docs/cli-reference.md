@@ -1496,10 +1496,13 @@ and Direct Use Clusters cohorts are described below.
 graph, and shows only calls crossing out of the focus assembly plus the
 shortest local paths needed to reach them. Root asset selection stays exact;
 dependency traversal independently uses `--tfm` or the product default. Each
-edge is typed as `connector`,
-`boundary`, or `unclassified-boundary`, and row-oriented output retains the
-physical MVID, MethodDef token, IL offset, operand token, call kind, dispatch
-kind, and loop state.
+edge is typed as `connector`, `boundary`, or `unclassified-boundary`, and
+row-oriented output retains the physical MVID, MethodDef token, IL offset,
+operand token, call kind, dispatch kind, and loop state. A dependency member
+with unique ownership also retains its exact package id, version, and selected
+framework. Inspect Web loads that coordinate through its ordinary package path
+only when the user selects the graph node, then opens the exact member;
+ambiguous ownership publishes no package coordinate.
 
 The OpenTelemetry example reduces the ordinary 28-edge bounded neighborhood to
 nine explanatory edges. Two local connectors retain the path from

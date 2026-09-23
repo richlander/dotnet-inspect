@@ -178,7 +178,10 @@
   #7878, #7896, #7912, #7936, #7939, #7995, #8144).
 - Makes package-backed `graph calls` automatically follow the root package's
   dependency graph in both the CLI and Inspect Web, preserving exact root
-  selection while applying an independent traversal target (#8215).
+  selection while applying an independent traversal target. Automatically
+  acquired dependency members now retain exact package, version, and framework
+  navigation coordinates; Inspect Web loads that package only when its graph
+  node is selected, while ambiguous ownership remains unlinked (#8215, #8251).
 - Adds an explicit `Library Metrics` section for whole-library structural
   metrics. QuerySpace and metadata-backed count paths reduce allocation and
   startup cost for Graph Libraries and installed-Platform Type inventories,
