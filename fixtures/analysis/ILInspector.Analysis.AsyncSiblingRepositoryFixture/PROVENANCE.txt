@@ -1,0 +1,9 @@
+Source repository: https://github.com/bertt/3dtiles_downloader
+Pinned commit: f0512581977194754bde4c5b35eda73716ba3e10
+Source files: src/Program.cs, src/TilesetJson.cs
+License: MIT
+
+Program.cs and TilesetJson.cs retain the pinned source bodies with attribution.
+The target framework follows this repository, and Newtonsoft.Json is replaced
+by a local compile-only stub so the inspected async call shape remains
+hermetic. The fixture is never executed.

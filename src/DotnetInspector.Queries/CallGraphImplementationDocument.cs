@@ -5,50 +5,13 @@ using ILInspector.CallGraph;
 
 namespace DotnetInspector.Queries;
 
-/// <summary>The outcome of one document-local evidence join.</summary>
-public enum CallGraphImplementationJoinMatch
-{
-    Found,
-    NotProjected,
-    Ambiguous,
-}
-
-/// <summary>
-/// The outcome of joining one exact method identity to a graph node.
-/// </summary>
-public sealed record CallGraphMethodNodeJoin
-{
-    public CallGraphMethodNodeJoin(
-        CallGraphImplementationJoinMatch match,
-        int? nodeId)
-    {
-        if (!Enum.IsDefined(match))
-            throw new ArgumentOutOfRangeException(nameof(match));
-        if ((match == CallGraphImplementationJoinMatch.Found)
-            != nodeId.HasValue)
-        {
-            throw new ArgumentException(
-                "A found method join requires one node id; every other outcome requires none.",
-                nameof(nodeId));
-        }
-        if (nodeId < 0)
-            throw new ArgumentOutOfRangeException(nameof(nodeId));
-
-        Match = match;
-        NodeId = nodeId;
-    }
-
-    public CallGraphImplementationJoinMatch Match { get; }
-    public int? NodeId { get; }
-}
-
 /// <summary>
 /// Document-local graph joins for one retained implementation profile.
 /// </summary>
 public sealed record CallGraphImplementationProfileJoin(
     int ProfileIndex,
-    CallGraphMethodNodeJoin LogicalOwner,
-    CallGraphMethodNodeJoin EvidenceMethod);
+    InspectionGraphNodeJoin LogicalOwner,
+    InspectionGraphNodeJoin EvidenceMethod);
 
 /// <summary>
 /// Document-local graph joins for one retained overload call.
@@ -57,11 +20,11 @@ public sealed record CallGraphOverloadRelationshipJoin
 {
     public CallGraphOverloadRelationshipJoin(
         int relationshipIndex,
-        CallGraphMethodNodeJoin caller,
-        CallGraphMethodNodeJoin callee,
-        CallGraphImplementationJoinMatch edgeMatch,
+        InspectionGraphNodeJoin caller,
+        InspectionGraphNodeJoin callee,
+        InspectionGraphJoinMatch edgeMatch,
         int? edgeId,
-        CallGraphImplementationJoinMatch occurrenceMatch,
+        InspectionGraphJoinMatch occurrenceMatch,
         int? occurrenceId)
     {
         ArgumentOutOfRangeException.ThrowIfNegative(relationshipIndex);
@@ -72,8 +35,8 @@ public sealed record CallGraphOverloadRelationshipJoin
             occurrenceMatch,
             occurrenceId,
             nameof(occurrenceId));
-        if (occurrenceMatch == CallGraphImplementationJoinMatch.Found
-            && edgeMatch != CallGraphImplementationJoinMatch.Found)
+        if (occurrenceMatch == InspectionGraphJoinMatch.Found
+            && edgeMatch != InspectionGraphJoinMatch.Found)
         {
             throw new ArgumentException(
                 "A physical occurrence cannot be joined without its logical edge.",
@@ -90,21 +53,21 @@ public sealed record CallGraphOverloadRelationshipJoin
     }
 
     public int RelationshipIndex { get; }
-    public CallGraphMethodNodeJoin Caller { get; }
-    public CallGraphMethodNodeJoin Callee { get; }
-    public CallGraphImplementationJoinMatch EdgeMatch { get; }
+    public InspectionGraphNodeJoin Caller { get; }
+    public InspectionGraphNodeJoin Callee { get; }
+    public InspectionGraphJoinMatch EdgeMatch { get; }
     public int? EdgeId { get; }
-    public CallGraphImplementationJoinMatch OccurrenceMatch { get; }
+    public InspectionGraphJoinMatch OccurrenceMatch { get; }
     public int? OccurrenceId { get; }
 
     static void ValidateTarget(
-        CallGraphImplementationJoinMatch match,
+        InspectionGraphJoinMatch match,
         int? id,
         string parameterName)
     {
         if (!Enum.IsDefined(match))
             throw new ArgumentOutOfRangeException(nameof(match));
-        if ((match == CallGraphImplementationJoinMatch.Found)
+        if ((match == InspectionGraphJoinMatch.Found)
             != id.HasValue)
         {
             throw new ArgumentException(
@@ -245,7 +208,7 @@ public sealed class CallGraphImplementationDocument
         }
     }
 
-    void ValidateNodeJoin(CallGraphMethodNodeJoin join)
+    void ValidateNodeJoin(InspectionGraphNodeJoin join)
     {
         ArgumentNullException.ThrowIfNull(join);
         if (join.NodeId is int nodeId)
@@ -319,7 +282,7 @@ public static class CallGraphImplementationDocumentAdapter
             relationshipJoins);
     }
 
-    static CallGraphMethodNodeJoin FindNode(
+    static InspectionGraphNodeJoin FindNode(
         CallGraphProjection projection,
         MethodIdentity method)
     {
@@ -338,9 +301,9 @@ public static class CallGraphImplementationDocumentAdapter
         OverloadCallRelationship relationship,
         int relationshipIndex)
     {
-        CallGraphMethodNodeJoin caller =
+        InspectionGraphNodeJoin caller =
             FindNode(projection, relationship.Caller);
-        CallGraphMethodNodeJoin callee =
+        InspectionGraphNodeJoin callee =
             FindNode(projection, relationship.Callee);
         if (caller.NodeId is not int callerId
             || callee.NodeId is not int calleeId)
@@ -349,9 +312,9 @@ public static class CallGraphImplementationDocumentAdapter
                 relationshipIndex,
                 caller,
                 callee,
-                CallGraphImplementationJoinMatch.NotProjected,
+                InspectionGraphJoinMatch.NotProjected,
                 edgeId: null,
-                CallGraphImplementationJoinMatch.NotProjected,
+                InspectionGraphJoinMatch.NotProjected,
                 occurrenceId: null);
         }
 
@@ -371,10 +334,10 @@ public static class CallGraphImplementationDocumentAdapter
                 caller,
                 callee,
                 edgeIds.Length == 0
-                    ? CallGraphImplementationJoinMatch.NotProjected
-                    : CallGraphImplementationJoinMatch.Ambiguous,
+                    ? InspectionGraphJoinMatch.NotProjected
+                    : InspectionGraphJoinMatch.Ambiguous,
                 edgeId: null,
-                CallGraphImplementationJoinMatch.NotProjected,
+                InspectionGraphJoinMatch.NotProjected,
                 occurrenceId: null);
         }
 
@@ -393,11 +356,11 @@ public static class CallGraphImplementationDocumentAdapter
                 relationshipIndex,
                 caller,
                 callee,
-                CallGraphImplementationJoinMatch.Found,
+                InspectionGraphJoinMatch.Found,
                 edgeId,
                 callSiteIds.Length == 0
-                    ? CallGraphImplementationJoinMatch.NotProjected
-                    : CallGraphImplementationJoinMatch.Ambiguous,
+                    ? InspectionGraphJoinMatch.NotProjected
+                    : InspectionGraphJoinMatch.Ambiguous,
                 occurrenceId: null);
         }
 
@@ -421,22 +384,22 @@ public static class CallGraphImplementationDocumentAdapter
             relationshipIndex,
             caller,
             callee,
-            CallGraphImplementationJoinMatch.Found,
+            InspectionGraphJoinMatch.Found,
             edgeId,
-            CallGraphImplementationJoinMatch.Found,
+            InspectionGraphJoinMatch.Found,
             occurrenceIds[0]);
     }
 
-    static CallGraphImplementationJoinMatch JoinMatch(
+    static InspectionGraphJoinMatch JoinMatch(
         CallGraphNodeMatch match) =>
         match switch
         {
             CallGraphNodeMatch.Found =>
-                CallGraphImplementationJoinMatch.Found,
+                InspectionGraphJoinMatch.Found,
             CallGraphNodeMatch.NotProjected =>
-                CallGraphImplementationJoinMatch.NotProjected,
+                InspectionGraphJoinMatch.NotProjected,
             CallGraphNodeMatch.Ambiguous =>
-                CallGraphImplementationJoinMatch.Ambiguous,
+                InspectionGraphJoinMatch.Ambiguous,
             _ => throw new ArgumentOutOfRangeException(nameof(match)),
         };
 

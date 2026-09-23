@@ -64,16 +64,16 @@ public sealed class CallGraphImplementationDocumentTests
         CallGraphOverloadRelationshipJoin join =
             document.OverloadRelationshipJoins[relationshipIndex];
         Assert.Equal(
-            CallGraphImplementationJoinMatch.Found,
+            InspectionGraphJoinMatch.Found,
             join.Caller.Match);
         Assert.Equal(
-            CallGraphImplementationJoinMatch.Found,
+            InspectionGraphJoinMatch.Found,
             join.Callee.Match);
         Assert.Equal(
-            CallGraphImplementationJoinMatch.Found,
+            InspectionGraphJoinMatch.Found,
             join.EdgeMatch);
         Assert.Equal(
-            CallGraphImplementationJoinMatch.Found,
+            InspectionGraphJoinMatch.Found,
             join.OccurrenceMatch);
         Assert.Contains(
             join.OccurrenceId!.Value,
@@ -137,7 +137,7 @@ public sealed class CallGraphImplementationDocumentTests
             join =>
             {
                 Assert.Equal(
-                    CallGraphImplementationJoinMatch.Found,
+                    InspectionGraphJoinMatch.Found,
                     join.LogicalOwner.Match);
                 Assert.Equal(0, join.LogicalOwner.NodeId);
             });
@@ -145,12 +145,12 @@ public sealed class CallGraphImplementationDocumentTests
             joins,
             join =>
                 join.EvidenceMethod.Match
-                    == CallGraphImplementationJoinMatch.Found);
+                    == InspectionGraphJoinMatch.Found);
         Assert.Single(
             joins,
             join =>
                 join.EvidenceMethod.Match
-                    == CallGraphImplementationJoinMatch.NotProjected);
+                    == InspectionGraphJoinMatch.NotProjected);
     }
 
     [Fact]
@@ -208,17 +208,17 @@ public sealed class CallGraphImplementationDocumentTests
             joins,
             join =>
                 join.LogicalOwner.Match
-                    == CallGraphImplementationJoinMatch.Found);
+                    == InspectionGraphJoinMatch.Found);
         Assert.Contains(
             joins,
             join =>
                 join.LogicalOwner.Match
-                    == CallGraphImplementationJoinMatch.NotProjected);
+                    == InspectionGraphJoinMatch.NotProjected);
         Assert.DoesNotContain(
             joins,
             join =>
                 join.LogicalOwner.Match
-                    == CallGraphImplementationJoinMatch.Ambiguous);
+                    == InspectionGraphJoinMatch.Ambiguous);
         Assert.True(
             profiles.Select(profile => (
                 profile.InstructionCount,
