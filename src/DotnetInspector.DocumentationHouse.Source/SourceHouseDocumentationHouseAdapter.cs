@@ -1,6 +1,7 @@
 using CSharpText;
 using DotnetInspector.Libraries;
 using DotnetInspector.SourceHouse;
+using ILInspector.Metadata;
 
 namespace DotnetInspector.DocumentationHouse.Source;
 
@@ -107,6 +108,21 @@ internal sealed class SourceHouseDocumentationOperation
                     boundary,
                     s_emptyWork,
                     OperationSettlement()));
+        }
+        if (_binding.ImplementationSubject is
+                {
+                    IsMember: true,
+                    MethodSemantics: not ApiMethodSemanticsKind.None,
+                })
+        {
+            return CompleteLocally(
+                operationLease,
+                new DocumentationAuthoredSourceOperationOutcome.Unavailable(
+                    invocation,
+                    DocumentationAuthoredUnavailableKind.DeclarationNotFound,
+                    s_emptyWork,
+                    OperationSettlement(),
+                    new("AccessorUnavailable")));
         }
 
         SourceHouseOutcome source =

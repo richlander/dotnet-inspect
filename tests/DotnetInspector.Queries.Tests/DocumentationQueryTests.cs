@@ -359,6 +359,62 @@ public sealed class DocumentationQueryTests
 
     [Fact]
     public async Task
+        ImplementationSubjectResolver_AccessorIsUnavailable()
+    {
+        CompiledSource compiled =
+            CompileDocumentationQuerySource(
+                "DocumentationQueryAccessorFixture",
+                "Accessor.cs",
+                """
+                        namespace DocumentationQuery.Accessor;
+
+                        public interface ISubject
+                        {
+                            int Value { get; }
+                        }
+
+                        public sealed class Subject
+                            : ISubject
+                        {
+                            /// <summary>Property documentation.</summary>
+                            int ISubject.Value => 42;
+                        }
+                        """);
+        await using LibraryFixture library =
+            await LibraryFixture.CreateSourceAsync(
+                compiled.PeImage.ToArray(),
+                compiled.PortablePdbImage.ToArray());
+        LibraryApiSurfaceCorrespondence correspondence =
+            library.ApiSurfaceCorrespondence;
+        ApiType type = Assert.Single(
+            correspondence.Surface.Types,
+            candidate =>
+                candidate.FullName
+                    == "DocumentationQuery.Accessor.Subject");
+        ApiMember getter = Assert.Single(
+            type.Members,
+            candidate =>
+                candidate.MethodSemantics
+                    == ApiMethodSemanticsKind.PropertyGetter);
+        DocumentationSubjectReference subject =
+            DocumentationSubjectReference.ForMember(
+                correspondence,
+                type,
+                getter);
+
+        Assert.IsType<
+            DocumentationImplementationSubjectResolution.Unavailable>(
+                DocumentationImplementationSubjectResolver.Resolve(
+                    library.Reference,
+                    library.Owner,
+                    subject,
+                    ApiSurfaceExtractionScope.Public,
+                    s_documentationQueryApiSurfaceBounds,
+                    TestContext.Current.CancellationToken));
+    }
+
+    [Fact]
+    public async Task
         ImplementationSubjectResolver_ReportsAmbiguousAndBounded()
     {
         const string assemblyName =

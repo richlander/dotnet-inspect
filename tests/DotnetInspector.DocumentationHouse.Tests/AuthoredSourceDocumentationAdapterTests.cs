@@ -173,6 +173,63 @@ public sealed partial class CompiledXmlDocumentationHouseTests
     }
 
     [Fact]
+    public async Task
+        AccessorImplementationSubject_IsUnavailableBeforeSourceWork()
+    {
+        var capability = new CountingSourceCapability(SourceBytes());
+        await using LibraryFixture library =
+            await CreateSourceLibraryAsync();
+        AuthoredScenario scenario =
+            AuthoredScenario.Create(library, capability);
+        DocumentationImplementationSubjectReference implementation =
+            Assert.IsType<DocumentationImplementationSubjectReference>(
+                scenario.Binding.ImplementationSubject);
+        var accessorImplementation =
+            new DocumentationImplementationSubjectReference(
+                implementation.TypeIdentity,
+                implementation.MemberIdentity,
+                implementation.MetadataToken,
+                ApiMethodSemanticsKind.PropertyGetter,
+                implementation.CompiledXmlIdentity);
+        var binding = new DocumentationAuthoredSourceOperationBinding(
+            scenario.Binding.Request,
+            scenario.Binding.OperationPlan,
+            scenario.Binding.PolicyGeneration,
+            scenario.Binding.Subject,
+            scenario.Binding.ImplementationContent,
+            accessorImplementation);
+        var invocation =
+            new DocumentationAuthoredSourceOperationInvocation(
+                binding,
+                scenario.Invocation.RemainingLimits,
+                scenario.Invocation.Deadline);
+        IDocumentationAuthoredSourceOperation authoredOperation =
+            SourceHouseDocumentationHouseAdapter.CreateOperation(
+                binding,
+                scenario.SourceRequest);
+        LibraryOperationLease operation = library.IssueOperation();
+
+        DocumentationAuthoredSourceOperationOutcome.Unavailable unavailable =
+            Assert.IsType<
+                DocumentationAuthoredSourceOperationOutcome.Unavailable>(
+                await authoredOperation.InvokeAsync(
+                    invocation,
+                    operation,
+                    TestContext.Current.CancellationToken));
+
+        Assert.Equal(
+            DocumentationAuthoredUnavailableKind.DeclarationNotFound,
+            unavailable.UnavailableKind);
+        Assert.Equal(
+            "AccessorUnavailable",
+            unavailable.Observation?.Code);
+        Assert.Equal(0, capability.SourceReads);
+        AssertOperationSettled(
+            operation,
+            library.Reference.ApiAssembly);
+    }
+
+    [Fact]
     public async Task CancellationBeforeTransfer_SettlesLeaseWithoutSourceWork()
     {
         var capability = new CountingSourceCapability(SourceBytes());

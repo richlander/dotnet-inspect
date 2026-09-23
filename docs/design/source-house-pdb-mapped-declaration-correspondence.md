@@ -71,11 +71,14 @@ CSharpText-issued member parts for the uniquely selected declaration.
 `CSharpAuthoredDocumentation`; DocumentationHouse does not reconstruct it.
 
 Only MethodDefs with exact PDB line mapping are in scope for authored
-documentation. Type source-document correlation remains useful SourceHouse
-evidence, but it does not identify one exact type declaration span. Type
-authored documentation remains unavailable until a focused owner defines that
-selection contract. Bodyless members commonly have no sequence point and
-remain unavailable.
+documentation. DocumentationHouse additionally accepts only members whose
+Metadata-owned `MethodSemantics` is exactly `None`; property and event
+accessors remain unavailable even when SourceHouse presents their containing
+declaration as source. Type source-document correlation remains useful
+SourceHouse evidence, but it does not identify one exact type declaration
+span. Type authored documentation remains unavailable until a focused owner
+defines that selection contract. Bodyless members commonly have no sequence
+point and remain unavailable.
 
 ## Line directives
 
@@ -125,6 +128,7 @@ PR-fast Release gates cover:
 - checksum mismatch and missing mapping;
 - ambiguous or unsupported lexical selection;
 - bodyless members without sequence points;
+- typed property and event accessor exclusion before authored contribution;
 - `#line` destination handling;
 - split API and implementation assemblies;
 - cancellation, deadline, finite-work limits, and Library lease settlement;

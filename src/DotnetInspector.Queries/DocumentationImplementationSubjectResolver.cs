@@ -57,6 +57,11 @@ public static class DocumentationImplementationSubjectResolver
             return new DocumentationImplementationSubjectResolution
                 .Unavailable();
         }
+        if (subject.MethodSemantics is not ApiMethodSemanticsKind.None)
+        {
+            return new DocumentationImplementationSubjectResolution
+                .Unavailable();
+        }
         if (ReferenceEquals(library.ApiAssembly, implementation)
             && subject.MetadataToken is { } metadataToken)
         {
@@ -178,6 +183,7 @@ public static class DocumentationImplementationSubjectResolver
                         type.DefinitionName!,
                         ApiMemberIdentity.GetMemberAnchor(type, member),
                         metadataToken,
+                        member.MethodSemantics,
                         xmlIdentity);
             }
         }
