@@ -11,6 +11,11 @@ The initial contract owns only exact `MethodImpl` body/declaration
 relationships for one `TypeDef`. Property, event, accessor, and ordinary
 `MethodDef` declaration evidence remain separate work.
 
+Issue [#8399][issue-8399] extends the locally resolved disposition with the
+exact declaration-owner TypeDef address already authenticated by the
+relationship operation. This lets the CSharp consumer pair the owner with its
+separate TypeDef declaration post without reopening metadata.
+
 The exact claim is:
 
 > For one admitted ECMA-335 image observed through one owner-backed Metadata
@@ -164,7 +169,7 @@ The certificate retains:
 - proof that the body and declaration signatures correspond in the applicable
   generic context;
 - a closed declaration-definition disposition:
-  `LocalResolved(MethodDef, attributes)` or
+  `LocalResolved(owner TypeDef, MethodDef, attributes)` or
   `ExternalUnresolved(scope identity)`; and
 - the raw declaration `SpecialName` fact as known true, known false, or
   unknown external evidence.
@@ -249,8 +254,11 @@ members. A uniquely bound owner without one directly declared exact method
 match is `Unsupported shape`, not proof that no declaration exists.
 
 Exactly one matching `MethodDef` authenticates the local declaration. The
-certificate then retains its method address and raw attributes, including
-`SpecialName`.
+certificate then retains the exact resolved owner TypeDef address, method
+address, and raw attributes, including `SpecialName`. The owner address is a
+request coordinate for another operation in the same declaration session. It
+does not authenticate the owner's language category or establish
+cross-session correspondence.
 
 Multiple direct matches are contradictory evidence and reject the
 relationship. Name-only, arity-only, token-ordinal, and rendered signature
@@ -376,10 +384,12 @@ from a qualified display name, or repair missing Metadata evidence.
 
 CSharp issue #4852 consumes this completed MethodImpl result without reopening
 metadata. That owner also defines how it composes MethodImpl evidence with the
-separately owned InterfaceImpl result from #7897. This focused contract does
-not define a composition container, cross-session join, or runtime provenance
-check. Neither consumer may infer provenance from MVID, token, name, or display
-text.
+separately owned InterfaceImpl result from #7897. For a local explicit
+declaration owner, CSharp uses the occurrence's owner TypeDef address to obtain
+the separate TypeDef declaration post, then verifies the structured definition
+identity and required category. This focused contract does not define that
+composition container, a cross-session join, or runtime provenance check.
+Neither consumer may infer provenance from MVID, token, name, or display text.
 
 ## Basis and analogous implementations
 
@@ -431,6 +441,7 @@ require Release gates in that implementation:
 | Property | Required gate |
 | --- | --- |
 | The real generic-math shape resolves locally and retains known-true `SpecialName` | A pinned `System.Int32` canary tied to the source commit, runtime build, and artifact hash above |
+| Every locally resolved declaration retains its exact owner TypeDef address | Direct MethodDef, local TypeRef, and constructed TypeSpec cases; pair the pinned generic-math owner with its TypeDef declaration post |
 | An ordinary local declaration named `op_Addition` retains known-false `SpecialName` | Compiler or authored IL close-negative fixture |
 | An external `MemberRef` retains unknown `SpecialName` | Independently compiled external-interface fixture |
 | Constructed owners with same-spelled arguments from different assemblies remain distinct | Multi-assembly fixture with exact identity assertions |
@@ -482,6 +493,7 @@ This contract does not:
 [issue-7890]: https://github.com/richlander/dotnet-inspect/issues/7890
 [issue-7897]: https://github.com/richlander/dotnet-inspect/issues/7897
 [issue-7929]: https://github.com/richlander/dotnet-inspect/issues/7929
+[issue-8399]: https://github.com/richlander/dotnet-inspect/issues/8399
 [roslyn-metadata]: https://github.com/dotnet/roslyn/blob/5a9f1b4bb88ec57c776fd9be0c8693eafb375b10/src/Compilers/Core/Portable/MetadataReference/Metadata.cs#L9-L43
 [roslyn-module-metadata]: https://github.com/dotnet/roslyn/blob/5a9f1b4bb88ec57c776fd9be0c8693eafb375b10/src/Compilers/Core/Portable/MetadataReference/ModuleMetadata.cs#L32-L61
 [runtime-int32]: https://github.com/dotnet/runtime/blob/81be0823c7162a79bcc8bde49763293c92567e9e/src/libraries/System.Private.CoreLib/src/System/Int32.cs#L270-L277
