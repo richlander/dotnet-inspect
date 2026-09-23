@@ -16,6 +16,25 @@ The model combines five mechanisms:
 `-D`, `-S`, and `-Q` are intentionally capitalized. They form a query namespace that
 is less likely to collide with command-specific lowercase options.
 
+## API visibility and implementation populations
+
+`--all` has one meaning at API boundaries: it widens the ordinary
+public-facing declaration population to include non-public, hidden, and
+obsolete declarations. It is not a general request to analyze every
+implementation body.
+
+Whole-library and other implementation-oriented operations define their own
+complete admitted body population. Library Metrics, implementation Diff, and
+body-derived relationship evidence include private and compiler-generated
+bodies when those bodies belong to the selected implementation population;
+they do not require `--all` for completeness. A follow-up API command may
+still need `--all` to resolve a non-public result identified by an aggregate
+analysis. These are separate gestures with separate contracts.
+
+See [API and implementation population scope](api-population-scope.md) for
+the normative distinction and the boundaries between API visibility,
+implementation completeness, and package-library selection.
+
 ## Verbosity
 
 Verbosity reveals more about the same subject. It must not silently enter
