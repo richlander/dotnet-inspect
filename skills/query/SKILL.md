@@ -50,7 +50,7 @@ Default output is Markdown. Pick a machine or compact shape when you need one:
 - `--jsonl` — one JSON object per row.
 - `--json-array` — one JSON array for projected rows (`--urls`, `--paths`, `--value`, `--print`).
 - `--json` — structured documents.
-- `--bare` — one undecorated payload or URL list.
+- `--raw` — one undecorated payload or URL list.
 - `--count` — a bare row count.
 - `--value` / `--urls` / `--paths` — project one selected section to scalar, URL, or path payloads.
 - `--print` — print one document behind a selected section row; use `--row N|first|last` when the section renders multiple rows.

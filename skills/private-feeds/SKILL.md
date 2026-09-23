@@ -108,10 +108,10 @@ Pin one coordinate to inspect its payload through the configured folder source:
 ```bash
 dnx dotnet-inspect -y -- package MyCompany.Widget@1.2.3 --source ./feed
 dnx dotnet-inspect -y -- package MyCompany.Widget@1.2.3 --source ./feed \
-  --path @readme --content --bare
+  --path @readme --content --raw
 dnx dotnet-inspect -y -- package MyCompany.Widget --source ./feed
 dnx dotnet-inspect -y -- package 'MyCompany.Widget@1.*' --source ./feed \
-  --path @readme --content --bare
+  --path @readme --content --raw
 ```
 
 Online single-package inspection also supports latest, `--preview`, and
