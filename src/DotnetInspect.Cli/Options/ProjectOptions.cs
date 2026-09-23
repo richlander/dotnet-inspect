@@ -33,7 +33,7 @@ public record ProjectOptions : IProjectionOptions
 
     public bool NoHeader { get; init; }
 
-    public bool Bare { get; init; }
+    public bool Raw { get; init; }
 
     public string[]? Discover { get; init; }
 

@@ -958,7 +958,7 @@ public partial class PackageCommand
 
     private static bool RequiresUnaryPackageContent(InspectionOptions options)
         => !LensProjection.IsRequested(options)
-            && (options.Bare
+            && (options.Raw
                 || HasUnstructuredOutputPath(options));
 
     private static bool RequiresEarlyPackagePayloadPreflight(
@@ -973,7 +973,7 @@ public partial class PackageCommand
         string section = sections.Single();
         return options.Print
             && PackageFileFamily.IsFamilySection(section)
-            || options.Bare
+            || options.Raw
             && section.Equals(
                 PackageSections.FilesReadme,
                 StringComparison.OrdinalIgnoreCase);
@@ -988,7 +988,7 @@ public partial class PackageCommand
     private static bool MayResolveToSkillPayloadBeforeAcquisition(
         InspectionOptions options)
     {
-        if ((options.Print || options.Bare)
+        if ((options.Print || options.Raw)
             && options.IncludeSections is { Count: 1 } sections
             && (sections.Single().Equals(
                     PackageSections.FilesSkills,
@@ -1209,7 +1209,7 @@ public partial class PackageCommand
             return 1;
         }
 
-        if (options.Bare)
+        if (options.Raw)
             return PrintBarePackageFileContentRows(visibleRows, destination);
 
         if (HasUnstructuredOutputPath(options)
@@ -1252,8 +1252,8 @@ public partial class PackageCommand
         if (found.Count != 1)
         {
             CommandError.Write(found.Count == 0
-                ? "--bare found no selected package content."
-                : $"--bare requires exactly one selected package content file; found {found.Count}.");
+                ? "--raw found no selected package content."
+                : $"--raw requires exactly one selected package content file; found {found.Count}.");
             return 1;
         }
 
@@ -1506,7 +1506,7 @@ public partial class PackageCommand
     {
         if (options.IncludeSections is not { Count: 1 } include)
         {
-            CommandError.Write("--bare requires exactly one -S section or --content payload.");
+            CommandError.Write("--raw requires exactly one -S section or --content payload.");
             return 1;
         }
 
@@ -1529,7 +1529,7 @@ public partial class PackageCommand
                 new ProjectionDestination(options.OutputPath, options.Rows));
         }
 
-        CommandError.Write($"--bare does not support section '{section}'. Select a text section or a single URL section.");
+        CommandError.Write($"--raw does not support section '{section}'. Select a text section or a single URL section.");
         return 1;
     }
 
@@ -1544,8 +1544,8 @@ public partial class PackageCommand
         if (files.Count != 1)
         {
             CommandError.Write(files.Count == 0
-                ? $"--bare found no package file in section '{section}'."
-                : $"--bare requires section '{section}' to resolve exactly one package file; found {files.Count}.");
+                ? $"--raw found no package file in section '{section}'."
+                : $"--raw requires section '{section}' to resolve exactly one package file; found {files.Count}.");
             return 1;
         }
 
@@ -1589,7 +1589,7 @@ public partial class PackageCommand
         if (values.Count > 0)
             return WriteBarePackageText(string.Join('\n', values), destination);
 
-        CommandError.Write($"--bare found no URL in section '{section}'.");
+        CommandError.Write($"--raw found no URL in section '{section}'.");
         return 1;
     }
 

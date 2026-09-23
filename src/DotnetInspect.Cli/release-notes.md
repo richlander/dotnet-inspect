@@ -894,13 +894,13 @@
 
 ### SourceLink section consolidation
 
-- Renames the undecorated single-section output mode from `--raw` to `--bare`;
+- Renames the undecorated single-section output mode from `--raw` to `--raw`;
   `--raw` now names the default raw/fetchable GitHub URL shape and pairs with
   `--blob`.
-- Clarifies that `--bare` is a presentation-only modifier for already-selected
+- Clarifies that `--raw` is a presentation-only modifier for already-selected
   payloads, while `--count` remains the reduction that collapses a selected
   section/vector to a single row count.
-- Generalizes `--bare` beyond code sections to package README/content payloads
+- Generalizes `--raw` beyond code sections to package README/content payloads
   and one-column SourceLink URL output.
 - Normalizes GitHub file links in package README/content output from `blob` to
   raw URLs in the default agent-friendly URL mode.

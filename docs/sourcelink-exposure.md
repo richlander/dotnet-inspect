@@ -175,7 +175,7 @@ One selected type/member source payload, such as `Decompiled Source`,
 `Annotated Source`, `PDB Source`, or `IL`, prints its content by default.
 Use `--markdown` for document presentation and `--urls` for one-column
 SourceLink URL output from sections such as `Source Locations`. These commands
-no longer accept `--bare`; package README/content owners retain their existing
+no longer accept `--raw`; package README/content owners retain their existing
 presentation gestures. The
 [rendering model](design/rendering-model.md#native-type-and-source-defaults)
 owns this default choice. `--count` remains the reduction that
