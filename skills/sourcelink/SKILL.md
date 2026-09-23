@@ -45,7 +45,7 @@ dnx dotnet-inspect -y -- library coordinate 0x06000001+0x0 \
 For one package with exactly `SourceLink: Files` selected, `-n`, `--tail`, and
 `--rows A..B` select complete library/type/URL rows after every selected
 library has completed SourceLink collection and the optional `--type` filter
-has run. Count, structured formats, `--urls`, and `--bare` consume those same
+has run. Count, structured formats, `--urls`, and `--raw` consume those same
 rows. Use `--lines` only when you intentionally want to clip rendered text.
 The multi-section `@SourceLink` document is not one file-row sequence.
 
@@ -120,8 +120,8 @@ PDBs *carry* SourceLink data; they are not SourceLink themselves. SourceLink URL
 rows default to raw/fetchable form; add `--prefer-rendered-urls` to prefer
 browser views when supported, leaving other URLs unchanged. Prefer
 `--urls` when you want URL payloads, `--paths` for file paths, and `--print` when
-you want the referenced source body. `--bare` remains a raw selected-payload
-escape hatch.
+you want the referenced source body. `--raw` remains an undecorated
+selected-payload escape hatch.
 
 ```bash
 dnx dotnet-inspect -y -- member Type Method:1 -S "Source Locations" --urls --jsonl

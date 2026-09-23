@@ -50,7 +50,7 @@ Default output is Markdown. Pick a machine or compact shape when you need one:
 - `--jsonl` — one JSON object per row.
 - `--json-array` — one JSON array for projected rows (`--urls`, `--paths`, `--value`, `--print`).
 - `--json` — structured documents.
-- `--bare` — one undecorated payload or URL list.
+- `--raw` — one undecorated payload or URL list.
 - `--count` — a bare row count.
 - `--value` / `--urls` / `--paths` — project one selected section to scalar, URL, or path payloads.
 - `--print` — print one document behind a selected section row; use `--row N|first|last` when the section renders multiple rows.
@@ -58,9 +58,10 @@ Default output is Markdown. Pick a machine or compact shape when you need one:
 - `--mermaid` — a standalone diagram; combine it with `--markdown` to embed
   the diagram in a Markdown document.
 
-`--bare` is a formatter, so never combine it with `--json`, `--jsonl`, `--tsv`,
+`--raw` is a formatter, so never combine it with `--json`, `--jsonl`, `--tsv`,
 `--table`, `--markdown`, `--plaintext`, or `--mermaid`. `package` and `project`
-reject those combinations before acquisition.
+reject those combinations before acquisition. Explicit `--raw` outranks
+`DOTNET_INSPECT_FORMAT`.
 
 `--envelope` normally implies JSON and emits the complete service value with
 `schema_version`, `result_kind`, `content`, `share`, and `diagnostics`.

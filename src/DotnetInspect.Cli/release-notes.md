@@ -74,7 +74,7 @@
   `package ID --version VERSION` verification and root
   `dotnet-inspect --version` product-version reporting remain. The removed
   spelling receives the ordinary unrecognized-input result rather than
-  compatibility guidance. SourceLink `--raw` and `--blob` are replaced by
+  compatibility guidance. SourceLink URL shape now uses
   `--prefer-rendered-urls`; direct fetchable URLs remain the default (#7621,
   #8204, #8293, #8306).
 
@@ -110,7 +110,9 @@
   keeping Home, Query, Workspace, and Activity durable without competing with
   inspected-subject navigation. The persistent `Open Library…` action follows
   those routed destinations, while the Application menu remains focused on
-  utilities (#8047, #8253).
+  utilities. Same-destination shell maintenance preserves an open product menu
+  and its focused stable destination instead of losing navigation state during
+  retained-Workspace rerenders (#8047, #8253, #8255).
 - Adds focus-first `library coordinate <coordinate>` and bounded
   `library coordinate --file <path>` for exact IL and metadata-heap inspection,
   retaining source context and typed malformed-record evidence. File mode
@@ -193,6 +195,13 @@
 - Adds complete JSON and `InspectionEnvelope<ImplementationDiffDocument>`
   transport for one exact local Implementation Diff pair while preserving
   ordinary rendered output (#7876).
+- Adds `diff --implementation` as a conventional shortcut for exact
+  `Implementation Diff` section selection, preserving the canonical typed
+  request, validation, output, JSON, and envelope behavior (#8325).
+- Bounds Resolved Resource Effects to conservative selector-relevant direct
+  calls before expensive definition resolution, preserving exact matches,
+  physical invocation identity, typed gaps, and work budgets while avoiding
+  definition-resolution limit gaps on large assemblies (#7904).
 - Adds `diff --history --major-versions` for one representative per package
   major. API findings choose the first stable version, with the latest
   prerelease fallback for preview-only majors; Analysis findings choose the
@@ -219,10 +228,15 @@
   as a scalar `InspectionEnvelope<LibraryOverviewOutcome>`, with compact or
   file JSON publication and pre-acquisition rejection of incompatible
   section, row, and query controls (#8225).
-- **Breaking:** Treats `--bare` as a formatter and rejects combining it with
+- **Breaking:** Renames the undecorated `package` and `project` formatter from
+  `--bare` to `--raw`; `--bare` is now ordinary unrecognized input. Explicit
+  `--raw` outranks `DOTNET_INSPECT_FORMAT` and rejects combination with
   `--json`, `--jsonl`, `--tsv`, `--table`, `--markdown`, `--plaintext`, or
-  `--mermaid` on `package` and `project` before acquisition. These combinations
-  previously ran with one format silently winning or losing (#8307).
+  `--mermaid` before acquisition. This reuses the former SourceLink
+  fetchable-URL spelling: fetchable URLs are now the default, browser views use
+  `--prefer-rendered-urls`, and `--blob` remains reserved. A legacy `--raw`
+  invocation fails unless it selects one payload; a single URL section emits
+  the unchanged fetchable values without decoration (#8307, #8322).
 - **Breaking:** Positional `depends <type> --json` now emits shared camel-case
   `TypeDependencySectionResult` Content rather than the former presentation
   graph. Unprojected single-Library `diff --json` emits complete
