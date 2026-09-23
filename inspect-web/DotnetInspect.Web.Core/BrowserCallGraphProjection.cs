@@ -168,6 +168,8 @@ internal static class BrowserCallGraphProjection
         Dictionary<int, PackageDependencyMemberCallGraphPackageSubject>
             packageSubjects = document.PackageSubjects.ToDictionary(
                 static subject => subject.NodeId);
+        IReadOnlyDictionary<int, string> targetKinds =
+            ExternalFocusTargetKinds(graph, focusNodeId);
         return new BrowserCallGraphInfo(
             Mermaid(graph),
             EmptyTree(),
@@ -181,7 +183,8 @@ internal static class BrowserCallGraphProjection
                 .. graph.Nodes.Select(node =>
                     Target(
                         node,
-                        packageSubjects.GetValueOrDefault(node.Id))),
+                        packageSubjects.GetValueOrDefault(node.Id),
+                        targetKinds[node.Id])),
             ],
             Diagnostics(graph),
             NoBody: false);
@@ -359,7 +362,8 @@ internal static class BrowserCallGraphProjection
 
     static BrowserCallGraphTargetInfo Target(
         InspectionGraphNode node,
-        PackageDependencyMemberCallGraphPackageSubject? packageSubject)
+        PackageDependencyMemberCallGraphPackageSubject? packageSubject,
+        string kind)
     {
         Analysis.MemberRef member = NodeMember(node);
         Analysis.TypeRef? definition =
@@ -393,12 +397,67 @@ internal static class BrowserCallGraphProjection
             member.GenericArity,
             MetadataToken: null,
             Analysis.CallGraphMemberResolver.CreateSelector(member).Key,
-            node.Role.ToString().ToLowerInvariant(),
+            kind,
             PlatformPack: null,
             SurfaceAssemblyId: null,
             packageSubject?.PackageId,
             packageSubject?.PackageVersion,
             packageSubject?.TargetFramework);
+    }
+
+    static IReadOnlyDictionary<int, string> ExternalFocusTargetKinds(
+        InspectionGraphDocument graph,
+        int focusNodeId)
+    {
+        ILookup<int, InspectionGraphCharacteristic> characteristics =
+            graph.Characteristics
+                .Where(static characteristic =>
+                    characteristic.Target.Kind
+                        == InspectionGraphTargetKind.Edge)
+                .ToLookup(static characteristic =>
+                    characteristic.Target.Id);
+        var kinds = new Dictionary<int, string>
+        {
+            [focusNodeId] = "focus",
+        };
+        foreach (InspectionGraphEdge edge in graph.Edges)
+        {
+            if (edge.ToNodeId == focusNodeId)
+                continue;
+            InspectionGraphCharacteristic[] roles =
+            [
+                .. characteristics[edge.Id].Where(
+                    static characteristic =>
+                        characteristic.Descriptor.Id
+                            == ExternalFocusedCallGraphInspectionCatalog
+                                .EdgeRole.Id),
+            ];
+            if (roles.Length != 1
+                || roles[0].Value
+                    is not InspectionGraphValue.Token
+                        {
+                            Value:
+                                "connector"
+                                or "boundary"
+                                or "unclassified-boundary",
+                        } token)
+            {
+                throw new InvalidOperationException(
+                    $"External-focused edge {edge.Id} must carry exactly one supported role.");
+            }
+
+            if (kinds.TryGetValue(edge.ToNodeId, out string? existing)
+                && !string.Equals(
+                    existing,
+                    token.Value,
+                    StringComparison.Ordinal))
+            {
+                throw new InvalidOperationException(
+                    $"External-focused node {edge.ToNodeId} has conflicting incoming roles.");
+            }
+            kinds[edge.ToNodeId] = token.Value;
+        }
+        return kinds;
     }
 
     static Analysis.MemberRef NodeMember(
