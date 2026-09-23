@@ -249,12 +249,14 @@ characterized here. A mismatched endpoint or a violated precondition is an
 argument failure, never an empty or success-shaped characterization. The
 validator checks both preconditions.
 
-Terminators are not part of the anchor precondition. A boundary that follows
-an anchor and precedes region lines belongs to that region, so any difference
-in it is located there. Any other boundary follows an anchor that no region
-line follows (between adjacent anchors, or after an anchored last line), and
-belongs to no region. The document summary reports a difference in such a
-boundary, in spelling or final-terminator presence, without locating it.
+Terminators are not part of the anchor precondition. Region text, defined
+below, decides where each boundary belongs: a boundary belongs to the region
+whose text on that side contains it, and any difference in it is located
+there. A boundary that no region text contains belongs to no region. That
+happens only when an anchor is followed, with no region in between on either
+side, by another anchor or by the end of the text. The document summary
+reports a difference in such a boundary, in spelling or final-terminator
+presence, without locating it.
 
 ### Regions
 
@@ -490,6 +492,7 @@ their region's changes.
 | Final newline | `x` → `x⏎` | `WhitespaceOnly`, `LineBreaks` and `FinalLineTerminator` |
 | Terminator spelling, line diff | `a⏎b` with CRLF → LF | *doc* `WhitespaceOnly`, no region |
 | Final terminator spelling, line diff | `a␍␊` → `a␊` | *doc* `WhitespaceOnly`, no region |
+| Insertion after a respelled boundary | `a␍␊b` → `a␊␊b` | one `WhitespaceOnly` change; one `LineBreaks` edit whose Before range covers the `␍␊` after `a` |
 | Terminator spelling, pair | `a⏎b` with CRLF → LF | `WhitespaceOnly`, `TerminatorSpelling` |
 | Surrogate adjacency | `😀 x` → `😀x` | edit spans are valid UTF-16 boundaries |
 | Split budget | a region above the budget with one real edit | one `Changed` change; summary `Changed` |
