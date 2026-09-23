@@ -25,7 +25,7 @@ import {
   type ManagedOperationSettlement,
 } from "./worker-runtime-protocol.ts";
 
-export const engineWorkerTypeExplorerKind = "type-explorer";
+const engineWorkerTypeExplorerKind = "type-explorer";
 
 const maximumRequestCharacters = 96 * 1024;
 const maximumAuxiliaryCharacters = 64 * 1024;

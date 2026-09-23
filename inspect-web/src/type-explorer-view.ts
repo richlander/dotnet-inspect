@@ -11,7 +11,7 @@ interface TypeExplorerRange {
   readonly length: number;
 }
 
-export interface TypeExplorerDeclaration {
+interface TypeExplorerDeclaration {
   readonly declarationId: number;
   readonly identity: TypeExplorerMemberIdentity;
   readonly declarationToken: number;
@@ -33,7 +33,7 @@ export interface TypeExplorerProjection {
   }[];
 }
 
-export interface TypeExplorerDocument {
+interface TypeExplorerDocument {
   readonly assemblyName: string;
   readonly pdbSupplied: boolean;
   readonly symbolSource: string;

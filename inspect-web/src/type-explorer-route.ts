@@ -46,8 +46,8 @@ export interface TypeExplorerHistory {
   readonly returnFocus: "explore-source";
 }
 
-export const TYPE_EXPLORER_PATH = ROUTED_ENTRY_PATHS.typeExplorer;
-export const TYPE_EXPLORER_INTENT_PARAMETER = "te";
+const TYPE_EXPLORER_PATH = ROUTED_ENTRY_PATHS.typeExplorer;
+const TYPE_EXPLORER_INTENT_PARAMETER = "te";
 
 const TYPE_EXPLORER_HISTORY_KEY = "dotnetInspectTypeExplorer";
 const MAXIMUM_INTENT_CHARACTERS = 32 * 1024;

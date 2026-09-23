@@ -487,9 +487,11 @@ test.describe("published authored Source comparison transport", () => {
         }).__copiedMemberSource)).toBe(expectedBody);
       expect(sourceFetchCount).toBe(settledSourceFetchCount);
       await chooseSubject(applicationPage, "type");
+      const typeApiUrl = applicationPage.url();
       await applicationPage.locator('[data-lens="source"]:visible').click();
       const typeView = applicationPage.getByLabel("Select type code view");
       await expect(typeView).toHaveValue("source");
+      await expect(applicationPage).not.toHaveURL(typeApiUrl);
       const typeSourceUrl = applicationPage.url();
       await applicationPage.locator("#explore-source").click();
       await expect(applicationPage).toHaveURL(/\/type-explorer\?/u);
