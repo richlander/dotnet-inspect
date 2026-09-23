@@ -201,9 +201,9 @@ An entry read fetches the entry's local header and compressed data starting
 at the local-header offset. The local header's name and extra-field lengths
 are known only once the header is read, and the local extra field is not
 reliably the central one: in the reviewer's corpus of 1,690 nupkgs, 906
-entries across 35 packages (for example `Grpc.Net.Client` 2.80.0 and
-`Grpc.Tools` 2.80.0) carry a longer local extra field than the directory
-declares. So the first request is sized from the directory entry (header,
+entries across 35 packages have a local extra field that differs from the
+directory's, and in some (`PCLStorage` 1.0.2, `Microsoft.Spatial` 7.2.0) it
+is longer. So the first request is sized from the directory entry (header,
 name and extra lengths as the directory declares them, compressed size) plus
 the slack from the limits record, and every entry request is clamped to end
 at or before the central-directory offset, since no entry's data can lie
@@ -359,7 +359,7 @@ All gates run in Release.
 | 11a. Last entry whose data ends at the central directory | the clamped first request never runs past the directory offset; entry read completes with the CRC | contract suite |
 | 12. Operation ceiling during an entry read | terminal typed timeout, no partial content | contract suite |
 | 13. Motivating asset | `Microsoft.NETCore.App.Ref` 9.0.18 from nuget.org: directory in under 100 KB of transfer, `ref/net9.0/System.Runtime.dll` expanded and parseable by the metadata reader | Slow network gate, plus a preserved probe as design evidence |
-| 14. Local extra field longer than the directory declares, slack fixed at 0 | `Grpc.Net.Client` 2.80.0 (real asset, preserved as a fixture): first request short by the extra bytes, exactly one follow-up rechecked against the directory offset, CRC passes | contract suite |
+| 14. Local extra field longer than the directory declares, slack fixed at 0 | `PCLStorage` 1.0.2 (real asset, preserved as `fixtures/nugetfetch/pclstorage.1.0.2.nupkg`; 40 of its entries carry longer local extra fields): first request short by the extra bytes, exactly one follow-up rechecked against the directory offset, CRC passes | contract suite |
 | 14a. Same asset with the Packages layer's default slack | no follow-up; CRC passes | lands with slice 2 in `PackagePayloadAcquisitionTests`, where that layer sets the default; slice 1's contract suite has no such value to run against |
 | 15. Headers hidden (browser mode) | archive smaller than the tail read whole from the derived total; `206` matched by body length; validator rules where visible | contract suite (headers-hidden mode); end-to-end browser read `unverified` until the Inspect Web slice |
 
