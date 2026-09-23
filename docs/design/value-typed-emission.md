@@ -128,6 +128,57 @@ rather than claiming exact fidelity. Fixed-input censuses and Render A/B
 measure population effects; the retirement does not promise fewer residual
 slots.
 
+### Primitive-join target testimony
+
+Primitive integer-family join compatibility is decided before printing
+(#2095). One bounded relation serves `Conditional`, `SwitchExpression`, and
+`Coalesce`: for each accepted target, the join carries the effective source
+type that licenses target-aware arm rendering. This is neither a replacement
+for the join's result type nor a general C# conversion classifier.
+
+The relation admits an integer-like source and target only when the existing
+slot-coercion contract can spell that source at the target and every arm is one
+of the following:
+
+- an `int` or `long` constant, whose eventual spelling remains value-aware;
+- an existing `Coerce`, whose operand can be retargeted by the established
+  join-arm rule; or
+- a value with an effective C# type that is already implicit at the target,
+  has the existing boolean-to-integer spelling, or has a spellable numeric
+  coercion at the same source/target slot width.
+
+Missing type evidence, a differing-width reinterpretation, a floating-point or
+reference target, and any conversion outside the existing coercion contract
+decline. Enum and `char` rendering retain their dedicated earlier routes; this
+testimony must not preempt member naming, character literals, or their existing
+declines. Constant fit, the join-level bare-arm/natural-type policy,
+checked-context wrapping, precedence, and layout remain spelling decisions.
+The relation does not authorize storage materialization or alter overload
+binding.
+
+Binding runs at the final emission boundary after reconstruction and
+materialization. Raised, lowered, and nested bodies share that path; detached
+reconstruction bodies wait for their host's final binding. Cloning retains
+issued testimony, and final binding refreshes it after operand rewrites.
+Printing queries the issued target/source pair rather than walking the join
+arms to recover compatibility. The printer-owned
+`CanRenderPrimitiveJoinForTarget` and its arm-list capability checks are deleted;
+actual arm and literal spelling stays in `CSharpPrinter`.
+
+The pinned real witness is Microsoft.CodeAnalysis 5.0.0
+`Microsoft.CodeAnalysis.BitVector.get_Item` (`0x060009AF`):
+an `Int64`-merged conditional flows to an unsigned 64-bit call parameter and
+must remain `i < 0 ? _bits0 : (ulong)_bits[i]`. On the fixed 14-assembly,
+89,065-method corpus, the pre-change relation accepts 17 retargets with zero
+measurement failures; 8 are already owned by the earlier `char` route, leaving
+9 live primitive-gate witnesses. No switch-expression or coalesce retarget is
+live in that corpus, so their coverage is a shared-contract guard, not a
+population claim. Focused Release tests cover all three consumers,
+same-width signedness, constant behavior, boolean arms, differing-width and
+missing-type declines, enum/`char` non-preemption, clone/refresh, raised/lowered
+output, and the pinned witness. Fixed-input censuses and Render A/B measure
+population effects separately.
+
 ## Instance 1 — coercion: the missing member of the type system
 
 The decompiler has a rich vocabulary for **what a value is**: `TypeRef`
