@@ -278,6 +278,32 @@ public sealed class PackageArchiveValidatorTests
                 out _));
     }
 
+    [Fact]
+    public void CheckedPullRead_RejectsContentBeyondTheDeclaredLength()
+    {
+        byte[] archive = WithZeroedUncompressedSize(
+            ArchiveWithNames(
+                ("lib/net10.0/Sample.dll", [1, 2, 3, 4])));
+
+        var valid = Assert.IsType<PackageArchiveValidation.Valid>(
+            PackageArchiveValidator.Validate(
+                archive,
+                new PackagePayloadLimits { MaxExpandedBytes = 16 },
+                TestContext.Current.CancellationToken));
+
+        Assert.True(
+            valid.Archive.TryOpenEntryPull(
+                "lib/net10.0/Sample.dll",
+                maxExpandedBytes: 16,
+                out Stream? stream));
+        Assert.NotNull(stream);
+        using (stream)
+        {
+            Assert.Throws<InvalidDataException>(
+                () => stream.CopyTo(Stream.Null));
+        }
+    }
+
     /// <summary>
     /// A directory-shaped entry is still subject to the structural compression
     /// method allow list even though ordinary empty directory content is not

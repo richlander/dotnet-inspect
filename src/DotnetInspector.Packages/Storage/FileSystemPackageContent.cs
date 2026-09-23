@@ -21,7 +21,8 @@ namespace DotnetInspector.Packages;
 public sealed class FileSystemPackageContent :
     IPackageContent,
     IPackageContentEntryManifest,
-    IPackageContentDigestSource
+    IPackageContentDigestSource,
+    IPackageHousePayloadSource
 {
     private readonly string _root;
     private readonly PackageContentGenerationIdentity _generationIdentity = new();
@@ -165,6 +166,12 @@ public sealed class FileSystemPackageContent :
         stream = file.OpenRead();
         return true;
     }
+
+    bool IPackageHousePayloadSource.TryOpenPayloadRead(
+        string relativePath,
+        long maxExpandedBytes,
+        [NotNullWhen(true)] out Stream? stream) =>
+        TryOpenEntry(relativePath, maxExpandedBytes, out stream);
 
     /// <inheritdoc />
     public IEnumerable<string> EnumerateEntries()

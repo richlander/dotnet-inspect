@@ -17,6 +17,8 @@ public readonly record struct ProjectionDestination(
 
 internal static class ProjectionDestinationWriter
 {
+    private const int ExactTransferBufferSize = 64 * 1024;
+
     public static bool ValidateBeforeAcquisition(ProjectionDestination destination)
         => ValidateBeforeDestinationMutation(destination);
 
@@ -76,6 +78,37 @@ internal static class ProjectionDestinationWriter
             throw new InvalidOperationException("Exact projection bytes require an output path.");
 
         File.WriteAllBytes(destination.OutputPath!, output);
+    }
+
+    public static async Task WriteExactBytesAsync(
+        ProjectionDestination destination,
+        Stream input,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(input);
+        if (IsFile(destination))
+        {
+            await using var output = new FileStream(
+                destination.OutputPath!,
+                FileMode.Create,
+                FileAccess.Write,
+                FileShare.None);
+            await input.CopyToAsync(
+                    output,
+                    ExactTransferBufferSize,
+                    cancellationToken)
+                .ConfigureAwait(false);
+            return;
+        }
+
+        Stream standardOutput = Console.OpenStandardOutput();
+        await input.CopyToAsync(
+                standardOutput,
+                ExactTransferBufferSize,
+                cancellationToken)
+            .ConfigureAwait(false);
+        await standardOutput.FlushAsync(cancellationToken)
+            .ConfigureAwait(false);
     }
 
     public static bool IsFile(ProjectionDestination destination)
