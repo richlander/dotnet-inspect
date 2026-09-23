@@ -32,6 +32,17 @@ public sealed class AssemblyContextImplementationProfilesQueryTests
         Assert.Equal(
             InspectionCost.Unbounded,
             AssemblyContextImplementationProfilesQuery.Definition.Cost);
+        Assert.True(result.Coverage.WasRequested);
+        Assert.True(result.Coverage.HasFullMethodEvidenceScope);
+        Assert.Equal(
+            result.Profiles.Length,
+            result.Coverage.ProfiledEvidenceBodyCount);
+        Assert.All(
+            result.Profiles,
+            member => Assert.Contains(
+                result.Coverage.ProfiledEvidenceBodies,
+                method => method.MetadataToken
+                    == member.Profile.EvidenceMethod.MetadataToken));
         AssemblyImplementationProfileMember wrapper = Assert.Single(
             result.Profiles,
             member =>

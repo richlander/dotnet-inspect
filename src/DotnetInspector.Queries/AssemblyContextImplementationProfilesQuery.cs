@@ -17,6 +17,7 @@ public sealed record AssemblyImplementationProfileMember(
 
 public sealed record AssemblyImplementationProfileInspection(
     ImmutableArray<AssemblyImplementationProfileMember> Profiles,
+    ImplementationProfilePopulationCoverageReceipt Coverage,
     ImmutableArray<OverloadCallRelationship> OverloadRelationships,
     ImmutableHashSet<TypeRef> GeneratedFrameworkTypes,
     ImmutableArray<AnalysisDiagnostic> Diagnostics,
@@ -135,6 +136,7 @@ public static class AssemblyContextImplementationProfilesQuery
                 publicMembers.ByDeclaredBodyToken);
         var result = new AssemblyImplementationProfileInspection(
             attributedProfiles,
+            analysis.ImplementationProfiles.Coverage,
             profiles.OverloadRelationships,
             profiles.GeneratedFrameworkTypes,
             profiles.Diagnostics,
@@ -182,8 +184,13 @@ public static class AssemblyContextImplementationProfilesQuery
                         owners = [];
                         byBodyToken.Add(bodyToken, owners);
                     }
-                    if (!owners.Contains(publicMember))
+                    PublicMemberKey key =
+                        PublicMemberKey.Create(publicMember);
+                    if (!owners.Any(owner =>
+                            PublicMemberKey.Create(owner) == key))
+                    {
                         owners.Add(publicMember);
+                    }
                 }
             }
         }
