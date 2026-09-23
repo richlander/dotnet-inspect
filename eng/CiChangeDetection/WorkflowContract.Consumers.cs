@@ -383,6 +383,7 @@ internal static partial class WorkflowContract
         string? workingDirectory = GetOptionalScalar(
             step,
             "working-directory");
+        bool isStepOverride = workingDirectory is not null;
         if (workingDirectory is null
             && TryGetNode(job, "defaults", out YamlNode defaultsNode))
         {
@@ -400,7 +401,9 @@ internal static partial class WorkflowContract
         }
 
         if (workingDirectory is null
-            || IsRepositoryRootWorkingDirectory(workingDirectory))
+            || (isStepOverride
+                ? IsRepositoryRootWorkingDirectory(workingDirectory)
+                : IsStaticRepositoryRootWorkingDirectory(workingDirectory)))
         {
             return;
         }
@@ -416,6 +419,12 @@ internal static partial class WorkflowContract
         {
             return true;
         }
+
+        return IsStaticRepositoryRootWorkingDirectory(value);
+    }
+
+    private static bool IsStaticRepositoryRootWorkingDirectory(string value)
+    {
         if (value.StartsWith('/', StringComparison.Ordinal))
         {
             return false;
@@ -506,8 +515,9 @@ internal static partial class WorkflowContract
                 YamlMappingNode step = RequireMapping(
                     stepNode,
                     $"jobs.{jobName} step");
+                bool isRunStep = TryGetNode(step, "run", out _);
                 hasRunStepWithoutShell |=
-                    TryGetNode(step, "run", out _)
+                    isRunStep
                     && !TryGetNode(step, "shell", out _);
                 string? identity = GetOptionalScalar(step, "name") ??
                     GetOptionalScalar(step, "uses");
@@ -518,6 +528,13 @@ internal static partial class WorkflowContract
                 }
 
                 string key = $"{jobName}/{identity}";
+                if (isRunStep)
+                {
+                    RequireRepositoryRootWorkingDirectory(
+                        job,
+                        step,
+                        key);
+                }
                 if (jobName == "test")
                 {
                     ValidateTestStepGuard(
