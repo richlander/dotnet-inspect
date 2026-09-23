@@ -107,6 +107,10 @@
   contract. Development builds target `dotnet-inspect.ca`, while production
   NuGet packages and their CLI and Sections share producers target
   `dotnet-inspect.net` (#8269).
+- Raises Inspect Web's live Workspace capacity from 12 to 64 Package
+  coordinates. Package Add and Platform Open share that budget; attempting a
+  sixty-fifth coordinate fails visibly before acquisition and preserves the
+  existing membership, subject, and history (#8340).
 - Adds canonical Workspace component paths and immutable
   `workspace package add|update|remove` editing, plus nested packet
   encode/decode commands. Inspect Web now saves and reopens complete Workspace
