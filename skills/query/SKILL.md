@@ -58,6 +58,11 @@ Default output is Markdown. Pick a machine or compact shape when you need one:
 - `--mermaid` — a standalone diagram; combine it with `--markdown` to embed
   the diagram in a Markdown document.
 
+`--raw` is a formatter, so never combine it with `--json`, `--jsonl`, `--tsv`,
+`--table`, `--markdown`, `--plaintext`, or `--mermaid`. `package` and `project`
+reject those combinations before acquisition. Explicit `--raw` outranks
+`DOTNET_INSPECT_FORMAT`.
+
 `--envelope` normally implies JSON and emits the complete service value with
 `schema_version`, `result_kind`, `content`, `share`, and `diagnostics`.
 Workspace coordinate replacement is the exception: request
@@ -484,6 +489,10 @@ semantic rows. On sectioned output, select one concrete table for a scalar
 count. Count does not mean “count the unselected input,” and it does not by
 itself authorize unbounded work; incomplete population evidence can prevent an
 exact count.
+
+Bare `type ... --count` follows the resolved subject: a Library subject counts
+public Type declarations, while a Type subject counts Members. Explicit `-S`
+keeps the selected section's own count semantics.
 
 `--row` is not a window. With `--print`, `--value`, `--urls`, or `--paths`, it
 selects one displayed row; `first` and `last` mean the rendered endpoints.
