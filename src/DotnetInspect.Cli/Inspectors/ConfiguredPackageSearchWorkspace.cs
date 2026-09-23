@@ -8,6 +8,7 @@ using DotnetInspector.Queries;
 using DotnetInspector.Services;
 using DotnetInspector.SourceSelection;
 using ILInspector.Metadata;
+using NuGetFetch;
 
 namespace DotnetInspect.Cli.Inspectors;
 
@@ -303,6 +304,7 @@ internal sealed class ConfiguredPackageSearchWorkspace : IAsyncDisposable
                 + "materialize the Root's compile selection; acquiring the complete archive.");
             (binding, payload) = await AcquireAndBindAsync(
                 composition,
+                stores,
                 member,
                 request,
                 target,
@@ -540,7 +542,7 @@ internal sealed class SearchPackageStores : IDisposable
     public void Dispose()
     {
         _stores.Clear();
-        PackageExtractor.Cleanup(_temporaryRoot);
+        DotnetInspector.Packages.PackageExtractor.Cleanup(_temporaryRoot);
         _temporaryRoot = null;
     }
 }
