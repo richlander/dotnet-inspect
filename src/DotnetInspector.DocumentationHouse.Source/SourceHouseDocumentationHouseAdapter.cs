@@ -27,7 +27,6 @@ internal sealed class SourceHouseDocumentationOperation
             SourceBytesObserved: 0,
             SourceTextCharactersObserved: 0,
             SourceDocumentsObserved: 0,
-            AttestationContributionsObserved: 0,
             DocumentationWork: null);
 
     private readonly DocumentationAuthoredSourceOperationBinding _binding;
@@ -189,74 +188,13 @@ internal sealed class SourceHouseDocumentationOperation
         DocumentationAuthoredLeaseSettlement settlement,
         CancellationToken cancellationToken)
     {
-        SourceHousePhysicalDeclarationOutcome physical =
-            available.PhysicalDeclaration;
-        if (physical
-            is SourceHousePhysicalDeclarationOutcome.Unavailable unavailable)
+        SourceHouseAuthoredAttempt.Available source = available.Source;
+        if (source.Mapping is not SourceHouseAuthoredMapping.Member member
+            || source.MemberDocument is not { } document)
         {
             return new DocumentationAuthoredSourceOperationOutcome.Unavailable(
                 invocation,
-                DocumentationAuthoredUnavailableKind
-                    .PhysicalDeclarationUnavailable,
-                sourceWork,
-                settlement,
-                Observation(unavailable.Observation));
-        }
-        if (physical
-            is SourceHousePhysicalDeclarationOutcome.Conflict conflict)
-        {
-            return new DocumentationAuthoredSourceOperationOutcome.Unavailable(
-                invocation,
-                DocumentationAuthoredUnavailableKind
-                    .PhysicalDeclarationConflict,
-                sourceWork,
-                settlement,
-                Observation(conflict.Observation));
-        }
-        if (physical
-            is SourceHousePhysicalDeclarationOutcome.Rejected rejected)
-        {
-            return new DocumentationAuthoredSourceOperationOutcome.Rejected(
-                invocation,
-                DocumentationAuthoredRejectionKind
-                    .PhysicalDeclarationRejected,
-                sourceWork,
-                settlement,
-                Observation(rejected.Observation));
-        }
-        if (physical
-            is SourceHousePhysicalDeclarationOutcome.Failed failed)
-        {
-            return new DocumentationAuthoredSourceOperationOutcome.Failed(
-                invocation,
-                DocumentationAuthoredFailureKind
-                    .PhysicalDeclarationFailed,
-                sourceWork,
-                settlement,
-                Observation(failed.Observation));
-        }
-        if (physical
-            is SourceHousePhysicalDeclarationOutcome.Incomplete incomplete)
-        {
-            return new DocumentationAuthoredSourceOperationOutcome.Incomplete(
-                invocation,
-                DocumentationAuthoredIncompleteBoundary
-                    .PhysicalDeclaration,
-                sourceWork,
-                settlement,
-                Observation(incomplete.Observation));
-        }
-
-        var exact =
-            (SourceHousePhysicalDeclarationOutcome.Exact)physical;
-        if (!TryGetExactDocument(
-                available,
-                exact,
-                out string? document))
-        {
-            return new DocumentationAuthoredSourceOperationOutcome.Rejected(
-                invocation,
-                DocumentationAuthoredRejectionKind.SourceEvidenceMismatch,
+                DocumentationAuthoredUnavailableKind.DeclarationNotFound,
                 sourceWork,
                 settlement);
         }
@@ -265,15 +203,16 @@ internal sealed class SourceHouseDocumentationOperation
             DocumentationSourceReference.Create(
                 DocumentationSourceKind.SourceHouse,
                 SourceReferenceName()),
-            new SourceEvidenceReference(),
-            new PhysicalDeclarationReference());
+            new SourceEvidenceReference());
         CSharpAuthoredDocumentationOutcome documentation =
             CSharpAuthoredDocumentation.Read(
                 new(
-                    document,
+                    document.Text,
                     new(
-                        exact.Span.Start,
-                        exact.Span.Length),
+                        document.Parts.Declaration.Start,
+                        document.Parts.Declaration.Length),
+                    activePhysicalLines:
+                        member.Observation.SequencePointStartLines,
                     limits:
                         invocation.RemainingLimits.Documentation));
         DocumentationAuthoredSourceOperationWorkCharge work =
@@ -345,52 +284,6 @@ internal sealed class SourceHouseDocumentationOperation
                 settlement,
                 evidence: evidence,
                 documentation: documentation);
-    }
-
-    private bool TryGetExactDocument(
-        SourceHouseOutcome.Available available,
-        SourceHousePhysicalDeclarationOutcome.Exact exact,
-        out string document)
-    {
-        document = "";
-        SourceHouseAuthoredAttempt.Available source = available.Source;
-        SourceHousePhysicalSourceEvidence? physicalSource =
-            source.PhysicalSource;
-        SourceHousePhysicalDeclarationReceipt receipt =
-            exact.Receipt;
-        if (physicalSource is null
-            || !ReferenceEquals(receipt.Source, physicalSource)
-            || !ReferenceEquals(receipt.Target, available.PhysicalTarget)
-            || !ReferenceEquals(
-                physicalSource.Result,
-                source.ResultIdentity)
-            || available.PhysicalTarget.XmlDocumentationIdentity
-                is not { } xmlIdentity
-            || !string.Equals(
-                xmlIdentity.Value,
-                _binding.Subject.CompiledXmlIdentity.Value,
-                StringComparison.Ordinal))
-        {
-            return false;
-        }
-
-        document = _request.Target switch
-        {
-            SourceHouseTarget.MemberTarget =>
-                source.MemberDocument?.Text ?? "",
-            SourceHouseTarget.TypeTarget => source.Text,
-            _ => "",
-        };
-        if (document.Length != physicalSource.RawUtf16Length)
-            return false;
-        try
-        {
-            return exact.Span.End <= document.Length;
-        }
-        catch (OverflowException)
-        {
-            return false;
-        }
     }
 
     private bool ValidSourceReceipt(SourceHouseOutcome outcome)
@@ -496,7 +389,6 @@ internal sealed class SourceHouseDocumentationOperation
             source.SourceBytesObserved,
             source.SourceTextCharactersObserved,
             source.DocumentsObserved,
-            source.AttestationContributionsObserved,
             documentation);
 
     private static DocumentationAuthoredLeaseSettlement OperationSettlement() =>
@@ -515,9 +407,6 @@ internal sealed class SourceHouseDocumentationOperation
 
     private sealed class SourceEvidenceReference
         : DocumentationAuthoredSourceEvidenceReference;
-
-    private sealed class PhysicalDeclarationReference
-        : DocumentationPhysicalDeclarationEvidenceReference;
 }
 
 internal static class CancellationTokenExtensions

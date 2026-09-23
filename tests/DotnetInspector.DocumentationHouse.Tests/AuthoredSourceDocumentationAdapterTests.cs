@@ -1,9 +1,9 @@
 using CSharpText;
+using CSharpText.MemberSlicing;
 using DotnetInspector.DocumentationHouse.Source;
 using DotnetInspector.Libraries;
 using DotnetInspector.LibraryMetadata;
 using DotnetInspector.SourceHouse;
-using DotnetInspector.SourceHouse.BuildAttestation;
 using ILInspector.Metadata;
 using ILInspector.SourceLink;
 
@@ -11,20 +11,13 @@ namespace DotnetInspector.DocumentationHouse.Tests;
 
 public sealed partial class CompiledXmlDocumentationHouseTests
 {
-    private static readonly Lazy<SourceHouseBuildAttestation>
-        s_authoredBuildAttestation = new(BuildAuthoredAttestation);
-
     [Fact]
     public async Task
         RealMemberTextSlicerMethod_ProducesDetachedAuthoredDocumentation()
     {
-        SourceHouseBuildAttestation attestation =
-            s_authoredBuildAttestation.Value;
-        var capability = new CountingAttestationCapability(attestation);
+        var capability = new CountingSourceCapability(SourceBytes());
         await using LibraryFixture library =
-            await LibraryFixture.CreateSourceAsync(
-                attestation.PeImage.ToArray(),
-                attestation.PortablePdbImage.ToArray());
+            await CreateSourceLibraryAsync();
         AuthoredScenario scenario =
             AuthoredScenario.Create(library, capability);
         IDocumentationAuthoredSourceOperation authoredOperation =
@@ -33,7 +26,6 @@ public sealed partial class CompiledXmlDocumentationHouseTests
                 scenario.SourceRequest);
 
         Assert.Equal(0, capability.SourceReads);
-        Assert.Equal(0, capability.AttestationReads);
         LibraryOperationLease operation = library.IssueOperation();
         DocumentationAuthoredSourceOperationOutcome.Produced produced =
             Assert.IsType<
@@ -64,10 +56,8 @@ public sealed partial class CompiledXmlDocumentationHouseTests
         Assert.True(produced.Work.SourceBytesObserved > 0);
         Assert.True(
             produced.Work.SourceTextCharactersObserved > 0);
-        Assert.Equal(1, produced.Work.AttestationContributionsObserved);
         Assert.NotNull(produced.Work.DocumentationWork);
         Assert.Equal(1, capability.SourceReads);
-        Assert.Equal(1, capability.AttestationReads);
         AssertOperationSettled(
             operation,
             library.Reference.ApiAssembly);
@@ -88,7 +78,6 @@ public sealed partial class CompiledXmlDocumentationHouseTests
             DocumentationAuthoredLeaseConsumer.Operation,
             repeated.LeaseSettlement.Consumer);
         Assert.Equal(1, capability.SourceReads);
-        Assert.Equal(1, capability.AttestationReads);
         AssertOperationSettled(
             repeatedOperation,
             library.Reference.ApiAssembly);
@@ -97,13 +86,9 @@ public sealed partial class CompiledXmlDocumentationHouseTests
     [Fact]
     public async Task ForeignBinding_RejectsBeforeSourceWorkAndSettlesLease()
     {
-        SourceHouseBuildAttestation attestation =
-            s_authoredBuildAttestation.Value;
-        var capability = new CountingAttestationCapability(attestation);
+        var capability = new CountingSourceCapability(SourceBytes());
         await using LibraryFixture library =
-            await LibraryFixture.CreateSourceAsync(
-                attestation.PeImage.ToArray(),
-                attestation.PortablePdbImage.ToArray());
+            await CreateSourceLibraryAsync();
         AuthoredScenario scenario =
             AuthoredScenario.Create(library, capability);
         IDocumentationAuthoredSourceOperation authoredOperation =
@@ -140,7 +125,6 @@ public sealed partial class CompiledXmlDocumentationHouseTests
             DocumentationAuthoredLeaseConsumer.Operation,
             rejected.LeaseSettlement.Consumer);
         Assert.Equal(0, capability.SourceReads);
-        Assert.Equal(0, capability.AttestationReads);
         AssertOperationSettled(
             operation,
             library.Reference.ApiAssembly);
@@ -149,13 +133,9 @@ public sealed partial class CompiledXmlDocumentationHouseTests
     [Fact]
     public async Task SourceByteBudget_StopsBeforeSourceWorkAndSettlesLease()
     {
-        SourceHouseBuildAttestation attestation =
-            s_authoredBuildAttestation.Value;
-        var capability = new CountingAttestationCapability(attestation);
+        var capability = new CountingSourceCapability(SourceBytes());
         await using LibraryFixture library =
-            await LibraryFixture.CreateSourceAsync(
-                attestation.PeImage.ToArray(),
-                attestation.PortablePdbImage.ToArray());
+            await CreateSourceLibraryAsync();
         AuthoredScenario scenario =
             AuthoredScenario.Create(library, capability);
         IDocumentationAuthoredSourceOperation authoredOperation =
@@ -187,53 +167,6 @@ public sealed partial class CompiledXmlDocumentationHouseTests
             DocumentationAuthoredLeaseConsumer.Operation,
             incomplete.LeaseSettlement.Consumer);
         Assert.Equal(0, capability.SourceReads);
-        Assert.Equal(0, capability.AttestationReads);
-        AssertOperationSettled(
-            operation,
-            library.Reference.ApiAssembly);
-    }
-
-    [Fact]
-    public async Task SourceWithoutPhysicalIdentity_DoesNotReachCSharpText()
-    {
-        SourceHouseBuildAttestation attestation =
-            s_authoredBuildAttestation.Value;
-        var capability =
-            new IdentitylessAttestationCapability(attestation);
-        await using LibraryFixture library =
-            await LibraryFixture.CreateSourceAsync(
-                attestation.PeImage.ToArray(),
-                attestation.PortablePdbImage.ToArray());
-        AuthoredScenario scenario =
-            AuthoredScenario.Create(library, capability);
-        IDocumentationAuthoredSourceOperation authoredOperation =
-            SourceHouseDocumentationHouseAdapter.CreateOperation(
-                scenario.Binding,
-                scenario.SourceRequest);
-        LibraryOperationLease operation = library.IssueOperation();
-
-        DocumentationAuthoredSourceOperationOutcome.Unavailable unavailable =
-            Assert.IsType<
-                DocumentationAuthoredSourceOperationOutcome.Unavailable>(
-                await authoredOperation.InvokeAsync(
-                    scenario.Invocation,
-                    operation,
-                    TestContext.Current.CancellationToken));
-
-        Assert.Equal(
-            DocumentationAuthoredUnavailableKind
-                .PhysicalDeclarationUnavailable,
-            unavailable.UnavailableKind);
-        Assert.Equal(
-            "SourceResultHasNoPhysicalInputIdentity",
-            unavailable.Observation?.Code);
-        Assert.Null(unavailable.Evidence);
-        Assert.Null(unavailable.Documentation);
-        Assert.Equal(
-            DocumentationAuthoredLeaseConsumer.SourceHouse,
-            unavailable.LeaseSettlement.Consumer);
-        Assert.Equal(1, capability.SourceReads);
-        Assert.Equal(0, capability.AttestationReads);
         AssertOperationSettled(
             operation,
             library.Reference.ApiAssembly);
@@ -242,13 +175,9 @@ public sealed partial class CompiledXmlDocumentationHouseTests
     [Fact]
     public async Task CancellationBeforeTransfer_SettlesLeaseWithoutSourceWork()
     {
-        SourceHouseBuildAttestation attestation =
-            s_authoredBuildAttestation.Value;
-        var capability = new CountingAttestationCapability(attestation);
+        var capability = new CountingSourceCapability(SourceBytes());
         await using LibraryFixture library =
-            await LibraryFixture.CreateSourceAsync(
-                attestation.PeImage.ToArray(),
-                attestation.PortablePdbImage.ToArray());
+            await CreateSourceLibraryAsync();
         AuthoredScenario scenario =
             AuthoredScenario.Create(library, capability);
         IDocumentationAuthoredSourceOperation authoredOperation =
@@ -267,7 +196,6 @@ public sealed partial class CompiledXmlDocumentationHouseTests
                     cancellation.Token));
 
         Assert.Equal(0, capability.SourceReads);
-        Assert.Equal(0, capability.AttestationReads);
         AssertOperationSettled(
             operation,
             library.Reference.ApiAssembly);
@@ -276,13 +204,13 @@ public sealed partial class CompiledXmlDocumentationHouseTests
     [Fact]
     public async Task ApiAssemblyBinding_IsRejectedForDistinctImplementation()
     {
-        SourceHouseBuildAttestation attestation =
-            s_authoredBuildAttestation.Value;
-        var capability = new CountingAttestationCapability(attestation);
+        byte[] assembly = File.ReadAllBytes(AssemblyPath());
+        byte[] pdb = File.ReadAllBytes(PdbPath());
+        var capability = new CountingSourceCapability(SourceBytes());
         await using LibraryFixture library =
             await LibraryFixture.CreateDistinctSourceAsync(
-                attestation.PeImage.ToArray(),
-                attestation.PortablePdbImage.ToArray());
+                assembly,
+                pdb);
         AuthoredScenario scenario =
             AuthoredScenario.Create(library, capability);
 
@@ -301,57 +229,26 @@ public sealed partial class CompiledXmlDocumentationHouseTests
 
         Assert.Equal("implementationContent", exception.ParamName);
         Assert.Equal(0, capability.SourceReads);
-        Assert.Equal(0, capability.AttestationReads);
     }
 
-    private static SourceHouseBuildAttestation BuildAuthoredAttestation()
-    {
-        CSharpBuildAttestationOutcome outcome =
-            CSharpBuildAttestor.EmitAndAttest(
-                new(
-                    "DocumentationHouseAuthoredOperationFixture",
-                    AuthoredBuildSources(),
-                    TrustedPlatformAssemblyPaths(),
-                    SourceHouseCapabilityIdentity.Create(
-                        "documentation-house-build-attestor"),
-                    SourceHouseAttestationIssuerIdentity.Create(
-                        "dotnet-inspect-build"),
-                    SourceHouseAttestationProfileIdentity.Create(
-                        "direct-csharp-emit-v1"),
-                    SourceHouseAttestationGeneration.Create(
-                        "documentation-house-source-operation")));
-        if (outcome is CSharpBuildAttestationOutcome.Failed failed)
-        {
-            Assert.Fail(
-                string.Join(
-                    Environment.NewLine,
-                    failed.Diagnostics));
-        }
+    private static Task<LibraryFixture> CreateSourceLibraryAsync() =>
+        LibraryFixture.CreateSourceAsync(
+            File.ReadAllBytes(AssemblyPath()),
+            File.ReadAllBytes(PdbPath()));
 
-        return Assert.IsType<
-                CSharpBuildAttestationOutcome.Available>(outcome)
-            .Attestation;
-    }
+    private static string AssemblyPath() =>
+        typeof(MemberTextSlicer).Assembly.Location;
 
-    private static CSharpBuildSource[] AuthoredBuildSources()
-    {
-        string directory = Path.Combine(
-            RepositoryRoot(),
-            "src",
-            "CSharpText.MemberSlicing");
-        return
-        [
-            .. Directory.EnumerateFiles(
-                    directory,
-                    "*.cs",
-                    SearchOption.TopDirectoryOnly)
-                .Order(StringComparer.Ordinal)
-                .Select(path =>
-                    new CSharpBuildSource(
-                        path,
-                        File.ReadAllBytes(path))),
-        ];
-    }
+    private static string PdbPath() =>
+        Path.ChangeExtension(AssemblyPath(), ".pdb");
+
+    private static byte[] SourceBytes() =>
+        File.ReadAllBytes(
+            Path.Combine(
+                RepositoryRoot(),
+                "src",
+                "CSharpText.MemberSlicing",
+                "MemberTextSlicer.cs"));
 
     private static string RepositoryRoot()
     {
@@ -373,22 +270,6 @@ public sealed partial class CompiledXmlDocumentationHouseTests
             "Could not locate the repository root.");
     }
 
-    private static string[] TrustedPlatformAssemblyPaths()
-    {
-        string runtimeDirectory =
-            Path.GetDirectoryName(typeof(object).Assembly.Location)
-            ?? throw new InvalidOperationException(
-                "The runtime assembly has no directory.");
-        return
-        [
-            .. Directory.EnumerateFiles(
-                runtimeDirectory,
-                "*.dll",
-                SearchOption.TopDirectoryOnly),
-            typeof(CSharpSourceText).Assembly.Location,
-        ];
-    }
-
     private sealed record AuthoredScenario(
         DocumentationAuthoredSourceOperationBinding Binding,
         SourceHouseAuthoredRequest SourceRequest,
@@ -396,7 +277,7 @@ public sealed partial class CompiledXmlDocumentationHouseTests
     {
         internal static AuthoredScenario Create(
             LibraryFixture library,
-            ISourceHousePhysicalDeclarationCapability capability)
+            ISourceHouseSourceCapability capability)
         {
             LibraryApiSurfaceCorrespondence correspondence =
                 library.ApiSurfaceCorrespondence;
@@ -473,91 +354,25 @@ public sealed partial class CompiledXmlDocumentationHouseTests
             maximumSourceBytes: 1024 * 1024,
             maximumSourceTextCharacters: 1024 * 1024);
 
-    private sealed class CountingAttestationCapability(
-        SourceHouseBuildAttestation inner)
-        : ISourceHousePhysicalDeclarationCapability
+    private sealed class CountingSourceCapability(byte[] source)
+        : ISourceHouseSourceCapability
     {
         public int SourceReads { get; private set; }
-        public int AttestationReads { get; private set; }
-        public SourceHouseCapabilityIdentity Identity => inner.Identity;
-        public SourceHouseCapabilityCategory Category => inner.Category;
-        public SourceHouseAttestationIssuerIdentity Issuer => inner.Issuer;
-        public SourceHouseAttestationProfileIdentity Profile => inner.Profile;
-        public SourceHouseAttestationGeneration Generation =>
-            inner.Generation;
+        public SourceHouseCapabilityIdentity Identity { get; } =
+            SourceHouseCapabilityIdentity.Create(
+                "documentation-house-source");
+        public SourceHouseCapabilityCategory Category =>
+            SourceHouseCapabilityCategory.Repository;
 
         public ValueTask<SourceHouseCapabilityOutcome> ReadAsync(
             SourceHouseSourceCandidate candidate,
             int maximumBytes,
             CancellationToken cancellationToken)
         {
+            cancellationToken.ThrowIfCancellationRequested();
             SourceReads++;
-            return inner.ReadAsync(
-                candidate,
-                maximumBytes,
-                cancellationToken);
-        }
-
-        public ValueTask<SourceHouseAttestationCapabilityOutcome>
-            ReadAttestationsAsync(
-                SourceHousePhysicalDeclarationRequest request,
-                int maximumContributions,
-                CancellationToken cancellationToken)
-        {
-            AttestationReads++;
-            return inner.ReadAttestationsAsync(
-                request,
-                maximumContributions,
-                cancellationToken);
-        }
-    }
-
-    private sealed class IdentitylessAttestationCapability(
-        SourceHouseBuildAttestation inner)
-        : ISourceHousePhysicalDeclarationCapability
-    {
-        public int SourceReads { get; private set; }
-        public int AttestationReads { get; private set; }
-        public SourceHouseCapabilityIdentity Identity => inner.Identity;
-        public SourceHouseCapabilityCategory Category => inner.Category;
-        public SourceHouseAttestationIssuerIdentity Issuer => inner.Issuer;
-        public SourceHouseAttestationProfileIdentity Profile => inner.Profile;
-        public SourceHouseAttestationGeneration Generation =>
-            inner.Generation;
-
-        public async ValueTask<SourceHouseCapabilityOutcome> ReadAsync(
-            SourceHouseSourceCandidate candidate,
-            int maximumBytes,
-            CancellationToken cancellationToken)
-        {
-            SourceReads++;
-            SourceHouseCapabilityOutcome outcome =
-                await inner.ReadAsync(
-                    candidate,
-                    maximumBytes,
-                    cancellationToken);
-            if (outcome is not SourceHouseCapabilityOutcome.Available
-                available)
-            {
-                return outcome;
-            }
-
-            return new SourceHouseCapabilityOutcome.Available(
-                available.Bytes.AsSpan(),
-                observation: available.Observation);
-        }
-
-        public ValueTask<SourceHouseAttestationCapabilityOutcome>
-            ReadAttestationsAsync(
-                SourceHousePhysicalDeclarationRequest request,
-                int maximumContributions,
-                CancellationToken cancellationToken)
-        {
-            AttestationReads++;
-            return inner.ReadAttestationsAsync(
-                request,
-                maximumContributions,
-                cancellationToken);
+            return ValueTask.FromResult<SourceHouseCapabilityOutcome>(
+                new SourceHouseCapabilityOutcome.Available(source));
         }
     }
 }

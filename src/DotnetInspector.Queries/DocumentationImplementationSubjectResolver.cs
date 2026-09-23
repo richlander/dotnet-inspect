@@ -217,7 +217,7 @@ public static class DocumentationImplementationSubjectResolver
     {
         private static readonly
             DocumentationAuthoredSourceOperationWorkCharge s_emptyWork =
-                new(0, 0, 0, 0, DocumentationWork: null);
+                new(0, 0, 0, DocumentationWork: null);
 
         private readonly DocumentationAuthoredSourceOperationBinding
             _binding;

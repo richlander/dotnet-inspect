@@ -1145,9 +1145,7 @@ internal static class BrowserPackageWorkspace
             string targetFramework,
             string assemblyIdOrName,
             string documentationId,
-            CancellationToken cancellationToken = default,
-            IReadOnlyList<ISourceHouseSourceCapability>?
-                authoredSourceCapabilities = null) =>
+            CancellationToken cancellationToken = default) =>
         RunPackageOperationAsync(
             async deadline =>
             {
@@ -1236,9 +1234,6 @@ internal static class BrowserPackageWorkspace
                         acquired,
                         handoff,
                         documentationId,
-                        authoredSourceCapabilities
-                            ?? BrowserSourceQueryContext
-                                .CreateSourceCapabilities(),
                         deadline.Token)
                     .ConfigureAwait(false);
             },

@@ -6,15 +6,15 @@ export type DateTimeOffsetString = string & {
   readonly [dateTimeOffsetStringBrand]: "DateTimeOffsetString";
 };
 
-export type AuthoredDocumentationAmbiguityReason = "PhysicalDeclarationConflict" | "DeclarationAmbiguous" | number;
+export type AuthoredDocumentationAmbiguityReason = "DeclarationAmbiguous" | number;
 
-export type AuthoredDocumentationFailureReason = "SourceFailed" | "PhysicalDeclarationFailed" | "MalformedDocumentation" | number;
+export type AuthoredDocumentationFailureReason = "SourceFailed" | "MalformedDocumentation" | number;
 
-export type AuthoredDocumentationIncompleteReason = "DeclarationUncertain" | "ImplementationSurface" | "Deadline" | "SourceDocuments" | "SourceBytes" | "SourceCharacters" | "SourceHouse" | "PhysicalDeclaration" | "Documentation" | number;
+export type AuthoredDocumentationIncompleteReason = "DeclarationUncertain" | "ImplementationSurface" | "Deadline" | "SourceDocuments" | "SourceBytes" | "SourceCharacters" | "SourceHouse" | "Documentation" | number;
 
-export type AuthoredDocumentationRejectionReason = "OperationEvidenceMismatch" | "AlreadyInvoked" | "BindingMismatch" | "LeaseReferenceMismatch" | "SourceRejected" | "SourceEvidenceMismatch" | "PhysicalDeclarationRejected" | number;
+export type AuthoredDocumentationRejectionReason = "OperationEvidenceMismatch" | "AlreadyInvoked" | "BindingMismatch" | "LeaseReferenceMismatch" | "SourceRejected" | "SourceEvidenceMismatch" | number;
 
-export type AuthoredDocumentationUnavailableReason = "OperationUnavailable" | "SourceUnavailable" | "PhysicalDeclarationUnavailable" | "DeclarationNotFound" | number;
+export type AuthoredDocumentationUnavailableReason = "OperationUnavailable" | "SourceUnavailable" | "DeclarationNotFound" | number;
 
 export type BrowserCompileLibraryStatus = "Selected" | "NoCompileAssets" | "NoMatchingTargetFramework" | "EmptyCompileGroup" | "InvalidImplementationAssets" | number;
 
@@ -1988,4 +1988,3 @@ export function searchTypes(query: string, candidatesJson: ReadonlyArray<Browser
   const $parsed: unknown = JSON.parse($result);
   return $parsed as ReadonlyArray<BrowserTypeSearchHit>;
 }
-

@@ -46,6 +46,7 @@ public sealed class BrowserMemberSourceTests
         var body = Part(source, bodyStart, memberEnd);
         var parts = new MemberTextParts(
             member,
+            Part(source, signatureStart, memberEnd),
             ImmutableArray.Create(documentation),
             ImmutableArray<MemberTextPart>.Empty,
             signature,
@@ -152,6 +153,7 @@ public sealed class BrowserMemberSourceTests
             StringComparison.Ordinal);
         var parts = new MemberTextParts(
             Part(document, memberStart, memberEnd),
+            Part(document, signatureStart, memberEnd),
             [Part(document, memberStart, TrimEnd(document, memberStart, signatureStart))],
             [],
             Part(document, signatureStart, TrimEnd(document, signatureStart, bodyStart)),
@@ -224,6 +226,10 @@ public sealed class BrowserMemberSourceTests
         int memberEnd = prefix.Length + indentedMember.Length;
         var native = new MemberTextParts(
             Part(document, memberStart, memberEnd),
+            Fragment(
+                document,
+                memberStart,
+                "[First(\r\n        1)]\n    /// second\n\t[Second]\r\n    public void M(\r\n        int value)\n    {\r\n        _ = value;\n    }"),
             [
                 Fragment(
                     document,
