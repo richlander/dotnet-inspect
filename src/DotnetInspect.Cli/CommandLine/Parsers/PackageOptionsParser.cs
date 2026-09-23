@@ -453,9 +453,9 @@ public static class PackageOptionsParser
             : bodyRequested
                 ? PackageFileContentScope.Body
                 : PackageFileContentScope.Full;
-        bool bareOutput = parseResult.GetValue(opts.Bare);
+        bool rawOutput = parseResult.GetValue(opts.Raw);
         bool explicitTabularOutput = opts.IsTableExplicitlySet(parseResult);
-        bool suppressImplicitRowFormat = bareOutput && !opts.IsTableFlagExplicitlySet(parseResult);
+        bool suppressImplicitRowFormat = rawOutput && !opts.IsTableFlagExplicitlySet(parseResult);
         var outputFormat = opts.ResolveFormat(parseResult);
 
         // --path scopes the file listing and selects the Files section. A bare
@@ -536,7 +536,7 @@ public static class PackageOptionsParser
             CloneCandidateRowSelection = cloneCandidateRowSelection,
             Format = outputFormat,
             JsonOutput = outputFormat == OutputFormat.Json,
-            Bare = bareOutput,
+            Raw = rawOutput,
             Tabular = suppressImplicitRowFormat ? false : opts.ResolveTabular(parseResult),
             Tsv = suppressImplicitRowFormat ? false : opts.ResolveTsv(parseResult),
             Jsonl = suppressImplicitRowFormat ? false : opts.ResolveJsonl(parseResult),

@@ -28,16 +28,16 @@ public partial class CommandExecutionTests
         try
         {
             var (packageExit, packageOutput, packageError) = await RunAppAsync(
-                "package", packagePath, "-S", "Package skill files", "--print", "--bare");
+                "package", packagePath, "-S", "Package skill files", "--print", "--raw");
             var (projectExit, projectOutput, projectError) = await RunProjectFixtureAsync(
-                projectPath, "-S", "Skills", "--print", "--body", "--bare");
+                projectPath, "-S", "Skills", "--print", "--body", "--raw");
             var (packageJsonExit, packageJson, packageJsonError) = await RunAppAsync(
                 "package", packagePath, "-S", "Package skill files", "--print", "--jsonl");
             var (projectJsonExit, projectJson, projectJsonError) = await RunProjectFixtureAsync(
                 projectPath, "-S", "Skills", "--print", "--body", "--jsonl");
             var (contentExit, contentOutput, contentError) = await RunAppAsync(
                 "package", packagePath, "--path", "skills/package-skill/SKILL.md",
-                "--content", "--bare");
+                "--content", "--raw");
             var (contentBlocksExit, contentBlocksOutput, contentBlocksError) = await RunAppAsync(
                 "package", packagePath, "--path", "skills/package-skill/SKILL.md",
                 "--content");
@@ -171,7 +171,7 @@ public partial class CommandExecutionTests
                 projectPath,
                 "-S", "Skills",
                 "-n", "1", "--tail",
-                "--bare", "--body");
+                "--raw", "--body");
 
             foreach (var result in new[]
                      {
@@ -461,7 +461,7 @@ public partial class CommandExecutionTests
                 "--path",
                 SkillPath,
                 "--body",
-                "--bare");
+                "--raw");
 
             Assert.Equal(0, exit);
             Assert.Equal(
@@ -522,15 +522,15 @@ public partial class CommandExecutionTests
             var projectOutputPath = Path.Combine(projectTempDir, "project-skill.md");
 
             var (packageExit, packageOutput, packageError) = await RunAppAsync(
-                "package", packagePath, "-S", "Package skill files", "--print", "--bare");
+                "package", packagePath, "-S", "Package skill files", "--print", "--raw");
             var (contentExit, contentOutput, contentError) = await RunAppAsync(
                 "package", packagePath, "--path", "skills/package-skill/SKILL.md",
-                "--content", "--bare");
+                "--content", "--raw");
             var (contentBlocksExit, contentBlocksOutput, contentBlocksError) = await RunAppAsync(
                 "package", packagePath, "--path", "skills/package-skill/SKILL.md",
                 "--content");
             var (projectExit, projectOutput, projectError) = await RunProjectFixtureAsync(
-                projectPath, "-S", "Skills", "--print", "--body", "--bare");
+                projectPath, "-S", "Skills", "--print", "--body", "--raw");
             var (packageJsonExit, packageJson, packageJsonError) = await RunAppAsync(
                 "package", packagePath, "-S", "Package skill files", "--print", "--jsonl");
             var (contentJsonExit, contentJson, contentJsonError) = await RunAppAsync(
@@ -539,13 +539,13 @@ public partial class CommandExecutionTests
             var (projectJsonExit, projectJson, projectJsonError) = await RunProjectFixtureAsync(
                 projectPath, "-S", "Skills", "--print", "--body", "--jsonl");
             var (packageFileExit, packageFileOutput, packageFileError) = await RunAppAsync(
-                "package", packagePath, "-S", "Package skill files", "--print", "--bare",
+                "package", packagePath, "-S", "Package skill files", "--print", "--raw",
                 "--output", packageOutputPath);
             var (contentFileExit, contentFileOutput, contentFileError) = await RunAppAsync(
                 "package", packagePath, "--path", "skills/package-skill/SKILL.md",
-                "--content", "--bare", "--output", contentOutputPath);
+                "--content", "--raw", "--output", contentOutputPath);
             var (projectFileExit, projectFileOutput, projectFileError) = await RunProjectFixtureAsync(
-                projectPath, "-S", "Skills", "--print", "--body", "--bare",
+                projectPath, "-S", "Skills", "--print", "--body", "--raw",
                 "--output", projectOutputPath);
 
             Assert.Equal(0, packageExit);
@@ -616,9 +616,9 @@ public partial class CommandExecutionTests
         try
         {
             var (packageExit, packageOutput, packageError) = await RunAppAsync(
-                "package", packagePath, "-S", "Package skill files", "--print", "--bare");
+                "package", packagePath, "-S", "Package skill files", "--print", "--raw");
             var (projectExit, projectOutput, projectError) = await RunProjectFixtureAsync(
-                projectPath, "-S", "Skills", "--print", "--body", "--bare");
+                projectPath, "-S", "Skills", "--print", "--body", "--raw");
 
             Assert.Equal(0, packageExit);
             Assert.Equal(0, projectExit);
@@ -669,13 +669,13 @@ public partial class CommandExecutionTests
             var projectOutput = Path.Combine(projectTempDir, "project-skill.md");
 
             var (packageExit, packageStdout, packageError) = await RunAppAsync(
-                "package", packagePath, "-S", "Package skill files", "--print", "--bare",
+                "package", packagePath, "-S", "Package skill files", "--print", "--raw",
                 outputOption, packageOutput);
             var (packageContentExit, packageContentStdout, packageContentError) = await RunAppAsync(
                 "package", packagePath, "--path", "skills/package-skill/SKILL.md",
-                "--content", "--bare", outputOption, packageContentOutput);
+                "--content", "--raw", outputOption, packageContentOutput);
             var (projectExit, projectStdout, projectError) = await RunProjectFixtureAsync(
-                projectPath, "-S", "Skills", "--print", "--body", "--bare", outputOption, projectOutput);
+                projectPath, "-S", "Skills", "--print", "--body", "--raw", outputOption, projectOutput);
 
             Assert.Equal(0, packageExit);
             Assert.Equal(0, packageContentExit);
@@ -1452,7 +1452,7 @@ public partial class CommandExecutionTests
         try
         {
             var (exit, output, error) = await RunProjectFixtureAsync(
-                projectPath, "-S", "Skills", "--bare");
+                projectPath, "-S", "Skills", "--raw");
 
             Assert.True(exit == 0, $"exit={exit}\nstdout:\n{output}\nstderr:\n{error}");
             Assert.Empty(error);
@@ -1478,7 +1478,7 @@ public partial class CommandExecutionTests
         try
         {
             var (exit, output, error) = await RunProjectFixtureAsync(
-                projectPath, "-S", "Skills", "--bare");
+                projectPath, "-S", "Skills", "--raw");
 
             Assert.Equal(1, exit);
             Assert.Empty(output);
@@ -1509,7 +1509,7 @@ public partial class CommandExecutionTests
             var (exit, output, error) = await RunProjectFixtureAsync(
                 projectPath,
                 "-S", "Skills",
-                "--bare", "--rows", "2..2");
+                "--raw", "--rows", "2..2");
 
             Assert.Equal(0, exit);
             Assert.Empty(error);

@@ -62,8 +62,8 @@ must not claim success early.
 From `main`, collect:
 
 1. The successful `ci.yml` main-push run ID that selects the release commit.
-2. A fresh successful Deep Inspect `test` run ID that certifies that commit or
-   an explicitly accepted ancestor.
+2. The most recent completed, non-cancelled Deep Inspect `test` run at or before
+   that commit, including every required job conclusion.
 3. The successful `deploy-inspect-web.yml` run ID for the exact release commit.
    Use the main-push run by default. An operator-dispatched main staging run
    requires explicit authorization during promotion.
@@ -95,15 +95,18 @@ fi
 printf 'release SHA: %s\n' "$ci_sha"
 ```
 
-The standard path uses exact certification and leaves both overrides disabled.
-For urgent relief, a person may set `allow_later_commit` to ship a later `main`
-descendant whose target commit is not itself certified. This never relaxes site
-identity: select a staging run for that same exact SHA. If that staging run was
-operator-dispatched, the person must also set `allow_manual_staging`.
+Green evidence at the exact target leaves both evidence overrides disabled.
+When the selected Deep Inspect workflow or a required job is non-successful, a
+person may set `accept_failed_certification` only after reviewing every
+disclosed conclusion and accepting those known gaps. This preserves the red
+result as evidence rather than relabeling it successful.
 
-After relief ships, keep package and site together on that commit and wait for
-the next exact certification before the next ordinary release. Neither override
-is standing authorization.
+A person may independently set `allow_later_commit` after reviewing the changes
+between the observed commit and a later `main` target. Neither override relaxes
+site identity: select a staging run for that same exact target SHA. If that
+staging run was operator-dispatched, the person must also set
+`allow_manual_staging`. All overrides are release-specific, not standing
+authorization.
 
 The SHA comparison is the last dependable veto before dispatch. The `nuget`
 environment has no approval gate; package publication proceeds automatically
@@ -137,7 +140,8 @@ peer release.
 Open `release.yml` and `promote-inspect-web.yml` together:
 
 1. Dispatch `release.yml` with the CI run ID, certification run ID, the intended
-   `allow_later_commit` value, and `confirm=publish`.
+   `accept_failed_certification` and `allow_later_commit` values, and
+   `confirm=publish`.
 2. Dispatch `promote-inspect-web.yml` with the matching staging run ID and
    `confirm=promote`. Leave `allow_manual_staging=false` for a push run; set it
    only with explicit authorization for an operator-dispatched staging run.
@@ -160,7 +164,8 @@ check the production and CoreCLR sites' data bars for the same version and
 linked commit.
 
 If the package workflow fails, leave site production unapproved and retry with
-the same CI and certification run IDs. Package retries tolerate
+the same CI and Deep Inspect run IDs and the same explicit acceptance values.
+Package retries tolerate
 already-published artifacts with `--skip-duplicate`. If site promotion fails
 after package publication, retry with the same staging run ID; site retries
 revalidate and promote the same staged artifact. A different SHA, ancestry-only

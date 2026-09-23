@@ -421,7 +421,7 @@ not adopted this transport.
 | Project columns/fields | `--columns`, `--fields` |
 | Limit semantic rows or rendered lines | `--rows`, `-n`, `--head`, `--tail`, `--lines`, `--tail-lines` |
 | Count results | `--count` |
-| Materialize one payload | `--print`, `--row`, `--value`, `--bare`, `--paths`, package-file `--roots`, `--urls`, `--json-array` |
+| Materialize one payload | `--print`, `--row`, `--value`, `--raw`, `--paths`, package-file `--roots`, `--urls`, `--json-array` |
 | Prefer browser views over fetchable URLs | `--prefer-rendered-urls` (keeps the original URL when no mapping is available) |
 | Control document verbosity | `-v:q`, `-v:m`, `-v:n`, `-v:d` |
 | Control tip verbosity | `-T q`, `-T m`, `-T d` |
@@ -432,8 +432,9 @@ with a concrete `-S` when querying sectioned output. Markdown and JSON can
 represent multi-section documents.
 
 Source URLs are fetchable by default. `--prefer-rendered-urls` prefers a browser
-view when supported; it changes neither `--print` acquisition nor `--bare`
-decoration. The old `--raw` and `--blob` flags are no longer accepted.
+view when supported; it changes neither `--print` acquisition nor `--raw`
+decoration. The old URL-shape spellings, `--raw` and `--blob`, are no longer
+accepted with that meaning; `--raw` now means the undecorated rendering only.
 
 `-n N` selects the command's items. It selects semantic rows when the active
 command or lens declares them; otherwise it selects the first N rendered lines.
@@ -543,7 +544,7 @@ observe the same selected rows; add `--lines` only to clip rendered text.
 
 For one package with exactly `SourceLink: Files` selected, `-n`, `--tail`, and
 `--rows A..B` select complete library/type/URL rows after SourceLink collection
-and `--type` filtering. Count, table, TSV, JSONL, JSON, `--urls`, and `--bare`
+and `--type` filtering. Count, table, TSV, JSONL, JSON, `--urls`, and `--raw`
 observe the same selected rows; add `--lines` only to clip rendered text.
 
 Online range-version population is metadata-only: it enumerates versions
@@ -673,14 +674,14 @@ the package actually ships, use the separate package-file section:
 ```bash
 dotnet-inspect package wix@7.0.0 -S "Package license files"
 dotnet-inspect package wix@7.0.0 -S "Package license files" --count
-dotnet-inspect package wix@7.0.0 -S "Package license files" --print --bare
+dotnet-inspect package wix@7.0.0 -S "Package license files" --print --raw
 ```
 
 Package Query places the semantic result in `Answer`: `MIT` for the
 Newtonsoft.Json query, `OSMF` for the WiX query, and `true` for
 `license=any`. Supporting nuspec
 declaration kind and value remain separate evidence. `--count` already emits
-only the scalar count; `--bare` is useful with `--print` when only the selected
+only the scalar count; `--raw` is useful with `--print` when only the selected
 document body is wanted without package or section framing.
 
 The exact nuspec `<license type="file">` target is always included. The same

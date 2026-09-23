@@ -11,7 +11,10 @@ shipped end-user capability; it is not embedded in the dotnet-inspect binary.
 Use this skill when a change needs expensive evidence outside normal PR CI.
 Deep Inspect is opt-in for risky PRs. Its `test`, `platform-test`,
 and decompiler-corpus jobs run daily to certify a commit for release. Publish
-consumes that certification evidence rather than rerunning the slow suites.
+consumes the latest completed certification evidence rather than rerunning the
+slow suites merely because `main` moved or the release decision happened
+later. Runs do not cancel earlier runs in the same lane; complete outcomes are
+required for release risk review.
 The `authored-corpus` ratchet runs on a separate daily schedule as a regression
 gate rather than release-certification or publish evidence. The comprehensive
 Inspect Web lane is also daily regression evidence rather than release
@@ -70,12 +73,14 @@ The corpus command runs as a separate workflow job and can take hours. Omit it
 only when intentionally reproducing the non-corpus `test` job rather than the
 complete dispatched `test` lane.
 
-A successful daily or manually dispatched certification requires the `test`,
-`platform-test`, and decompiler-corpus jobs at one exact `main` SHA. Publish
-requires that certification run ID. Publishing a later descendant remains an
-explicit operator decision. Its exact main-push `ci-required` result must
-succeed, but main-push CI does not run the PR-only substantive test jobs, and
-the certification does not claim to cover intervening changes.
+A green daily or manually dispatched certification requires the `test`,
+`platform-test`, and decompiler-corpus jobs at one exact SHA. Publish consumes
+the most recent completed, non-cancelled certification run at or before the
+release target. Non-success outcomes remain red and require explicit human
+acceptance after review; publishing a later descendant is a separate explicit
+decision. The target's exact main-push `ci-required` result must succeed, but
+main-push CI does not run the PR-only substantive test jobs, and the Deep
+Inspect result does not claim to cover intervening changes.
 
 The `platform-test` lane is workflow-owned and runs the reduced
 cross-platform suite on Windows, macOS, and Ubuntu. When reproducing a
@@ -104,9 +109,11 @@ accepted for ongoing coverage.
 
 ## Reading results
 
-- Treat `test`, `platform-test`, and decompiler-corpus failures as blockers:
-  reproduce locally, identify the first failing proof, and fix it before
-  certification can authorize publish.
+- Treat `test`, `platform-test`, and decompiler-corpus failures as visible
+  release risks. Fix them when the release decision requires green evidence;
+  otherwise preserve their red conclusions and follow the release workflow's
+  explicit failure-acceptance path. Do not automatically rerun Deep Inspect
+  merely because the release target moved.
 - Treat `census` output as triage signal unless a command exits nonzero by
   design. Compare snapshots against committed baselines and route meaningful
   drift to issues or follow-up PRs.
