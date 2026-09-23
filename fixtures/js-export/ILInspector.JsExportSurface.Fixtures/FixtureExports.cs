@@ -522,6 +522,7 @@ public static partial class InternalContextFixtureExports
 }
 
 [JsonSerializable(typeof(WidgetDto))]
+[JsonSerializable(typeof(WidgetOwner))]
 [JsonSerializable(typeof(WidgetDto[]))]
 [JsonSerializable(typeof(string))]
 [JsonSerializable(typeof(string[]))]

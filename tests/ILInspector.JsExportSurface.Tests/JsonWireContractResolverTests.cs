@@ -1974,6 +1974,22 @@ public sealed class JsonWireContractResolverTests
             type => type.FullName
                 == typeof(JsonInputExports).FullName);
 
+    private static void AddFixtureOutputDeclaration(
+        ApiSurface apiSurface,
+        string methodName,
+        string wireTypeName)
+    {
+        ApiType exports = Assert.Single(
+            apiSurface.Types,
+            type => type.FullName == typeof(FixtureExports).FullName);
+        exports.JsExportJsonOutputDeclarations.Add(
+            new(
+                TsJsExport.JsExportContractIdentity.Api,
+                methodName,
+                JsonSerializableShape(apiSurface, wireTypeName),
+                UnsupportedReason: null));
+    }
+
     private static ApiTypeShape JsonSerializableShape(
         ApiSurface apiSurface,
         string typeName)
@@ -2103,6 +2119,29 @@ public sealed class JsonWireContractResolverTests
     }
 
     [Fact]
+    public void Build_RejectsDeclaredOutputWhenOneReturnBranchSerializesAnotherRoot()
+    {
+        var (apiSurface, bodyIndex) =
+            ExtractFixtureSurfaceWithWireContracts(
+                typeof(FixtureExports).Assembly.Location);
+        AddFixtureOutputDeclaration(
+            apiSurface,
+            nameof(FixtureExports.GetWidgetOrOwner),
+            nameof(WidgetDto));
+
+        UnsupportedJsExportSurfaceException exception =
+            Assert.Throws<UnsupportedJsExportSurfaceException>(
+                () => BuildWithJsonInputContract(
+                    apiSurface,
+                    bodyIndex));
+
+        Assert.Contains(
+            "declared JSON output conflicts with serializer evidence",
+            exception.Message,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void Build_LeavesReturnWireTypeUnsetWhenAnyPhysicalReturnIsRaw()
     {
         ILInspector.JsExportSurface.JsExportSurface surface =
@@ -2118,6 +2157,37 @@ public sealed class JsonWireContractResolverTests
             fn.JsonContractCertification);
         Assert.Contains(
             fn.CertificationDiagnostics,
+            diagnostic => diagnostic.Message.Contains(
+                "does not cover every return path",
+                StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void Build_LeavesDeclaredOutputIncompleteWhenAnotherReturnBranchIsRaw()
+    {
+        var (apiSurface, bodyIndex) =
+            ExtractFixtureSurfaceWithWireContracts(
+                typeof(FixtureExports).Assembly.Location);
+        AddFixtureOutputDeclaration(
+            apiSurface,
+            nameof(FixtureExports.GetWidgetOrRawOk),
+            nameof(WidgetDto));
+
+        ILInspector.JsExportSurface.JsExportSurface surface =
+            BuildWithJsonInputContract(apiSurface, bodyIndex);
+        JsExportFunction function = Assert.Single(
+            surface.Functions,
+            candidate => candidate.Name
+                == nameof(FixtureExports.GetWidgetOrRawOk));
+
+        Assert.Equal(
+            FixtureNamespace + nameof(WidgetDto),
+            function.ReturnWireType);
+        Assert.Equal(
+            JsExportJsonContractCertification.Incomplete,
+            function.JsonContractCertification);
+        Assert.Contains(
+            function.CertificationDiagnostics,
             diagnostic => diagnostic.Message.Contains(
                 "does not cover every return path",
                 StringComparison.Ordinal));

@@ -257,10 +257,21 @@ public static class JsonWireContractResolver
             && HasReturnSerializerEvidence(
                 bodyIndex,
                 metadataToken);
+        IReadOnlyList<AuthenticatedWireType> observedReturnTypes =
+            declaredReturn is null
+                ? []
+                : ResolveObservedReturnWireTypes(
+                    bodyIndex,
+                    metadataToken,
+                    registeredJsonTypeInfoGetterModes,
+                    registeredJsonTypeInfoContextScopeKeys,
+                    registeredJsonTypeInfoDefaultGetters,
+                    registeredJsonTypeInfoShapes,
+                    unsupportedJsonTypeInfoGetterReasons);
         if (declaredReturn is not null
-            && returnType is not null
-            && !declaredReturn.WireTypeShape.Equals(
-                returnType.Value.Shape))
+            && observedReturnTypes.Any(observed =>
+                !declaredReturn.WireTypeShape.Equals(
+                    observed.Shape)))
         {
             throw new UnsupportedJsExportSurfaceException(
                 $"{function.DeclaringType}.{function.Name}",
@@ -581,45 +592,10 @@ public static class JsonWireContractResolver
         IReadOnlyDictionary<JsonContextGetterIdentity, string>
             unsupportedJsonTypeInfoGetterReasons)
     {
-        var sinks = new List<MethodResultSink>();
-        foreach (MethodResultSink sink in bodyIndex.ResultSinks)
-        {
-            if (sink.Caller.MetadataToken != metadataToken)
-                continue;
-
-            if (sink.Kind == MethodResultSinkKind.MethodReturn)
-            {
-                if (IsAuthenticSynchronousResultSink(
-                        bodyIndex,
-                        sink,
-                        metadataToken)
-                    || IsAuthenticRuntimeAsyncResultSink(
-                        bodyIndex,
-                        sink,
-                        metadataToken))
-                {
-                    sinks.Add(sink);
-                }
-                continue;
-            }
-
-            if (sink.Kind != MethodResultSinkKind.SingleArgumentCall)
-                continue;
-
-            DirectCall? consumer = CallAt(
+        IReadOnlyList<MethodResultSink> sinks =
+            ResolveAuthenticReturnSinks(
                 bodyIndex,
-                sink.EvidenceMethod,
-                sink.ILOffset);
-            if (consumer is not null
-                && IsTrustedAsyncResultSink(consumer.Callee)
-                && IsAuthenticStateMachineResultSink(
-                    bodyIndex,
-                    sink,
-                    metadataToken))
-            {
-                sinks.Add(sink);
-            }
-        }
+                metadataToken);
 
         if (sinks.Count == 0)
             return null;
@@ -679,6 +655,131 @@ public static class JsonWireContractResolver
         return dto is not null && dtoShape is not null
             ? new(dto, dtoShape, [.. contextScopeKeys])
             : null;
+    }
+
+    static IReadOnlyList<AuthenticatedWireType>
+        ResolveObservedReturnWireTypes(
+            LibraryBodyIndex bodyIndex,
+            int metadataToken,
+            IReadOnlyDictionary<JsonContextGetterIdentity, JsonSourceGenerationMode>
+                registeredJsonTypeInfoGetterModes,
+            IReadOnlyDictionary<JsonContextGetterIdentity, string>
+                registeredJsonTypeInfoContextScopeKeys,
+            IReadOnlyDictionary<
+                JsonContextGetterIdentity,
+                JsonContextGetterIdentity>
+                registeredJsonTypeInfoDefaultGetters,
+            IReadOnlyDictionary<JsonContextGetterIdentity, ApiTypeShape>
+                registeredJsonTypeInfoShapes,
+            IReadOnlyDictionary<JsonContextGetterIdentity, string>
+                unsupportedJsonTypeInfoGetterReasons)
+    {
+        var observed = new List<AuthenticatedWireType>();
+        foreach (MethodResultSink sink in ResolveAuthenticReturnSinks(
+            bodyIndex,
+            metadataToken))
+        {
+            foreach (int sourceOffset
+                in EnumerateKnownSourceCallOffsets(sink).Distinct())
+            {
+                DirectCall? source = CallAt(
+                    bodyIndex,
+                    sink.EvidenceMethod,
+                    sourceOffset);
+                TypeRef? sourceDto = source is null
+                    ? null
+                    : ResolveSerializeDto(source.Callee);
+                if (source is null
+                    || sourceDto is null
+                    || !HasAuthenticatedJsonTypeInfoArgument(
+                        bodyIndex,
+                        source,
+                        sourceDto,
+                        registeredJsonTypeInfoGetterModes,
+                        registeredJsonTypeInfoContextScopeKeys,
+                        registeredJsonTypeInfoDefaultGetters,
+                        registeredJsonTypeInfoShapes,
+                        unsupportedJsonTypeInfoGetterReasons,
+                        JsonWireDirection.Serialize,
+                        out ApiTypeShape? sourceShape,
+                        out ImmutableArray<string> sourceContextScopeKeys)
+                    || sourceShape is null)
+                {
+                    continue;
+                }
+
+                observed.Add(
+                    new(
+                        sourceDto,
+                        sourceShape,
+                        sourceContextScopeKeys));
+            }
+        }
+        return observed;
+    }
+
+    static IReadOnlyList<MethodResultSink> ResolveAuthenticReturnSinks(
+        LibraryBodyIndex bodyIndex,
+        int metadataToken)
+    {
+        var sinks = new List<MethodResultSink>();
+        foreach (MethodResultSink sink in bodyIndex.ResultSinks)
+        {
+            if (sink.Caller.MetadataToken != metadataToken)
+                continue;
+
+            if (sink.Kind == MethodResultSinkKind.MethodReturn)
+            {
+                if (IsAuthenticSynchronousResultSink(
+                        bodyIndex,
+                        sink,
+                        metadataToken)
+                    || IsAuthenticRuntimeAsyncResultSink(
+                        bodyIndex,
+                        sink,
+                        metadataToken))
+                {
+                    sinks.Add(sink);
+                }
+                continue;
+            }
+
+            if (sink.Kind != MethodResultSinkKind.SingleArgumentCall)
+                continue;
+
+            DirectCall? consumer = CallAt(
+                bodyIndex,
+                sink.EvidenceMethod,
+                sink.ILOffset);
+            if (consumer is not null
+                && IsTrustedAsyncResultSink(consumer.Callee)
+                && IsAuthenticStateMachineResultSink(
+                    bodyIndex,
+                    sink,
+                    metadataToken))
+            {
+                sinks.Add(sink);
+            }
+        }
+        return sinks;
+    }
+
+    static IEnumerable<int> EnumerateKnownSourceCallOffsets(
+        MethodResultSink sink)
+    {
+        if (!sink.SourceCallOffsets.IsDefaultOrEmpty)
+        {
+            foreach (int sourceOffset in sink.SourceCallOffsets)
+                yield return sourceOffset;
+        }
+        if (sink.StateMachineFieldSource is
+            {
+                SourceCallOffsets.IsDefaultOrEmpty: false,
+            } fieldSource)
+        {
+            foreach (int sourceOffset in fieldSource.SourceCallOffsets)
+                yield return sourceOffset;
+        }
     }
 
     static bool HasReturnSerializerEvidence(
