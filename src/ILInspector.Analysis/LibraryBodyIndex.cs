@@ -269,8 +269,6 @@ public sealed class LibraryBodyIndex
         _leverage;
 
     readonly ImmutableArray<MethodIdentity> _unsafeLeverageMethods;
-    IReadOnlyDictionary<int, ImmutableArray<DirectCall>>?
-        _directCallsByEvidenceMethod;
     IReadOnlyDictionary<int, ImmutableArray<UnsafeEvidence>>? _unsafeEvidenceByMember;
     /// <summary>
     /// Drops the maps that back the single-assembly call-tree builders: the
@@ -294,7 +292,6 @@ public sealed class LibraryBodyIndex
     public void ReleaseCallGraphCaches()
     {
         _callGraph.ReleaseCaches();
-        _directCallsByEvidenceMethod = null;
         _overloadRelationships = default;
         _projectedImplementationProfiles = default;
     }
@@ -496,11 +493,7 @@ public sealed class LibraryBodyIndex
     /// </summary>
     public IReadOnlyDictionary<int, ImmutableArray<DirectCall>>
         GetDirectCallsByEvidenceMethod()
-        => _directCallsByEvidenceMethod ??= DirectCalls
-            .GroupBy(call => call.EvidenceMethod.MetadataToken)
-            .ToDictionary(
-                group => group.Key,
-                group => group.ToImmutableArray());
+        => _callGraph.DirectCallsByEvidenceMethod;
 
     /// <summary>
     /// Maps a compiler-generated body — an async state-machine <c>MoveNext</c>,
@@ -534,7 +527,9 @@ public sealed class LibraryBodyIndex
     public IReadOnlyDictionary<int, ImmutableArray<UnsafeEvidence>> GetUnsafeEvidenceByMember()
         => _unsafeEvidenceByMember ??= UnsafeEvidence
             .GroupBy(evidence => evidence.Member.MetadataToken)
-            .ToDictionary(group => group.Key, group => group.ToImmutableArray());
+            .ToDictionary(
+                group => group.Key,
+                group => group.ToImmutableArray());
 
     /// <summary>
     /// Exact <see cref="TypeRef"/> identities of types recognized as protobuf/gRPC

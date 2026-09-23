@@ -33,6 +33,37 @@ public sealed class MetadataDeclarationSession : IDisposable
         }
     }
 
+    public MetadataMethodDeclarationResult PostMethodDeclaration(
+        MetadataTypeDefinitionAddress type,
+        ILInspector.MetadataPrimitives.MetadataMethodAddress method,
+        CancellationToken token = default)
+    {
+        EnsureAccess();
+        token.ThrowIfCancellationRequested();
+        MetadataOperationContext operation = _operationContext!;
+        if (_imageAdmission is MetadataImageAdmissionResult.Rejected rejected)
+        {
+            return new MetadataMethodDeclarationResult.Rejected(
+                new MetadataMethodDeclarationFailure(
+                    new(type, method),
+                    MetadataMethodDeclarationFailureReason.BudgetExceeded,
+                    MetadataMethodDeclarationStage.RequestValidation,
+                    MetadataMethodDeclarationMechanism.ImageAdmission,
+                    "The metadata image was not admitted.",
+                    default,
+                    MetadataOperationDimension.MetadataRows,
+                    rejected.Failure.MaxMetadataRows,
+                    rejected.Failure.ImageMetadataRows),
+                operation.Counters);
+        }
+
+        return new MetadataMethodDeclarationEvidenceOperation(
+            _assemblySession!.GetMetadataReaderForDeclarationSession(),
+            operation,
+            GetOrCreateTypeDefinitionIndex)
+            .Post(type, method, token);
+    }
+
     public MetadataMethodImplementationResult Relate(
         MetadataTypeDefinitionAddress type,
         ILInspector.MetadataPrimitives.MetadataMethodAddress body,

@@ -153,10 +153,13 @@ public partial class ApiCommand
                 view, ApiViewContext.Default, writerOptions);
             if (!TryReportEmptyProjection(projection.WroteAnyContent, options))
                 return 1;
-            var ordered = OutputFormatter.ResolveCountMapSections(
-                ApiTypeSectionDescriptors.CreatePipeline(),
-                options.IncludeSections,
-                fixedOverview: false);
+            var ordered =
+                options is TypeOptions { CountDefaultPopulation: true }
+                    ? null
+                    : OutputFormatter.ResolveCountMapSections(
+                        ApiTypeSectionDescriptors.CreatePipeline(),
+                        options.IncludeSections,
+                        fixedOverview: false);
             CountOutput.Write(
                 projection, ordered, options.Format, options.NoHeader);
         }

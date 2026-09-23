@@ -1579,7 +1579,9 @@ public static class ApiOutputFormatter
         if (request.Calls && singleMethodList is [{ MetadataToken: { } token } callsMethod])
         {
             RequestTelemetry.Breadcrumb("il-analysis.calls", callsMethod.Name);
-            var callsByCaller = analysisInspection.BodyIndex.GetDirectCallsByCaller();
+            var callsByCaller = analysisInspection
+                .CallGraph
+                .DirectCallsByCaller;
             var calls = callsByCaller.TryGetValue(token, out var directCalls)
                 ? directCalls
                 : ImmutableArray<Analysis.DirectCall>.Empty;
@@ -1730,7 +1732,10 @@ public static class ApiOutputFormatter
         if (request.UnsafeOperations && singleMethodList is [{ MetadataToken: { } unsafeToken } unsafeMethod])
         {
             RequestTelemetry.Breadcrumb("il-analysis.unsafe", unsafeMethod.Name);
-            var evidence = InspectSafetyFindings(analysisInspection.BodyIndex, unsafeToken)
+            var evidence = InspectSafetyFindings(
+                    analysisInspection.Safety,
+                    analysisInspection.CallGraph,
+                    unsafeToken)
                 .Evidence
                 .Select(static finding => finding.Payload)
                 .OrderBy(evidence => evidence.ILOffset ?? -1)
@@ -1775,7 +1780,8 @@ public static class ApiOutputFormatter
             if (requestedSections.Contains(SectionNames.AllocationFacts))
             {
                 var rows = Analysis.SemanticFactProjection.AllocationFacts(
-                        analysisInspection.BodyIndex.GetAllocationOccurrences(),
+                        analysisInspection.Allocations
+                            .Occurrences,
                         semanticToken)
                     .Select(fact => ToAllocationFactRow(fact, includeMember: false))
                     .ToList();
@@ -1788,7 +1794,10 @@ public static class ApiOutputFormatter
 
             if (requestedSections.Contains(SectionNames.SafetyFacts))
             {
-                var safety = InspectSafetyFindings(analysisInspection.BodyIndex, semanticToken);
+                var safety = InspectSafetyFindings(
+                    analysisInspection.Safety,
+                    analysisInspection.CallGraph,
+                    semanticToken);
                 var rows = Analysis.SemanticFactProjection.SafetyFacts(
                         safety.Evidence,
                         safety.Operations)
@@ -1804,8 +1813,8 @@ public static class ApiOutputFormatter
             if (requestedSections.Contains(SectionNames.CostFacts))
             {
                 var rows = Analysis.SemanticFactProjection.CostFacts(
-                        analysisInspection.BodyIndex
-                            .GetDirectCallsByEvidenceMethod(),
+                        analysisInspection.CallGraph
+                            .DirectCallsByEvidenceMethod,
                         semanticToken)
                     .Select(fact => ToCostFactRow(fact, includeMember: false))
                     .ToList();
@@ -2316,15 +2325,34 @@ public static class ApiOutputFormatter
         => evidence is { Reason: "Unsafe API member", Kind: "api" };
 
     static SafetyFindingCensus InspectSafetyFindings(
-        Analysis.LibraryBodyIndex index,
+        Analysis.LibrarySafetyAnalysisResult safety,
+        Analysis.LibraryCallGraphAnalysisResult callGraph,
+        int methodToken)
+        => InspectSafetyFindings(
+            safety.GetEvidenceByMember(),
+            safety.Occurrences,
+            callGraph.Methods,
+            methodToken);
+
+    static SafetyFindingCensus InspectSafetyFindings(
+        IReadOnlyDictionary<
+            int,
+            ImmutableArray<Analysis.UnsafeEvidence>> evidenceByMember,
+        IReadOnlyDictionary<
+            int,
+            ImmutableArray<Analysis.UnsafetyOccurrence>> occurrences,
+        ImmutableArray<Analysis.MethodIdentity> methods,
         int methodToken)
     {
-        index.GetUnsafeEvidenceByMember().TryGetValue(methodToken, out var evidence);
-        index.GetUnsafetyOccurrences().TryGetValue(methodToken, out var operations);
+        evidenceByMember.TryGetValue(
+            methodToken,
+            out var evidence);
+        occurrences.TryGetValue(methodToken, out var operations);
         evidence = evidence.IsDefault ? [] : evidence;
         operations = operations.IsDefault ? [] : operations;
 
-        var method = index.Methods.FirstOrDefault(candidate => candidate.MetadataToken == methodToken)
+        var method = methods.FirstOrDefault(
+                candidate => candidate.MetadataToken == methodToken)
             ?? operations.FirstOrDefault()?.Method
             ?? evidence.FirstOrDefault()?.Member;
         if (method is null)
@@ -2400,10 +2428,13 @@ public static class ApiOutputFormatter
                 pair.Value.Count));
     }
 
-    internal static void PopulateUnsafeMembers(TypeView view, ApiType type, Analysis.LibraryBodyIndex index)
+    internal static void PopulateUnsafeMembers(
+        TypeView view,
+        ApiType type,
+        Analysis.LibrarySafetyAnalysisResult safety)
     {
-        var rows = index
-            .UnsafeEvidence
+        var rows = safety
+            .Evidence
             .Where(evidence => ApiAnalysisInspection.SameType(evidence.Member.DeclaringType, type))
             .GroupBy(evidence => evidence.Member.MetadataToken)
             .SelectMany(group =>
@@ -2473,7 +2504,9 @@ public static class ApiOutputFormatter
     internal static void PopulateTypeSemanticFacts(
         TypeView view,
         ApiType type,
-        Analysis.LibraryBodyIndex index,
+        Analysis.LibraryAllocationAnalysisResult allocations,
+        Analysis.LibrarySafetyAnalysisResult safety,
+        Analysis.LibraryCallGraphAnalysisResult callGraph,
         IReadOnlySet<string>? requestedSections,
         IReadOnlySet<string>? explicitSections = null)
     {
@@ -2484,9 +2517,11 @@ public static class ApiOutputFormatter
 
         if (requestedSections?.Contains(SectionNames.AllocationFacts) == true)
         {
-            var allocationOccurrences = index.GetAllocationOccurrences();
             var rows = methodTokens
-                .SelectMany(token => Analysis.SemanticFactProjection.AllocationFacts(allocationOccurrences, token))
+                .SelectMany(token =>
+                    Analysis.SemanticFactProjection.AllocationFacts(
+                        allocations.Occurrences,
+                        token))
                 .Select(fact => ToAllocationFactRow(fact, includeMember: true))
                 .ToList();
             if (rows.Count > 0 || explicitSections is not null && explicitSections.Contains(SectionNames.AllocationFacts))
@@ -2495,13 +2530,21 @@ public static class ApiOutputFormatter
 
         if (requestedSections?.Contains(SectionNames.SafetyFacts) == true)
         {
+            IReadOnlyDictionary<
+                int,
+                ImmutableArray<Analysis.UnsafeEvidence>>
+                evidenceByMember = safety.GetEvidenceByMember();
             var rows = methodTokens
                 .SelectMany(token =>
                 {
-                    var safety = InspectSafetyFindings(index, token);
+                    var findings = InspectSafetyFindings(
+                        evidenceByMember,
+                        safety.Occurrences,
+                        callGraph.Methods,
+                        token);
                     return Analysis.SemanticFactProjection.SafetyFacts(
-                        safety.Evidence,
-                        safety.Operations);
+                        findings.Evidence,
+                        findings.Operations);
                 })
                 .Select(fact => ToSafetyFactRow(fact, includeMember: true))
                 .ToList();
@@ -2511,10 +2554,11 @@ public static class ApiOutputFormatter
 
         if (requestedSections?.Contains(SectionNames.CostFacts) == true)
         {
-            var directCallsByCaller =
-                index.GetDirectCallsByEvidenceMethod();
             var rows = methodTokens
-                .SelectMany(token => Analysis.SemanticFactProjection.CostFacts(directCallsByCaller, token))
+                .SelectMany(token =>
+                    Analysis.SemanticFactProjection.CostFacts(
+                        callGraph.DirectCallsByEvidenceMethod,
+                        token))
                 .Select(fact => ToCostFactRow(fact, includeMember: true))
                 .ToList();
             if (rows.Count > 0 || explicitSections is not null && explicitSections.Contains(SectionNames.CostFacts))
