@@ -57,7 +57,7 @@ public class SharedOptions
         Description = "Apply -n to rendered lines from the end",
         Arity = ArgumentArity.Zero
     };
-    public Option<bool> Count { get; } = new("--count") { Description = "Reduce a selected table/vector to a single row count" };
+    public Option<bool> Count { get; } = new("--count") { Description = "Reduce the effective table/vector population to a row count" };
     public Option<bool> Print { get; } = new("--print") { Description = "Print one document behind a selected section row; use --row N|first|last to choose a row when multiple rows are printable" };
     public Option<string?> Row { get; } = new("--row") { Description = "With --print or a shape projection, select a printable row: a 1-based index, first, or last" };
     public Option<bool> Value { get; } = new("--value") { Description = "Print one scalar value from a selected section; use --row N|first|last when multiple rows exist" };

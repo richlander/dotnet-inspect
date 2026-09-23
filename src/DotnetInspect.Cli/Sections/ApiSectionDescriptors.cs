@@ -9,6 +9,15 @@ namespace DotnetInspect.Cli.Sections;
 /// </summary>
 public static class ApiTypeSectionDescriptors
 {
+    internal static IReadOnlyList<string> FindingSectionNames { get; } =
+    [
+        Classes.Name,
+        Structs.Name,
+        Interfaces.Name,
+        Enums.Name,
+        Delegates.Name,
+    ];
+
     /// <summary>Builds the section pipeline for the type-list view.</summary>
     public static SectionPipeline<ApiSurface> CreatePipeline()
     {
