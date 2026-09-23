@@ -48,7 +48,7 @@ export type ImplementationProfileFamilyRequest =
   | PackageImplementationProfileRequest
   | PlatformImplementationProfileRequest;
 
-export interface ImplementationProfileFamilyMember {
+interface ImplementationProfileFamilyMember {
   readonly typeDefinitionId: string;
   readonly stableSelector: string;
   readonly display: string;
@@ -63,12 +63,12 @@ export interface ImplementationProfileFamilySelection {
   readonly isCurrent: () => boolean;
 }
 
-export interface ImplementationProfileRawMetric {
+interface ImplementationProfileRawMetric {
   readonly label: string;
   readonly value: string;
 }
 
-export interface ImplementationProfilePhysicalRow {
+interface ImplementationProfilePhysicalRow {
   readonly profile: BrowserImplementationProfile;
   readonly logicalMethod: BrowserImplementationProfileMethod;
   readonly evidenceMethod: BrowserImplementationProfileMethod;
@@ -80,14 +80,14 @@ export interface ImplementationProfilePhysicalRow {
   readonly relationships: ReadonlyArray<BrowserImplementationProfileRelationship>;
 }
 
-export interface ImplementationProfileOverloadRow {
+interface ImplementationProfileOverloadRow {
   readonly member: ImplementationProfileFamilyMember;
   readonly physicalRows: ReadonlyArray<ImplementationProfilePhysicalRow>;
   readonly unavailableBodies: ReadonlyArray<BrowserImplementationProfileUnavailableBody>;
   readonly largestInstructionCount: number | null;
 }
 
-export interface ImplementationProfileFamilyProjection {
+interface ImplementationProfileFamilyProjection {
   readonly display: string;
   readonly rows: ReadonlyArray<ImplementationProfileOverloadRow>;
   readonly physicalRowCount: number;
@@ -138,7 +138,7 @@ export type ImplementationProfileProjectionOutcome =
       readonly failure: BrowserImplementationProfileFailure;
     } & ImplementationProfileOwnerProjectionBase);
 
-export type ImplementationProfileTerminalState =
+type ImplementationProfileTerminalState =
   ImplementationProfileProjectionOutcome & {
     readonly request: ImplementationProfileFamilyRequest;
   };
@@ -163,7 +163,7 @@ export interface ImplementationProfileStateHost {
   implementationProfiles: ImplementationProfileState;
 }
 
-export type ImplementationProfileCacheStatus =
+type ImplementationProfileCacheStatus =
   | "missing"
   | "in-flight"
   | "settled"
