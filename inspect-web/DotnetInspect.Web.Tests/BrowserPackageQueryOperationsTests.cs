@@ -88,12 +88,12 @@ public sealed class BrowserPackageQueryOperationsTests
             Ordinal: 0);
         var package = new PackageProfileMatch(
             "Contoso.Package",
-            "1.0.0",
+            "1.0.0-BETA",
             [],
             TotalDownloads: 42,
             Verified: false,
             source.Source,
-            Manifest("Contoso.Package", "1.0.0", isToolPackage: false));
+            Manifest("Contoso.Package", "1.0.0-BETA", isToolPackage: false));
         var match = new PackageQueryMatch(
             package,
             PackageQueryAcquisitionTier.PackageContent,
@@ -105,7 +105,7 @@ public sealed class BrowserPackageQueryOperationsTests
         var assessment = new PackageQueryLibraryLiteralAssessment(
             CandidateOrdinal: 1,
             "Contoso.Package",
-            "1.0.0",
+            "1.0.0-beta",
             source.Source,
             PackageQueryLibraryLiteralAssessmentKind.Matched)
         {

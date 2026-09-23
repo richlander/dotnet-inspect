@@ -939,7 +939,7 @@ namespace DotnetInspect.Web.Interop.Package
                     && string.Equals(
                         result.Package.Version,
                         assessment.Version,
-                        StringComparison.Ordinal))
+                        StringComparison.OrdinalIgnoreCase))
                 .Select(result => result.LibraryLiteral)
                 .SingleOrDefault(result => result is not null)
                 ?? throw new InvalidOperationException(
