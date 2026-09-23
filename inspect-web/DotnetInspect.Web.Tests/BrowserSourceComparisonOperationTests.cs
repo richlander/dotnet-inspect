@@ -355,7 +355,7 @@ public sealed class BrowserSourceComparisonOperationTests(ITestOutputHelper outp
     [Fact]
     public async Task OversizedMalformedRequestRetainsExpectedFailure()
     {
-        string requestJson = $"{{\"{new string('x', 7_500)}\":0}}";
+        string requestJson = $"{{\"{new string('x', 8_180)}\":0}}";
         Assert.True(requestJson.Length <= BrowserSourceDiffProjection.MaximumRequestBytes);
         string id = Guid.NewGuid().ToString();
 
