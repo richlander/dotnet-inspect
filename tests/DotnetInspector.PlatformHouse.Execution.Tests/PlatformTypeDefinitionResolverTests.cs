@@ -528,6 +528,60 @@ public sealed class PlatformTypeDefinitionResolverTests
 
     [Fact]
     public async Task
+        ResolveImplementationAsync_ReturnsIncompleteWhenCleanupExceedsDurationBudget()
+    {
+        CancellationToken cancellationToken =
+            TestContext.Current.CancellationToken;
+        PreparedPopulation prepared =
+            await PrepareRuntimePopulationAsync(cancellationToken);
+        PlatformPopulationMember starting = Member(
+            prepared.Completed,
+            "System.Xml");
+        ResolvedAssemblyReference start =
+            SnapshotDescriptor(prepared.Completed, starting);
+        PlatformHouseRequest exactRequest = TypeRequest(
+            prepared,
+            starting,
+            start,
+            XmlReaderName(),
+            cancellationToken,
+            Work(maxDuration: TimeSpan.Zero));
+        var selecting = new PlatformTargetDemand.Selecting(
+            PlatformFamily.DotNetRuntime,
+            PlatformTargetFramework.Parse("net11.0"),
+            new PlatformVersionSelectionDemand.Requirement(
+                PlatformVersionRequirementIdentity.Create("net11")),
+            [PlatformSourceCapabilityIdentity.Create("target-discovery")],
+            new PlatformTargetDiscoveryBudget(4, 8));
+        var request = new PlatformHouseRequest(
+            exactRequest.Identity,
+            selecting,
+            exactRequest.Origin,
+            exactRequest.Operation,
+            exactRequest.Sources,
+            exactRequest.Work,
+            cancellationToken);
+        LibraryContentOwner startingOwner =
+            Owner(prepared.Completed, starting);
+
+        var incomplete = Assert.IsType<PlatformHouseOutcome<
+            PlatformTypeDefinitionValue
+                .Implementation<
+                    PlatformTypeDefinitionResolutionResult>>.Incomplete>(
+                    await PlatformHouseTypeDefinitionResolver
+                        .ResolveImplementationAsync(
+                            request,
+                            prepared.Completed,
+                            prepared.Consumed));
+        Assert.True(
+            incomplete.Receipt.ConsumedWork.Elapsed
+                > request.Work.MaxDuration);
+        Assert.IsType<LibraryOperationLeaseIssueOutcome.OwnerReleased>(
+            startingOwner.IssueOperationLease(starting.Library));
+    }
+
+    [Fact]
+    public async Task
         ResolveImplementationAsync_ReturnsIncompleteWhenPriorWorkExceedsBudget()
     {
         CancellationToken cancellationToken =
@@ -893,7 +947,8 @@ public sealed class PlatformTypeDefinitionResolverTests
 
     static PlatformHouseWorkBudget Work(
         int maxForwardingHops = 8,
-        int maxAssemblies = 16) =>
+        int maxAssemblies = 16,
+        TimeSpan? maxDuration = null) =>
         new(
             maxSourceOperations: 4,
             maxTargetCandidates: 4,
@@ -903,7 +958,7 @@ public sealed class PlatformTypeDefinitionResolverTests
             maxSourceDocuments: 0,
             maxBytes: 64 * 1024 * 1024,
             maxForwardingHops,
-            maxDuration: TimeSpan.FromSeconds(30));
+            maxDuration: maxDuration ?? TimeSpan.FromSeconds(30));
 
     static async ValueTask RetireAsync(
         PlatformPopulationArtifactMaterializationOutcome.Completed completed)

@@ -41,8 +41,8 @@ public static class PlatformHouseTypeDefinitionResolver
             out PlatformTargetDemand.Exact? exact);
         var failureKinds = new List<PlatformHouseFailureKind>();
         var cleanupFailures = new List<Exception>();
-        TypeResolutionOutcome? metadataOutcome = null;
-        PlatformTypeDefinitionResolutionResult? detachedOutcome = null;
+            PlatformTypeDefinitionResolutionResult? detachedOutcome = null;
+            int observedForwardingHops = 0;
         OperationCanceledException? cancellation = null;
         Exception? unexpected = null;
 
@@ -55,15 +55,14 @@ public static class PlatformHouseTypeDefinitionResolver
         {
             try
             {
-                metadataOutcome = Resolve(
+                ResolutionExecution resolution = ResolveAndProject(
                     request,
                     operation!,
                     implementationPopulation,
                     request.Work.MaxForwardingHops
                         - consumedWork.ForwardingHops);
-                detachedOutcome =
-                    PlatformTypeDefinitionResolutionProjection.Project(
-                        metadataOutcome);
+                detachedOutcome = resolution.Outcome;
+                observedForwardingHops = resolution.ForwardingHops;
             }
             catch (OperationCanceledException failure)
                 when (request.CancellationToken.IsCancellationRequested)
@@ -124,7 +123,7 @@ public static class PlatformHouseTypeDefinitionResolver
         {
             finalWork = AddResolutionWork(
                 consumedWork,
-                ObservedForwardingHops(metadataOutcome),
+                observedForwardingHops,
                 stopwatch.Elapsed);
         }
         catch (OverflowException failure)
@@ -154,9 +153,15 @@ public static class PlatformHouseTypeDefinitionResolver
                 $"{IdentityPrefix}.execution-failed");
         }
 
+        bool finalExceedsBudget =
+            exceedsBudget
+            || PlatformHouseLibraryRealizer.ExceedsBudget(
+                finalWork,
+                request);
+
         if (!valid)
         {
-            return exceedsBudget
+            return finalExceedsBudget
                 ? Incomplete(
                     request,
                     finalWork,
@@ -168,10 +173,7 @@ public static class PlatformHouseTypeDefinitionResolver
                     $"{IdentityPrefix}.invalid-request");
         }
 
-        if (exceedsBudget
-            || PlatformHouseLibraryRealizer.ExceedsBudget(
-                finalWork,
-                request))
+        if (finalExceedsBudget)
         {
             return Incomplete(
                 request,
@@ -179,7 +181,7 @@ public static class PlatformHouseTypeDefinitionResolver
                 $"{IdentityPrefix}.work-incomplete");
         }
 
-        if (metadataOutcome is null || detachedOutcome is null)
+        if (detachedOutcome is null)
         {
             return Failed(
                 request,
@@ -215,7 +217,7 @@ public static class PlatformHouseTypeDefinitionResolver
                     receipt);
     }
 
-    static TypeResolutionOutcome Resolve(
+    static ResolutionExecution ResolveAndProject(
         PlatformHouseRequest request,
         PlatformHouseOperation.ResolveTypeDefinition
             .FromImplementation<PlatformPopulationMember> operation,
@@ -280,7 +282,10 @@ public static class PlatformHouseTypeDefinitionResolver
                 bindingRequests: [],
                 requests: [executionRequest],
                 request.CancellationToken);
-        return context.Resolve(executionRequest);
+        TypeResolutionOutcome outcome = context.Resolve(executionRequest);
+        return new(
+            PlatformTypeDefinitionResolutionProjection.Project(outcome),
+            ObservedForwardingHops(outcome));
     }
 
     static PopulationAssemblySnapshots SnapshotAssemblies(
@@ -604,6 +609,10 @@ public static class PlatformHouseTypeDefinitionResolver
     readonly record struct AssemblySnapshot(
         ResolvedAssemblyReference Assembly,
         long Length);
+
+    readonly record struct ResolutionExecution(
+        PlatformTypeDefinitionResolutionResult Outcome,
+        int ForwardingHops);
 
     readonly record struct PopulationAssemblySnapshots(
         ImmutableArray<ResolvedAssemblyReference> Assemblies,
