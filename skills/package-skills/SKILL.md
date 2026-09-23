@@ -47,7 +47,7 @@ displayed row:
 
 ```bash
 dnx dotnet-inspect -y -- project path/to/project \
-  -S Skills --print --row 2 --bare
+  -S Skills --print --row 2 --raw
 ```
 
 For a known positional choice, select the complete inventory row first.
@@ -55,18 +55,18 @@ For a known positional choice, select the complete inventory row first.
 
 ```bash
 dnx dotnet-inspect -y -- project path/to/project \
-  -S Skills -n 1 --tail --print --row 1 --bare
+  -S Skills -n 1 --tail --print --row 1 --raw
 ```
 
 Request several skills as a group by issuing one independent command for each
-selected row. Keep each result separate; `--bare` intentionally carries no
+selected row. Keep each result separate; `--raw` intentionally carries no
 multi-document boundary.
 
 ```bash
 dnx dotnet-inspect -y -- project path/to/project \
-  -S Skills --print --row 2 --bare
+  -S Skills --print --row 2 --raw
 dnx dotnet-inspect -y -- project path/to/project \
-  -S Skills --print --row 5 --bare
+  -S Skills --print --row 5 --raw
 ```
 
 The agent may perform this entire discovery and loading workflow without asking
@@ -90,9 +90,9 @@ inventory:
 dnx dotnet-inspect -y -- package Markout@0.35.2 \
   -S "Package skill files" --paths
 dnx dotnet-inspect -y -- package Markout@0.35.2 \
-  -S "Package skill files" --print --frontmatter --row 1 --bare
+  -S "Package skill files" --print --frontmatter --row 1 --raw
 dnx dotnet-inspect -y -- package Markout@0.35.2 \
-  -S "Package skill files" --print --row 1 --bare
+  -S "Package skill files" --print --row 1 --raw
 ```
 
 Do not use an unpinned package query when the repository consumes a specific
@@ -133,7 +133,7 @@ mkdir -p skills/markout-output-formats
 dnx dotnet-inspect -y -- package Markout@0.35.2 \
   -S "Package skill files" --paths
 dnx dotnet-inspect -y -- package Markout@0.35.2 \
-  -S "Package skill files" --print --row 4 --prefer-rendered-urls --bare \
+  -S "Package skill files" --print --row 4 --prefer-rendered-urls --raw \
   > skills/markout-output-formats/SKILL.md
 ```
 
@@ -141,7 +141,7 @@ Or ask dotnet-inspect to write the same contained payload:
 
 ```bash
 dnx dotnet-inspect -y -- package Markout@0.35.2 \
-  -S "Package skill files" --print --row 4 --prefer-rendered-urls --bare \
+  -S "Package skill files" --print --row 4 --prefer-rendered-urls --raw \
   --output skills/markout-output-formats/SKILL.md
 ```
 

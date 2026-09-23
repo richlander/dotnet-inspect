@@ -198,6 +198,11 @@ stderr rather than mixed into structured output.
 | `demo [id]` | List or run product-home inspection demos backed by real section output. |
 | `cache` | Inspect or clear dotnet-inspect caches. |
 
+Bare `type ... --count` follows the resolved subject: a Library subject counts
+Types, while a Type subject counts Members. Add `-S` to count a particular
+section or category instead; several explicitly selected row sets retain their
+per-section count table.
+
 ## Signals, integrations, and focused guidance
 
 `Signals` is an evidence report, not a safety certification. Use `-S Signals`
@@ -1264,6 +1269,12 @@ greater than the row's. It is positional context, not an unusualness or
 quality judgment; an all-equal population gives every row 100. Use column
 projection with JSON Lines to emit dedicated cells instead of parsing
 `Evidence`:
+
+`--implementation` is the conventional shortcut for exact
+`-S "Implementation Diff"` selection. It contributes that canonical section
+before ordinary section resolution, so explicit peer sections compose
+normally and all validation, output formats, and complete transport behavior
+remain identical.
 
 ```bash
 dotnet-inspect diff --package Markout@0.33.0..0.35.2 \

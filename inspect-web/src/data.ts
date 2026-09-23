@@ -101,7 +101,7 @@ export function isWorkspaceScope(
     && workspaceScopes.some(scope => scope === value);
 }
 
-export const MAX_WORKSPACE_PACKAGES = 12;
+export const MAX_WORKSPACE_PACKAGES = 64;
 
 /** The identity coordinate shared by every workspace/package-graph helper below. */
 export interface PackageIdentity {

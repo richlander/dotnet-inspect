@@ -229,6 +229,20 @@ dotnet-inspect package query Newtonsoft.Json -S @Query
 dotnet-inspect member JsonSerializer Serialize:1 --platform System.Text.Json -S @Calls
 ```
 
+### Command-specific section shortcuts
+
+A command-specific convenience option may contribute one canonical exact
+section selector before ordinary section resolution. The resulting request
+retains the section's exact-selection provenance and follows the same
+composition, validation, producer planning, output, and transport path as the
+equivalent `-S` spelling. An accompanying explicit section selection composes
+normally; the shortcut does not create a second operation or hide the canonical
+section from discovery.
+
+The first focused adoption is `diff --implementation`, equivalent to
+`diff -S "Implementation Diff"`. This does not establish a generic alias
+framework or authorize shortcuts for other sections without focused design.
+
 Selection controls both rendering and data collection. Only producers needed
 by the requested sections should run.
 
@@ -470,6 +484,23 @@ than add one flag per column. See
 [Row query and ordering](row-query-order.md).
 
 ## Counts and limits
+
+### Subject-default API count
+
+For the `type` command, bare `--count` selects the ordinary finding population
+from the resolved subject. A Library subject counts public Types across the
+disjoint Classes, Structs, Interfaces, Enums, and Delegates row sets. A Type
+subject counts its non-compiler-generated Members through the canonical
+`Member Index` row set. Filters and semantic row selection apply before the
+terminal Count.
+
+This convenience compiles to the same section-backed population used by an
+explicit query, but returns one scalar for the whole inferred population.
+Explicit `-S` remains authoritative and retains its existing result shape:
+one selected row set produces a scalar, while several selected row sets
+produce an ordered count table.
+
+### General count and limit target
 
 The examples and semantics in this section describe historical
 [#4677](https://github.com/richlander/dotnet-inspect/issues/4677) target

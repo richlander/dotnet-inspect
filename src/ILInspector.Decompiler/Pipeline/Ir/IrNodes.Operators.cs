@@ -80,7 +80,7 @@ public sealed class LogicalBinary : IrExpression
     forwardName: "BoundNullCoalescingOperator (a ?? b)",
     precondition: "result is the left operand's `Nullable<T>` value type when the raise unwrapped a lifted operand, else the left (falling back to right) operand type — metadata-structural, no stack widening involved",
     witness: "NullConditionalCoalescePassTests, corpus compile-back")]
-public sealed class Coalesce : IrExpression
+public sealed class Coalesce : IrExpression, IPrimitiveJoin
 {
     TypeRef? _assignmentType;
 
@@ -89,6 +89,7 @@ public sealed class Coalesce : IrExpression
         AddChild(left);
         AddChild(right);
         BindAssignmentType(ImmutableDictionary<TypeRef, TypeShape>.Empty);
+        ((IPrimitiveJoin)this).BindInitialPrimitiveTargets();
     }
 
     public IrExpression Left => (IrExpression)Children[0];
@@ -98,6 +99,11 @@ public sealed class Coalesce : IrExpression
 
     internal void BindAssignmentType(IReadOnlyDictionary<TypeRef, TypeShape> shapes)
         => _assignmentType = CoercionRendering.CoalesceAssignmentType(this, shapes);
+
+    IReadOnlyList<IrExpression> IPrimitiveJoin.CompatibilityArms => [Left, Right];
+    IReadOnlyList<IrExpression> IPrimitiveJoin.RenderedArms => [Right];
+    PrimitiveJoinTargetCompatibility IPrimitiveJoin.PrimitiveTargets { get; set; } =
+        PrimitiveJoinTargetCompatibility.Empty;
 
     public override string Describe() => "Coalesce";
 
@@ -265,14 +271,17 @@ public sealed class NullConditional : IrExpression
     forwardName: "BoundConditionalOperator (c ? t : f)",
     precondition: "result is `MergedType` — the importer's join of the arm types (nominal-exact for integer/enum joins; a common supertype for references) — when set, else the arms' type; arms of disagreeing width or family never join silently (slot testimony vetoes the merge)",
     witness: "SlotStoreDiamondPassTests, DiamondArmTypeReconciliationTests, corpus compile-back")]
-public sealed class Conditional : IrExpression
+public sealed class Conditional : IrExpression, IPrimitiveJoin
 {
+    TypeRef? _mergedType;
+
     public Conditional(IrExpression condition, IrExpression whenTrue, IrExpression whenFalse)
     {
         AddChild(condition);
         AddChild(whenTrue);
         AddChild(whenFalse);
         BindReferenceAssignments(ImmutableDictionary<TypeRef, TypeShape>.Empty);
+        ((IPrimitiveJoin)this).BindInitialPrimitiveTargets();
     }
 
     public IrExpression Condition => (IrExpression)Children[0];
@@ -296,9 +305,22 @@ public sealed class Conditional : IrExpression
     /// (e.g. <c>cond ? new DirectoryInfo() : new FileInfo()</c> must type as
     /// <c>FileSystemInfo</c>, not <c>DirectoryInfo</c>).
     /// </summary>
-    public TypeRef? MergedType { get; set; }
+    public TypeRef? MergedType
+    {
+        get => _mergedType;
+        set
+        {
+            _mergedType = value;
+            ((IPrimitiveJoin)this).BindInitialPrimitiveTargets();
+        }
+    }
 
     public override TypeRef? ResultType => MergedType ?? WhenTrue.ResultType ?? WhenFalse.ResultType;
+
+    IReadOnlyList<IrExpression> IPrimitiveJoin.CompatibilityArms => [WhenTrue, WhenFalse];
+    IReadOnlyList<IrExpression> IPrimitiveJoin.RenderedArms => [WhenTrue, WhenFalse];
+    PrimitiveJoinTargetCompatibility IPrimitiveJoin.PrimitiveTargets { get; set; } =
+        PrimitiveJoinTargetCompatibility.Empty;
 
     public override string Describe() => "Conditional";
 }

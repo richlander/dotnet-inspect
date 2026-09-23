@@ -49,6 +49,10 @@
     <None Include="$(NuGetPackageRoot)newtonsoft.json/13.0.4/lib/net6.0/Newtonsoft.Json.dll"
           Link="RealAssets/ReferenceConditional/Newtonsoft.Json.dll"
           CopyToOutputDirectory="PreserveNewest" />
+    <PackageDownload Include="Microsoft.CodeAnalysis.Common" Version="[5.0.0]" />
+    <None Include="$(NuGetPackageRoot)microsoft.codeanalysis.common/5.0.0/lib/net9.0/Microsoft.CodeAnalysis.dll"
+          Link="RealAssets/PrimitiveJoin/Microsoft.CodeAnalysis.dll"
+          CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
   <ItemGroup>
