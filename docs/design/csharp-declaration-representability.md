@@ -16,14 +16,16 @@ The exact claim is:
 This proposal does not describe current product support. The first
 implementation depends on the ordinary MethodDef declaration evidence in
 [#7886][issue-7886] and the containing TypeDef declaration evidence in
-[#8348][issue-8348]. MethodImpl relationship evidence from
-[#7887][issue-7887] and InterfaceImpl association evidence from
-[#7897][issue-7897] are already available supporting inputs.
+[#8348][issue-8348]. It also depends on [#8399][issue-8399] retaining the exact
+local declaration-owner TypeDef address on each MethodImpl occurrence.
+MethodImpl relationship evidence from [#7887][issue-7887] and InterfaceImpl
+association evidence from [#7897][issue-7897] are already available supporting
+inputs.
 
 ## Consumer and adoption
 
 The first production consumer is DecompilerHarness/ReturnToSender through the
-eighteen-step migration in [#6199][issue-6199]. CSharp produces the accepted
+nineteen-step migration in [#6199][issue-6199]. CSharp produces the accepted
 declaration request. ReturnToSender separately owns target population, artifact
 scope, compilation, comparison, fidelity, and reporting.
 
@@ -163,9 +165,13 @@ For each MethodImpl relationship that requires interface association:
    InterfaceImpl request identity;
 2. the relationship's exact declaring `Type` is the InterfaceImpl request
    type;
-3. the request and its detached result remain paired with that exact
+3. a locally resolved declaration's exact owner TypeDef address is the request
+   for its paired TypeDef declaration post;
+4. that TypeDef post's structured definition identity equals the definition
+   carried by `DeclarationOwner`, and its category is `Interface`;
+5. the request and its detached result remain paired with that exact
    relationship occurrence; and
-4. the post contains neither an unpaired relationship nor an extra association
+6. the post contains neither an unpaired relationship nor an extra association
    result.
 
 Structured type identity is the semantic join currency. MVIDs and row handles
@@ -248,8 +254,8 @@ The first implementation is a method-like proof slice after
   MethodImpl and InterfaceImpl evidence is posted.
 
 It must return `Unavailable` rather than infer through an unresolved external
-declaration, missing interface reachability, incomplete containing shape, or
-another unposted prerequisite.
+declaration, missing declaration-owner TypeDef post, missing interface
+reachability, incomplete containing shape, or another unposted prerequisite.
 
 Properties, indexers, events, and accessor-level requests remain outside the
 first slice. They require the complete MethodSemantics work in
@@ -324,7 +330,8 @@ open Metadata prerequisites are implemented.
 
 The first implementation slice is complete only when [#7886][issue-7886] has
 posted the required ordinary MethodDef facts, [#8348][issue-8348] has posted
-the required containing TypeDef facts, the method-like producer and accepted
+the required containing TypeDef facts, [#8399][issue-8399] has posted the exact
+local declaration-owner TypeDef address, the method-like producer and accepted
 request land together, `CDR001` through `CDR007` pass in Release, and the RTS
 adoption remains deferred to [#7888][issue-7888] and [#7889][issue-7889].
 
@@ -341,6 +348,7 @@ adoption remains deferred to [#7888][issue-7888] and [#7889][issue-7889].
 [issue-7890]: https://github.com/richlander/dotnet-inspect/issues/7890
 [issue-7897]: https://github.com/richlander/dotnet-inspect/issues/7897
 [issue-8348]: https://github.com/richlander/dotnet-inspect/issues/8348
+[issue-8399]: https://github.com/richlander/dotnet-inspect/issues/8399
 [roslyn-error-type]: https://github.com/dotnet/roslyn/blob/main/src/Compilers/CSharp/Portable/Symbols/ErrorTypeSymbol.cs
 [roslyn-pe-method]: https://github.com/dotnet/roslyn/blob/main/src/Compilers/CSharp/Portable/Symbols/Metadata/PE/PEMethodSymbol.cs
 [roslyn-pe-type]: https://github.com/dotnet/roslyn/blob/main/src/Compilers/CSharp/Portable/Symbols/Metadata/PE/PENamedTypeSymbol.cs
