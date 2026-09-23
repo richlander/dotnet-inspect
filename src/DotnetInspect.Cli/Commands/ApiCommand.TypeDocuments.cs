@@ -400,16 +400,21 @@ public partial class ApiCommand
                     acquisition?.SourceAssembly);
             }
 
-            Analysis.LibraryBodyIndex? typeAnalysisIndex = null;
-            Analysis.LibraryBodyIndex TypeAnalysisIndex() =>
-                typeAnalysisIndex ??= ApiAnalysisInspection.OpenTypeAnalysisIndex(
+            Analysis.LibraryBodyAnalysisExecution? typeAnalysis = null;
+            Analysis.LibraryBodyAnalysisExecution TypeAnalysis() =>
+                typeAnalysis ??= ApiAnalysisInspection.OpenTypeAnalysis(
                     renderOptions.DllPath!, GetRequestedMemberSections(type, renderOptions), type, renderOptions,
                     acquisition?.SourceAssembly);
+            Analysis.LibraryBodyIndex TypeAnalysisIndex() =>
+                TypeAnalysis().CompatibilityIndex();
 
             if (renderOptions.DllPath is not null
                 && GetRequestedMemberSections(type, renderOptions).Contains(SectionNames.UnsafeMembers))
             {
-                ApiOutputFormatter.PopulateUnsafeMembers(view, type, TypeAnalysisIndex());
+                ApiOutputFormatter.PopulateUnsafeMembers(
+                    view,
+                    type,
+                    TypeAnalysis().Safety);
             }
 
             if (renderOptions.DllPath is { } exceptionRegionsDllPath
@@ -437,7 +442,16 @@ public partial class ApiCommand
                 && renderOptions.DllPath is not null
                 && semanticSections.Overlaps(SemanticFactSections))
             {
-                ApiOutputFormatter.PopulateTypeSemanticFacts(view, type, TypeAnalysisIndex(), semanticSections, renderOptions.IncludeSections);
+                Analysis.LibraryBodyAnalysisExecution execution =
+                    TypeAnalysis();
+                ApiOutputFormatter.PopulateTypeSemanticFacts(
+                    view,
+                    type,
+                    execution.Allocations,
+                    execution.Safety,
+                    execution.CallGraph,
+                    semanticSections,
+                    renderOptions.IncludeSections);
             }
 
             if (renderOptions.DllPath is not null
