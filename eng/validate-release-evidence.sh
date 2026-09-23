@@ -3,14 +3,14 @@
 set -euo pipefail
 
 if [ "$#" -lt 5 ] || [ "$#" -gt 6 ]; then
-  echo "usage: $0 <certification-run-id> <target-run-id> <allow-later-commit> <max-age-hours> <output> [expected-sha]" >&2
+  echo "usage: $0 <certification-run-id> <target-run-id> <allow-later-commit> <accept-failed-certification> <output> [expected-sha]" >&2
   exit 2
 fi
 
 certification_run_id=$1
 target_run_id=$2
 allow_later_commit=$3
-max_age_hours=$4
+accept_failed_certification=$4
 output=$5
 expected_sha=${6:-}
 
@@ -26,8 +26,9 @@ if [ "$allow_later_commit" != true ] && [ "$allow_later_commit" != false ]; then
   echo "allow-later-commit must be true or false." >&2
   exit 1
 fi
-if [[ ! "$max_age_hours" =~ ^[1-9][0-9]*$ ]]; then
-  echo "max-age-hours must be a positive integer." >&2
+if [ "$accept_failed_certification" != true ] &&
+   [ "$accept_failed_certification" != false ]; then
+  echo "accept-failed-certification must be true or false." >&2
   exit 1
 fi
 if [ -n "$expected_sha" ] && [[ ! "$expected_sha" =~ ^[0-9a-fA-F]{40}$ ]]; then
@@ -77,7 +78,7 @@ dotnet run eng/validate-release-certification.cs -- \
   --target-jobs "$target_jobs" \
   --comparison "$comparison" \
   --allow-later-commit "$allow_later_commit" \
-  --max-age-hours "$max_age_hours" \
+  --accept-failed-certification "$accept_failed_certification" \
   --github-output "$validator_output"
 
 mapfile -t resolved_sha_lines < <(grep '^sha=' "$validator_output")

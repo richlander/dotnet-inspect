@@ -21,8 +21,8 @@ responsibilities:
 | Workflow | Trigger | Responsibility |
 | --- | --- | --- |
 | `ci.yml` | Pull requests and pushes to `main` | Validate the changed commit |
-| `deep-inspect.yml` | Daily schedule or manual `lane=test` dispatch | Certify one `main` commit with the full slow test and corpus gates |
-| `release.yml` | Manual dispatch | Verify certification, rebuild packages, and publish one selected commit |
+| `deep-inspect.yml` | Daily schedule or manual `lane=test` dispatch | Record full slow-test, platform, and corpus evidence for one commit |
+| `release.yml` | Manual dispatch | Verify the selected evidence and risk acceptance, rebuild packages, and publish one selected commit |
 | `deploy-inspect-web.yml` | Pushes to `main` or manual dispatch from `main` | Build and deploy a staging site artifact for that commit |
 | `promote-inspect-web.yml` | Manual dispatch | Verify and promote one staged artifact to `https://dotnet-inspect.net` |
 | `deploy-inspect-web-coreclr.yml` | Called after production promotion | Build and deploy the same product commit and staged artifact identity with CoreCLR |
@@ -32,25 +32,34 @@ commit SHA and a Deep Inspect run ID as its heavy-validation evidence. It does
 not publish or otherwise trust packages produced by either run. Every release
 package is built fresh from the resolved commit in `release.yml`.
 
-Deep Inspect certifies `main` daily at 06:00 UTC. Dispatch
-`deep-inspect.yml` with `lane=test` when a fresh result is needed during the
-day. Certification remains valid for 36 hours.
+Deep Inspect records `main` evidence daily at 06:00 UTC. At release time, select
+the most recent completed, non-cancelled `test` run at or before the proposed
+release commit. Its age and conclusions are evidence to review, not an expiring
+authorization token. Do not dispatch another Deep Inspect run merely because
+`main` moved or because the release decision happened later.
 
-By default, the certified and published commits must be identical. An operator
+Green evidence needs no outcome exception. When the selected workflow or a
+required lane is non-successful, review every disclosed conclusion and
+explicitly enable `accept_failed_certification`. This records a release-specific
+risk decision; it does not relabel the evidence as successful. A cancelled
+top-level run, a still-running run, or a run that skipped a required lane is
+incomplete and cannot support that decision.
+
+By default, the observed and published commits must be identical. An operator
 may explicitly enable `allow_later_commit` to publish a later `main` commit
 whose exact main-push `ci-required` result succeeded. Main-push CI identifies
 the integrated target and runs lightweight repository checks; its substantive
-test jobs are PR-only, so it does not certify the intervening changes. The
-workflow proves that the target descends from the certified commit, but the
-operator owns the decision that those changes do not require another slow run.
-Divergent and older commits are never accepted.
+test jobs are PR-only, so it does not cover the intervening changes. The
+workflow proves that the target descends from the observed commit, but the
+operator owns the decision that the run outcomes and intervening changes are
+acceptable together. Divergent and older commits are never accepted.
 
-That override is the **relief release** path for an urgent fix whose target
-commit is not itself certified. Exact certification is normal practice, not an
-absolute prerequisite when a person explicitly accepts the gap. After a relief
-release, leave the published package and site together on the relief commit and
-wait for the next exact certification before the next ordinary release;
-`allow_later_commit` is not standing authorization.
+Scheduled evidence must originate on `main`. A manually dispatched run may use
+an immutable certification branch because the observed SHA, rather than the
+branch name, is the identity: the workflow proves that SHA is the release
+target or its ancestor. `accept_failed_certification` and
+`allow_later_commit` are independent, release-specific authorizations, not
+standing policy.
 
 ## Lockstep release identity
 
@@ -182,19 +191,21 @@ Before dispatching a release:
 1. Complete the release-note intake handoff and select the exact commit whose
    history agrees with the prepared notes.
 2. Select a successful CI run for that exact commit.
-3. Select a successful Deep Inspect `test` run completed within the last 36
-   hours. Prefer an exact-SHA match.
+3. Select the most recent completed, non-cancelled Deep Inspect `test` run at
+   or before the release commit. Record every required job conclusion.
 4. Select the successful `deploy-inspect-web.yml` run for the exact commit to
    publish. Use its main-push run by default. A person may authorize a manual
    main staging run as an explicit exception.
 5. Compare the CI and staging runs' full 40-character `head_sha` values. Stop
    if they differ.
-6. If publishing a later commit, review every intervening commit and decide
-   whether carrying the ancestor's certification is justified.
-7. Confirm that the commit contains the intended `VersionPrefix` and release
+6. If the selected evidence is non-successful, review each failed or cancelled
+   required job and explicitly decide whether to accept those known gaps.
+7. If publishing a later commit, review every intervening commit and decide
+   whether the selected evidence remains sufficient.
+8. Confirm that the commit contains the intended `VersionPrefix` and release
    notes.
-8. Confirm that the version has not already been published.
-9. Reconcile the shipped documentation with what the release actually does —
+9. Confirm that the version has not already been published.
+10. Reconcile the shipped documentation with what the release actually does —
    see [Shipped documentation](#shipped-documentation).
 
 ## Shipped documentation
@@ -252,8 +263,9 @@ peer release.
 ## Dispatching
 
 1. Open the selected successful `main` CI run and copy its run ID.
-2. Open the daily or manually dispatched Deep Inspect `test` run and copy its
-   run ID.
+2. Open the most recent completed, non-cancelled Deep Inspect `test` run at or
+   before the release commit. Record the run ID and every required job
+   conclusion.
 3. Open the matching successful `deploy-inspect-web.yml` run and copy its run
    ID. Use the main-push run unless a person authorized manual staging.
 4. Compare the CI and staging run `head_sha` values. Both must name the exact
@@ -286,39 +298,43 @@ peer release.
 
 5. Open the **Publish** and **Promote inspect-web** workflows in separate tabs
    and choose **Run workflow** for both.
-6. In **Publish**, enter the CI and certification run IDs and type `publish` in
+6. In **Publish**, enter the CI and Deep Inspect run IDs and type `publish` in
    the confirmation field.
 7. In **Promote inspect-web**, enter the staging run ID and type `promote` in
    the confirmation field.
-8. Leave `allow_later_commit` disabled for an exact certification. Enable it
-   only after reviewing the commits between the certified and target SHAs and
-   explicitly authorizing a relief release.
-9. Leave `allow_manual_staging` disabled for a main-push staging run. Enable it
+8. Leave `accept_failed_certification` disabled when the workflow and every
+   required job succeeded. Enable it only after reviewing every disclosed
+   non-success conclusion and explicitly accepting those known gaps.
+9. Leave `allow_later_commit` disabled when the evidence and target SHAs are
+   exact. Enable it only after reviewing the commits between the observed and
+   target SHAs and explicitly accepting that delta.
+10. Leave `allow_manual_staging` disabled for a main-push staging run. Enable it
    only when a person explicitly authorizes the selected operator-dispatched
    staging run.
-10. Dispatch both workflows as one operator action. Do not substitute a newer
+11. Dispatch both workflows as one operator action. Do not substitute a newer
    run for either side after the exact-SHA comparison.
-11. Confirm immediately that both resolve jobs report the expected release SHA.
+12. Confirm immediately that both resolve jobs report the expected release SHA.
     If either is wrong, cancel both the package and promotion workflow runs
     before package publication starts. Do not leave a stale promotion run
     waiting for approval.
-12. Monitor the package builds and automatic NuGet publication. There is no
+13. Monitor the package builds and automatic NuGet publication. There is no
     NuGet environment approval after dispatch.
-13. Wait for the package workflow and GitHub release to succeed, then approve
+14. Wait for the package workflow and GitHub release to succeed, then approve
     the production-site environment. Never promote the site first.
 
 The package workflow then:
 
-1. Verifies the normal CI run, the fresh Deep Inspect certification, and their
-   commit relationship.
+1. Verifies the normal CI run, the completed Deep Inspect evidence, every
+   required job conclusion, any explicit failure acceptance, and the commit
+   relationship.
 2. Builds each Native AOT package on its supported host.
 3. Builds the TFM-agnostic pointer without inner RID packages, then builds the
    managed fallback. Dedicated native jobs own RID-specific packages; the
    pointer contains only their mapping under `tools/any/any`.
 4. Validates that the managed fallback retains its supported runtime reach and
    that the pointer remains TFM-agnostic.
-5. Revalidates both source runs, freshness, and the resolved commit immediately
-   before NuGet authentication and publication.
+5. Revalidates both source runs, their outcomes and acceptance, and the
+   resolved commit immediately before NuGet authentication and publication.
 6. Publishes Native AOT packages, then the managed fallback, then the pointer.
 7. Creates a GitHub release from the package version at the resolved CI commit
    and attaches all packages.
@@ -343,12 +359,16 @@ commit.
 - **Run resolution fails:** verify the run ID belongs to this repository and
   still exists.
 - **Resolved SHA is wrong:** cancel the workflow; do not publish a nearby run.
-- **Certification is stale or red:** use a newer successful daily run or
-  dispatch Deep Inspect with `lane=test`.
-- **The target is later than the certification:** review the intervening
-  commits, then either obtain exact-SHA certification or explicitly enable
-  `allow_later_commit`.
-- **The target is older or divergent:** select a certification that is the
+- **Deep Inspect evidence is red:** review every disclosed required-job
+  conclusion. Stop when the risk is unacceptable; otherwise explicitly enable
+  `accept_failed_certification`. The run remains red in either case.
+- **The Deep Inspect run is cancelled, running, or structurally incomplete:**
+  select the latest earlier completed run. Do not manufacture a successful
+  result or automatically dispatch another run.
+- **The target is later than the observed commit:** review the intervening
+  commits, then explicitly enable `allow_later_commit` when the evidence and
+  delta are acceptable together.
+- **The target is older or divergent:** select evidence whose commit is the
   target or its ancestor; this relationship cannot be overridden.
 - **Reach validation fails:** fix the package shape rather than bypassing the
   guard.
@@ -374,9 +394,9 @@ commit.
   exceptional circumstances require a new operator-dispatched staging build,
   a person must explicitly authorize it and enable `allow_manual_staging` for
   promotion. The exact package/site SHA comparison remains mandatory.
-- **A relief release shipped an uncertified target:** keep package and site on
-  that same relief commit. Return to the standard path by waiting for an exact
-  successful Deep Inspect certification before the next ordinary release.
+- **A release accepted failed or ancestor evidence:** keep package and site on
+  that same exact release commit. The acceptance applies only to that release;
+  assess the most recent completed Deep Inspect evidence again next time.
 - **Site promotion fails after package publication:** retry promotion with the
   same staging run ID. Do not advance the package version or staging SHA.
 - **CoreCLR deployment fails after production promotion:** rerun the failed
