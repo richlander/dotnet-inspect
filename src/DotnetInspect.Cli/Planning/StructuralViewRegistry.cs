@@ -944,6 +944,8 @@ public static class StructuralViewRegistry
                     pipeline.GetListedCategoryDoors();
                 catalogHiddenSections =
                     pipeline.GetCatalogHiddenSections();
+                sectionCardinalities =
+                    ApiTypeSectionCardinality.Declarations;
                 break;
             }
             case InspectionCatalogIdentity.ApiMember:

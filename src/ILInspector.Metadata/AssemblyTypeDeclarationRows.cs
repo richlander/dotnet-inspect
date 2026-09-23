@@ -92,7 +92,7 @@ internal static class AssemblyTypeDeclarationRowsReader
             foreach (AssemblyTypeDeclaration declaration in declarations)
             {
                 cancellationToken.ThrowIfCancellationRequested();
-                string displayName = declaration.Name.ToMetadataFullName();
+                string displayName = DisplayName(reader, declaration);
                 long measured = checked(
                     retainedTextCharacters
                         + new InertString(
@@ -212,6 +212,51 @@ internal static class AssemblyTypeDeclarationRowsReader
                     : new InertString(
                         TextPolicy.Field,
                         identity.PublicKeyToken).Length));
+
+    static string DisplayName(
+        MetadataReader reader,
+        AssemblyTypeDeclaration declaration)
+    {
+        if (!declaration.Name.Segments.Any(
+                static segment =>
+                    segment.Contains('`', StringComparison.Ordinal)))
+        {
+            return declaration.Name.ToMetadataFullName();
+        }
+
+        if (declaration.Kind != AssemblyTypeDeclarationKind.Definition)
+            return MetadataTypeNameFormatter.FormatFullName(declaration.Name);
+
+        TypeDefinitionToken token =
+            declaration.DefinitionToken
+            ?? throw new InvalidOperationException(
+                "A Type definition row omitted its locator.");
+        EntityHandle entity = MetadataTokens.EntityHandle(token.Value);
+        if (entity.Kind != HandleKind.TypeDefinition)
+        {
+            throw new BadImageFormatException(
+                "A Type definition locator is not a TypeDef token.");
+        }
+
+        var handle = (TypeDefinitionHandle)entity;
+        TypeDefinition definition = reader.GetTypeDefinition(handle);
+        GenericParameterHandleCollection parameters =
+            definition.GetGenericParameters();
+        GenericContext.ValidateParameterIndices(reader, parameters);
+        string[] parameterNames =
+        [
+            .. parameters.Select(
+                parameter =>
+                        reader.GetString(
+                            reader.GetGenericParameter(parameter).Name)),
+        ];
+        return MetadataTypeNameFormatter.FormatFullName(
+            declaration.Name,
+            parameterNames,
+            MetadataDeclarationQuery.GetIntroducedTypeParameterCounts(
+                reader,
+                handle));
+    }
 
     static AssemblyTypeDeclarationRowsOutcome.Rejected Rejected(
         string detail) =>

@@ -128,6 +128,16 @@ public sealed class LibraryInspectionOperationTests
             rows.Select(static row => row.Identity).Distinct().Count());
         Assert.All(rows, static row => Assert.True(row.IsPublicSurface));
         Assert.Equal(
+            "System.Text.Json.Serialization.JsonConverter<T>",
+            rows.Single(
+                    row =>
+                        row.Identity
+                            == Name(
+                                "System.Text.Json.Serialization",
+                                "JsonConverter`1"))
+                .DisplayName
+                .ToString());
+        Assert.Equal(
             16,
             Assert.IsType<LibraryTypeMemberCountOutcome.Counted>(
                     rows.Single(

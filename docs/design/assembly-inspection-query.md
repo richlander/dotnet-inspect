@@ -1591,22 +1591,24 @@ parameter ordering, kind, or compact member evidence requires the existing
 evidence-bearing extraction path. Decline permits a caller to fall back before
 accepting execution and does not change the population.
 
-The first production adopter is deliberately narrower than the Metadata API:
-the `type` command accepts this Count only for an installed Platform image, one
-explicit Type-kind section, and no filter, row selection, limit, field/column
-projection, or other plan that changes membership. Every other topology uses
-the materialized path. This slice establishes neither a public `MoveNext`
-contract nor random access; Rows remain a separate terminal until multiple
-inventories demonstrate the same lower-layer cursor boundary.
+The first production adopter was deliberately narrower than the Metadata API:
+the `type` command accepted this Count only for an installed Platform image,
+one explicit Type-kind section, and no plan that changed membership. #8278
+replaces that CLI shortcut with the Library Type population so ordinary Count
+and Rows share one producer-owned membership that includes first-class
+forwarders. The compact Metadata capability remains a lower-level reference
+and may serve other callers, but it no longer defines CLI Type cardinality.
+This capability establishes neither a public `MoveNext` contract nor random
+access.
 
 `CountSummaryTypes_MatchesCompactInventory`,
 `CountSummaryTypes_MatchesCoreLibraryFullSurface`,
 `CountSummaryTypes_CyclicTypeDeclinesWithoutPartialCount`,
 `SummaryAndCount_InvalidGenericParameterOrderReject`,
 `CountSummaryTypes_MissingMvidDeclines`,
-`CountSummaryTypes_DeclinesTypeForwarders`, and
-`Type_ListingKindCount_MatchesMetadataInventory` gate the accepted population,
-snapshot binding, pathological decline, and CLI adoption.
+and `CountSummaryTypes_DeclinesTypeForwarders` gate the accepted population,
+snapshot binding, and pathological decline. The Library inspection design owns
+the replacement CLI adoption gates.
 
 ## The sibling seam: method-body / coordinate inspection
 
