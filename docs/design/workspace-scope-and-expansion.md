@@ -1192,17 +1192,20 @@ candidate invokes an adjacent owner.
 
 Workspace Definitions packet formats 3 and 4 admit the 64-coordinate logical
 profile under [#7883](https://github.com/richlander/dotnet-inspect/issues/7883);
-formats 1 and 2 remain capped at 12. Inspect Web still uses the partial
-format-1 URL adapter until complete Save/Open and history adoption under
-[#7709](https://github.com/richlander/dotnet-inspect/issues/7709). This owner
-defines neither packet capacity nor projection failure semantics.
+formats 1 and 2 remain capped at 12. Inspect Web's legacy format-1 URL adapter
+retains that limit. Complete current-format Save/Open and history adoption
+landed under
+[#7709](https://github.com/richlander/dotnet-inspect/issues/7709); its live
+TypeScript model now consumes the shared 64-coordinate profile without
+changing legacy packet limits. This owner defines neither packet capacity nor
+projection failure semantics.
 
 The 64-Package logical limit does not raise Artifact Acquisition's retained-byte
 or participant budgets. The artifact-backed Browser adoption in
 [#5576](https://github.com/richlander/dotnet-inspect/issues/5576) now provides
-a 256-entry envelope for four charged 64-Package realizations. The remaining
-Microsoft.Extensions Browser boundary is current-format retained
-Save/Open/history adoption, not package-cache entry capacity.
+a 256-entry envelope for four charged 64-Package realizations. Complete
+current-format Save/Open/history and live-model adoption consume that envelope;
+neither changes package-cache entry capacity.
 
 ## Scope operations
 
