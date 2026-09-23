@@ -12,6 +12,13 @@ public enum LibraryTypeAccessibility
     Public,
 }
 
+public enum LibraryTypeDeclarationSelection
+{
+    DefinitionsAndForwarders,
+    Definitions,
+    Forwarders,
+}
+
 /// <summary>
 /// Request for exact Count over the selected Type population.
 /// </summary>
@@ -90,7 +97,9 @@ public sealed record LibraryTypePopulationRequest
     public LibraryTypePopulationRequest(
         LibraryTypeAccessibility accessibility,
         LibraryTypePopulationCountRequest? count,
-        LibraryTypePopulationRowsRequest? rows = null)
+        LibraryTypePopulationRowsRequest? rows = null,
+        LibraryTypeDeclarationSelection declarationSelection =
+            LibraryTypeDeclarationSelection.DefinitionsAndForwarders)
     {
         if (!Enum.IsDefined(accessibility))
         {
@@ -98,6 +107,13 @@ public sealed record LibraryTypePopulationRequest
                 nameof(accessibility),
                 accessibility,
                 "Unknown Library Type accessibility.");
+        }
+        if (!Enum.IsDefined(declarationSelection))
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(declarationSelection),
+                declarationSelection,
+                "Unknown Library Type declaration selection.");
         }
 
         if (count is null && rows is null)
@@ -107,11 +123,13 @@ public sealed record LibraryTypePopulationRequest
         }
 
         Accessibility = accessibility;
+        DeclarationSelection = declarationSelection;
         Count = count;
         Rows = rows;
     }
 
     public LibraryTypeAccessibility Accessibility { get; }
+    public LibraryTypeDeclarationSelection DeclarationSelection { get; }
     public LibraryTypePopulationCountRequest? Count { get; }
     public LibraryTypePopulationRowsRequest? Rows { get; }
 }
@@ -190,7 +208,8 @@ public sealed record LibraryAssemblyIdentity
 /// </summary>
 public sealed record LibraryTypePopulationBinding(
     Guid ModuleVersionId,
-    LibraryTypeAccessibility Accessibility);
+    LibraryTypeAccessibility Accessibility,
+    LibraryTypeDeclarationSelection DeclarationSelection);
 
 public enum LibraryTypePopulationCountUnavailableReason
 {
