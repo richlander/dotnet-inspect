@@ -1,6 +1,7 @@
 extern alias WrongContractFixture;
 
 using ILInspector.JsExportSurface.Fixtures;
+using ILInspector.JsExportSurface.JsonInputFixtures;
 using ILInspector.JsExportSurface.MemberConverterFixtures;
 using ILInspector.JsExportSurface.NestedContextConstructorFixtures;
 using ILInspector.JsExportSurface.NestedContextFixtures;
@@ -99,6 +100,85 @@ public sealed class TsJsExportCommandTests
             Assert.Empty(output.ToString());
             Assert.Contains(
                 "incompatible contract assembly",
+                error.ToString(),
+                StringComparison.Ordinal);
+            Assert.Equal(existing, File.ReadAllText(outputPath));
+        }
+        finally
+        {
+            File.Delete(outputPath);
+        }
+    }
+
+    [Fact]
+    public void Invoke_ReportsIncompleteCertificationWithoutRejectingByDefault()
+    {
+        string outputPath = Path.Combine(
+            AppContext.BaseDirectory,
+            $"ts-jsexport-certification-warning-{Guid.NewGuid():N}.ts");
+        try
+        {
+            var output = new StringWriter();
+            var error = new StringWriter();
+
+            int exitCode = TsJsExportCommand.Invoke(
+                [
+                    typeof(JsonInputExports).Assembly.Location,
+                    "--runtime-module",
+                    "./dotnet.js",
+                    "--output",
+                    outputPath,
+                ],
+                output,
+                error);
+
+            Assert.Equal(0, exitCode);
+            Assert.Empty(output.ToString());
+            Assert.Contains(
+                "warning: "
+                    + $"{typeof(JsonInputExports).FullName}."
+                    + $"{nameof(JsonInputExports.WidgetMatchesAudit)}",
+                error.ToString(),
+                StringComparison.Ordinal);
+            Assert.True(File.Exists(outputPath));
+        }
+        finally
+        {
+            File.Delete(outputPath);
+        }
+    }
+
+    [Fact]
+    public void Invoke_WarningsAsErrorsRejectsIncompleteCertification()
+    {
+        string outputPath = Path.Combine(
+            AppContext.BaseDirectory,
+            $"ts-jsexport-certification-error-{Guid.NewGuid():N}.ts");
+        const string existing = "// existing output\n";
+        try
+        {
+            File.WriteAllText(outputPath, existing);
+            var output = new StringWriter();
+            var error = new StringWriter();
+
+            int exitCode = TsJsExportCommand.Invoke(
+                [
+                    typeof(JsonInputExports).Assembly.Location,
+                    "--runtime-module",
+                    "./dotnet.js",
+                    "--warnings-as-errors",
+                    "--output",
+                    outputPath,
+                ],
+                output,
+                error);
+
+            Assert.Equal(1, exitCode);
+            Assert.Empty(output.ToString());
+            Assert.Contains(
+                "error: "
+                    + $"{typeof(JsonInputExports).FullName}."
+                    + $"{nameof(JsonInputExports.WidgetMatchesAudit)}",
                 error.ToString(),
                 StringComparison.Ordinal);
             Assert.Equal(existing, File.ReadAllText(outputPath));

@@ -6,9 +6,18 @@ namespace ILInspector.JsExportSurface.JsonInputFixtures;
     nameof(JsonInputExports.RenameWidget),
     "widgetJson",
     typeof(JsonInputWidget))]
+[JsExportJsonOutput(
+    nameof(JsonInputExports.RenameWidget),
+    typeof(JsonInputWidget))]
 [JsExportJsonInput(
     nameof(JsonInputExports.RenameNormalizedWidget),
     "widgetJson",
+    typeof(JsonInputWidget))]
+[JsExportJsonOutput(
+    nameof(JsonInputExports.RenameNormalizedWidget),
+    typeof(JsonInputWidget))]
+[JsExportJsonOutput(
+    nameof(JsonInputExports.CreateWidget),
     typeof(JsonInputWidget))]
 [JsExportJsonInput(
     nameof(JsonInputExports.WidgetMatchesAudit),

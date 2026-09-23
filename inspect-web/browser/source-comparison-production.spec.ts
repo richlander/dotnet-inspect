@@ -175,11 +175,11 @@ test.describe("published authored Source comparison transport", () => {
           metadataToken: body.token,
         };
         const compared = await source.queryMemberSourceComparison(
-          "source-comparison-public-pair", JSON.stringify(request),
+          "source-comparison-public-pair", request,
         );
         const same = await source.queryMemberSourceComparison(
           "source-comparison-public-same",
-          JSON.stringify({ ...request, afterVersion: request.beforeVersion }),
+          { ...request, afterVersion: request.beforeVersion },
         );
         return { request, compared, same };
       });
@@ -305,7 +305,7 @@ test.describe("published authored Source comparison transport", () => {
         return targetPage.evaluate(async request => {
           const source = await import("/inspect-web-source.js");
           return source.queryMemberSourceComparison(
-            `source-comparison-fixture-${request.memberName}`, JSON.stringify(request));
+            `source-comparison-fixture-${request.memberName}`, request);
         }, selected);
       }
 

@@ -133,12 +133,30 @@ public sealed class JsExportPolymorphicCase
     public required string TypeDiscriminator { get; init; }
 }
 
+public enum JsExportJsonContractCertification
+{
+    Intrinsic,
+    Inferred,
+    Declared,
+    Incomplete,
+}
+
+public sealed record JsExportCertificationDiagnostic(string Message);
+
 /// <summary>
 /// One <c>[JSExport]</c>-attributed static member, with its declaring type, parameters, and
 /// return type as reported by <see cref="ApiSurfaceExtractor"/> — unmodified C# signature facts.
 /// </summary>
 public sealed class JsExportFunction
 {
+    [JsonIgnore]
+    public JsExportJsonContractCertification JsonContractCertification
+        { get; init; } = JsExportJsonContractCertification.Intrinsic;
+
+    [JsonIgnore]
+    public IReadOnlyList<JsExportCertificationDiagnostic>
+        CertificationDiagnostics { get; init; } = [];
+
     /// <summary>
     /// Namespace- and nesting-qualified runtime export path for the declaring
     /// type, with dot-delimited segments as returned by

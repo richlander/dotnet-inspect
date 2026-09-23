@@ -866,8 +866,8 @@ export async function queryMemberSource(packageId: string, version: string, targ
   return $parsed as BrowserMemberSource;
 }
 
-export async function queryMemberSourceComparison(operationId: string, requestJson: string): Promise<BrowserSourceComparisonResult> {
-  const $result = await $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Source"]["SourceExports"]["QueryMemberSourceComparison.451505237"](operationId, requestJson);
+export async function queryMemberSourceComparison(operationId: string, requestJson: BrowserSourceComparisonRequest): Promise<BrowserSourceComparisonResult> {
+  const $result = await $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Source"]["SourceExports"]["QueryMemberSourceComparison.451505237"](operationId, $serializeJsonInput(requestJson, "DotnetInspect.Web.Interop.Source.SourceExports.QueryMemberSourceComparison.451505237", "requestJson"));
   const $parsed: unknown = JSON.parse($result);
   return $parsed as BrowserSourceComparisonResult;
 }

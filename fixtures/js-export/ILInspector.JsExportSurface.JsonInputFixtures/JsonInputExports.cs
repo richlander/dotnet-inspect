@@ -9,6 +9,12 @@ namespace ILInspector.JsExportSurface.JsonInputFixtures;
 public static partial class JsonInputExports
 {
     [JSExport]
+    public static string CreateWidget(string name) =>
+        JsonSerializer.Serialize(
+            new JsonInputWidget(name),
+            JsonInputJsonContext.Default.JsonInputWidget);
+
+    [JSExport]
     public static string RenameWidget(
         string widgetJson,
         string newName)

@@ -6,10 +6,18 @@ using DotnetInspector.Sections;
 using DotnetInspect.Web;
 using DotnetInspect.Web.Interop.Source;
 using NuGet.Versioning;
+using TsJsExport;
 
 namespace DotnetInspect.Web.Interop.Source;
 
 [SupportedOSPlatform("browser")]
+[JsExportJsonInput(
+    nameof(SourceExports.QueryMemberSourceComparison),
+    "requestJson",
+    typeof(BrowserSourceComparisonRequest))]
+[JsExportJsonOutput(
+    nameof(SourceExports.QueryMemberSourceComparison),
+    typeof(BrowserSourceComparisonResult))]
 public static partial class SourceExports
 {
     [JSExport]
