@@ -144,6 +144,26 @@ public sealed class BackingStorageInitializers
     public event EventHandler? Changed = InitialHandler;
 }
 
+public sealed class InterleavedInitializers
+{
+    private static int _next;
+
+    public int First = Next();
+
+    public int Second { get; } = Next();
+
+    public int Third = Next();
+
+    private static int Next() => ++_next;
+}
+
+public static class ConstantField
+{
+    public const int Value = 7;
+
+    public static int Read() => Value;
+}
+
 public sealed class RefReturnProperties
 {
     private int _value;

@@ -287,6 +287,7 @@ public partial class CommandExecutionTests
                     }
                 }
 
+
                 namespace Bar
                 {
                     public sealed class Widget
@@ -406,6 +407,225 @@ public partial class CommandExecutionTests
             }
         }
     }
+
+    [Fact]
+    public async Task
+        Type_DecompiledSource_PreservesInitializerExecutionOrder()
+    {
+        string fixtureDir = Path.Combine(
+            Path.GetTempPath(),
+            $"dotnet-inspect-initializer-order-{Guid.NewGuid():N}");
+        try
+        {
+            string assemblyPath = CompileBodyStateFixture(
+                fixtureDir,
+                "TypeDocumentInitializerOrder",
+                """
+                namespace Samples
+                {
+                    public sealed class InitializerOrder
+                    {
+                        private static int _next;
+
+                        public int First = Next();
+
+                        public int Second { get; } = Next();
+
+                        public int Third = Next();
+
+                        private static int Next() => ++_next;
+                    }
+                }
+                """);
+
+            var (exit, output, error) = await RunAppAsync(
+                "type",
+                "Samples.InitializerOrder",
+                "--library",
+                assemblyPath,
+                "-S",
+                "Decompiled Source",
+                "--tips",
+                "q",
+                "--all");
+
+            Assert.Equal(0, exit);
+            Assert.Empty(error);
+            int first = output.IndexOf(
+                "First = Next();",
+                StringComparison.Ordinal);
+            int second = output.IndexOf(
+                "Second",
+                StringComparison.Ordinal);
+            int third = output.IndexOf(
+                "Third = Next();",
+                StringComparison.Ordinal);
+            Assert.True(first >= 0, output);
+            Assert.True(second > first, output);
+            Assert.True(third > second, output);
+
+            IEnumerable<MetadataReference> references =
+                ((string)AppContext.GetData(
+                    "TRUSTED_PLATFORM_ASSEMBLIES")!)
+                .Split(Path.PathSeparator)
+                .Select(path =>
+                    MetadataReference.CreateFromFile(path));
+            CSharpCompilation compilation =
+                CSharpCompilation.Create(
+                    $"TypeDocumentInitializerOrderOutput{Guid.NewGuid():N}",
+                    [
+                        CSharpSyntaxTree.ParseText(
+                            output,
+                            cancellationToken:
+                                TestContext.Current.CancellationToken),
+                        CSharpSyntaxTree.ParseText(
+                            """
+                            namespace Harness
+                            {
+                                public static class Probe
+                                {
+                                    public static string Run()
+                                    {
+                                        var value =
+                                            new Samples.InitializerOrder();
+                                        return $"{value.First},{value.Second},{value.Third}";
+                                    }
+                                }
+                            }
+                            """,
+                            cancellationToken:
+                                TestContext.Current.CancellationToken),
+                    ],
+                    references,
+                    new CSharpCompilationOptions(
+                        OutputKind.DynamicallyLinkedLibrary,
+                        optimizationLevel:
+                            OptimizationLevel.Release));
+            using var generated = new MemoryStream();
+            var result = compilation.Emit(
+                generated,
+                cancellationToken:
+                    TestContext.Current.CancellationToken);
+            Assert.True(
+                result.Success,
+                string.Join(
+                    Environment.NewLine,
+                    result.Diagnostics));
+            generated.Position = 0;
+            var loadContext =
+                new System.Runtime.Loader.AssemblyLoadContext(
+                    $"initializer-order-{Guid.NewGuid():N}",
+                    isCollectible: true);
+            try
+            {
+                System.Reflection.Assembly assembly =
+                    loadContext.LoadFromStream(generated);
+                object? actual = assembly
+                    .GetType("Harness.Probe", throwOnError: true)!
+                    .GetMethod(
+                        "Run",
+                        System.Reflection.BindingFlags.Public
+                            | System.Reflection.BindingFlags.Static)!
+                    .Invoke(null, null);
+                Assert.Equal("1,2,3", actual);
+            }
+            finally
+            {
+                loadContext.Unload();
+            }
+        }
+        finally
+        {
+            if (Directory.Exists(fixtureDir))
+            {
+                Directory.Delete(
+                    fixtureDir,
+                    recursive: true);
+            }
+        }
+    }
+
+    [Fact]
+    public async Task Type_DecompiledSource_PreservesConstantValues()
+    {
+        string fixtureDir = Path.Combine(
+            Path.GetTempPath(),
+            $"dotnet-inspect-constant-{Guid.NewGuid():N}");
+        try
+        {
+            string assemblyPath = CompileBodyStateFixture(
+                fixtureDir,
+                "TypeDocumentConstant",
+                """
+                namespace Samples
+                {
+                    public static class Constants
+                    {
+                        public const int Constant = 7;
+
+                        public static int Read() => Constant;
+                    }
+                }
+                """);
+
+            var (exit, output, error) = await RunAppAsync(
+                "type",
+                "Samples.Constants",
+                "--library",
+                assemblyPath,
+                "-S",
+                "Decompiled Source",
+                "--tips",
+                "q",
+                "--all");
+
+            Assert.Equal(0, exit);
+            Assert.Empty(error);
+            Assert.Contains(
+                "public const int Constant = 7;",
+                output,
+                StringComparison.Ordinal);
+
+            IEnumerable<MetadataReference> references =
+                ((string)AppContext.GetData(
+                    "TRUSTED_PLATFORM_ASSEMBLIES")!)
+                .Split(Path.PathSeparator)
+                .Select(path =>
+                    MetadataReference.CreateFromFile(path));
+            CSharpCompilation compilation =
+                CSharpCompilation.Create(
+                    $"TypeDocumentConstantOutput{Guid.NewGuid():N}",
+                    [CSharpSyntaxTree.ParseText(
+                        output,
+                        cancellationToken:
+                            TestContext.Current.CancellationToken)],
+                    references,
+                    new CSharpCompilationOptions(
+                        OutputKind.DynamicallyLinkedLibrary,
+                        optimizationLevel:
+                            OptimizationLevel.Release));
+            using var generated = new MemoryStream();
+            var result = compilation.Emit(
+                generated,
+                cancellationToken:
+                    TestContext.Current.CancellationToken);
+            Assert.True(
+                result.Success,
+                string.Join(
+                    Environment.NewLine,
+                    result.Diagnostics));
+        }
+        finally
+        {
+            if (Directory.Exists(fixtureDir))
+            {
+                Directory.Delete(
+                    fixtureDir,
+                    recursive: true);
+            }
+        }
+    }
+
 
     [Fact]
     public async Task

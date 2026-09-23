@@ -397,11 +397,19 @@ public static class CSharpStructuredTypePlanProducer
             parts.Add(Fixed(PadDeclaration(declaration, pad)));
             if (request.Body is CSharpFieldInitializer fieldInitializer)
             {
-                parts.Add(Implementation(
-                    $" = {fieldInitializer.Source}",
-                    "",
-                    CSharpStructuredImplementationKind.Initializer,
-                    []));
+                string initializerText = $" = {fieldInitializer.Source}";
+                if (member.IsConst)
+                {
+                    parts.Add(Fixed(initializerText));
+                }
+                else
+                {
+                    parts.Add(Implementation(
+                        initializerText,
+                        "",
+                        CSharpStructuredImplementationKind.Initializer,
+                        []));
+                }
             }
             parts.Add(Fixed(";"));
             return new(member, parts.ToImmutable());

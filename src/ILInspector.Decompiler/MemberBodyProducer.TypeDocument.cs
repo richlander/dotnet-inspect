@@ -356,17 +356,49 @@ public static partial class MemberBodyProducer
                 }
             }
         }
-        var initializerByField = CollectInitializers(
+        InitializerCollection? initializerCollection = CollectInitializers(
             logicalMembers,
             bodyBuilds,
             bodyIdByToken,
             out string? initializerFailure);
-        if (initializerByField is null)
+        if (initializerCollection is null)
         {
             return new CSharpTypeDocumentOutcome.Unavailable(
                 initializerFailure
                     ?? "Constructor initializers do not have one unambiguous declaration value.",
                 tracker.Attempted);
+        }
+        var initializerByField = initializerCollection.Initializers;
+        List<ApiMember> orderedMembers = OrderMembersForInitializerExecution(
+            logicalMembers,
+            initializerCollection.DeclarationOrder);
+        if (!logicalMembers.SequenceEqual(orderedMembers))
+        {
+            var oldMembers = logicalMembers;
+            logicalMembers = orderedMembers;
+            var newIds = logicalMembers
+                .Select((member, id) => (member, id))
+                .ToDictionary(
+                    entry => DeclarationToken(entry.member)!.Value,
+                    entry => entry.id);
+            for (int i = 0; i < artifacts.Count; i++)
+            {
+                ArtifactBuild artifact = artifacts[i];
+                if (artifact.Representation.Kind
+                    != CSharpTypeArtifactRepresentationKind.Declaration)
+                {
+                    continue;
+                }
+                int oldId = artifact.Representation.TargetId!.Value;
+                artifacts[i] = artifact with
+                {
+                    Representation = artifact.Representation with
+                    {
+                        TargetId = newIds[
+                            DeclarationToken(oldMembers[oldId])!.Value],
+                    },
+                };
+            }
         }
         var memberRequests = BuildMemberRequests(
             source,
@@ -508,6 +540,34 @@ public static partial class MemberBodyProducer
     static int? DeclarationToken(ApiMember member)
         => member.DeclarationMetadataToken ?? member.MetadataToken;
 
+    static List<ApiMember> OrderMembersForInitializerExecution(
+        IReadOnlyList<ApiMember> members,
+        ImmutableArray<int> initializerOrder)
+    {
+        if (initializerOrder.IsDefaultOrEmpty)
+            return [.. members];
+
+        var initializerIndex = initializerOrder
+            .Select((token, index) => (token, index))
+            .ToDictionary(static entry => entry.token, static entry => entry.index);
+        return
+        [
+            .. members
+                .OrderBy(member =>
+                    DeclarationToken(member) is { } token
+                    && initializerIndex.ContainsKey(token)
+                        ? 0
+                        : member.Kind == "field"
+                            ? 1
+                            : 2)
+                .ThenBy(member =>
+                    DeclarationToken(member) is { } token
+                    && initializerIndex.TryGetValue(token, out int index)
+                        ? index
+                        : 0),
+        ];
+    }
+
     static Dictionary<int, AccessorOwner> BuildAccessorOwners(
         IReadOnlyList<ApiMember> members)
     {
@@ -645,7 +705,9 @@ public static partial class MemberBodyProducer
                         ? new(value.Text)
                         : member.EnumValueLiteral is { } enumValue
                             ? new(enumValue)
-                            : null;
+                            : member.ConstantValueLiteral is { } constantValue
+                                ? new(constantValue)
+                                : null;
                 requests.Add(new(
                     member,
                     initializer is null
@@ -875,7 +937,7 @@ public static partial class MemberBodyProducer
         }
     }
 
-    static Dictionary<int, FieldInitializerBuild>? CollectInitializers(
+    static InitializerCollection? CollectInitializers(
         IReadOnlyList<ApiMember> members,
         IReadOnlyList<BodyBuild> bodies,
         IReadOnlyDictionary<int, int> bodyIdByToken,
@@ -910,6 +972,13 @@ public static partial class MemberBodyProducer
         }
 
         var result = new Dictionary<int, FieldInitializerBuild>();
+        var declarationOrder = new List<int>();
+        var orderByPlacement =
+            new Dictionary<bool, ImmutableArray<int>>();
+        var memberByMethodToken = members
+            .Where(static member => member.MetadataToken is not null)
+            .ToDictionary(
+                static member => member.MetadataToken!.Value);
         foreach (BodyBuild body in bodies)
         {
             if (body.Result?.Projection.FieldInitializers is not { Count: > 0 }
@@ -917,6 +986,8 @@ public static partial class MemberBodyProducer
             {
                 continue;
             }
+            var bodyDeclarationOrder =
+                ImmutableArray.CreateBuilder<int>(initializers.Count);
             foreach ((string name, string text) in initializers)
             {
                 if (!declarationsByStorageName.TryGetValue(
@@ -927,6 +998,7 @@ public static partial class MemberBodyProducer
                         $"Lifted initializer storage '{name}' has no exact logical declaration.";
                     return null;
                 }
+                bodyDeclarationOrder.Add(declarationToken);
                 int bodyId = bodyIdByToken[body.Token];
                 if (result.TryGetValue(declarationToken, out var previous))
                 {
@@ -951,8 +1023,38 @@ public static partial class MemberBodyProducer
                             : CSharpTypeBodyContributionRole.FieldInitializer));
                 }
             }
+            if (!memberByMethodToken.TryGetValue(
+                    body.Token,
+                    out ApiMember? constructor)
+                || constructor.Kind != "constructor")
+            {
+                failure =
+                    $"Physical body 0x{body.Token:X8} contributes initializers but is not a constructor.";
+                return null;
+            }
+            ImmutableArray<int> observedOrder =
+                bodyDeclarationOrder.ToImmutable();
+            if (orderByPlacement.TryGetValue(
+                    constructor.IsStatic,
+                    out ImmutableArray<int> existingOrder))
+            {
+                if (!observedOrder.SequenceEqual(existingOrder))
+                {
+                    failure = constructor.IsStatic
+                        ? "Static constructor initializers do not have one declaration order."
+                        : "Instance constructor initializers do not have one declaration order.";
+                    return null;
+                }
+            }
+            else
+            {
+                orderByPlacement.Add(
+                    constructor.IsStatic,
+                    observedOrder);
+                declarationOrder.AddRange(observedOrder);
+            }
         }
-        return result;
+        return new(result, [.. declarationOrder]);
 
         bool AddStorage(string name, int declarationToken)
         {
@@ -1402,4 +1504,8 @@ public static partial class MemberBodyProducer
         string Text,
         ImmutableArray<int> BodyIds,
         CSharpTypeBodyContributionRole Role);
+
+    sealed record InitializerCollection(
+        IReadOnlyDictionary<int, FieldInitializerBuild> Initializers,
+        ImmutableArray<int> DeclarationOrder);
 }
