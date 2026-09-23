@@ -1,7 +1,7 @@
 ---
 id: perf-version-queries
 description: Latency targets for version-related commands
-commands: [--version, --latest-version, --versions, @latest]
+commands: [--version, --versions, @latest]
 areas: [performance, versioning, cache]
 ---
 
@@ -44,7 +44,7 @@ Prime an exact package payload and the version index:
 Warm the payload for the actual latest version without pinning its value:
 
 ```bash
-latest=$("$INSPECT" package System.CommandLine --latest-version | head -1)
+latest=$("$INSPECT" package System.CommandLine --versions -n 1 | head -1)
 "$INSPECT" package "System.CommandLine@$latest" -v:q > /dev/null
 "$INSPECT" type System.Text.Json -v:q > /dev/null
 "$INSPECT" library System.Text.Json -v:q > /dev/null
@@ -85,7 +85,7 @@ grep -Fq '| Version | 2.0.3 |' && echo exact-version
 > The 5s bound is an external-service smoke target, not a local latency target.
 
 ```bash
-"$INSPECT" package System.CommandLine --latest-version
+"$INSPECT" package System.CommandLine@latest --versions
 ```
 
 ```perf

@@ -29,7 +29,10 @@ internal sealed record BrowserCallGraphTargetInfo(
     string SelectorKey,
     string Kind,
     string? PlatformPack,
-    string? SurfaceAssemblyId);
+    string? SurfaceAssemblyId,
+    string? PackageId,
+    string? PackageVersion,
+    string? PackageFramework);
 
 internal sealed record BrowserCallGraphNodeInfo(
     string Label,
@@ -162,6 +165,9 @@ internal static class BrowserCallGraphProjection
                     !string.IsNullOrWhiteSpace(assembly))
                 .Distinct(StringComparer.OrdinalIgnoreCase),
         ];
+        Dictionary<int, PackageDependencyMemberCallGraphPackageSubject>
+            packageSubjects = document.PackageSubjects.ToDictionary(
+                static subject => subject.NodeId);
         return new BrowserCallGraphInfo(
             Mermaid(graph),
             EmptyTree(),
@@ -171,7 +177,12 @@ internal static class BrowserCallGraphProjection
                 assemblies.Length,
                 string.IsNullOrWhiteSpace(focusAssembly) ? 0 : 1,
                 "CrossLibrary"),
-            [.. graph.Nodes.Select(Target)],
+            [
+                .. graph.Nodes.Select(node =>
+                    Target(
+                        node,
+                        packageSubjects.GetValueOrDefault(node.Id))),
+            ],
             Diagnostics(graph),
             NoBody: false);
     }
@@ -333,15 +344,21 @@ internal static class BrowserCallGraphProjection
     }
 
     static BrowserCallGraphTargetInfo Target(
-        InspectionGraphNode node)
+        InspectionGraphNode node,
+        PackageDependencyMemberCallGraphPackageSubject? packageSubject)
     {
         Analysis.MemberRef member = NodeMember(node);
         Analysis.TypeRef? definition =
             DeclaringTypeDefinition(member.DeclaringType);
         AssemblyReferenceIdentity? identity =
-            (definition?.Resolution?.Origin
-                    as Analysis.TypeReferenceOrigin.AssemblyReference)
-                ?.Assembly;
+            definition?.Resolution?.Origin switch
+            {
+                Analysis.TypeReferenceOrigin.AssemblyReference
+                    reference => reference.Assembly,
+                Analysis.TypeReferenceOrigin.CurrentAssembly
+                    current => current.Assembly,
+                _ => null,
+            };
         string assembly =
             identity?.Name
             ?? member.DeclaringType.Assembly
@@ -364,7 +381,10 @@ internal static class BrowserCallGraphProjection
             Analysis.CallGraphMemberResolver.CreateSelector(member).Key,
             node.Role.ToString().ToLowerInvariant(),
             PlatformPack: null,
-            SurfaceAssemblyId: null);
+            SurfaceAssemblyId: null,
+            packageSubject?.PackageId,
+            packageSubject?.PackageVersion,
+            packageSubject?.TargetFramework);
     }
 
     static Analysis.MemberRef NodeMember(
@@ -468,7 +488,10 @@ internal static class BrowserCallGraphProjection
             Analysis.CallGraphMemberResolver.CreateSelector(node.Member).Key,
             node.Kind.ToString().ToLowerInvariant(),
             platformPackForAssembly?.Invoke(assembly),
-            surfaceAssemblyId);
+            surfaceAssemblyId,
+            PackageId: null,
+            PackageVersion: null,
+            PackageFramework: null);
     }
 
     internal static BrowserCallGraphTargetInfo Target(
@@ -509,7 +532,10 @@ internal static class BrowserCallGraphProjection
             Analysis.CallGraphMemberResolver.CreateSelector(member).Key,
             "method",
             PlatformPack: null,
-            surfaceAssemblyId);
+            surfaceAssemblyId,
+            PackageId: null,
+            PackageVersion: null,
+            PackageFramework: null);
     }
 
     /// <summary>

@@ -84,7 +84,7 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
         JsonElement share = sharedDocument.RootElement.GetProperty("share");
         Assert.Equal("available", share.GetProperty("kind").GetString());
         string encoded = Assert.IsType<string>(share.GetProperty("packet").GetString());
-        Assert.Equal("https://dotnet-inspect.net/?w=" + encoded,
+        Assert.Equal("https://dotnet-inspect.ca/?w=" + encoded,
             share.GetProperty("full_url").GetString());
         WorkspaceSharePacket packet = WorkspaceSharePacketCodec.Decode(
             encoded, TestContext.Current.CancellationToken);

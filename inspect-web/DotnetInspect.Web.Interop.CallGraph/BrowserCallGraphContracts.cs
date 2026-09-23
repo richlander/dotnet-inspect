@@ -54,7 +54,10 @@ public sealed record BrowserCallGraphTarget(
     string SelectorKey,
     string Kind,
     string? PlatformPack,
-    string? SurfaceAssemblyId);
+    string? SurfaceAssemblyId,
+    string? PackageId = null,
+    string? PackageVersion = null,
+    string? PackageFramework = null);
 
 public sealed record BrowserCallGraphNode(
     string Label,

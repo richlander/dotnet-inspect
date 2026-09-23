@@ -110,7 +110,7 @@ public partial class CommandExecutionTests
         Assert.Empty(result.Error);
         var url = new Uri(result.Output.Trim());
         Assert.Equal("https", url.Scheme);
-        Assert.Equal("dotnet-inspect.net", url.Host);
+        Assert.Equal("dotnet-inspect.ca", url.Host);
         WorkspaceSharePacket packet = WorkspaceSharePacketCodec.Decode(
             url.Query[3..],
             TestContext.Current.CancellationToken);

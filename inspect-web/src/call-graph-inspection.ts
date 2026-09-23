@@ -16,9 +16,10 @@ import { mergeInspectionErrors } from "./data.ts";
 // Call graphs reach the application from two owners: the call-graph facade expands package
 // and platform topology, and the catalog facade returns the graph a product home demo
 // activates. Annotated source adds a third owner for graph targets, because the source
-// facade publishes its own invocation destinations. Each facade declares its own
-// structurally equal DTO; these aliases are the application's adaptation of all three
-// rather than one facade's declaration standing in as the others' owner.
+// facade publishes its own invocation destinations. CallGraph and Catalog carry the
+// package subject available to whole dependency-aware graphs; Source destinations do
+// not manufacture that unavailable fact. These aliases adapt each owner rather than
+// making one facade's declaration stand in for the others.
 export type InspectedCallGraph =
   | CallGraphFromCallGraphFacade
   | CallGraphFromCatalogFacade;

@@ -776,7 +776,7 @@ Other valid selected authorities still run, and usable peer evidence is
 reported as partial.
 
 Online metadata-only version queries also use this composition: pinned
-verification, latest-version, range enumeration, `--versions-with-feed`, and
+verification, `@latest` selection, range enumeration, `--versions-with-feed`, and
 `--include-unlisted`. Latest and range selection require authoritative
 discovery; a healthy subset cannot choose the answer. A pinned verification
 can report an observed exact coordinate with peer failures disclosed, but
@@ -1071,7 +1071,7 @@ Explicit latest queries exclude unlisted versions even when their output
 requests the listing column. Pinned queries enumerate including prereleases
 and unlisted coordinates, compare normalized versions, and do not consult
 legacy payload caches online. Raw partial listings (including `--versions -n 1`)
-retain warnings; explicit `--latest-version` and range queries fail before
+retain warnings; explicit `@latest` and range queries fail before
 rendering when evidence is partial.
 
 `CliVersionQueries_LocalSelectorsUseCompleteEvidence`,

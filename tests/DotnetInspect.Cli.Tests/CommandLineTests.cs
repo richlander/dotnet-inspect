@@ -2073,7 +2073,7 @@ public class CommandLineTests
     }
 
     [Fact]
-    public async Task Router_LatestVersionFlag_RequiresExplicitPackageCommand()
+    public async Task Router_LatestVersionFlag_ReportsRemovalBeforeRouting()
     {
         var root = CommandLineBuilder.CreateRootCommand();
         string[] args = CommandLineBuilder.PreprocessArgs(
@@ -2085,10 +2085,9 @@ public class CommandLineTests
 
         Assert.Equal(1, exit);
         Assert.Empty(output);
-        Assert.Contains(
-            "'--latest-version' requires the explicit 'package' command",
-            error,
-            StringComparison.Ordinal);
+        Assert.Equal(
+            $"Error: {ArgumentPreprocessor.RemovedLatestVersionError}{Environment.NewLine}",
+            error);
     }
 
     [Theory]

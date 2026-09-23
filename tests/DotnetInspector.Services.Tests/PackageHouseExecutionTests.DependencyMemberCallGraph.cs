@@ -114,6 +114,27 @@ public sealed partial class PackageHouseExecutionTests
                     available.Document.Graph.Nodes[edge.FromNodeId]).Name,
                 GraphMember(
                     available.Document.Graph.Nodes[edge.ToNodeId]).Name));
+        Assert.Equal(
+            [
+                (
+                    edge.FromNodeId,
+                    CallGraphRootPackage,
+                    RouteVersion,
+                    "netstandard2.0"),
+                (
+                    edge.ToNodeId,
+                    CallGraphTargetPackage,
+                    RouteVersion,
+                    "net11.0"),
+            ],
+            available.Document.PackageSubjects
+                .OrderBy(subject => subject.NodeId)
+                .Select(subject =>
+                    (
+                        subject.NodeId,
+                        subject.PackageId,
+                        subject.PackageVersion,
+                        subject.TargetFramework)));
         Assert.IsType<InspectionShare.NonProjectable>(envelope.Share);
         Assert.Equal(
             [
