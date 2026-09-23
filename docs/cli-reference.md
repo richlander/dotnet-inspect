@@ -1086,6 +1086,22 @@ dotnet-inspect library coordinate 0x060002EA+0x0 \
   --package System.Text.Json --library System.Text.Json.dll
 ```
 
+`--all` is an API visibility option. API-level commands use their ordinary
+public-facing declaration population by default; add `--all` when the
+question includes non-public, hidden, or obsolete declarations. It is not a
+general "analyze every implementation" option.
+
+Implementation-oriented sections define their own population. For example,
+Library Metrics summarizes the selected Library's admitted implementation
+bodies, including private and compiler-generated bodies when they are part of
+that population, without requiring `--all`. If an aggregate result identifies
+a non-public body and you follow it into an API-level command, that separate
+command may require `--all` to resolve the declaration.
+
+See [API and implementation population scope](design/api-population-scope.md)
+for the distinction between API visibility, implementation completeness, and
+package-library selection.
+
 For a Type catalog with an explicit package, library, platform, or project
 source, including positional or `-t` Type globs, `-n`, `--tail`, and
 `--rows A..B` select complete types after type, kind, and unsafe filtering.
@@ -1248,6 +1264,12 @@ greater than the row's. It is positional context, not an unusualness or
 quality judgment; an all-equal population gives every row 100. Use column
 projection with JSON Lines to emit dedicated cells instead of parsing
 `Evidence`:
+
+`--implementation` is the conventional shortcut for exact
+`-S "Implementation Diff"` selection. It contributes that canonical section
+before ordinary section resolution, so explicit peer sections compose
+normally and all validation, output formats, and complete transport behavior
+remain identical.
 
 ```bash
 dotnet-inspect diff --package Markout@0.33.0..0.35.2 \
