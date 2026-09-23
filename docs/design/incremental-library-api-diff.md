@@ -196,11 +196,14 @@ Compare experience already applies to Clone.
 Exact inventory Counts are answered before any row from a text-free structural
 pass over the two surfaces:
 
-- Type keys establish additions, removals, and candidate matched pairs; typed
-  Type facets determine which matched Types changed;
-- member keys establish additions, removals, and candidate matched pairs
-  within changed Types; typed member facets and signature models determine
-  which matched Members changed.
+- the ordered union of Type keys establishes every partition, including added,
+  removed, and candidate matched Types;
+- every partition compares Type facets and the complete member populations;
+  member keys establish additions, removals, and candidate matched pairs, and
+  typed member facets and signature models determine which matched Members
+  changed;
+- changed-Type membership is the union of added or removed Types, matched Type
+  facet changes, changed-member relations, and compatibility-change subjects.
 
 These are QuerySpace exact Counts over the selected Type-summary and member-row
 populations. Breaking, additive, and potentially-breaking totals are separate
@@ -313,6 +316,7 @@ second supported architecture.
 | `TypeSummaryRowsNeedNoRetainedMemberText` | Summary rows and exact Counts are produced with retained member signature and display-text projection disabled. |
 | `TypeFacetChangesRemainInTypeSummaryRows` | A matched Type whose own facets change and whose member set does not still carries the complete typed compatibility-change population and derived totals. |
 | `CompatibilityCountsUseChangePopulation` | Multiple compatibility changes attached to one Type or member produce separate compatibility-change rows and exact classification-filtered Counts without changing Type-summary or member-row Count. |
+| `MemberOnlyChangesCreateTypeSummaryRows` | A matched Type with unchanged Type facets and only added, removed, or changed members still contributes one Type summary and its complete member relations. |
 | `MemberRowContinuationResumesInsideAType` | A continuation issued mid-Type resumes at the next `(TypeKey, MemberKey)` with no duplicated or skipped row. |
 | `CountAndRowsBindToOneGeneration` | A Rows execution against a retired generation is refused; Count and Rows from one generation describe the same population. |
 | `TextBoundYieldsSourceOnlyDisposition` | A member whose text exceeds the window bound is delivered with identity and classification, its bound named, and the window complete. |
@@ -338,3 +342,6 @@ second supported architecture.
    change; confirm its Type summary retains every typed compatibility change,
    Type Count remains one, Member Count remains zero, and compatibility Counts
    equal the classified change-row population.
+7. Compare `MethodRemovalSample`; confirm unchanged Type facets do not suppress
+   its Type summary, two removed overload relations, or their compatibility
+   changes and Counts.
