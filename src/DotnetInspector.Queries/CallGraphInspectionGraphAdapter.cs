@@ -302,11 +302,59 @@ public static class CallGraphInspectionGraphAdapter
         CallGraphProjection projection)
     {
         ArgumentNullException.ThrowIfNull(projection);
-        InspectionGraphSubject seed = FocusSubject(projection);
+        InspectionGraphSubject[] roots = RootSubjects(projection);
+        InspectionGraphModeRequest modeRequest =
+            roots.Length == 1
+                ? InspectionGraphModeRequest.SingleSeed(roots[0])
+                : InspectionGraphModeRequest.PeerSeeds(roots);
         return Create(
             projection,
-            InspectionGraphModeRequest.SingleSeed(seed),
+            modeRequest,
             []);
+    }
+
+    internal static InspectionGraphDocument
+        CreateEqualRootOutgoingNeighborhood(
+        CallGraphProjection projection,
+        int maxDepth,
+        int maxNodes)
+    {
+        ArgumentNullException.ThrowIfNull(projection);
+        ArgumentOutOfRangeException.ThrowIfNegative(maxDepth);
+        ArgumentOutOfRangeException.ThrowIfLessThan(maxNodes, 2);
+        InspectionGraphSubject[] roots = RootSubjects(projection);
+        if (roots.Length < 2)
+        {
+            throw new ArgumentException(
+                "An equal-root neighborhood requires at least two call-graph roots.",
+                nameof(projection));
+        }
+        if (maxNodes < roots.Length
+            || projection.Nodes.Length > maxNodes)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(maxNodes),
+                "The combined node bound must retain every equal root and the supplied projection.");
+        }
+
+        InspectionGraphNeighborhoodRequest request =
+            InspectionGraphNeighborhoodRequest.PeerSeeds(
+                roots,
+                [CallGraphInspectionGraphCatalog.Call],
+                InspectionGraphTraversalDirection.Outgoing,
+                maxDepth);
+        InspectionGraphDocument source = Create(
+            projection,
+            request.ModeRequest,
+            [
+                new InspectionGraphLimit(
+                    CallGraphInspectionGraphCatalog.TraversalNodeBound,
+                    Evidence:
+                        new CallGraphTraversalNodeBoundEvidence(maxNodes)),
+            ]);
+        return InspectionGraphNeighborhoodProjection.Project(
+            source,
+            request);
     }
 
     internal static InspectionGraphDocument
@@ -375,6 +423,15 @@ public static class CallGraphInspectionGraphAdapter
         InspectionGraphSubject.ForMember(
             projection.Focus.Identity,
             projection.Focus.Member);
+
+    static InspectionGraphSubject[] RootSubjects(
+        CallGraphProjection projection) =>
+        [
+            .. projection.RootNodeIds.Select(rootId =>
+                InspectionGraphSubject.ForMember(
+                    projection.Nodes[rootId].Identity,
+                    projection.Nodes[rootId].Member)),
+        ];
 
     static InspectionGraphDocument Create(
         CallGraphProjection projection,
@@ -517,12 +574,11 @@ public static class CallGraphInspectionGraphAdapter
             edges,
             occurrences,
             characteristics,
-            [
-                new InspectionGraphSeed(
-                    nodes[projection.Focus.Id].Subject,
-                    InspectionGraphTarget.Node(projection.Focus.Id),
-                    InspectionGraphSeedRole.Primary),
-            ],
+            InspectionGraphSeedBinder.Bind(
+                modeRequest,
+                nodes,
+                [],
+                InspectionGraphSeedTargetPreference.Node),
             limits,
             failures);
     }

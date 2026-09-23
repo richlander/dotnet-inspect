@@ -96,6 +96,10 @@ static class DiffHistoryMethodology
                         DiffHistoryProbePurpose.ExplicitCheckpoint,
                     DiffHistoryEvaluationPlan.RepresentativeSurvey =>
                         DiffHistoryProbePurpose.RepresentativeSample,
+                    DiffHistoryEvaluationPlan
+                            .MajorVersionRepresentatives =>
+                        DiffHistoryProbePurpose
+                            .MajorVersionRepresentative,
                     _ => throw new InvalidOperationException(
                         "Unknown Diff History evaluation plan."),
                 };
@@ -426,6 +430,12 @@ static class DiffHistoryMethodology
             return new DiffHistoryTerminalOutcome
                 .RepresentativeSurveyCompleted();
         }
+        if (evaluationPlan
+            is DiffHistoryEvaluationPlan.MajorVersionRepresentatives)
+        {
+            return new DiffHistoryTerminalOutcome
+                .MajorVersionRepresentativesCompleted();
+        }
         if (!unresolved.IsEmpty)
         {
             return new DiffHistoryTerminalOutcome.BudgetExhausted(
@@ -478,7 +488,9 @@ static class DiffHistoryMethodology
             ];
         }
         if (evaluationPlan
-            is DiffHistoryEvaluationPlan.RepresentativeSurvey)
+            is DiffHistoryEvaluationPlan.RepresentativeSurvey
+                or DiffHistoryEvaluationPlan
+                    .MajorVersionRepresentatives)
         {
             return
             [

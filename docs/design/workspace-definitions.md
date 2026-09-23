@@ -715,7 +715,7 @@ version populations or ranges, Package discovery, or a Package child command.
 
 The first slice requires one positional canonical NuGet Package ID. The
 `ID@VERSION` form may additionally require one exact effective version. Bare
-`--version VERSION`, `--latest-version`, `--versions`,
+`--version VERSION`, `--versions`,
 `--versions-with-feed`, range selection, and multi-Package execution remain
 outside this route. ID and version comparison use their existing Package-owned
 canonical semantics; packet adoption does not add prefix, fuzzy, display-text,
@@ -2537,6 +2537,16 @@ quoting-free as a bare CLI argument.
 
 The browser keeps a terse `?w=` base64url JSON packet as a **projection** the
 transposition layer converts to and from one packet-local scenario composition.
+
+The CLI's managed share producers compose that packet with the website origin
+selected at build time by the `DotnetInspectWebsiteUrl` MSBuild property.
+Development builds default to `https://dotnet-inspect.ca`; production NuGet
+packaging sets the property to `https://dotnet-inspect.net`. The property is
+the origin without a trailing slash, and one generated `WorkspaceShareUrl`
+contract owns the resulting `/?w=` prefix for CLI commands and the query
+operations they consume. Browser-host URL selection is a separate host concern:
+production promotes the exact staging artifact rather than rebuilding it for a
+different origin.
 
 #### Packet format 1
 
