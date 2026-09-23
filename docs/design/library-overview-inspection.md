@@ -217,10 +217,13 @@ The overview owner projects only the portable summary needed by both hosts. It
 does not reopen content, revalidate identity from display text, or expose the
 full surface as a second exact-Library API operation.
 
-The existing exact-Library API operation remains the owner of full API
-inventory and navigation content. A host may request both operations and
-compose their separately typed results, but one cannot be treated as an
-alternate serialization of the other.
+The existing exact-Library API operation remains the owner of participant-
+specific public API inspection, its bounded summary inventory, and its
+detached `ApiSurface` execution companion. Inspect Web does not transport that
+companion; its type/member navigation remains owned by the separate
+package-wide Browser surface projection. A host may request these operations
+and compose their separately typed results, but none can be treated as an
+alternate serialization of another.
 
 ## Host compatibility and composition
 
@@ -248,12 +251,14 @@ they do not become overview Content and cannot turn the scalar Document into
 an inventory.
 
 Inspect Web projects managed assembly identity and public API counts from the
-same shared Document. Its exact-Library API result remains a separate
+same shared Document. Its exact-Library API envelope remains a separate
 supplement that owns package and asset selection, source coordinate, type-kind
-facets, namespaces, full API inventory, projection truncation, and the
-interaction state derived from that inventory. Navigation and filtering may
-compose those facts around the scalar baseline; they do not authorize the
-Browser to recover baseline counts or identity from the exact-API result.
+facets, namespaces, summary truncation, and their typed failures. The
+package-wide Browser surface remains a second separate supplement that owns
+the transported type/member inventory and navigation correspondence.
+Filtering and navigation may compose both supplements around the scalar
+baseline; neither authorizes the Browser to recover baseline counts or
+identity.
 
 Composition preserves these invariants:
 
@@ -262,8 +267,8 @@ Composition preserves these invariants:
   diagnostics;
 - an unavailable overview remains visible even when a supplemental operation
   succeeds and never falls back to host reconstruction;
-- a supplemental failure remains independently visible and does not rewrite a
-  successful overview outcome;
+- exact-API and package-surface failures remain independently visible and do
+  not rewrite a successful overview outcome or one another;
 - public counts and total Metadata-definition counts retain their distinct
   names and meanings;
 - equivalent requests over the same exact Library bytes produce equal
@@ -389,15 +394,16 @@ The complete initial operation adoption is staged through focused slices:
    per-section JSON lowering can preserve independent row windows.
 4. Apply the compatibility boundary above: shared identity and public counts
    come only from the baseline envelope, total-definition counts retain their
-   distinct CLI meaning, and Browser API inventory remains a separately typed
-   navigation supplement.
+   distinct CLI meaning, the exact-API summary remains separately typed, and
+   Browser type/member navigation remains on its package-wide surface.
 5. Adopt one complete host-neutral overview operation and envelope for direct,
    PackageHouse, and PlatformHouse CLI routes. Preserve supported supplemental
    fields, projections, Share, diagnostics, and rendered output without
    appending those fields to overview Content.
 6. Consume that same envelope in Inspect Web's Library overview. Preserve its
-   separately typed exact-API navigation inventory and failure behavior, then
-   retire Browser reconstruction of the baseline identity and public counts.
+   separately typed exact-API summary, package-wide navigation surface, and
+   their independent failure behavior, then retire Browser reconstruction of
+   the baseline identity and public counts.
 
 The remaining ordinary Library sections migrate under #8088 by their own
 semantic owners. This design does not make their legacy implementation
@@ -465,7 +471,8 @@ gates prove:
 - package and Platform adoption preserve the same overview Content for the
   same Library bytes; and
 - CLI and Inspect Web consume equal baseline envelopes for an equivalent
-  semantic request while retaining separately typed supplemental results.
+  semantic request while retaining separately typed exact-API and package-
+  surface supplemental results.
 
 No new TLA+ model is required. The operation introduces no new concurrent
 state machine; it consumes the existing Library lease lifecycle and is gated by
