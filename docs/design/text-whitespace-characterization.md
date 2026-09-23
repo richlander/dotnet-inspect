@@ -182,9 +182,8 @@ position:
 | *trailing* | a non-whitespace character | a boundary, or the end of the text or change |
 | *blank* | a boundary, or the start of the text or change | a boundary, or the end of the text or change |
 
-Inside a line-diff region, the edge of an adjacent anchor's content counts as
-a non-whitespace neighbor. A gap without boundaries is one segment. A gap with
-*n* boundaries has *n*+1 segments. When both gaps of an edit have equal boundary counts, their segments
+A gap without boundaries is one segment. A gap with *n* boundaries has *n*+1
+segments. When both gaps of an edit have equal boundary counts, their segments
 correspond by index and have the same positions.
 
 | Kind | The edit… |
@@ -254,7 +253,11 @@ to exactly one region, and every boundary difference is located. For example,
 with the pair producer, whose texts are unterminated,
 `a⏎␠` → `a` gives the region texts `⏎␠` and the empty string, so the edit is
 `LineBreaks`. A region of added blank lines likewise differs from an empty
-region by `LineBreaks`.
+region by `LineBreaks`. Locating a difference in final-terminator presence
+requires the producer to leave that line out of the anchors, as
+`TextFindings.CreateAnalysisDiff` does. If a producer anchors it instead, only
+the document summary reports the difference, as it does for terminator
+spelling.
 
 ### Changes
 
@@ -264,10 +267,23 @@ either of which may be empty but not both. The changes are in order on both
 sides, share no
 line, and together cover the region.
 
-A change's *text* on each side runs from the start of its first line to the
-start of the line after its last line. For the first change in a region, it
-starts instead where the region's text starts. The change texts on a side
-therefore concatenate to that side's region text.
+On each side, the change texts are consecutive cuts of the region text, so
+they concatenate to it exactly. Each change's text runs from its *start* to the
+next change's start, or to the region's end:
+
+- the first change starts at the region start, whether or not it has lines on
+  that side;
+- a later change with lines on that side starts at the start of its first
+  line; and
+- a later change with no lines on that side starts where the next change on
+  that side starts, or at the region end, so its text on that side is empty.
+
+For example, `p⏎k` → `p⏎⏎K` has anchor `p` and splits into two changes:
+
+- a blank line added, with no Before lines: its Before text is `⏎` (the
+  anchor's boundary) and its After text is `⏎⏎`, so it is `WhitespaceOnly`
+  with one `LineBreaks` edit; and
+- `k` → `K`, `Changed`.
 
 Each change receives exactly one outcome:
 
@@ -279,14 +295,15 @@ Each change receives exactly one outcome:
 A change whose texts are ordinal-equal is never issued alone. It joins a
 neighboring change, which keeps that neighbor's outcome.
 
-The partition must meet two rules:
+Adjacent changes in a region always have different outcomes, so every change
+is maximal. Two consequences follow:
 
 - A region whose texts differ whitespace-only, with no `Moved` endpoint, is
   exactly one `WhitespaceOnly` change.
 - A region whose whitespace-stripped texts differ, or that has a `Moved`
   endpoint, contains at least one `Changed` change. Where the owner can
-  isolate a whitespace-only part of it as its own change, that part becomes a
-  `WhitespaceOnly` change.
+  isolate a whitespace-only part of it, that part becomes a `WhitespaceOnly`
+  change between `Changed` changes.
 
 How far a `Changed` region is split is quality, not contract. The owner finds
 the split points with an alignment of the non-whitespace characters. Splitting
@@ -295,7 +312,8 @@ over the budget is one `Changed` change.
 
 Soundness doesn't depend on the aligner. A validator checks that:
 
-- the partition is ordered, non-overlapping, and complete; and
+- the partition is ordered, non-overlapping, complete, and maximal, and the
+  change texts are the consecutive cuts defined above; and
 - each change's outcome matches its own texts under the whitespace-only
   predicate and the `Moved` rule.
 
@@ -306,9 +324,9 @@ into two changes:
   edit; and
 - `int x;` → `int y;`, `Changed`.
 
-By contrast, in `return (x);` → `return (T)(x);` both lines belong to one
-`Changed` change, because no split can separate the insertion from the line
-that holds it.
+By contrast, `return (x);` → `return (T)(x);` is one `Changed` change. No part
+of it is whitespace-only, and adjacent `Changed` changes would violate
+maximality.
 
 ### Line facts
 
@@ -388,7 +406,8 @@ presentation this design needs:
   the label, not the glyph, classifies the change.
 
 Hunks split this way remain valid unified diff. GNU `patch` applies adjacent
-hunks that share no line, and `git apply` applies them with `--unidiff-zero`,
+hunks that share no line (reporting fuzz for the missing context), and `git
+apply` applies them with `--unidiff-zero`,
 because git reads uneven context as anchored to the start or end of the file.
 Member diffs use member-relative line numbers, so they were never applicable
 to the source file in any case.
@@ -423,6 +442,7 @@ their region's changes.
 | Blank-line spaces (Scrutor) | a blank line with spaces becomes empty | `WhitespaceOnly`, `BlankLineContent` |
 | Blank line removed (JToken.Remove) | blank line between statements removed | own region, one `WhitespaceOnly` change, `LineBreaks` |
 | Blank line after a rewritten line | `x = Foo(); // old` / `` / `y();` → `x = Foo(); // new` / `y();` | `x` lines one `Changed` change; the removed blank line its own `WhitespaceOnly` change, `LineBreaks` |
+| Leading zero-line side | `p⏎k` → `p⏎⏎K` | two changes: Before `⏎`, After `⏎⏎`, `WhitespaceOnly`, one `LineBreaks`; `k` → `K` `Changed` |
 | Mixed reflow and edit | `class Foo {` / `int x;` → `class Foo` / `{` / `int y;` | two changes: `class Foo {` → `class Foo` / `{` `WhitespaceOnly`, `LineBreaks`; `int x;` → `int y;` `Changed` |
 | Insertion inside a line (JToken.Annotation) | `return (_annotations as T);` → `return (T)(_annotations as T);` | one `Changed` change |
 | Pure deletion | `foo(a, b)` → `foo(a)` | one `Changed` change |
