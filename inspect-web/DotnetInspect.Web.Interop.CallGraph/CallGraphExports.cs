@@ -1,6 +1,7 @@
 using System.Runtime.InteropServices.JavaScript;
 using System.Runtime.Versioning;
 using System.Text.Json;
+using DotnetInspector.Queries;
 using DotnetInspector.Sections;
 
 using DotnetInspect.Web;
@@ -52,7 +53,10 @@ public static partial class CallGraphExports
                 typeIdentity,
                 memberName,
                 selectorKey,
-                metadataToken);
+                metadataToken,
+                BrowserPackageWorkspace.ProductWorkspacePlan,
+                MemberCallGraphSupplyChainBaseline
+                    .SelfAndRegisteredEcosystems);
         if (envelope.Content
             is PackageDependencyMemberCallGraphInspectionOutcome
                 .Unavailable unavailable)

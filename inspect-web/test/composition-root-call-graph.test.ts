@@ -1497,6 +1497,43 @@ test("call graph navigation rejects ambiguous loaded package coordinates", () =>
     "none");
 });
 
+test("supply-chain roles preserve exact external navigation", () => {
+  const target = {
+    assembly: "System.Console",
+    assemblyVersion: "11.0.0.0",
+    assemblyCulture: null,
+    assemblyPublicKeyToken: null,
+    typeDefinitionId: "System.Console",
+    kind: "unclassified-boundary"
+  };
+
+  assert.equal(
+    graphTargetNavigationDisposition(
+      { status: "missing" },
+      target),
+    "platform");
+  assert.equal(
+    combinedGraphTargetNavigationDisposition(
+      { status: "missing" },
+      { status: "unique", pkg: null, type: null },
+      target,
+      true),
+    "resident");
+  assert.equal(
+    graphTargetNavigationDisposition(
+      { status: "missing" },
+      {
+        ...target,
+        kind: "boundary",
+        packageId: "Example.Dependency",
+        packageVersion: "1.0.0",
+        packageFramework: "net8.0"
+      },
+      false,
+      true),
+    "package");
+});
+
 test("call graph navigation rejects assembly identity skew", () => {
   const target = {
     assembly: "Example",

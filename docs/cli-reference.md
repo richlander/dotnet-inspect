@@ -183,7 +183,7 @@ stderr rather than mixed into structured output.
 | `diff X` | Compare API surfaces by default; opt into analysis or implementation evidence. |
 | `timeline X` | Correlate API or member-body Findings across a package version range. |
 | `graph integrations` | Induce extension, observed Integration, and Integration-opportunity relationships over an explicit package set; `-n`, `--tail`, and `--rows` select complete logical edges after graph construction. |
-| `graph calls TYPE MEMBER` | Explain one package member's outgoing calls across its dependency graph, retaining only boundary calls and their shortest local connectors. |
+| `graph calls TYPE MEMBER` | Explain one package member's supply-chain exits across its dependency graph, retaining highlighted boundaries and their shortest baseline connectors. |
 | `graph libraries` | Show exact resolved cross-library calls, direct-use clusters, and public entrypoint paths to one selected cluster. |
 | `depends [Type]` | With a positional type, walk its hierarchy inside `--package`, `--library`, `--project`, or platform search scopes. Without a positional type, combine repeatable explicit `--package`, `--nuspec`, `--library`, and `--project` roots, or exclusive `--package-prefix`, into one dependency graph and evidence document. |
 | `extensions X` | Find extension methods and C# extension properties for a type. |
@@ -1521,10 +1521,10 @@ and Direct Use Clusters cohorts are described below.
 `graph calls` is the integration-style complement to the general
 `member -S "Call Graph"` view. It starts from one exact member in
 `--root-package`, automatically follows the root's authorized dependency
-graph, and shows only calls crossing out of the focus assembly plus the
-shortest local paths needed to reach them. Root asset selection stays exact;
-dependency traversal independently uses `--tfm` or the product default. Each
-edge is typed as `connector`, `boundary`, or `unclassified-boundary`, and
+graph, and shows only calls crossing the selected supply-chain baseline plus
+the shortest baseline paths needed to reach them. Root asset selection stays
+exact; dependency traversal independently uses `--tfm` or the product default.
+Each edge is typed as `connector`, `boundary`, or `unclassified-boundary`, and
 row-oriented output retains the physical MVID, MethodDef token, IL offset,
 operand token, call kind, dispatch kind, and loop state. A dependency member
 with unique ownership also retains its exact package id, version, and selected
@@ -1532,13 +1532,20 @@ framework. Inspect Web loads that coordinate through its ordinary package path
 only when the user selects the graph node, then opens the exact member;
 ambiguous ownership publishes no package coordinate.
 
-The OpenTelemetry example reduces the ordinary 28-edge bounded neighborhood to
-nine explanatory edges. Two local connectors retain the path from
-`AddOpenTelemetrySharedProviderBuilderServices` through
-`Sdk.get_SuppressInstrumentation` and
-`SuppressInstrumentationScope.get_IsSuppressed` to
-`OpenTelemetry.Api`'s `RuntimeContextSlot<T>.Get`. Unavailable dependency participants remain visible through typed routes and
-diagnostics rather than being silently dropped. Use `--table`,
+The default `--baseline self+registered-ecosystems` excludes the exact root,
+explicit `--first-party-prefix` values, and the product platform registrations
+(.NET Runtime, ASP.NET Core, and Microsoft.Extensions) from highlighting.
+`--baseline self` retains only the exact root and explicit first-party prefixes
+as connectors. `--baseline nothing` highlights every known dependency Package
+and rejects first-party prefixes because that baseline excludes nothing.
+Traversal and acquisition remain unchanged by all three values. Platform-
+delegated dependency routes do not become Package boundaries, while genuinely
+unknown ownership remains an `unclassified-boundary`.
+
+The OpenTelemetry example retains the explanatory connector paths but
+highlights `OpenTelemetry.Api` rather than registered Microsoft.Extensions
+Packages. Unavailable dependency participants remain visible through typed
+routes and diagnostics rather than being silently dropped. Use `--table`,
 `--jsonl`, or `--json` for exact receipts; `-n`, `--tail`, and `--rows` select
 complete logical edges after graph construction.
 

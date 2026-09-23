@@ -253,6 +253,9 @@ export function styleCallGraphMermaid(
 
   const roles = {
     target: [] as string[],
+    baselineConnector: [] as string[],
+    supplyChainBoundary: [] as string[],
+    unclassifiedBoundary: [] as string[],
     sameType: [] as string[],
     differentType: [] as string[],
     differentAssembly: [] as string[],
@@ -260,9 +263,16 @@ export function styleCallGraphMermaid(
   const focusTypeId = callGraphTypeId(focus);
   for (const target of targets) {
     const sharesAssembly = callGraphTargetsShareAssembly(target, focus);
+    const kind = target.kind.toLowerCase();
     if (target.id === focus.id
-      || target.kind.toLowerCase() === "focus") {
+      || kind === "focus") {
       roles.target.push(target.id);
+    } else if (kind === "connector") {
+      roles.baselineConnector.push(target.id);
+    } else if (kind === "boundary") {
+      roles.supplyChainBoundary.push(target.id);
+    } else if (kind === "unclassified-boundary") {
+      roles.unclassifiedBoundary.push(target.id);
     } else if (sharesAssembly
       && focusTypeId
       && callGraphTypeId(target) === focusTypeId) {
@@ -277,6 +287,9 @@ export function styleCallGraphMermaid(
   const lines = [
     definition,
     "classDef target fill:var(--graph-target-fill),stroke:var(--graph-target-stroke),color:var(--graph-target-text),stroke-width:2px;",
+    "classDef baselineConnector fill:var(--graph-different-type-fill),stroke:var(--graph-different-type-stroke),color:var(--graph-different-type-text);",
+    "classDef supplyChainBoundary fill:var(--graph-same-type-fill),stroke:var(--graph-same-type-stroke),color:var(--graph-same-type-text);",
+    "classDef unclassifiedBoundary fill:var(--graph-different-assembly-fill),stroke:var(--graph-different-assembly-stroke),color:var(--graph-different-assembly-text);",
     "classDef sameType fill:var(--graph-same-type-fill),stroke:var(--graph-same-type-stroke),color:var(--graph-same-type-text);",
     "classDef differentType fill:var(--graph-different-type-fill),stroke:var(--graph-different-type-stroke),color:var(--graph-different-type-text);",
     "classDef differentAssembly fill:var(--graph-different-assembly-fill),stroke:var(--graph-different-assembly-stroke),color:var(--graph-different-assembly-text);",

@@ -47,7 +47,10 @@ public sealed record PackageDependencyMemberCallGraphInspectionRequest
         DateTimeOffset workspaceDeadline,
         int maximumDependencyDepth = DefaultMaximumDependencyDepth,
         PackageDependencyTraversalWorkBudget? traversalWorkBudget = null,
-        PackageAssemblyContextRealizationOptions? realizationOptions = null)
+        PackageAssemblyContextRealizationOptions? realizationOptions = null,
+        MemberCallGraphSupplyChainBaseline supplyChainBaseline =
+            MemberCallGraphSupplyChainBaseline.Nothing,
+        WorkspacePlan? workspacePlan = null)
     {
         ArgumentNullException.ThrowIfNull(root);
         ArgumentNullException.ThrowIfNull(focus);
@@ -77,6 +80,13 @@ public sealed record PackageDependencyMemberCallGraphInspectionRequest
                 DefaultMaximumManifestProjections,
                 DefaultMaximumDeclarationResolutions);
         RealizationOptions = realizationOptions;
+        if (!Enum.IsDefined(supplyChainBaseline))
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(supplyChainBaseline));
+        }
+        SupplyChainBaseline = supplyChainBaseline;
+        WorkspacePlan = workspacePlan ?? WorkspacePlan.Empty;
     }
 
     public PackageRootBinding Root { get; }
@@ -99,6 +109,10 @@ public sealed record PackageDependencyMemberCallGraphInspectionRequest
     {
         get;
     }
+
+    public MemberCallGraphSupplyChainBaseline SupplyChainBaseline { get; }
+
+    public WorkspacePlan WorkspacePlan { get; }
 }
 
 public sealed class PackageDependencyMemberCallGraphInspectionSource
@@ -166,6 +180,7 @@ public sealed record PackageDependencyMemberCallGraphDocument(
     TraversalTargetFrameworkPolicy TraversalTargetPolicy,
     PackageDependencyTraversalSummary TraversalSummary,
     ImmutableArray<PackageDependencyMemberCallGraphInspectionRoute> Routes,
+    PackageDependencyMemberCallGraphBaseline Baseline,
     ImmutableArray<PackageDependencyMemberCallGraphPackageSubject>
         PackageSubjects,
     InspectionGraphDocument Graph);
@@ -320,7 +335,23 @@ public static class PackageDependencyMemberCallGraphInspection
         ImmutableArray<PackageDependencyEdgeRealizationExecution>
             executions = PrepareExecutions(request, traversal);
 
-        await using var workspace = new InspectionWorkspace();
+        await using var workspace =
+            new InspectionWorkspace(request.WorkspacePlan);
+        WorkspaceRegistrationReadResult registrationRead =
+            workspace.GetRegistrationSnapshot();
+        if (registrationRead
+            is not WorkspaceRegistrationReadResult.Available
+                registration)
+        {
+            var unavailable =
+                (WorkspaceRegistrationReadResult.Unavailable)
+                    registrationRead;
+            return Envelope(
+                Unavailable(
+                    PackageDependencyMemberCallGraphInspectionUnavailableReason
+                        .RootWorkspaceNotCommitted,
+                    $"The operation Workspace registrations were unavailable ({unavailable.RuntimeFailure})."));
+        }
         WorkspaceScopeReadResult initialRead =
             await workspace.GetScopeSnapshotAsync()
                 .ConfigureAwait(false);
@@ -365,6 +396,7 @@ public static class PackageDependencyMemberCallGraphInspection
             new PackageDependencyMemberCallGraphRequest(
                 workspace,
                 rootedScope,
+                registration.Revision,
                 traversal,
                 [request.Root],
                 executions,
@@ -374,7 +406,8 @@ public static class PackageDependencyMemberCallGraphInspection
                     request.Focus.MethodToken),
                 request.Graph,
                 request.WorkspaceDeadline,
-                request.RealizationOptions);
+                request.RealizationOptions,
+                request.SupplyChainBaseline);
         PackageSourceOperationLease sourceOperation =
             source.IssueOperation(
                 request.RealizationOperation,
@@ -453,6 +486,7 @@ public static class PackageDependencyMemberCallGraphInspection
                             [
                                 .. completed.Routes.Select(Project),
                             ],
+                            completed.Baseline,
                             [
                                 .. completed.NodePackages.Select(
                                     static nodePackage =>

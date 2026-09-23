@@ -26,6 +26,8 @@ using ILInspector.Metadata;
 using NuGetFetch;
 
 using DotnetInspect.Web.Interop.Package;
+using BrowserProductWorkspacePlans =
+    DotnetInspect.Web.Interop.Catalog.BrowserProductWorkspacePlans;
 using BrowserMetadataJsonContext = DotnetInspect.Web.Interop.Metadata.BrowserMetadataJsonContext;
 using BrowserAnalysisJsonContext = DotnetInspect.Web.Interop.Analysis.BrowserAnalysisJsonContext;
 using BrowserSourceJsonContext = DotnetInspect.Web.Interop.Source.BrowserSourceJsonContext;
@@ -567,15 +569,38 @@ public sealed partial class BrowserEngineBoundaryTests
     }
 
     [Fact]
+    public void ProductWorkspacePlan_ConfiguresSupplyChainBaseline()
+    {
+        BrowserProductWorkspacePlans.ConfigurePlatform();
+
+        string[] ecosystems =
+        [
+            .. BrowserPackageWorkspace.ProductWorkspacePlan.Registrations
+                .OfType<WorkspaceRegistration.Ecosystem>()
+                .Select(registration =>
+                    registration.Declaration.Id.Value),
+        ];
+
+        Assert.Contains("ecosystem.runtime", ecosystems);
+        Assert.Contains("ecosystem.aspnetcore", ecosystems);
+        Assert.Contains("ecosystem.microsoft-extensions", ecosystems);
+    }
+
+    [Fact]
     public void DependencyCallGraphDocument_ProjectsDetachedBrowserGraph()
     {
-        var dependencyIdentity = new AssemblyReferenceIdentity(
-            "Dependency.Library",
+        var connectorIdentity = new AssemblyReferenceIdentity(
+            "Microsoft.Extensions.Options",
             new Version(1, 2, 3, 4),
             Culture: null,
             PublicKeyToken: null);
+        var boundaryIdentity = new AssemblyReferenceIdentity(
+            "OpenTelemetry.Api",
+            new Version(5, 6, 7, 8),
+            Culture: null,
+            PublicKeyToken: null);
         TypeRef type = TypeRef.Definition(
-            "Example.Dependency",
+            "OpenTelemetry",
             "Example",
             "Worker");
         TypeRef returnType = TypeRef.CoreLib("System", "Void");
@@ -585,16 +610,54 @@ public sealed partial class BrowserEngineBoundaryTests
             [],
             returnType,
             MemberKind.Method);
-        var dependency = new MemberRef(
+        var connector = new MemberRef(
             TypeRef.Definition(
-                "Dependency.Library",
-                "Dependency",
-                "Api",
+                "Microsoft.Extensions.Options",
+                "Microsoft.Extensions.DependencyInjection",
+                "OptionsServiceCollectionExtensions",
                 new ResolvableTypeReference(
                     new TypeReferenceOrigin.CurrentAssembly(
-                        dependencyIdentity),
-                    DefinitionName("Dependency", ["Api"]))),
-            "Invoke",
+                        connectorIdentity),
+                    DefinitionName(
+                        "Microsoft.Extensions.DependencyInjection",
+                        ["OptionsServiceCollectionExtensions"]))),
+            "AddOptions",
+            [],
+            returnType,
+            MemberKind.Method);
+        var boundary = new MemberRef(
+            TypeRef.Definition(
+                "OpenTelemetry.Api",
+                "OpenTelemetry.Context",
+                "RuntimeContextSlot`1",
+                new ResolvableTypeReference(
+                    new TypeReferenceOrigin.CurrentAssembly(
+                        boundaryIdentity),
+                    DefinitionName(
+                        "OpenTelemetry.Context",
+                        ["RuntimeContextSlot`1"]))),
+            "Get",
+            [],
+            returnType,
+            MemberKind.Method);
+        var disconnectedConnector = new MemberRef(
+            TypeRef.Definition(
+                "Microsoft.Extensions.Options",
+                "Microsoft.Extensions.Options",
+                "OptionsMonitor",
+                new ResolvableTypeReference(
+                    new TypeReferenceOrigin.CurrentAssembly(
+                        connectorIdentity),
+                    DefinitionName(
+                        "Microsoft.Extensions.Options",
+                        ["OptionsMonitor"]))),
+            "Read",
+            [],
+            returnType,
+            MemberKind.Method);
+        var unclassifiedBoundary = new MemberRef(
+            TypeRef.CoreLib("System", "Console"),
+            "WriteLine",
             [],
             returnType,
             MemberKind.Method);
@@ -604,14 +667,145 @@ public sealed partial class BrowserEngineBoundaryTests
             CallTreeStatus.Expanded,
             [
                 new CallTreeNode(
-                    dependency,
+                    connector,
                     null,
-                    CallTreeStatus.External,
-                    []),
+                    CallTreeStatus.Expanded,
+                    [
+                        new CallTreeNode(
+                            boundary,
+                            null,
+                            CallTreeStatus.External,
+                            []),
+                    ]),
             ]);
         InspectionGraphDocument graph =
             CallGraphInspectionGraphAdapter.Create(
                 CallGraphProjection.FromCallees(tree));
+        int disconnectedConnectorNodeId = graph.Nodes.Length;
+        int unclassifiedBoundaryNodeId =
+            disconnectedConnectorNodeId + 1;
+        int unclassifiedBoundaryEdgeId = graph.Edges.Length;
+        int unclassifiedBoundaryOccurrenceId =
+            graph.Occurrences.Length;
+        InspectionGraphSubject disconnectedConnectorSubject =
+            InspectionGraphSubject.ForMember(
+                GraphNodeIdentity.FromMember(
+                    disconnectedConnector),
+                disconnectedConnector);
+        InspectionGraphSubject unclassifiedBoundarySubject =
+            InspectionGraphSubject.ForMember(
+                GraphNodeIdentity.FromMember(
+                    unclassifiedBoundary),
+                unclassifiedBoundary);
+        graph = new InspectionGraphDocument(
+            graph.Scope,
+            graph.ModeRequest,
+            [
+                .. graph.Nodes,
+                new InspectionGraphNode(
+                    disconnectedConnectorNodeId,
+                    disconnectedConnectorSubject,
+                    InspectionGraphNodeRole.Ordinary,
+                    []),
+                new InspectionGraphNode(
+                    unclassifiedBoundaryNodeId,
+                    unclassifiedBoundarySubject,
+                    InspectionGraphNodeRole.External,
+                    []),
+            ],
+            graph.Groups,
+            [
+                .. graph.Edges,
+                new InspectionGraphEdge(
+                    unclassifiedBoundaryEdgeId,
+                    disconnectedConnectorNodeId,
+                    unclassifiedBoundaryNodeId,
+                    graph.Edges[0].Relationship,
+                    [unclassifiedBoundaryOccurrenceId]),
+            ],
+            [
+                .. graph.Occurrences,
+                new InspectionGraphOccurrence(
+                    unclassifiedBoundaryOccurrenceId,
+                    graph.Edges[0].Relationship,
+                    disconnectedConnectorSubject,
+                    unclassifiedBoundarySubject,
+                    new CallGraphLogicalEdgeEvidence(
+                        unclassifiedBoundaryEdgeId),
+                    []),
+            ],
+            graph.Characteristics,
+            graph.Seeds,
+            graph.Limits,
+            graph.Failures);
+        InspectionGraphCharacteristic[] supplyChainRoles =
+        [
+            .. graph.Edges.Select(edge =>
+            {
+                var target =
+                    Assert.IsType<
+                        InspectionGraphSubject.MemberSubject>(
+                            graph.Nodes[edge.ToNodeId].Subject);
+                string role =
+                    ((InspectionGraphMemberIdentity.CallGraph)
+                        target.Identity).Member.Name switch
+                    {
+                        "AddOptions" => "connector",
+                        "Get" => "boundary",
+                        "WriteLine" => "unclassified-boundary",
+                        _ => throw new InvalidOperationException(
+                            "Unexpected call-graph member."),
+                    };
+                InspectionGraphTarget edgeTarget =
+                    InspectionGraphTarget.Edge(edge.Id);
+                return new InspectionGraphCharacteristic(
+                    ExternalFocusedCallGraphInspectionCatalog.EdgeRole,
+                    edgeTarget,
+                    new InspectionGraphValue.Token(role),
+                    new InspectionGraphCharacteristicDerivation(
+                        InspectionGraphCharacteristicDerivationKind
+                            .Derived,
+                        [edgeTarget]));
+            }),
+        ];
+        graph = new InspectionGraphDocument(
+            graph.Scope,
+            graph.ModeRequest,
+            graph.Nodes,
+            graph.Groups,
+            graph.Edges,
+            graph.Occurrences,
+            [
+                .. graph.Characteristics,
+                .. supplyChainRoles,
+            ],
+            graph.Seeds,
+            graph.Limits,
+            graph.Failures);
+        int connectorNodeId = Assert.Single(
+            graph.Nodes,
+            node =>
+                node.Subject
+                    is InspectionGraphSubject.MemberSubject
+                    {
+                        Identity:
+                            InspectionGraphMemberIdentity.CallGraph
+                            {
+                                Member.Name: "AddOptions",
+                            },
+                    }).Id;
+        int boundaryNodeId = Assert.Single(
+            graph.Nodes,
+            node =>
+                node.Subject
+                    is InspectionGraphSubject.MemberSubject
+                    {
+                        Identity:
+                            InspectionGraphMemberIdentity.CallGraph
+                            {
+                                Member.Name: "Get",
+                            },
+                    }).Id;
         var document =
             new PackageDependencyMemberCallGraphDocument(
                 TraversalTargetFrameworkPolicy.ProductDefault,
@@ -621,12 +815,31 @@ public sealed partial class BrowserEngineBoundaryTests
                     SourceBoundedRoots: 0,
                     PartialRoots: 0),
                 [],
+                new PackageDependencyMemberCallGraphBaseline(
+                    MemberCallGraphSupplyChainBaseline
+                        .SelfAndRegisteredEcosystems,
+                    [],
+                    [
+                        "ecosystem.runtime",
+                        "ecosystem.aspnetcore",
+                        "ecosystem.microsoft-extensions",
+                    ]),
                 [
                     new PackageDependencyMemberCallGraphPackageSubject(
-                        NodeId: 1,
-                        PackageId: "dependency.library",
+                        connectorNodeId,
+                        "Microsoft.Extensions.Options",
+                        "11.0.0",
+                        "net8.0"),
+                    new PackageDependencyMemberCallGraphPackageSubject(
+                        boundaryNodeId,
+                        PackageId: "OpenTelemetry.Api",
                         PackageVersion: "1.2.3",
                         TargetFramework: "net8.0"),
+                    new PackageDependencyMemberCallGraphPackageSubject(
+                        disconnectedConnectorNodeId,
+                        "Microsoft.Extensions.Options",
+                        "11.0.0",
+                        "net8.0"),
                 ],
                 graph);
 
@@ -634,20 +847,48 @@ public sealed partial class BrowserEngineBoundaryTests
             BrowserCallGraphProjection.Project(document);
 
         Assert.Equal("Run", projected.Callees.MemberName);
+        BrowserCallGraphNodeInfo connectorNode =
+            Assert.Single(projected.Callees.Children);
+        Assert.Equal("AddOptions", connectorNode.MemberName);
         Assert.Equal(
-            "Invoke",
-            Assert.Single(projected.Callees.Children).MemberName);
-        BrowserCallGraphTargetInfo dependencyTarget = Assert.Single(
+            "Get",
+            Assert.Single(connectorNode.Children).MemberName);
+        BrowserCallGraphTargetInfo connectorTarget = Assert.Single(
             projected.Targets,
             target =>
-                target.Assembly == "Dependency.Library"
-                && target.MemberName == "Invoke");
-        Assert.Equal("dependency.library", dependencyTarget.PackageId);
-        Assert.Equal("1.2.3", dependencyTarget.PackageVersion);
-        Assert.Equal("net8.0", dependencyTarget.PackageFramework);
-        Assert.Equal("1.2.3.4", dependencyTarget.AssemblyVersion);
+                target.Assembly == "Microsoft.Extensions.Options"
+                && target.MemberName == "AddOptions");
+        Assert.Equal("connector", connectorTarget.Kind);
+        BrowserCallGraphTargetInfo boundaryTarget = Assert.Single(
+            projected.Targets,
+            target =>
+                target.Assembly == "OpenTelemetry.Api"
+                && target.MemberName == "Get");
+        Assert.Equal("boundary", boundaryTarget.Kind);
+        Assert.Equal("OpenTelemetry.Api", boundaryTarget.PackageId);
+        Assert.Equal("1.2.3", boundaryTarget.PackageVersion);
+        Assert.Equal("net8.0", boundaryTarget.PackageFramework);
+        Assert.Equal("5.6.7.8", boundaryTarget.AssemblyVersion);
+        BrowserCallGraphTargetInfo disconnectedConnectorTarget =
+            Assert.Single(
+                projected.Targets,
+                target =>
+                    target.Assembly == "Microsoft.Extensions.Options"
+                    && target.MemberName == "Read");
+        Assert.Equal(
+            "connector",
+            disconnectedConnectorTarget.Kind);
+        BrowserCallGraphTargetInfo unclassifiedBoundaryTarget =
+            Assert.Single(
+                projected.Targets,
+                target =>
+                    target.TypeFullName == "System.Console"
+                    && target.MemberName == "WriteLine");
+        Assert.Equal(
+            "unclassified-boundary",
+            unclassifiedBoundaryTarget.Kind);
         Assert.Contains("Example.Worker.Run", projected.Mermaid);
-        Assert.Equal("CrossLibrary", projected.Scope.CalleeScope);
+        Assert.Equal("Supply Chain", projected.Scope.CalleeScope);
 
         BrowserCallGraph wire = BrowserCallGraphWireProjection.Project(
             projected,
@@ -664,11 +905,12 @@ public sealed partial class BrowserEngineBoundaryTests
         DotnetInspect.Web.Interop.CallGraph.BrowserCallGraphTarget wireTarget =
             Assert.Single(
                 wire.Targets,
-                target => target.MemberName == "Invoke");
-        Assert.Equal("dependency.library", wireTarget.PackageId);
+                target => target.MemberName == "Get");
+        Assert.Equal("boundary", wireTarget.Kind);
+        Assert.Equal("OpenTelemetry.Api", wireTarget.PackageId);
         Assert.Equal("1.2.3", wireTarget.PackageVersion);
         Assert.Equal("net8.0", wireTarget.PackageFramework);
-        Assert.Equal("1.2.3.4", wireTarget.AssemblyVersion);
+        Assert.Equal("5.6.7.8", wireTarget.AssemblyVersion);
     }
 
     [Fact]
