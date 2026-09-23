@@ -232,6 +232,9 @@ public static class LibraryStructuralReport
         var edges = callGraph.DirectCalls
             .Where(call =>
                 completeBodies.Contains(call.EvidenceMethod.MetadataToken)
+                && call.Kind is CallKind.Call
+                    or CallKind.CallVirtual
+                    or CallKind.NewObject
                 && call.CalleeDefinitionToken != 0
                 && methods.ContainsKey(call.CalleeDefinitionToken)
                 && !call.Caller.DeclaringType.Equals(methods[

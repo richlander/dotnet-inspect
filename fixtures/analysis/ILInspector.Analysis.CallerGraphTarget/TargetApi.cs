@@ -193,6 +193,9 @@ namespace Target
             ForwardB(value);
         }
 
+        public static Action<string> CrossTypeCallback() =>
+            CrossTypeCallbackApi.Forward;
+
         static void Forward(string value) =>
             Throw(value);
 
@@ -207,6 +210,12 @@ namespace Target
             if (value is null)
                 throw new LocalThrowPathException(nameof(value));
         }
+    }
+
+    public static class CrossTypeCallbackApi
+    {
+        public static void Forward(string value) =>
+            GC.KeepAlive(value);
     }
 
     public sealed class LocalThrowPathException(string parameterName)

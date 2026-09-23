@@ -181,7 +181,9 @@ ownership.
 When call-graph evidence is supplied, `EntangledRelationships` retains
 cross-type direct-call evidence whose caller body is complete, whose callee
 definition token resolves to an inspected method, and whose source and target
-types differ. Relationships are aggregated by source type, target type, and
+types differ. Only invocation kinds (`call`, `callvirt`, and `newobj`) are
+admitted; loading a method address with `ldftn` or `ldvirtftn` is not a call
+relationship. Relationships are aggregated by source type, target type, and
 call-site count. The report selects at most
 `MaximumEntangledTypeCount` types by distinct neighboring-type degree, then
 call-site volume, then qualified type identity, and retains the relationships

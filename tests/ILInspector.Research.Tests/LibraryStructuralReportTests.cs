@@ -186,6 +186,17 @@ public sealed class LibraryStructuralReportTests
             static relationship => Assert.NotEqual(
                 relationship.Source,
                 relationship.Target));
+        Assert.Contains(
+            execution.CallGraph.DirectCalls,
+            static call =>
+                call.Kind == CallKind.LoadFunction
+                && call.Caller.DeclaringType.Name == "LocalThrowPathApi"
+                && call.Callee.DeclaringType.Name == "CrossTypeCallbackApi");
+        Assert.DoesNotContain(
+            available.Document.EntangledRelationships,
+            static relationship =>
+                relationship.Source.Name == "LocalThrowPathApi"
+                && relationship.Target.Name == "CrossTypeCallbackApi");
         Assert.True(
             available.Document.EntangledRelationships.Length
                 <= LibraryStructuralReport.MaximumEntangledTypeCount
