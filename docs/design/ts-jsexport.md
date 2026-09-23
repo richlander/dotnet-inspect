@@ -678,11 +678,13 @@ Its readable properties are `MethodName`, `ParameterName`, and `WireType`.
 The method argument should use `nameof` so a managed rename is compiler-bound.
 C# has no equivalent parameter-symbol expression at a class declaration, so
 the parameter name remains a string that generation resolves and validates.
-This is build-safe rather than advisory: if `"requestJson"` is stale, misspelled,
-or does not identify exactly one parameter on the named export, `ts-jsexport`
-generation fails, the consumer build breaks, and no replacement facade source
-is published. Generation never ignores the declaration or falls back to a raw
-string facade.
+This is enforced metadata rather than an advisory hint: if `"requestJson"` is
+stale, misspelled, or does not identify exactly one parameter on the named
+export, `ts-jsexport` reports a generation error and publishes no replacement
+facade source. A consumer that runs generation or canonical-facade drift
+checking in its build, as inspect-web does, turns that error into a build
+break. Generation never ignores the declaration or falls back to a raw string
+facade.
 
 The declaration belongs on the export type, including an otherwise empty
 partial declaration in a dedicated contract file. It does not belong on the
