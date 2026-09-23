@@ -2,6 +2,7 @@ using System.Collections.Immutable;
 using System.Reflection.Metadata;
 
 using ILInspector.Instructions;
+using ILInspector.Metadata;
 
 namespace ILInspector.Analysis;
 
@@ -12,6 +13,91 @@ public enum ResourceOwnershipUseKind
     Stored,
     ReturnedToCaller,
     Forwarded,
+}
+
+/// <summary>
+/// One detached generic argument at a physical forwarding call. Exact type
+/// evidence is retained only when method-local metadata proves it without
+/// further resolution.
+/// </summary>
+public sealed record ResourceOwnershipGenericArgument
+{
+    public ResourceOwnershipGenericArgument(
+        TypeRef type,
+        ResourceOccurrenceType? exactType)
+    {
+        Type = type ?? throw new ArgumentNullException(nameof(type));
+        ExactType = exactType;
+    }
+
+    public TypeRef Type { get; }
+    public ResourceOccurrenceType? ExactType { get; }
+
+    internal static ResourceOwnershipGenericArgument From(TypeRef type) =>
+        new(type, TryCreateExactType(type));
+
+    static ResourceOccurrenceType? TryCreateExactType(TypeRef type)
+    {
+        if (type.Kind
+            is TypeRefKind.GenericParameter
+                or TypeRefKind.MethodGenericParameter
+                or TypeRefKind.Unsupported
+                or TypeRefKind.Pinned)
+        {
+            return null;
+        }
+
+        if (type.Kind == TypeRefKind.Definition)
+        {
+            TypeReferenceOrigin? origin = type.Resolution?.Origin;
+            if (origin is TypeReferenceOrigin.IntrinsicCoreLibrary
+                || (origin is null
+                    && type.Assembly == TypeRef.CoreLibrary))
+            {
+                return new(type, null, null, null, null, [], []);
+            }
+            if (origin is TypeReferenceOrigin.CurrentAssembly
+                { Assembly: { } assembly })
+            {
+                return new(
+                    type,
+                    assembly,
+                    DefinitionJoinKind.Exact,
+                    null,
+                    null,
+                    [],
+                    []);
+            }
+            return null;
+        }
+
+        ResourceOccurrenceType? element = type.ElementType is null
+            ? null
+            : TryCreateExactType(type.ElementType);
+        if (type.ElementType is not null && element is null)
+            return null;
+
+        var arguments =
+            ImmutableArray.CreateBuilder<ResourceOccurrenceType>(
+                type.TypeArguments.Length);
+        foreach (TypeRef argument in type.TypeArguments)
+        {
+            ResourceOccurrenceType? exact =
+                TryCreateExactType(argument);
+            if (exact is null)
+                return null;
+            arguments.Add(exact);
+        }
+
+        return new(
+            type,
+            element?.DefiningAssembly,
+            element?.DefinitionKind,
+            null,
+            element,
+            arguments.ToImmutable(),
+            element?.Forwarding ?? []);
+    }
 }
 
 /// <summary>
@@ -47,6 +133,31 @@ public sealed record ResourceOwnershipUse(
 
     public int CalleeParameterIndex { get; init; } =
         CalleeParameterIndex;
+
+    ImmutableArray<ResourceOwnershipGenericArgument>
+        _declaringTypeArguments = [];
+    ImmutableArray<ResourceOwnershipGenericArgument>
+        _methodArguments = [];
+
+    public ImmutableArray<ResourceOwnershipGenericArgument>
+        DeclaringTypeArguments
+    {
+        get => _declaringTypeArguments;
+        init => _declaringTypeArguments =
+            ImmutableArrayValueEquality.RequireInitialized(
+                value,
+                nameof(DeclaringTypeArguments));
+    }
+
+    public ImmutableArray<ResourceOwnershipGenericArgument>
+        MethodArguments
+    {
+        get => _methodArguments;
+        init => _methodArguments =
+            ImmutableArrayValueEquality.RequireInitialized(
+                value,
+                nameof(MethodArguments));
+    }
 
     public bool IsForwarded =>
         Kind == ResourceOwnershipUseKind.Forwarded;
@@ -418,7 +529,26 @@ internal static class ResourceOwnershipSummaryAnalysis
                             classification.OperationOffset,
                             [],
                             call,
-                            classification.ParameterIndex));
+                            classification.ParameterIndex)
+                        {
+                            DeclaringTypeArguments =
+                            [
+                                .. (call.Callee.DeclaringType.Kind
+                                        == TypeRefKind.GenericInstance
+                                    ? call.Callee.DeclaringType
+                                        .TypeArguments
+                                    : [])
+                                    .Select(
+                                        ResourceOwnershipGenericArgument
+                                            .From),
+                            ],
+                            MethodArguments =
+                            [
+                                .. call.Callee.TypeArguments.Select(
+                                    ResourceOwnershipGenericArgument
+                                        .From),
+                            ],
+                        });
                     foreach (ImmutableArray<
                         ResourceOccurrenceResourceKind> domain
                         in ReleaseDomains(

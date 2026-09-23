@@ -1148,12 +1148,82 @@ public sealed class MemberCallGraphSessionTests
                 use.Kind
                     == Analysis.ResourceOwnershipUseKind.Stored);
 
+        Analysis.TypeRef nested = CollisionArgument(
+            OwnershipPath,
+            "NestedCollisionExposure");
+        Analysis.TypeRef namespaced = CollisionArgument(
+            TargetPath,
+            "NamespacedCollisionExposure");
+        Assert.Equal(
+            nested.ToQualifiedDisplayString(),
+            namespaced.ToQualifiedDisplayString());
+        Assert.NotEqual(nested, namespaced);
+        var collisionAssembly = new AssemblyReferenceIdentity(
+            "Collision.Types",
+            new Version(1, 0, 0, 0),
+            Culture: null,
+            PublicKeyToken: null);
+        Analysis.ResourceOccurrenceType[] collisionArguments =
+        [
+            new(
+                nested,
+                collisionAssembly,
+                DefinitionJoinKind.Exact,
+                GenericScopeKind: null,
+                Element: null,
+                Arguments: [],
+                Forwarding: []),
+            new(
+                namespaced,
+                collisionAssembly,
+                DefinitionJoinKind.Exact,
+                GenericScopeKind: null,
+                Element: null,
+                Arguments: [],
+                Forwarding: []),
+        ];
+        focus = focus with
+        {
+            Acquisitions =
+            [
+                .. focus.Acquisitions.Select((flow, index) =>
+                {
+                    Analysis.ResourceOccurrenceResourceKind kind =
+                        Assert.Single(
+                            flow.Obligation.ResourceKinds);
+                    var replacementKind =
+                        new Analysis.ResourceOccurrenceResourceKind(
+                            kind.Identity,
+                            [collisionArguments[index]]);
+                    return flow with
+                    {
+                        Obligation =
+                            new Analysis.ResourceOccurrenceRoot.Acquisition(
+                                flow.Obligation.Call,
+                                [replacementKind],
+                                flow.Obligation.Authorities),
+                    };
+                }),
+            ],
+        };
+        view = view with
+        {
+            ResourceOwnershipSummaries =
+            [
+                .. view.ResourceOwnershipSummaries.Select(summary =>
+                    summary.Method.MetadataToken == root
+                        ? focus
+                        : summary),
+            ],
+        };
+        CallGraphProjection projection =
+            CallGraphProjection.Create(
+                view.CallerRoot,
+                view.CalleeRoot);
         ResourceOwnershipPathInspection result =
             ResourceOwnershipPathFindings.Inspect(
                 view,
-                CallGraphProjection.Create(
-                    view.CallerRoot,
-                    view.CalleeRoot));
+                projection);
         Finding<ResourceOwnershipPathWitness>[] findings =
             [.. result.Findings];
 
@@ -1163,22 +1233,185 @@ public sealed class MemberCallGraphSessionTests
                 .Select(finding =>
                     finding.Payload.ResourceKind.Identity)
                 .Distinct());
-        Assert.Equal(
-            2,
+        Assert.Single(
             findings
                 .Select(finding =>
                     Assert.Single(
                         finding.Payload.ResourceKind.Arguments)
                         .Type
                         .ToQualifiedDisplayString())
-                .Distinct()
-                .Count());
+                .Distinct());
         Assert.Equal(
             2,
             findings
                 .Select(static finding => finding.Key)
                 .Distinct()
                 .Count());
+        ResourceOwnershipPathInspection repeated =
+            ResourceOwnershipPathFindings.Inspect(view, projection);
+        Assert.Equal(
+            findings.Select(static finding => finding.Key),
+            repeated.Findings.Select(static finding => finding.Key));
+
+        static Analysis.TypeRef CollisionArgument(
+            string path,
+            string callerName)
+        {
+            Analysis.LibraryBodyIndex index =
+                Analysis.LibraryBodyIndex.Open(path);
+            Analysis.DirectCall call = Assert.Single(
+                index.DirectCalls,
+                candidate =>
+                    candidate.Caller.Name == "Expose"
+                    && candidate.Caller.DeclaringType.Name
+                        == callerName
+                    && candidate.Callee.Name == "Capture");
+            return Assert.Single(call.Callee.TypeArguments);
+        }
+    }
+
+    [Fact]
+    public async Task GenericOwnershipRequiresExactBoundDomainEvidence()
+    {
+        await using GraphContext context =
+            GraphContext.Create(OwnershipPath, TargetPath);
+        int root = MemberToken(
+            OwnershipPath,
+            "Entry",
+            "RentAndReturnThroughGenericHelper");
+        using var graph = new MemberCallGraphSession(
+            context.Group,
+            context.Sources[0].Assembly,
+            root,
+            new MemberCallGraphOptions
+            {
+                Features =
+                    Analysis.LibraryBodyAnalysisFeatures.MethodEvidence,
+                ResourceEffects =
+                    Analysis.ArrayPoolResourceEffectModel.Create(),
+            });
+        MemberCallGraphView original = graph.Callers();
+        Analysis.ResourceOwnershipMethodSummary focus =
+            Assert.Single(
+                original.ResourceOwnershipSummaries,
+                summary =>
+                    summary.Method.MetadataToken == root);
+        Analysis.ResourceOwnershipUse forwarding =
+            Assert.Single(
+                Assert.Single(focus.Acquisitions).Uses,
+                static use => use.IsForwarded);
+        Assert.NotNull(
+            Assert.Single(forwarding.MethodArguments).ExactType);
+        Analysis.TypeRef token =
+            Analysis.TypeRef.Definition(
+                "DomainX",
+                "Domain",
+                "Token");
+        var version1 = new AssemblyReferenceIdentity(
+            "DomainX",
+            new Version(1, 0, 0, 0),
+            Culture: null,
+            PublicKeyToken: null);
+        var version2 = version1 with
+        {
+            Version = new Version(2, 0, 0, 0),
+        };
+        Analysis.ResourceOccurrenceType first =
+            ExactType(token, version1);
+        Analysis.ResourceOccurrenceType second =
+            ExactType(token, version2);
+        CallGraphProjection projection =
+            CallGraphProjection.Create(
+                original.CallerRoot,
+                original.CalleeRoot);
+
+        ResourceOwnershipPathInspection matching =
+            ResourceOwnershipPathFindings.Inspect(
+                WithArgument(first),
+                projection);
+        Finding<ResourceOwnershipPathWitness> witness =
+            Assert.Single(matching.Findings);
+        Assert.Equal(
+            ResourceOwnershipPathOutcome.Released,
+            witness.Payload.Outcome);
+        Assert.True(witness.Payload.IsComplete);
+
+        ResourceOwnershipPathInspection mismatched =
+            ResourceOwnershipPathFindings.Inspect(
+                WithArgument(second),
+                projection);
+        Assert.Empty(mismatched.Findings);
+        Assert.False(mismatched.IsComplete);
+
+        ResourceOwnershipPathInspection unavailable =
+            ResourceOwnershipPathFindings.Inspect(
+                WithArgument(exact: null),
+                projection);
+        Assert.Empty(unavailable.Findings);
+        Assert.True(
+            unavailable.Limits.HasFlag(
+                AnnotatedCallGraphOwnershipLimit.AnalysisFailure));
+
+        MemberCallGraphView WithArgument(
+            Analysis.ResourceOccurrenceType? exact)
+        {
+            Analysis.ResourceOwnershipAcquisitionFlow flow =
+                Assert.Single(focus.Acquisitions);
+            Analysis.ResourceOccurrenceResourceKind kind =
+                Assert.Single(flow.Obligation.ResourceKinds);
+            var replacementKind =
+                new Analysis.ResourceOccurrenceResourceKind(
+                    kind.Identity,
+                    [first]);
+            flow = flow with
+            {
+                Obligation =
+                    new Analysis.ResourceOccurrenceRoot.Acquisition(
+                        flow.Obligation.Call,
+                        [replacementKind],
+                        flow.Obligation.Authorities),
+                Uses =
+                [
+                    .. flow.Uses.Select(use =>
+                        use.IsForwarded
+                            ? use with
+                            {
+                                MethodArguments =
+                                [
+                                    new(
+                                        token,
+                                        exact),
+                                ],
+                            }
+                            : use),
+                ],
+            };
+            Analysis.ResourceOwnershipMethodSummary replacement =
+                focus with { Acquisitions = [flow] };
+            return original with
+            {
+                ResourceOwnershipSummaries =
+                [
+                    .. original.ResourceOwnershipSummaries.Select(
+                        summary =>
+                            summary.Method.MetadataToken == root
+                                ? replacement
+                                : summary),
+                ],
+            };
+        }
+
+        static Analysis.ResourceOccurrenceType ExactType(
+            Analysis.TypeRef type,
+            AssemblyReferenceIdentity assembly) =>
+            new(
+                type,
+                assembly,
+                DefinitionJoinKind.Exact,
+                GenericScopeKind: null,
+                Element: null,
+                Arguments: [],
+                Forwarding: []);
     }
 
     [Fact]

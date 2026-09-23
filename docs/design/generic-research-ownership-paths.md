@@ -58,7 +58,11 @@ Each flow contains ordered uses with one of four outcomes:
 
 A forwarded use retains the complete `DirectCall` and the zero-based callee
 parameter index. Repeated physical calls therefore remain distinct even when
-the call-graph projection collapses them onto one logical edge row.
+the call-graph projection collapses them onto one logical edge row. It also
+retains detached declaring-type and method generic arguments. An argument
+carries exact `ResourceOccurrenceType` evidence only when method-local metadata
+proves that identity without resolution; otherwise the exact evidence is
+absent rather than inferred from display or simple assembly names.
 
 Release uses carry the exact Resource Occurrence resource-kind domain to which
 the admitted effect applies. Resource-neutral forwarding remains the fallback
@@ -92,10 +96,11 @@ same-shaped body from another image. Missing or ambiguous definition evidence
 is incomplete.
 
 Research carries the physical call site's method generic arguments across each
-forwarding step. Before selecting a typed terminal use, it substitutes that
-context into the definition-local resource domain. The substitution composes
-across multiple generic forwarding steps; an unresolved or non-matching domain
-does not become a typed terminal.
+forwarding step. Before selecting a typed terminal use, it substitutes the
+complete detached occurrence type into the definition-local resource domain.
+The substitution composes across multiple generic forwarding steps. Missing
+exact argument evidence is incomplete, and a non-matching domain remains
+resource-neutral; neither becomes a typed terminal.
 
 A terminal `ResourceOwnershipPathWitness` contains the obligation, selected
 resource kind, ordered physical forwarding coordinates, typed sink outcome,
@@ -103,7 +108,8 @@ sink method and offset, and path-local completeness. Finding identity uses the
 acquisition coordinate, resource-kind identity and bound resource arguments,
 forwarding coordinates, and typed sink identity. It does not use labels or
 projection-local edge row numbers, so unrelated graph rows do not rename a
-Finding.
+Finding. Bound type identity uses injective metadata definition names and exact
+detached assembly evidence rather than display spelling.
 
 Path-local completeness says whether every Analysis summary traversed by that
 positive witness was complete. Operation completeness remains separate:
@@ -138,8 +144,12 @@ The focused gates establish:
   coordinates;
 - call-site method-generic substitution selects a matching typed release both
   directly and across multiple forwarding steps;
+- same-simple-name assembly versions do not become one bound generic domain,
+  and unavailable exact generic evidence remains incomplete;
 - one resource-kind identity bound to different resource arguments at one
-  acquisition coordinate retains distinct Finding identity;
+  acquisition coordinate retains distinct, repeat-stable Finding identity,
+  including nested versus namespace-qualified metadata names with the same
+  display spelling;
 - a resource used as a field receiver is incomplete rather than a proven field
   store, and an unsupported rootless acquisition or release keeps its method
   summary incomplete;

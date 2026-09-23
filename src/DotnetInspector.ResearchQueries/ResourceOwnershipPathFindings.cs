@@ -227,17 +227,24 @@ public static class ResourceOwnershipPathFindings
                     options.ResourceKind is null
                     || kind.Identity == options.ResourceKind))
             {
-                foreach (ResourceOwnershipUse use in ApplicableUses(
+                foreach (ApplicableOwnershipUse applicable in ApplicableUses(
                     acquisition.Uses,
                     acquisition.Obligation.ResourceKinds))
                 {
+                    if (!applicable.IsComplete)
+                    {
+                        limits |=
+                            AnnotatedCallGraphOwnershipLimit.AnalysisFailure;
+                    }
                     if (!TryAdvance(
                             projection.Focus.Id,
                             acquisition.Obligation,
                             resourceKind,
                             sinkParameterIndex: -1,
                             [],
-                            acquisition.IsComplete && focus.IsComplete,
+                            acquisition.IsComplete
+                                && focus.IsComplete
+                                && applicable.IsComplete,
                             ImmutableHashSet<(
                                 int Node,
                                 int Parameter,
@@ -245,7 +252,7 @@ public static class ResourceOwnershipPathFindings
                                     GenericContext)>
                                 .Empty,
                             ResourceOwnershipGenericContext.Empty,
-                            use))
+                            applicable.Use))
                     {
                         break;
                     }
@@ -292,11 +299,16 @@ public static class ResourceOwnershipPathFindings
                     AnnotatedCallGraphOwnershipLimit.AnalysisFailure;
             }
 
-            foreach (ResourceOwnershipUse use in ApplicableUses(
+            foreach (ApplicableOwnershipUse applicable in ApplicableUses(
                 parameter.Uses,
                 state.Obligation.ResourceKinds,
                 state.GenericContext))
             {
+                if (!applicable.IsComplete)
+                {
+                    limits |=
+                        AnnotatedCallGraphOwnershipLimit.AnalysisFailure;
+                }
                 if (!TryAdvance(
                         state.NodeId,
                         state.Obligation,
@@ -305,10 +317,11 @@ public static class ResourceOwnershipPathFindings
                         state.Steps,
                         state.IsComplete
                             && evidence.IsComplete
-                            && parameter.IsComplete,
+                            && parameter.IsComplete
+                            && applicable.IsComplete,
                         state.Visited,
                         state.GenericContext,
-                        use))
+                        applicable.Use))
                 {
                     break;
                 }
@@ -402,7 +415,7 @@ public static class ResourceOwnershipPathFindings
                 call.OperandToken,
                 use.CalleeParameterIndex);
             ResourceOwnershipGenericContext nextGenericContext =
-                genericContext.ForCall(call);
+                genericContext.ForCall(use);
             var stateKey =
                 (
                     row.Edge.To,
@@ -481,7 +494,7 @@ public static class ResourceOwnershipPathFindings
         }
     }
 
-    static IEnumerable<ResourceOwnershipUse> ApplicableUses(
+    static IEnumerable<ApplicableOwnershipUse> ApplicableUses(
         ImmutableArray<ResourceOwnershipUse> uses,
         ImmutableArray<ResourceOccurrenceResourceKind> obligationDomain,
         ResourceOwnershipGenericContext genericContext =
@@ -491,80 +504,180 @@ public static class ResourceOwnershipPathFindings
             ResourceOwnershipUse> group in uses.GroupBy(use =>
                 (use.ILOffset, use.CalleeParameterIndex)))
         {
-            ResourceOwnershipUse[] constrained =
+            (ResourceOwnershipUse Use, ResourceDomainMatch Match)[]
+                constrained =
             [
                 .. group.Where(use =>
-                    !use.ResourceKinds.IsEmpty
-                    && DomainsMatch(
-                        use.ResourceKinds,
-                        obligationDomain,
-                        genericContext)),
+                    !use.ResourceKinds.IsEmpty)
+                    .Select(use =>
+                        (
+                            use,
+                            DomainsMatch(
+                                use.ResourceKinds,
+                                obligationDomain,
+                                genericContext))),
             ];
-            foreach (ResourceOwnershipUse use in constrained.Length > 0
-                ? constrained
-                : group.Where(static use =>
-                    use.ResourceKinds.IsEmpty))
+            ResourceOwnershipUse[] matched =
+            [
+                .. constrained
+                    .Where(static candidate =>
+                        candidate.Match == ResourceDomainMatch.Match)
+                    .Select(static candidate => candidate.Use),
+            ];
+            if (matched.Length > 0)
             {
-                yield return use;
+                foreach (ResourceOwnershipUse use in matched)
+                    yield return new(use, IsComplete: true);
+                continue;
+            }
+
+            bool complete = !constrained.Any(static candidate =>
+                candidate.Match == ResourceDomainMatch.Incomplete);
+            foreach (ResourceOwnershipUse use in group.Where(static use =>
+                use.ResourceKinds.IsEmpty))
+            {
+                yield return new(use, complete);
             }
         }
     }
 
-    static bool DomainsMatch(
+    static ResourceDomainMatch DomainsMatch(
         ImmutableArray<ResourceOccurrenceResourceKind> left,
         ImmutableArray<ResourceOccurrenceResourceKind> right,
-        ResourceOwnershipGenericContext genericContext) =>
-        left.Length == right.Length
-        && left.Zip(right).All(pair =>
+        ResourceOwnershipGenericContext genericContext)
+    {
+        if (left.Length != right.Length)
+            return ResourceDomainMatch.NoMatch;
+        return Combine(
+            left.Zip(right).Select(pair =>
             ResourceKindsMatch(
                 pair.First,
                 pair.Second,
-                genericContext));
+                genericContext)));
+    }
 
-    static bool ResourceKindsMatch(
+    static ResourceDomainMatch ResourceKindsMatch(
         ResourceOccurrenceResourceKind left,
         ResourceOccurrenceResourceKind right,
-        ResourceOwnershipGenericContext genericContext) =>
-        left.Identity == right.Identity
-        && left.Arguments.Length == right.Arguments.Length
-        && left.Arguments.Zip(right.Arguments).All(pair =>
+        ResourceOwnershipGenericContext genericContext)
+    {
+        if (left.Identity != right.Identity
+            || left.Arguments.Length != right.Arguments.Length)
+        {
+            return ResourceDomainMatch.NoMatch;
+        }
+        return Combine(
+            left.Arguments.Zip(right.Arguments).Select(pair =>
             ResourceTypesMatch(
                 pair.First,
                 pair.Second,
-                genericContext));
+                genericContext)));
+    }
 
-    static bool ResourceTypesMatch(
+    static ResourceDomainMatch ResourceTypesMatch(
         ResourceOccurrenceType left,
         ResourceOccurrenceType right,
         ResourceOwnershipGenericContext genericContext)
     {
-        TypeRef instantiatedType =
-            genericContext.Instantiate(left.Type);
-        if (!instantiatedType.Equals(left.Type))
+        if (left.Type.Kind is TypeRefKind.GenericParameter
+            or TypeRefKind.MethodGenericParameter)
         {
-            return instantiatedType.Equals(right.Type);
+            ResourceEffectGenericVariableKind kind =
+                left.Type.Kind == TypeRefKind.GenericParameter
+                    ? ResourceEffectGenericVariableKind.Type
+                    : ResourceEffectGenericVariableKind.Method;
+            return genericContext.TryGetArgument(
+                    kind,
+                    left.Type.GenericParameterIndex,
+                    out ResourceOwnershipGenericContextArgument argument)
+                ? argument.ExactType is { } exact
+                    ? ResourceTypesMatch(
+                        exact,
+                        right,
+                        ResourceOwnershipGenericContext.Empty)
+                    : ResourceDomainMatch.Incomplete
+                : ResourceDomainMatch.Incomplete;
         }
 
-        return instantiatedType.Equals(right.Type)
-        && left.DefiningAssembly == right.DefiningAssembly
-        && left.DefinitionKind == right.DefinitionKind
-        && left.GenericScopeKind == right.GenericScopeKind
-        && ((left.Element is null && right.Element is null)
-            || (left.Element is not null
-                && right.Element is not null
-                && ResourceTypesMatch(
+        if (!TypeShapesMatch(left.Type, right.Type)
+            || left.DefiningAssembly != right.DefiningAssembly
+            || left.DefinitionKind != right.DefinitionKind
+            || left.GenericScopeKind != right.GenericScopeKind
+            || left.Forwarding.Length != right.Forwarding.Length
+            || !left.Forwarding.Zip(right.Forwarding).All(pair =>
+                ForwardingHopsMatch(pair.First, pair.Second))
+            || left.Arguments.Length != right.Arguments.Length
+            || (left.Element is null) != (right.Element is null))
+        {
+            return ResourceDomainMatch.NoMatch;
+        }
+
+        var matches =
+            new List<ResourceDomainMatch>(
+                left.Arguments.Length + (left.Element is null ? 0 : 1));
+        if (left.Element is not null)
+        {
+            matches.Add(
+                ResourceTypesMatch(
                     left.Element,
-                    right.Element,
-                    genericContext)))
-        && left.Arguments.Length == right.Arguments.Length
-        && left.Arguments.Zip(right.Arguments).All(pair =>
-            ResourceTypesMatch(
-                pair.First,
-                pair.Second,
-                genericContext))
-        && left.Forwarding.Length == right.Forwarding.Length
-        && left.Forwarding.Zip(right.Forwarding).All(pair =>
-            ForwardingHopsMatch(pair.First, pair.Second));
+                    right.Element!,
+                    genericContext));
+        }
+        matches.AddRange(
+            left.Arguments.Zip(right.Arguments).Select(pair =>
+                ResourceTypesMatch(
+                    pair.First,
+                    pair.Second,
+                    genericContext)));
+        return Combine(matches);
+    }
+
+    static bool TypeShapesMatch(TypeRef left, TypeRef right)
+    {
+        if (left.Kind != right.Kind
+            || left.Rank != right.Rank
+            || left.GenericParameterIndex
+                != right.GenericParameterIndex
+            || left.Namespace != right.Namespace
+            || left.Name != right.Name
+            || left.Assembly != right.Assembly
+            || (left.ElementType is null)
+                != (right.ElementType is null)
+            || left.TypeArguments.Length
+                != right.TypeArguments.Length)
+        {
+            return false;
+        }
+        if (left.Resolution?.Type is { } leftName
+            && right.Resolution?.Type is { } rightName
+            && !leftName.Equals(rightName))
+        {
+            return false;
+        }
+        if (left.ElementType is not null
+            && !TypeShapesMatch(
+                left.ElementType,
+                right.ElementType!))
+        {
+            return false;
+        }
+        return left.TypeArguments.Zip(right.TypeArguments).All(pair =>
+            TypeShapesMatch(pair.First, pair.Second));
+    }
+
+    static ResourceDomainMatch Combine(
+        IEnumerable<ResourceDomainMatch> matches)
+    {
+        bool incomplete = false;
+        foreach (ResourceDomainMatch match in matches)
+        {
+            if (match == ResourceDomainMatch.NoMatch)
+                return ResourceDomainMatch.NoMatch;
+            incomplete |= match == ResourceDomainMatch.Incomplete;
+        }
+        return incomplete
+            ? ResourceDomainMatch.Incomplete
+            : ResourceDomainMatch.Match;
     }
 
     static bool ForwardingHopsMatch(
@@ -629,8 +742,9 @@ public static class ResourceOwnershipPathFindings
         ResourceOccurrenceType type)
     {
         AppendInt(builder, (int)type.Type.Kind);
-        AppendPart(builder, type.Type.ToQualifiedDisplayString());
+        AppendInt(builder, type.Type.Rank);
         AppendInt(builder, type.Type.GenericParameterIndex);
+        AppendTypeName(builder, type.Type);
         AppendAssembly(builder, type.DefiningAssembly);
         AppendInt(builder, (int?)type.DefinitionKind);
         AppendInt(builder, (int?)type.GenericScopeKind);
@@ -649,6 +763,71 @@ public static class ResourceOwnershipPathFindings
             AppendInt(builder, hop.Declarations.Length);
             foreach (var declaration in hop.Declarations)
                 AppendInt(builder, declaration.Value);
+        }
+    }
+
+    static void AppendTypeName(
+        StringBuilder builder,
+        TypeRef type)
+    {
+        TypeRef named = type.Kind == TypeRefKind.GenericInstance
+            ? type.ElementType!
+            : type;
+        if (named.Kind == TypeRefKind.Definition
+            && named.Resolution?.Type is { } name)
+        {
+            AppendInt(builder, 1);
+            AppendPart(builder, name.ToEscapedFullName());
+            return;
+        }
+
+        AppendInt(builder, 0);
+        AppendPart(builder, named.Assembly);
+        AppendPart(builder, named.Namespace);
+        AppendPart(builder, named.Name);
+    }
+
+    static void AppendTypeRefIdentity(
+        StringBuilder builder,
+        TypeRef type)
+    {
+        AppendInt(builder, (int)type.Kind);
+        AppendInt(builder, type.Rank);
+        AppendInt(builder, type.GenericParameterIndex);
+        AppendTypeName(builder, type);
+        AppendTypeOrigin(builder, type.Resolution?.Origin);
+        AppendInt(builder, type.ElementType is null ? 0 : 1);
+        if (type.ElementType is not null)
+            AppendTypeRefIdentity(builder, type.ElementType);
+        AppendInt(builder, type.TypeArguments.Length);
+        foreach (TypeRef argument in type.TypeArguments)
+            AppendTypeRefIdentity(builder, argument);
+    }
+
+    static void AppendTypeOrigin(
+        StringBuilder builder,
+        TypeReferenceOrigin? origin)
+    {
+        switch (origin)
+        {
+            case TypeReferenceOrigin.AssemblyReference reference:
+                AppendInt(builder, 1);
+                AppendAssembly(builder, reference.Assembly);
+                break;
+            case TypeReferenceOrigin.CurrentAssembly current:
+                AppendInt(builder, 2);
+                AppendAssembly(builder, current.Assembly);
+                break;
+            case TypeReferenceOrigin.IntrinsicCoreLibrary:
+                AppendInt(builder, 3);
+                break;
+            case TypeReferenceOrigin.ModuleReference module:
+                AppendInt(builder, 4);
+                AppendPart(builder, module.ModuleName);
+                break;
+            default:
+                AppendInt(builder, 0);
+                break;
         }
     }
 
@@ -687,42 +866,94 @@ public static class ResourceOwnershipPathFindings
         : IEquatable<ResourceOwnershipGenericContext>
     {
         internal ResourceOwnershipGenericContext(
-            ImmutableArray<TypeRef> typeArguments,
-            ImmutableArray<TypeRef> methodArguments) =>
+            ImmutableArray<ResourceOwnershipGenericContextArgument>
+                typeArguments,
+            ImmutableArray<ResourceOwnershipGenericContextArgument>
+                methodArguments) =>
             (TypeArguments, MethodArguments) =
                 (typeArguments, methodArguments);
 
         internal static ResourceOwnershipGenericContext Empty { get; } =
             new([], []);
 
-        internal ImmutableArray<TypeRef> TypeArguments { get; }
-        internal ImmutableArray<TypeRef> MethodArguments { get; }
+        internal ImmutableArray<ResourceOwnershipGenericContextArgument>
+            TypeArguments { get; }
+        internal ImmutableArray<ResourceOwnershipGenericContextArgument>
+            MethodArguments { get; }
 
-        internal TypeRef Instantiate(TypeRef type) =>
-            type.Instantiate(
-                TypeArguments.IsDefault ? [] : TypeArguments,
-                MethodArguments.IsDefault ? [] : MethodArguments);
-
-        internal ResourceOwnershipGenericContext ForCall(
-            DirectCall call)
+        internal bool TryGetArgument(
+            ResourceEffectGenericVariableKind kind,
+            int index,
+            out ResourceOwnershipGenericContextArgument argument)
         {
-            ImmutableArray<TypeRef> typeArguments =
-                call.Callee.DeclaringType.Kind
-                    == TypeRefKind.GenericInstance
-                    ? call.Callee.DeclaringType.TypeArguments
-                    : [];
-            return new(
-                Instantiate(typeArguments),
-                Instantiate(call.Callee.TypeArguments));
+            ImmutableArray<ResourceOwnershipGenericContextArgument>
+                arguments =
+                kind == ResourceEffectGenericVariableKind.Type
+                    ? TypeArguments
+                    : MethodArguments;
+            if (!arguments.IsDefault
+                && index >= 0
+                && index < arguments.Length)
+            {
+                argument = arguments[index];
+                return true;
+            }
+            argument = default;
+            return false;
         }
 
-        ImmutableArray<TypeRef> Instantiate(
-            ImmutableArray<TypeRef> arguments) =>
+        internal ResourceOwnershipGenericContext ForCall(
+            ResourceOwnershipUse use)
+        {
+            return new(
+                InstantiateArguments(use.DeclaringTypeArguments),
+                InstantiateArguments(use.MethodArguments));
+        }
+
+        ImmutableArray<ResourceOwnershipGenericContextArgument>
+            InstantiateArguments(
+            ImmutableArray<ILInspector.Analysis
+                .ResourceOwnershipGenericArgument> arguments) =>
             arguments.IsDefaultOrEmpty
                 ? []
                 :
                 [
-                    .. arguments.Select(Instantiate),
+                    .. arguments.Select(InstantiateArgument),
+                ];
+
+        ResourceOwnershipGenericContextArgument InstantiateArgument(
+            ILInspector.Analysis.ResourceOwnershipGenericArgument
+                argument)
+        {
+            if (argument.Type.Kind is TypeRefKind.GenericParameter
+                    or TypeRefKind.MethodGenericParameter
+                && TryGetArgument(
+                    argument.Type.Kind == TypeRefKind.GenericParameter
+                        ? ResourceEffectGenericVariableKind.Type
+                        : ResourceEffectGenericVariableKind.Method,
+                    argument.Type.GenericParameterIndex,
+                    out ResourceOwnershipGenericContextArgument existing))
+            {
+                return existing;
+            }
+
+            TypeRef instantiated = argument.Type.Instantiate(
+                Types(TypeArguments),
+                Types(MethodArguments));
+            return ResourceOwnershipGenericContextArgument.Create(
+                instantiated,
+                argument.ExactType);
+        }
+
+        static ImmutableArray<TypeRef> Types(
+            ImmutableArray<ResourceOwnershipGenericContextArgument>
+                arguments) =>
+            arguments.IsDefaultOrEmpty
+                ? []
+                :
+                [
+                    .. arguments.Select(static argument =>
+                        argument.Type),
                 ];
 
         public bool Equals(ResourceOwnershipGenericContext other) =>
@@ -746,14 +977,16 @@ public static class ResourceOwnershipPathFindings
         public override int GetHashCode()
         {
             var hash = new HashCode();
-            foreach (TypeRef argument in TypeArguments.IsDefault
+            foreach (ResourceOwnershipGenericContextArgument argument
+                in TypeArguments.IsDefault
                 ? []
                 : TypeArguments)
             {
                 hash.Add(argument);
             }
             hash.Add(TypeArguments.IsDefault ? 0 : TypeArguments.Length);
-            foreach (TypeRef argument in MethodArguments.IsDefault
+            foreach (ResourceOwnershipGenericContextArgument argument
+                in MethodArguments.IsDefault
                 ? []
                 : MethodArguments)
             {
@@ -765,6 +998,34 @@ public static class ResourceOwnershipPathFindings
                     : MethodArguments.Length);
             return hash.ToHashCode();
         }
+    }
+
+    readonly record struct ResourceOwnershipGenericContextArgument(
+        TypeRef Type,
+        ResourceOccurrenceType? ExactType,
+        string Identity)
+    {
+        internal static ResourceOwnershipGenericContextArgument Create(
+            TypeRef type,
+            ResourceOccurrenceType? exactType)
+        {
+            var builder = new StringBuilder();
+            AppendTypeRefIdentity(builder, type);
+            if (exactType is not null)
+                AppendType(builder, exactType);
+            return new(type, exactType, builder.ToString());
+        }
+    }
+
+    readonly record struct ApplicableOwnershipUse(
+        ResourceOwnershipUse Use,
+        bool IsComplete);
+
+    enum ResourceDomainMatch
+    {
+        NoMatch,
+        Match,
+        Incomplete,
     }
 
     sealed record PathState(
