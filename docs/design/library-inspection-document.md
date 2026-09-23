@@ -31,7 +31,7 @@ This owner composes existing contracts without redefining them:
   Type inventory membership, exact Count, Type rows, facets, and extraction
   bounds.
 - [Section cardinality](section-cardinality.md) owns scalar and inventory
-  terminal semantics.
+  terminal semantics for resolved sections.
 - [Query-space composition](query-space-composition.md) owns population
   generation, continuation, and terminal composition.
 - [Inspection envelope](inspection-envelope.md) owns Content, Share, and
@@ -39,6 +39,12 @@ This owner composes existing contracts without redefining them:
 - [`ts-jsexport` facade generation](ts-jsexport.md) owns the future generated
   TypeScript facade for an authenticated JSON request parameter. It does not
   own Library request semantics.
+
+This design defines producer-owned nested population results. It does not
+change the section-cardinality owner or declare the shape of `Library Info`,
+`Types`, or another CLI section. A later focused composition maps document
+populations to section row sets and terminals without making section names
+part of the document schema.
 
 ## Product question
 
@@ -430,9 +436,9 @@ Adoption is staged through focused slices:
    names.
 3. Implement the first faceted Type Count and bounded Rows population over one
    exact Library, including requested nested Member Count.
-4. Lower direct, PackageHouse, and PlatformHouse CLI gestures to explicit
-   plans while preserving not-yet-adopted legacy sections on their existing
-   paths.
+4. Define the focused section/document composition, then lower direct,
+   PackageHouse, and PlatformHouse CLI gestures to explicit plans while
+   preserving not-yet-adopted legacy sections on their existing paths.
 5. After the #8328 JSON-input implementation lands, expose one typed
    `BrowserLibraryInspectionRequest` through the generated facade and consume
    the same envelope in Inspect Web.
@@ -523,6 +529,8 @@ This owner does not define:
 
 - Package, Platform, direct-file, or Workspace realization;
 - CLI defaults, command names, verbosity, section spelling, or rendering;
+- section-cardinality declarations or the mapping from document populations to
+  section row sets;
 - TypeDocument, MemberDocument, or AnalysisResults internals;
 - every future Library fact, population, facet, or ordering;
 - a generic document or population framework for every subject family;

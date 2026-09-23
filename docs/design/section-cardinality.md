@@ -11,13 +11,12 @@ The motivating production cases are deliberately different:
 
 - merged #8221 proves that an installed-Platform Type inventory can answer
   exact Count without retaining its Rows; and
-- a Library inspection document may contain scalar subject facts plus several
-  independently requested nested populations.
+- `library --platform System.Text.Json -S "Library Info"` describes one
+  assembly value whose properties are not a row population.
 
 The initial production references deliberately cover three shapes:
 
-- #8228 composes singular Library facts with faceted Type population Count and
-  Rows inside one subject-shaped Library document;
+- #8228 makes a single-Library overview the pure scalar reference;
 - #8235 and #8278 make a large Library Type list the pure inventory reference,
   including producer-reaching continuation through both hosts; and
 - #8281 makes a large Source document the mixed reference: scalar document
@@ -72,14 +71,12 @@ The model starts from established value-versus-sequence distinctions:
 
 The deliberate restriction is stronger than permissive output tooling: a
 scalar's visible fields never become an implicit sequence merely because a
-renderer can enumerate them. Nested document populations declare their own
-shape and terminal identity instead of transferring inventory cardinality to
-the containing document. This keeps Count useful for planning and prevents
+renderer can enumerate them. This keeps Count useful for planning and prevents
 presentation changes from changing semantic cardinality.
 
 ## Semantic shapes
 
-Every resolved population or scalar projection has exactly one semantic shape:
+Every resolved section instance has exactly one semantic shape:
 
 | Shape | Meaning | Rows | Count |
 | --- | --- | --- | --- |
@@ -93,19 +90,13 @@ inventory or Count zero. An inventory may be complete and empty; its exact
 Count is zero and its Rows result is empty under the row-shaping owner's
 ordinary completion contract.
 
-The section's display name and renderer do not determine semantic shape. The
-owner classifies the resolved population or scalar projection after operation
-and subject scope are known. One subject document may consequently contain
-several independently shaped results:
+The section's display name and renderer do not determine its semantic shape.
+The owner classifies the resolved section after operation and subject scope are
+known. The same display name may consequently participate in different
+resolved operations:
 
-- Library identity is scalar;
-- one faceted Library Type population is inventory-shaped; and
-- another faceted Type population has a distinct binding and terminals.
-
-The same display name may also participate in different resolved operations:
-
-- `Library Info` may render scalar Library facts plus count-only results from
-  several nested populations.
+- `Library Info` for one assembly is scalar: assembly name, version,
+  architecture, and related properties describe one value.
 - An all-libraries survey may declare one library as its row unit and is then
   an inventory, even if its renderer reuses a `Library Info` heading.
 
