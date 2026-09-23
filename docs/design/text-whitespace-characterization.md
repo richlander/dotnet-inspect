@@ -251,9 +251,10 @@ validator checks both preconditions.
 
 Terminators are not part of the anchor precondition. A boundary that follows
 an anchor and precedes region lines belongs to that region, so any difference
-in it is located there. A boundary difference outside every region is either
-spelling between two adjacent anchors, or final-terminator presence after
-anchored last lines. The document summary reports it without locating it.
+in it is located there. Any other boundary follows an anchor that no region
+line follows (between adjacent anchors, or after an anchored last line), and
+belongs to no region. The document summary reports a difference in such a
+boundary, in spelling or final-terminator presence, without locating it.
 
 ### Regions
 
@@ -267,7 +268,8 @@ On each side, a region's *text* is the span from the end of the preceding
 anchor's content (or the start of the text) to the start of the following
 anchor's content (or the end of the text). It therefore includes the boundary
 after the preceding anchor. Each boundary between two regions' lines belongs
-to exactly one region, and every boundary difference is located. For example,
+to exactly one region, and every boundary difference inside a region is
+located. For example,
 with `TextAnalysisDiffPresentation.CreateAnalysisDiff`, whose texts are
 unterminated and which anchors every unchanged line that did not move,
 `a⏎␠` → `a` gives the region texts `⏎␠` and the empty string, so the edit is
@@ -366,7 +368,7 @@ therefore marks lines too, without any per-line machinery.
 | Summary | Condition |
 | --- | --- |
 | `NoDifference` | The two input texts are ordinal-equal. |
-| `WhitespaceOnly` | The texts differ, and every region is `WhitespaceOnly`. This includes texts whose only differences lie outside every region: terminator spelling between adjacent anchors, or final-terminator presence after anchored last lines. |
+| `WhitespaceOnly` | The texts differ, and every region is `WhitespaceOnly`. This includes texts whose only differences are in boundaries that belong to no region. |
 | `Changed` | At least one region is `Changed`. |
 
 A boundary difference outside every region is reported by the summary without
@@ -487,6 +489,7 @@ their region's changes.
 | Trailing line after an anchor | `a⏎␠` → `a` (via `TextAnalysisDiffPresentation.CreateAnalysisDiff`) | `WhitespaceOnly`, `LineBreaks` covering the anchor's boundary |
 | Final newline | `x` → `x⏎` | `WhitespaceOnly`, `LineBreaks` and `FinalLineTerminator` |
 | Terminator spelling, line diff | `a⏎b` with CRLF → LF | *doc* `WhitespaceOnly`, no region |
+| Final terminator spelling, line diff | `a␍␊` → `a␊` | *doc* `WhitespaceOnly`, no region |
 | Terminator spelling, pair | `a⏎b` with CRLF → LF | `WhitespaceOnly`, `TerminatorSpelling` |
 | Surrogate adjacency | `😀 x` → `😀x` | edit spans are valid UTF-16 boundaries |
 | Split budget | a region above the budget with one real edit | one `Changed` change; summary `Changed` |
@@ -530,10 +533,9 @@ This design does not define:
 - intraline ranges for non-whitespace changes, though a follow-on may reuse the
   splitting alignment;
 - whitespace beyond U+0020, U+0009, and logical line boundaries;
-- locating boundary differences outside every region in the line-diff
-  characterization: spelling between adjacent anchors, or final-terminator
-  presence after anchored last lines (inside a region both are located, and
-  the pair characterization locates them everywhere);
+- locating differences in boundaries that belong to no region (in the
+  line-diff characterization; boundaries inside a region are located, and the
+  pair characterization locates every boundary difference);
 - host rendering, gestures, or interaction; or
 - adoption by any owner other than the first adopter.
 
