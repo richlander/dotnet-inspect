@@ -206,7 +206,7 @@ public partial class CommandExecutionTests
         Assert.Empty(error);
         string[] lines = output.ReplaceLineEndings("\n").Split('\n');
         const string attribute =
-            "[System.Obsolete(\"Use Value2 instead\")]";
+            "[System.Obsolete(\"Use Value2 instead\", true)]";
         Assert.Single(lines, line => line.Trim() == attribute);
         int attributeLine = Array.FindIndex(lines, line => line.Trim() == attribute);
         Assert.InRange(attributeLine, 0, lines.Length - 2);

@@ -420,10 +420,14 @@ internal static class CSharpDeclarationWriter
         return (attributes.Select(plan.Apply).ToArray(), plan.Diagnostics);
     }
 
-    internal static string RenderObsoleteAttributeBody(string? message)
+    internal static string RenderObsoleteAttributeBody(
+        string? message,
+        bool isError)
         => string.IsNullOrWhiteSpace(message)
             ? "System.Obsolete"
-            : $"System.Obsolete(\"{EscapeCSharpString(message)}\")";
+            : isError
+                ? $"System.Obsolete(\"{EscapeCSharpString(message)}\", true)"
+                : $"System.Obsolete(\"{EscapeCSharpString(message)}\")";
 
     /// <summary>
     /// Computes a collision-safe set of namespaces that can be imported as
@@ -1218,7 +1222,11 @@ internal static class CSharpDeclarationWriter
                 attributeLines.Add($"[{attribute}]");
         }
         if (options.IncludeObsoleteAttribute && member.IsObsolete)
-            attributeLines.Add(FormatObsoleteAttribute(member.ObsoleteMessage));
+        {
+            attributeLines.Add(FormatObsoleteAttribute(
+                member.ObsoleteMessage,
+                member.ObsoleteIsError));
+        }
         if (options.IncludeSignatureAttributes
             && member.SignatureModel?.ReturnAttributes is { Count: > 0 } returnAttributes)
             attributeLines.Add($"[return: {string.Join(", ", returnAttributes)}]");
@@ -1329,7 +1337,11 @@ internal static class CSharpDeclarationWriter
         if (options.IncludeCustomAttributes)
             lines.AddRange(member.Attributes.Select(attribute => $"[{attribute}]"));
         if (options.IncludeObsoleteAttribute && member.IsObsolete)
-            lines.Add(FormatObsoleteAttribute(member.ObsoleteMessage));
+        {
+            lines.Add(FormatObsoleteAttribute(
+                member.ObsoleteMessage,
+                member.ObsoleteIsError));
+        }
         lines.Add($"{SanitizeIdentifier(member.Name)} = {value}");
         return string.Join("\n", lines);
     }
@@ -2308,8 +2320,8 @@ internal static class CSharpDeclarationWriter
             ? $"{variance} {SanitizeIdentifier(typeParameter.Name)}"
             : SanitizeIdentifier(typeParameter.Name);
 
-    static string FormatObsoleteAttribute(string? message)
-        => $"[{RenderObsoleteAttributeBody(message)}]";
+    static string FormatObsoleteAttribute(string? message, bool isError)
+        => $"[{RenderObsoleteAttributeBody(message, isError)}]";
 
     // The Obsolete message is attacker-controlled attribute text rendered inside a
     // C# string literal. Escaping only the classic C-escapes leaves vertical tabs,

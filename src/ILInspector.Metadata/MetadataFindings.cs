@@ -820,6 +820,7 @@ public static partial class MetadataFindings
             AddFacetDetail(details, "attributes", FormatSet(oldMember.Attributes), FormatSet(newMember.Attributes));
             AddFacetDetail(details, "obsolete", oldMember.IsObsolete, newMember.IsObsolete);
             AddFacetDetail(details, "obsolete message", oldMember.ObsoleteMessage, newMember.ObsoleteMessage);
+            AddFacetDetail(details, "obsolete error", oldMember.ObsoleteIsError, newMember.ObsoleteIsError);
         }
     }
 

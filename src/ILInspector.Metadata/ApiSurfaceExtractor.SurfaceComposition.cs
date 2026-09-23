@@ -103,6 +103,7 @@ public static partial class ApiSurfaceExtractor
                     DeclaringOverloadIndex = declaringOverloadIndex,
                     IsObsolete = extension.IsObsolete,
                     ObsoleteMessage = extension.ObsoleteMessage,
+                    ObsoleteIsError = extension.ObsoleteIsError,
                     Documentation = extension.Documentation
                 };
                 budget?.RetainAttachedMember(attached);

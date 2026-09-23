@@ -1060,6 +1060,34 @@ public sealed class CSharpDeclarationWriterTests
     }
 
     [Fact]
+    public void ObsoleteErrorAttribute_PreservesCompileTimeErrorSemantics()
+    {
+        var type = new ApiType
+        {
+            Namespace = "Samples",
+            Name = "Worker",
+            Kind = "class",
+        };
+        var member = new ApiMember
+        {
+            Name = "Run",
+            Kind = "method",
+            Signature = "void Run()",
+            IsObsolete = true,
+            ObsoleteMessage = "Use RunAsync.",
+            ObsoleteIsError = true,
+        };
+
+        string declaration = CSharpDeclarationWriter.RenderMemberDeclaration(
+            type,
+            member);
+
+        Assert.StartsWith(
+            "[Obsolete(\"Use RunAsync.\", true)]",
+            declaration);
+    }
+
+    [Fact]
     public void StaticConstructorDeclaration_OmitsAccessibility()
     {
         var type = new ApiType { Namespace = "Samples", Name = "Worker", Kind = "class" };

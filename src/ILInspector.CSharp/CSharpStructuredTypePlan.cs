@@ -723,7 +723,8 @@ public static class CSharpStructuredTypePlanProducer
             ? [
                 .. member.Attributes,
                 CSharpDeclarationWriter.RenderObsoleteAttributeBody(
-                    member.ObsoleteMessage),
+                    member.ObsoleteMessage,
+                    member.ObsoleteIsError),
             ]
             : member.Attributes;
         AppendAttributePart(parts, attributes, pad, options);
