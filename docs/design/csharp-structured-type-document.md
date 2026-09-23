@@ -663,6 +663,9 @@ split by owner:
    diagnostics, and failure behavior, and no longer uses the scalar attempt
    path. Declaration and body layout now follow the CSharp structured render
    plan and may normalize scalar-era whitespace or expression-body choices.
+   The plan emits only declaration-derived collision-safe imports; body Type
+   references remain globally qualified so a body-only namespace cannot make a
+   declaration or another body reference ambiguous.
 4. **Browser** - consume the same envelope and projector for the static Type
    Explorer, then replace Type Source's Settings destination.
 5. **Metadata contract relationships** - separately define and adopt exact

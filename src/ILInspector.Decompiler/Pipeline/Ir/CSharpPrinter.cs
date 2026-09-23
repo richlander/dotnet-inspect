@@ -32,6 +32,7 @@ public sealed partial class CSharpPrinter
     /// </summary>
     readonly bool _newMemorySafetyRules;
     readonly bool _containsAwaitSyntax;
+    readonly bool _fullyQualifyTypeNames;
 
     /// <summary>
     /// True when the method body skips locals initialization (<see
@@ -71,10 +72,12 @@ public sealed partial class CSharpPrinter
         StackSlotUnifierTelemetryBuilder? stackSlotTelemetry = null,
         IrNode? stackSlotTelemetryScope = null,
         List<DecompilerDecision>? decisions = null,
-        HashSet<DecisionKey>? decisionKeys = null)
+        HashSet<DecisionKey>? decisionKeys = null,
+        bool fullyQualifyTypeNames = false)
     {
         _function = function;
         _options = options ?? PrinterOptions.Default;
+        _fullyQualifyTypeNames = fullyQualifyTypeNames;
         _newMemorySafetyRules = function.UsesUpdatedMemorySafetyRules;
         _containsAwaitSyntax = UnsafeAwaitOperand.ContainsAwait(function);
         _skipLocalsInit = function.SkipLocalsInit;
@@ -375,6 +378,31 @@ public sealed partial class CSharpPrinter
         catch (Exception ex) when (ex is not OutOfMemoryException)
         {
             return DecompilerResult.Failure(DiagnosticIds.InternalError, $"{ex.GetType().Name}: {ex.Message}");
+        }
+    }
+
+    internal static DecompilerResult Print(
+        IrFunction function,
+        PrinterOptions? options,
+        bool fullyQualifyTypeNames)
+    {
+        if (MemorySafetyModeUnavailableResult(function) is { } unavailable)
+            return unavailable;
+
+        try
+        {
+            var printer = new CSharpPrinter(
+                function,
+                options,
+                fullyQualifyTypeNames: fullyQualifyTypeNames);
+            string output = printer.PrintBody(function);
+            return printer.Result(output, function);
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException)
+        {
+            return DecompilerResult.Failure(
+                DiagnosticIds.InternalError,
+                $"{ex.GetType().Name}: {ex.Message}");
         }
     }
 
@@ -1612,7 +1640,8 @@ public sealed partial class CSharpPrinter
                 _stackSlotTelemetry,
                 stackSlotTelemetryScope: localFunction,
                 decisions: _decisions,
-                decisionKeys: _decisionKeys)
+                decisionKeys: _decisionKeys,
+                fullyQualifyTypeNames: _fullyQualifyTypeNames)
             {
                 _labelScopeSuffix = AllocateNestedLabelScopeSuffix(),
             };
@@ -6344,7 +6373,10 @@ public sealed partial class CSharpPrinter
     }
 
     string TypeTextCore(TypeRef type)
-        => type.ToDisplayString(_function.DeclaringType);
+        => _fullyQualifyTypeNames
+            ? type.ToFullyQualifiedDisplayString(
+                _function.DeclaringType)
+            : type.ToDisplayString(_function.DeclaringType);
 
     static string? FirstTypeQualifierSegment(string rendered)
     {
@@ -6360,20 +6392,11 @@ public sealed partial class CSharpPrinter
     }
 
     static string FullyQualifiedTypeText(TypeRef type)
-    {
-        var definition = type.Kind == TypeRefKind.GenericInstance ? type.ElementType ?? type : type;
-        if (definition.Kind != TypeRefKind.Definition || definition.Namespace.Length == 0 && definition.Name.Length == 0)
-            return type.ToDisplayString();
-
-        string text =
-            type.ToDisplayString(TypeRef.Definition(
+        => type.ToFullyQualifiedDisplayString(
+            TypeRef.Definition(
                 "__dotnet_inspect",
                 "__",
                 "__"));
-        return definition.Namespace.Length == 0
-            ? $"global::{text}"
-            : $"global::{EscapeNamespace(definition.Namespace)}.{text}";
-    }
 
     static string EscapeNamespace(string ns)
         => string.Join(".", ns.Split('.').Select(CSharpNaming.SafeIdentifier));

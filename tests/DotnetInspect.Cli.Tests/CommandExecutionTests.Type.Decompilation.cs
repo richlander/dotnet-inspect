@@ -6,6 +6,8 @@ using DotnetInspect.Cli.Commands;
 using DotnetInspect.Cli.Options;
 using DotnetInspector.Services;
 using ILInspector.Metadata;
+using Microsoft.CodeAnalysis;
+using Microsoft.CodeAnalysis.CSharp;
 
 namespace DotnetInspect.Cli.Tests;
 
@@ -43,12 +45,17 @@ public partial class CommandExecutionTests
         Assert.Contains("public bool TryPop([MaybeNullWhen(false)] out T result)", output);
         // Using hoisting: qualified names shorten against the metadata
         // namespace tables; the directives appear at the top.
-        Assert.Contains("using System.Runtime.CompilerServices;", output);
+        Assert.DoesNotContain(
+            "using System.Runtime.CompilerServices;",
+            output);
         Assert.Contains(
             ": IEnumerable<T>, System.Collections.IEnumerable, "
             + "System.Collections.ICollection, IReadOnlyCollection<T>",
             output);
-        Assert.Contains("RuntimeHelpers.IsReferenceOrContainsReferences", output);
+        Assert.Contains(
+            "global::System.Runtime.CompilerServices.RuntimeHelpers"
+                + ".IsReferenceOrContainsReferences",
+            output);
         Assert.Contains(
             "IEnumerator<T> System.Collections.Generic.IEnumerable<T>.GetEnumerator()",
             output);
@@ -241,6 +248,133 @@ public partial class CommandExecutionTests
             "[System.Obsolete(null, true)]",
             output,
             StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task
+        Type_DecompiledSource_QualifiesBodyTypesAcrossNamespaceCollisions()
+    {
+        string fixtureDir = Path.Combine(
+            Path.GetTempPath(),
+            $"dotnet-inspect-type-collision-{Guid.NewGuid():N}");
+        try
+        {
+            string assemblyPath = CompileBodyStateFixture(
+                fixtureDir,
+                "TypeDocumentNamespaceCollision",
+                """
+                namespace Foo
+                {
+                    public sealed class Widget
+                    {
+                    }
+
+                    public static class Helper
+                    {
+                        public static void Use()
+                        {
+                        }
+                    }
+                }
+
+                namespace Bar
+                {
+                    public sealed class Widget
+                    {
+                    }
+                }
+
+                namespace Samples
+                {
+                    public sealed class Container
+                    {
+                        public Bar.Widget Create()
+                        {
+                            Foo.Helper.Use();
+                            return new Bar.Widget();
+                        }
+
+                        public Bar.Widget[] CreateMany()
+                        {
+                            Foo.Helper.Use();
+                            return new Bar.Widget[1];
+                        }
+                    }
+                }
+                """);
+
+            var (exit, output, error) = await RunAppAsync(
+                "type",
+                "Samples.Container",
+                "--library",
+                assemblyPath,
+                "-S",
+                "Decompiled Source",
+                "--tips",
+                "q",
+                "--all");
+
+            Assert.Equal(0, exit);
+            Assert.Empty(error);
+            Assert.Contains("using Bar;", output);
+            Assert.DoesNotContain("using Foo;", output);
+            Assert.Contains(
+                "public Widget Create()",
+                output,
+                StringComparison.Ordinal);
+            Assert.Contains(
+                "global::Foo.Helper.Use();",
+                output,
+                StringComparison.Ordinal);
+            Assert.Contains(
+                "return new global::Bar.Widget();",
+                output,
+                StringComparison.Ordinal);
+            Assert.Contains(
+                "return new global::Bar.Widget[1];",
+                output,
+                StringComparison.Ordinal);
+
+            IEnumerable<MetadataReference> references =
+                ((string)AppContext.GetData(
+                    "TRUSTED_PLATFORM_ASSEMBLIES")!)
+                .Split(Path.PathSeparator)
+                .Select(path =>
+                    MetadataReference.CreateFromFile(path))
+                .Append(MetadataReference.CreateFromFile(
+                    assemblyPath));
+            CSharpCompilation compilation =
+                CSharpCompilation.Create(
+                    "TypeDocumentNamespaceCollisionOutput",
+                    [CSharpSyntaxTree.ParseText(
+                        output,
+                        cancellationToken:
+                            TestContext.Current.CancellationToken)],
+                    references,
+                    new CSharpCompilationOptions(
+                        OutputKind.DynamicallyLinkedLibrary,
+                        optimizationLevel:
+                            OptimizationLevel.Release));
+            using var generated = new MemoryStream();
+            var result = compilation.Emit(
+                generated,
+                cancellationToken:
+                    TestContext.Current.CancellationToken);
+            Assert.True(
+                result.Success,
+                string.Join(
+                    Environment.NewLine,
+                    result.Diagnostics));
+        }
+        finally
+        {
+            if (Directory.Exists(fixtureDir))
+            {
+                Directory.Delete(
+                    fixtureDir,
+                    recursive: true);
+            }
+        }
     }
 
     [Fact]
@@ -467,7 +601,12 @@ public partial class CommandExecutionTests
         Assert.Empty(error);
         // Native C#: no markdown heading, section title, code fence, or tips.
         Assert.StartsWith("using ", output);
-        Assert.Contains("using System.Runtime.CompilerServices;", output);
+        Assert.DoesNotContain(
+            "using System.Runtime.CompilerServices;",
+            output);
+        Assert.Contains(
+            "global::System.Runtime.CompilerServices.RuntimeHelpers",
+            output);
         Assert.Contains("namespace System.Collections.Generic;", output);
         Assert.DoesNotContain("# ", output);
         Assert.DoesNotContain("```", output);

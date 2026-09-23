@@ -2,6 +2,7 @@ using System.Collections.Immutable;
 using System.Reflection;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
+using CSharpText;
 using ILInspector.CSharp;
 using ILInspector.Decompiler.Pipeline;
 using ILInspector.Metadata;
@@ -275,6 +276,12 @@ public static partial class MemberBodyProducer
                 [.. produced.Projection.Diagnostics],
                 produced));
         }
+        for (int index = 0; index < bodyBuilds.Count; index++)
+        {
+            bodyBuilds[index] = ReprintBodyWithQualifiedTypeNames(
+                bodyBuilds[index],
+                printerOptions);
+        }
 
         var bodyIdByToken = bodyBuilds
             .Select((body, id) => (body.Token, id))
@@ -378,8 +385,7 @@ public static partial class MemberBodyProducer
                 new(
                     type,
                     memberRequests,
-                    containingTypes,
-                    CollectDocumentNamespaces(bodyBuilds)));
+                    containingTypes));
         }
         catch (NotSupportedException ex)
         {
@@ -1157,16 +1163,90 @@ public static partial class MemberBodyProducer
         return containing.ToImmutable();
     }
 
-    static IEnumerable<string> CollectDocumentNamespaces(
-        IEnumerable<BodyBuild> bodies)
+    static BodyBuild ReprintBodyWithQualifiedTypeNames(
+        BodyBuild body,
+        PrinterOptions? printerOptions)
     {
-        var namespaces = new SortedSet<string>(StringComparer.Ordinal);
-        foreach (BodyBuild body in bodies)
+        if (body.Result is not
+            {
+                IsComplete: true,
+                RaisedFunction: { } function,
+            } original)
         {
-            if (body.Result?.RaisedFunction is { } function)
-                CollectNamespaces(function, namespaces);
+            return body;
         }
-        return namespaces;
+
+        DecompilerResult projection = Pipeline.CSharpPrinter.Print(
+            function,
+            printerOptions,
+            fullyQualifyTypeNames: true);
+        if (projection.Output is null)
+        {
+            var failed = new MemberBodyProductionResult(
+                MemberBodyProductionStatus.Failed,
+                Body: null,
+                projection)
+            {
+                RaisedFunction = function,
+            };
+            return body with
+            {
+                Outcome = CSharpTypeBodyOutcome.Failed,
+                Fidelity = DecompilationFidelity.Failed,
+                Diagnostics = [.. projection.Diagnostics],
+                Result = failed,
+            };
+        }
+
+        IReadOnlyList<DecompilerDecision> styleLenses =
+        [
+            .. original.Projection.Decisions.Where(
+                decision => decision.Category
+                    == DecompilerDecisionCategories.StyleLens),
+        ];
+        projection = projection with
+        {
+            Metadata = projection.Metadata with
+            {
+                Decisions =
+                [
+                    .. projection.Decisions,
+                    .. styleLenses,
+                ],
+            },
+            Trace = original.Projection.Trace,
+        };
+        var initializer = projection.ConstructorChain is { } chain
+            ? CSharpFormatter.ParseConstructorInitializer(chain)
+            : null;
+        var renderedBody = new CSharpBlockBody(
+            projection.Output.TrimEnd(),
+            initializer)
+        {
+            RequiresAsyncModifier =
+                projection.RequiresAsyncBodyModifier,
+            RequiresUnsafeModifier =
+                projection.RequiresUnsafeBodyModifier,
+            ParameterNames = projection.ParameterNames,
+            SuppressDestructorSyntax =
+                !projection.BodyIsDestructor,
+        };
+        var result = new MemberBodyProductionResult(
+            MemberBodyProductionStatus.Complete,
+            renderedBody,
+            projection)
+        {
+            RaisedFunction = function,
+            SingleLineExpression =
+                CSharpExpressionBody.FromSingleStatement(
+                    renderedBody.Source),
+        };
+        return body with
+        {
+            Fidelity = projection.Fidelity,
+            Diagnostics = [.. projection.Diagnostics],
+            Result = result,
+        };
     }
 
     static string RenderingPolicy(PrinterOptions? options)
