@@ -865,7 +865,7 @@ public partial class CommandExecutionTests
     [Fact]
     public void ProjectionAudit_WrongFlagDoesNotSatisfyRequest()
     {
-        // The print writer also serves --bare, so an untyped "honored" signal would let it
+        // The print writer also serves --raw, so an untyped "honored" signal would let it
         // satisfy an unrelated recorded --count and let that drop escape.
         var result = CommandLineBuilder.CreateRootCommand()
             .Parse(["library", TestAssemblyPath, "-S", "References", "--count"]);
@@ -1026,7 +1026,7 @@ public partial class CommandExecutionTests
         Assert.DoesNotContain(UnsafeEvidenceQuery.Definition.Name, error);
         Assert.DoesNotContain("body index", error);
 
-        var (bareExit, bareOutput, bareError) = await RunAppAsync(
+        var (bareExit, rawOutput, bareError) = await RunAppAsync(
             "library", assemblyPath,
             "-D",
             "--trace",
@@ -1035,7 +1035,7 @@ public partial class CommandExecutionTests
         Assert.Equal(0, bareExit);
         Assert.Contains(
             $"| {SectionNames.UnsafeMembers} | section |",
-            bareOutput);
+            rawOutput);
         Assert.Contains(
             UnsafeEvidencePresenceQuery.Definition.Name,
             bareError);

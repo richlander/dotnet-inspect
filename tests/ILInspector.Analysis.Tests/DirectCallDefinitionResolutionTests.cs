@@ -1155,6 +1155,34 @@ public sealed partial class DirectCallDefinitionResolutionTests
     }
 
     [Fact]
+    public void RepeatedOperandReusesPlanWithoutCollapsingInvocations()
+    {
+        SyntheticParticipant participant = CreateSynthetic(new()
+        {
+            CallCount = 50,
+        });
+
+        DirectCallDefinitionResolutionOutcome.Completed completed =
+            Resolve(
+                participant,
+                new DirectCallDefinitionResolutionLimits(
+                    maxSignatureNodes: 16));
+
+        Assert.Equal(50, completed.Results.Length);
+        Assert.All(
+            completed.Results,
+            result =>
+                Assert.IsType<
+                    DirectCallDefinitionResolution.Resolved>(result));
+        Assert.Equal(
+            50,
+            completed.Results
+                .Select(result => result.PhysicalInvocation)
+                .Distinct()
+                .Count());
+    }
+
+    [Fact]
     public void InvocationBindingLimitPublishesNoPartialSuccess()
     {
         SyntheticParticipant participant = CreateSynthetic(new()
@@ -1715,9 +1743,10 @@ public sealed partial class DirectCallDefinitionResolutionTests
         {
             MethodDefinitionHandle target =
                 targetMetadata.AddMethodDefinition(
-                    MethodAttributes.Public | MethodAttributes.Static,
+                    options.TargetAttributes,
                     MethodImplAttributes.IL,
-                    targetMetadata.GetOrAddString("Target"),
+                    targetMetadata.GetOrAddString(
+                        options.TargetName),
                     targetMetadata.GetOrAddBlob(
                         options.TargetSignature),
                     targetBody,
@@ -1797,7 +1826,8 @@ public sealed partial class DirectCallDefinitionResolutionTests
         MemberReferenceHandle memberReference =
             callerMetadata.AddMemberReference(
                 targetTypeReference,
-                callerMetadata.GetOrAddString("Target"),
+                callerMetadata.GetOrAddString(
+                    options.TargetName),
                 callerMetadata.GetOrAddBlob(
                     options.MemberReferenceSignature));
         EntityHandle callTarget = memberReference;
@@ -1953,10 +1983,10 @@ public sealed partial class DirectCallDefinitionResolutionTests
             TypeAttributes.Public,
             metadata.GetOrAddString("N"),
             metadata.GetOrAddString(
-                options.TypeGenericParameterRows == 0
-                    ? "Owner"
-                    : options.OwnerTypeName
-                        ?? $"Owner`{options.TypeGenericParameterRows}"),
+                options.OwnerTypeName
+                    ?? (options.TypeGenericParameterRows == 0
+                        ? "Owner"
+                        : $"Owner`{options.TypeGenericParameterRows}")),
             objectType,
             MetadataTokens.FieldDefinitionHandle(1),
             MetadataTokens.MethodDefinitionHandle(1));
@@ -2311,9 +2341,15 @@ public sealed partial class DirectCallDefinitionResolutionTests
         bool malformedInterfaceImpl = false,
         bool malformedMethodImpl = false,
         bool invalidOnlyInterfaceImpl = false,
-        bool wrappedTypeParameter = false)
+        bool wrappedTypeParameter = false,
+        string assemblyName = "InterfaceDirectCalls",
+        Version? assemblyVersion = null,
+        byte[]? assemblyPublicKey = null,
+        bool staticExplicitImplementation = false,
+        string decoyMethodName = "Target",
+        string nonImplementerMethodName = "Target")
     {
-        const string AssemblyName = "InterfaceDirectCalls";
+        assemblyVersion ??= new Version(1, 0, 0, 0);
         addPublicDecoy |= addSwappedGenericDecoy;
         bool genericInterface = generic || fixedGenericInterface;
         bool genericImplementation = generic;
@@ -2322,16 +2358,20 @@ public sealed partial class DirectCallDefinitionResolutionTests
         Guid mvid = Guid.NewGuid();
         metadata.AddModule(
             0,
-            metadata.GetOrAddString(AssemblyName + ".dll"),
+            metadata.GetOrAddString(assemblyName + ".dll"),
             metadata.GetOrAddGuid(mvid),
             default,
             default);
         metadata.AddAssembly(
-            metadata.GetOrAddString(AssemblyName),
-            new Version(1, 0, 0, 0),
+            metadata.GetOrAddString(assemblyName),
+            assemblyVersion,
             default,
-            default,
-            default,
+            assemblyPublicKey is null
+                ? default
+                : metadata.GetOrAddBlob(assemblyPublicKey),
+            assemblyPublicKey is null
+                ? default
+                : AssemblyFlags.PublicKey,
             AssemblyHashAlgorithm.Sha1);
         AssemblyReferenceHandle systemRuntime =
             metadata.AddAssemblyReference(
@@ -2432,7 +2472,8 @@ public sealed partial class DirectCallDefinitionResolutionTests
                 MetadataTokens.MethodDefinitionHandle(
                     2
                     + implementationMethodCount
-                    + (addNonImplementer ? 1 : 0)));
+                    + (addNonImplementer ? 1 : 0)
+                    + (staticExplicitImplementation ? 1 : 0)));
         if (invalidOnlyInterfaceImpl)
         {
             metadata.AddInterfaceImplementation(
@@ -2513,14 +2554,18 @@ public sealed partial class DirectCallDefinitionResolutionTests
         byte[] interfaceTypeParameter = wrappedTypeParameter
             ? GenericInstanceSignature(wrapper, [0x13, 0x00])
             : [0x13, 0x00];
-        byte[] interfaceMethodSignature = methodGeneric
+        byte[] interfaceMethodSignature = staticExplicitImplementation
+            ? [0x00, 0x00, 0x01]
+            : methodGeneric
             ? genericInterface
                 ? [0x30, 0x01, 0x02, 0x01, .. interfaceTypeParameter, 0x1E, 0x00]
                 : [0x30, 0x01, 0x01, 0x01, 0x1E, 0x00]
             : genericInterface
                 ? [0x20, 0x01, 0x01, .. interfaceTypeParameter]
                 : [0x20, 0x00, 0x01];
-        byte[] implementationMethodSignature = methodGeneric
+        byte[] implementationMethodSignature = staticExplicitImplementation
+            ? [0x00, 0x00, 0x01]
+            : methodGeneric
             ? genericImplementation
                 ? [0x30, 0x01, 0x02, 0x01, .. interfaceTypeParameter, 0x1E, 0x00]
                 : fixedGenericInterface
@@ -2536,7 +2581,10 @@ public sealed partial class DirectCallDefinitionResolutionTests
                 MethodAttributes.Public
                     | MethodAttributes.Abstract
                     | MethodAttributes.Virtual
-                    | MethodAttributes.NewSlot,
+                    | MethodAttributes.NewSlot
+                    | (staticExplicitImplementation
+                        ? MethodAttributes.Static
+                        : 0),
                 MethodImplAttributes.IL,
                 metadata.GetOrAddString("Target"),
                 metadata.GetOrAddBlob(interfaceMethodSignature),
@@ -2547,8 +2595,10 @@ public sealed partial class DirectCallDefinitionResolutionTests
                 (explicitImplementation
                     ? MethodAttributes.Private
                     : MethodAttributes.Public)
-                    | MethodAttributes.Final
-                    | MethodAttributes.Virtual,
+                    | (staticExplicitImplementation
+                        ? MethodAttributes.Static
+                        : MethodAttributes.Final
+                            | MethodAttributes.Virtual),
                 MethodImplAttributes.IL,
                 metadata.GetOrAddString(
                     explicitImplementation
@@ -2570,7 +2620,7 @@ public sealed partial class DirectCallDefinitionResolutionTests
                     | MethodAttributes.Final
                     | MethodAttributes.Virtual,
                 MethodImplAttributes.IL,
-                metadata.GetOrAddString("Target"),
+                metadata.GetOrAddString(decoyMethodName),
                 metadata.GetOrAddBlob(addSwappedGenericDecoy
                     ? new byte[] { 0x30, 0x01, 0x02, 0x01, 0x1E, 0x00, 0x13, 0x00 }
                     : implementationMethodSignature),
@@ -2617,7 +2667,7 @@ public sealed partial class DirectCallDefinitionResolutionTests
                     | MethodAttributes.Final
                     | MethodAttributes.Virtual,
                 MethodImplAttributes.IL,
-                metadata.GetOrAddString("Target"),
+                metadata.GetOrAddString(nonImplementerMethodName),
                 metadata.GetOrAddBlob(implementationMethodSignature),
                 implementationBody,
                 MetadataTokens.ParameterHandle(1));
@@ -2665,7 +2715,7 @@ public sealed partial class DirectCallDefinitionResolutionTests
             {
                 decoyCallTarget = metadata.AddMemberReference(
                     closedImplementation,
-                    metadata.GetOrAddString("Target"),
+                    metadata.GetOrAddString(decoyMethodName),
                         metadata.GetOrAddBlob(
                             implementationMethodSignature));
                 }
@@ -2700,22 +2750,35 @@ public sealed partial class DirectCallDefinitionResolutionTests
         }
         if (includeInterfaceCall)
         {
-        callerInstructions.OpCode(ILOpCode.Ldnull);
+            if (!staticExplicitImplementation)
+                callerInstructions.OpCode(ILOpCode.Ldnull);
             if (genericInterface && methodGeneric)
-                callerInstructions.OpCode(callerGenericTypeArgument ? ILOpCode.Ldarg_0 : ILOpCode.Ldc_i4_0);
+            {
+                callerInstructions.OpCode(
+                    callerGenericTypeArgument
+                        ? ILOpCode.Ldarg_0
+                        : ILOpCode.Ldc_i4_0);
+            }
             if (genericInterface || methodGeneric)
-            callerInstructions.OpCode(ILOpCode.Ldc_i4_0);
-        callerInstructions.OpCode(ILOpCode.Callvirt);
-        callerInstructions.Token(interfaceCallTarget);
+                callerInstructions.OpCode(ILOpCode.Ldc_i4_0);
+            callerInstructions.OpCode(
+                staticExplicitImplementation
+                    ? ILOpCode.Call
+                    : ILOpCode.Callvirt);
+            callerInstructions.Token(interfaceCallTarget);
         }
-        callerInstructions.OpCode(ILOpCode.Ldnull);
+        if (!staticExplicitImplementation)
+            callerInstructions.OpCode(ILOpCode.Ldnull);
         if (genericImplementation || fixedGenericInterface)
             callerInstructions.OpCode(callerGenericTypeArgument ? ILOpCode.Ldarg_0 : ILOpCode.Ldc_i4_0);
         else if (methodGeneric)
             callerInstructions.OpCode(ILOpCode.Ldnull);
         if (genericImplementation && methodGeneric)
         callerInstructions.OpCode(ILOpCode.Ldnull);
-        callerInstructions.OpCode(ILOpCode.Callvirt);
+        callerInstructions.OpCode(
+            staticExplicitImplementation
+                ? ILOpCode.Call
+                : ILOpCode.Callvirt);
         callerInstructions.Token(implementationCallTarget);
         if (!stringImplementationCallTarget.IsNil)
         {
@@ -2782,13 +2845,144 @@ public sealed partial class DirectCallDefinitionResolutionTests
                     "interface direct-call definition test"))!;
         LibraryBodyIndex index =
             LibraryBodyIndex.OpenFromPrefetchedImage(
-                AssemblyName + ".dll",
+                assemblyName + ".dll",
                 ImmutableArray.CreateRange(image),
                 LibraryBodyAnalysisFeatures.MethodEvidence);
         return new SyntheticParticipant(
             image,
             new CatalogCallGraphParticipant(index, assembly),
             new ExactPolicy([assembly, CoreLibraryAssembly]));
+    }
+
+    static SyntheticParticipant CreateVersionSplitInterfaceCaller(
+        SyntheticParticipant versionTwo)
+    {
+        string assemblyName =
+            versionTwo.Participant.Assembly.Identity.Name;
+        var metadata = new MetadataBuilder();
+        metadata.AddModule(
+            0,
+            metadata.GetOrAddString(assemblyName + ".dll"),
+            metadata.GetOrAddGuid(Guid.NewGuid()),
+            default,
+            default);
+        metadata.AddAssembly(
+            metadata.GetOrAddString(assemblyName),
+            new Version(1, 0, 0, 0),
+            default,
+            default,
+            default,
+            AssemblyHashAlgorithm.Sha1);
+        AssemblyReferenceHandle versionTwoReference =
+            metadata.AddAssemblyReference(
+                metadata.GetOrAddString(
+                    versionTwo.Participant.Assembly.Identity.Name),
+                versionTwo.Participant.Assembly.Identity.Version
+                    ?? throw new InvalidOperationException(
+                        "Version-two fixture identity is unversioned."),
+                default,
+                versionTwo.Participant.Assembly.Identity.PublicKeyToken
+                    is string publicKeyToken
+                    ? metadata.GetOrAddBlob(
+                        Convert.FromHexString(publicKeyToken))
+                    : default,
+                default,
+                default);
+        TypeReferenceHandle implementationType =
+            metadata.AddTypeReference(
+                versionTwoReference,
+                metadata.GetOrAddString("N"),
+                metadata.GetOrAddString("Implementation"));
+        BlobHandle instanceVoidSignature =
+            metadata.GetOrAddBlob(
+                new byte[] { 0x20, 0x00, 0x01 });
+        MemberReferenceHandle implementationTarget =
+            metadata.AddMemberReference(
+                implementationType,
+                metadata.GetOrAddString("ExplicitTarget"),
+                instanceVoidSignature);
+        metadata.AddTypeDefinition(
+            default,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        metadata.AddTypeDefinition(
+            TypeAttributes.Public,
+            metadata.GetOrAddString("N"),
+            metadata.GetOrAddString("IContract"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        metadata.AddTypeDefinition(
+            TypeAttributes.Public
+                | TypeAttributes.Abstract
+                | TypeAttributes.Sealed,
+            metadata.GetOrAddString("N"),
+            metadata.GetOrAddString("Calls"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(2));
+        var bodies = new BlobBuilder();
+        var targetIl = new BlobBuilder();
+        var targetInstructions = new InstructionEncoder(targetIl);
+        targetInstructions.OpCode(ILOpCode.Ret);
+        var bodyEncoder = new MethodBodyStreamEncoder(bodies);
+        int targetBody =
+            bodyEncoder.AddMethodBody(targetInstructions);
+        MethodDefinitionHandle classTarget =
+            metadata.AddMethodDefinition(
+                MethodAttributes.Public,
+                MethodImplAttributes.IL,
+                metadata.GetOrAddString("Target"),
+                instanceVoidSignature,
+                targetBody,
+                MetadataTokens.ParameterHandle(1));
+        var il = new BlobBuilder();
+        var instructions = new InstructionEncoder(
+            il,
+            new ControlFlowBuilder());
+        instructions.OpCode(ILOpCode.Ldnull);
+        instructions.OpCode(ILOpCode.Callvirt);
+        instructions.Token(classTarget);
+        instructions.OpCode(ILOpCode.Ldnull);
+        instructions.OpCode(ILOpCode.Callvirt);
+        instructions.Token(implementationTarget);
+        instructions.OpCode(ILOpCode.Ret);
+        int body = bodyEncoder
+            .AddMethodBody(instructions, maxStack: 1);
+        metadata.AddMethodDefinition(
+            MethodAttributes.Public | MethodAttributes.Static,
+            MethodImplAttributes.IL,
+            metadata.GetOrAddString("Call"),
+            metadata.GetOrAddBlob(
+                new byte[] { 0x00, 0x00, 0x01 }),
+            body,
+            MetadataTokens.ParameterHandle(1));
+
+        byte[] image = Serialize(metadata, bodies);
+        ResolvedAssemblyReference assembly =
+            ResolvedAssemblyReference.CreateFromStreamIfManaged(
+                () => new MemoryStream(image, writable: false),
+                AssemblyResolutionProvenance.Local(
+                    "version-split interface caller"))!;
+        LibraryBodyIndex bodyIndex =
+            LibraryBodyIndex.OpenFromPrefetchedImage(
+                assemblyName + ".dll",
+                ImmutableArray.CreateRange(image),
+                LibraryBodyAnalysisFeatures.MethodEvidence);
+        return new(
+            image,
+            new CatalogCallGraphParticipant(
+                bodyIndex,
+                assembly),
+            new ExactPolicy(
+                [
+                    assembly,
+                    versionTwo.Participant.Assembly,
+                    CoreLibraryAssembly,
+                ]));
     }
 
     static byte[] GenericInstanceSignature(
@@ -2824,6 +3018,9 @@ public sealed partial class DirectCallDefinitionResolutionTests
 
     sealed record ExternalSyntheticOptions
     {
+        internal string TargetName { get; init; } = "Target";
+        internal MethodAttributes TargetAttributes { get; init; } =
+            MethodAttributes.Public | MethodAttributes.Static;
         internal byte[] TargetSignature { get; init; } =
             [0x00, 0x00, 0x01];
         internal byte[] MemberReferenceSignature { get; init; } =
@@ -2945,5 +3142,32 @@ public sealed partial class DirectCallDefinitionResolutionTests
                         AssemblyBindingSelection.Found(assembly),
                     _ => AssemblyBindingSelection.NotFound(),
                 });
+    }
+
+    sealed class ScopePolicy(
+        ResolvedAssemblyReference anyAssembly,
+        ResolvedAssemblyReference platformAssembly)
+        : IAssemblyBindingPolicy
+    {
+        public List<AssemblyBindingRequest> Requests { get; } = [];
+
+        public AssemblyBindingPolicyVersion Version { get; } = new();
+
+        public AssemblyBindingSelectionSnapshot Select(
+            AssemblyBindingRequest request)
+        {
+            Requests.Add(request);
+            return new(
+                Version,
+                request.Target
+                    is AssemblyBindingTarget.AssemblyReference reference
+                    && reference.Identity == anyAssembly.Identity
+                        ? AssemblyBindingSelection.Found(
+                            request.Scope
+                                == AssemblyResolutionScope.Platform
+                                    ? platformAssembly
+                                    : anyAssembly)
+                        : AssemblyBindingSelection.NotFound());
+        }
     }
 }

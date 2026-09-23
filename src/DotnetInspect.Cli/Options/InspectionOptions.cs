@@ -283,7 +283,7 @@ public record InspectionOptions : IProjectionOptions
     /// <summary>
     /// Print a single selected payload without headings, fences, separators, or tips.
     /// </summary>
-    public bool Bare { get; init; }
+    public bool Raw { get; init; }
 
     /// <summary>
     /// Show progress messages on stderr.
@@ -428,7 +428,7 @@ public record InspectionOptions : IProjectionOptions
     /// <summary>
     /// True when output is raw text (not rendered markdown).
     /// </summary>
-    public bool IsRawOutput => EnvelopeOutput || Bare || Format != OutputFormat.Markdown || JsonOutput || Tabular || Jsonl || JsonArray || NoHeader || ListLayout || ListTfms || ListVersions || Print || Value || Urls || Paths || Roots || ShowContent || ShowDependencies || Count || PackageLibrary != null || AllLibraries;
+    public bool IsRawOutput => EnvelopeOutput || Raw || Format != OutputFormat.Markdown || JsonOutput || Tabular || Jsonl || JsonArray || NoHeader || ListLayout || ListTfms || ListVersions || Print || Value || Urls || Paths || Roots || ShowContent || ShowDependencies || Count || PackageLibrary != null || AllLibraries;
 
     /// <summary>
     /// All inspection features enabled.

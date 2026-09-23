@@ -19,6 +19,12 @@ mutable ownership, mutation, or immutable-detachment effects.
 focused extension after #6778 defines the admitted declarations and before
 issue #6779 adopts them in Analysis flow.
 
+[#7880](https://github.com/richlander/dotnet-inspect/issues/7880) owns the
+focused scalability prerequisite that forms a selector-relevant direct-call
+candidate population before expensive definition resolution. It preserves this
+owner's exact matching and interface-application claims; it does not add
+lifecycle semantics.
+
 [Resource Effect Language](resource-effect-language.md) owns admitted
 selectors, effects, provenance, and the admission receipt. Metadata owns
 assembly binding, type forwarding, definition correspondence, and catalog
@@ -39,6 +45,12 @@ resource effects. It does not redefine either adjacent owner.
 > at one occurrence; and publish deterministic positive, unmatched,
 > ambiguous, unsupported, incomplete, or conflicting evidence without
 > inferring identity from display text.
+
+The direct-call occurrence population may be formed through a conservative
+candidate index. An invocation may be omitted only when its decoded member
+shape proves that it can neither match an admitted selector directly nor be a
+concrete implementation of an admitted interface selector. Candidate selection
+does not turn unresolved shape into absence.
 
 The owner defines:
 
@@ -266,6 +278,41 @@ The occurrence-population receipt states which definitions and physical
 direct-call operands are in scope and whether their metadata and method-body
 enumeration completed. It is not reconstructed from assembly names, MVIDs,
 paths, or the current contents of a mutable collection.
+
+For a selector-relevant population, the admission and complete participant
+call census form the candidate-selection inputs. Selection uses only decoded
+member facts and exact retained target-definition facts:
+
+- direct candidates preserve the existing metadata name, declaring-type,
+  member-kind, staticness, generic-arity, calling-convention, and parameter-
+  count prefilter;
+- possible implicit interface implementations preserve the exact selected
+  member name and instance signature shape; qualified explicit-interface names
+  require the explicit-body evidence below;
+- an explicit-body-shaped local MethodDef remains a candidate exactly when the
+  participant's bounded MethodImpl census names its token as a body;
+- an explicit-body-shaped external member remains a candidate when the exact
+  source-relative assembly selection's bounded MethodImpl census contains its
+  name; forwarded, multi-module, unavailable, malformed, or budget-incomplete
+  targets remain candidates; and
+- unsupported or indeterminate shape remains a candidate.
+
+The resulting definition occurrences remain the exact invocation currency.
+The candidate index is neither definition identity nor interface-application
+proof. Exact selector binding and interface application still run over every
+retained candidate, and participant body diagnostics remain visible even when
+no invocation from that participant is retained.
+
+Candidate omission never derives interface kind from another selector
+occurrence. In particular, one class definition selected under an
+assembly-version-agnostic selector cannot suppress a possible interface
+implementation from another exact assembly identity.
+
+Repeated candidates with the same participant registration and exact nonzero
+operand token may share one definition-resolution plan. Each physical
+invocation remains a separate result and is separately charged when invocation
+bindings are issued; plan reuse does not collapse physical evidence or
+definition identity.
 
 The request is invalid when:
 
@@ -777,9 +824,13 @@ incomplete suffix rather than scanning the remaining Cartesian population.
 
 Candidate indexes may conservatively admit extra work, but a complete
 `Unmatched` result requires complete final matching over the request
-population. Exhaustion produces typed incomplete evidence with the exact
-dimension, limit, required work when known, target, occurrence when known, and
-declaration provenance.
+population. A candidate index may exclude an invocation only through the
+selection invariant in [Resolution request](#resolution-request); therefore a
+complete `Unmatched` result also proves every omitted invocation was
+shape-disjoint from both direct selection and interface implementation.
+Exhaustion produces typed incomplete evidence with the exact dimension, limit,
+required work when known, target, occurrence when known, and declaration
+provenance.
 
 Malformed metadata, unsupported handles, unavailable images, forwarding
 cycles, hop exhaustion, and `BadImageFormatException`-class decoding failures
