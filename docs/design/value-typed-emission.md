@@ -1146,6 +1146,79 @@ only that ownership principle, not either implementation. The shared
 host-neutral pipeline adopts the change for CLI and Browser/Wasm in this one
 slice.
 
+### Exact byref-like value slot storage
+
+A function-scope stack-slot web whose exact storage type is one complete,
+spellable, metadata-proven byref-like value type materializes as a typed local
+before printing. Admission requires every load to testify to that same nominal
+type and every store producer to have that exact result type. The existing
+type-shape map must identify the named definition as a value type, the imported
+byref-like fact set must contain that definition, and the complete explicit
+type must pass the ordinary storage spelling gate. The byref-like proof comes
+from imported metadata facts or the existing canonical core-library
+stack-only identities. Direct slot-copy components remain atomic. This is
+exact storage only: it does not extend the coercion domain or infer a
+conversion, escape permission, ref-safe context, lifetime, scope, capture, or
+suspension boundary.
+
+The rewrite preserves every store and load occurrence in its existing order
+and at its existing lexical position. The typed-local path must preserve the
+residual slot path's declaration order, block placement, initialization, and
+emitted C# exactly. A stack allocation, reference, mutation, or side effect
+therefore stays on the same side of every byref-like copy and use. This
+admission does not make byref-like values boxable, permit them in generic
+arguments that reject them, move them into nested callables, or carry them
+across an `await` or `yield`. Those operations remain governed by their
+existing typed IR and diagnostics; materialization adds no legality claim.
+
+Concrete named definitions and constructed named types use the same contract.
+This covers framework `Span<T>` and `ReadOnlySpan<T>` instances as well as
+metadata-proven user or compiler ref structs. Bare generic parameters,
+including parameters with `allows ref struct`, are not concrete byref-like
+types and remain under the existing generic-parameter boundary. Managed
+references, unknown type shapes, incomplete or unspellable types, non-exact
+producers, nested webs, producer-only webs, and independently deferred copy
+components remain outside admission. The compiler-generated-name and
+constructed-reference residuals are a separate presentation boundary and are
+not admitted by this slice.
+
+The motivating published witness is Microsoft.CodeAnalysis.Common 5.0.0
+`Roslyn.Utilities.PathUtilities.EnsureTrailingSeparator` (`0x060000E1`). Its
+exact `ReadOnlySpan<char>` spill currently reaches the printer as
+`ReadOnlySpan<char> S_256 = (ReadOnlySpan<char>)s;` and is later consumed by
+`string.Concat`; materialization must preserve that text and evaluation order.
+Roslyn's `SegmentedHashSet<T>.SymmetricExceptWithEnumerable` and C# lexer's
+`InterpolatedStringScanner` methods provide non-generic ref-struct witnesses.
+The pathological fixture is an exact span web with repeated stores separated
+by mutation and control flow, including stack-backed input: every copy and use
+must remain ordered, and no declaration may widen into a capture or
+suspension.
+
+On the fixed 14-assembly, 89,065-method post-managed-reference population,
+49 deferred webs satisfy this boundary: 46 constructed types and three named
+definitions across 42 methods. They comprise 45 `ReadOnlySpan<T>` webs, one
+`Span<T>` web, two `InterpolatedStringScanner` webs, and one `BitHelper` web.
+All 49 have one exact candidate type and exact producers; together they carry
+170 stores and 169 loads, and none belongs to a direct-copy component.
+Forty-one methods have no other deferred web. The resulting residual
+materialization counts are 41,917 materialized and 775 deferred slots, with
+1,247 stores and 1,009 loads remaining. At the printer boundary the measured
+counts are 1,240 stores, 1,002 loads, 768 distinct slots, 520 methods, 330
+single-candidate slots, and 664 declarations; direct copies, multi-candidate
+unifications, and splits stay unchanged. Both censuses report zero pass bugs,
+and exact product-body comparison reports zero changed methods across all
+89,065 inputs.
+
+`ByRefLikeSlotMaterializationTests` gates framework and metadata-proven custom
+ref structs, exact producer and load identity, repeated stores, mutation and
+stack-allocation ordering, declaration placement, and the explicit declines
+above. The real Roslyn witness and compiler-produced pathological fixture run
+in Release. The fixed-input residual and printer-unifier censuses gate the
+population change; product Render A/B gates exact output preservation, and the
+existing independent storage invariant gates ordered producer and occurrence
+conservation. The unchanged host-neutral pipeline adopts this storage for CLI
+and Browser/Wasm together.
+
 ### Storage-rewrite validation
 
 Materialization preserves the ordered IR tree while replacing each converted
