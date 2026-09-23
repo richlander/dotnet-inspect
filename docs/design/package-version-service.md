@@ -168,9 +168,15 @@ failure kind; it only decides whether a failure is terminal (no prior, or
 The service has a public-consumer contract suite with a fake
 `IPackageSourceClient` that can refuse, delay, or answer, and a fake clock.
 The CLI cases run through the source-scoped feed harness in
-`SourceScopedRoutingTests`, which fakes one feed's versions and refusal
-status, writes local feeds, and seeds cache entries; it cannot inject delays,
-so timing cases stay in the contract suite. All run in Release.
+`SourceScopedRoutingTests`. Today that harness serves one package's versions
+from one fake feed, returns a chosen refusal status for a refused source, can
+demand authorization, records request URLs, and can write local feeds through
+its test helpers. It cannot delay a response, serve several packages, or
+backdate an entry, so timing, cap, and determinism cases stay in the contract
+suite. Adoption step 1 adds one harness helper: seed a prior-settlement entry
+for the new category with a controllable write time, so the in-window and
+past-window preconditions of the CLI cases can be created. All gates run in
+Release.
 
 | Case | Expected | Gate |
 | --- | --- | --- |
