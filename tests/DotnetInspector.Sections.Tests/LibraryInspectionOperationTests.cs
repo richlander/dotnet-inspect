@@ -169,13 +169,14 @@ public sealed class LibraryInspectionOperationTests
                 content,
                 LibraryInspectionTestLibrary.Identity(content));
 
-        LibraryDocument document = Document(
+        InspectionEnvelope<LibraryInspectionOutcome> envelope =
             Execute(
                 library,
                 count: false,
                 new(
                     maximumRows: 5_000,
-                    memberCount: new())));
+                    memberCount: new()));
+        LibraryDocument document = Document(envelope);
 
         Assert.Null(document.Types.Count);
         LibraryTypePopulationRowsOutcome.Read rows =
@@ -204,6 +205,39 @@ public sealed class LibraryInspectionOperationTests
                     LibraryTypeMemberCountOutcome.NotApplicable>(
                     systemObject.MemberCount)
                 .Reason);
+
+        string json = JsonSerializer.Serialize(
+            envelope,
+            LibraryInspectionJsonContext.Default
+                .LibraryInspectionEnvelope);
+        InspectionEnvelope<LibraryInspectionOutcome> roundTrippedEnvelope =
+            JsonSerializer.Deserialize(
+                json,
+                LibraryInspectionJsonContext.Default
+                    .LibraryInspectionEnvelope)
+            ?? throw new InvalidOperationException(
+                "The Library inspection envelope did not deserialize.");
+        LibraryTypeForwardingEvidence roundTrippedForwarding =
+            Assert.IsType<LibraryTypeForwardingEvidence>(
+                Assert.Single(
+                        Assert.IsType<
+                                LibraryTypePopulationRowsOutcome.Read>(
+                                Document(roundTrippedEnvelope).Types.Rows)
+                            .Items,
+                        row =>
+                            row.Identity
+                                == Name("System", "Object"))
+                    .Forwarding);
+        Assert.Equal(
+            forwarding.Declarations.Select(static token => token.Value),
+            roundTrippedForwarding.Declarations.Select(
+                static token => token.Value));
+        Assert.Equal(
+            forwarding.SourceModuleVersionId,
+            roundTrippedForwarding.SourceModuleVersionId);
+        Assert.Equal(
+            forwarding.TargetAssembly,
+            roundTrippedForwarding.TargetAssembly);
         await library.RetireAsync();
     }
 
