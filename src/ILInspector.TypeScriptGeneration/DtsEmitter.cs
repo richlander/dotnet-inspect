@@ -92,7 +92,9 @@ static class DtsEmitter
         string? allocatedInertStringName = null,
         string? allocatedInertStringBrandName = null,
         string? allocatedDateTimeOffsetName = null,
-        string? allocatedDateTimeOffsetBrandName = null)
+        string? allocatedDateTimeOffsetBrandName = null,
+        string? allocatedJsonTextName = null,
+        string? allocatedJsonTextBrandName = null)
     {
         ApiType[] declarationTypes = GetDeclarationTypes(surface);
         IReadOnlyDictionary<ApiTypeReferenceIdentity, ApiType>
@@ -119,7 +121,9 @@ static class DtsEmitter
             allocatedInertStringName,
             allocatedInertStringBrandName,
             allocatedDateTimeOffsetName,
-            allocatedDateTimeOffsetBrandName);
+            allocatedDateTimeOffsetBrandName,
+            allocatedJsonTextName,
+            allocatedJsonTextBrandName);
         return sb.ToString();
     }
 
@@ -130,6 +134,7 @@ static class DtsEmitter
         IReadOnlyDictionary<ApiType, string>? allocatedTypeNames = null,
         string? allocatedInertStringName = null,
         string? allocatedDateTimeOffsetName = null,
+        string? allocatedJsonTextName = null,
         bool includeRawReturnType = true) =>
         GetFunctionSignature(
             surface,
@@ -139,6 +144,7 @@ static class DtsEmitter
             allocatedTypeNames,
             allocatedInertStringName,
             allocatedDateTimeOffsetName,
+            allocatedJsonTextName,
             includeRawReturnType);
 
     static ApiType[] GetDeclarationTypes(
@@ -296,7 +302,9 @@ static class DtsEmitter
         string? allocatedInertStringName = null,
         string? allocatedInertStringBrandName = null,
         string? allocatedDateTimeOffsetName = null,
-        string? allocatedDateTimeOffsetBrandName = null)
+        string? allocatedDateTimeOffsetBrandName = null,
+        string? allocatedJsonTextName = null,
+        string? allocatedJsonTextBrandName = null)
     {
         TypeMappingEnvironment typeEnvironment =
             CreateKnownTypes(
@@ -380,6 +388,42 @@ static class DtsEmitter
                 .Append(" = string & {\n  readonly [")
                 .Append(dateTimeOffsetBrandName)
                 .Append("]: \"DateTimeOffsetString\";\n};\n\n");
+        }
+
+        if (UsesJsonText(surface))
+        {
+            string jsonTextName = allocatedJsonTextName ?? "JsonText";
+            string jsonTextBrandName =
+                allocatedJsonTextBrandName ?? "jsonTextBrand";
+            if (declarationTypes.Any(type =>
+                AllocatedTypeName(type, allocatedTypeNames)
+                    == jsonTextName))
+            {
+                throw new UnsupportedWireContractException(
+                    jsonTextName,
+                    "the JSON-text TypeScript brand collides with another type");
+            }
+            if (allocatedJsonTextBrandName is null
+                && (declarationTypes.Any(type =>
+                        AllocatedTypeName(type, allocatedTypeNames)
+                            == jsonTextBrandName)
+                    || surface.Functions.Any(function =>
+                        CamelCase.FromPascalCase(function.Name)
+                            == jsonTextBrandName)))
+            {
+                throw new UnsupportedWireContractException(
+                    jsonTextName,
+                    "the JSON-text TypeScript brand binding collides with another declaration");
+            }
+
+            sb.Append("declare const ")
+                .Append(jsonTextBrandName)
+                .Append(": unique symbol;\n\n")
+                .Append("export type ")
+                .Append(jsonTextName)
+                .Append("<T> = string & {\n  readonly [")
+                .Append(jsonTextBrandName)
+                .Append("]: T;\n};\n\n");
         }
 
         if (UsesJsonValue(surface))
@@ -720,6 +764,7 @@ static class DtsEmitter
         IReadOnlyDictionary<ApiType, string>? allocatedTypeNames = null,
         string? allocatedInertStringName = null,
         string? allocatedDateTimeOffsetName = null,
+        string? allocatedJsonTextName = null,
         bool includeRawReturnType = true)
     {
         var effectiveDiagnostics =
@@ -793,6 +838,17 @@ static class DtsEmitter
                     typeEnvironment.KnownTypeNames,
                     typeEnvironment.KnownTypeIdentities),
                 publicReturnTypeNames);
+        bool isAsync =
+            TsTypeMapper.IsAsyncReturnType(function.ReturnType);
+        bool returnsJsonText =
+            function.ReturnWireMode == JsExportJsonOutputMode.JsonText;
+        if (returnsJsonText)
+        {
+            string jsonTextName = allocatedJsonTextName ?? "JsonText";
+            publicReturnType = isAsync
+                ? $"Promise<{jsonTextName}<{UnwrapPromise(publicReturnType)}>>"
+                : $"{jsonTextName}<{publicReturnType}>";
+        }
         string rawReturnType = includeRawReturnType
             && function.ReturnWireType is not null
             ? TsTypeMapper.MapReturnType(
@@ -870,16 +926,27 @@ static class DtsEmitter
             parameters,
             rawReturnType,
             publicReturnType,
-            hasMappedReturn
-                && TsTypeMapper.IsAsyncReturnType(function.ReturnType),
+            hasMappedReturn && isAsync,
             hasMappedReturn
                 && function.ReturnWireType is not null
+                && !returnsJsonText
+                && TsTypeMapper.IsJsonEnvelopeReturnType(function.ReturnType),
+            hasMappedReturn
+                && function.ReturnWireType is not null
+                && returnsJsonText
                 && TsTypeMapper.IsJsonEnvelopeReturnType(function.ReturnType),
             hasMappedReturn
                 && function.ReturnWireType is not null
                 && TsTypeMapper.IsNullableJsonEnvelopeReturnType(
                     function.ReturnType));
     }
+
+    static string UnwrapPromise(string type) =>
+        type.StartsWith("Promise<", StringComparison.Ordinal)
+            && type.EndsWith('>')
+            ? type[8..^1]
+            : throw new InvalidOperationException(
+                $"Expected Promise return type, found '{type}'.");
 
     static TypeMappingEnvironment
         CreateKnownTypes(
@@ -2102,6 +2169,11 @@ static class DtsEmitter
                 pending.Push(argument);
         }
     }
+
+    internal static bool UsesJsonText(
+        ILInspector.JsExportSurface.JsExportSurface surface) =>
+        surface.Functions.Any(function =>
+            function.ReturnWireMode == JsExportJsonOutputMode.JsonText);
 
     internal static bool UsesJsonValue(
         ILInspector.JsExportSurface.JsExportSurface surface)

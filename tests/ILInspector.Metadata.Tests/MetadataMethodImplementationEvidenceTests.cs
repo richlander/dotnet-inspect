@@ -55,12 +55,44 @@ public sealed class MetadataMethodImplementationEvidenceTests
         Assert.IsType<
             MetadataDeclarationDefinitionDisposition.ExternalUnresolved>(
                 related.Relationships[3].Definition);
+        using (var stream = File.OpenRead(fixture.Path))
+        using (var pe = new PEReader(stream))
+        {
+            MetadataReader reader = pe.GetMetadataReader();
+            foreach (MetadataMethodImplementationCertificate certificate
+                in related.Relationships)
+            {
+                if (certificate.Definition is not
+                    MetadataDeclarationDefinitionDisposition.LocalResolved
+                    local)
+                {
+                    continue;
+                }
+
+                TypeDefinitionHandle owner = reader.GetMethodDefinition(
+                    local.Definition.Handle).GetDeclaringType();
+                Assert.Equal(
+                    MetadataTypeDefinitionAddress.FromHandle(
+                        reader,
+                        owner),
+                    local.Owner);
+            }
+        }
         Assert.Equal(
             "op_Addition",
             related.Relationships[1].DeclarationName.ToString());
         Assert.Equal(
             related.Relationships[1].Declaration,
             related.Relationships[4].Declaration);
+        Assert.Equal(
+            Assert.IsType<
+                MetadataDeclarationDefinitionDisposition.LocalResolved>(
+                    related.Relationships[1].Definition)
+                .Owner,
+            Assert.IsType<
+                MetadataDeclarationDefinitionDisposition.LocalResolved>(
+                    related.Relationships[4].Definition)
+                .Owner);
         Assert.NotEqual(
             related.Relationships[1].Relationship,
             related.Relationships[4].Relationship);
@@ -91,6 +123,18 @@ public sealed class MetadataMethodImplementationEvidenceTests
         Assert.Equal(
             fixture.GenericDeclaration,
             local.Definition.Handle);
+        using (var stream = File.OpenRead(fixture.Path))
+        using (var pe = new PEReader(stream))
+        {
+            MetadataReader reader = pe.GetMetadataReader();
+            Assert.Equal(
+                MetadataTypeDefinitionAddress.FromHandle(
+                    reader,
+                    reader.GetMethodDefinition(
+                        fixture.GenericDeclaration)
+                        .GetDeclaringType()),
+                local.Owner);
+        }
         Assert.NotEqual(
             fixture.GenericIntDeclaration,
             local.Definition.Handle);
@@ -1781,17 +1825,47 @@ public sealed class MetadataMethodImplementationEvidenceTests
                             StringComparison.Ordinal);
                 });
 
+        using var assembly =
+            AssemblyInspectionSession.Open(path);
+        using var operation =
+            new MetadataOperationContext(
+                MetadataOperationPolicy.Unbounded);
+        using MetadataDeclarationSession declaration =
+            assembly.CreateDeclarationSession(operation);
+        MetadataTypeDefinitionAddress typeAddress =
+            MetadataTypeDefinitionAddress.FromHandle(reader, type);
+        MetadataMethodAddress bodyAddress =
+            MetadataMethodAddress.Create(reader, body);
         MetadataMethodImplementationCertificate certificate =
             Assert.Single(
-                AssertRelated(Run(path, type, body)).Relationships);
+                AssertRelated(
+                    declaration.Relate(
+                        typeAddress,
+                        bodyAddress,
+                        TestContext.Current.CancellationToken))
+                    .Relationships);
 
         Assert.Equal(
             MetadataSpecialNameEvidence.KnownTrue,
             certificate.SpecialName);
-        Assert.IsType<
+        var local = Assert.IsType<
             MetadataDeclarationDefinitionDisposition.LocalResolved>(
                 certificate.Definition);
         Assert.Equal("op_Addition", certificate.DeclarationName.ToString());
+        var owner = Assert.IsType<
+            MetadataTypeIdentity.GenericInstance>(
+                certificate.DeclarationOwner);
+        var ownerDeclaration = Assert.IsType<
+            MetadataTypeDeclarationResult.Posted>(
+                declaration.PostTypeDeclaration(
+                    local.Owner,
+                    TestContext.Current.CancellationToken));
+        Assert.Equal(
+            MetadataTypeDeclarationCategory.Interface,
+            ownerDeclaration.Evidence.Category);
+        Assert.Equal(
+            owner.Definition,
+            ownerDeclaration.Evidence.DefinitionIdentity);
     }
 
     [Fact]
@@ -1906,6 +1980,10 @@ public sealed class MetadataMethodImplementationEvidenceTests
             related.Relationships[0].DeclarationName.ToString());
         Assert.NotNull(
             related.Relationships[0].DeclarationSignature.ReturnType);
+        var local = Assert.IsType<
+            MetadataDeclarationDefinitionDisposition.LocalResolved>(
+                related.Relationships[0].Definition);
+        Assert.NotEqual(default, local.Owner);
 
         using var source = new CancellationTokenSource();
         source.Cancel();
