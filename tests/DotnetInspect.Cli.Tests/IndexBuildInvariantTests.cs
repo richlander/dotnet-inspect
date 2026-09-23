@@ -223,8 +223,8 @@ public class IndexBuildInvariantTests
             [FixtureAssembly],
             new DiffOptions());
 
-        Assert.Single(input.OldIndexes);
-        Assert.Single(input.NewIndexes);
+        Assert.Single(input.OldAnalyses);
+        Assert.Single(input.NewAnalyses);
         Assert.Equal(2, MethodBodyInspectionSession.OpenCountForTests);
     }
 
