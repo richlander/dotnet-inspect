@@ -7,10 +7,15 @@ on:
         description: 'Successful main CI run identifying the commit to publish'
         required: true
       certification_run_id:
-        description: 'Fresh successful Deep Inspect test run certifying this commit or an ancestor'
+        description: 'Completed Deep Inspect test run observing this commit or an ancestor'
         required: true
       allow_later_commit:
-        description: 'Allow publishing a later main commit without exact certification'
+        description: 'Accept changes after the observed Deep Inspect commit'
+        required: true
+        default: false
+        type: boolean
+      accept_failed_certification:
+        description: 'Accept disclosed non-success Deep Inspect outcomes'
         required: true
         default: false
         type: boolean
@@ -24,10 +29,10 @@ permissions:
   id-token: write
 
 jobs:
-  # Resolve and validate the exact commit to publish. A fresh Deep Inspect run
-  # certifies the same commit by default. The operator may explicitly publish a
-  # later descendant with successful main CI after reviewing the intervening
-  # changes; a divergent or older commit is never accepted.
+  # Resolve and validate the exact commit to publish. Deep Inspect supplies
+  # completed evidence; non-success outcomes and later descendants each require
+  # separate explicit operator acceptance. A divergent or older commit is never
+  # accepted.
   resolve:
     runs-on: ubuntu-26.04
     if: github.event.inputs.confirm == 'publish'
@@ -48,13 +53,14 @@ jobs:
           CERTIFICATION_RUN_ID: ${{ inputs.certification_run_id }}
           TARGET_RUN_ID: ${{ inputs.run_id }}
           ALLOW_LATER_COMMIT: ${{ inputs.allow_later_commit }}
+          ACCEPT_FAILED_CERTIFICATION: ${{ inputs.accept_failed_certification }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           bash eng/validate-release-evidence.sh \
             "$CERTIFICATION_RUN_ID" \
             "$TARGET_RUN_ID" \
             "$ALLOW_LATER_COMMIT" \
-            36 \
+            "$ACCEPT_FAILED_CERTIFICATION" \
             "$GITHUB_OUTPUT"
 
   build-native:
@@ -199,6 +205,7 @@ jobs:
           CERTIFICATION_RUN_ID: ${{ inputs.certification_run_id }}
           TARGET_RUN_ID: ${{ inputs.run_id }}
           ALLOW_LATER_COMMIT: ${{ inputs.allow_later_commit }}
+          ACCEPT_FAILED_CERTIFICATION: ${{ inputs.accept_failed_certification }}
           RESOLVED_SHA: ${{ needs.resolve.outputs.sha }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -206,7 +213,7 @@ jobs:
             "$CERTIFICATION_RUN_ID" \
             "$TARGET_RUN_ID" \
             "$ALLOW_LATER_COMMIT" \
-            36 \
+            "$ACCEPT_FAILED_CERTIFICATION" \
             "$RUNNER_TEMP/revalidated-evidence" \
             "$RESOLVED_SHA"
       
