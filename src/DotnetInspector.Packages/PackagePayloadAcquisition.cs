@@ -842,13 +842,25 @@ public static class PackagePayloadAcquisition
                 IPackageContent committed;
                 if (store is IPreparedPackageStore preparedStore)
                 {
-                    committed = await preparedStore.CommitPreparedAsync(
+                    PreparedPackageCommit prepared =
+                        await preparedStore.CommitPreparedAsync(
                             coordinate.PackageId,
                             coordinate.Version,
                             producerKey,
                             ((PackageArchiveValidation.Valid)validation).Archive,
                             operationCancellationToken)
                         .ConfigureAwait(false);
+                    committed = prepared.Content;
+                    if (prepared.RequiresAdmission
+                        && !await PackageContentAdmission.IsAdmissibleAsync(
+                                committed,
+                                limits,
+                                operationCancellationToken).ConfigureAwait(false))
+                    {
+                        log?.Invoke(
+                            $"{sourceDescription} did not publish content satisfying the current payload limits.");
+                        return null;
+                    }
                 }
                 else
                 {

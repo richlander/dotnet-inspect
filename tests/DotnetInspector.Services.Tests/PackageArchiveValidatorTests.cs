@@ -88,6 +88,22 @@ public sealed class PackageArchiveValidatorTests
             Validate(archive));
     }
 
+    [Theory]
+    [InlineData(14)]
+    [InlineData(18)]
+    [InlineData(22)]
+    public void Validate_RejectsLocalDescriptorDisagreementWithoutADataDescriptor(
+        int localFieldOffset)
+    {
+        byte[] archive = WithFirstLocalUInt32Changed(
+            TestPackageArchive.CreateWithContent(
+                ("lib/net10.0/Sample.dll", [1, 2, 3, 4])),
+            localFieldOffset);
+
+        Assert.IsType<PackageArchiveValidation.Rejected>(
+            Validate(archive));
+    }
+
     /// <summary>
     /// ZipArchive does not treat a saturated classic central-directory size as
     /// a ZIP64 trigger. A payload that saturates only that field while pointing
@@ -741,6 +757,35 @@ public sealed class PackageArchiveValidatorTests
         }
 
         return rewritten;
+    }
+
+    static byte[] WithFirstLocalUInt32Changed(
+        byte[] archive,
+        int fieldOffset)
+    {
+        byte[] rewritten = (byte[])archive.Clone();
+        for (int offset = 0; offset + 30 <= rewritten.Length; offset++)
+        {
+            if (BinaryPrimitives.ReadUInt32LittleEndian(
+                    rewritten.AsSpan(offset))
+                != 0x04034B50)
+            {
+                continue;
+            }
+
+            ushort flags = BinaryPrimitives.ReadUInt16LittleEndian(
+                rewritten.AsSpan(offset + 6));
+            Assert.Equal(0, flags & 0x0008);
+            uint value = BinaryPrimitives.ReadUInt32LittleEndian(
+                rewritten.AsSpan(offset + fieldOffset));
+            BinaryPrimitives.WriteUInt32LittleEndian(
+                rewritten.AsSpan(offset + fieldOffset),
+                value + 1);
+            return rewritten;
+        }
+
+        throw new InvalidOperationException(
+            "The fixture has no local file header.");
     }
 
     static byte[] WithDeclaredEntryCount(byte[] archive, ushort declared)

@@ -767,6 +767,7 @@ static class ZipEntryDescriptorReader
     const int CentralDirectoryHeaderSize = 46;
     const int LocalFileHeaderSize = 30;
     const ushort Zip64ExtraFieldId = 0x0001;
+    const ushort DataDescriptorFlag = 0x0008;
 
     internal static string? TryRead(
         ReadOnlySpan<byte> archive,
@@ -861,6 +862,9 @@ static class ZipEntryDescriptorReader
 
             ushort localFlags = ReadUInt16(archive, local + 6);
             ushort localMethod = ReadUInt16(archive, local + 8);
+            uint localCrc32 = ReadUInt32(archive, local + 14);
+            uint localCompressed32 = ReadUInt32(archive, local + 18);
+            uint localUncompressed32 = ReadUInt32(archive, local + 22);
             ushort localNameLength = ReadUInt16(archive, local + 26);
             ushort localExtraLength = ReadUInt16(archive, local + 28);
             if (localFlags != flags || localMethod != method)
@@ -897,6 +901,30 @@ static class ZipEntryDescriptorReader
                 localNameLength);
             if (!centralName.SequenceEqual(localName))
                 return "an archive entry disagrees with its local header";
+
+            if ((flags & DataDescriptorFlag) == 0)
+            {
+                ReadOnlySpan<byte> localExtra = archive.Slice(
+                    local + LocalFileHeaderSize + localNameLength,
+                    localExtraLength);
+                if (TryResolveZip64(
+                        localExtra,
+                        localCompressed32,
+                        localUncompressed32,
+                        localOffset32: 0,
+                        diskStart16: 0,
+                        out ulong localCompressedSize,
+                        out ulong localUncompressedSize,
+                        out _,
+                        out _)
+                    is not null
+                    || localCrc32 != crc32
+                    || localCompressedSize != compressedSize
+                    || localUncompressedSize != uncompressedSize)
+                {
+                    return "an archive entry disagrees with its local header";
+                }
+            }
 
             entries.Add(
                 new ZipEntryDescriptor(

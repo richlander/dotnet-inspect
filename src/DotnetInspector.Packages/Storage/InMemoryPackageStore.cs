@@ -84,16 +84,16 @@ public sealed class InMemoryPackageStore : IPackageStore, IPreparedPackageStore
             throw new InvalidDataException(rejection.Reason);
         }
 
-        return await CommitPreparedAsync(
-                packageName,
-                version,
-                sourceKey,
-                ((PackageArchiveValidation.Valid)validation).Archive,
-                cancellationToken)
-            .ConfigureAwait(false);
+        PreparedPackageCommit prepared = await CommitPreparedAsync(
+            packageName,
+            version,
+            sourceKey,
+            ((PackageArchiveValidation.Valid)validation).Archive,
+            cancellationToken).ConfigureAwait(false);
+        return prepared.Content;
     }
 
-    ValueTask<IPackageContent> IPreparedPackageStore.CommitPreparedAsync(
+    ValueTask<PreparedPackageCommit> IPreparedPackageStore.CommitPreparedAsync(
         string packageName,
         string version,
         string sourceKey,
@@ -106,7 +106,7 @@ public sealed class InMemoryPackageStore : IPackageStore, IPreparedPackageStore
             archive,
             cancellationToken);
 
-    private ValueTask<IPackageContent> CommitPreparedAsync(
+    private ValueTask<PreparedPackageCommit> CommitPreparedAsync(
         string packageName,
         string version,
         string sourceKey,
@@ -124,7 +124,10 @@ public sealed class InMemoryPackageStore : IPackageStore, IPreparedPackageStore
             fromCache: true,
             sourceKey);
         _packages[Key(packageName, version, sourceKey)] = content;
-        return ValueTask.FromResult<IPackageContent>(content);
+        return ValueTask.FromResult(
+            new PreparedPackageCommit(
+                content,
+                RequiresAdmission: false));
     }
 
 }

@@ -2,10 +2,10 @@ namespace DotnetInspector.Packages;
 
 /// <summary>
 /// Filesystem-backed <see cref="IPackageStore"/> that delegates to
-/// <see cref="NuGetCache"/>. Reproduces the exact cache lookup, transactional
-/// commit, and returned paths the desktop CLI has always used, so behavior is
-/// unchanged; only the seam through which <see cref="PackageExtractor"/> reaches
-/// persistence is new.
+/// <see cref="NuGetCache"/>. Structurally admitted payloads are extracted once
+/// through checked staging before transactional cache publication. If an
+/// immutable slot already won, acquisition re-admits that returned generation
+/// under the current caller's limits.
 /// </summary>
 public sealed class FileSystemPackageStore : IPackageStore, IPreparedPackageStore
 {
@@ -63,22 +63,35 @@ public sealed class FileSystemPackageStore : IPackageStore, IPreparedPackageStor
     }
 
     /// <inheritdoc />
-    public ValueTask<IPackageContent> CommitAsync(
+    public async ValueTask<IPackageContent> CommitAsync(
         string packageName,
         string version,
         string sourceKey,
         Stream nupkg,
-        CancellationToken cancellationToken = default) =>
-        CommitAsync(
+        CancellationToken cancellationToken = default)
+    {
+        PreparedPackageCommit prepared = await CommitAsync(
             packageName,
             version,
             nupkg,
             () => Directory.CreateTempSubdirectory("inspect-pkg-commit").FullName,
-            (extractedPath, nupkgPath) => NuGetCache.CommitPackage(
+            (extractedPath, nupkgPath) => NuGetCache.CommitPackageWithDisposition(
                 extractedPath, nupkgPath, packageName, version, sourceKey),
-            cancellationToken);
+            cancellationToken).ConfigureAwait(false);
+        if (prepared.RequiresAdmission
+            && !await PackageContentAdmission.IsAdmissibleAsync(
+                    prepared.Content,
+                    PackagePayloadLimits.Default,
+                    cancellationToken).ConfigureAwait(false))
+        {
+            throw new InvalidDataException(
+                "The existing package cache entry does not satisfy the current payload limits.");
+        }
 
-    ValueTask<IPackageContent> IPreparedPackageStore.CommitPreparedAsync(
+        return prepared.Content;
+    }
+
+    ValueTask<PreparedPackageCommit> IPreparedPackageStore.CommitPreparedAsync(
         string packageName,
         string version,
         string sourceKey,
@@ -89,16 +102,16 @@ public sealed class FileSystemPackageStore : IPackageStore, IPreparedPackageStor
             version,
             archive,
             () => Directory.CreateTempSubdirectory("inspect-pkg-commit").FullName,
-            (extractedPath, nupkgPath) => NuGetCache.CommitPackage(
+            (extractedPath, nupkgPath) => NuGetCache.CommitPackageWithDisposition(
                 extractedPath, nupkgPath, packageName, version, sourceKey),
             cancellationToken);
 
-    internal static async ValueTask<IPackageContent> CommitAsync(
+    internal static async ValueTask<PreparedPackageCommit> CommitAsync(
         string packageName,
         string version,
         Stream nupkg,
         Func<string> createTemporaryDirectory,
-        Func<string, string, CommittedPackage> commit,
+        Func<string, string, PackageCommitResult> commit,
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(nupkg);
@@ -126,12 +139,12 @@ public sealed class FileSystemPackageStore : IPackageStore, IPreparedPackageStor
             .ConfigureAwait(false);
     }
 
-    internal static async ValueTask<IPackageContent> CommitAsync(
+    internal static async ValueTask<PreparedPackageCommit> CommitAsync(
         string packageName,
         string version,
         PackageArchivePayload archive,
         Func<string> createTemporaryDirectory,
-        Func<string, string, CommittedPackage> commit,
+        Func<string, string, PackageCommitResult> commit,
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(archive);
@@ -157,14 +170,15 @@ public sealed class FileSystemPackageStore : IPackageStore, IPreparedPackageStor
             string extractPath = Path.Combine(tempDir, "extracted");
             archive.ExtractToDirectory(extractPath, cancellationToken);
 
-            CommittedPackage committed = commit(extractPath, nupkgPath);
-
-            return new FileSystemPackageContent(
-                committed.ExtractPath,
-                committed.NupkgPath,
-                fromCache: true,
-                committed.ProducerKey,
-                requiresArchiveTreeMatch: true);
+            PackageCommitResult committed = commit(extractPath, nupkgPath);
+            return new PreparedPackageCommit(
+                new FileSystemPackageContent(
+                    committed.Package.ExtractPath,
+                    committed.Package.NupkgPath,
+                    fromCache: true,
+                    committed.Package.ProducerKey,
+                    requiresArchiveTreeMatch: true),
+                RequiresAdmission: !committed.PublishedStagedContent);
         }
         finally
         {

@@ -3762,7 +3762,7 @@ internal static class BrowserPackageWorkspace
             return content;
         }
 
-        ValueTask<IPackageContent> IPreparedPackageStore.CommitPreparedAsync(
+        ValueTask<PreparedPackageCommit> IPreparedPackageStore.CommitPreparedAsync(
             string packageName,
             string version,
             string sourceKey,
@@ -3797,7 +3797,10 @@ internal static class BrowserPackageWorkspace
                 fromCache: false,
                 sourceKey);
             reservation.Stage(bytes, content);
-            return ValueTask.FromResult<IPackageContent>(content);
+            return ValueTask.FromResult(
+                new PreparedPackageCommit(
+                    content,
+                    RequiresAdmission: false));
         }
 
         public async ValueTask<IPackagePayloadReservation> ReserveAsync(
