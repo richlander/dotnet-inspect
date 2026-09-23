@@ -223,6 +223,10 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
         CoreHttpClientFactory.SetAuthenticationDecorator(
             _ => new AuthenticDependencyFeedHandler(requestObserved, source));
         CoreHttpClientFactory.ResetSharedForTesting();
+        // The House path reaches the configured source (the NuGet.org gallery
+        // included) through its package-source transport.
+        CoreHttpClientFactory.SetPackageSourceHandlerForTesting(
+            _ => new AuthenticDependencyFeedHandler(requestObserved, source));
     }
 
     private sealed record AuthenticDependencyPackage(string Id, string Sha256)
