@@ -6,8 +6,11 @@ namespace DotnetInspector.Packages;
 /// Applies current payload limits to content returned by a package store.
 /// </summary>
 /// <remarks>
-/// Cache hits with a retained archive are revalidated against the full archive
-/// limit set. Product-owned trees (app-cache slots carrying the commit marker)
+/// Cache hits with a retained archive satisfy the current structural archive
+/// limit set. Immutable in-memory content retains the bounded directory index;
+/// selected entries validate observed length and CRC while materializing.
+/// Product-owned
+/// trees (app-cache slots carrying the commit marker)
 /// must then match the archive entry paths, sizes, and CRC-32 values so a valid
 /// nupkg cannot launder a mutated extract. Foreign trees such as NuGet's global-packages folder are not 1:1 extracts
 /// (OPC entries omitted, sidecar metadata files, nuspec casing) and cannot be
@@ -110,11 +113,10 @@ internal static class PackageContentAdmission
         if (content is InMemoryPackageContent inMemory)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            return EvaluateArchive(
-                content,
-                inMemory.RetainedArchive,
-                limits,
-                cancellationToken);
+            return inMemory.ValidateArchive(limits, cancellationToken)
+                is PackageArchiveValidation.Valid
+                    ? Outcome.Admissible
+                    : Outcome.LimitsExceeded;
         }
 
         Stream? archiveStream = null;

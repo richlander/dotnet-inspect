@@ -3637,9 +3637,22 @@ internal static class BrowserPackageWorkspace
         return key.ToString();
     }
 
-    internal static void ValidateArchive(byte[] archive)
+    internal static PackageArchivePayload ValidateArchive(byte[] archive)
     {
-        if (PackageArchiveValidator.Validate(archive, PayloadLimits)
+        PackageArchiveValidation validation =
+            PackageArchiveValidator.Validate(archive, PayloadLimits);
+        if (validation is PackageArchiveValidation.Rejected rejection)
+        {
+            throw new InvalidOperationException(
+                $"The package is outside the Browser/Wasm payload policy: {rejection.Reason}.");
+        }
+
+        return ((PackageArchiveValidation.Valid)validation).Archive;
+    }
+
+    internal static void ValidateArchive(InMemoryPackageContent content)
+    {
+        if (content.ValidateArchive(PayloadLimits, CancellationToken.None)
             is PackageArchiveValidation.Rejected rejection)
         {
             throw new InvalidOperationException(
@@ -3648,7 +3661,7 @@ internal static class BrowserPackageWorkspace
     }
 
     internal sealed class BrowserSessionPackageStore
-        : IPackageStore, IPackagePayloadTransferPolicy
+        : IPackageStore, IPackagePayloadTransferPolicy, IPreparedPackageStore
     {
         readonly string[] _producerKeys;
 
@@ -3758,6 +3771,47 @@ internal static class BrowserPackageWorkspace
                 sourceKey);
             reservation.Stage(bytes, content);
             return content;
+        }
+
+        ValueTask<PreparedPackageCommit> IPreparedPackageStore.CommitPreparedAsync(
+            string packageName,
+            string version,
+            string sourceKey,
+            PackageArchivePayload archive,
+            CancellationToken cancellationToken)
+        {
+            ArgumentException.ThrowIfNullOrWhiteSpace(packageName);
+            ArgumentException.ThrowIfNullOrWhiteSpace(version);
+            ArgumentException.ThrowIfNullOrWhiteSpace(sourceKey);
+            ArgumentNullException.ThrowIfNull(archive);
+            cancellationToken.ThrowIfCancellationRequested();
+            if (!_producerKeys.Contains(sourceKey, StringComparer.Ordinal))
+            {
+                throw new InvalidOperationException(
+                    "The Browser package store rejected content from another producer.");
+            }
+
+            string key = PackageKey(packageName, version);
+            PackageDownloadReservation? reservation;
+            lock (CacheSync)
+            {
+                if (!Reservations.TryGetValue(key, out reservation))
+                {
+                    throw new InvalidOperationException(
+                        "The Browser package store requires a pre-download reservation.");
+                }
+            }
+
+            byte[] bytes = archive.OwnedBytes;
+            var content = InMemoryPackageContent.CreateOwned(
+                archive,
+                fromCache: false,
+                sourceKey);
+            reservation.Stage(bytes, content);
+            return ValueTask.FromResult(
+                new PreparedPackageCommit(
+                    content,
+                    RequiresAdmission: false));
         }
 
         public async ValueTask<IPackagePayloadReservation> ReserveAsync(
@@ -4110,13 +4164,14 @@ internal sealed class BrowserPackage
         ArgumentNullException.ThrowIfNull(retainedBytes);
         producerKey ??= NuGetCache.GetSourceKey(PackageSource.NuGetOrg.Url);
         ArgumentException.ThrowIfNullOrWhiteSpace(producerKey);
-        BrowserPackageWorkspace.ValidateArchive(retainedBytes);
+        PackageArchivePayload archive =
+            BrowserPackageWorkspace.ValidateArchive(retainedBytes);
         PackageId = packageId;
         Version = version;
         CacheKey = BrowserPackageWorkspace.PackageKey(packageId, version);
         RetainedBytes = retainedBytes;
         Content = InMemoryPackageContent.CreateOwned(
-            retainedBytes,
+            archive,
             fromCache,
             producerKey);
         _icon = new(ProjectIcon);
@@ -4134,7 +4189,7 @@ internal sealed class BrowserPackage
         ArgumentException.ThrowIfNullOrWhiteSpace(cacheKey);
         ArgumentNullException.ThrowIfNull(retainedBytes);
         ArgumentNullException.ThrowIfNull(content);
-        BrowserPackageWorkspace.ValidateArchive(retainedBytes);
+        BrowserPackageWorkspace.ValidateArchive(content);
         PackageId = packageId;
         Version = version;
         CacheKey = cacheKey;
@@ -4168,7 +4223,7 @@ internal sealed class BrowserPackage
                 nameof(acquiredPayload));
         }
 
-        BrowserPackageWorkspace.ValidateArchive(retainedBytes);
+        BrowserPackageWorkspace.ValidateArchive(content);
         PackageId = requestedPackageId;
         Version = acquiredPayload.Coordinate.Version;
         CacheKey = store.PackageKey(PackageId, Version);
@@ -4193,7 +4248,7 @@ internal sealed class BrowserPackage
                 nameof(acquiredPayload));
         }
 
-        BrowserPackageWorkspace.ValidateArchive(retainedBytes);
+        BrowserPackageWorkspace.ValidateArchive(content);
         PackageId = acquiredPayload.Coordinate.PackageId;
         Version = acquiredPayload.Coordinate.Version;
         CacheKey = store.PackageKey(PackageId, Version);

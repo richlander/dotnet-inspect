@@ -397,14 +397,14 @@ public sealed class PackageContentDigestTests
         string root)
     {
         using var archiveStream = new MemoryStream(archive, writable: false);
-        return await FileSystemPackageStore.CommitAsync(
+        PreparedPackageCommit prepared = await FileSystemPackageStore.CommitAsync(
             PackageId,
             Version,
             archiveStream,
             () => Directory.CreateDirectory(
                 Path.Combine(root, "commit-staging")).FullName,
             (stagedExtract, stagedNupkg) =>
-                NuGetCache.CommitPackageToSlot(
+                NuGetCache.CommitPackageToSlotWithDisposition(
                     stagedExtract,
                     stagedNupkg,
                     PackageId,
@@ -414,6 +414,7 @@ public sealed class PackageContentDigestTests
                     "digest-test-commit",
                     useAppCache: false),
             TestContext.Current.CancellationToken);
+        return prepared.Content;
     }
 
     sealed class SingleContentStore(IPackageContent content) : IPackageStore

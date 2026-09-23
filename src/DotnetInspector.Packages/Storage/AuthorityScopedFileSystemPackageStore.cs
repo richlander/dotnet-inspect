@@ -8,7 +8,9 @@ namespace DotnetInspector.Packages;
 /// remain provenance; legacy source-key arguments cannot select another slot.
 /// The caller owns the temporary root and must retain it through content use.
 /// </summary>
-public sealed class AuthorityScopedFileSystemPackageStore : IPackageStore
+public sealed class AuthorityScopedFileSystemPackageStore :
+    IPackageStore,
+    IPreparedPackageStore
 {
     private readonly ConfiguredPackageAuthority _authority;
     private readonly PackageProducerIdentity _producer;
@@ -114,7 +116,7 @@ public sealed class AuthorityScopedFileSystemPackageStore : IPackageStore
         }
     }
 
-    public ValueTask<IPackageContent> CommitAsync(
+    public async ValueTask<IPackageContent> CommitAsync(
         string packageName,
         string version,
         string sourceKey,
@@ -128,13 +130,60 @@ public sealed class AuthorityScopedFileSystemPackageStore : IPackageStore
 
         string normalizedName = packageName.ToLowerInvariant();
         string normalizedVersion = version.ToLowerInvariant();
-        return FileSystemPackageStore.CommitAsync(
+        PreparedPackageCommit prepared = await FileSystemPackageStore.CommitAsync(
             packageName,
             version,
             nupkg,
             () => Directory.CreateDirectory(Path.Combine(
                 _getTemporaryRoot(), $"package-commit-{Guid.NewGuid():N}")).FullName,
-            (extractedPath, nupkgPath) => NuGetCache.CommitPackageToSlot(
+            (extractedPath, nupkgPath) => NuGetCache.CommitPackageToSlotWithDisposition(
+                extractedPath,
+                nupkgPath,
+                normalizedName,
+                normalizedVersion,
+                _producer.Key,
+                GetSlotPath(normalizedName, normalizedVersion, create: true)!,
+                GetMarkerContent(normalizedName, normalizedVersion),
+                useAppCache: _authority.PersistentCacheKey is not null),
+            cancellationToken).ConfigureAwait(false);
+        if (prepared.RequiresAdmission
+            && !await PackageContentAdmission.IsAdmissibleAsync(
+                    prepared.Content,
+                    PackagePayloadLimits.Default,
+                    cancellationToken).ConfigureAwait(false))
+        {
+            throw new InvalidDataException(
+                "The existing package cache entry does not satisfy the current payload limits.");
+        }
+
+        return prepared.Content;
+    }
+
+    ValueTask<PreparedPackageCommit> IPreparedPackageStore.CommitPreparedAsync(
+        string packageName,
+        string version,
+        string sourceKey,
+        PackageArchivePayload archive,
+        CancellationToken cancellationToken)
+    {
+        NuGetCache.ValidatePathComponent(packageName, "package name");
+        NuGetCache.ValidatePathComponent(version, "version");
+        if (!string.Equals(sourceKey, _producer.Key, StringComparison.Ordinal))
+        {
+            throw new ArgumentException(
+                "The payload producer does not match the store's producer.",
+                nameof(sourceKey));
+        }
+
+        string normalizedName = packageName.ToLowerInvariant();
+        string normalizedVersion = version.ToLowerInvariant();
+        return FileSystemPackageStore.CommitAsync(
+            packageName,
+            version,
+            archive,
+            () => Directory.CreateDirectory(Path.Combine(
+                _getTemporaryRoot(), $"package-commit-{Guid.NewGuid():N}")).FullName,
+            (extractedPath, nupkgPath) => NuGetCache.CommitPackageToSlotWithDisposition(
                 extractedPath,
                 nupkgPath,
                 normalizedName,

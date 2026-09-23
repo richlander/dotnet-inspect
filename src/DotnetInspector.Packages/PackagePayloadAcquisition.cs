@@ -827,36 +827,64 @@ public static class PackagePayloadAcquisition
                     return null;
                 }
 
-                if (PackageArchiveValidator.Validate(
+                PackageArchiveValidation validation =
+                    PackageArchiveValidator.ValidateOwned(
                         archive,
                         limits,
-                        operationCancellationToken)
-                    is PackageArchiveValidation.Rejected rejection)
+                        operationCancellationToken);
+                if (validation is PackageArchiveValidation.Rejected rejection)
                 {
                     log?.Invoke(
                         $"{sourceDescription} did not deliver a usable package payload: {rejection.Reason}");
                     return null;
                 }
 
-                IPackageContent committed = await store.CommitAsync(
-                    coordinate.PackageId,
-                    coordinate.Version,
-                    producerKey,
-                    new MemoryStream(
-                        archive,
-                        index: 0,
-                        count: archive.Length,
-                        writable: false,
-                        publiclyVisible: true),
-                    operationCancellationToken).ConfigureAwait(false);
-                if (!await PackageContentAdmission.IsAdmissibleAsync(
-                        committed,
-                        limits,
-                        operationCancellationToken).ConfigureAwait(false))
+                IPackageContent committed;
+                if (store is IPreparedPackageStore preparedStore)
                 {
-                    log?.Invoke(
-                        $"{sourceDescription} did not publish content satisfying the current payload limits.");
-                    return null;
+                    PreparedPackageCommit prepared =
+                        await preparedStore.CommitPreparedAsync(
+                            coordinate.PackageId,
+                            coordinate.Version,
+                            producerKey,
+                            ((PackageArchiveValidation.Valid)validation).Archive,
+                            operationCancellationToken)
+                        .ConfigureAwait(false);
+                    committed = prepared.Content;
+                    if (prepared.RequiresAdmission
+                        && !await PackageContentAdmission.IsAdmissibleAsync(
+                                committed,
+                                limits,
+                                operationCancellationToken).ConfigureAwait(false))
+                    {
+                        log?.Invoke(
+                            $"{sourceDescription} did not publish content satisfying the current payload limits.");
+                        return null;
+                    }
+                }
+                else
+                {
+                    committed = await store.CommitAsync(
+                            coordinate.PackageId,
+                            coordinate.Version,
+                            producerKey,
+                            new MemoryStream(
+                                archive,
+                                index: 0,
+                                count: archive.Length,
+                                writable: false,
+                                publiclyVisible: true),
+                            operationCancellationToken)
+                        .ConfigureAwait(false);
+                    if (!await PackageContentAdmission.IsAdmissibleAsync(
+                            committed,
+                            limits,
+                            operationCancellationToken).ConfigureAwait(false))
+                    {
+                        log?.Invoke(
+                            $"{sourceDescription} did not publish content satisfying the current payload limits.");
+                        return null;
+                    }
                 }
 
                 reservation?.Complete();

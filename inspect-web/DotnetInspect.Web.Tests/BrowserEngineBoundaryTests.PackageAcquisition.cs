@@ -109,6 +109,10 @@ public sealed partial class BrowserEngineBoundaryTests
         Assert.Equal(version, package.Version);
         Assert.Equal(archive, package.RetainedBytes);
         Assert.False(package.Content.FromCache);
+        Assert.IsType<PackageArchiveValidation.Valid>(
+            package.Content.ValidateArchive(
+                BrowserPackageWorkspace.PackageLimits,
+                TestContext.Current.CancellationToken));
         Assert.Equal(
             NuGetCache.GetSourceKey(PackageSourceIdentity.NuGetOrg.Value),
             package.Content.ProducerKey);

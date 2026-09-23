@@ -18,6 +18,14 @@ public sealed record CommittedPackage(
     string ProducerKey);
 
 /// <summary>
+/// A selected immutable slot and whether this call published the staged input
+/// rather than observing an earlier valid winner.
+/// </summary>
+internal readonly record struct PackageCommitResult(
+    CommittedPackage Package,
+    bool PublishedStagedContent);
+
+/// <summary>
 /// An exact cached package payload and the canonical identity of the source
 /// that produced it.
 /// </summary>
@@ -577,6 +585,19 @@ public static class NuGetCache
         string? nupkgPath,
         string packageName,
         string version,
+        string sourceKey) =>
+        CommitPackageWithDisposition(
+            extractedPath,
+            nupkgPath,
+            packageName,
+            version,
+            sourceKey).Package;
+
+    internal static PackageCommitResult CommitPackageWithDisposition(
+        string extractedPath,
+        string? nupkgPath,
+        string packageName,
+        string version,
         string sourceKey)
     {
         ValidatePathComponent(packageName, "package name");
@@ -588,7 +609,7 @@ public static class NuGetCache
             normalizedName,
             normalizedVersion,
             sourceKey);
-        return CommitPackageToSlot(
+        return CommitPackageToSlotWithDisposition(
             extractedPath,
             nupkgPath,
             normalizedName,
@@ -604,6 +625,25 @@ public static class NuGetCache
     /// Temporary slots use the same transaction without claiming an app-cache path.
     /// </summary>
     internal static CommittedPackage CommitPackageToSlot(
+        string extractedPath,
+        string? nupkgPath,
+        string packageName,
+        string version,
+        string producerKey,
+        string targetPath,
+        string markerContent,
+        bool useAppCache) =>
+        CommitPackageToSlotWithDisposition(
+            extractedPath,
+            nupkgPath,
+            packageName,
+            version,
+            producerKey,
+            targetPath,
+            markerContent,
+            useAppCache).Package;
+
+    internal static PackageCommitResult CommitPackageToSlotWithDisposition(
         string extractedPath,
         string? nupkgPath,
         string packageName,
@@ -627,11 +667,13 @@ public static class NuGetCache
 
         if (IsCommittedPackageValid(targetPath, markerContent))
         {
-            return OpenCommittedPackage(
-                targetPath,
-                normalizedName,
-                normalizedVersion,
-                producerKey);
+            return new PackageCommitResult(
+                OpenCommittedPackage(
+                    targetPath,
+                    normalizedName,
+                    normalizedVersion,
+                    producerKey),
+                PublishedStagedContent: false);
         }
 
         if (Directory.Exists(targetPath))
@@ -640,11 +682,13 @@ public static class NuGetCache
             // check and Exists. Re-check before treating the slot as corrupt.
             if (IsCommittedPackageValid(targetPath, markerContent))
             {
-                return OpenCommittedPackage(
-                    targetPath,
-                    normalizedName,
-                    normalizedVersion,
-                    producerKey);
+                return new PackageCommitResult(
+                    OpenCommittedPackage(
+                        targetPath,
+                        normalizedName,
+                        normalizedVersion,
+                        producerKey),
+                    PublishedStagedContent: false);
             }
 
             throw new InvalidDataException(
@@ -716,11 +760,13 @@ public static class NuGetCache
             }
             catch (IOException) when (IsCommittedPackageValid(targetPath, markerContent))
             {
-                return OpenCommittedPackage(
-                    targetPath,
-                    normalizedName,
-                    normalizedVersion,
-                    producerKey);
+                return new PackageCommitResult(
+                    OpenCommittedPackage(
+                        targetPath,
+                        normalizedName,
+                        normalizedVersion,
+                        producerKey),
+                    PublishedStagedContent: false);
             }
 
             CacheTelemetry.Record(
@@ -728,10 +774,12 @@ public static class NuGetCache
                 $"{normalizedName}@{normalizedVersion}",
                 CacheAccessResult.Store);
 
-            return new CommittedPackage(
-                targetPath,
-                Path.Combine(targetPath, Path.GetFileName(committedNupkgPath)),
-                producerKey);
+            return new PackageCommitResult(
+                new CommittedPackage(
+                    targetPath,
+                    Path.Combine(targetPath, Path.GetFileName(committedNupkgPath)),
+                    producerKey),
+                PublishedStagedContent: true);
         }
         finally
         {
