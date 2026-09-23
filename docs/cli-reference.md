@@ -481,7 +481,7 @@ single-result projection such as `--tree` or `--mermaid`.
 ```bash
 dotnet-inspect package System.Text.Json
 dotnet-inspect package System.Text.Json --version 10.0.0
-dotnet-inspect package System.Text.Json --latest-version
+dotnet-inspect package System.Text.Json --versions -n 1
 dotnet-inspect package System.Text.Json --versions -n 6
 dotnet-inspect package System.Text.Json@8.0.0..8.0.5 --versions
 dotnet-inspect package System.Text.Json@8.0.0..8.0.5 --versions --envelope
