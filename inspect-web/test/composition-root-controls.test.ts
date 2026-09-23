@@ -89,8 +89,71 @@ test("platform type and member navigation hides package-only operations", () => 
     memberSectionIdsFor({ kind: "method" }, false),
     ["overview", "call-graph", "facts", "source", "annotated", "compare"]);
   assert.deepEqual(
+    memberSectionIdsFor({ kind: "method", overloads: [{}, {}] }, true),
+    ["overview", "implementation-profiles", "call-graph"]);
+  assert.deepEqual(
+    memberSectionIdsFor({ kind: "method", overloads: [{}, {}] }, false),
+    [
+      "overview",
+      "implementation-profiles",
+      "call-graph",
+      "facts",
+      "source",
+      "annotated",
+      "compare",
+    ]);
+  assert.deepEqual(
     memberSectionIdsFor({ kind: "property" }, false, true),
     ["overview", "call-graph", "facts", "annotated", "compare"]);
+});
+
+test("implementation profiles stay lazy and family-level across package and platform routes", () => {
+  const target = sourceText(functionDeclaration("implementationProfileTarget"));
+  assert.match(
+    target,
+    /state\.rootKind === "library"[\s\S]*member\.kind !== "method"[\s\S]*member\.overloads\.length < 2/);
+  assert.match(
+    target,
+    /const stableSelectors = member\.overloads\.map[\s\S]*overload => overload\.stableSelector[\s\S]*pkg\.isRuntimePack[\s\S]*kind: "platform"[\s\S]*platformVersion: pkg\.version[\s\S]*pack: row\.pack[\s\S]*assemblyFileName: platformAssemblyRequest\(row\)[\s\S]*typeDefinitionId[\s\S]*stableSelectors/);
+  assert.match(
+    target,
+    /kind: "package"[\s\S]*packageId: pkg\.id[\s\S]*version: pkg\.version[\s\S]*targetFramework: pkg\.activeFramework[\s\S]*assemblyName: type\.assemblyId[\s\S]*typeDefinitionId[\s\S]*stableSelectors/);
+  assert.match(
+    target,
+    /members: member\.overloads\.map[\s\S]*stableSelector: overload\.stableSelector[\s\S]*bodyTokens:[\s\S]*selected: selectedOverloadIndex === index/);
+
+  const load = sourceText(functionDeclaration("loadMemberSectionContent"));
+  assert.equal(
+    callExpressionsNamed(
+      functionDeclaration("loadMemberSectionContent"),
+      "loadSelectedImplementationProfiles").length,
+    1);
+  assert.match(
+    load,
+    /else if \(id === "implementation-profiles"\)[\s\S]*loadSelectedImplementationProfiles\(\)/);
+
+  const openGroup = sourceText(functionDeclaration("openMemberGroup"));
+  assert.match(
+    openGroup,
+    /state\.memberSection !== "overview"[\s\S]*state\.memberSection !== "implementation-profiles"[\s\S]*state\.selectedOverloadIndex = 0/);
+
+  const applySection = sourceText(functionDeclaration("applyMemberSection"));
+  assert.match(
+    applySection,
+    /id !== "implementation-profiles"[\s\S]*state\.selectedOverloadIndex == null[\s\S]*state\.selectedOverloadIndex = 0/);
+  assert.match(
+    applySection,
+    /state\.memberSection = id;\s*loadMemberSectionContent\(id\)/);
+
+  const render = sourceText(functionDeclaration("renderMember"));
+  assert.match(
+    render,
+    /member\.overloads\.length > 1[\s\S]*!hasSelectedOverload[\s\S]*state\.memberSection !== "implementation-profiles"/);
+
+  const bind = sourceText(functionDeclaration("bindImplementationProfileEvents"));
+  assert.match(
+    bind,
+    /loadSelectedImplementationProfiles\(true\)\.finally\([\s\S]*state\.memberSection !== "implementation-profiles"[\s\S]*#implementation-profile-retry, #implementation-profile-state-title[\s\S]*focus\(\{ preventScroll: true \}\)/);
 });
 
 test("platform call graphs carry the target pack into lazy acquisition", () => {

@@ -729,8 +729,13 @@ test("every overload-specific member loader leaves a multi-overload picker inert
 // restoring a hand-written list makes a catalog addition stop appearing here.
 test("the full member-section roster is derived from the catalog, not restated", () => {
   assert.deepEqual(
-    memberSectionIdsFor({ kind: "method" }),
+    memberSectionIdsFor({ kind: "method", overloads: [{}, {}] }),
     memberSectionDefinitions.map(([id]) => id));
+  assert.deepEqual(
+    memberSectionIdsFor({ kind: "method", overloads: [{}] }),
+    memberSectionDefinitions
+      .map(([id]) => id)
+      .filter(id => id !== "implementation-profiles"));
 });
 
 test("source requests carry exact type and member identities", () => {

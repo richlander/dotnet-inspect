@@ -2,6 +2,7 @@ using System.Runtime.InteropServices.JavaScript;
 using System.Runtime.Versioning;
 using System.Text.Json;
 using DotnetInspector.Queries;
+using DotnetInspector.Sections;
 
 using DotnetInspect.Web;
 using DotnetInspect.Web.Interop.Analysis;
@@ -176,6 +177,66 @@ public static partial class AnalysisExports
             "",
             assemblyFileName,
             pack);
+
+    [JSExport]
+    public static async Task<string> QueryPlatformImplementationProfiles(
+        string targetFramework,
+        string platformVersion,
+        string assemblyFileName,
+        string pack,
+        string typeDefinitionId,
+        string[] stableSelectors)
+    {
+        var selection = new ImplementationProfileFamilySelection(
+            typeDefinitionId,
+            stableSelectors);
+        BrowserImplementationProfiles profiles;
+        await using (BrowserPlatformScopeResolution resolution =
+            await BrowserPlatformWorkspace.OpenAssemblyAsync(
+                targetFramework,
+                platformVersion,
+                assemblyFileName,
+                pack))
+        {
+            InspectionEnvelope<
+                AssemblyContextEntry<
+                    AssemblyImplementationProfileFamilyInspection>>
+                    inspection =
+                        resolution.Scope.UseParticipant(
+                            resolution.Participant,
+                            (group, participant) =>
+                                ImplementationProfileFamilyInspectionOperation
+                                    .Execute(
+                                        group,
+                                        participant,
+                                        selection));
+            profiles = BrowserImplementationProfileWireProjection.Project(
+                inspection,
+                new BrowserCompileLibraryAvailability(
+                    BrowserCompileLibraryStatus.Selected,
+                    resolution.Scope.Framework,
+                    null));
+        }
+
+        return JsonSerializer.Serialize(
+            profiles,
+            BrowserAnalysisJsonContext.Default
+                .BrowserImplementationProfiles);
+    }
+
+    public static Task<string> QueryPlatformImplementationProfiles(
+        string targetFramework,
+        string assemblyFileName,
+        string pack,
+        string typeDefinitionId,
+        string[] stableSelectors) =>
+        QueryPlatformImplementationProfiles(
+            targetFramework,
+            "",
+            assemblyFileName,
+            pack,
+            typeDefinitionId,
+            stableSelectors);
 
     [JSExport]
     public static Task<string> QueryPlatformPerformance(
