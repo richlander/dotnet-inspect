@@ -678,6 +678,11 @@ Its readable properties are `MethodName`, `ParameterName`, and `WireType`.
 The method argument should use `nameof` so a managed rename is compiler-bound.
 C# has no equivalent parameter-symbol expression at a class declaration, so
 the parameter name remains a string that generation resolves and validates.
+This is build-safe rather than advisory: if `"requestJson"` is stale, misspelled,
+or does not identify exactly one parameter on the named export, `ts-jsexport`
+generation fails, the consumer build breaks, and no replacement facade source
+is published. Generation never ignores the declaration or falls back to a raw
+string facade.
 
 The declaration belongs on the export type, including an otherwise empty
 partial declaration in a dedicated contract file. It does not belong on the
@@ -1503,10 +1508,10 @@ The explicit input-binding expansion adds these contract-defining gates:
   deserialization-capable source-generated contract without requiring the
   deserializer call in the export body;
 - close-negative fixtures reject the wrong contract assembly identity,
-  absent or ambiguous methods and parameters, a non-string raw parameter,
-  unresolved or ambiguous serializer ownership, unsupported deserialize
-  shapes, duplicate declarations, and declared/observed wire-type conflicts
-  before any facade source is published;
+  absent or ambiguous methods and stale, absent, or ambiguous parameter-name
+  literals, a non-string raw parameter, unresolved or ambiguous serializer
+  ownership, unsupported deserialize shapes, duplicate declarations, and
+  declared/observed wire-type conflicts before any facade source is published;
 - paired fixtures prove equal declared and flow-inferred associations issue
   structurally equal `JsExportSurface` facts and byte-identical TypeScript;
 - mixed fixtures prove declarations resolve first, inference considers only
