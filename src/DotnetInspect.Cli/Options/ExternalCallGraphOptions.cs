@@ -1,5 +1,6 @@
 using DotnetInspect.Cli.Output;
 using DotnetInspector.Packages;
+using DotnetInspector.Queries;
 using DotnetInspector.Sections;
 
 namespace DotnetInspect.Cli.Options;
@@ -12,6 +13,13 @@ public sealed record ExternalCallGraphOptions
     public required string RootTfm { get; init; }
     public string? Tfm { get; init; }
     public bool IncludeAll { get; init; }
+    public MemberCallGraphSupplyChainBaseline SupplyChainBaseline
+    {
+        get;
+        init;
+    } = MemberCallGraphSupplyChainBaseline
+        .SelfAndRegisteredEcosystems;
+    public string[] FirstPartyPackagePrefixes { get; init; } = [];
     public int Depth { get; init; } = 3;
     public int MaxNodes { get; init; } = 25;
     public OutputFormat Format { get; init; } = OutputFormat.Markdown;

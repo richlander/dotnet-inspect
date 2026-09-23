@@ -5,6 +5,31 @@ namespace ILInspector.Metadata.ConsumerCanary;
 
 public static class MetadataMethodImplementationConsumerCanary
 {
+    public static MetadataTypeDeclarationResult PostType(
+        string assemblyPath,
+        MetadataTypeDefinitionAddress type)
+    {
+        using var assembly = AssemblyInspectionSession.Open(assemblyPath);
+        using var operation =
+            new MetadataOperationContext(MetadataOperationPolicy.Unbounded);
+        using MetadataDeclarationSession declarations =
+            assembly.CreateDeclarationSession(operation);
+        return declarations.PostTypeDeclaration(type);
+    }
+
+    public static bool Consume(MetadataTypeDeclarationResult result) =>
+        result switch
+        {
+            MetadataTypeDeclarationResult.Posted posted =>
+                posted.Evidence.Type.Definition.Value != 0
+                && posted.Evidence.DefinitionIdentity.Segments.Length > 0
+                && posted.Evidence.OpenSelfIdentity is not null,
+            MetadataTypeDeclarationResult.Rejected rejected =>
+                rejected.Failure.Detail.Length > 0
+                && rejected.Counters.MetadataRows >= 0,
+            _ => false,
+        };
+
     public static MetadataMethodDeclarationResult PostMethod(
         string assemblyPath,
         MetadataTypeDefinitionAddress type,

@@ -268,6 +268,17 @@ public sealed class PackageHouseDecisionReceipt
             pruning: null,
             versionResolution: versionResolution);
 
+    internal static PackageHouseDecisionReceipt RetainPriorPackage(
+        PackageHouseRequest request,
+        PackageVersionResolutionReceipt.Prior versionResolution) =>
+        new(
+            request,
+            PackageHouseDecision.RetainPackage,
+            versionResolution.Coordinate,
+            versionResolution.Candidate,
+            pruning: null,
+            versionResolution: versionResolution);
+
     internal static PackageHouseDecisionReceipt DelegateToPlatform(
         PackageHouseRequest request,
         PackageSourceCoordinate coordinate,
@@ -1187,8 +1198,12 @@ public abstract class PackageHouseResult
                 "A selecting package result must retain its version-resolution receipt.",
                 parameterName);
         }
+        // A prior settlement is a settled arm exactly like Resolved: every
+        // post-acquisition result, success or typed failure, may carry it.
         if (resolution
                 is not PackageVersionResolutionReceipt.Resolved
+            && resolution
+                is not PackageVersionResolutionReceipt.Prior
             && resolution is not TReceipt)
         {
             throw new ArgumentException(
@@ -1320,6 +1335,27 @@ internal static class PackageHouseContractValidation
                     {
                         throw new ArgumentException(
                             "A selected package decision must retain the resolution receipt's exact coordinate and candidate.",
+                            nameof(versionResolution));
+                    }
+                    if (pruning is not null)
+                    {
+                        throw new ArgumentException(
+                            "Selecting-demand pruning is not part of this PackageHouse contract slice.",
+                            nameof(pruning));
+                    }
+                    return;
+                }
+
+                if (versionResolution
+                    is PackageVersionResolutionReceipt.Prior prior)
+                {
+                    if (coordinate != prior.Coordinate
+                        || !ReferenceEquals(
+                            candidate,
+                            prior.Candidate))
+                    {
+                        throw new ArgumentException(
+                            "A prior-settled package decision must retain the prior receipt's exact coordinate and candidate.",
                             nameof(versionResolution));
                     }
                     if (pruning is not null)

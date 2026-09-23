@@ -942,6 +942,10 @@ public class ApiType
     public List<ApiJsonSerializableRoot> JsonSerializableRoots
         { get; set; } = [];
 
+    [JsonIgnore]
+    public List<ApiJsExportJsonInputDeclaration> JsExportJsonInputDeclarations
+        { get; set; } = [];
+
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
     public JsonWireNamingPolicy? JsonPropertyNamingPolicy { get; set; }
 
@@ -1491,6 +1495,12 @@ public class ApiMember
     public string? ObsoleteMessage { get; set; }
 
     /// <summary>
+    /// True when [Obsolete] makes references a compile-time error.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public bool ObsoleteIsError { get; set; }
+
+    /// <summary>
     /// The type that this extension method extends (first parameter type).
     /// Only populated when IsExtension is true.
     /// </summary>
@@ -1995,6 +2005,13 @@ public enum ApiPrimitiveType
     IntPtr,
     UIntPtr,
 }
+
+public sealed record ApiJsExportJsonInputDeclaration(
+    ApiAssemblyIdentity? AttributeAssembly,
+    string? MethodName,
+    string? ParameterName,
+    ApiTypeShape? WireType,
+    string? UnsupportedReason);
 
 public sealed record ApiJsonSerializableRoot(
     ApiTypeReferenceIdentity? ElementType,

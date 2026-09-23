@@ -1,11 +1,13 @@
 using DotnetInspect.Cli.Inspectors;
 using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Output;
+using DotnetInspector.Ecosystems;
 using DotnetInspector.PackageQueries;
 using DotnetInspector.Packages;
 using DotnetInspector.Queries;
 using DotnetInspector.Sections;
 using DotnetInspector.Services;
+using DotnetInspector.SourceSelection;
 using ILInspector.Metadata;
 using NuGetFetch;
 
@@ -122,7 +124,11 @@ public static class ExternalCallGraphCommand
                     realizationOperation,
                     DateTimeOffset.UtcNow
                         .Add(fetchOptions.OperationTimeout)
-                        .Add(fetchOptions.OperationTimeout));
+                        .Add(fetchOptions.OperationTimeout),
+                    supplyChainBaseline:
+                        options.SupplyChainBaseline,
+                    workspacePlan:
+                        CreateWorkspacePlan(options));
             InspectionEnvelope<
                 PackageDependencyMemberCallGraphInspectionOutcome> envelope =
                 inspectionExecutor is null
@@ -187,6 +193,29 @@ public static class ExternalCallGraphCommand
                 ? CommandError.WriteLine
                 : null,
         };
+
+    internal static WorkspacePlan CreateWorkspacePlan(
+        ExternalCallGraphOptions options)
+    {
+        ArgumentNullException.ThrowIfNull(options);
+        WorkspacePlan product =
+            options.SupplyChainBaseline
+                is MemberCallGraphSupplyChainBaseline
+                    .SelfAndRegisteredEcosystems
+                ? EcosystemPackCatalog.CreatePlatformWorkspacePlan()
+                : WorkspacePlan.Empty;
+        WorkspaceRegistration[] firstParty =
+        [
+            .. options.FirstPartyPackagePrefixes.Select(prefix =>
+                new WorkspaceRegistration.PackagePrefix(
+                    new PackagePrefixDeclaration(prefix))),
+        ];
+        return new WorkspacePlan(
+            [
+                .. firstParty,
+                .. product.Registrations,
+            ]);
+    }
 
     internal static async ValueTask<
         InspectionEnvelope<

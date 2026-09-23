@@ -93,15 +93,15 @@ test.describe("published Method Body comparison transport", () => {
           after,
         };
         const different = await source.queryMethodBodyComparison(
-          "method-body-production-different", JSON.stringify(request),
+          "method-body-production-different", request,
         );
         const same = await source.queryMethodBodyComparison(
           "method-body-production-same",
-          JSON.stringify({ ...request, after: targets.before }),
+          { ...request, after: targets.before },
         );
         const noBody = await source.queryMethodBodyComparison(
           "method-body-production-bodyless",
-          JSON.stringify({ ...request, after: bodyless }),
+          { ...request, after: bodyless },
         );
         return { targets, different, same, noBody, cancellation };
       });
@@ -212,15 +212,15 @@ test.describe("published Method Body comparison transport", () => {
           after: different,
         };
         const compared = await source.queryMethodBodyComparison(
-          "method-body-fixture-different", JSON.stringify(request),
+          "method-body-fixture-different", request,
         );
         const noBody = await source.queryMethodBodyComparison(
           "method-body-fixture-bodyless",
-          JSON.stringify({ ...request, after: bodyless }),
+          { ...request, after: bodyless },
         );
         const accessors = await source.queryMethodBodyComparison(
           "method-body-fixture-accessors",
-          JSON.stringify({ ...request, before: getter, after: setter }),
+          { ...request, before: getter, after: setter },
         );
         return { launch, targets, compared, noBody, accessors, getter, setter };
       });

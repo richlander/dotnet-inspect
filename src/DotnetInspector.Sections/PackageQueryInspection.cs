@@ -249,6 +249,12 @@ public static class PackageQueryInspection
 
         PackageSourceOperationLease? sourceOperation =
             execution.CreateSourceOperation(cancellationToken);
+        var semanticSink = new SemanticSink(
+            plan,
+            prequalified,
+            source.Source,
+            execution.AssessmentSink,
+            nonterminalSink);
         PackageAssemblySemanticQueryDocument semantic;
         try
         {
@@ -269,12 +275,6 @@ public static class PackageQueryInspection
                     literal),
                 execution.Budget,
                 maximumMatches: plan.MaximumMatches);
-            var sink = new SemanticSink(
-                plan,
-                prequalified,
-                source.Source,
-                execution.AssessmentSink,
-                nonterminalSink);
             PackageSourceOperationLease transferredOperation = sourceOperation;
             sourceOperation = null;
             InspectionEnvelope<PackageAssemblySemanticQueryDocument> envelope =
@@ -282,7 +282,7 @@ public static class PackageQueryInspection
                     request,
                     transferredOperation,
                     execution.PayloadAcquisition,
-                    sink,
+                    semanticSink,
                     cancellationToken).ConfigureAwait(false);
             semantic = envelope.Content;
         }
@@ -343,7 +343,9 @@ public static class PackageQueryInspection
             LibraryLiteralAssessments =
             [
                 .. semantic.CandidateOutcomes.Select(outcome =>
-                    ProjectAssessment(source.Source, outcome)),
+                    semanticSink.AssessmentForTerminal(
+                        source.Source,
+                        outcome)),
             ],
         };
 
@@ -390,7 +392,7 @@ public static class PackageQueryInspection
             SemanticMisses = semanticMisses,
             NotApplicable = notApplicable,
             Scope =
-                "Selected primary implementation libraries only; not every package assembly.",
+                "All selected implementation libraries for one compatible target framework.",
         };
 
     private static PackageQueryMatch ProjectMatch(
@@ -399,40 +401,50 @@ public static class PackageQueryInspection
         PackageAssemblySemanticQueryResult result)
     {
         PackageQueryMatch original = FindMatch(prequalified, result.Coordinate);
+        ImmutableArray<PackageQueryLibraryLiteralOccurrence>
+            libraryOccurrences =
+        [
+            .. result.LibraryOccurrences.Select(value =>
+                new PackageQueryLibraryLiteralOccurrence(
+                    ProjectSelectedAsset(value.SelectedAsset),
+                    value.Evidence)),
+        ];
         PackageQueryLibraryLiteralSelectedAsset selected =
-            ProjectSelectedAsset(result.SelectedAsset);
+            libraryOccurrences[0].SelectedAsset;
         PortableQueryTerm term = plan.Terms.Single(value =>
             value.Key == PackageQuery.LibraryLiteralTermKey);
         ImmutableArray<InertString> preview =
         [
-            .. result.Occurrences
+            .. libraryOccurrences
                 .Take(PackageQuery.MaximumEvidencePreviewItems)
-                .Select(occurrence => new InertString(
+                .Select(value => new InertString(
                     TextPolicy.Field,
-                    $"Method 0x{occurrence.Address.MethodDefinitionToken:X8}, "
-                    + $"IL_{occurrence.Address.ILOffset:X4}: "
-                    + Excerpt(occurrence.LiteralText.ToString()))),
+                    $"{value.SelectedAsset.Path}: "
+                    + $"Method 0x{value.Evidence.Address.MethodDefinitionToken:X8}, "
+                    + $"IL_{value.Evidence.Address.ILOffset:X4}: "
+                    + Excerpt(value.Evidence.LiteralText.ToString()))),
         ];
         var answer = new PackageQueryAnswer(
             PackageQuery.LibraryLiteralTermKey,
             InertString.Format(
                 TextPolicy.Field,
-                $"{result.Occurrences.Length.ToString(CultureInfo.InvariantCulture)} decoded literal uses"))
+                $"{result.Occurrences.Length.ToString(CultureInfo.InvariantCulture)} decoded literal uses across {result.MatchedLibraryCount.ToString(CultureInfo.InvariantCulture)} implementation libraries"))
         {
             Term = term,
         };
-        var evidence = new PackageQueryEvidence("selected-assembly")
+        var evidence = new PackageQueryEvidence("implementation-libraries")
         {
             Scope = PackageQueryEvidenceScope.Package,
             Summary = new(result.Occurrences.Length, preview),
             Properties =
             [
-                Property("path", selected.Path),
-                Property("assembly-name", selected.AssemblyName),
-                Property("target-framework", selected.TargetFramework),
                 Property(
-                    "unevaluated-sibling-count",
-                    selected.UnevaluatedSiblings.ToString(
+                    "evaluated-library-count",
+                    result.EvaluatedLibraryCount.ToString(
+                        CultureInfo.InvariantCulture)),
+                Property(
+                    "matched-library-count",
+                    result.MatchedLibraryCount.ToString(
                         CultureInfo.InvariantCulture)),
             ],
             Term = term,
@@ -445,7 +457,10 @@ public static class PackageQueryInspection
             LibraryLiteral = new(
                 result.RootRequest,
                 selected,
-                result.Occurrences),
+                result.Occurrences)
+            {
+                LibraryOccurrences = libraryOccurrences,
+            },
         };
     }
 
@@ -472,7 +487,11 @@ public static class PackageQueryInspection
                     PackageQueryLibraryLiteralAssessmentKind.NotEvaluated,
                 _ => throw new InvalidOperationException(
                     "Unknown assembly-semantic candidate outcome."),
-            });
+            })
+        {
+            Libraries = ProjectLibraryAssessments(
+                outcome.LibraryEvaluations),
+        };
         return outcome switch
         {
             PackageAssemblySemanticQueryCandidateOutcome.Matched matched =>
@@ -490,7 +509,7 @@ public static class PackageQueryInspection
                         ProjectSelectedAsset(
                             noMatch.Evaluation.SelectedAsset!),
                     Message =
-                        "The selected implementation library has no matching decoded ldstr use.",
+                        "The selected implementation libraries have no matching decoded ldstr use.",
                 },
             PackageAssemblySemanticQueryCandidateOutcome.NotApplicable
                 notApplicable =>
@@ -541,7 +560,29 @@ public static class PackageQueryInspection
                         PackageQueryLibraryLiteralFailureKind.Evaluation,
                     FailureStage =
                         evaluation.Evidence.Reason.Stage.ToString(),
-                    Message = Describe(evaluation.Evidence),
+                    Message = Describe(
+                        failure.LibraryEvaluations
+                            .OfType<
+                                PackageAssemblyEvaluationOutcome.Failure>()),
+                },
+            PackageAssemblySemanticQueryFailureReason
+                .AggregateOccurrenceLimit aggregateLimit =>
+                assessment with
+                {
+                    RootRequest = failure.LibraryEvaluations[0]
+                        .Subject.RootRequest,
+                    SelectedAsset = failure.LibraryEvaluations
+                        .Select(value => value.SelectedAsset)
+                        .FirstOrDefault(value => value is not null)
+                        is { } selected
+                            ? ProjectSelectedAsset(selected)
+                            : null,
+                    FailureKind =
+                        PackageQueryLibraryLiteralFailureKind.Evaluation,
+                    FailureStage =
+                        PackageAssemblyFailureStage.SemanticWorkLimit
+                            .ToString(),
+                    Message = Describe(aggregateLimit),
                 },
             _ => throw new InvalidOperationException(
                 "Unknown assembly-semantic failure reason."),
@@ -585,7 +626,18 @@ public static class PackageQueryInspection
                     failure.Coordinate.Version,
                     source,
                     PackageQueryFailureKind.AssemblyEvaluation,
-                    Describe(evaluation.Evidence)),
+                    Describe(
+                        failure.LibraryEvaluations
+                            .OfType<
+                                PackageAssemblyEvaluationOutcome.Failure>())),
+            PackageAssemblySemanticQueryFailureReason
+                .AggregateOccurrenceLimit aggregateLimit =>
+                new(
+                    failure.Coordinate.PackageId,
+                    failure.Coordinate.Version,
+                    source,
+                    PackageQueryFailureKind.AssemblyEvaluation,
+                    Describe(aggregateLimit)),
             _ => throw new InvalidOperationException(
                 "Unknown assembly-semantic failure reason."),
         };
@@ -606,7 +658,54 @@ public static class PackageQueryInspection
             selected.Asset.Path,
             selected.Asset.AssemblyName,
             selected.Asset.TargetFramework,
-            selected.UnevaluatedSiblings);
+            selected.UnevaluatedSiblings,
+            selected.Occurrence.Ordinal);
+
+    private static ImmutableArray<
+        PackageQueryLibraryLiteralLibraryAssessment>
+        ProjectLibraryAssessments(
+            ImmutableArray<PackageAssemblyEvaluationOutcome> evaluations) =>
+    [
+        .. evaluations
+            .Where(evaluation =>
+                (evaluation
+                    is PackageAssemblyEvaluationOutcome.Matched
+                    or PackageAssemblyEvaluationOutcome.NoMatch
+                    or PackageAssemblyEvaluationOutcome.Failure)
+                && evaluation.SelectedAsset is not null)
+            .Select(evaluation =>
+            {
+                PackageAssemblySelectedAssetContext selected =
+                    evaluation.SelectedAsset!;
+                return evaluation switch
+                {
+                    PackageAssemblyEvaluationOutcome.Matched matched =>
+                        new PackageQueryLibraryLiteralLibraryAssessment(
+                            ProjectSelectedAsset(selected),
+                            PackageQueryLibraryLiteralLibraryAssessmentKind
+                                .Matched,
+                            matched.Evidence.Occurrences.Length),
+                    PackageAssemblyEvaluationOutcome.NoMatch =>
+                        new PackageQueryLibraryLiteralLibraryAssessment(
+                            ProjectSelectedAsset(selected),
+                            PackageQueryLibraryLiteralLibraryAssessmentKind
+                                .NoMatch,
+                            0),
+                    PackageAssemblyEvaluationOutcome.Failure failure =>
+                        new PackageQueryLibraryLiteralLibraryAssessment(
+                            ProjectSelectedAsset(selected),
+                            PackageQueryLibraryLiteralLibraryAssessmentKind
+                                .Failure,
+                            0)
+                        {
+                            FailureStage = failure.Reason.Stage.ToString(),
+                            Message = Describe(failure),
+                        },
+                    _ => throw new InvalidOperationException(
+                        "Unknown selected-library evaluation outcome."),
+                };
+            }),
+    ];
 
     private static PackageQueryMatch FindMatch(
         ImmutableArray<PackageQueryMatch> matches,
@@ -661,6 +760,33 @@ public static class PackageQueryInspection
                 $"Package content was not found from {authority}."))
             .DefaultIfEmpty("Package content acquisition failed.")
             .Aggregate((left, right) => $"{left} {right}");
+
+    private static string Describe(
+        PackageAssemblySemanticQueryFailureReason.AggregateOccurrenceLimit
+            limit) =>
+        $"The selected implementation libraries produced "
+        + $"{Count(limit.ObservedOccurrences)} literal occurrences, exceeding "
+        + $"the aggregate limit of {Count(limit.MaximumOccurrences)} after "
+        + $"evaluating {Count(limit.EvaluatedLibraries)} of "
+        + $"{Count(limit.SelectedLibraries)} libraries.";
+
+    private static string Describe(
+        IEnumerable<PackageAssemblyEvaluationOutcome.Failure> failures)
+    {
+        string[] descriptions =
+        [
+            .. failures.Select(failure =>
+            {
+                string path =
+                    failure.SelectedAsset?.Asset.Path.ToString()
+                    ?? "package selection";
+                return $"{path}: {Describe(failure)}";
+            }),
+        ];
+        return descriptions.Length == 0
+            ? "Package assembly evaluation failed."
+            : string.Join(" ", descriptions);
+    }
 
     private static string Describe(
         PackageAssemblyEvaluationOutcome.Failure failure)
@@ -779,16 +905,41 @@ public static class PackageQueryInspection
     {
         private int _publishedMatches;
 
+        internal List<PackageQueryLibraryLiteralAssessment> Assessments
+            { get; } = [];
+
+        private Dictionary<int, PackageQueryLibraryLiteralAssessment>
+            AssessmentsByOrdinal { get; } = [];
+
+        internal PackageQueryLibraryLiteralAssessment AssessmentForTerminal(
+            PackageSourceResultIdentity source,
+            PackageAssemblySemanticQueryCandidateOutcome outcome) =>
+            AssessmentsByOrdinal.TryGetValue(
+                outcome.CandidateOrdinal,
+                out PackageQueryLibraryLiteralAssessment? retained)
+                ? retained
+                : ProjectAssessment(source, outcome);
+
         public async ValueTask ReportAsync(
             PackageAssemblySemanticQueryCandidateOutcome outcome,
             CancellationToken cancellationToken)
         {
+            PackageQueryLibraryLiteralAssessment assessment =
+                ProjectAssessment(source, outcome);
             if (assessmentSink is not null)
             {
                 await assessmentSink.ReportAsync(
-                    ProjectAssessment(source, outcome),
+                    assessment,
                     cancellationToken).ConfigureAwait(false);
             }
+            if (!AssessmentsByOrdinal.TryAdd(
+                    outcome.CandidateOrdinal,
+                    assessment))
+            {
+                throw new InvalidOperationException(
+                    "Package Query published more than one assessment for one candidate.");
+            }
+            Assessments.Add(assessment);
             if (querySink is null)
                 return;
 

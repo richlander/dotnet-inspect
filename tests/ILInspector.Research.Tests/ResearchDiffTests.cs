@@ -1095,8 +1095,8 @@ public class ResearchDiffTests
             [new UnsafeEvidence(method, "Unsafe operation", "stackalloc", "opcode", 0, null)]);
 
         var diff = ResearchDiff.Compare(
-            ResearchDiffInput.FromAssembly("old.dll", bodyIndex: oldIndex),
-            ResearchDiffInput.FromAssembly("new.dll", bodyIndex: newIndex),
+            BodySignalInput(oldIndex),
+            BodySignalInput(newIndex),
             new ResearchDiffOptions(ResearchChangeMechanism.BodySignals));
 
         Assert.Empty(diff.MembersWhere(member => member.HasChange("unsafe.stackalloc.added")));
@@ -1139,8 +1139,8 @@ public class ResearchDiffTests
             });
 
         var diff = ResearchDiff.Compare(
-            ResearchDiffInput.FromAssembly("old.dll", bodyIndex: oldIndex),
-            ResearchDiffInput.FromAssembly("new.dll", bodyIndex: newIndex),
+            BodySignalInput(oldIndex),
+            BodySignalInput(newIndex),
             new ResearchDiffOptions(ResearchChangeMechanism.BodySignals));
 
         var change = Assert.Single(diff.Changes, change =>
@@ -1198,8 +1198,8 @@ public class ResearchDiffTests
             });
 
         var diff = ResearchDiff.Compare(
-            ResearchDiffInput.FromAssembly("old.dll", bodyIndex: oldIndex),
-            ResearchDiffInput.FromAssembly("new.dll", bodyIndex: newIndex),
+            BodySignalInput(oldIndex),
+            BodySignalInput(newIndex),
             new ResearchDiffOptions(ResearchChangeMechanism.BodySignals)
             {
                 RetainedComparisonDescriptorIds = ImmutableHashSet.Create(
@@ -2006,6 +2006,25 @@ public class ResearchDiffTests
         {
             BodyIndexes = [Index(firstImage, "renamed-first.dll"), Index(secondImage, "renamed-second.dll")],
         };
+        if (mechanism == ResearchChangeMechanism.BodySignals)
+        {
+            oldInput = oldInput with
+            {
+                BodySignalAnalyses =
+                [
+                    .. oldInput.BodyIndexes.Select(
+                        BodySignalAnalysisTestInput.FromIndex),
+                ],
+            };
+            newInput = newInput with
+            {
+                BodySignalAnalyses =
+                [
+                    .. newInput.BodyIndexes.Select(
+                        BodySignalAnalysisTestInput.FromIndex),
+                ],
+            };
+        }
         var first = IdentityInput(firstImage, firstImage, LibraryBodyAnalysisFeatures.MethodEvidence);
         var second = IdentityInput(secondImage, secondImage, LibraryBodyAnalysisFeatures.MethodEvidence);
         using var firstSource = DecompilerMetadataSource.OpenWithoutSymbols(first.Assembly, first.Resolver);
@@ -2048,7 +2067,7 @@ public class ResearchDiffTests
             [.. BuildNetmodule("Widget")],
             LibraryBodyAnalysisFeatures.MethodEvidence);
         Assert.Null(index.ModuleIdentity.AssemblyIdentity);
-        var input = new ResearchDiffInput([], BodyIndexes: [index]);
+        ResearchDiffInput input = BodySignalInput(index);
 
         var error = Assert.Throws<ArgumentException>(() => ResearchDiff.Compare(
             input, input, new ResearchDiffOptions(ResearchChangeMechanism.BodySignals)));
@@ -2890,6 +2909,15 @@ public class ResearchDiffTests
 
         Assert.False(result.IsEmpty);
     }
+
+    static ResearchDiffInput BodySignalInput(LibraryBodyIndex index)
+        => new([])
+        {
+            BodySignalAnalyses =
+            [
+                BodySignalAnalysisTestInput.FromIndex(index),
+            ],
+        };
 
     static ImplementationAssemblyInput ScopedIdentityInput(
         byte[] image,

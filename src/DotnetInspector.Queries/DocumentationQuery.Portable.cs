@@ -70,13 +70,11 @@ public enum AuthoredDocumentationUnavailableReason
 {
     OperationUnavailable,
     SourceUnavailable,
-    PhysicalDeclarationUnavailable,
     DeclarationNotFound,
 }
 
 public enum AuthoredDocumentationAmbiguityReason
 {
-    PhysicalDeclarationConflict,
     DeclarationAmbiguous,
 }
 
@@ -88,13 +86,11 @@ public enum AuthoredDocumentationRejectionReason
     LeaseReferenceMismatch,
     SourceRejected,
     SourceEvidenceMismatch,
-    PhysicalDeclarationRejected,
 }
 
 public enum AuthoredDocumentationFailureReason
 {
     SourceFailed,
-    PhysicalDeclarationFailed,
     MalformedDocumentation,
 }
 
@@ -107,7 +103,6 @@ public enum AuthoredDocumentationIncompleteReason
     SourceBytes,
     SourceCharacters,
     SourceHouse,
-    PhysicalDeclaration,
     Documentation,
 }
 

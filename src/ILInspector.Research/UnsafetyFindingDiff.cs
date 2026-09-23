@@ -21,17 +21,17 @@ internal sealed record UnsafetyFindingChange(
 internal static class UnsafetyFindingDiff
 {
     public static ImmutableArray<UnsafetyFindingChange> Compare(
-        LibraryBodyIndex oldIndex,
-        LibraryBodyIndex newIndex,
+        BodySignalAnalysisInput oldAnalysis,
+        BodySignalAnalysisInput newAnalysis,
         Func<MethodIdentity, string> methodKey)
     {
-        ArgumentNullException.ThrowIfNull(oldIndex);
-        ArgumentNullException.ThrowIfNull(newIndex);
+        ArgumentNullException.ThrowIfNull(oldAnalysis);
+        ArgumentNullException.ThrowIfNull(newAnalysis);
         ArgumentNullException.ThrowIfNull(methodKey);
 
         var changes = ImmutableArray.CreateBuilder<UnsafetyFindingChange>();
-        var oldMethods = MethodsByKey(oldIndex, methodKey);
-        var newMethods = MethodsByKey(newIndex, methodKey);
+        var oldMethods = MethodsByKey(oldAnalysis, methodKey);
+        var newMethods = MethodsByKey(newAnalysis, methodKey);
         var keys = new SortedSet<string>(
             oldMethods.Keys.Concat(newMethods.Keys),
             StringComparer.Ordinal);
@@ -47,8 +47,12 @@ internal static class UnsafetyFindingDiff
                 key,
                 $"{method.DeclaringType.ToQualifiedDisplayString()}.{method.Name}");
 
-            var oldOccurrences = Occurrences(oldIndex, oldMethod);
-            var newOccurrences = Occurrences(newIndex, newMethod);
+            var oldOccurrences = Occurrences(
+                oldAnalysis,
+                oldMethod);
+            var newOccurrences = Occurrences(
+                newAnalysis,
+                newMethod);
             AddComparisonChanges(
                 changes,
                 key,
@@ -62,8 +66,12 @@ internal static class UnsafetyFindingDiff
                 changes,
                 key,
                 AnalysisFindings.CompareUnsafeEvidence(
-                    UncoveredEvidence(Evidence(oldIndex, oldMethod), oldOccurrences),
-                    UncoveredEvidence(Evidence(newIndex, newMethod), newOccurrences),
+                    UncoveredEvidence(
+                        Evidence(oldAnalysis, oldMethod),
+                        oldOccurrences),
+                    UncoveredEvidence(
+                        Evidence(newAnalysis, newMethod),
+                        newOccurrences),
                     subject),
                 Project);
         }
@@ -224,13 +232,13 @@ internal static class UnsafetyFindingDiff
                 StringComparer.Ordinal);
 
     static Dictionary<string, MethodIdentity> MethodsByKey(
-        LibraryBodyIndex index,
+        BodySignalAnalysisInput analysis,
         Func<MethodIdentity, string> methodKey)
-        => index.Methods
-            .Concat(index.GetUnsafetyOccurrences().Values
+        => analysis.Methods
+            .Concat(analysis.UnsafetyOccurrences.Values
                 .SelectMany(static group => group)
                 .Select(static occurrence => occurrence.Method))
-            .Concat(index.GetUnsafeEvidenceByMember().Values
+            .Concat(analysis.UnsafeEvidenceByMember.Values
                 .SelectMany(static group => group)
                 .Select(static evidence => evidence.Member))
             .GroupBy(methodKey, StringComparer.Ordinal)
@@ -240,20 +248,20 @@ internal static class UnsafetyFindingDiff
                 StringComparer.Ordinal);
 
     static ImmutableArray<UnsafetyOccurrence> Occurrences(
-        LibraryBodyIndex index,
+        BodySignalAnalysisInput analysis,
         MethodIdentity? method)
         => method is not null
-            && index.GetUnsafetyOccurrences().TryGetValue(
+            && analysis.UnsafetyOccurrences.TryGetValue(
                 method.MetadataToken,
                 out var occurrences)
                 ? occurrences
                 : [];
 
     static ImmutableArray<UnsafeEvidence> Evidence(
-        LibraryBodyIndex index,
+        BodySignalAnalysisInput analysis,
         MethodIdentity? method)
         => method is not null
-            && index.GetUnsafeEvidenceByMember().TryGetValue(
+            && analysis.UnsafeEvidenceByMember.TryGetValue(
                 method.MetadataToken,
                 out var evidence)
                 ? evidence

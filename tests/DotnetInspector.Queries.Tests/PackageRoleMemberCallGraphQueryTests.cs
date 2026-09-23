@@ -4,6 +4,7 @@ using System.Text;
 
 using DotnetInspector.Fixtures;
 using DotnetInspector.Packages;
+using DotnetInspector.SourceSelection;
 using ILInspector.Metadata;
 using NuGetFetch;
 using Analysis = ILInspector.Analysis;
@@ -105,6 +106,77 @@ public sealed class PackageRoleMemberCallGraphQueryTests
     }
 
     [Fact]
+    public async Task FirstPartyPrefixKeepsKnownDependencyInBaseline()
+    {
+        PackageRootBinding root = PackageBinding(
+            "callgraph.root",
+            CallerPath);
+        PackageRootBinding target = PackageBinding(
+            "callgraph.target",
+            TargetPath);
+        var plan = new WorkspacePlan(
+            [
+                new WorkspaceRegistration.PackagePrefix(
+                    new PackagePrefixDeclaration("callgraph.target")),
+            ]);
+
+        (InspectionGraphDocument document,
+            ImmutableArray<PackageRoleMemberCallGraphNodePackage>
+                nodePackages) =
+            await ExecuteWithPolicyAsync(
+                root,
+                MemberCallGraphSupplyChainBaseline.Self,
+                plan,
+                target);
+
+        Assert.Empty(document.Edges);
+        InspectionGraphNode seed = Assert.Single(document.Nodes);
+        Assert.Equal("RunAcrossBoundary", Member(seed).Name);
+        Assert.Equal(
+            [(seed.Id, "callgraph.root")],
+            nodePackages.Select(item =>
+                (item.NodeId, item.Package.PackageId)));
+    }
+
+    [Fact]
+    public async Task RegisteredEcosystemKeepsKnownDependencyInBaseline()
+    {
+        PackageRootBinding root = PackageBinding(
+            "callgraph.root",
+            CallerPath);
+        PackageRootBinding target = PackageBinding(
+            "callgraph.target",
+            TargetPath);
+        var ecosystem =
+            new WorkspaceEcosystemRegistrationDeclaration(
+                WorkspaceEcosystemRegistrationId.Create(
+                    "ecosystem.callgraph"),
+                [],
+                [],
+                [
+                    new WorkspaceEcosystemPopulationDeclaration
+                        .PackagePrefix(
+                            new PackagePrefixDeclaration(
+                                "callgraph.target")),
+                ]);
+        var plan = new WorkspacePlan(
+            [
+                new WorkspaceRegistration.Ecosystem(ecosystem),
+            ]);
+
+        (InspectionGraphDocument document, _) =
+            await ExecuteWithPolicyAsync(
+                root,
+                MemberCallGraphSupplyChainBaseline
+                    .SelfAndRegisteredEcosystems,
+                plan,
+                target);
+
+        Assert.Empty(document.Edges);
+        Assert.Single(document.Nodes);
+    }
+
+    [Fact]
     public async Task ForwardedReferenceKeepsUnclassifiedBoundary()
     {
         PackageRootBinding root = PackageBinding(
@@ -115,15 +187,23 @@ public sealed class PackageRoleMemberCallGraphQueryTests
             "callgraph.forwarding.dependency",
             RouteLearningMiddlePath,
             RouteLearningBasePath);
+        var plan = new WorkspacePlan(
+            [
+                new WorkspaceRegistration.PackagePrefix(
+                    new PackagePrefixDeclaration(
+                        "callgraph.forwarding.dependency")),
+            ]);
 
         (InspectionGraphDocument document,
             ImmutableArray<PackageRoleMemberCallGraphNodePackage>
                 nodePackages) =
-            await ExecuteAsync(
+            await ExecuteCoreAsync(
                 root,
                 CallerBindingCallerPath,
                 "Caller",
                 "Create",
+                MemberCallGraphSupplyChainBaseline.Self,
+                plan,
                 dependency);
 
         InspectionGraphEdge edge = Assert.Single(document.Edges);
@@ -198,16 +278,53 @@ public sealed class PackageRoleMemberCallGraphQueryTests
     private static async Task<(
         InspectionGraphDocument Document,
         ImmutableArray<PackageRoleMemberCallGraphNodePackage> NodePackages)>
+        ExecuteWithPolicyAsync(
+            PackageRootBinding caller,
+            MemberCallGraphSupplyChainBaseline baseline,
+            WorkspacePlan plan,
+            params PackageRootBinding[] packages) =>
+        await ExecuteCoreAsync(
+            caller,
+            CallerPath,
+            "Entry",
+            "RunAcrossBoundary",
+            baseline,
+            plan,
+            packages);
+
+    private static async Task<(
+        InspectionGraphDocument Document,
+        ImmutableArray<PackageRoleMemberCallGraphNodePackage> NodePackages)>
         ExecuteAsync(
             PackageRootBinding caller,
             string focusAssemblyPath,
             string focusTypeName,
             string focusMethodName,
             params PackageRootBinding[] packages)
+            => await ExecuteCoreAsync(
+                caller,
+                focusAssemblyPath,
+                focusTypeName,
+                focusMethodName,
+                MemberCallGraphSupplyChainBaseline.Nothing,
+                WorkspacePlan.Empty,
+                packages);
+
+    private static async Task<(
+            InspectionGraphDocument Document,
+            ImmutableArray<PackageRoleMemberCallGraphNodePackage> NodePackages)>
+            ExecuteCoreAsync(
+                PackageRootBinding caller,
+                string focusAssemblyPath,
+                string focusTypeName,
+                string focusMethodName,
+                MemberCallGraphSupplyChainBaseline baseline,
+                WorkspacePlan plan,
+                params PackageRootBinding[] packages)
     {
-        ImmutableArray<PackageRootBinding> bindings =
-            [caller, .. packages];
-        await using var workspace = new InspectionWorkspace();
+            ImmutableArray<PackageRootBinding> bindings =
+                [caller, .. packages];
+            await using var workspace = new InspectionWorkspace(plan);
         WorkspaceScopeSnapshot empty =
             Assert.IsType<WorkspaceScopeReadResult.Available>(
                 await workspace.GetScopeSnapshotAsync()).Snapshot;
@@ -229,6 +346,9 @@ public sealed class PackageRoleMemberCallGraphQueryTests
             completion.CreateProjection(bindings);
         try
         {
+            WorkspaceRegistrationRevision registrations =
+                Assert.IsType<WorkspaceRegistrationReadResult.Available>(
+                    workspace.GetRegistrationSnapshot()).Revision;
             PackageRoleMemberCallGraphOutcome outcome =
                 PackageRoleMemberCallGraphQuery.Execute(
                     projection,
@@ -241,7 +361,9 @@ public sealed class PackageRoleMemberCallGraphQueryTests
                             focusMethodName)),
                     new(
                         maxDepth: 2,
-                        maxNodes: 10));
+                        maxNodes: 10),
+                    baseline,
+                    registrations);
             PackageRoleMemberCallGraphOutcome.Unavailable? unavailable =
                 outcome as PackageRoleMemberCallGraphOutcome.Unavailable;
             Assert.True(

@@ -66,6 +66,9 @@ public static class NuGetCache
         PersistentCache.RegisterVersionedCategory(
             "package-authority-content-v",
             AuthorityPackageContentCategory);
+        PersistentCache.RegisterVersionedCategory(
+            PackageVersionService.StoreCategoryPrefix,
+            PackageVersionService.StoreCategory);
     }
 
     private static string AppName => _appName

@@ -9422,6 +9422,10 @@ function renderMember(type: AppTypeSurface, member: AppMemberGroup) {
       : `<div class="graph-scope"><strong>Dependency scope</strong><span>${graphScope.packages} packages · ${graphScope.assemblies} assemblies</span><strong>Callees</strong><span>${escapeHtml(graphScope.calleeScope)} · depth 3</span></div>`;
     const diagnostics = active?.diagnostics;
     const diagnosticsMessage = callGraphDiagnosticsMessage(diagnostics);
+    const supplyChainGraph = active?.targets.some(target =>
+      target.kind === "connector"
+      || target.kind === "boundary"
+      || target.kind === "unclassified-boundary") ?? false;
     const incompleteGraph = diagnosticsMessage
       ? `<div class="graph-drill-error graph-diagnostics">${escapeHtml(diagnosticsMessage)}</div>`
       : "";
@@ -9449,7 +9453,7 @@ function renderMember(type: AppTypeSurface, member: AppMemberGroup) {
             ${incompleteGraph}
             ${scopeLine}
             <div id="call-graph-diagram" class="call-graph-diagram"><span class="loader"></span><p>Rendering graph…</p></div>
-            ${callGraphLegendHtml()}
+            ${callGraphLegendHtml(supplyChainGraph)}
           </section>`
         : `<section class="document-section empty-member-section"><h2>Call graph query failed</h2><p>${escapeHtml(callGraphError || "No call graph result was returned.")}</p></section>`;
     content = `<div data-call-graph-surface>${content}</div>`;

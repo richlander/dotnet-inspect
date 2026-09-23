@@ -326,10 +326,6 @@ public static partial class DocumentationQuery
                 AuthoredDocumentationUnavailableReason.OperationUnavailable,
             DocumentationAuthoredSourceUnavailableKind.SourceUnavailable =>
                 AuthoredDocumentationUnavailableReason.SourceUnavailable,
-            DocumentationAuthoredSourceUnavailableKind
-                .PhysicalDeclarationUnavailable =>
-                AuthoredDocumentationUnavailableReason
-                    .PhysicalDeclarationUnavailable,
             DocumentationAuthoredSourceUnavailableKind.DeclarationNotFound =>
                 AuthoredDocumentationUnavailableReason.DeclarationNotFound,
             _ => throw new InvalidOperationException(
@@ -340,10 +336,6 @@ public static partial class DocumentationQuery
         DocumentationAuthoredSourceAmbiguityKind kind) =>
         kind switch
         {
-            DocumentationAuthoredSourceAmbiguityKind
-                .PhysicalDeclarationConflict =>
-                AuthoredDocumentationAmbiguityReason
-                    .PhysicalDeclarationConflict,
             DocumentationAuthoredSourceAmbiguityKind.DeclarationAmbiguous =>
                 AuthoredDocumentationAmbiguityReason.DeclarationAmbiguous,
             _ => throw new InvalidOperationException(
@@ -365,10 +357,6 @@ public static partial class DocumentationQuery
             DocumentationAuthoredRejectionKind.SourceEvidenceMismatch =>
                 AuthoredDocumentationRejectionReason
                     .SourceEvidenceMismatch,
-            DocumentationAuthoredRejectionKind
-                .PhysicalDeclarationRejected =>
-                AuthoredDocumentationRejectionReason
-                    .PhysicalDeclarationRejected,
             _ => throw new InvalidOperationException(
                 "Unknown authored-source rejection kind."),
         };
@@ -379,9 +367,6 @@ public static partial class DocumentationQuery
         {
             DocumentationAuthoredFailureKind.SourceFailed =>
                 AuthoredDocumentationFailureReason.SourceFailed,
-            DocumentationAuthoredFailureKind.PhysicalDeclarationFailed =>
-                AuthoredDocumentationFailureReason
-                    .PhysicalDeclarationFailed,
             DocumentationAuthoredFailureKind.MalformedDocumentation =>
                 AuthoredDocumentationFailureReason.MalformedDocumentation,
             _ => throw new InvalidOperationException(
@@ -406,8 +391,6 @@ public static partial class DocumentationQuery
                 AuthoredDocumentationIncompleteReason.SourceCharacters,
             DocumentationAuthoredIncompleteBoundary.SourceHouse =>
                 AuthoredDocumentationIncompleteReason.SourceHouse,
-            DocumentationAuthoredIncompleteBoundary.PhysicalDeclaration =>
-                AuthoredDocumentationIncompleteReason.PhysicalDeclaration,
             DocumentationAuthoredIncompleteBoundary.Documentation =>
                 AuthoredDocumentationIncompleteReason.Documentation,
             _ => throw new InvalidOperationException(

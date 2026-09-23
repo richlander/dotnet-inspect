@@ -9,6 +9,44 @@ namespace ILInspector.JsExportSurface.Tests;
 public sealed class TsJsExportContractsTests
 {
     [Fact]
+    public void JsonInputAttributeHasExactMetadataContract()
+    {
+        Type attribute = typeof(JsExportJsonInputAttribute);
+        AttributeUsageAttribute usage =
+            Assert.Single(attribute.GetCustomAttributes<AttributeUsageAttribute>());
+        ConstructorInfo constructor = Assert.Single(
+            attribute.GetConstructors(BindingFlags.Public | BindingFlags.Instance));
+        ParameterInfo[] parameters = constructor.GetParameters();
+        PropertyInfo[] properties =
+        [
+            .. attribute
+                .GetProperties(BindingFlags.Public | BindingFlags.Instance)
+                .Where(property => property.DeclaringType == attribute),
+        ];
+
+        Assert.True(attribute.IsSealed);
+        Assert.Equal(typeof(Attribute), attribute.BaseType);
+        Assert.Equal(AttributeTargets.Class, usage.ValidOn);
+        Assert.True(usage.AllowMultiple);
+        Assert.False(usage.Inherited);
+        Assert.Equal(
+            [typeof(string), typeof(string), typeof(Type)],
+            parameters.Select(parameter => parameter.ParameterType));
+        Assert.Equal(
+            [
+                nameof(JsExportJsonInputAttribute.MethodName),
+                nameof(JsExportJsonInputAttribute.ParameterName),
+                nameof(JsExportJsonInputAttribute.WireType),
+            ],
+            properties.Select(property => property.Name));
+        Assert.Equal(
+            [typeof(string), typeof(string), typeof(Type)],
+            properties.Select(property => property.PropertyType));
+        Assert.All(properties, property => Assert.True(property.CanRead));
+        Assert.All(properties, property => Assert.False(property.CanWrite));
+    }
+
+    [Fact]
     public void RootAttributeHasExactMetadataContract()
     {
         Type attribute = typeof(JsExportRootAttribute);

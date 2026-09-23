@@ -101,6 +101,8 @@ public static class FixtureIds
     public const string AnalysisAsyncSiblingFriendBase =
         "analysis.async-sibling.friend-base";
     public const string AnalysisAsyncSiblingFriend = "analysis.async-sibling.friend";
+    public const string AnalysisAsyncSiblingRepository =
+        "analysis.async-sibling.repository";
     public const string AnalysisCallerLoop = "analysis.caller-loop";
     public const string AnalysisOverloadFamilyLens =
         "analysis.overload-family-lens";
@@ -608,6 +610,16 @@ public static class FixtureCatalog
         Boundaries(FixtureBoundary.AssemblyIdentity, FixtureBoundary.CrossAssemblyBoundary),
         "analysis", "caller-graph", "target", "version-skew");
 
+    public static readonly FixtureDefinition AnalysisAsyncSiblingRepository =
+        Fixture(
+            FixtureIds.AnalysisAsyncSiblingRepository,
+            "ILInspector.Analysis.AsyncSiblingRepositoryFixture",
+            "ILInspector.Analysis.AsyncSiblingRepositoryFixture.dll",
+            Boundaries(
+                FixtureBoundary.CompilerLowering,
+                FixtureBoundary.OutputKind),
+            "analysis", "async-sibling", "real-repository");
+
     public static readonly FixtureDefinition AnalysisCallerLoop = Fixture(
         FixtureIds.AnalysisCallerLoop,
         "ILInspector.Analysis.Fixtures",
@@ -1105,6 +1117,7 @@ public static class FixtureCatalog
         AnalysisCallerGraphTargetV2,
         AnalysisAsyncSiblingFriendBase,
         AnalysisAsyncSiblingFriend,
+        AnalysisAsyncSiblingRepository,
         AnalysisCallerLoop,
         AnalysisOverloadFamilyLens,
         AnalysisLocalThrows,
@@ -1541,6 +1554,7 @@ public static class FixtureCatalog
             "DotnetInspector.Services.RouteLearning.Unrelated" => "fixtures/services/DotnetInspector.Services.RouteLearning.Unrelated",
             "ILInspector.Analysis.AsyncSiblingFriendBaseFixtures" => "fixtures/analysis/ILInspector.Analysis.AsyncSiblingFriendBaseFixtures",
             "ILInspector.Analysis.AsyncSiblingFriendFixtures" => "fixtures/analysis/ILInspector.Analysis.AsyncSiblingFriendFixtures",
+            "ILInspector.Analysis.AsyncSiblingRepositoryFixture" => "fixtures/analysis/ILInspector.Analysis.AsyncSiblingRepositoryFixture",
             "ILInspector.Analysis.CallerGraphCaller" => "fixtures/analysis/ILInspector.Analysis.CallerGraphCaller",
             "ILInspector.Analysis.CallerGraphCallerTwin" => "fixtures/analysis/ILInspector.Analysis.CallerGraphCallerTwin",
             "ILInspector.Analysis.CallerGraphIndirectCaller" => "fixtures/analysis/ILInspector.Analysis.CallerGraphIndirectCaller",

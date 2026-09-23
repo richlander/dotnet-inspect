@@ -125,6 +125,12 @@ public sealed class AssemblyInspectionSession :
         return _image.GetMetadataReader();
     }
 
+    internal PEReader GetPEReaderForDeclarationSession()
+    {
+        _image.EnsureAlive();
+        return _image.PEReader;
+    }
+
     /// <inheritdoc />
     /// <remarks>
     /// The callback begins only while this session and any lender backing it

@@ -64,6 +64,43 @@ public sealed class MetadataDeclarationSession : IDisposable
             .Post(type, method, token);
     }
 
+    /// <summary>
+    /// Posts detached declaration evidence for one exact TypeDef.
+    /// </summary>
+    public MetadataTypeDeclarationResult PostTypeDeclaration(
+        MetadataTypeDefinitionAddress type,
+        CancellationToken token = default)
+    {
+        EnsureAccess();
+        token.ThrowIfCancellationRequested();
+        MetadataOperationContext operation = _operationContext!;
+        if (_imageAdmission is MetadataImageAdmissionResult.Rejected rejected)
+        {
+            return new MetadataTypeDeclarationResult.Rejected(
+                new MetadataTypeDeclarationFailure(
+                    type,
+                    MetadataTypeDeclarationFailureReason.BudgetExceeded,
+                    MetadataTypeDeclarationStage.RequestValidation,
+                    MetadataTypeDeclarationMechanism.ImageAdmission,
+                    "The metadata image was not admitted.",
+                    default,
+                    MetadataOperationDimension.MetadataRows,
+                    rejected.Failure.MaxMetadataRows,
+                    rejected.Failure.ImageMetadataRows),
+                operation.Counters);
+        }
+
+        return new MetadataTypeDeclarationEvidenceOperation(
+            _assemblySession!
+                .GetPEReaderForDeclarationSession(),
+            _assemblySession!
+                .GetMetadataReaderForDeclarationSession(),
+            operation,
+            GetOrCreateTypeDefinitionIndex,
+            type,
+            token).Execute();
+    }
+
     public MetadataMethodImplementationResult Relate(
         MetadataTypeDefinitionAddress type,
         ILInspector.MetadataPrimitives.MetadataMethodAddress body,
