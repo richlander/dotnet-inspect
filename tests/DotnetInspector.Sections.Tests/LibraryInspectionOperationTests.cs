@@ -906,6 +906,51 @@ public sealed class LibraryInspectionOperationTests
     }
 
     [Fact]
+    public async Task
+        DeclarationKindSelectionExcludesUnsupportedModuleExports()
+    {
+        byte[] content =
+            LibraryInspectionTestLibrary.BuildMetadataImage(
+                includeModuleExport: true);
+        await using LibraryInspectionTestLibrary library =
+            await LibraryInspectionTestLibrary.CreateAsync(
+                content,
+                LibraryInspectionTestLibrary.ProbeIdentity());
+
+        foreach (
+            LibraryTypeDeclarationSelection selection
+            in new[]
+            {
+                LibraryTypeDeclarationSelection.Definitions,
+                LibraryTypeDeclarationSelection.Forwarders,
+            })
+        {
+            InspectionEnvelope<LibraryInspectionOutcome> envelope =
+                Execute(
+                    library,
+                    count: true,
+                    new(maximumRows: 1),
+                    declarationSelection: selection);
+            LibraryDocument document = Document(envelope);
+            LibraryTypePopulationCountOutcome.Counted count =
+                Assert.IsType<
+                    LibraryTypePopulationCountOutcome.Counted>(
+                    document.Types.Count);
+            LibraryTypePopulationRowsOutcome.Read rows =
+                Assert.IsType<
+                    LibraryTypePopulationRowsOutcome.Read>(
+                    document.Types.Rows);
+
+            Assert.Equal(0, count.Total);
+            Assert.Empty(rows.Items);
+            Assert.True(rows.IsComplete);
+            Assert.Empty(envelope.Diagnostics);
+        }
+
+        await library.RetireAsync();
+    }
+
+    [Fact]
     public async Task AssemblyIdentityMismatchReturnsTypedRejection()
     {
         byte[] content =

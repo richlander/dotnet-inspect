@@ -570,6 +570,12 @@ public static class LibraryInspectionOperation
                     break;
                 case AssemblyTypeDeclarationKind.ModuleExport:
                     {
+                        if (selection
+                            != LibraryTypeDeclarationSelection
+                                .DefinitionsAndForwarders)
+                        {
+                            break;
+                        }
                         const LibraryTypePopulationCountUnavailableReason
                             reason =
                                 LibraryTypePopulationCountUnavailableReason

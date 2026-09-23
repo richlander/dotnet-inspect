@@ -445,7 +445,10 @@ that later operation over an admitted multi-Library population.
 The initial Type population does not admit `ModuleExport` as a Definition or
 Forwarder. If one affects requested membership, the corresponding terminal is
 visibly unavailable for an unsupported declaration kind; the producer never
-silently drops or relabels it.
+silently drops or relabels it. It affects the combined unqualified population,
+whose completeness claim covers the Library's supported Type declarations.
+A definitions-only or forwarders-only facet excludes `ModuleExport` before
+terminal execution and remains exact.
 
 Metadata-token ordering is naturally resumable. Alphabetical or other semantic
 ordering may require a bounded index or complete lightweight census before the

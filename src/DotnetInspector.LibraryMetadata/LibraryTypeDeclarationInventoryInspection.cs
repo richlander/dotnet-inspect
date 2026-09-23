@@ -530,7 +530,9 @@ public static class LibraryTypeDeclarationInventoryInspection
 
         ImmutableArray<AssemblyTypeDeclaration> allDeclarations =
             [.. inventory.GetDeclarations()];
-        if (allDeclarations.Any(
+        if (request.IncludeDefinitions
+            && request.IncludeForwarders
+            && allDeclarations.Any(
                 static declaration =>
                     declaration.Kind
                         == AssemblyTypeDeclarationKind.ModuleExport))
