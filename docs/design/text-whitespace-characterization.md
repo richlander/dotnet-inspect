@@ -235,7 +235,20 @@ that side under the `TextFindings` analysis-line model:
 - empty text has no lines; and
 - a final boundary ends the last line and does not start another.
 
-A mismatch is an argument failure. The relations are consumed unchanged.
+The relations are consumed unchanged, but the characterization accepts only a
+diff whose content assertions it can build on. Two preconditions apply:
+
+- every anchor (defined below) joins two lines with ordinal-equal content;
+  their terminators may differ only in spelling; and
+- every region with no `Moved` endpoint has region texts that are not
+  ordinal-equal.
+
+[Analysis diff](analysis-diff.md) lets a producer assert `Unchanged` or
+`Changed` under its own comparison contract, for example a case- or
+whitespace-insensitive line key. Such a diff is valid there but can't be
+characterized here. A mismatched endpoint or a violated precondition is an
+argument failure, never an empty or success-shaped characterization. The
+validator checks both preconditions.
 
 ### Regions
 
@@ -317,6 +330,7 @@ over the budget is one `Changed` change.
 
 Soundness doesn't depend on the aligner. A validator checks that:
 
+- the input preconditions hold;
 - each region's outcome matches its own texts, and a `WhitespaceOnly` region
   is exactly one change;
 - the partition is ordered, non-overlapping, complete, and maximal, and the
@@ -350,10 +364,10 @@ therefore marks lines too, without any per-line machinery.
 | `WhitespaceOnly` | The texts differ, and every region is `WhitespaceOnly`. This includes texts that differ only in line-terminator spelling and so have no region. |
 | `Changed` | At least one region is `Changed`. |
 
-A line diff's logical lines don't retain terminator spelling. The summary
-therefore reports a CRLF-versus-LF-only difference without locating it. The
-pair characterization, which sees both texts, locates it as
-`TerminatorSpelling`.
+Terminator spelling between two adjacent anchors lies in no region. The
+summary reports such a CRLF-versus-LF difference without locating it.
+Spelling inside a region is a located `TerminatorSpelling` edit, and the pair
+characterization, which sees both texts, locates it everywhere.
 
 The relationship with the pair characterization runs one way. A
 `WhitespaceOnly` summary implies that the pair characterization of the same
@@ -474,7 +488,8 @@ their region's changes.
 Soundness gates, planned in S1:
 
 - an independent validator runs over the fixtures and a pinned real-source
-  corpus. It recomputes each region's outcome, checks that a `WhitespaceOnly`
+  corpus. It checks the input preconditions, recomputes each region's
+  outcome, checks that a `WhitespaceOnly`
   region is one change, checks that every region's changes form an ordered,
   non-overlapping, complete, maximal partition of consecutive cuts, and
   recomputes each change's outcome
@@ -509,8 +524,10 @@ This design does not define:
 - intraline ranges for non-whitespace changes, though a follow-on may reuse the
   splitting alignment;
 - whitespace beyond U+0020, U+0009, and logical line boundaries;
-- locating line-terminator spelling changes in the line-diff characterization
-  (the pair characterization locates them);
+- locating line-terminator spelling changes between adjacent anchors in the
+  line-diff characterization (spelling inside a region is a
+  `TerminatorSpelling` edit, and the pair characterization locates it
+  everywhere);
 - host rendering, gestures, or interaction; or
 - adoption by any owner other than the first adopter.
 
