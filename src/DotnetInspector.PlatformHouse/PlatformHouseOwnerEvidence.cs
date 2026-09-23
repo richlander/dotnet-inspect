@@ -72,23 +72,24 @@ public sealed class PlatformAssemblyReferenceRoute
 }
 
 /// <summary>
-/// One starting reference candidate captured together with its resource-free
-/// identity.
+/// One starting type-resolution candidate captured together with its
+/// resource-free identity.
 /// </summary>
-public sealed class PlatformReferenceCandidateEvidence<TCandidate>
+public sealed class PlatformTypeResolutionCandidateEvidence<TCandidate>
     where TCandidate : notnull
 {
-    public PlatformReferenceCandidateEvidence(
+    public PlatformTypeResolutionCandidateEvidence(
         TCandidate value,
         string identityName)
     {
         ArgumentNullException.ThrowIfNull(value);
         Value = value;
-        Identity = PlatformReferenceCandidateIdentity.Issue(identityName);
+        Identity = PlatformTypeResolutionCandidateIdentity.Issue(
+            identityName);
     }
 
     public TCandidate Value { get; }
-    public PlatformReferenceCandidateIdentity Identity { get; }
+    public PlatformTypeResolutionCandidateIdentity Identity { get; }
 }
 
 /// <summary>

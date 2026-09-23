@@ -2129,11 +2129,11 @@ rejected outcomes. The stage-7a population operation does not expose catalog
 semantics or change CLI or Inspect Web routing. Step 9a, tracked by
 [#8164](https://github.com/richlander/dotnet-inspect/issues/8164), adopts the
 family-default population and catalog query for versionless bare CLI type and
-member routing. Browser/Wasm adoption, exact-demand Metadata binding, and
-Services-era resolver retirement remain later focused slices.
-Issue #8298 owns the first exact-demand Metadata binding slice: one
-implementation-view start and required implementation result. It does not
-implement the reference-to-implementation bridge.
+member routing. Browser/Wasm adoption and Services-era resolver retirement remain later
+focused slices. The first exact-demand Metadata binding slice, implemented
+under [#8298](https://github.com/richlander/dotnet-inspect/issues/8298),
+supports one implementation-view start and required implementation result. It
+does not implement the reference-to-implementation bridge.
 
 The step-6 ownership correction was designed under
 [#6984](https://github.com/richlander/dotnet-inspect/issues/6984). It adopts

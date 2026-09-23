@@ -19,6 +19,16 @@ public abstract class PlatformTypeDefinitionValue
         public TReferenceOutcome Outcome { get; }
     }
 
+    public sealed class Implementation<TImplementationOutcome> :
+        PlatformTypeDefinitionValue
+        where TImplementationOutcome : notnull
+    {
+        internal Implementation(TImplementationOutcome outcome) =>
+            Outcome = outcome;
+
+        public TImplementationOutcome Outcome { get; }
+    }
+
     public sealed class ReferenceAndImplementation<
         TReferenceOutcome,
         TImplementationOutcome> : PlatformTypeDefinitionValue
