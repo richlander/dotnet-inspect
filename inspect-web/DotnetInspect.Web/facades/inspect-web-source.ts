@@ -812,6 +812,20 @@ export function runEntryPoint(
   return $requireRuntime().runMain(mainAssemblyName, args);
 }
 
+function $serializeJsonInput(
+  value: unknown,
+  operation: string,
+  parameter: string,
+): string {
+  const json = JSON.stringify(value);
+  if (json === undefined) {
+    throw new TypeError(
+      `${operation} parameter '${parameter}' could not be serialized as JSON.`,
+    );
+  }
+  return json;
+}
+
 export function cancelMemberSourceComparison(operationId: string, reason: string): BrowserTypeSourceCancellation {
   const $result = $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Source"]["SourceExports"]["CancelMemberSourceComparison.271973316"](operationId, reason);
   const $parsed: unknown = JSON.parse($result);
@@ -858,8 +872,8 @@ export async function queryMemberSourceComparison(operationId: string, requestJs
   return $parsed as BrowserSourceComparisonResult;
 }
 
-export async function queryMethodBodyComparison(operationId: string, requestJson: string): Promise<BrowserMethodBodyComparisonResult> {
-  const $result = await $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Source"]["SourceExports"]["QueryMethodBodyComparison.451505237"](operationId, requestJson);
+export async function queryMethodBodyComparison(operationId: string, requestJson: BrowserMethodBodyComparisonRequest): Promise<BrowserMethodBodyComparisonResult> {
+  const $result = await $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Source"]["SourceExports"]["QueryMethodBodyComparison.451505237"](operationId, $serializeJsonInput(requestJson, "DotnetInspect.Web.Interop.Source.SourceExports.QueryMethodBodyComparison.451505237", "requestJson"));
   const $parsed: unknown = JSON.parse($result);
   return $parsed as BrowserMethodBodyComparisonResult;
 }

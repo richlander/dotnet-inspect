@@ -1,7 +1,9 @@
 using System.Collections.Immutable;
 using System.Globalization;
+using System.Reflection;
 using ILInspector.Analysis;
 using ILInspector.Metadata;
+using TsJsExport;
 
 namespace ILInspector.JsExportSurface;
 
@@ -17,6 +19,8 @@ public static class JsExportSurfaceBuilder
     const string SystemTextJsonAssemblyName = "System.Text.Json";
     const string UnsupportedContextOptionsReason =
         "serializer context options are unsupported";
+    static readonly ApiAssemblyIdentity s_jsonInputContractIdentity =
+        ContractIdentity();
     readonly record struct JsonWireContextOptions(
         JsonWireNamingPolicy NamingPolicy,
         JsonWireIgnoreCondition DefaultIgnoreCondition,
@@ -659,6 +663,16 @@ public static class JsExportSurfaceBuilder
 
         if (bodyIndex is not null)
         {
+            IReadOnlyDictionary<
+                JsExportFunction,
+                IReadOnlyList<JsExportParameterWireBinding>>
+                declaredBindings =
+                    ResolveDeclaredParameterWireBindings(
+                        surface.Types,
+                        functions,
+                        registeredJsonTypeInfoGetterModes,
+                        registeredJsonTypeInfoContextScopeKeys,
+                        registeredJsonTypeInfoShapes);
             for (int index = 0; index < functions.Count; index++)
             {
                 JsExportFunction function = functions[index];
@@ -672,7 +686,9 @@ public static class JsExportSurfaceBuilder
                         registeredJsonTypeInfoContextScopeKeys,
                         registeredJsonTypeInfoDefaultGetters,
                         registeredJsonTypeInfoShapes,
-                        unsupportedJsonTypeInfoGetterReasons);
+                        unsupportedJsonTypeInfoGetterReasons,
+                        declaredBindings.GetValueOrDefault(function)
+                            ?? []);
                 }
             }
         }
@@ -724,6 +740,231 @@ public static class JsExportSurfaceBuilder
                 ?? new Dictionary<ApiTypeReferenceIdentity, ApiType>(),
             WireDirections = wireDirections,
         };
+    }
+
+    static IReadOnlyDictionary<
+        JsExportFunction,
+        IReadOnlyList<JsExportParameterWireBinding>>
+        ResolveDeclaredParameterWireBindings(
+            IReadOnlyList<ApiType> types,
+            IReadOnlyList<JsExportFunction> functions,
+            IReadOnlyDictionary<JsonContextGetterIdentity, JsonSourceGenerationMode>
+                registeredJsonTypeInfoGetterModes,
+            IReadOnlyDictionary<JsonContextGetterIdentity, string>
+                registeredJsonTypeInfoContextScopeKeys,
+            IReadOnlyDictionary<JsonContextGetterIdentity, ApiTypeShape>
+                registeredJsonTypeInfoShapes)
+    {
+        var result =
+            new Dictionary<
+                JsExportFunction,
+                IReadOnlyList<JsExportParameterWireBinding>>();
+        var bindings =
+            new Dictionary<
+                JsExportFunction,
+                List<JsExportParameterWireBinding>>();
+        var occupied = new HashSet<(JsExportFunction Function, int Parameter)>();
+
+        foreach (ApiType type in types)
+        foreach (ApiJsExportJsonInputDeclaration declaration
+            in type.JsExportJsonInputDeclarations)
+        {
+            string location = FormatTypeLocation(type);
+            if (declaration.AttributeAssembly is not { } attributeAssembly
+                || !attributeAssembly.Equals(s_jsonInputContractIdentity))
+            {
+                throw new UnsupportedJsExportSurfaceException(
+                    location,
+                    "JsExportJsonInputAttribute comes from an incompatible contract assembly");
+            }
+            string? unsupportedReason = declaration.UnsupportedReason;
+            if (unsupportedReason is not null
+                || declaration.MethodName is not { } methodName
+                || declaration.ParameterName is not { } parameterName
+                || declaration.WireType is not { } wireType)
+            {
+                throw new UnsupportedJsExportSurfaceException(
+                    location,
+                    "JsExportJsonInput declaration is malformed or unsupported"
+                        + (unsupportedReason is null
+                            ? ""
+                            : $": {unsupportedReason}"));
+            }
+
+            JsExportFunction[] candidates =
+            [
+                .. functions.Where(function =>
+                    function.DeclaringType == type.FullName
+                    && function.Name == methodName
+                    && function.Parameters.Any(parameter =>
+                        parameter.Name == parameterName)),
+            ];
+            if (candidates.Length != 1)
+            {
+                throw new UnsupportedJsExportSurfaceException(
+                    location,
+                    $"JsExportJsonInput declaration for '{methodName}.{parameterName}' "
+                        + "does not identify exactly one JS export");
+            }
+
+            JsExportFunction function = candidates[0];
+            int parameterIndex = function.Parameters
+                .Select((parameter, index) => (parameter, index))
+                .Single(candidate =>
+                    candidate.parameter.Name == parameterName)
+                .index;
+            ApiParameter parameter = function.Parameters[parameterIndex];
+            if (!string.IsNullOrEmpty(parameter.Modifier)
+                || parameter.EffectiveCanonicalType is not
+                    ("string" or "System.String"))
+            {
+                throw new UnsupportedJsExportSurfaceException(
+                    $"{function.DeclaringType}.{function.Name}",
+                    $"declared JSON input parameter '{parameterName}' is not System.String");
+            }
+            if (!occupied.Add((function, parameterIndex)))
+            {
+                throw new UnsupportedJsExportSurfaceException(
+                    $"{function.DeclaringType}.{function.Name}",
+                    $"JSON input parameter '{parameterName}' has duplicate declarations");
+            }
+
+            JsonContextGetterIdentity[] contexts =
+            [
+                .. registeredJsonTypeInfoShapes
+                    .Where(candidate =>
+                        candidate.Value.Equals(wireType)
+                        && registeredJsonTypeInfoGetterModes.TryGetValue(
+                            candidate.Key,
+                            out JsonSourceGenerationMode mode)
+                        && JsonWireContractResolver.SupportsDirection(
+                            mode,
+                            JsonWireDirection.Deserialize)
+                        && registeredJsonTypeInfoContextScopeKeys.ContainsKey(
+                            candidate.Key))
+                    .Select(candidate => candidate.Key),
+            ];
+            if (contexts.Length != 1)
+            {
+                throw new UnsupportedJsExportSurfaceException(
+                    $"{function.DeclaringType}.{function.Name}",
+                    $"declared JSON input '{parameterName}' has "
+                        + (contexts.Length == 0
+                            ? "no authenticated deserialization-capable serializer contract"
+                            : "ambiguous serializer contracts"));
+            }
+
+            JsonContextGetterIdentity context = contexts[0];
+            var binding = new JsExportParameterWireBinding
+            {
+                ParameterIndex = parameterIndex,
+                WireType = FormatWireType(wireType),
+                WireTypeReferences =
+                    [.. EnumerateNamedTypes(wireType).Distinct()],
+                WireTypeShape = wireType,
+                ContextScopeKeys =
+                    [registeredJsonTypeInfoContextScopeKeys[context]],
+            };
+            if (!bindings.TryGetValue(function, out var functionBindings))
+            {
+                functionBindings = [];
+                bindings.Add(function, functionBindings);
+            }
+            functionBindings.Add(binding);
+        }
+
+        foreach ((JsExportFunction function,
+            List<JsExportParameterWireBinding> functionBindings) in bindings)
+        {
+            result.Add(
+                function,
+                [
+                    .. functionBindings.OrderBy(binding =>
+                        binding.ParameterIndex),
+                ]);
+        }
+        return result;
+    }
+
+    static ApiAssemblyIdentity ContractIdentity()
+    {
+        AssemblyName name =
+            typeof(JsExportJsonInputAttribute).Assembly.GetName();
+        byte[]? publicKeyToken = name.GetPublicKeyToken();
+        return new(
+            name.Name
+                ?? throw new InvalidOperationException(
+                    "TsJsExport.Contracts has no assembly name."),
+            name.Version,
+            name.CultureName,
+            publicKeyToken is { Length: > 0 }
+                ? Convert.ToHexString(publicKeyToken).ToLowerInvariant()
+                : null);
+    }
+
+    static string FormatWireType(ApiTypeShape shape) =>
+        shape.Kind switch
+        {
+            ApiTypeShapeKind.Primitive =>
+                shape.Primitive switch
+                {
+                    ApiPrimitiveType.Void => "void",
+                    ApiPrimitiveType.Boolean => "bool",
+                    ApiPrimitiveType.Char => "char",
+                    ApiPrimitiveType.SByte => "sbyte",
+                    ApiPrimitiveType.Byte => "byte",
+                    ApiPrimitiveType.Int16 => "short",
+                    ApiPrimitiveType.UInt16 => "ushort",
+                    ApiPrimitiveType.Int32 => "int",
+                    ApiPrimitiveType.UInt32 => "uint",
+                    ApiPrimitiveType.Int64 => "long",
+                    ApiPrimitiveType.UInt64 => "ulong",
+                    ApiPrimitiveType.Single => "float",
+                    ApiPrimitiveType.Double => "double",
+                    ApiPrimitiveType.Decimal => "decimal",
+                    ApiPrimitiveType.String => "string",
+                    ApiPrimitiveType.Object => "object",
+                    ApiPrimitiveType.IntPtr => "nint",
+                    ApiPrimitiveType.UIntPtr => "nuint",
+                    _ => throw new InvalidOperationException(
+                        "Unknown primitive wire type."),
+                },
+            ApiTypeShapeKind.Named
+                when shape.Definition is { } definition =>
+                    RemoveGenericArity(definition.FullName),
+            ApiTypeShapeKind.GenericInstance
+                when shape.Definition is { } definition =>
+                    $"{RemoveGenericArity(definition.FullName)}"
+                    + $"<{string.Join(", ", shape.TypeArguments.Select(FormatWireType))}>",
+            ApiTypeShapeKind.SzArray
+                when shape.ElementType is { } element =>
+                    $"{FormatWireType(element)}[]",
+            ApiTypeShapeKind.Array
+                when shape.ElementType is { } element =>
+                    $"{FormatWireType(element)}"
+                    + $"[{new string(',', shape.ArrayRank - 1)}]",
+            _ => throw new UnsupportedJsExportSurfaceException(
+                "JSON input declaration",
+                "wire type shape is not supported"),
+        };
+
+    static string RemoveGenericArity(string name)
+    {
+        var result = new System.Text.StringBuilder(name.Length);
+        for (int index = 0; index < name.Length; index++)
+        {
+            if (name[index] != '`')
+            {
+                result.Append(name[index]);
+                continue;
+            }
+            while (index + 1 < name.Length
+                && char.IsAsciiDigit(name[index + 1]))
+            {
+                index++;
+            }
+        }
+        return result.ToString();
     }
 
     private static HashSet<int> IncompleteBodyTokens(

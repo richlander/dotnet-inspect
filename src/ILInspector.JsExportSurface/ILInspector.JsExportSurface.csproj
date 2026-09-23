@@ -20,6 +20,7 @@
   <ItemGroup>
     <ProjectReference Include="..\ILInspector.Metadata\ILInspector.Metadata.csproj" />
     <ProjectReference Include="..\ILInspector.Analysis\ILInspector.Analysis.csproj" />
+    <ProjectReference Include="..\TsJsExport.Contracts\TsJsExport.Contracts.csproj" />
   </ItemGroup>
 
 </Project>

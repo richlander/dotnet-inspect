@@ -1,13 +1,19 @@
+extern alias WrongContractFixture;
+
 using System.Buffers.Binary;
 using System.Collections.Immutable;
+using System.Reflection;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
 using System.Text.Json;
 using ILInspector.Analysis;
+using ILInspector.JsExportSurface.JsonInputFixtures;
 using ILInspector.JsExportSurface.Fixtures;
 using ILInspector.Instructions;
 using ILInspector.Metadata;
+using WrongContractExports =
+    WrongContractFixture::TsJsExport.WrongContractExports;
 
 namespace ILInspector.JsExportSurface.Tests;
 
@@ -349,16 +355,25 @@ public sealed class JsonWireContractResolverTests
         LibraryBodyIndex BodyIndex)
         BuildFixtureSurfaceWithWireContracts(string path)
     {
+        var (apiSurface, bodyIndex) =
+            ExtractFixtureSurfaceWithWireContracts(path);
+        return (
+            JsExportSurfaceBuilder.Build(apiSurface, bodyIndex),
+            bodyIndex);
+    }
+
+    private static (ApiSurface Surface, LibraryBodyIndex BodyIndex)
+        ExtractFixtureSurfaceWithWireContracts(string path)
+    {
         using FileStream stream = File.OpenRead(path);
         using var peReader = new PEReader(stream);
-        ApiSurface apiSurface = ApiSurfaceExtractor.Extract(peReader, includeAll: false);
+        ApiSurface apiSurface =
+            ApiSurfaceExtractor.Extract(peReader, includeAll: false);
         var bodyIndex = LibraryBodyIndex.Open(
             path,
             LibraryBodyAnalysisFeatures.MethodEvidence
                 | LibraryBodyAnalysisFeatures.JsonWireContractFlow);
-        return (
-            JsExportSurfaceBuilder.Build(apiSurface, bodyIndex),
-            bodyIndex);
+        return (apiSurface, bodyIndex);
     }
 
     [Fact]
@@ -1162,17 +1177,343 @@ public sealed class JsonWireContractResolverTests
     }
 
     [Fact]
-    public void Build_DoesNotBindTransformedDeserializeInput()
+    public void Build_DeclaredInputBindsTransformedDeserializeInput()
     {
         ILInspector.JsExportSurface.JsExportSurface surface =
-            BuildFixtureSurfaceWithWireContracts();
+            BuildJsonInputFixtureSurfaceWithWireContracts();
 
         JsExportFunction function = Assert.Single(
             surface.Functions,
-            candidate => candidate.Name == "RenameNormalizedWidget");
+            candidate => candidate.Name
+                == nameof(JsonInputExports.RenameNormalizedWidget));
 
         Assert.Single(function.ParameterWireTypes);
-        Assert.Empty(function.ParameterWireBindings);
+        JsExportParameterWireBinding binding = Assert.Single(
+            function.ParameterWireBindings);
+        Assert.Equal(0, binding.ParameterIndex);
+        Assert.Equal(
+            typeof(JsonInputWidget).FullName,
+            binding.WireType);
+    }
+
+    [Fact]
+    public void Build_DeclaredInputCorroboratesEqualDeserializerFlow()
+    {
+        ILInspector.JsExportSurface.JsExportSurface surface =
+            BuildJsonInputFixtureSurfaceWithWireContracts();
+
+        JsExportFunction function = Assert.Single(
+            surface.Functions,
+            candidate => candidate.Name
+                == nameof(JsonInputExports.RenameWidget));
+        JsExportParameterWireBinding binding = Assert.Single(
+            function.ParameterWireBindings);
+
+        Assert.Equal(0, binding.ParameterIndex);
+        Assert.Equal(typeof(JsonInputWidget).FullName, binding.WireType);
+    }
+
+    [Fact]
+    public void Build_MergesDeclaredAndInferredInputsInParameterOrder()
+    {
+        ILInspector.JsExportSurface.JsExportSurface surface =
+            BuildJsonInputFixtureSurfaceWithWireContracts();
+
+        JsExportFunction function = Assert.Single(
+            surface.Functions,
+            candidate => candidate.Name
+                == nameof(JsonInputExports.WidgetMatchesAudit));
+
+        Assert.Collection(
+            function.ParameterWireBindings,
+            binding =>
+            {
+                Assert.Equal(0, binding.ParameterIndex);
+                Assert.Equal(
+                    typeof(JsonInputWidget).FullName,
+                    binding.WireType);
+            },
+            binding =>
+            {
+                Assert.Equal(1, binding.ParameterIndex);
+                Assert.Equal(
+                    typeof(JsonInputAudit).FullName,
+                    binding.WireType);
+            });
+    }
+
+    [Fact]
+    public void Extract_RetainsTypedJsonInputDeclarations()
+    {
+        var (apiSurface, _) =
+            ExtractFixtureSurfaceWithWireContracts(
+                typeof(JsonInputExports).Assembly.Location);
+        ApiType exports = JsonInputExportsType(apiSurface);
+
+        Assert.Collection(
+            exports.JsExportJsonInputDeclarations
+                .OrderBy(declaration => declaration.MethodName),
+            declaration => AssertJsonInputDeclaration(
+                declaration,
+                nameof(JsonInputExports.RenameNormalizedWidget),
+                "widgetJson",
+                nameof(JsonInputWidget)),
+            declaration => AssertJsonInputDeclaration(
+                declaration,
+                nameof(JsonInputExports.RenameWidget),
+                "widgetJson",
+                nameof(JsonInputWidget)),
+            declaration => AssertJsonInputDeclaration(
+                declaration,
+                nameof(JsonInputExports.WidgetMatchesAudit),
+                "widgetJson",
+                nameof(JsonInputWidget)));
+    }
+
+    [Fact]
+    public void Build_RejectsStaleJsonInputParameterName()
+    {
+        var (apiSurface, bodyIndex) =
+            ExtractFixtureSurfaceWithWireContracts(
+                typeof(JsonInputExports).Assembly.Location);
+        ApiType exports = JsonInputExportsType(apiSurface);
+        ApiJsExportJsonInputDeclaration declaration =
+            Assert.Single(
+                exports.JsExportJsonInputDeclarations,
+                candidate => candidate.MethodName
+                    == nameof(JsonInputExports.RenameWidget));
+        exports.JsExportJsonInputDeclarations.Clear();
+        exports.JsExportJsonInputDeclarations.Add(
+            declaration with { ParameterName = "missing" });
+
+        UnsupportedJsExportSurfaceException exception =
+            Assert.Throws<UnsupportedJsExportSurfaceException>(
+                () => JsExportSurfaceBuilder.Build(
+                    apiSurface,
+                    bodyIndex));
+
+        Assert.Contains(
+            "does not identify exactly one JS export",
+            exception.Message,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Build_RejectsDuplicateJsonInputDeclarations()
+    {
+        var (apiSurface, bodyIndex) =
+            ExtractFixtureSurfaceWithWireContracts(
+                typeof(JsonInputExports).Assembly.Location);
+        ApiType exports = JsonInputExportsType(apiSurface);
+        ApiJsExportJsonInputDeclaration declaration =
+            Assert.Single(
+                exports.JsExportJsonInputDeclarations,
+                candidate => candidate.MethodName
+                    == nameof(JsonInputExports.RenameWidget));
+        exports.JsExportJsonInputDeclarations.Clear();
+        exports.JsExportJsonInputDeclarations.Add(declaration);
+        exports.JsExportJsonInputDeclarations.Add(declaration);
+
+        UnsupportedJsExportSurfaceException exception =
+            Assert.Throws<UnsupportedJsExportSurfaceException>(
+                () => JsExportSurfaceBuilder.Build(
+                    apiSurface,
+                    bodyIndex));
+
+        Assert.Contains(
+            "duplicate declarations",
+            exception.Message,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Build_RejectsAmbiguousJsonInputMethodAndParameter()
+    {
+        var (apiSurface, bodyIndex) =
+            ExtractFixtureSurfaceWithWireContracts(
+                typeof(JsonInputExports).Assembly.Location);
+        ApiType exports = JsonInputExportsType(apiSurface);
+        ApiJsExportJsonInputDeclaration declaration =
+            Assert.Single(
+                exports.JsExportJsonInputDeclarations,
+                candidate => candidate.MethodName
+                    == nameof(JsonInputExports.RenameWidget));
+        exports.JsExportJsonInputDeclarations.Clear();
+        exports.JsExportJsonInputDeclarations.Add(
+            declaration with
+            {
+                MethodName =
+                    nameof(JsonInputExports.RenameAmbiguous),
+            });
+
+        UnsupportedJsExportSurfaceException exception =
+            Assert.Throws<UnsupportedJsExportSurfaceException>(
+                () => JsExportSurfaceBuilder.Build(
+                    apiSurface,
+                    bodyIndex));
+
+        Assert.Contains(
+            "does not identify exactly one JS export",
+            exception.Message,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Build_RejectsJsonInputDeclarationForNonStringParameter()
+    {
+        var (apiSurface, bodyIndex) =
+            ExtractFixtureSurfaceWithWireContracts(
+                typeof(JsonInputExports).Assembly.Location);
+        ApiType exports = JsonInputExportsType(apiSurface);
+        ApiJsExportJsonInputDeclaration declaration =
+            Assert.Single(
+                exports.JsExportJsonInputDeclarations,
+                candidate => candidate.MethodName
+                    == nameof(JsonInputExports.RenameWidget));
+        exports.JsExportJsonInputDeclarations.Clear();
+        exports.JsExportJsonInputDeclarations.Add(
+            declaration with
+            {
+                MethodName = nameof(JsonInputExports.EchoBytes),
+                ParameterName = "value",
+            });
+
+        UnsupportedJsExportSurfaceException exception =
+            Assert.Throws<UnsupportedJsExportSurfaceException>(
+                () => JsExportSurfaceBuilder.Build(
+                    apiSurface,
+                    bodyIndex));
+
+        Assert.Contains(
+            "is not System.String",
+            exception.Message,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Build_RejectsJsonInputWithoutSerializerContract()
+    {
+        var (apiSurface, bodyIndex) =
+            ExtractFixtureSurfaceWithWireContracts(
+                typeof(JsonInputExports).Assembly.Location);
+        ApiType exports = JsonInputExportsType(apiSurface);
+        ApiJsExportJsonInputDeclaration declaration =
+            Assert.Single(
+                exports.JsExportJsonInputDeclarations,
+                candidate => candidate.MethodName
+                    == nameof(JsonInputExports.RenameWidget));
+        exports.JsExportJsonInputDeclarations.Clear();
+        exports.JsExportJsonInputDeclarations.Add(
+            declaration with
+            {
+                WireType =
+                    ApiTypeShape.PrimitiveType(ApiPrimitiveType.Char),
+            });
+
+        UnsupportedJsExportSurfaceException exception =
+            Assert.Throws<UnsupportedJsExportSurfaceException>(
+                () => JsExportSurfaceBuilder.Build(
+                    apiSurface,
+                    bodyIndex));
+
+        Assert.Contains(
+            "no authenticated deserialization-capable serializer contract",
+            exception.Message,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Build_RejectsDeclaredAndObservedJsonInputConflict()
+    {
+        var (apiSurface, bodyIndex) =
+            ExtractFixtureSurfaceWithWireContracts(
+                typeof(JsonInputExports).Assembly.Location);
+        ApiType exports = JsonInputExportsType(apiSurface);
+        ApiJsExportJsonInputDeclaration declaration =
+            Assert.Single(
+                exports.JsExportJsonInputDeclarations,
+                candidate => candidate.MethodName
+                    == nameof(JsonInputExports.RenameWidget));
+        ApiTypeShape auditShape = Assert.IsType<ApiTypeShape>(
+            Assert.Single(
+                apiSurface.Types.SelectMany(type =>
+                    type.JsonSerializableRoots),
+                root => root.Type?.Definition?.DefinitionName?.Segments
+                    is [nameof(JsonInputAudit)])
+            .Type);
+        exports.JsExportJsonInputDeclarations.Clear();
+        exports.JsExportJsonInputDeclarations.Add(
+            declaration with { WireType = auditShape });
+
+        UnsupportedJsExportSurfaceException exception =
+            Assert.Throws<UnsupportedJsExportSurfaceException>(
+                () => JsExportSurfaceBuilder.Build(
+                    apiSurface,
+                    bodyIndex));
+
+        Assert.Contains(
+            "conflicts with deserializer evidence",
+            exception.Message,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Build_RejectsJsonInputDeclarationFromWrongContractIdentity()
+    {
+        string path = typeof(WrongContractExports).Assembly.Location;
+        using FileStream stream = File.OpenRead(path);
+        using var peReader = new PEReader(stream);
+        ApiSurface apiSurface =
+            ApiSurfaceExtractor.Extract(peReader, includeAll: false);
+        LibraryBodyIndex bodyIndex = LibraryBodyIndex.Open(
+            path,
+            LibraryBodyAnalysisFeatures.MethodEvidence
+                | LibraryBodyAnalysisFeatures.JsonWireContractFlow);
+
+        UnsupportedJsExportSurfaceException exception =
+            Assert.Throws<UnsupportedJsExportSurfaceException>(
+                () => JsExportSurfaceBuilder.Build(
+                    apiSurface,
+                    bodyIndex));
+
+        Assert.Contains(
+            "incompatible contract assembly",
+            exception.Message,
+            StringComparison.Ordinal);
+    }
+
+    private static ILInspector.JsExportSurface.JsExportSurface
+        BuildJsonInputFixtureSurfaceWithWireContracts() =>
+            BuildFixtureSurfaceWithWireContracts(
+                typeof(JsonInputExports).Assembly.Location)
+            .Surface;
+
+    private static ApiType JsonInputExportsType(ApiSurface apiSurface) =>
+        Assert.Single(
+            apiSurface.Types,
+            type => type.FullName
+                == typeof(JsonInputExports).FullName);
+
+    private static void AssertJsonInputDeclaration(
+        ApiJsExportJsonInputDeclaration declaration,
+        string methodName,
+        string parameterName,
+        string wireTypeName)
+    {
+        AssemblyName attributeAssembly =
+            typeof(TsJsExport.JsExportJsonInputAttribute)
+                .Assembly.GetName();
+        Assert.Equal(attributeAssembly.Name, declaration.AttributeAssembly?.Name);
+        Assert.Equal(
+            attributeAssembly.Version,
+            declaration.AttributeAssembly?.Version);
+        Assert.Equal(methodName, declaration.MethodName);
+        Assert.Equal(parameterName, declaration.ParameterName);
+        Assert.Equal(
+            wireTypeName,
+            declaration.WireType?.Definition?.DefinitionName?.Segments
+                .Single());
+        Assert.Null(declaration.UnsupportedReason);
     }
 
     [Fact]

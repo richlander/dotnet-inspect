@@ -942,6 +942,10 @@ public class ApiType
     public List<ApiJsonSerializableRoot> JsonSerializableRoots
         { get; set; } = [];
 
+    [JsonIgnore]
+    public List<ApiJsExportJsonInputDeclaration> JsExportJsonInputDeclarations
+        { get; set; } = [];
+
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
     public JsonWireNamingPolicy? JsonPropertyNamingPolicy { get; set; }
 
@@ -1995,6 +1999,13 @@ public enum ApiPrimitiveType
     IntPtr,
     UIntPtr,
 }
+
+public sealed record ApiJsExportJsonInputDeclaration(
+    ApiAssemblyIdentity? AttributeAssembly,
+    string? MethodName,
+    string? ParameterName,
+    ApiTypeShape? WireType,
+    string? UnsupportedReason);
 
 public sealed record ApiJsonSerializableRoot(
     ApiTypeReferenceIdentity? ElementType,

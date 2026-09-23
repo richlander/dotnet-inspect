@@ -119,16 +119,32 @@ public static class JsonWireContractResolver
         IReadOnlyDictionary<JsonContextGetterIdentity, ApiTypeShape>
             registeredJsonTypeInfoShapes,
         IReadOnlyDictionary<JsonContextGetterIdentity, string>
-            unsupportedJsonTypeInfoGetterReasons)
+            unsupportedJsonTypeInfoGetterReasons,
+        IReadOnlyList<JsExportParameterWireBinding> declaredBindings)
     {
         var parameterTypes = new List<TypeRef>();
+        var parameterTypeDisplays = new HashSet<string>(
+            declaredBindings.Select(binding => binding.WireType),
+            StringComparer.Ordinal);
         var parameterContextScopeKeys = new HashSet<string>(
+            declaredBindings.SelectMany(binding =>
+                binding.ContextScopeKeys),
             StringComparer.Ordinal);
         var parameterBindingCandidates =
             new List<AuthenticatedParameterWireType>();
+        var declaredBindingsByParameter =
+            declaredBindings.ToDictionary(
+                binding => binding.ParameterIndex);
         bool hasUnboundReachableParameterWireType = false;
         var wireTypeContextPaths =
-            new List<JsExportWireTypeContextPath>();
+            new List<JsExportWireTypeContextPath>(
+                declaredBindings.Select(binding =>
+                    new JsExportWireTypeContextPath
+                    {
+                        Direction = JsonWireDirection.Deserialize,
+                        TypeReferences = binding.WireTypeReferences,
+                        ContextScopeKeys = binding.ContextScopeKeys,
+                    }));
 
         foreach (DirectCall call in bodyIndex.DirectCalls)
         {
@@ -164,6 +180,8 @@ public static class JsonWireContractResolver
             if (hasAuthenticatedTypeInfo)
             {
                 parameterTypes.Add(dto);
+                parameterTypeDisplays.Add(
+                    dto.ToQualifiedDisplayString());
                 parameterContextScopeKeys.UnionWith(contextScopeKeys);
                 if (authenticatedShape is not null
                     && TryResolveParameterIndex(
@@ -172,12 +190,30 @@ public static class JsonWireContractResolver
                         function,
                         out int parameterIndex))
                 {
-                    parameterBindingCandidates.Add(
-                        new(
+                    if (declaredBindingsByParameter.TryGetValue(
                             parameterIndex,
-                            dto,
-                            authenticatedShape,
-                            contextScopeKeys));
+                            out JsExportParameterWireBinding? declared))
+                    {
+                        if (declared.WireTypeShape is null
+                            || !declared.WireTypeShape.Equals(
+                                authenticatedShape))
+                        {
+                            throw new UnsupportedJsExportSurfaceException(
+                                $"{function.DeclaringType}.{function.Name}",
+                                $"declared JSON input for parameter "
+                                    + $"'{function.Parameters[parameterIndex].Name}' "
+                                    + "conflicts with deserializer evidence");
+                        }
+                    }
+                    else
+                    {
+                        parameterBindingCandidates.Add(
+                            new(
+                                parameterIndex,
+                                dto,
+                                authenticatedShape,
+                                contextScopeKeys));
+                    }
                 }
                 else if (call.IsReachable != false)
                 {
@@ -227,16 +263,20 @@ public static class JsonWireContractResolver
                 : [],
             ReturnWireTypeShape = returnType?.Shape,
             ParameterWireTypes =
-                [.. parameterTypes.Select(
-                    type => type.ToQualifiedDisplayString())],
+                [.. parameterTypeDisplays.Order(StringComparer.Ordinal)],
             ParameterWireBindings =
-                hasUnboundReachableParameterWireType
-                    ? []
-                    : BuildParameterWireBindings(
-                        parameterBindingCandidates),
+                MergeParameterWireBindings(
+                    declaredBindings,
+                    hasUnboundReachableParameterWireType
+                        ? []
+                        : BuildParameterWireBindings(
+                            parameterBindingCandidates)),
             ParameterWireTypeReferences =
-                [.. parameterTypes
-                    .SelectMany(ReferencedTypes)
+                [.. declaredBindings
+                    .SelectMany(binding =>
+                        binding.WireTypeReferences)
+                    .Concat(parameterTypes
+                        .SelectMany(ReferencedTypes))
                     .Distinct()],
             ParameterWireContextScopeKeys =
                 [.. parameterContextScopeKeys],
@@ -394,6 +434,16 @@ public static class JsonWireContractResolver
         }
         return bindings;
     }
+
+    static IReadOnlyList<JsExportParameterWireBinding>
+        MergeParameterWireBindings(
+            IReadOnlyList<JsExportParameterWireBinding> declared,
+            IReadOnlyList<JsExportParameterWireBinding> inferred) =>
+        [
+            .. declared
+                .Concat(inferred)
+                .OrderBy(binding => binding.ParameterIndex),
+        ];
 
     static AuthenticatedWireType? ResolveCompleteReturnWireType(
         LibraryBodyIndex bodyIndex,
@@ -710,7 +760,7 @@ public static class JsonWireContractResolver
         return true;
     }
 
-    static bool SupportsDirection(
+    internal static bool SupportsDirection(
         JsonSourceGenerationMode generationMode,
         JsonWireDirection direction) =>
         direction switch
