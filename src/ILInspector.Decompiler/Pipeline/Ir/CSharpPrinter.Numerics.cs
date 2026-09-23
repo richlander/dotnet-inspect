@@ -1446,34 +1446,9 @@ public sealed partial class CSharpPrinter
             && MixedSignSameWidthIntegers(lvalueType, EffectiveType(binary.Right));
     }
 
-    /// <summary>
-    /// True when an integer arithmetic (unchecked <c>+</c>/<c>-</c>/<c>*</c>) or
-    /// bitwise (<c>&amp;</c>/<c>|</c>/<c>^</c>) binary <em>renders</em> unsigned:
-    /// both operands are the same-width <em>wide</em> integer (int/uint, long/ulong,
-    /// nint/nuint — sub-int byte/short/char excluded, since they promote to int)
-    /// and at least one is unsigned. The printer leaves a both-unsigned pair bare
-    /// and reconciles a mixed-sign pair to unsigned, so either way the rendered
-    /// result is unsigned. Drives <see cref="EffectiveType"/> only; deliberately
-    /// conservative, so a case it misses stays at its ECMA <c>ResultType</c> rather
-    /// than over-claiming an unsigned rendering.
-    /// </summary>
-    static bool RendersUnsigned(Binary binary)
-    {
-        bool arith = !binary.IsChecked && binary.Kind is BinaryKind.Add or BinaryKind.Subtract or BinaryKind.Multiply;
-        bool bitwise = binary.Kind is BinaryKind.And or BinaryKind.Or or BinaryKind.Xor;
-        if (!arith && !bitwise)
-            return false;
-        var left = EffectiveType(binary.Left);
-        var right = EffectiveType(binary.Right);
-        return IsWideInteger(left) && IsWideInteger(right)
-            && TypeFamilies.Of(left) == TypeFamilies.Of(right)
-            && (TypeFamilies.IsUnsignedIntegerPrimitive(left) || TypeFamilies.IsUnsignedIntegerPrimitive(right));
-    }
-
     /// <summary>The 4-byte, 8-byte, and native integer primitives — the widths C# does not promote to a wider type (unlike sub-int byte/short/char, which promote to int).</summary>
     static bool IsWideInteger(TypeRef? type)
-        => type is { Kind: TypeRefKind.Definition, Assembly: TypeRef.CoreLibrary, Namespace: "System" }
-            && type.Name is "Int32" or "UInt32" or "Int64" or "UInt64" or "IntPtr" or "UIntPtr";
+        => CSharpExpressionType.IsWideInteger(type);
 
     /// <summary>
     /// The operand-type test shared by <see cref="MixedSignBitwise"/> and
@@ -2594,9 +2569,7 @@ public sealed partial class CSharpPrinter
         var armTarget = EffectiveJoinTarget(target, joinArms);
         TypeRef? primitiveCoercionSourceType =
             armTarget is not null
-            && EffectiveType(conditional) is { } conditionalType
-            && !conditionalType.Equals(armTarget)
-            && CanRenderPrimitiveConditionalForTarget(conditional, armTarget)
+            && conditional.PrimitiveJoinArmSource(armTarget) is { } conditionalType
                 ? conditionalType
                 : null;
         bool joinHasExactTypedArm = armTarget is { } anchorTarget && joinArms.Any(arm => JoinArmAnchorsTarget(arm, anchorTarget));
@@ -2947,7 +2920,7 @@ public sealed partial class CSharpPrinter
         // re-form natural type int — all-constant joins cast every arm).
         //
         // NON-CONSTANTS take the CheckedSafeCast reinterpret gated by
-        // CanCoercePrimitiveJoinArm against the merged-type coercion source
+        // the primitive join testimony against the merged-type coercion source
         // (#2322): same slot width only — a differing-width cast is a
         // narrowing the printer must not silently introduce (left to a real
         // Convert node in the IL). The thunk-form CheckedSafeCast renders the
@@ -2978,7 +2951,13 @@ public sealed partial class CSharpPrinter
             }
             if (EffectiveType(arm) is { } armType
                 && CSharpConversionRules.NeedsNumericCast(armType, numericTarget)
-                && CanCoercePrimitiveJoinArm(armType, numericTarget, primitiveCoercionSourceType ?? armType))
+                && (primitiveCoercionSourceType is not null
+                    || PrimitiveJoinTargetCompatibility.CanCoerceArm(
+                        armType,
+                        numericTarget,
+                        armType,
+                        _function.TypeShapes,
+                        _function.EnumUnderlyingTypes)))
             {
                 return BindJoinArm(
                     arm,
@@ -3039,62 +3018,15 @@ public sealed partial class CSharpPrinter
             || (IsEnumLikeInteger(target)
                 && IsIntegerArm(conditional.WhenTrue)
                 && IsIntegerArm(conditional.WhenFalse))
-            || CanRenderPrimitiveConditionalForTarget(conditional, target)
+            || conditional.CanRenderPrimitiveJoinAt(target)
             || conditional.CanAssignReferenceArmsTo(target, _function.TypeShapes);
 
     static bool IsIntegerArm(IrExpression arm)
         => arm.ResultType is { } type && TypeFamilies.IsIntegerLike(type);
 
-    /// <summary>
-    /// Capability gate for target-aware primitive join rendering (#2322's
-    /// shape, generalized to any arm list so the switch-expression and
-    /// coalesce consumers share it — the #2145 one-rule-in-all-three
-    /// discipline). Capability only: the bare-vs-spell CHURN decision lives in
-    /// <see cref="EffectiveJoinTarget"/>, and constants are admitted
-    /// unconditionally because the join-arm rule spells them value-aware.
-    /// </summary>
-    bool CanRenderPrimitiveJoinForTarget(TypeRef target, TypeRef? sourceType, IReadOnlyList<IrExpression> arms)
-        => sourceType is { } nodeType
-            && TypeFamilies.IsIntegerLike(nodeType)
-            && TypeFamilies.IsIntegerLike(target)
-            && CoercionRendering.CanSpellSlotCoercion(
-                nodeType,
-                target,
-                _function.TypeShapes,
-                _function.EnumUnderlyingTypes)
-            && arms.All(arm => arm is Constant { Value: int or long } or Coerce
-                || CanRenderPrimitiveJoinArm(arm, target, nodeType));
-
-    bool CanRenderPrimitiveConditionalForTarget(Conditional conditional, TypeRef target)
-        => CanRenderPrimitiveJoinForTarget(
-            target,
-            EffectiveType(conditional),
-            [conditional.WhenTrue, conditional.WhenFalse]);
-
-    bool CanRenderPrimitiveJoinArm(IrExpression arm, TypeRef target, TypeRef coercionSourceType)
-        => EffectiveType(arm) is { } armType
-            && (CoercionRendering.CanSpellBoolToInteger(armType, target)
-                || (TypeFamilies.IsIntegerLike(armType)
-                    && (!CSharpConversionRules.NeedsNumericCast(armType, target)
-                        || CanCoercePrimitiveJoinArm(armType, target, coercionSourceType))));
-
-    bool CanCoercePrimitiveJoinArm(IrExpression arm, TypeRef target)
-        => EffectiveType(arm) is { } armType
-            && CanCoercePrimitiveJoinArm(armType, target, armType);
-
-    bool CanCoercePrimitiveJoinArm(TypeRef armType, TypeRef target, TypeRef coercionSourceType)
-        => TypeFamilies.IsIntegerLike(armType)
-            && TypeFamilies.IsIntegerLike(target)
-            && CoercionRendering.CanSpellSlotCoercion(
-                armType,
-                target,
-                _function.TypeShapes,
-                _function.EnumUnderlyingTypes)
-            && CSharpConversionRules.SameNumericSlotWidth(coercionSourceType, target);
-
     bool CanRenderSwitchExpressionForTarget(SwitchExpression expression, TypeRef target)
         => (IsEnumLikeInteger(target) && expression.Arms.All(arm => IsIntegerArm(arm.Value)))
-            || CanRenderPrimitiveJoinForTarget(target, EffectiveType(expression), [.. expression.Arms.Select(arm => arm.Value)]);
+            || expression.CanRenderPrimitiveJoinAt(target);
 
     string? TryCoalesceTextForTarget(Coalesce coalesce, TypeRef target)
     {
@@ -3102,7 +3034,7 @@ public sealed partial class CSharpPrinter
         // #2145 one-rule-in-all-three discipline); a plain-primitive coalesce
         // left cannot be null so it rarely fires, but the rule must not be
         // width-partial across the three consumers.
-        if (CanRenderPrimitiveJoinForTarget(target, EffectiveType(coalesce), [coalesce.Left, coalesce.Right]))
+        if (coalesce.CanRenderPrimitiveJoinAt(target))
             return CoalesceText(coalesce, target);
         if (!IsEnumLikeInteger(target))
             return null;
@@ -3213,47 +3145,8 @@ public sealed partial class CSharpPrinter
             : $"unchecked(({TypeText(target)})({Expression(konst)}))";
     }
 
-    /// <summary>
-    /// The C# type the rendered expression actually has. For an unsigned
-    /// div/rem/shr the printer casts the operands to their unsigned type, so the
-    /// rendered result is unsigned even though the node's ECMA binary-promotion
-    /// ResultType keeps the signed operand type; reflect that so a boundary into
-    /// the matching unsigned type does not redundantly re-cast.
-    /// </summary>
     static TypeRef? EffectiveType(IrExpression value)
-    {
-        if (value is Binary binary)
-        {
-            // C# promotes every sub-int (byte/sbyte/short/ushort/char) binary
-            // arithmetic/bitwise/shift result to int: `a - b` over two chars is
-            // typed `int`, never `char`. The IR keeps the narrow operand type,
-            // so report int here — otherwise the missing-cast logic (Coerce)
-            // sees an implicit char→uint and drops the (uint) cast C# requires,
-            // emitting CS0266. A narrowing store back to a sub-int local always
-            // carries its own conv (a Convert node, not a bare Binary), so this
-            // never strips a cast the IL needs — it only adds the same-width
-            // (uint)/(int) reinterpret, which emits no opcode.
-            if (IsSubIntInteger(binary.ResultType))
-                return TypeRef.CoreLib("System", "Int32");
-            if (binary is { IsUnsigned: true, Kind: BinaryKind.Divide or BinaryKind.Remainder or BinaryKind.ShiftRight }
-                && TypeFamilies.UnsignedCounterpart(binary.ResultType) is { } unsigned)
-                return unsigned;
-            // An integer arithmetic/bitwise binary renders unsigned whenever an
-            // operand renders unsigned at the same width: the printer either leaves
-            // a both-unsigned pair bare (`uint + uint`) or reconciles a mixed-sign
-            // pair by reinterpreting the signed side (`(uint)x + count`). Either
-            // way the rendered result is unsigned even though the ECMA ResultType
-            // keeps a signed operand type. Report it, so a parent (a nested
-            // `1 + (int * uint)`, or a Coerce boundary into a signed target)
-            // sees the unsigned type and reconciles or casts in turn — the
-            // propagation that resolves the `int op uint` family up the whole tree.
-            if (RendersUnsigned(binary))
-                return TypeFamilies.IsUnsignedIntegerPrimitive(binary.ResultType)
-                    ? binary.ResultType
-                    : TypeFamilies.UnsignedCounterpart(binary.ResultType);
-        }
-        return value.ResultType;
-    }
+        => CSharpExpressionType.Effective(value);
 
     TypeRef? EnumUnderlyingType(TypeRef? type)
         => type is not null && _function.EnumUnderlyingTypes.TryGetValue(NamedDefinition(type), out var underlying)
@@ -3293,11 +3186,6 @@ public sealed partial class CSharpPrinter
 
     static bool EnumArithmeticCanOverflow(Binary binary)
         => binary.Kind is BinaryKind.Add or BinaryKind.Subtract or BinaryKind.Multiply;
-
-    /// <summary>A sub-int integer (byte/sbyte/short/ushort/char) — the primitives C# promotes to int in any binary numeric/bitwise/shift expression.</summary>
-    static bool IsSubIntInteger(TypeRef? type)
-        => type is { Kind: TypeRefKind.Definition, Assembly: TypeRef.CoreLibrary, Namespace: "System" }
-            && type.Name is "Byte" or "SByte" or "Int16" or "UInt16" or "Char";
 
     static string BinaryOperator(Binary binary) => BinaryOperator(binary.Kind);
 

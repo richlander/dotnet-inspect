@@ -115,7 +115,7 @@ internal static class QueryDiscoveryCommand
 
         foreach (Option option in new Option[]
         {
-            options.Effective, options.Tree, options.Mermaid, options.Bare,
+            options.Effective, options.Tree, options.Mermaid, options.Raw,
             options.Print, options.Value, options.Urls, options.Paths, options.JsonArray,
             options.Row, options.RowWhere, options.RowOrderBy, options.PerformanceTriageTop,
             options.PerformanceTriageLoop, options.PerformanceTriageMinConfidence,

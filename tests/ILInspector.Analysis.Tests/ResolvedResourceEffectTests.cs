@@ -13,6 +13,73 @@ namespace ILInspector.Analysis.Tests;
 public sealed partial class DirectCallDefinitionResolutionTests
 {
     [Fact]
+    public void ShippedArrayPoolModelBoundsDefinitionResolutionToCandidates()
+    {
+        LibraryBodyIndex index = LibraryBodyIndex.Open(
+            OwnershipFixturePath,
+            LibraryBodyAnalysisFeatures.MethodEvidence);
+        ResolvedAssemblyReference assembly =
+            ResolvedAssemblyReference.CreateFromPath(
+                OwnershipFixturePath,
+                AssemblyResolutionProvenance.Local(
+                    "resource-effect candidate-selection test"));
+        var participant =
+            new CatalogCallGraphParticipant(index, assembly);
+        var policy = new AssemblyDependencyResolver(
+            new AssemblyDependencyResolutionOptions(
+                OwnershipFixturePath));
+
+        ResourceEffectResolutionOutcome initial =
+            ResourceEffectResolver.Resolve(
+                policy,
+                ArrayPoolResourceEffectModel.Create(),
+                [participant],
+                cancellationToken:
+                    TestContext.Current.CancellationToken);
+        int candidateCount =
+            Receipt(initial).Population.Results.Length;
+
+        Assert.InRange(
+            candidateCount,
+            1,
+            index.DirectCalls.Length - 1);
+        Assert.DoesNotContain(
+            Receipt(initial).Population.Results,
+            result =>
+                result.Call.Callee.DeclaringType.Name.Contains(
+                    "OwnershipSink",
+                    StringComparison.Ordinal));
+        ResourceEffectResolutionOutcome bounded =
+            ResourceEffectResolver.Resolve(
+                policy,
+                ArrayPoolResourceEffectModel.Create(),
+                [participant],
+                directCallLimits:
+                    new(maxInvocationOccurrences: candidateCount),
+                cancellationToken:
+                    TestContext.Current.CancellationToken);
+
+        Assert.Equal(initial.GetType(), bounded.GetType());
+        Assert.Equal(
+            candidateCount,
+            Receipt(bounded).Population.Results.Length);
+
+        static ResourceEffectResolutionReceipt Receipt(
+            ResourceEffectResolutionOutcome outcome) =>
+            outcome switch
+            {
+                ResourceEffectResolutionOutcome.Complete complete =>
+                    complete.Receipt,
+                ResourceEffectResolutionOutcome.Incomplete incomplete =>
+                    incomplete.Receipt,
+                ResourceEffectResolutionOutcome.Conflict conflict =>
+                    conflict.Receipt,
+                _ => throw new InvalidOperationException(
+                    "Candidate selection unexpectedly rejected resolution."),
+            };
+    }
+
+    [Fact]
     public void ShippedArrayPoolModelResolvesFrameworkOperations()
     {
         ResourceEffectResolutionOutcome outcome = ResolveEffects(
@@ -519,6 +586,375 @@ public sealed partial class DirectCallDefinitionResolutionTests
             gap => gap.Kind
                 == ResourceEffectResolutionGapKind
                     .DeferredInterfaceApplication);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void InterfaceEffectAppliesWithoutInterfaceInvocation(
+        bool explicitImplementation)
+    {
+        SyntheticParticipant participant = CreateInterfaceParticipant(
+            explicitImplementation: explicitImplementation,
+            includeInterfaceCall: false);
+        ResourceEffectAdmission admission = AdmitModels(
+            Model(
+                "example.interface-application-without-interface-call",
+                InterfaceTarget(participant),
+                new ResourceEffect.Operation(
+                    ResourceOperationBoundary.Ordinary,
+                    ResourceOperationThrows.Possible,
+                    Guard: null)));
+
+        ResourceEffectResolutionOutcome.Complete complete =
+            Assert.IsType<ResourceEffectResolutionOutcome.Complete>(
+                ResourceEffectResolver.Resolve(
+                    participant.Policy,
+                    admission,
+                    [participant.Participant],
+                    cancellationToken:
+                        TestContext.Current.CancellationToken));
+
+        ResolvedResourceEffect implementation =
+            Assert.Single(complete.Snapshot.Effects);
+        Assert.NotNull(implementation.InterfaceApplication);
+        Assert.Equal(
+            explicitImplementation
+                ? "ExplicitTarget"
+                : "Target",
+            implementation.DirectCall.Definition.Member.Name);
+    }
+
+    [Fact]
+    public void StaticExplicitInterfaceEffectAppliesWithoutInterfaceInvocation()
+    {
+        SyntheticParticipant participant =
+            CreateInterfaceParticipant(
+                explicitImplementation: true,
+                includeInterfaceCall: false,
+                staticExplicitImplementation: true);
+        ResourceEffectAdmission admission = AdmitModels(
+            Model(
+                "example.static-explicit-interface-application",
+                InterfaceTarget(participant, isStatic: true),
+                new ResourceEffect.Operation(
+                    ResourceOperationBoundary.Ordinary,
+                    ResourceOperationThrows.Possible,
+                    Guard: null)));
+
+        ResourceEffectResolutionOutcome.Complete complete =
+            Assert.IsType<ResourceEffectResolutionOutcome.Complete>(
+                ResourceEffectResolver.Resolve(
+                    participant.Policy,
+                    admission,
+                    [participant.Participant],
+                    cancellationToken:
+                        TestContext.Current.CancellationToken));
+
+        ResolvedResourceEffect implementation =
+            Assert.Single(complete.Snapshot.Effects);
+        Assert.Equal(
+            "ExplicitTarget",
+            implementation.DirectCall.Definition.Member.Name);
+        Assert.Equal(
+            "Contract",
+            implementation.DirectCall.Call.Caller.DeclaringType.Name);
+        Assert.Equal(
+            CallKind.Call,
+            implementation.DirectCall.Call.Kind);
+        Assert.False(
+            implementation.DirectCall.Definition.Member.HasThis);
+        Assert.IsType<
+            ResourceEffectMethodImplementationEvidence.Explicit>(
+                implementation.InterfaceApplication!.Method);
+    }
+
+    [Fact]
+    public void StaticInterfaceCandidateSelectionRejectsNonMethodImplBody()
+    {
+        SyntheticParticipant interfaceParticipant =
+            CreateInterfaceParticipant(
+                explicitImplementation: true,
+                includeInterfaceCall: false,
+                staticExplicitImplementation: true);
+        ResourceEffectAdmission admission = AdmitModels(
+            Model(
+                "example.static-interface-candidate",
+                InterfaceTarget(
+                    interfaceParticipant,
+                    isStatic: true),
+                new ResourceEffect.Operation(
+                    ResourceOperationBoundary.Ordinary,
+                    ResourceOperationThrows.Possible,
+                    Guard: null)));
+        SyntheticParticipant unrelated = CreateSynthetic(new()
+        {
+            TargetName = "StaticLookalike",
+        });
+        var selector =
+            new ResourceEffectDirectCallCandidateSelector(admission);
+
+        Assert.DoesNotContain(
+            unrelated.Participant.CallGraph.DirectCalls,
+            call => selector.Includes(
+                unrelated.Participant,
+                call));
+    }
+
+    [Fact]
+    public void QualifiedInterfaceCandidateRequiresMethodImplEvidence()
+    {
+        SyntheticParticipant participant =
+            CreateInterfaceParticipant(
+                addPublicDecoy: true,
+                includeInterfaceCall: false,
+                decoyMethodName: "IUnrelated.Target");
+        ResourceEffectAdmission admission = AdmitModels(
+            Model(
+                "example.qualified-interface-candidate",
+                InterfaceTarget(participant),
+                new ResourceEffect.Operation(
+                    ResourceOperationBoundary.Ordinary,
+                    ResourceOperationThrows.Possible,
+                    Guard: null)));
+
+        ResourceEffectResolutionOutcome.Complete complete =
+            Assert.IsType<ResourceEffectResolutionOutcome.Complete>(
+                ResourceEffectResolver.Resolve(
+                    participant.Policy,
+                    admission,
+                    [participant.Participant],
+                    directCallLimits:
+                        new DirectCallDefinitionResolutionLimits(
+                            maxInvocationOccurrences: 1),
+                    cancellationToken:
+                        TestContext.Current.CancellationToken));
+
+        DirectCallDefinitionResolution.Resolved result =
+            Assert.IsType<DirectCallDefinitionResolution.Resolved>(
+                Assert.Single(
+                    complete.Receipt.Population.Results));
+        Assert.Equal("Target", result.Call.Callee.Name);
+        Assert.Single(complete.Snapshot.Effects);
+    }
+
+    [Fact]
+    public void LocalMethodImplCandidateUsesExactBodyToken()
+    {
+        SyntheticParticipant participant =
+            CreateInterfaceParticipant(
+                explicitImplementation: true,
+                addNonImplementer: true,
+                includeInterfaceCall: false,
+                nonImplementerMethodName: "ExplicitTarget");
+        ResourceEffectAdmission admission = AdmitModels(
+            Model(
+                "example.local-methodimpl-token",
+                InterfaceTarget(participant),
+                new ResourceEffect.Operation(
+                    ResourceOperationBoundary.Ordinary,
+                    ResourceOperationThrows.Possible,
+                    Guard: null)));
+
+        ResourceEffectResolutionOutcome.Complete complete =
+            Assert.IsType<ResourceEffectResolutionOutcome.Complete>(
+                ResourceEffectResolver.Resolve(
+                    participant.Policy,
+                    admission,
+                    [participant.Participant],
+                    directCallLimits:
+                        new DirectCallDefinitionResolutionLimits(
+                            maxInvocationOccurrences: 1),
+                    cancellationToken:
+                        TestContext.Current.CancellationToken));
+
+        DirectCallDefinitionResolution.Resolved result =
+            Assert.IsType<DirectCallDefinitionResolution.Resolved>(
+                Assert.Single(
+                    complete.Receipt.Population.Results));
+        Assert.Equal(
+            "Contract",
+            result.Definition.Member.DeclaringType.Name);
+        ResolvedResourceEffect effect =
+            Assert.Single(complete.Snapshot.Effects);
+        Assert.IsType<
+            ResourceEffectMethodImplementationEvidence.Explicit>(
+                effect.InterfaceApplication!.Method);
+    }
+
+    [Fact]
+    public void VersionAgnosticSelectorRetainsSecondVersionImplementationCandidate()
+    {
+        const string AssemblyName = "VersionSplitInterfaceTarget";
+        SyntheticParticipant interfaceParticipant =
+            CreateInterfaceParticipant(
+                explicitImplementation: true,
+                includeInterfaceCall: false,
+                assemblyName: AssemblyName,
+                assemblyVersion: new Version(2, 0, 0, 0));
+        SyntheticParticipant caller =
+            CreateVersionSplitInterfaceCaller(interfaceParticipant);
+        ResourceEffectTargetSelector.Member exact =
+            Assert.IsType<ResourceEffectTargetSelector.Member>(
+                InterfaceTarget(interfaceParticipant));
+        ResourceTypeExpression.Named declaringType =
+            exact.Selector.DeclaringType;
+        ResourceEffectTargetSelector target = TargetWithAssembly(
+            exact.Selector,
+            declaringType,
+            new ResourceAssemblySelector(
+                declaringType.Assembly.SimpleName,
+                declaringType.Assembly.PublicKeyToken,
+                ResourceAssemblyVersionPolicy.Any));
+        ResourceEffectAdmission admission = AdmitModels(
+            Model(
+                "example.version-agnostic-interface",
+                target,
+                new ResourceEffect.Operation(
+                    ResourceOperationBoundary.Ordinary,
+                    ResourceOperationThrows.Possible,
+                    Guard: null)));
+
+        ResourceEffectResolutionOutcome outcome =
+            ResourceEffectResolver.Resolve(
+                caller.Policy,
+                admission,
+                [caller.Participant],
+                cancellationToken:
+                    TestContext.Current.CancellationToken);
+        ResourceEffectResolutionReceipt receipt = outcome switch
+        {
+            ResourceEffectResolutionOutcome.Complete complete =>
+                complete.Receipt,
+            ResourceEffectResolutionOutcome.Incomplete incomplete =>
+                incomplete.Receipt,
+            _ => throw new Xunit.Sdk.XunitException(
+                $"Unexpected outcome {outcome.GetType().Name}."),
+        };
+        Assert.Equal(2, receipt.Population.Results.Length);
+        Assert.Contains(
+            receipt.Population.Results,
+            result =>
+                result.Call.Callee.Name
+                    == "ExplicitTarget");
+    }
+
+    [Fact]
+    public void InterfaceCandidateSelectionRejectsDisjointMemberName()
+    {
+        SyntheticParticipant interfaceParticipant =
+            CreateInterfaceParticipant(includeInterfaceCall: false);
+        ResourceEffectAdmission admission = AdmitModels(
+            Model(
+                "example.interface-candidate-name",
+                InterfaceTarget(interfaceParticipant),
+                new ResourceEffect.Operation(
+                    ResourceOperationBoundary.Ordinary,
+                    ResourceOperationThrows.Possible,
+                    Guard: null)));
+        SyntheticParticipant unrelated = CreateSynthetic(new()
+        {
+            TargetName = "Unrelated",
+            TargetAttributes = System.Reflection.MethodAttributes.Public,
+            TargetSignature = [0x20, 0x00, 0x01],
+            CallKind = CallKind.CallVirtual,
+        });
+        var selector =
+            new ResourceEffectDirectCallCandidateSelector(admission);
+
+        Assert.DoesNotContain(
+            unrelated.Participant.CallGraph.DirectCalls,
+            call => selector.Includes(unrelated.Participant, call));
+    }
+
+    [Fact]
+    public void InterfaceCandidateSelectionRejectsExternalNonMethodImplName()
+    {
+        SyntheticParticipant interfaceParticipant =
+            CreateInterfaceParticipant(includeInterfaceCall: false);
+        ResourceEffectAdmission admission = AdmitModels(
+            Model(
+                "example.external-interface-candidate-name",
+                InterfaceTarget(interfaceParticipant),
+                new ResourceEffect.Operation(
+                    ResourceOperationBoundary.Ordinary,
+                    ResourceOperationThrows.Possible,
+                    Guard: null)));
+        ExternalSyntheticParticipant unrelated =
+            CreateExternalSynthetic(new()
+            {
+                TargetName = "Unrelated",
+                TargetAttributes =
+                    System.Reflection.MethodAttributes.Public,
+                TargetSignature = [0x20, 0x00, 0x01],
+                MemberReferenceSignature = [0x20, 0x00, 0x01],
+                CallArgumentKinds = [SyntheticStackValue.Null],
+            });
+        var selector =
+            new ResourceEffectDirectCallCandidateSelector(
+                admission,
+                unrelated.Policy);
+
+        Assert.DoesNotContain(
+            unrelated.Participant.CallGraph.DirectCalls,
+            call => selector.Includes(
+                unrelated.Participant,
+                call));
+    }
+
+    [Fact]
+    public void InterfaceCandidateSelectionUsesDefinitionResolutionScope()
+    {
+        byte[] platformPublicKey =
+            typeof(object).Assembly.GetName().GetPublicKey()
+            ?? throw new InvalidOperationException(
+                "The platform assembly has no public key.");
+        const string AssemblyName = "PlatformScopedInterfaceTarget";
+        var version = new Version(2, 0, 0, 0);
+        SyntheticParticipant platformAsset =
+            CreateInterfaceParticipant(
+                explicitImplementation: true,
+                includeInterfaceCall: false,
+                assemblyName: AssemblyName,
+                assemblyVersion: version,
+                assemblyPublicKey: platformPublicKey);
+        SyntheticParticipant anyAsset =
+            CreateInterfaceParticipant(
+                includeInterfaceCall: false,
+                assemblyName: AssemblyName,
+                assemblyVersion: version,
+                assemblyPublicKey: platformPublicKey);
+        Assert.Equal(
+            anyAsset.Participant.Assembly.Identity,
+            platformAsset.Participant.Assembly.Identity);
+        SyntheticParticipant caller =
+            CreateVersionSplitInterfaceCaller(platformAsset);
+        var policy = new ScopePolicy(
+            anyAsset.Participant.Assembly,
+            platformAsset.Participant.Assembly);
+        ResourceEffectAdmission admission = AdmitModels(
+            Model(
+                "example.platform-scoped-interface-candidate",
+                InterfaceTarget(platformAsset),
+                new ResourceEffect.Operation(
+                    ResourceOperationBoundary.Ordinary,
+                    ResourceOperationThrows.Possible,
+                    Guard: null)));
+        var selector =
+            new ResourceEffectDirectCallCandidateSelector(
+                admission,
+                policy);
+        DirectCall explicitCall = Assert.Single(
+            caller.Participant.CallGraph.DirectCalls,
+            call => call.Callee.Name == "ExplicitTarget");
+
+        Assert.True(
+            selector.Includes(
+                caller.Participant,
+                explicitCall));
+        Assert.Equal(
+            AssemblyResolutionScope.Platform,
+            Assert.Single(policy.Requests).Scope);
     }
 
     [Fact]
@@ -3127,7 +3563,8 @@ public sealed partial class DirectCallDefinitionResolutionTests
     }
 
     static ResourceEffectTargetSelector InterfaceTarget(
-        SyntheticParticipant participant)
+        SyntheticParticipant participant,
+        bool isStatic = false)
     {
         AssemblyReferenceIdentity identity =
             participant.Participant.Assembly.Identity;
@@ -3143,10 +3580,10 @@ public sealed partial class DirectCallDefinitionResolutionTests
                     [new ResourceTypeNameSegment("IContract", 0)]),
                 "Target",
                 ResourceEffectMemberKind.Method,
-                isStatic: false,
+                isStatic,
                 genericArity: 0,
                 ResourceEffectCallingConvention.Default,
-                hasThis: true,
+                hasThis: !isStatic,
                 explicitThis: false,
                 parameters: [],
                 CoreType("Void")));

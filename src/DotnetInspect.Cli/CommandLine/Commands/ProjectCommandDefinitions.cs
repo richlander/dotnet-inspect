@@ -32,12 +32,12 @@ public static class ProjectCommandDefinitions
         };
         var frontmatterOption = new Option<bool>("--frontmatter")
         {
-            Description = "With --print or --bare, print only the leading YAML frontmatter block"
+            Description = "With --print or --raw, print only the leading YAML frontmatter block"
         };
         frontmatterOption.Aliases.Add("--yaml-header");
         var bodyOption = new Option<bool>("--body")
         {
-            Description = "With --print or --bare, print only content after YAML frontmatter"
+            Description = "With --print or --raw, print only content after YAML frontmatter"
         };
         var outOption = SharedOptions.CreateOutputPathOption();
 
@@ -48,7 +48,7 @@ public static class ProjectCommandDefinitions
         projectCommand.Options.Add(outOption);
         SharedOptions.AddOutputPathValidator(projectCommand, outOption);
         opts.AddJsonOptionTo(projectCommand);
-        projectCommand.Options.Add(opts.Bare);
+        projectCommand.Options.Add(opts.Raw);
         projectCommand.Options.Add(opts.Markdown);
         projectCommand.Options.Add(opts.PlainText);
         opts.AddTableOptionsTo(projectCommand);
@@ -104,7 +104,7 @@ public static class ProjectCommandDefinitions
                 OutputPath = parseResult.GetValue(outOption),
                 Format = opts.ResolveFormat(parseResult),
                 NoHeader = parseResult.GetValue(opts.NoHeaders),
-                Bare = parseResult.GetValue(opts.Bare),
+                Raw = parseResult.GetValue(opts.Raw),
                 Discover = opts.ParseDiscover(parseResult),
                 Tree = opts.ParseTree(parseResult),
                 Schema = opts.ParseSchema(parseResult),

@@ -65,10 +65,10 @@ public record MatchOptions : ApiOptions
     /// </summary>
     public bool IncludeBody { get; init; }
 
-    public bool Bare { get; init; }
+    public bool Raw { get; init; }
 
     /// <summary>
     /// True when output is raw text (not rendered markdown).
     /// </summary>
-    public override bool IsRawOutput => Bare || JsonOutput || Tabular || Jsonl || NoHeader || Count;
+    public override bool IsRawOutput => Raw || JsonOutput || Tabular || Jsonl || NoHeader || Count;
 }
