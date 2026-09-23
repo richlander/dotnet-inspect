@@ -77,7 +77,8 @@ path, a `file://` URI, or a mapped source in `NuGet.Config`:
 dnx dotnet-inspect -y -- package MyCompany.Widget --versions --source ./feed
 dnx dotnet-inspect -y -- package MyCompany.Widget --versions -n 5 --preview \
   --source ./feed --jsonl
-dnx dotnet-inspect -y -- package MyCompany.Widget --latest-version --source ./feed
+dnx dotnet-inspect -y -- package MyCompany.Widget --versions -n 1 --source ./feed
+dnx dotnet-inspect -y -- package MyCompany.Widget@latest --versions --source ./feed
 dnx dotnet-inspect -y -- package MyCompany.Widget --version 1.2.3 --source ./feed
 dnx dotnet-inspect -y -- package MyCompany.Widget@1.0.0..2.0.0 --versions \
   --source ./feed --include-unlisted
@@ -86,6 +87,8 @@ dnx dotnet-inspect -y -- package MyCompany.Widget --versions-with-feed \
 ```
 
 Local and HTTP versions are combined and sorted before the result limit.
+Use `--versions -n 1` for one newest listed version row, or
+`Package@latest --versions` to force a fresh latest-version check.
 Missing folders or invalid archives are source failures, not package absence;
 usable peer results carry an explicit partial warning on stderr. Local reads
 use bounded enumeration rather than treating filenames as version evidence.
@@ -155,8 +158,11 @@ semantics and may select a prerelease.
 Ranges require complete fresh discovery and acquire only from sources that
 reported each selected coordinate. Diff History retains one vector for all its
 probes. Omit `--at` for full-population evaluation, repeat it for explicit
-checkpoints, or use `--max-probes` for adaptive bisection. An unreadable peer
-prevents selection.
+checkpoints, use `--max-probes` for adaptive bisection, or use
+`--major-versions` for one representative per major. API findings use the
+first stable version, with the latest prerelease fallback for preview-only
+majors; Analysis findings use the latest admitted version per major. An
+unreadable peer prevents selection.
 
 API/history vectors exclude unlisted observations, including endpoints.
 An exact pin can still inspect an unlisted coordinate. Do not copy ordinals
