@@ -91,9 +91,7 @@ public class PackageVersionTests
     [Theory]
     [InlineData("--latest-version")]
     [InlineData("--latest-version=true")]
-    [InlineData("--latest-version:false")]
-    public async Task LatestVersion_RemovedTokenReportsReplacementBeforeAcquisition(
-        string option)
+    public async Task LatestVersion_IsAnOrdinaryUnrecognizedOption(string option)
     {
         var (exit, output, error) = await RunAppAsync(
             "package",
@@ -103,23 +101,7 @@ public class PackageVersionTests
         Assert.Equal(1, exit);
         Assert.Empty(output);
         Assert.Equal(
-            $"Error: {ArgumentPreprocessor.RemovedLatestVersionError}{Environment.NewLine}",
-            error);
-        Assert.DoesNotContain("not found", error, StringComparison.OrdinalIgnoreCase);
-    }
-
-    [Fact]
-    public async Task LatestVersion_RemovedTokenIsRejectedWithVersionedCoordinate()
-    {
-        var (exit, output, error) = await RunAppAsync(
-            "package",
-            "ThisQueryMustNotReachTheNetwork@1.0.0",
-            "--latest-version");
-
-        Assert.Equal(1, exit);
-        Assert.Empty(output);
-        Assert.Equal(
-            $"Error: {ArgumentPreprocessor.RemovedLatestVersionError}{Environment.NewLine}",
+            $"Error: Unrecognized option '{option}'.{Environment.NewLine}",
             error);
     }
 
