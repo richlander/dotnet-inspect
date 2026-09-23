@@ -22,8 +22,9 @@ This owner defines:
   background, tab containment, Escape, one-modal-at-a-time, and
   ordinary-dismissal focus return) shared by Spotlight, Open, Settings,
   Keyboard help, and the full-bleed Annotated Source viewer;
-- the classification that Home, Workspace, Package query, Package Activity,
-  and Diagnostics are routed full-bleed surfaces rather than dialogs;
+- the classification that Home, Workspace, Type Explorer, Package query,
+  Package Activity, and Diagnostics are routed full-bleed surfaces rather than
+  dialogs;
 - Spotlight Search's input and package-scope behavior;
 - the local-artifact Open overlay; and
 - the command palette's keyboard-driven counterpart to the visible
@@ -326,7 +327,8 @@ modal action commits navigation, the modal closes without applying its
 ordinary-dismissal return rule and synchronously parks focus as defined by
 the navigation consumer (see below). An inspection destination then focuses
 its active-subject level-one heading;
-Home, Workspace, or Diagnostics focuses the routed surface's level-one heading.
+Home, Workspace, Type Explorer, or Diagnostics focuses the routed surface's
+level-one heading.
 If the transition returns a typed failure, the prior surface and history remain
 active, the failure is visible, and focus moves to the modal's stable invoking
 control when it is still rendered, otherwise to the retained surface's
@@ -336,12 +338,16 @@ returning focus to the invoker, then performs the history transition. History
 navigation focuses the restored destination heading without reopening the
 modal.
 
-Home, Workspace, Package query, Package Activity, and Diagnostics are routed
-full-bleed surfaces rather than dialogs. Navigation places focus on their
-visible level-one heading or, for Package query, its prefix input, and for
-Package Activity, its package-set selector under that heading. Browser Back
-returns to the prior routed surface and restores focus through the history
-transition.
+Home, Workspace, Type Explorer, Package query, Package Activity, and
+Diagnostics are routed full-bleed surfaces rather than dialogs. Navigation
+places focus on their visible level-one heading or, for Package query, its
+prefix input, and for Package Activity, its package-set selector under that
+heading. Type Explorer's entry, exact-Type route state, return, and restoration
+effects are separately owned by
+[Inspect Web Navigation Consumer](inspect-web-navigation-consumer.md) and its
+viewer-local interaction is owned by
+[Inspect Web Type Explorer](inspect-web-type-explorer.md). Browser Back returns
+to the prior routed surface and restores focus through the history transition.
 
 The focus-parking step referenced above, and the effect-authority validation
 that governs whether a result-derived destination actually receives focus, are
@@ -695,12 +701,12 @@ outcomes.
 8. From that viewer, open Decompiler style Settings and confirm that the viewer
    closes, Settings receives focus, and closing Settings returns to inline
    Annotated Source without reopening the viewer.
-9. Navigate to Home, Workspace, Package query, Package Activity, and
-   Diagnostics and confirm that each is a routed surface with one visible
+9. Navigate to Home, Workspace, Type Explorer, Package query, Package Activity,
+   and Diagnostics and confirm that each is a routed surface with one visible
    level-one heading, no coordinate/subject command, and a persistent
-   `dotnet-inspect` control that opens Workspace. Confirm that Package query
-   places initial focus on its prefix input and Package Activity on its
-   package-set selector under their headings.
+   `dotnet-inspect` control that opens Workspace. Confirm that Type Explorer
+   focuses its heading, Package query places initial focus on its prefix input,
+   and Package Activity focuses its package-set selector under its heading.
 10. Use Browser Back and Forward while a modal is open and confirm that the
    modal is dismissed, the restored destination heading receives focus, and the
    modal does not reopen.
