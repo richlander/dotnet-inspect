@@ -1638,6 +1638,16 @@ public class CommandLineTests
     }
 
     [Fact]
+    public void DiffCommand_WithImplementationShortcut_ParsesCorrectly()
+    {
+        var result = CommandLineBuilder.CreateRootCommand().Parse(
+            ["diff", "--library", "old/Foo.dll..new/Foo.dll", "--implementation"]);
+
+        Assert.Empty(result.Errors);
+        Assert.Equal("diff", result.CommandResult.Command.Name);
+    }
+
+    [Fact]
     public void DiffCommand_WithPdbSource_ParsesCorrectly()
     {
         var result = CommandLineBuilder.CreateRootCommand().Parse(
