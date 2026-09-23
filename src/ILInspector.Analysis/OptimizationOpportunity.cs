@@ -37,6 +37,12 @@ public sealed record OptimizationOpportunity(
     string? PathConfidence = null)
 {
     /// <summary>
+    /// Typed relationship evidence for a <c>sync-call-in-async</c>
+    /// opportunity; null for every other opportunity shape.
+    /// </summary>
+    public AsyncSiblingOpportunityEvidence? AsyncSibling { get; init; }
+
+    /// <summary>
     /// MethodDef token whose IL contains the evidence when it differs from
     /// <see cref="Method"/> (for example, an async state machine's MoveNext body).
     /// </summary>
