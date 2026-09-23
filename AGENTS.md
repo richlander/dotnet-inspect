@@ -184,13 +184,13 @@ for the standing mechanics.
 
 ## Task-specific guidance
 
-Documentation entry points have distinct roles: root `README.md` owns the full product guide; `docs/README.md` immediate acquisition and curated navigation; `docs/overview.md` subsystem topology; and `docs/architecture.md` the curated current-code map.
-Ordinary feature and fix agents do not edit the **release-managed central files** — root `README.md`, `docs/overview.md`, `docs/architecture.md`, or any `SKILL.md`; when implementation suggests one is stale, add a concise suggestion with the implementing PR or stack link to the current release tracker for release-time reconciliation.
+Documentation entry points have distinct roles: root `README.md` is a bounded product landing page; `docs/cli-reference.md` owns detailed CLI behavior and examples; `docs/README.md` immediate acquisition and curated navigation; `docs/overview.md` subsystem topology; and `docs/architecture.md` the curated current-code map.
+Ordinary feature and fix agents do not edit the **release-managed central files** — `AGENTS.md`, root `README.md`, `docs/overview.md`, `docs/architecture.md`, or any `SKILL.md`. Edit them only for an explicitly approved or authorized request; otherwise add a concise suggestion with the implementing PR or stack link to the current release tracker for release-time reconciliation.
 Update other documentation only when its owned claim changes; read the relevant entry below, while [`docs/README.md`](docs/README.md) owns detailed boundaries and curated routes.
 
 | Area | Read first |
 | --- | --- |
-| User-visible capabilities, commands, or examples | `README.md` |
+| User-visible daily drivers and demos; detailed CLI behavior | `README.md`; `docs/cli-reference.md` |
 | Core workspace, query, cache, or safety architecture | `docs/inspection-space.md` |
 | A change crossing subsystem ownership boundaries | `docs/overview.md` |
 | Implementation structure | the relevant section of `docs/architecture.md` |
@@ -332,7 +332,7 @@ The binding rule for new work: a new section must not enter the default
 Use the SDK selected by repository configuration and CI; inspect the current
 selection (`command -v dotnet`, `dotnet --version`) before installing one or
 changing `PATH`. If `dotnet` is centrally installed, stop and ask before
-replacing or shadowing it. Follow `README.md#repository-development-sdk`.
+replacing or shadowing it. Follow `docs/cli-reference.md#repository-development-sdk`.
 
 The primary dependencies are the .NET SDK, `Microsoft.CodeAnalysis.CSharp`,
 and Markout. For major dependency updates, check all three; update the .NET SDK

@@ -28,7 +28,7 @@ namespace DotnetInspect.Cli.Output;
 /// </para>
 /// <para>
 /// Honoring is reported per flag rather than as a bare acknowledgement. An untyped signal is
-/// unsound: a writer reached for one reason (say <c>--bare</c> routing through the print
+/// unsound: a writer reached for one reason (say <c>--raw</c> routing through the print
 /// writer) would satisfy an unrelated recorded request such as <c>--count</c>, and the drop
 /// would escape.
 /// </para>
@@ -246,7 +246,7 @@ public static class ProjectionAudit
     /// <summary>
     /// Records that <paramref name="flag"/> was honored — called by the writer that actually
     /// reduced the payload to that projection's shape. Reporting a flag that was not requested
-    /// is harmless and expected: the print writer also serves <c>--bare</c>.
+    /// is harmless and expected: the print writer also serves <c>--raw</c>.
     /// </summary>
     public static void MarkHonored(string flag)
     {

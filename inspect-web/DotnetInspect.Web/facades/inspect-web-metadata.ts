@@ -984,6 +984,20 @@ export function runEntryPoint(
   return $requireRuntime().runMain(mainAssemblyName, args);
 }
 
+function $serializeJsonInput(
+  value: unknown,
+  operation: string,
+  parameter: string,
+): string {
+  const json = JSON.stringify(value);
+  if (json === undefined) {
+    throw new TypeError(
+      `${operation} parameter '${parameter}' could not be serialized as JSON.`,
+    );
+  }
+  return json;
+}
+
 export function cancelLibraryApiDiff(operationId: string, reason: string): BrowserLibraryApiDiffCancellation {
   const $result = $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Metadata"]["MetadataExports"]["CancelLibraryApiDiff.271973316"](operationId, reason);
   const $parsed: unknown = JSON.parse($result);
@@ -996,8 +1010,8 @@ export async function queryGraphMemberSurface(packageId: string, version: string
   return $parsed as BrowserGraphMemberSurface;
 }
 
-export async function queryLibraryApiDiff(operationId: string, requestJson: string): Promise<BrowserLibraryApiDiffResult> {
-  const $result = await $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Metadata"]["MetadataExports"]["QueryLibraryApiDiff.451505237"](operationId, requestJson);
+export async function queryLibraryApiDiff(operationId: string, requestJson: BrowserLibraryApiDiffRequest): Promise<BrowserLibraryApiDiffResult> {
+  const $result = await $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Metadata"]["MetadataExports"]["QueryLibraryApiDiff.451505237"](operationId, $serializeJsonInput(requestJson, "DotnetInspect.Web.Interop.Metadata.MetadataExports.QueryLibraryApiDiff.451505237", "requestJson"));
   const $parsed: unknown = JSON.parse($result);
   return $parsed as BrowserLibraryApiDiffResult;
 }

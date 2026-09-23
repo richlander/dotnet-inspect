@@ -5,6 +5,8 @@ using DotnetInspect.Cli.Sections;
 using Inspector.Findings;
 using ILInspector.Metadata;
 
+using SourceLinkDocument = ILInspector.SourceLink.SourceDocument;
+
 namespace DotnetInspect.Cli.Inspectors;
 
 internal static class MemberSourceLocationCollector
@@ -79,8 +81,9 @@ internal static class MemberSourceLocationCollector
             // resolves wins, so a later accessor is consulted only when a preferred one carries
             // no sequence points. Shared across both paths below so ordering cannot regress it.
             var appliedRank = new Dictionary<ApiMember, int>(ReferenceEqualityComparer.Instance);
-            var documentsByRowId = new Dictionary<int, SourceDocument>();
-            foreach (SourceDocument document in service.GetTrackedFiles())
+            var documentsByRowId =
+                new Dictionary<int, SourceLinkDocument>();
+            foreach (SourceLinkDocument document in service.GetTrackedFiles())
                 documentsByRowId.TryAdd(document.DocumentRowId, document);
 
             var sourceInspection = SourceLinkFindings.InspectMemberSources(
@@ -140,7 +143,7 @@ internal static class MemberSourceLocationCollector
     private static void ApplySourceLocations(
         IReadOnlyDictionary<int, (ApiMember Member, int Rank)[]> membersByToken,
         FindingInspection<MemberSourceObservation>.Complete inspection,
-        IReadOnlyDictionary<int, SourceDocument> documentsByRowId,
+        IReadOnlyDictionary<int, SourceLinkDocument> documentsByRowId,
         Dictionary<ApiMember, int> appliedRank,
         Dictionary<ApiMember, MemberSourceObservation> collected)
     {
@@ -169,7 +172,7 @@ internal static class MemberSourceLocationCollector
                 member.SourceEndLineNumber = mapping.EndLine;
                 if (documentsByRowId.TryGetValue(
                     mapping.DocumentRowId,
-                    out SourceDocument? document)
+                    out SourceLinkDocument? document)
                     && string.Equals(
                         document.FilePath,
                         mapping.OriginalPath,

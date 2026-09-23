@@ -617,6 +617,21 @@ public partial class LibraryCommand
                 : [],
         };
 
+        if (!IsAllTfmPackageSelection(options)
+            && LibrarySectionCardinality.ValidateExactTerminals(
+                options.Select,
+                options.SelectDefault,
+                options.IncludeSections,
+                options.FixedOverview,
+                options.Verbosity,
+                options.Count,
+                options.Rows is not null,
+                options.Discover is not null) is { } cardinalityError)
+        {
+            CommandError.Write(cardinalityError);
+            return 1;
+        }
+
         if (options.JsonOutput
             && !options.Count
             && options.IncludeSections is { Count: > 0 }
@@ -3211,9 +3226,7 @@ public partial class LibraryCommand
     }
 
     private static bool IsAllTfmPackageSelection(LibraryOptions options)
-        => string.IsNullOrEmpty(options.PlatformAssembly)
-            && !string.IsNullOrEmpty(options.PackagePath)
-            && string.Equals(options.Tfm, "all", StringComparison.OrdinalIgnoreCase);
+        => LibrarySectionCardinality.IsAllTfmPackageSelection(options);
 
     private static int WriteLibraryShapeProjection(LibraryInspection inspection, LibraryOptions options)
     {
@@ -3837,7 +3850,9 @@ public partial class LibraryCommand
             catalogHiddenSections: EffectiveCatalogHidden(pipeline, effective),
             listedCategoryDoors: pipeline.GetListedCategoryDoors(),
             resourceCatalog: "library",
-            resourceCapabilities: LibraryOutputCapabilities.Catalog);
+            resourceCapabilities: LibraryOutputCapabilities.Catalog,
+            sectionCardinalities:
+                LibrarySectionCardinality.ExactDeclarationsFor(options));
         return Math.Max(
             Math.Max(discoveryExitCode, inspectionFailureExitCode),
             IntegrityExitCode(
@@ -4026,7 +4041,9 @@ public partial class LibraryCommand
             catalogHiddenSections: EffectiveCatalogHidden(pipeline, effective),
             listedCategoryDoors: pipeline.GetListedCategoryDoors(),
             resourceCatalog: "library",
-            resourceCapabilities: LibraryOutputCapabilities.Catalog);
+            resourceCapabilities: LibraryOutputCapabilities.Catalog,
+            sectionCardinalities:
+                LibrarySectionCardinality.ExactDeclarationsFor(options));
     }
 
     /// <summary>

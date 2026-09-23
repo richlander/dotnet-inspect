@@ -393,12 +393,12 @@ public sealed class ApiCoordinateMatchCommandTests
             "--package", "Example@1.0.0",
             "--tfm", "net8.0",
             "--envelope",
-            "--bare",
+            "--raw",
         ]);
 
         Assert.Equal(1, result.Exit);
         Assert.Empty(result.Output);
-        Assert.Contains("Unrecognized option '--bare'", result.Error);
+        Assert.Contains("Unrecognized option '--raw'", result.Error);
         Assert.DoesNotContain("MATCH_ACQUIRED", result.Error);
     }
 

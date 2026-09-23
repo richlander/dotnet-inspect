@@ -3,6 +3,7 @@ import type {
   BrowserLibraryApiDiffEndpoint,
   BrowserLibraryApiDiffMember,
   BrowserLibraryApiDiffMemberIdentity,
+  BrowserLibraryApiDiffRequest,
   BrowserLibraryApiDiffResult,
   BrowserLibraryApiDiffSucceeded,
   BrowserLibraryApiDiffType,
@@ -81,7 +82,7 @@ export interface LibraryApiDiffDependencies {
   readonly operationAuthority: OperationAuthorityPage;
   query(
     operationId: OperationId,
-    requestJson: string,
+    request: BrowserLibraryApiDiffRequest,
   ): Promise<unknown>;
   cancel(
     operationId: OperationId,
@@ -150,15 +151,17 @@ function stateMatchesSelection(
   });
 }
 
-function requestJson(input: LibraryApiDiffOperationInput): string {
-  return JSON.stringify({
+function createRequest(
+  input: LibraryApiDiffOperationInput,
+): BrowserLibraryApiDiffRequest {
+  return {
     schemaVersion: 1,
     packageId: input.packageId,
     currentVersion: input.currentVersion,
     targetVersion: input.targetVersion,
     targetFramework: input.targetFramework,
     compileAssetId: input.compileAssetId,
-  });
+  };
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -850,7 +853,7 @@ export function createLibraryApiDiffCoordinator(
           activate: () => {
             let query: Promise<unknown>;
             try {
-              query = dependencies.query(identity.id, requestJson(input));
+              query = dependencies.query(identity.id, createRequest(input));
             } catch (error: unknown) {
               return boundaryFailure(error);
             }

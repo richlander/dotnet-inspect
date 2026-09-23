@@ -22,7 +22,16 @@ public class FindCommand
 {
     public const string Name = "find";
 
+    internal readonly record struct FindExecutionResult(
+        int ExitCode,
+        int? RowCount);
+
     public static async Task<int> ExecuteAsync(
+        FindOptions options,
+        CancellationToken cancellationToken = default)
+        => (await ExecuteWithResultAsync(options, cancellationToken)).ExitCode;
+
+    internal static async Task<FindExecutionResult> ExecuteWithResultAsync(
         FindOptions options,
         CancellationToken cancellationToken = default)
     {
@@ -42,7 +51,7 @@ public class FindCommand
                         .Add("Members", "column", "Pattern", "Member", "Kind", "Type", "Signature", "Library", "Source")
                     : new DocumentSchema()
                         .Add("Results", "column", "Pattern", "Type", "Namespace", "Kind", "Library", "Source", "Match", "Sim");
-                return DiscoverOutput.Execute(options.Discover, schema,
+                return new(DiscoverOutput.Execute(options.Discover, schema,
                     DiscoveryOutputRequest.Create(
                         options.JsonOutput ? OutputFormat.Json
                             : options.Jsonl ? OutputFormat.Jsonl
@@ -55,14 +64,15 @@ public class FindCommand
                         (int)options.Verbosity,
                         options),
                     semanticRowSelection: rowSelection,
-                    semanticSelectionName: "Find");
+                    semanticSelectionName: "Find"),
+                    RowCount: null);
             }
 
             var patterns = options.Pattern.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
             if (patterns.Length == 0)
             {
                 CommandError.Write("No pattern specified.");
-                return 1;
+                return new(1, RowCount: null);
             }
 
             if (!options.HasAnyScope)
@@ -101,7 +111,7 @@ public class FindCommand
                     out IReadOnlyList<TypeFindResult> selectedTypes))
             {
                 WriteUnmatchedPatternWarning(search);
-                return 1;
+                return new(1, RowCount: null);
             }
             results = [.. selectedTypes];
             WriteUnmatchedPatternWarning(search);
@@ -121,10 +131,10 @@ public class FindCommand
                 {
                     CommandError.Write(
                         "Cannot count type rows because one or more search sources were incomplete.");
-                    return 1;
+                    return new(1, RowCount: null);
                 }
                 if (!WriteCount(results, title, options))
-                    return 1;
+                    return new(1, RowCount: null);
             }
             else if (options.JsonOutput)
             {
@@ -150,12 +160,12 @@ public class FindCommand
                 WriteOutput(results, title, options);
             }
 
-            return 0;
+            return new(0, results.Count);
         }
         catch (Exception ex)
         {
             CommandError.Write(ex);
-            return 1;
+            return new(1, RowCount: null);
         }
     }
 
@@ -175,7 +185,7 @@ public class FindCommand
             + " no types.");
     }
 
-    private static async Task<int> ExecuteMemberSearchAsync(
+    private static async Task<FindExecutionResult> ExecuteMemberSearchAsync(
         FindOptions options,
         string[] patterns,
         RowSelectionIntent<string>? rowSelection,
@@ -193,7 +203,7 @@ public class FindCommand
         if (memberPatterns.Length == 0)
         {
             CommandError.Write("No member pattern specified.");
-            return 1;
+            return new(1, RowCount: null);
         }
 
         FindSearchResult<MemberFindResult> search =
@@ -211,7 +221,7 @@ public class FindCommand
                 "member",
                 out IReadOnlyList<MemberFindResult> selectedMembers))
         {
-            return 1;
+            return new(1, RowCount: null);
         }
         results = [.. selectedMembers];
         var title = memberPatterns.Length == 1 ? $"Find member: {memberPatterns[0]}" : "Find Members";
@@ -227,10 +237,10 @@ public class FindCommand
             {
                 CommandError.Write(
                     "Cannot count member rows because one or more search sources were incomplete.");
-                return 1;
+                return new(1, RowCount: null);
             }
             if (!WriteMemberCount(results, title, options))
-                return 1;
+                return new(1, RowCount: null);
         }
         else if (options.JsonOutput)
         {
@@ -253,7 +263,7 @@ public class FindCommand
             WriteMemberOutput(results, title, options);
         }
 
-        return 0;
+        return new(0, results.Count);
     }
 
     internal static bool TrySelectRows<T>(

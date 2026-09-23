@@ -102,7 +102,7 @@ public sealed partial class WorkspaceCommandTests
         string output = result.Output.Trim();
         if (format == WorkspaceShareFormat.Url)
         {
-            Assert.StartsWith("https://dotnet-inspect.net/?w=", output);
+            Assert.StartsWith("https://dotnet-inspect.ca/?w=", output);
             output = new Uri(output).Query["?w=".Length..];
         }
         using JsonDocument portable = JsonDocument.Parse(

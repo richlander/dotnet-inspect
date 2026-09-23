@@ -54,7 +54,7 @@ and presentation.
 credentials, transports, clients, stores, and disposal, but its
 composition-owned exact and selecting payload operations, asynchronous pinned
 candidate path, and candidate-manifest path now settle through PackageHouse.
-The CLI's online `package Package --latest-version` query and `@latest`
+The CLI's online `package Package@latest --versions` query and `@latest`
 package opening consume the shared `PackageVersionSettlementInspection`
 envelope, also used by Inspect Web exact/latest package opening. The shared inspection
 projects House `Settle` evidence into a serialization-ready outcome; hosts
@@ -767,7 +767,7 @@ lease. The inspection consumes that operation; hosts still own clients and
 the source root. A payload-free operation needs no Workspace.
 
 Production adoption has three steps within this slice: the shared boundary,
-CLI `package Package --latest-version` queries, and Inspect Web exact/latest
+CLI `package Package@latest --versions` queries, and Inspect Web exact/latest
 package opening.
 The CLI retains scalar/feed/listing presentation. Inspect Web retains the
 same baseline through its richer package-opening composition and transport,

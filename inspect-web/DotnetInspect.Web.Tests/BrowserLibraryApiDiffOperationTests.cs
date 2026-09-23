@@ -936,6 +936,44 @@ public sealed class BrowserLibraryApiDiffOperationTests
             Cancel(secondId, "user").Kind);
     }
 
+    [Theory]
+    [InlineData("{")]
+    [InlineData(
+        """
+        {
+          "schemaVersion": 2,
+          "packageId": "Example.Package",
+          "currentVersion": "2.0.0",
+          "targetVersion": "1.0.0",
+          "targetFramework": "net11.0",
+          "compileAssetId": "lib/net11.0/Example.dll"
+        }
+        """)]
+    public async Task InvalidRequestJsonReturnsExpectedTypedFailure(
+        string requestJson)
+    {
+        string json = await MetadataExports.QueryLibraryApiDiff(
+            Guid.NewGuid().ToString(),
+            requestJson);
+        BrowserLibraryApiDiffResult result =
+            JsonSerializer.Deserialize(
+                json,
+                BrowserMetadataJsonContext.Default
+                    .BrowserLibraryApiDiffResult)!;
+
+        Assert.Equal(
+            BrowserLibraryApiDiffResultKind.Failed,
+            result.Kind);
+        Assert.Equal(
+            BrowserLibraryApiDiffFailureKind.Expected,
+            result.FailureKind);
+        Assert.Null(result.Request);
+        Assert.Null(result.Value);
+        Assert.Null(result.Inspection);
+        Assert.NotNull(result.Error);
+        Assert.NotNull(result.Diagnostic);
+    }
+
     [Fact]
     public async Task SourceGeneratedJsonRoundTripsTheClosedInventoryShape()
     {

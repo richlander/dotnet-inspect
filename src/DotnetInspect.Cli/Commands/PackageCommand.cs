@@ -141,7 +141,7 @@ public partial class PackageCommand
 
         if (packageLibraryMode
             && options.Discover is not null
-            && options.Schema)
+            && (options.Schema || options.DiscoverDetails))
         {
             if (GetLibraryInspectionModeError(
                     options,
@@ -487,6 +487,20 @@ public partial class PackageCommand
         if (GetLibraryInspectionModeError(options) is { } libraryModeError)
         {
             CommandError.Write(libraryModeError);
+            return 1;
+        }
+        if (options.PackageLibrary is not null
+            && LibrarySectionCardinality.ValidateExactTerminals(
+                options.Select,
+                options.SelectDefault,
+                options.IncludeSections,
+                fixedOverview: false,
+                options.Verbosity,
+                options.Count,
+                options.Rows is not null,
+                options.Discover is not null) is { } cardinalityError)
+        {
+            CommandError.Write(cardinalityError);
             return 1;
         }
 
@@ -1529,7 +1543,7 @@ public partial class PackageCommand
                     WritePackagePrintProjection(result, extractPath, options),
                     result);
 
-            if (options.Bare)
+            if (options.Raw)
             {
                 return PackageIntegrityExitCode(
                     PrintPackageBareSelection(

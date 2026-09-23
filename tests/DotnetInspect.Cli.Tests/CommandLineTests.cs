@@ -55,16 +55,64 @@ public class CommandLineTests
         Assert.Empty(rendered.Errors);
         Assert.True(rendered.GetValue(option));
 
-        foreach (string removed in new[] { "--raw", "--blob" })
-        {
-            string[] tokens = [.. arguments, removed];
-            var (exit, output, error) = await ConsoleCapture.RunAsync(
-                () => CommandLineBuilder.InvokeAsync(root.Parse(tokens), tokens));
-            Assert.Equal(1, exit);
-            Assert.Empty(output);
-            Assert.Contains("Unrecognized", error, StringComparison.OrdinalIgnoreCase);
-            Assert.Contains($"'{removed}'", error, StringComparison.Ordinal);
-        }
+        string[] blobTokens = [.. arguments, "--blob"];
+        var (blobExit, blobOutput, blobError) = await ConsoleCapture.RunAsync(
+            () => CommandLineBuilder.InvokeAsync(root.Parse(blobTokens), blobTokens));
+        Assert.Equal(1, blobExit);
+        Assert.Empty(blobOutput);
+        Assert.Contains("Unrecognized", blobError, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("'--blob'", blobError, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// <c>--raw</c> was the SourceLink URL-shape flag until v0.26.0 removed it; it now
+    /// names the undecorated rendering on <c>package</c> and <c>project</c>. A legacy
+    /// URL-shape invocation therefore fails visibly rather than silently changing
+    /// meaning: on <c>package</c> the decoration modifier demands a single payload, and
+    /// on commands that never exposed it the token stays unrecognized.
+    /// </summary>
+    [Theory]
+    [InlineData("--raw requires exactly one -S section or --content payload.", "package", "Newtonsoft.Json")]
+    [InlineData("Unrecognized", "library", "Example.dll")]
+    [InlineData("Unrecognized", "type", "JsonReader", "--package", "Newtonsoft.Json")]
+    [InlineData("Unrecognized", "member", "JsonReader", "Read:1", "--package", "Newtonsoft.Json")]
+    public async Task LegacyRawUrlShape_FailsVisiblyUnderTheNewMeaning(
+        string expectedError, params string[] arguments)
+    {
+        var root = CommandLineBuilder.CreateRootCommand();
+        string[] tokens = [.. arguments, "--raw"];
+        var (exit, output, error) = await ConsoleCapture.RunAsync(
+            () => CommandLineBuilder.InvokeAsync(root.Parse(tokens), tokens));
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains(expectedError, error, StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
+    /// The one accepted reinterpretation: a legacy URL-shape <c>--raw</c> that already
+    /// selects a single URL section takes the new meaning and prints undecorated URLs.
+    /// The values are unchanged because the fetchable shape is now the default.
+    /// </summary>
+    [Fact]
+    public async Task LegacyRawUrlShape_OnASingleUrlSection_PrintsUndecoratedFetchableUrls()
+    {
+        // In-process invocation skips Program's cache setup; the SourceLink path
+        // needs the persistent cache, so set it up here as the other command tests do.
+        DotnetInspector.Cache.PersistentCache.Initialize("dotnet-inspect-test");
+        var root = CommandLineBuilder.CreateRootCommand();
+        string[] tokens =
+        [
+            "package", "Newtonsoft.Json@13.0.4", "-S", "SourceLink: Files", "-n", "1", "--raw",
+        ];
+        var (exit, output, error) = await ConsoleCapture.RunAsync(
+            () => CommandLineBuilder.InvokeAsync(root.Parse(tokens), tokens));
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        string line = Assert.Single(
+            output.Split(Environment.NewLine, StringSplitOptions.RemoveEmptyEntries));
+        Assert.StartsWith("https://raw.githubusercontent.com/", line, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -2073,7 +2121,7 @@ public class CommandLineTests
     }
 
     [Fact]
-    public async Task Router_LatestVersionFlag_RequiresExplicitPackageCommand()
+    public async Task Router_LatestVersionFlag_IsAnOrdinaryUnrecognizedToken()
     {
         var root = CommandLineBuilder.CreateRootCommand();
         string[] args = CommandLineBuilder.PreprocessArgs(
@@ -2086,7 +2134,7 @@ public class CommandLineTests
         Assert.Equal(1, exit);
         Assert.Empty(output);
         Assert.Contains(
-            "'--latest-version' requires the explicit 'package' command",
+            "Unrecognized command or argument '--latest-version'",
             error,
             StringComparison.Ordinal);
     }

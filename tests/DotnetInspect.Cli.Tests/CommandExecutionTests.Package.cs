@@ -698,7 +698,7 @@ public partial class CommandExecutionTests
 
     [Theory]
     [InlineData("Newtonsoft.Json@13.0.4", "--versions", "1")]
-    [InlineData("Newtonsoft.Json", "--latest-version", null)]
+    [InlineData("Newtonsoft.Json@latest", "--versions", null)]
     [InlineData("Newtonsoft.Json", "--versions-with-feed", "1")]
     public async Task Versions_Count_ValidatesTheRenderedBranchColumns(
         string package,
@@ -727,8 +727,8 @@ public partial class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "package",
-            "Newtonsoft.Json",
-            "--latest-version",
+            "Newtonsoft.Json@latest",
+            "--versions",
             "--include-unlisted",
             "--count",
             "--columns",
@@ -2082,9 +2082,9 @@ public partial class CommandExecutionTests
             Assert.Equal(0, comboExit);
             Assert.Contains("'@Default' not found", comboError, StringComparison.Ordinal);
 
-            var (bareExit, bareOutput, bareError) = await RunAppAsync("package", packagePath, "-S");
+            var (bareExit, rawOutput, bareError) = await RunAppAsync("package", packagePath, "-S");
             Assert.Equal(0, bareExit);
-            Assert.Contains("## Package Info", bareOutput);
+            Assert.Contains("## Package Info", rawOutput);
             Assert.DoesNotContain("@Default", bareError, StringComparison.Ordinal);
         }
         finally
@@ -2703,7 +2703,7 @@ public partial class CommandExecutionTests
         try
         {
             var (exit, output, error) = await RunAppAsync(
-                "package", packagePath, "--path", "@readme", "--content", "--bare",
+                "package", packagePath, "--path", "@readme", "--content", "--raw",
                 "--output", outputPath);
 
             Assert.Equal(0, exit);

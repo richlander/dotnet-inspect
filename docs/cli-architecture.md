@@ -23,9 +23,9 @@ See:
   [style guide](design/style-guide.md) for presentation contracts; and
 - [LLM design](llm-design.md) for agent-facing workflows and output choices.
 
-Current command behavior and examples belong in the root
-[`README.md`](../README.md), the embedded product skills, and tests rather than
-in this architecture guide.
+Current command behavior and examples belong in the
+[CLI reference](cli-reference.md), the embedded product skills, and tests
+rather than in this architecture guide.
 
 ## Host responsibilities
 
