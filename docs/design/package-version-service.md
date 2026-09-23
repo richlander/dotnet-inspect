@@ -37,12 +37,15 @@ acquisition stay with their owners.
 Two claims transfer to version resolution, both described below: a new
 receipt arm, `Prior`, and a new `PackageVersionDiscoveryFreshness` value,
 `ServedPrior`, which only the `Prior` arm may carry. This document names
-them; version resolution adopts them when the service is implemented. Two
+them; version resolution adopts them when the service is implemented. Three
 bounded rules transfer to PackageHouse: its decision receipt accepts `Prior`
-for a selecting demand, and when acquisition after a `Prior` decision ends in
-`NotFound`, PackageHouse reports the coordinate to the service's eviction
-entry point and appends a `Stage(Acquisition)` failure that names the
-eviction. No other owner's contract changes.
+for a selecting demand; its terminal-outcome preservation treats `Prior` as
+a settled arm exactly as it treats `Resolved`, so every post-acquisition
+result, success or typed failure, may carry a `Prior` decision; and when
+acquisition after a `Prior` decision ends in `NotFound`, PackageHouse passes
+the `Prior` receipt's request and the demand's authorization to the service's
+eviction entry point and appends a `Stage(Acquisition)` failure that names
+the eviction. No other owner's contract changes.
 
 ## Basis
 
@@ -150,11 +153,14 @@ whichever later operation acquires the coordinate.
 That failure stays visible, as any acquisition failure does: the request
 fails now with the ordinary not-found result. Only PackageHouse observes that
 failure, so PackageHouse is the component that evicts: on `NotFound` after a
-`Prior` decision it reports the coordinate to the service's eviction entry
-point and appends a `Stage(Acquisition)` failure stating that a retained
-prior was evicted, so a caller can rerun at once and the next request settles
-by discovery. Neither PackageHouse nor the service re-enters settlement within
-the same demand. This is not
+`Prior` decision it passes the `Prior` receipt's request and the demand's
+authorization, which together identify the store key, to the service's
+eviction entry point and appends a `Stage(Acquisition)` failure stating that
+a retained prior was evicted, so a caller can rerun at once and the next
+request settles by discovery. Every other typed failure after a `Prior`
+decision is reported as it would be after a `Resolved` one, with no eviction.
+Neither PackageHouse nor the service re-enters settlement within the same
+demand. This is not
 a bound request degrading: the binding was the product's own prior, not a
 version the user supplied or accepted, and the user-visible outcome is one
 visible failure followed by fresh discovery, never a silent substitution.
@@ -166,7 +172,10 @@ request, the prior coordinate, the pinned candidate the current generation
 issued for it, the freshness (`Current` or `ServedPrior`), and for
 `ServedPrior` the entry's age. It retains no discovery result. PackageHouse's
 decision receipt accepts `Prior` for a selecting demand when its coordinate and
-candidate match the receipt, alongside the existing `Resolved` rule.
+candidate match the receipt, alongside the existing `Resolved` rule, and its
+terminal-outcome preservation treats `Prior` as a settled arm exactly as it
+treats `Resolved`, so a settled or failed acquisition after a `Prior`
+decision reports its ordinary typed result rather than rejecting the receipt.
 
 `PackageVersionDiscoveryFreshness` gains `ServedPrior`. Only the `Prior` arm
 may carry it: version resolution's discovery-compatibility rule rejects
@@ -225,7 +234,8 @@ before this design, with the target under one second warm and no cliff.
 1. This document; the service with its contract suite, including its
    eviction entry point; the `Prior` receipt arm and `ServedPrior` freshness
    value adopted by version resolution, including the rule that only `Prior`
-   carries `ServedPrior`; the decision-receipt rule extended in PackageHouse.
+   carries `ServedPrior`; the decision-receipt and terminal-outcome rules
+   extended in PackageHouse so `Prior` is a settled arm.
 2. `PackageHouse` selecting demands adopt it for `LatestStable` and
    `LatestPrerelease`, together with the eviction hook and its
    `Stage(Acquisition)` failure on the not-found path, since this is the
