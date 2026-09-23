@@ -514,8 +514,6 @@ internal sealed class LocalDeclarationPlan
                             out int materializedSlot);
                     if (store.PdbScopeEntryProjection is not null)
                         _scopeEntryProjections.Add(store.Index, store);
-                    if (_function.IsProducerOnlySlotLocal(store.Index))
-                        break;
                     if (entryStatements.Contains(store)
                         && (!materializedSlotLocal
                             || materializedSlotStoreCounts[
@@ -525,6 +523,10 @@ internal sealed class LocalDeclarationPlan
                             || !HasBranchTargetAfterStatement(store)))
                     {
                         AddLocalDeclaration(store);
+                    }
+                    else if (_function.IsProducerOnlySlotLocal(store.Index))
+                    {
+                        break;
                     }
                     else if (store.Type.Kind == TypeRefKind.ByRef
                         && materializedSlotLocal)

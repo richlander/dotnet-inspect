@@ -351,6 +351,61 @@ public class ExactManagedReferenceSlotMaterializationTests
     }
 
     [Fact]
+    public void ProducerOnlyEntryStoreRetainsInlineDeclaration()
+    {
+        var body = new BlockContainer();
+        var entry = new Block(0);
+        entry.Add(new StoreStackSlot(
+            0,
+            new LoadLocalAddress(0, Int32)));
+        entry.Add(new Branch(8));
+        var exit = new Block(4);
+        exit.Add(new Return(null));
+        var diagnosed = new Block(8);
+        diagnosed.Add(new ExpressionStatement(
+            new Call(
+                new MethodRef(
+                    Int32,
+                    ".ctor",
+                    TypeRef.CoreLib("System", "Void"),
+                    [],
+                    HasThis: true),
+                isVirtual: false,
+                [new LoadStackSlot(0, RefInt32)])));
+        diagnosed.Add(new Branch(4));
+        body.Add(entry);
+        body.Add(exit);
+        body.Add(diagnosed);
+        var function = new IrFunction(
+            "M",
+            Owner,
+            new MethodSignature(
+                TypeRef.CoreLib("System", "Void"),
+                [],
+                HasThis: false,
+                GenericParameterCount: 0),
+            [Int32],
+            body);
+
+        new ConstructorCallDiagnosticsPass().Run(
+            function,
+            PassContext.None);
+        Assert.Empty(function.Descendants.OfType<LoadStackSlot>());
+        var decision = Assert.Single(
+            SlotMaterializationPass.Analyze(function));
+        Assert.True(decision.WillMaterialize, decision.Vetoes.ToString());
+        new SlotMaterializationPass().Run(
+            function,
+            PassContext.None);
+
+        var result = CSharpPrinter.Print(function);
+        Assert.True(result.Succeeded);
+        Assert.Contains("ref int S_0 = ref V_0;", result.Output);
+        Assert.DoesNotContain("Unsafe.NullRef", result.Output);
+        function.CheckInvariant(includeSemantics: true);
+    }
+
+    [Fact]
     public void StoreOnlyManagedReferenceRequiresUnanimousProducers()
     {
         var function = Function(
