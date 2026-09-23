@@ -262,7 +262,7 @@ internal static class ExternalCallGraphOutputAdapter
 
     static string GraphTitle(ExternalCallGraphOptions options) =>
         options.SupplyChainBaseline
-            is MemberCallGraphSupplyChainBaseline.Nothing
+            is PackageSupplyChainBaseline.Nothing
             ? "External Call Graph"
             : "Supply Chain Call Graph";
 

@@ -739,7 +739,7 @@ public sealed class ExternalCallGraphCommandTests
         Assert.Equal("3.0.0", package.PackageVersion);
         Assert.Equal("netstandard2.0", package.TargetFramework);
         Assert.Equal(
-            MemberCallGraphSupplyChainBaseline
+            PackageSupplyChainBaseline
                 .SelfAndRegisteredEcosystems,
             available.Document.Baseline.Kind);
         Assert.Contains(
@@ -929,8 +929,9 @@ public sealed class ExternalCallGraphCommandTests
                         SourceBoundedRoots: 0,
                         PartialRoots: 0),
                     [],
-                    new PackageDependencyMemberCallGraphBaseline(
-                        MemberCallGraphSupplyChainBaseline.Nothing,
+                    new PackageSupplyChainBaselineEvidence(
+                        PackageSupplyChainBaseline.Nothing,
+                        ["test.root"],
                         [],
                         []),
                     [],
