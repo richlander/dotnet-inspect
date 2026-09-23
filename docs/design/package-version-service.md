@@ -37,9 +37,12 @@ acquisition stay with their owners.
 Two claims transfer to version resolution, both described below: a new
 receipt arm, `Prior`, and a new `PackageVersionDiscoveryFreshness` value,
 `ServedPrior`, which only the `Prior` arm may carry. This document names
-them; version resolution adopts them when the service is implemented. One
-bounded rule transfers to PackageHouse: its decision receipt accepts `Prior`
-for a selecting demand. No other owner's contract changes.
+them; version resolution adopts them when the service is implemented. Two
+bounded rules transfer to PackageHouse: its decision receipt accepts `Prior`
+for a selecting demand, and when acquisition after a `Prior` decision ends in
+`NotFound`, PackageHouse reports the coordinate to the service's eviction
+entry point and appends a `Stage(Acquisition)` failure that names the
+eviction. No other owner's contract changes.
 
 ## Basis
 
@@ -145,11 +148,13 @@ settlement only and is never checked for existence; the check happens in
 whichever later operation acquires the coordinate.
 
 That failure stays visible, as any acquisition failure does: the request
-fails now with the ordinary not-found result, and the service evicts the
-entry so the next request settles by discovery. The service does not re-enter
-settlement within the same demand; doing so would be a second PackageHouse
-contract change beyond the one this document names. The diagnostic states
-that a retained prior was evicted, so a caller can rerun at once. This is not
+fails now with the ordinary not-found result. Only PackageHouse observes that
+failure, so PackageHouse is the component that evicts: on `NotFound` after a
+`Prior` decision it reports the coordinate to the service's eviction entry
+point and appends a `Stage(Acquisition)` failure stating that a retained
+prior was evicted, so a caller can rerun at once and the next request settles
+by discovery. Neither PackageHouse nor the service re-enters settlement within
+the same demand. This is not
 a bound request degrading: the binding was the product's own prior, not a
 version the user supplied or accepted, and the user-visible outcome is one
 visible failure followed by fresh discovery, never a silent substitution.
@@ -217,16 +222,18 @@ before this design, with the target under one second warm and no cliff.
 
 ## Adoption
 
-1. This document; the service with its contract suite; the `Prior` receipt
-   arm and `ServedPrior` freshness value adopted by version resolution,
-   including the rule that only `Prior` carries `ServedPrior`; the
-   decision-receipt rule extended in PackageHouse; the eviction diagnostic
-   on the not-found acquisition path.
+1. This document; the service with its contract suite, including its
+   eviction entry point; the `Prior` receipt arm and `ServedPrior` freshness
+   value adopted by version resolution, including the rule that only `Prior`
+   carries `ServedPrior`; the decision-receipt rule extended in PackageHouse.
 2. `PackageHouse` selecting demands adopt it for `LatestStable` and
-   `LatestPrerelease`. This is the primary CLI path; `Name` and `Name@latest`
-   become observable there. Corrective but breaking: `Name` stops discovering
-   on every request. `Wildcard` and `Range` continue to discover until a
-   later slice adopts their keys.
+   `LatestPrerelease`, together with the eviction hook and its
+   `Stage(Acquisition)` failure on the not-found path, since this is the
+   first point where priors are served and case 9 becomes runnable. This is
+   the primary CLI path; `Name` and `Name@latest` become observable there.
+   Corrective but breaking: `Name` stops discovering on every request.
+   `Wildcard` and `Range` continue to discover until a later slice adopts
+   their keys.
 3. `PackageExtractor` latest resolution adopts it for `find`, the search
    scopes, and unversioned `AssemblySetRequest` acquisition; its private TTL
    check, `CachedVersionResolutionTimeout`, and cached-version error path
