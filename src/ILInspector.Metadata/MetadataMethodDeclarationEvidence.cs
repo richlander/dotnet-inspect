@@ -203,6 +203,9 @@ internal sealed class MetadataMethodDeclarationEvidenceOperation
                 MetadataMethodDeclarationMechanism.RowRead, methodHandle);
             MethodDefinition definition = Read(site,
                 () => _reader.GetMethodDefinition(methodHandle));
+            int relativeVirtualAddress = Read(
+                site,
+                () => definition.RelativeVirtualAddress);
             Charge(site with { Mechanism =
                 MetadataMethodDeclarationMechanism.DirectOwnership },
                 MetadataOperationDimension.RelationshipEdges);
@@ -379,7 +382,7 @@ internal sealed class MetadataMethodDeclarationEvidenceOperation
             token.ThrowIfCancellationRequested();
             return new MetadataMethodDeclarationResult.Posted(
                 new(type, method, inertName, definition.Attributes,
-                    definition.ImplAttributes, definition.RelativeVirtualAddress != 0,
+                    definition.ImplAttributes, relativeVirtualAddress != 0,
                     identity, typeParameters, methodParameters,
                     rows[0] ?? noRow, parameters.MoveToImmutable(),
                     constructor, IsOperatorCandidate(name, special),

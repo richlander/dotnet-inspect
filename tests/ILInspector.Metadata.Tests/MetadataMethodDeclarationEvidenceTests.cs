@@ -252,6 +252,26 @@ public sealed class MetadataMethodDeclarationEvidenceTests
     }
 
     [Fact]
+    public void HighBitMethodRvaReturnsTypedRejection()
+    {
+        using var fixture = Fixture.Create(
+            highBitMethodRva: true);
+
+        var rejected = Assert.IsType<MetadataMethodDeclarationResult.Rejected>(
+            Run(fixture));
+
+        Assert.Equal(
+            MetadataMethodDeclarationFailureReason.MalformedMetadata,
+            rejected.Failure.Reason);
+        Assert.Equal(
+            MetadataMethodDeclarationStage.MethodDefinitionRead,
+            rejected.Failure.Stage);
+        Assert.Equal(
+            HandleKind.MethodDefinition,
+            rejected.Failure.RelevantHandle.Kind);
+    }
+
+    [Fact]
     public void MalformedConstraintRejectsTheWholePost()
     {
         using var fixture = Fixture.Create(generic: true,
@@ -754,6 +774,7 @@ public sealed class MetadataMethodDeclarationEvidenceTests
             bool invalidConstraintCodedIndex = false,
             bool malformedParameterRange = false,
             bool decreasingParameterRange = false,
+            bool highBitMethodRva = false,
             bool nestedOwner = false,
             bool invalidAncestorGenericIndex = false,
             bool unsortedCustomAttributes = false,
@@ -959,6 +980,21 @@ public sealed class MetadataMethodDeclarationEvidenceTests
                 new MetadataRootBuilder(metadata, suppressValidation: true),
                 new BlobBuilder(), flags: CorFlags.ILOnly).Serialize(image);
             byte[] imageBytes = image.ToArray();
+            if (highBitMethodRva)
+            {
+                using var probe = new PEReader(
+                    new MemoryStream(imageBytes, writable: false));
+                MetadataReader probeReader = probe.GetMetadataReader();
+                int methodOffset =
+                    probe.PEHeaders.MetadataStartOffset
+                    + probeReader.GetTableMetadataOffset(
+                        TableIndex.MethodDef);
+                BinaryPrimitives.WriteUInt32LittleEndian(
+                    imageBytes.AsSpan(
+                        methodOffset,
+                        sizeof(uint)),
+                    0x8000_0000u);
+            }
             if (invalidConstraintCodedIndex)
             {
                 using var probe = new PEReader(
