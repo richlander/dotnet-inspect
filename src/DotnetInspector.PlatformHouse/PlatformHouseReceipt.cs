@@ -180,6 +180,14 @@ public enum PlatformAssemblyReferenceCompletionKind
     NoNameOwner,
 }
 
+/// <summary>The closed completed shapes of type-definition resolution.</summary>
+public enum PlatformTypeDefinitionCompletionKind
+{
+    Reference,
+    Implementation,
+    ReferenceAndImplementation,
+}
+
 /// <summary>
 /// House-controlled, resource-free proof that the exact operation reached its
 /// completed contract.
@@ -316,35 +324,47 @@ public abstract class PlatformHouseCompletion
     {
         internal TypeDefinition(
             PlatformHouseOperationSnapshot.ResolveTypeDefinition operation,
-            PlatformMetadataOutcomeEvidence referenceOutcome,
+            PlatformMetadataOutcomeEvidence startingOutcome,
             PlatformMetadataOutcomeEvidence? implementationOutcome,
             IEnumerable<PlatformSourceSettlement> selectedContributions,
             PlatformViewCorrespondenceEvidence? correspondence)
             : base(operation)
         {
-            ArgumentNullException.ThrowIfNull(referenceOutcome);
+            ArgumentNullException.ThrowIfNull(startingOutcome);
             ArgumentNullException.ThrowIfNull(selectedContributions);
             PlatformSourceSettlement[] snapshot = [.. selectedContributions];
-            bool implementationRequired = operation.RequiredView
-                is PlatformViewDemand.Implementation
-                    or PlatformViewDemand.ReferenceAndImplementation;
-            if (implementationRequired)
+            if (operation.StartingView == PlatformViewDemand.Implementation)
+            {
+                if (operation.RequiredView != PlatformViewDemand.Implementation
+                    || implementationOutcome is not null
+                    || snapshot.Length != 0
+                    || correspondence is not null
+                    || startingOutcome.TerminalSupplier is not null
+                    || startingOutcome.Correspondence is not null)
+                {
+                    throw new ArgumentException(
+                        "Direct implementation resolution requires one Metadata outcome and no view transition evidence.",
+                        nameof(startingOutcome));
+                }
+                Kind = PlatformTypeDefinitionCompletionKind.Implementation;
+                ReferenceOutcome = null;
+                ImplementationOutcome = startingOutcome.Identity;
+            }
+            else if (operation.StartingView == PlatformViewDemand.Reference
+                && operation.RequiredView
+                    is PlatformViewDemand.Implementation
+                        or PlatformViewDemand.ReferenceAndImplementation)
             {
                 ArgumentNullException.ThrowIfNull(implementationOutcome);
                 if (ReferenceEquals(
-                        referenceOutcome.Identity,
+                        startingOutcome.Identity,
                         implementationOutcome.Identity))
                 {
                     throw new ArgumentException(
                         "Reference and implementation resolution require distinct Metadata outcomes.",
                         nameof(implementationOutcome));
                 }
-                if (correspondence is null)
-                {
-                    throw new ArgumentNullException(
-                        nameof(correspondence),
-                        "Implementation resolution requires view correspondence.");
-                }
+                ArgumentNullException.ThrowIfNull(correspondence);
                 _ = ValidateSelectedRealizations(
                     PlatformViewDemand.Implementation,
                     population: null,
@@ -366,22 +386,40 @@ public abstract class PlatformHouseCompletion
                         "The implementation Metadata outcome must retain the selected physical supplier and exact view correspondence.",
                         nameof(implementationOutcome));
                 }
+                Kind = PlatformTypeDefinitionCompletionKind
+                    .ReferenceAndImplementation;
+                ReferenceOutcome = startingOutcome.Identity;
+                ImplementationOutcome = implementationOutcome.Identity;
             }
-            else if (implementationOutcome is not null
-                || snapshot.Length != 0
-                || correspondence is not null)
+            else if (operation.StartingView == PlatformViewDemand.Reference
+                && operation.RequiredView == PlatformViewDemand.Reference)
+            {
+                if (implementationOutcome is not null
+                    || snapshot.Length != 0
+                    || correspondence is not null
+                    || startingOutcome.TerminalSupplier is not null
+                    || startingOutcome.Correspondence is not null)
+                {
+                    throw new ArgumentException(
+                        "Reference-only type resolution requires one Metadata outcome and no implementation evidence.",
+                        nameof(startingOutcome));
+                }
+                Kind = PlatformTypeDefinitionCompletionKind.Reference;
+                ReferenceOutcome = startingOutcome.Identity;
+                ImplementationOutcome = null;
+            }
+            else
             {
                 throw new ArgumentException(
-                    "Reference-only type resolution does not require an implementation supplier.",
-                    nameof(selectedContributions));
+                    "The type-resolution start and required views are unsupported.",
+                    nameof(operation));
             }
-            ReferenceOutcome = referenceOutcome.Identity;
-            ImplementationOutcome = implementationOutcome?.Identity;
             SelectedContributions = Array.AsReadOnly(snapshot);
             Correspondence = correspondence?.Identity;
         }
 
-        public PlatformMetadataOutcomeIdentity ReferenceOutcome { get; }
+        public PlatformTypeDefinitionCompletionKind Kind { get; }
+        public PlatformMetadataOutcomeIdentity? ReferenceOutcome { get; }
         public PlatformMetadataOutcomeIdentity? ImplementationOutcome { get; }
         public IReadOnlyList<PlatformSourceSettlement> SelectedContributions
         {
@@ -415,10 +453,36 @@ public abstract class PlatformHouseCompletion
         }
 
         internal PlatformHouseCompletedValue<
+            PlatformTypeDefinitionValue.Implementation<TOutcome>>
+            BindImplementation<TOutcome>(
+                PlatformMetadataOutcomeEvidence<TOutcome>
+                    implementationOutcome)
+            where TOutcome : notnull
+        {
+            ArgumentNullException.ThrowIfNull(implementationOutcome);
+            if (Kind != PlatformTypeDefinitionCompletionKind.Implementation
+                || ReferenceOutcome is not null
+                || !ReferenceEquals(
+                    ImplementationOutcome,
+                    implementationOutcome.Identity))
+            {
+                throw new ArgumentException(
+                    "The live implementation outcome must match an implementation-only completion.",
+                    nameof(implementationOutcome));
+            }
+            return new(
+                Identity,
+                new PlatformTypeDefinitionValue.Implementation<TOutcome>(
+                    implementationOutcome.Value));
+        }
+
+        internal PlatformHouseCompletedValue<
             PlatformTypeDefinitionValue.ReferenceAndImplementation<
                 TReferenceOutcome,
                 TImplementationOutcome>>
-            BindImplementation<TReferenceOutcome, TImplementationOutcome>(
+            BindReferenceAndImplementation<
+                TReferenceOutcome,
+                TImplementationOutcome>(
                 PlatformMetadataOutcomeEvidence<TReferenceOutcome>
                     referenceOutcome,
                 PlatformMetadataOutcomeEvidence<TImplementationOutcome>
@@ -1002,9 +1066,9 @@ public sealed class PlatformHouseReceipt
             bool retainedAbsence =
                 retained.Contribution
                     is PlatformSourceContribution.Unavailable
-                    {
-                        Reason: PlatformSourceUnavailabilityKind.Absent,
-                    }
+                {
+                    Reason: PlatformSourceUnavailabilityKind.Absent,
+                }
                 && retained.Disposition
                     == PlatformSourceSettlementDisposition.OutcomeRelevant;
             if (!retainedInventory && !retainedAbsence)

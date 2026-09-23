@@ -177,14 +177,14 @@ public sealed class PlatformRoutePrerequisitesIdentity
     public override string ToString() => Name;
 }
 
-/// <summary>Resource-free identity for one starting reference candidate.</summary>
-public sealed class PlatformReferenceCandidateIdentity
+/// <summary>Resource-free identity for one starting type-resolution candidate.</summary>
+public sealed class PlatformTypeResolutionCandidateIdentity
 {
-    private PlatformReferenceCandidateIdentity(string name) => Name = name;
+    private PlatformTypeResolutionCandidateIdentity(string name) => Name = name;
 
     public string Name { get; }
 
-    internal static PlatformReferenceCandidateIdentity Issue(string name) =>
+    internal static PlatformTypeResolutionCandidateIdentity Issue(string name) =>
         new(PlatformHouseIdentityName.Validate(name));
 
     public override string ToString() => Name;
