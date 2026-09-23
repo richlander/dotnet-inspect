@@ -293,7 +293,8 @@ internal readonly record struct PackageArchiveEntry(
 internal sealed class PackageArchiveEntryReadStream : Stream
 {
     private readonly Stream _content;
-    private readonly PackageArchiveEntry _entry;
+    private readonly ulong _expectedLength;
+    private readonly uint _expectedCrc32;
     private readonly long _maxExpandedBytes;
     private ZipCrc32 _crc = new();
     private long _expandedBytes;
@@ -303,10 +304,26 @@ internal sealed class PackageArchiveEntryReadStream : Stream
     internal PackageArchiveEntryReadStream(
         Stream content,
         PackageArchiveEntry entry,
+        long maxExpandedBytes) :
+        this(
+            content,
+            entry.UncompressedSize,
+            entry.Crc32,
+            maxExpandedBytes)
+    {
+    }
+
+    internal PackageArchiveEntryReadStream(
+        Stream content,
+        ulong expectedLength,
+        uint expectedCrc32,
         long maxExpandedBytes)
     {
+        ArgumentNullException.ThrowIfNull(content);
+        ArgumentOutOfRangeException.ThrowIfNegative(maxExpandedBytes);
         _content = content;
-        _entry = entry;
+        _expectedLength = expectedLength;
+        _expectedCrc32 = expectedCrc32;
         _maxExpandedBytes = maxExpandedBytes;
     }
 
@@ -317,7 +334,7 @@ internal sealed class PackageArchiveEntryReadStream : Stream
     public override bool CanWrite => false;
 
     public override long Length =>
-        checked((long)_entry.UncompressedSize);
+        checked((long)_expectedLength);
 
     public override long Position
     {
@@ -380,8 +397,8 @@ internal sealed class PackageArchiveEntryReadStream : Stream
         int read = bytes.Length;
         if (read == 0)
         {
-            if ((ulong)_expandedBytes != _entry.UncompressedSize
-                || _crc.Value != _entry.Crc32)
+            if ((ulong)_expandedBytes != _expectedLength
+                || _crc.Value != _expectedCrc32)
             {
                 throw new InvalidDataException(
                     "Package entry does not match its declared size or checksum.");
@@ -393,7 +410,7 @@ internal sealed class PackageArchiveEntryReadStream : Stream
 
         if (read > _maxExpandedBytes - _expandedBytes
             || (ulong)read
-                > _entry.UncompressedSize - (ulong)_expandedBytes)
+                > _expectedLength - (ulong)_expandedBytes)
         {
             throw new InvalidDataException(
                 "Package entry exceeds its declared or configured byte limit.");

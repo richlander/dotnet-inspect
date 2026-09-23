@@ -766,7 +766,9 @@ no adapter and retain their current behavior. Host adoption must begin from a
 live House settlement rather than wrapping an already materialized `byte[]` or
 legacy file read in a stream. Package content that does not implement the
 internal House pull capability fails visibly; the House does not fall back to
-the legacy eager entry-opening contract.
+the legacy eager entry-opening contract. Filesystem content additionally
+requires a retained package archive: its declared entry size and CRC validate
+the extracted-file stream, while archive-less content is visibly unsupported.
 
 `PackageHouseExecutionTests.ExactPayloadRead_IsColdAndPullsFromTheHouseGeneration`
 gates cold start, pre-read cancellation, receipt association, and progressive

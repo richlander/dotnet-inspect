@@ -1,4 +1,5 @@
 using System.Diagnostics.CodeAnalysis;
+using System.IO.Compression;
 using System.Security.Cryptography;
 
 namespace DotnetInspector.Packages;
@@ -170,8 +171,66 @@ public sealed class FileSystemPackageContent :
     bool IPackageHousePayloadSource.TryOpenPayloadRead(
         string relativePath,
         long maxExpandedBytes,
-        [NotNullWhen(true)] out Stream? stream) =>
-        TryOpenEntry(relativePath, maxExpandedBytes, out stream);
+        [NotNullWhen(true)] out Stream? stream)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(relativePath);
+        ArgumentOutOfRangeException.ThrowIfNegative(maxExpandedBytes);
+        string path = ResolveEntryPath(relativePath);
+        if (NupkgPath is null || !File.Exists(NupkgPath))
+        {
+            throw new NotSupportedException(
+                "Filesystem PackageHouse payload reads require a retained package archive.");
+        }
+
+        using FileStream package = File.OpenRead(NupkgPath);
+        using var archive = new ZipArchive(
+            package,
+            ZipArchiveMode.Read);
+        ZipArchiveEntry? entry = archive.GetEntry(relativePath)
+            ?? archive.Entries.FirstOrDefault(candidate =>
+                candidate.FullName.Equals(
+                    relativePath,
+                    StringComparison.OrdinalIgnoreCase));
+        if (entry is null)
+        {
+            stream = null;
+            return false;
+        }
+        if (entry.Length < 0
+            || entry.Length > maxExpandedBytes)
+        {
+            throw new InvalidDataException(
+                "Package entry exceeds the configured byte limit.");
+        }
+
+        var file = new FileInfo(path);
+        if (!file.Exists)
+        {
+            stream = null;
+            return false;
+        }
+        if (file.Length != entry.Length)
+        {
+            throw new InvalidDataException(
+                "Extracted package entry does not match its declared size.");
+        }
+
+        Stream content = file.OpenRead();
+        try
+        {
+            stream = new PackageArchiveEntryReadStream(
+                content,
+                checked((ulong)entry.Length),
+                entry.Crc32,
+                maxExpandedBytes);
+            return true;
+        }
+        catch
+        {
+            content.Dispose();
+            throw;
+        }
+    }
 
     /// <inheritdoc />
     public IEnumerable<string> EnumerateEntries()
