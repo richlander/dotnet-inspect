@@ -38,7 +38,7 @@ env:
 
 concurrency:
   group: deep-inspect-${{ github.ref }}-${{ github.event.schedule || inputs.lane }}
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   package-sweep:
