@@ -13,11 +13,21 @@ import type {
   BrowserCallGraph,
   BrowserHomeDemoCatalogEntry,
   BrowserHomeDemoRunResult,
+  BrowserWorkspacePackageSourceRequirement,
 } from "../src/facades/inspect-web-catalog.d.ts";
 import type { PlatformAssemblyRow, PlatformCatalogTarget } from "../src/platform-index.ts";
 
 function subjectTab(page: Page, subject: string) {
   return page.locator(`[data-subject-tab][data-scope="${subject}"]`);
+}
+
+async function openProductDestination(
+  page: Page,
+  destination: "home" | "query" | "workspace" | "activity",
+): Promise<void> {
+  await page.locator("[data-product-navigation-button]").click();
+  await page.locator(
+    `[data-product-destination="${destination}"]`).click();
 }
 
 function inspectorTab(page: Page, attribute: string, inspector: string) {
@@ -267,6 +277,7 @@ async function installFacades(
   homeDemos?: HomeDemoFixture,
   diagnostics: DiagnosticsFixture = {},
   packageLoading: PackageLoadingFixture = {},
+  workspaceSources: readonly BrowserWorkspacePackageSourceRequirement[] = [],
   libraryUpload: LibraryUploadFixture = "available",
 ) {
   const catalogTarget: PlatformCatalogTarget = {
@@ -434,6 +445,9 @@ async function installFacades(
         kind: "method",
         platformPack: null,
         surfaceAssemblyId: graphTargetLibrary.id,
+        packageId: null,
+        packageVersion: null,
+        packageFramework: null,
       }
     : null;
   const graphTargetNode = graphTarget
@@ -485,6 +499,7 @@ async function installFacades(
       bindingIdentityConflicts: 0,
       hasUnexploredTraversalBoundary: false,
       hasAnalysisFailureBoundary: false,
+      unavailableDependencyRoutes: 0,
       isIncomplete: false,
     },
     noBody: false,
@@ -700,8 +715,8 @@ async function installFacades(
           .map(candidate => ({ key: candidate.key, kind: "substring" }));
       }
       export function clearWorkspacePackageOccurrences() {}
-      export async function queryWorkspacePackageOccurrences(json) {
-        return { superseded: false, occurrences: JSON.parse(json).map(coordinate => ({
+      export async function queryWorkspacePackageOccurrences(workspace) {
+        return { superseded: false, occurrences: workspace.map(coordinate => ({
           ...coordinate, action: JSON.stringify(coordinate),
         })) };
       }
@@ -1204,6 +1219,7 @@ async function installFacades(
       const homeDemos = ${JSON.stringify(homeDemos?.catalog ?? [])};
       const homeDemoResults = ${JSON.stringify(homeDemos?.results ?? {})};
       const homeDemoCatalogPending = ${Boolean(homeDemos?.catalogPending)};
+      const workspaceSources = ${JSON.stringify(workspaceSources)};
       export function listVocabulary() { return { schema_version: 1, sections: [] }; }
       export async function listHomeDemos() {
         if (homeDemoCatalogPending) {
@@ -1243,7 +1259,10 @@ async function installFacades(
           return {
             succeeded: false,
             packet: null,
-            failure: { kind: "Fixture", message: "Fixture workspace projection failure." },
+            failure: {
+              kind: "Fixture",
+              message: "Fixture workspace projection failure.",
+            },
           };
         }
         return {
@@ -1254,6 +1273,9 @@ async function installFacades(
       }
       export function decodeWorkspaceShareState(packet) {
         return { succeeded: true, state: JSON.parse(atob(packet)), failure: null };
+      }
+      export function describeWorkspacePackageSources() {
+        return { succeeded: true, sources: workspaceSources, failure: null };
       }`,
   };
   const assetDirectory = new URL("../dist/assets/", import.meta.url);
@@ -1363,6 +1385,25 @@ async function currentWorkspaceHistoryState(page: Page): Promise<{
   });
 }
 
+async function installWorkspaceSourceFacades(
+  page: Page,
+  workspaceSources: readonly BrowserWorkspacePackageSourceRequirement[],
+) {
+  await installFacades(
+    page,
+    surface,
+    [],
+    "ready",
+    "ready",
+    undefined,
+    "ready",
+    "ready",
+    undefined,
+    {},
+    {},
+    workspaceSources);
+}
+
 function platformWorkspaceUrl(includePackage = false) {
   const platformTabId = includePackage ? "t1" : "t0";
   const platformContextId = includePackage ? "g1" : "g0";
@@ -1434,11 +1475,13 @@ async function installLibraryUploadFacades(
     undefined,
     {},
     packageLoading,
+    [],
     libraryUpload,
   );
 }
 
 export {
+  openProductDestination,
   subjectTab,
   inspectorTab,
   chooseInspector,
@@ -1458,6 +1501,7 @@ export {
   platformTarget,
   historicalPlatformTarget,
   installFacades,
+  installWorkspaceSourceFacades,
   installLibraryUploadFacades,
   releaseFacade,
   root,

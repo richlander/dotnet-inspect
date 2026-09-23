@@ -746,10 +746,10 @@ without changing every one of them. Instead
 [`FeedFailureTelemetry`](../../src/NuGetFetch/FeedFailureTelemetry.cs) uses an
 ambient scope opened at each command boundary that turns those nullable
 results into an operator-facing answer. Package acquisition opens one around
-each acquisition hop; direct `--version`, `Package@latest --version`, and
-`--versions` queries open one around the complete query. Nested async work records into the
-same collector, and the "nothing resolved" path consults it before choosing a
-message.
+each acquisition hop; explicit `package Package@latest --versions` and
+`--versions` queries open one around the complete query. Nested async work
+records into the same collector, and the "nothing resolved" path consults it
+before choosing a message.
 
 The scope is opened per *hop*, inside the tool-wrapper redirect loop, rather than once around
 the whole traversal. Each hop resolves a different package id, so a shared collector would let

@@ -10,6 +10,7 @@ import {
   other,
   surface,
   platformVersion,
+  openProductDestination,
   installFacades,
   type BrowserAssemblySurface,
   type BrowserPackageSurface,
@@ -123,6 +124,7 @@ function demoCallGraph(
       bindingIdentityConflicts: 0,
       hasUnexploredTraversalBoundary: false,
       hasAnalysisFailureBoundary: false,
+      unavailableDependencyRoutes: 0,
       isIncomplete: false,
     },
     noBody: false,
@@ -222,6 +224,22 @@ test("Demos is a dedicated page reached from Home and the data bar", async ({
     .toHaveCount(0);
   await expect(page.locator("[data-workspace-add-package], [data-workspace-save]"))
     .toHaveCount(0);
+  await page.locator("[data-product-navigation-button]").click();
+  await expect(page.locator(
+    "[data-product-destination][aria-current='page']",
+  )).toHaveCount(0);
+  const workspace =
+    page.locator("[data-product-destination='workspace']");
+  await expect(workspace).toHaveAttribute("aria-disabled", "true");
+  await expect(workspace).toHaveAccessibleDescription("No workspace is open");
+  await page.keyboard.press("ArrowDown");
+  await page.keyboard.press("ArrowDown");
+  await expect(workspace).toBeFocused();
+  await page.keyboard.press("Enter");
+  await expect(page).toHaveURL("/demos");
+  await expect(workspace).toBeFocused();
+  await expect(page.locator(".product-navigation-menu")).toBeVisible();
+  await page.keyboard.press("Escape");
   await expect(page.locator("html")).not.toHaveAttribute("data-home-demo-run");
   await page.screenshot({ path: testInfo.outputPath("demos-wide.png") });
 
@@ -284,7 +302,7 @@ test("Package navigation retains the shared System.Text.Json packet and Workspac
   await expect(subjectTab(page, "package")).toHaveAttribute("aria-selected", "true");
   await expect(page.locator('[data-package-framework="netstandard2.0"]'))
     .toHaveAttribute("aria-current", "page");
-  await page.locator('[data-application-scope="workspace"]').click();
+  await openProductDestination(page, "workspace");
   await expect(page.getByRole("heading", { name: "Workspace", exact: true }))
     .toBeVisible();
   await expect(page.locator("[data-workspace-activate]")).toContainText("System.Text.Json");

@@ -40,7 +40,8 @@ internal static partial class BrowserCatalogWireProjection
             diagnostics.IncompleteEdges,
             diagnostics.BindingIdentityConflicts,
             diagnostics.HasUnexploredTraversalBoundary,
-            diagnostics.HasAnalysisFailureBoundary);
+            diagnostics.HasAnalysisFailureBoundary,
+            UnavailableDependencyRoutes: 0);
 
     internal static BrowserCallGraphTarget Project(BrowserCallGraphTargetInfo target) =>
         new(
@@ -60,5 +61,8 @@ internal static partial class BrowserCatalogWireProjection
             target.SelectorKey,
             target.Kind,
             target.PlatformPack,
-            target.SurfaceAssemblyId);
+            target.SurfaceAssemblyId,
+            target.PackageId,
+            target.PackageVersion,
+            target.PackageFramework);
 }

@@ -52,6 +52,8 @@
     <ProjectReference Include="../../fixtures/metadata/ILInspector.Metadata.MemorySafetyFixtures/ILInspector.Metadata.MemorySafetyFixtures.csproj" />
     <ProjectReference Include="../ILInspector.Metadata.ConsumerCanary/ILInspector.Metadata.ConsumerCanary.csproj" />
     <ProjectReference Include="../../fixtures/metadata/ILInspector.Metadata.MethodImplFixtures/ILInspector.Metadata.MethodImplFixtures.csproj" ReferenceOutputAssembly="false" />
+    <ProjectReference Include="../../fixtures/metadata/ILInspector.Metadata.InterfaceImplContracts/ILInspector.Metadata.InterfaceImplContracts.csproj" ReferenceOutputAssembly="false" />
+    <ProjectReference Include="../../fixtures/metadata/ILInspector.Metadata.InterfaceImplFixtures/ILInspector.Metadata.InterfaceImplFixtures.csproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="../../fixtures/metadata/ILInspector.Metadata.PublicMethodRootFixtures/ILInspector.Metadata.PublicMethodRootFixtures.csproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="../../fixtures/sourcelink/DotnetInspector.SourceLinkVisualBasicFixtures/DotnetInspector.SourceLinkVisualBasicFixtures.vbproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="../../fixtures/metadata/ILInspector.Metadata.ExtensionInstanceOld/ILInspector.Metadata.ExtensionInstanceOld.csproj">

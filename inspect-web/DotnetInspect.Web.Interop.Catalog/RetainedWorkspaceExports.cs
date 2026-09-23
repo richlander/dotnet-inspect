@@ -41,13 +41,47 @@ public static partial class CatalogExports
             string canonicalPacket,
             string packageSourceCredentialsJson)
     {
+        Dictionary<
+            string,
+            BrowserRetainedWorkspacePackageSourceCredential>
+            packageSourceCredentials;
+        try
+        {
+            BrowserRetainedWorkspaceActivationService
+                .ValidatePackageSourceCredentialsJson(
+                    packageSourceCredentialsJson);
+            packageSourceCredentials = JsonSerializer.Deserialize(
+                    packageSourceCredentialsJson,
+                    BrowserCatalogJsonContext.Default
+                        .DictionaryStringBrowserRetainedWorkspacePackageSourceCredential)
+                ?? throw new JsonException();
+        }
+        catch (ArgumentException ex)
+        {
+            return JsonSerializer.Serialize(
+                BrowserRetainedWorkspaceActivationService
+                    .InvalidCredentialPreparation(ex.Message),
+                BrowserCatalogJsonContext.Default
+                    .BrowserRetainedWorkspacePreparationResult);
+        }
+        catch (JsonException)
+        {
+            return JsonSerializer.Serialize(
+                BrowserRetainedWorkspaceActivationService
+                    .InvalidCredentialPreparation(
+                        BrowserRetainedWorkspaceActivationService
+                            .InvalidPackageSourceCredentialsMessage),
+                BrowserCatalogJsonContext.Default
+                    .BrowserRetainedWorkspacePreparationResult);
+        }
+
         BrowserRetainedWorkspacePreparationResult result =
             await BrowserRetainedWorkspaceActivationService.PrepareAsync(
                     retainedDefinitionId,
                     label,
                     canonicalLocation,
                     canonicalPacket,
-                    packageSourceCredentialsJson)
+                    packageSourceCredentials)
                 .ConfigureAwait(false);
         return JsonSerializer.Serialize(
             result,
@@ -167,13 +201,47 @@ public static partial class CatalogExports
             string canonicalPacket,
             string packageSourceCredentialsJson)
     {
+        Dictionary<
+            string,
+            BrowserRetainedWorkspacePackageSourceCredential>
+            packageSourceCredentials;
+        try
+        {
+            BrowserRetainedWorkspaceActivationService
+                .ValidatePackageSourceCredentialsJson(
+                    packageSourceCredentialsJson);
+            packageSourceCredentials = JsonSerializer.Deserialize(
+                    packageSourceCredentialsJson,
+                    BrowserCatalogJsonContext.Default
+                        .DictionaryStringBrowserRetainedWorkspacePackageSourceCredential)
+                ?? throw new JsonException();
+        }
+        catch (ArgumentException ex)
+        {
+            return JsonSerializer.Serialize(
+                BrowserRetainedWorkspaceActivationService
+                    .InvalidCredentialActivation(ex.Message),
+                BrowserCatalogJsonContext.Default
+                    .BrowserRetainedWorkspaceActivationResult);
+        }
+        catch (JsonException)
+        {
+            return JsonSerializer.Serialize(
+                BrowserRetainedWorkspaceActivationService
+                    .InvalidCredentialActivation(
+                        BrowserRetainedWorkspaceActivationService
+                            .InvalidPackageSourceCredentialsMessage),
+                BrowserCatalogJsonContext.Default
+                    .BrowserRetainedWorkspaceActivationResult);
+        }
+
         BrowserRetainedWorkspaceActivationResult result =
             await BrowserRetainedWorkspaceActivationService.ActivateAsync(
                     retainedDefinitionId,
                     label,
                     canonicalLocation,
                     canonicalPacket,
-                    packageSourceCredentialsJson)
+                    packageSourceCredentials)
                 .ConfigureAwait(false);
         return JsonSerializer.Serialize(
             result,
@@ -313,6 +381,11 @@ public static partial class CatalogExports
 [SupportedOSPlatform("browser")]
 internal static class BrowserRetainedWorkspaceActivationService
 {
+    internal const int PackageSourceCredentialsJsonLengthLimit = 2 * 1024 * 1024;
+    internal const string InvalidPackageSourceCredentialsMessage =
+        "Workspace credential bindings must be one JSON object of "
+        + "source endpoints to username/PAT objects.";
+
     static readonly object Gate = new();
     static readonly Dictionary<
         string,
@@ -385,7 +458,10 @@ internal static class BrowserRetainedWorkspaceActivationService
             label,
             canonicalLocation,
             canonicalPacket,
-            packageSourceCredentialsJson: null).ConfigureAwait(false);
+            packageSourceCredentials: new Dictionary<
+                string,
+                BrowserRetainedWorkspacePackageSourceCredential>(
+                    StringComparer.Ordinal)).ConfigureAwait(false);
 
     internal static async Task<BrowserRetainedWorkspacePreparationResult>
         PrepareAsync(
@@ -393,7 +469,10 @@ internal static class BrowserRetainedWorkspaceActivationService
         string label,
         string canonicalLocation,
         string canonicalPacket,
-        string? packageSourceCredentialsJson)
+        IReadOnlyDictionary<
+            string,
+            BrowserRetainedWorkspacePackageSourceCredential>
+            packageSourceCredentials)
     {
         BrowserRetainedWorkspaceActivationRequest request;
         try
@@ -403,8 +482,7 @@ internal static class BrowserRetainedWorkspaceActivationService
                 label,
                 canonicalLocation,
                 canonicalPacket,
-                ParsePackageSourceCredentials(
-                    packageSourceCredentialsJson));
+                BindPackageSourceCredentials(packageSourceCredentials));
         }
         catch (ArgumentException ex)
         {
@@ -604,7 +682,10 @@ internal static class BrowserRetainedWorkspaceActivationService
             label,
             canonicalLocation,
             canonicalPacket,
-            packageSourceCredentialsJson: null).ConfigureAwait(false);
+            packageSourceCredentials: new Dictionary<
+                string,
+                BrowserRetainedWorkspacePackageSourceCredential>(
+                    StringComparer.Ordinal)).ConfigureAwait(false);
 
     internal static async Task<BrowserRetainedWorkspaceActivationResult>
         ActivateAsync(
@@ -612,7 +693,10 @@ internal static class BrowserRetainedWorkspaceActivationService
         string label,
         string canonicalLocation,
         string canonicalPacket,
-        string? packageSourceCredentialsJson)
+        IReadOnlyDictionary<
+            string,
+            BrowserRetainedWorkspacePackageSourceCredential>
+            packageSourceCredentials)
     {
         BrowserRetainedWorkspaceActivationRequest request;
         try
@@ -622,8 +706,7 @@ internal static class BrowserRetainedWorkspaceActivationService
                 label,
                 canonicalLocation,
                 canonicalPacket,
-                ParsePackageSourceCredentials(
-                    packageSourceCredentialsJson));
+                BindPackageSourceCredentials(packageSourceCredentials));
         }
         catch (ArgumentException ex)
         {
@@ -676,17 +759,27 @@ internal static class BrowserRetainedWorkspaceActivationService
         }
     }
 
-    internal static IReadOnlyDictionary<string, NuGetFetch.PackageSourceCredential>
-        ParsePackageSourceCredentials(
-        string? json)
+    internal static BrowserRetainedWorkspacePreparationResult
+        InvalidCredentialPreparation(
+        string message) =>
+        new(
+            "failed",
+            null,
+            null,
+            null,
+            new("InvalidRequest", message));
+
+    internal static BrowserRetainedWorkspaceActivationResult
+        InvalidCredentialActivation(
+        string message) =>
+        new(
+            "failed",
+            null,
+            new("InvalidRequest", message));
+
+    internal static void ValidatePackageSourceCredentialsJson(string json)
     {
-        if (json is null)
-        {
-            return new Dictionary<
-                string,
-                NuGetFetch.PackageSourceCredential>(StringComparer.Ordinal);
-        }
-        if (json.Length > 2 * 1024 * 1024)
+        if (json.Length > PackageSourceCredentialsJsonLengthLimit)
         {
             throw new ArgumentException(
                 "Workspace credential bindings exceed the browser transport limit.");
@@ -707,30 +800,29 @@ internal static class BrowserRetainedWorkspaceActivationService
         catch (JsonException)
         {
             throw new ArgumentException(
-                "Workspace credential bindings must be one JSON object of "
-                    + "source endpoints to username/PAT objects.");
+                InvalidPackageSourceCredentialsMessage);
         }
 
         using (document)
         {
             if (document.RootElement.ValueKind != JsonValueKind.Object)
-            {
-                throw new ArgumentException(
-                    "Workspace credential bindings must be one JSON object of "
-                        + "source endpoints to username/PAT objects.");
-            }
+                throw new ArgumentException(InvalidPackageSourceCredentialsMessage);
 
-            var result = new Dictionary<
-                string,
-                NuGetFetch.PackageSourceCredential>(StringComparer.Ordinal);
+            var endpoints = new HashSet<string>(StringComparer.Ordinal);
             foreach (JsonProperty property
                 in document.RootElement.EnumerateObject())
             {
-                if (result.Count >= WorkspaceSharePacketCodec.MaxPackageSources)
+                if (endpoints.Count >= WorkspaceSharePacketCodec.MaxPackageSources)
                 {
                     throw new ArgumentException(
                         "Workspace credential bindings contain too many source entries.");
                 }
+                if (!endpoints.Add(property.Name))
+                {
+                    throw new ArgumentException(
+                        $"Workspace credential binding '{property.Name}' is duplicated.");
+                }
+
                 JsonProperty[] fields =
                     property.Value.ValueKind == JsonValueKind.Object
                         ? [.. property.Value.EnumerateObject()]
@@ -753,45 +845,71 @@ internal static class BrowserRetainedWorkspaceActivationService
                         $"Workspace credential binding '{property.Name}' must "
                             + "contain only string 'username' and 'pat' properties.");
                 }
-                string username = usernameElement.GetString()!;
-                string pat = patElement.GetString()!;
-                if (string.IsNullOrWhiteSpace(username))
-                {
-                    throw new ArgumentException(
-                        $"Workspace credential binding '{property.Name}' has "
-                            + "an invalid username.");
-                }
-                if (pat.Length == 0 || pat.Length > 64 * 1024)
-                {
-                    throw new ArgumentException(
-                        $"Workspace credential binding '{property.Name}' has "
-                            + "an invalid PAT length.");
-                }
-                string endpoint;
-                try
-                {
-                    endpoint = new WorkspacePackageSourceDefinition(
-                        property.Name,
-                        WorkspacePackageSourceAuthentication
-                            .AuthenticationRequired)
-                        .Endpoint;
-                }
-                catch (ArgumentException)
-                {
-                    throw new ArgumentException(
-                        $"Workspace credential binding endpoint "
-                            + $"'{property.Name}' is invalid.");
-                }
-                if (!result.TryAdd(
-                        endpoint,
-                        new NuGetFetch.PackageSourceCredential(username, pat)))
-                {
-                    throw new ArgumentException(
-                        $"Workspace credential binding '{endpoint}' is duplicated.");
-                }
             }
-            return result;
         }
+    }
+
+    internal static IReadOnlyDictionary<string, NuGetFetch.PackageSourceCredential>
+        BindPackageSourceCredentials(
+        IReadOnlyDictionary<
+            string,
+            BrowserRetainedWorkspacePackageSourceCredential> credentials)
+    {
+        ArgumentNullException.ThrowIfNull(credentials);
+
+        var result = new Dictionary<
+            string,
+            NuGetFetch.PackageSourceCredential>(StringComparer.Ordinal);
+        foreach ((
+            string rawEndpoint,
+            BrowserRetainedWorkspacePackageSourceCredential credential)
+            in credentials)
+        {
+            if (result.Count >= WorkspaceSharePacketCodec.MaxPackageSources)
+            {
+                throw new ArgumentException(
+                    "Workspace credential bindings contain too many source entries.");
+            }
+            if (credential is null
+                || string.IsNullOrWhiteSpace(credential.Username))
+            {
+                throw new ArgumentException(
+                    $"Workspace credential binding '{rawEndpoint}' has "
+                        + "an invalid username.");
+            }
+            if (string.IsNullOrEmpty(credential.Pat)
+                || credential.Pat.Length > 64 * 1024)
+            {
+                throw new ArgumentException(
+                    $"Workspace credential binding '{rawEndpoint}' has "
+                        + "an invalid PAT length.");
+            }
+            string endpoint;
+            try
+            {
+                endpoint = new WorkspacePackageSourceDefinition(
+                    rawEndpoint,
+                    WorkspacePackageSourceAuthentication
+                        .AuthenticationRequired)
+                    .Endpoint;
+            }
+            catch (ArgumentException)
+            {
+                throw new ArgumentException(
+                    $"Workspace credential binding endpoint "
+                        + $"'{rawEndpoint}' is invalid.");
+            }
+            if (!result.TryAdd(
+                    endpoint,
+                    new NuGetFetch.PackageSourceCredential(
+                        credential.Username,
+                        credential.Pat)))
+            {
+                throw new ArgumentException(
+                    $"Workspace credential binding '{endpoint}' is duplicated.");
+            }
+        }
+        return result;
     }
 
     static BrowserRetainedWorkspaceActivationResult Activation(

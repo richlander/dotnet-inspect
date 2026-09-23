@@ -748,6 +748,11 @@ public static class IrImporter
         {
             AssemblyPath = source.FilePath,
             MetadataToken = method.MetadataToken,
+            SourceMethodAddress = method.MetadataToken == 0
+                ? null
+                : ILInspector.MetadataPrimitives.MetadataMethodAddress.Create(
+                    source.Reader,
+                    MetadataTokens.MethodDefinitionHandle(method.MetadataToken & 0x00FFFFFF)),
             DeclaringTypeParameters = method.DeclaringTypeParameters,
             DeclaringTypeGenericParameterNames =
                 method.DeclaringTypeGenericParameterNames.IsDefault

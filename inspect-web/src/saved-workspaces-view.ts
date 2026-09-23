@@ -76,7 +76,7 @@ export function bindSavedWorkspaces(
   root.querySelectorAll<HTMLElement>("[data-saved-workspace-open]").forEach(button =>
     button.addEventListener("click", () => {
       const name = button.dataset.savedWorkspaceOpen;
-      if (name !== undefined) actions.open(name);
+      if (name !== undefined) void actions.open(name);
     }));
   root.querySelectorAll<HTMLElement>("[data-saved-workspace-remove]").forEach(button =>
     button.addEventListener("click", () => {

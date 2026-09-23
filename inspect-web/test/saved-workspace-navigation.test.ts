@@ -34,6 +34,11 @@ import {
   createPackageAcquisition,
   type PackageAcquisitionDependencies,
 } from "../src/package-acquisition.ts";
+import {
+  activateRetainedWorkspace as activateRetainedWorkspaceState,
+  createRetainedWorkspaceCollection,
+  publishRetainedWorkspace,
+} from "../src/retained-workspaces.ts";
 import { retainDiagnosticDetail } from "../src/failure-detail.ts";
 import { workspaceDependencyKey } from "../src/package-inspection.ts";
 import {
@@ -43,13 +48,15 @@ import type { SavedWorkspace } from "../src/saved-workspaces.ts";
 import type { SpotlightPackageResult } from "../src/spotlight.ts";
 import type { WorkspaceFocusTarget } from "../src/workspace-subject.ts";
 import {
+  renderWorkspaceView as renderWorkspaceViewPure,
+} from "../src/workspace-subject.ts";
+import {
   browserCreatedCallGraphTabIds,
   createNavigationHistory,
   createNavigationSequence,
   createWorkspaceLocationPersistence,
   parseWorkspaceLocation,
   parseWorkspaceLocationAsync,
-  selectedBrowserCallGraphPackageTabIds,
   workspaceShareCaptureTopology,
   workspaceShareTabsMatchResolved,
   type ParsedWorkspaceLocation,
@@ -108,14 +115,20 @@ function isCapturedWorkspaceUrlState(
 const hostNames = new Set([
   "captureSavedWorkspacePacket", "captureWorkspaceUrlState",
   "capturedShareTabs", "resolvedWorkspaceShareTabs", "activeShareTabIndex",
-  "selectedCallGraphWorkspacePackages", "workspaceCoordinateCount",
+  "workspaceCoordinateCount",
   "selectedLibraryShareKey", "scope", "syncUrl", "buildStateUrl",
   "buildShareUrl", "share",
-  "openSavedWorkspace", "openSavedWorkspaceCore",
+  "navigateInAppUrl", "navigateWithinCurrentWorkspace",
+  "clearWorkspaceFeedIdentity", "failCanonicalWorkspaceRestore",
+  "workspaceUrlProjection",
+  "openSavedWorkspace", "openSavedWorkspaceEntry", "openSavedWorkspaceCore",
   "restoreWorkspaceCatalogEntry", "restoreWorkspaceFromLocation",
   "parseWorkspaceHref", "beginDemoNavigation", "stageDemoNavigation",
   "commitDemoNavigation", "cancelDemoNavigation", "commitRestoredWorkspaceNavigation",
   "captureCanonicalWorkspaceRestoreSnapshot", "restoreCanonicalWorkspaceRestoreSnapshot",
+  "captureWorkspaceNavigationRollback", "restoreWorkspaceNavigationRollback",
+  "recoverWorkspaceNavigationRollback",
+  "openFreshWorkspaceLink",
   "captureCanonicalWorkspaceUrl", "projectCurrentWorkspaceUrl",
   "normalizeWorkspaceAsyncSnapshotState", "settleInterruptedPlatformStatus",
   "cloneCanonicalWorkspaceSnapshotForRetention",
@@ -153,6 +166,21 @@ const loadPackageSource = appSource.slice(
   loadPackageDeclaration.start,
   loadPackageDeclaration.end,
 );
+const retainedSelectorNames = new Set([
+  "selectRetainedWorkspace",
+  "activateRetainedWorkspaceProjection",
+]);
+const retainedSelectorSource = app.program.body
+  .filter(node =>
+    node.type === "FunctionDeclaration"
+    && retainedSelectorNames.has(node.id?.name ?? ""))
+  .map(node => appSource.slice(node.start, node.end))
+  .join("\n");
+assert.equal(
+  app.program.body.filter(node =>
+    node.type === "FunctionDeclaration"
+    && retainedSelectorNames.has(node.id?.name ?? "")).length,
+  retainedSelectorNames.size);
 
 interface Package extends ComparisonPackage {
   isRuntimePack?: boolean;
@@ -164,7 +192,11 @@ const sourcePackage: Package = {
   source: { kind: "nuget.org" },
 };
 const packet = "opaque+/packet?name=ignored&x=1#fragment";
-const saved = Object.freeze({ name: "My Workspace", packet });
+const saved = Object.freeze({
+  name: "My Workspace",
+  packet,
+  kind: "legacy" as const,
+});
 
 function packageSurface(
   id = "Added.Package", version = "4.5.6", framework = "net10.0",
@@ -310,6 +342,7 @@ function harness() {
     workspaceDependencies: {} as Record<string, unknown>,
     workspaceDependencyErrors: {} as Record<string, string>,
     workspaceDependencyLoads: new Set<string>(),
+    workspaceFeedUrl: null as string | null,
     packageDependencies: null as {
       dependencyGroups: {
         index: number;
@@ -465,6 +498,16 @@ function harness() {
   };
   const context = {
     state, location, history, document, workspaceLocation: asyncWorkspaceLocation,
+    engineClient: {
+      catalog: {
+        captureCompleteWorkspaceShareState: async (
+          shareState: BrowserWorkspaceShareState,
+        ) => {
+          encoded.push(structuredClone(shareState));
+          return controls.encodeResult;
+        },
+      },
+    },
     app: {
       inert: false,
       setAttribute: () => {},
@@ -493,8 +536,16 @@ function harness() {
     navigationSequence, navigationHistory,
     pendingDemoNavigation: null as { navigationSeq: number; destination: string } | null,
     pendingWorkspaceConstruction: null,
+    retainedWorkspaceActivation: null,
+    activeRetainedWorkspacePosting: null,
+    retainedWorkspacePresentation: null,
+    retainedWorkspaceInitialDetailAuthority: null,
+    installedRetainedLocation: null,
     packageContentLoadingSequence: null as number | null,
     activeWorkspaceUrl: null as string | null,
+    workspaceFeedActivation: null,
+    workspaceFeedRollbackTransfers: new WeakMap(),
+    workspaceFeedRollbackTransfer: null,
     failedWorkspaceUrlState: null, spotlightCache: null as object | null,
     platformLibraryRetry: null, platformCatalogRetry: null,
     spotlightMemberCache: null as object | null,
@@ -589,7 +640,6 @@ function harness() {
       },
     },
     typeLensesFor, browserCreatedCallGraphTabIds,
-    selectedBrowserCallGraphPackageTabIds,
     workspaceShareCaptureTopology, workspaceShareTabsMatchResolved,
     parseWorkspaceLocation, parseWorkspaceLocationAsync, isProductHomeDemosPath,
     inspectDecodeWorkspaceShareState: (value: string) =>
@@ -1075,7 +1125,7 @@ test("capture rejects wrong scopes, empty or unready Workspaces, and incomplete 
     h.controls.encodeResult = result;
     await assert.rejects(
       h.capture(),
-      /Projection unavailable|canonical share/);
+      /Projection unavailable|complete share/);
     assert.equal(h.writes.length, 0);
   }
 });
@@ -1124,7 +1174,7 @@ for (const platform of [false, true]) {
   });
 }
 
-test("floating packet coordinates resolve the active package and Call Graph context", async () => {
+test("floating packet coordinates resolve the active package for saved capture", async () => {
   const h = harness();
   const exact = sharedState();
   const basis: BrowserWorkspaceShareState = {
@@ -1157,11 +1207,6 @@ test("floating packet coordinates resolve the active package and Call Graph cont
       ...basis,
       tabs: exact.tabs,
     });
-  const selected: unknown = runInNewContext(
-    "selectedCallGraphWorkspacePackages()",
-    h.context);
-  assert.ok(Array.isArray(selected));
-  assert.deepEqual(selected, h.state.packages);
 });
 
 test("saved Open uses only the opaque packet at the current origin and commits after view completion", async () => {
@@ -1285,7 +1330,7 @@ function assertRetained(h: ReturnType<typeof harness>, href: string, entryState:
   assert.equal(h.writes.length, 0);
   assert.deepEqual(h.publications, []);
   assert.match(h.state.queryNotice, /Saved Workspace "My Workspace" failed:/);
-  assert.deepEqual(saved, { name: "My Workspace", packet });
+  assert.deepEqual(saved, { name: "My Workspace", packet, kind: "legacy" });
   assert.equal(h.context.pendingDemoNavigation, null);
 }
 
@@ -1330,6 +1375,583 @@ for (const failure of [
     assert.deepEqual(h.focus, [{ kind: "saved-open", name: saved.name, index: 0 }]);
   });
 }
+
+test("failed same-coordinate navigation preserves the source Workspace URL", async () => {
+  const h = harness();
+  const sourceUrl = "https://inspect.test/?w=private-source-workspace";
+  h.state.workspaceFeedUrl = sourceUrl;
+  h.context.activeWorkspaceUrl = sourceUrl;
+  h.location.href = sourceUrl;
+  let sourceCleared = false;
+  const loc = {
+    package: h.state.package?.id,
+    version: h.state.package?.version,
+    framework: h.state.package?.activeFramework,
+    tabs: [{ source: h.state.package?.id }],
+    hasWorkspaceState: true,
+    shareState: { format: 1 },
+    rootKind: "package",
+    atPackageRoot: true,
+    library: "missing.dll",
+    packageLens: "overview",
+  };
+  Object.assign(h.context, {
+    isDiagnosticsPath: () => false,
+    isCreditsPath: () => false,
+    isPackageQueryPath: () => false,
+    isPackageActivityPath: () => false,
+    cancelWorkspaceCredentialPrompt: () => {},
+    tryOpenSourceBearingWorkspace: async () => false,
+    workspaceFeedActivation: {
+      captureCommittedRollback: () => null,
+      transferCommittedRollback: () => null,
+      clearActiveUrl() {
+        sourceCleared = true;
+      },
+    },
+    workspaceCoordinatesMatch: () => true,
+    packageCoordinateMatchesLocation: () => true,
+    applyLoadedPackageLibraryScope: () =>
+      "The shared library is unavailable.",
+    parseWorkspaceHref: async () => loc,
+    bindWorkspaceRetryToUrl: (
+      _url: string,
+      _current: () => string,
+      _restore: (url: string) => void,
+      retry: () => void,
+    ) => retry,
+    captureView: () => ({}),
+  });
+
+  await runInNewContext(
+    `navigateInAppUrl(
+      new URL("https://inspect.test/?w=ordinary-same-coordinate"))`,
+    h.context);
+  await h.settle();
+  const share: unknown =
+    await runInNewContext("buildShareUrl()", h.context);
+
+  assert.equal(sourceCleared, false);
+  assert.equal(h.state.workspaceFeedUrl, sourceUrl);
+  assert.ok(share instanceof URL);
+  assert.equal(share.href, sourceUrl);
+  assert.match(h.state.queryNotice, /shared library is unavailable/);
+});
+
+test("failed ordinary navigation restores the committed source incumbent", async () => {
+  const h = harness();
+  const committed: unknown = runInNewContext(
+    "captureCanonicalWorkspaceRestoreSnapshot()",
+    h.context);
+  const tentative = {
+    ...structuredClone(sourcePackage),
+    id: "Example.Package",
+  };
+  h.state.packages = [tentative];
+  h.state.package = tentative;
+  h.state.workspaceFeedUrl = "https://inspect.test/?w=source-A";
+  h.context.activeWorkspaceUrl = h.state.workspaceFeedUrl;
+  let managedDefinition = "source-B";
+  let recoveryCompleted = false;
+  Object.assign(h.context, {
+    workspaceFeedActivation: {
+      captureCommittedRollback: () => committed,
+      transferCommittedRollback: () => ({
+        snapshot: committed,
+        transfer() {
+          return this;
+        },
+        async restore() {
+          managedDefinition = "source-A";
+          runInNewContext(
+            "restoreCanonicalWorkspaceRestoreSnapshot(snapshot)",
+            { ...h.context, snapshot: committed });
+          recoveryCompleted = true;
+          return true;
+        },
+        release() {},
+      }),
+    },
+    loadPackage: async () => null,
+    focusWorkbenchSearchOrHeading: () => true,
+  });
+  const loc = parseWorkspaceLocation(
+    new URL(
+      "https://inspect.test/?package=Missing.Package"
+      + "&version=1.0.0&framework=net10.0#pkg"),
+    () => assert.fail("An ordinary URL must not decode a Workspace packet."));
+  const navigationSeq = h.navigationSequence.begin();
+
+  await runInNewContext(
+    "openFreshWorkspaceLink(loc, navigationSeq)",
+    { ...h.context, loc, navigationSeq });
+  await h.settle();
+
+  assert.equal(h.state.package?.id, sourcePackage.id);
+  assert.equal(h.state.workspaceFeedUrl, null);
+  assert.match(h.state.queryNotice, /Couldn’t load Missing.Package/);
+  assert.equal(recoveryCompleted, true);
+  assert.equal(managedDefinition, "source-A");
+});
+
+test("a committed ordinary successor revokes inherited recovery without mutation", async () => {
+  const h = harness();
+  const committed: unknown = runInNewContext(
+    "captureCanonicalWorkspaceRestoreSnapshot()",
+    h.context);
+  const recoveryEntered = deferred<void>();
+  const releaseRecovery = deferred<void>();
+  let owner = 0;
+  let retired = false;
+  let latest: {
+    readonly snapshot: unknown;
+    transfer(): typeof latest | null;
+    restore(): Promise<boolean>;
+    release(): void;
+  };
+
+  function issue() {
+    const issuedOwner = ++owner;
+    latest = {
+      snapshot: committed,
+      transfer() {
+        if (retired || owner !== issuedOwner) return null;
+        return issue();
+      },
+      async restore() {
+        recoveryEntered.resolve();
+        await releaseRecovery.promise;
+        if (retired || owner !== issuedOwner) return false;
+        runInNewContext(
+          "restoreCanonicalWorkspaceRestoreSnapshot(snapshot)",
+          { ...h.context, snapshot: committed });
+        return true;
+      },
+      release() {
+        if (owner !== issuedOwner) return;
+        retired = true;
+      },
+    };
+    return latest;
+  }
+
+  let initial = true;
+  const loadPackage = h.context.loadPackage;
+  Object.assign(h.context, {
+    workspaceFeedActivation: {
+      transferCommittedRollback() {
+        if (!initial) return null;
+        initial = false;
+        return issue();
+      },
+      clearActiveUrl() {
+        latest.release();
+      },
+    },
+    focusWorkbenchSearchOrHeading: () => true,
+  });
+  h.context.loadPackage = async () => null;
+  const failedLoc = parseWorkspaceLocation(
+    new URL(
+      "https://inspect.test/?package=Missing.C"
+      + "&version=1.0.0&framework=net10.0#pkg"),
+    () => assert.fail("An ordinary URL must not decode a Workspace packet."));
+  const failedSeq = h.navigationSequence.begin();
+  Object.assign(h.context, {
+    loc: failedLoc,
+    navigationSeq: failedSeq,
+  });
+  await runInNewContext(
+    "openFreshWorkspaceLink(loc, navigationSeq)",
+    h.context);
+  await recoveryEntered.promise;
+
+  h.controls.acquisition = async () => true;
+  h.context.loadPackage = loadPackage;
+  const committedLoc = parseWorkspaceLocation(
+    new URL(
+      "https://inspect.test/?package=Committed.D"
+      + "&version=1.0.0&framework=net10.0#pkg"),
+    () => assert.fail("An ordinary URL must not decode a Workspace packet."));
+  const committedSeq = h.navigationSequence.begin();
+  Object.assign(h.context, {
+    loc: committedLoc,
+    navigationSeq: committedSeq,
+  });
+  await runInNewContext(
+    "openFreshWorkspaceLink(loc, navigationSeq)",
+    h.context);
+  assert.equal(h.state.package?.id, "Committed.D");
+
+  releaseRecovery.resolve();
+  await h.settle();
+  assert.equal(h.state.package?.id, "Committed.D");
+  assert.equal(h.state.error, "");
+  assert.notEqual(h.state.errorTitle, "Workspace recovery failed");
+});
+
+test("ordinary successors inherit pending managed recovery until one restores it", async () => {
+  const h = harness();
+  const committed: unknown = runInNewContext(
+    "captureCanonicalWorkspaceRestoreSnapshot()",
+    h.context);
+  const entered = [deferred<void>(), deferred<void>()];
+  const releases = [deferred<void>(), deferred<void>()];
+  let restoreAttempt = 0;
+  let owner = 0;
+
+  function issue(): {
+    readonly snapshot: unknown;
+    transfer(): ReturnType<typeof issue> | null;
+    restore(): Promise<boolean>;
+    release(): void;
+  } {
+    const issuedOwner = ++owner;
+    return {
+      snapshot: committed,
+      transfer() {
+        if (owner !== issuedOwner) return null;
+        return issue();
+      },
+      async restore() {
+        const attempt = restoreAttempt++;
+        entered[attempt]!.resolve();
+        await releases[attempt]!.promise;
+        if (owner !== issuedOwner) return false;
+        runInNewContext(
+          "restoreCanonicalWorkspaceRestoreSnapshot(snapshot)",
+          { ...h.context, snapshot: committed });
+        return true;
+      },
+      release() {},
+    };
+  }
+
+  let initial = true;
+  Object.assign(h.context, {
+    workspaceFeedActivation: {
+      transferCommittedRollback() {
+        if (!initial) return null;
+        initial = false;
+        return issue();
+      },
+      clearActiveUrl() {},
+    },
+    focusWorkbenchSearchOrHeading: () => true,
+    loadPackage: async () => null,
+  });
+  const loc = (id: string) => parseWorkspaceLocation(
+    new URL(
+      `https://inspect.test/?package=${id}`
+      + "&version=1.0.0&framework=net10.0#pkg"),
+    () => assert.fail("An ordinary URL must not decode a Workspace packet."));
+
+  const firstSeq = h.navigationSequence.begin();
+  Object.assign(h.context, {
+    loc: loc("Missing.C"),
+    navigationSeq: firstSeq,
+  });
+  await runInNewContext(
+    "openFreshWorkspaceLink(loc, navigationSeq)",
+    h.context);
+  await entered[0]!.promise;
+
+  const secondSeq = h.navigationSequence.begin();
+  Object.assign(h.context, {
+    loc: loc("Missing.D"),
+    navigationSeq: secondSeq,
+  });
+  await runInNewContext(
+    "openFreshWorkspaceLink(loc, navigationSeq)",
+    h.context);
+  await entered[1]!.promise;
+  assert.equal(h.context.app.inert, true);
+  assert.equal(restoreAttempt, 2);
+
+  releases[1]!.resolve();
+  for (let index = 0; index < 5; index++) {
+    await new Promise<void>(resolve => setImmediate(resolve));
+  }
+  assert.equal(h.state.package?.id, sourcePackage.id);
+  assert.equal(h.context.app.inert, false);
+  assert.match(h.state.queryNotice, /Couldn’t load Missing.D/);
+
+  releases[0]!.resolve();
+  await h.settle();
+  assert.equal(h.state.package?.id, sourcePackage.id);
+  assert.notEqual(h.state.errorTitle, "Workspace recovery failed");
+});
+
+test("retained selection commits over a tentative source publication", () => {
+  let collection = publishRetainedWorkspace(
+    createRetainedWorkspaceCollection<string>(),
+    null);
+  collection = publishRetainedWorkspace(collection, "C");
+  collection = activateRetainedWorkspaceState(
+    collection,
+    "workspace-1",
+    "D").collection;
+  let visible = "A";
+  let transferred = false;
+  let sourceCleared = false;
+  const context = {
+    retainedWorkspaces: collection,
+    retainedWorkspaceActivation: {
+      state: {
+        definitions: [],
+        activeDefinitionId: "source-definition",
+      },
+    },
+    activeWorkspaceUrl: "https://inspect.test/C",
+    navigationSequence: { begin() {} },
+    workspaceFeedActivation: {
+      ownsRetainedDefinition(id: string) {
+        return id === "source-definition";
+      },
+      transferCommittedRollback() {
+        transferred = true;
+        return {
+          snapshot: "C",
+          transfer() {
+            return this;
+          },
+          async restore() {
+            visible = "C";
+            return true;
+          },
+          release() {},
+        };
+      },
+      clearActiveUrl() {
+        sourceCleared = true;
+      },
+    },
+    captureRetainedWorkspaceSnapshot: () => "A",
+    cloneCanonicalWorkspaceSnapshotForRetention: (snapshot: string) => snapshot,
+    workspaceFeedRollbackTransfers: new Map(),
+    releaseRetainedWorkspaceSnapshot() {},
+    setWorkspaceConstructionPending() {},
+    restoreWorkspaceNavigationRollback: async () => {},
+    observeAsync(promise: Promise<unknown>) {
+      void promise;
+    },
+    invalidateWorkspaceAsyncOwners() {},
+    activateRetainedWorkspaceState,
+    restoreRetainedWorkspaceSnapshot(snapshot: string) {
+      visible = snapshot;
+      context.activeWorkspaceUrl = `https://inspect.test/${snapshot}`;
+    },
+    openDefaultWorkspace() {
+      assert.fail("The target Workspace must be inactive.");
+    },
+    workspaceLocation: { push() {} },
+    history: { state: null },
+    withPlatformRootParentHistory: (value: unknown) => value,
+    navigationSnapshotHasPlatformRootParent: () => false,
+    navigationHistory: { snapshot: () => ({}) },
+    render() {},
+    restartRestoredWorkspaceSelectionData() {},
+    showToast(message: string) {
+      assert.fail(message);
+    },
+    errorMessage: String,
+  };
+  runInNewContext(stripTypeScriptTypes(retainedSelectorSource), context);
+
+  runInNewContext('selectRetainedWorkspace("workspace-2")', context);
+  if (!transferred) visible = "C";
+
+  assert.equal(visible, "D");
+  assert.equal(context.retainedWorkspaces.activeWorkspaceId, "workspace-2");
+  assert.equal(
+    context.retainedWorkspaces.workspaces[0]?.snapshot,
+    "C");
+  assert.equal(transferred, true);
+  assert.equal(sourceCleared, true);
+});
+
+test("successful ordinary navigation excludes a late source rollback", async () => {
+  const h = harness();
+  const committed: unknown = runInNewContext(
+    "captureCanonicalWorkspaceRestoreSnapshot()",
+    h.context);
+  const tentative = {
+    ...structuredClone(sourcePackage),
+    id: "Tentative.Source",
+  };
+  h.state.packages = [tentative];
+  h.state.package = tentative;
+  const acquisition = deferred<void>();
+  const acquiring = deferred<void>();
+  let transferred = false;
+  h.controls.acquisition = async () => {
+    acquiring.resolve();
+    await acquisition.promise;
+    return true;
+  };
+  Object.assign(h.context, {
+    workspaceFeedActivation: {
+      captureCommittedRollback: () => committed,
+      transferCommittedRollback() {
+        transferred = true;
+        return {
+          snapshot: committed,
+          transfer() {
+            return this;
+          },
+          async restore() {
+            return true;
+          },
+          release() {},
+        };
+      },
+      clearActiveUrl() {},
+    },
+    focusWorkbenchSearchOrHeading: () => true,
+  });
+  const loc = parseWorkspaceLocation(
+    new URL(
+      "https://inspect.test/?package=Replacement.B"
+      + "&version=1.0.0&framework=net10.0#pkg"),
+    () => assert.fail("An ordinary URL must not decode a Workspace packet."));
+  const navigationSeq = h.navigationSequence.begin();
+  const ordinaryResult: unknown = runInNewContext(
+    "openFreshWorkspaceLink(loc, navigationSeq)",
+    { ...h.context, loc, navigationSeq });
+  const ordinary = Promise.resolve(ordinaryResult);
+  await Promise.race([
+    acquiring.promise,
+    ordinary.then(
+      () => assert.fail("Ordinary navigation settled before acquisition.")),
+  ]);
+  if (!transferred) {
+    runInNewContext(
+      "restoreCanonicalWorkspaceRestoreSnapshot(committed)",
+      { ...h.context, committed });
+  }
+  acquisition.resolve();
+  await ordinary;
+  await h.settle();
+
+  assert.equal(transferred, true);
+  assert.deepEqual(
+    Array.from(h.state.packages, pkg => pkg.id),
+    ["Replacement.B"]);
+  assert.equal(h.state.package?.id, "Replacement.B");
+});
+
+test("mixed source publication keeps its inactive Platform visible", () => {
+  const h = harness();
+  const declaration = app.program.body.find(node =>
+    node.type === "FunctionDeclaration"
+    && node.id?.name === "publishSourceBearingWorkspace");
+  assert.ok(declaration);
+  Object.assign(h.context, {
+    createNavigationDescriptorPresentation: () => ({
+      packages: [],
+      platforms: [{
+        order: 0,
+        navigationId: "platform-tab",
+        family: "netcore.app",
+        version: "10.0.10",
+        framework: "net10.0",
+        runtimeIdentifier: null,
+        current: false,
+        detailFailure: null,
+        summary: {},
+      }],
+    }),
+    platformPackages: new Map(),
+    platformTargetKey: (target: {
+      tfm: string;
+      version: string;
+    }) => `${target.tfm}/${target.version}`,
+    defaultVisibleTypeId: () => "",
+    resetMemberSectionState() {},
+    renderWorkspaceViewPure,
+    render() {},
+  });
+  runInNewContext(
+    stripTypeScriptTypes(
+      appSource.slice(declaration.start, declaration.end)),
+    h.context);
+
+  const packageModel = structuredClone(h.state.package!);
+  const platformModel = {
+    ...structuredClone(packageModel),
+    id: "Microsoft.NETCore.App",
+    version: "10.0.10",
+    activeFramework: "net10.0",
+    source: { kind: "platform" as const },
+    producerLabel: "Platform",
+    isRuntimePack: true,
+  };
+  const posting = {
+    retainedDefinitionId: "workspace-definition-1",
+    realizationId: "realization-1",
+    canonicalLocation: "https://inspect.test/?w=source-mixed",
+    definition: {
+      activeTabId: "package-tab",
+      tabs: [
+        { id: "platform-tab", kind: "group", source: ":Platform" },
+        {
+          id: "package-tab",
+          kind: "package",
+          source: packageModel.id,
+          version: packageModel.version,
+          framework: packageModel.activeFramework,
+        },
+      ],
+    },
+    navigation: {
+      snapshot: { activePackage: "package-subject" },
+    },
+  };
+  const models = {
+    packages: [{
+      navigationId: "package-tab",
+      contextIndex: 0,
+      consumerPackageSubjectId: "package-subject",
+      packageModel,
+    }],
+    platforms: [{
+      navigationId: "platform-tab",
+      contextIndex: 0,
+      family: "netcore.app",
+      runtimeIdentifier: null,
+      packageModel: platformModel,
+    }],
+  };
+  Object.assign(h.context, { posting, models });
+
+  runInNewContext(
+    "publishSourceBearingWorkspace(posting, models)",
+    h.context);
+
+  const presentation: unknown = runInNewContext(
+    "retainedWorkspacePresentation",
+    h.context);
+  assert.ok(presentation);
+  const html: unknown = runInNewContext(
+    `renderWorkspaceViewPure({
+      occurrences: [],
+      navigationPackages: retainedWorkspacePresentation.packages,
+      navigationPlatforms: retainedWorkspacePresentation.platforms,
+      packages: [],
+      platform: null,
+      loading: false,
+      error: "",
+      escapeHtml: String,
+    })`,
+    h.context);
+  if (typeof html !== "string") {
+    assert.fail("The Workspace renderer must return HTML.");
+  }
+  assert.equal(h.state.package?.id, packageModel.id);
+  assert.equal(h.state.platformSelection, null);
+  assert.match(html, /<h2>Platform<\/h2>/);
+  assert.match(html, /data-product-platform-action="platform-tab"/);
+});
 
 for (const failure of ["acquisition", "selection"] as const) {
   test(`failed ${failure} Open restores comparison choices and their Package associations`, async () => {
@@ -1421,7 +2043,11 @@ for (const rejected of [false, true]) {
     h.controls.encodeResult = {
       succeeded: true, packet: "successor-packet", failure: null,
     };
-    h.open({ name: "Successor", packet: "successor-packet" });
+    h.open({
+      name: "Successor",
+      packet: "successor-packet",
+      kind: "legacy",
+    });
     await new Promise(resolve => setImmediate(resolve));
     const pending = h.context.pendingDemoNavigation;
     if (rejected) first.reject(new Error("Stale failure"));
@@ -1686,7 +2312,7 @@ test("Add appends the resolved coordinate, preserves inspection, invalidates mem
   assert.equal(h.location.searchParams.get("w"), packet);
   assert.equal(h.writes.filter(write => write.kind === "push").length, 1);
   assert.deepEqual(h.previousEntries, [{ url: href, state: entryState }]);
-  assert.deepEqual(saved, { name: "My Workspace", packet });
+  assert.deepEqual(saved, { name: "My Workspace", packet, kind: "legacy" });
   assert.equal(h.context.pendingDemoNavigation, null);
   h.flushFocus();
   assert.deepEqual(h.focus, ["heading"]);

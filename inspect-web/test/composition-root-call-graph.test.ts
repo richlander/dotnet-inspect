@@ -7,6 +7,7 @@ import {
   accessibilityFilterIncludingType,
   assemblyDescriptorForType,
   callGraphAssemblyIdentityMatches,
+  callGraphTargetPackageCoordinate,
   callGraphTargetTypeId,
   combinedGraphTargetNavigationDisposition,
   graphTargetBlockedReason,
@@ -546,10 +547,10 @@ test("platform graph borders reflect actual resident lookup", () => {
     /runtimePackForFramework\(\s*runtimePackPackage\(\),\s*platformCatalogFramework\(state\.package\?\.activeFramework \|\| ""\)\)/);
   assert.match(
     packageBinding,
-    /const runtimeCandidate = \(candidate\.status === "missing"[\s\S]*?\|\| candidate\.status === "skew"\) && pack\s*\? resolveRuntimeGraphTargetCandidate\(pack, target\)/);
+    /const runtimeCandidate = !packageAvailable[\s\S]*?&& \(candidate\.status === "missing"[\s\S]*?\|\| candidate\.status === "skew"\) && pack\s*\? resolveRuntimeGraphTargetCandidate\(pack, target\)/);
   assert.match(
     packageBinding,
-    /const disposition = combinedGraphTargetNavigationDisposition\(\s*candidate,\s*runtimeCandidate,\s*target,\s*runtimeResident\);[\s\S]*?if \(disposition === "blocked"/);
+    /const disposition = combinedGraphTargetNavigationDisposition\(\s*candidate,\s*runtimeCandidate,\s*target,\s*runtimeResident,\s*packageAvailable\);[\s\S]*?if \(disposition === "blocked"/);
   assert.match(
     packageBinding,
     /else if \(disposition === "resident"\) \{\s*if \(pack && resident\) \{[\s\S]*?openRuntimeMemberFromGraph\([\s\S]*?\} else \{[\s\S]*?startPlatformDrill\(target\)/);
@@ -763,7 +764,7 @@ test("runtime graph member activation requires the matching exact catalog", asyn
 
 test("home navigation invalidates pending graph work", () => {
   const home =
-    appSource.match(/function goHome\(\) \{[\s\S]*?\n\}/)?.[0]
+    appSource.match(/function goHome\(\): boolean \{[\s\S]*?\n\}/)?.[0]
     ?? "";
   const history =
     appSource.match(/window\.addEventListener\("popstate"[\s\S]*?\n\}\);/)?.[0]
@@ -1130,7 +1131,7 @@ test("library metadata uses compact coordinates in a full-area working surface",
     /const contentNavigationIntegrated =[\s\S]*?\|\| libraryMetadataWorkingSurface[\s\S]*?;/);
   assert.match(
     renderLibrary,
-    /if \(state\.libraryLens === "overview"\s*\|\| state\.libraryLens === "compare"\s*\|\| state\.libraryLens === "references"\s*\|\| state\.libraryLens === "integrations"\s*\|\| state\.libraryLens === "analysis"\s*\|\| state\.libraryLens === "metadata"\) return body;/);
+    /if \(state\.libraryLens === "overview"\s*\|\| state\.libraryLens === "compare"\s*\|\| state\.libraryLens === "references"\s*\|\| state\.libraryLens === "integrations"\s*\|\| state\.libraryLens === "analysis"\s*\|\| state\.libraryLens === "metrics"\s*\|\| state\.libraryLens === "metadata"\) return body;/);
   assert.match(
     renderMetadata,
     /data-platform-metadata-library[\s\S]*?requireSelection: true[\s\S]*?controlsHtml: metadataLibraryControl[\s\S]*?package-metadata-controls/);
@@ -1152,6 +1153,18 @@ test("library metadata uses compact coordinates in a full-area working surface",
   assert.match(
     stylesSource,
     /\.package-metadata-scroll \{[^}]*overflow: auto;/s);
+});
+
+test("library Metrics uses the full-area analysis working surface", () => {
+  assert.match(
+    appSource,
+    /const libraryMetricsWorkingSurface =\s*activeScope === "library" && state\.libraryLens === "metrics"/);
+  assert.match(
+    appSource,
+    /libraryAnalysisWorkingSurface \|\| libraryMetricsWorkingSurface \? " library-analysis-working-surface" : ""/);
+  assert.match(
+    appSource,
+    /contentNavigationIntegrated =[\s\S]*\|\| libraryMetricsWorkingSurface[\s\S]*?;/);
 });
 
 test("package dependencies use compact coordinates in a full-area working surface", () => {
@@ -1365,6 +1378,12 @@ test("navigable call graph targets share mouse and keyboard activation", () => {
     binding.match(/`Open \$\{target\.typeFullName\}\.\$\{target\.memberName\}`/g)?.length,
     3);
   assert.match(
+    binding,
+    /disposition === "package" && packageCoordinate[\s\S]*?openPackageGraphMember\([\s\S]*?packageCoordinate,[\s\S]*?target,[\s\S]*?loadedSection,[\s\S]*?failureSurface/);
+  assert.match(
+    appSource,
+    /async function openPackageGraphMember\([\s\S]*?retainedWorkspaces\.activeWorkspaceId === null[\s\S]*?!canPublishRetainedWorkspace\(\)[\s\S]*?loadPackage\(\s*coordinate\.id,\s*coordinate\.version,\s*coordinate\.framework\)[\s\S]*?navigateToUnprojectedGraphMember/);
+  assert.match(
     graphInteractionsSource,
     /node\.setAttribute\("tabindex", "0"\);[\s\S]*node\.setAttribute\("role", "button"\);[\s\S]*node\.setAttribute\("aria-label", binding\.label\)/);
   assert.match(
@@ -1428,6 +1447,49 @@ test("call graph navigation rejects ambiguous loaded package coordinates", () =>
   assert.equal(
     graphTargetNavigationDisposition({ status: "missing" }, target),
     "platform");
+  const packageTarget = {
+    ...target,
+    assemblyVersion: "1.0.0.0",
+    packageId: "dependency.package",
+    packageVersion: "2.0.0",
+    packageFramework: "net9.0",
+  };
+  assert.deepEqual(
+    callGraphTargetPackageCoordinate(packageTarget),
+    {
+      id: "dependency.package",
+      version: "2.0.0",
+      framework: "net9.0",
+    });
+  assert.equal(
+    graphTargetNavigationDisposition(
+      { status: "missing" },
+      packageTarget,
+      false,
+      true),
+    "package");
+  assert.equal(
+    combinedGraphTargetNavigationDisposition(
+      { status: "missing" },
+      { status: "unique", pkg: null, type: null },
+      packageTarget,
+      true,
+      true),
+    "package");
+  assert.equal(
+    graphTargetNavigationDisposition(
+      { status: "missing" },
+      { ...packageTarget, kind: "ordinary" },
+      false,
+      true),
+    "package");
+  assert.equal(
+    graphTargetNavigationDisposition(
+      { status: "missing" },
+      { ...packageTarget, kind: "ordinary", assemblyVersion: null },
+      false,
+      true),
+    "none");
   assert.equal(
     graphTargetNavigationDisposition(
       { status: "missing" },
@@ -1528,6 +1590,40 @@ test("call graph navigation rejects assembly identity skew", () => {
   assert.equal(
     graphTargetBlockedReason(residentCandidate, "package"),
     "the exact target type is not projected from the loaded package assembly");
+});
+
+test("loaded exact dependency coordinates project resident graph targets", () => {
+  const target = {
+    assembly: "Example",
+    assemblyVersion: "1.0.0.0",
+    assemblyCulture: null,
+    assemblyPublicKeyToken: null,
+    typeMetadataId: "Example.Widget",
+    kind: "external",
+    packageId: "Example.Package",
+    packageVersion: "2.0.0",
+    packageFramework: "net8.0",
+  };
+  const pkg = {
+    ...packageAt("2.0.0", "net8.0", 0),
+    assemblies: [{
+      id: "example",
+      name: "Example",
+      version: "1.0.0.0",
+      culture: null,
+      publicKeyToken: null,
+    }],
+  };
+  assert.deepEqual(
+    resolveLoadedGraphTargetCandidate([pkg], target),
+    { status: "resident" });
+
+  const binding =
+    appSource.match(/function callGraphNodeBinding\([\s\S]*?\n}(?=\n\nfunction blockedCallGraphNodeBinding)/)?.[0]
+    ?? "";
+  assert.match(
+    binding,
+    /candidate\.status === "resident"[\s\S]*?coordinatePackage !== null \|\| destination !== "default"[\s\S]*?navigateToUnprojectedGraphMember\(\s*residentPackage,\s*target,\s*section,\s*failureSurface\)/);
 });
 
 test("surface asset currency makes repeated graph navigation reuse its type", () => {

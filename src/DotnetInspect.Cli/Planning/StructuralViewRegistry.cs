@@ -116,6 +116,9 @@ public sealed record StructuralSchemaProjection(
     IReadOnlySet<string>? ListedCategoryDoors,
     IReadOnlySet<string> CatalogHiddenSections,
     IReadOnlySet<string> ExactOnlySections,
+    IReadOnlyDictionary<
+        string,
+        SectionCardinalityDeclaration>? SectionCardinalities,
     ImmutableDictionary<string, StructuralSectionInput> SectionInputs,
     OutputCapabilityCatalog? OutputCapabilities);
 
@@ -558,8 +561,7 @@ public static class StructuralViewRegistry
             return true;
         }
 
-        if (ContainsOption(tokens, "--version")
-            || ContainsOption(tokens, "--versions")
+        if (ContainsOption(tokens, "--versions")
             || ContainsOption(tokens, "--versions-with-feed")
             || target.Contains('@'))
         {
@@ -865,6 +867,9 @@ public static class StructuralViewRegistry
             new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         IReadOnlySet<string> exactOnlySections =
             new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        IReadOnlyDictionary<
+            string,
+            SectionCardinalityDeclaration>? sectionCardinalities = null;
         OutputCapabilityCatalog? outputCapabilities = null;
         switch (route.Catalog)
         {
@@ -899,6 +904,8 @@ public static class StructuralViewRegistry
                     catalog.Pipeline.GetCatalogHiddenSections();
                 outputCapabilities =
                     LibraryOutputCapabilities.Catalog;
+                sectionCardinalities =
+                    LibrarySectionCardinality.ExactDeclarations;
                 break;
             }
             case InspectionCatalogIdentity.LibraryAggregate:
@@ -917,6 +924,11 @@ public static class StructuralViewRegistry
                     catalog.Pipeline.GetListedCategoryDoors();
                 catalogHiddenSections =
                     catalog.Pipeline.GetCatalogHiddenSections();
+                outputCapabilities =
+                    LibraryOutputCapabilities
+                        .AggregateCardinalityCatalog;
+                sectionCardinalities =
+                    LibrarySectionCardinality.AggregateDeclarations;
                 break;
             }
             case InspectionCatalogIdentity.ApiType:
@@ -1036,6 +1048,7 @@ public static class StructuralViewRegistry
             listedCategoryDoors,
             catalogHiddenSections,
             exactOnlySections,
+            sectionCardinalities,
             inputs,
             outputCapabilities);
     }
@@ -1055,8 +1068,30 @@ public static class StructuralViewRegistry
         request = normalizedRequest;
         StructuralSchemaProjection projection = Project(route, outputShape);
         DocumentSchema schema = projection.Schema;
+        IReadOnlyDictionary<
+            string,
+            SectionCardinalityDeclaration>? sectionCardinalities =
+                route.Catalog == InspectionCatalogIdentity.Library
+                && request.Projection is LibraryOptions libraryOptions
+                && LibrarySectionCardinality.IsAllTfmPackageSelection(
+                    libraryOptions)
+                    ? null
+                    : projection.SectionCardinalities;
         if (request.Details)
         {
+            if (route.Catalog
+                    == InspectionCatalogIdentity.LibraryAggregate
+                && (request.Discover is not [var section]
+                    || !section.Equals(
+                        SectionNames.LibraryInfo,
+                        StringComparison.OrdinalIgnoreCase)))
+            {
+                CommandError.Write(
+                    "Detailed aggregate Library discovery currently supports "
+                    + $"only '{SectionNames.LibraryInfo}'.");
+                return 1;
+            }
+
             if (request.Discover is { Length: > 1 })
             {
                 CommandError.Write(
@@ -1104,7 +1139,9 @@ public static class StructuralViewRegistry
                     projection.SectionCostAnnotations,
                     projection.ExactOnlySections,
                     projection.OutputCapabilities,
-                    requireExactSelection: true);
+                    requireExactSelection: true,
+                    sectionCardinalities:
+                        sectionCardinalities);
             if (detailedProjection is null)
                 return 1;
 
@@ -1157,7 +1194,11 @@ public static class StructuralViewRegistry
                 projection.ListedCategoryDoors,
                 projection.SectionCostAnnotations,
                 projection.ExactOnlySections,
-                projection.OutputCapabilities);
+                projection.OutputCapabilities,
+                sectionCardinalities:
+                    FilterCardinalities(
+                        sectionCardinalities,
+                        schema.SectionNames));
             if (discoveryProjection is null)
                 return 1;
         }
@@ -1652,6 +1693,28 @@ public static class StructuralViewRegistry
         }
 
         return filtered;
+    }
+
+    private static IReadOnlyDictionary<
+        string,
+        SectionCardinalityDeclaration>? FilterCardinalities(
+        IReadOnlyDictionary<
+            string,
+            SectionCardinalityDeclaration>? declarations,
+        IReadOnlyList<string> sectionNames)
+    {
+        if (declarations is null)
+            return null;
+
+        var known = new HashSet<string>(
+            sectionNames,
+            StringComparer.OrdinalIgnoreCase);
+        return declarations
+            .Where(pair => known.Contains(pair.Key))
+            .ToDictionary(
+                static pair => pair.Key,
+                static pair => pair.Value,
+                StringComparer.OrdinalIgnoreCase);
     }
 
     private static bool ContainsOption(

@@ -15,7 +15,7 @@ This owner defines:
 
 - the persistent shell's visible `Search` and `Open` actions, one stable
   Application menu for `Share`, `Settings`, and `Keyboard help`, and the
-  `dotnet-inspect` Home control;
+  `dotnet-inspect` product-navigation control;
 - the identities, accessible behavior, and responsive visible states of the
   row-one Home, history, Search, and Application menu controls;
 - the generic modal-dialog contract (accessible name, initial focus, inert
@@ -74,14 +74,14 @@ This document consumes, without redefining:
 Surface Composition owns the two-row placement:
 
 ```text
-row one: dotnet-inspect  Subject  Inspectors  Back Forward  Search  Application
+row one: dotnet-inspect menu  Subject  Inspectors  Back Forward  Search  Application
 row two: [package icon] Package > Type > Member          contextual actions
 ```
 
 This document owns the row-one shell controls rather than the page-level
 allocation:
 
-1. `dotnet-inspect` is the stable product and Home control.
+1. `dotnet-inspect` is the stable product-navigation control.
 2. Compact Back and Forward controls occupy one quiet paired container.
 3. Search follows history and opens Spotlight.
 4. The Application menu is the stable inline-end action home.
@@ -113,6 +113,18 @@ arrows alone, to no visible history/Search controls before the Subject and
 Inspector region starts reducing active identity. These states do not change
 the controls' interaction semantics.
 
+The brand-triggered product-navigation menu exposes:
+
+```text
+dotnet-inspect
+  Home
+  Query
+  Workspace
+  Activity
+  ───────────
+  Open Library…
+```
+
 The separate Application menu exposes:
 
 ```text
@@ -136,9 +148,9 @@ The shell may land before adjacent redesign owners. During that transition:
 
 - currently supported Settings may remain a direct shell action before the
   Application menu is available;
-- Open remains absent rather than appearing disabled or committing a
-  success-shaped placeholder action;
-- the `dotnet-inspect` root control is the sole persistent Home affordance;
+- the `dotnet-inspect` product-navigation menu is the sole persistent Home
+  affordance, with Home as its first item and Open Library as its separated
+  product action;
 - existing direct Share, Settings, and keyboard Help controls may remain in the
   shell until
   [Surface Composition's placement contract](inspect-web-surface-composition.md#shell-navigation-and-application-actions)
@@ -169,12 +181,51 @@ The Application menu starts from three established patterns:
   application menu bar or user-editable keybinding system
   ([VS Code keyboard shortcuts](https://code.visualstudio.com/docs/configure/keybindings)).
 
-The deliberate divergence is that this menu remains small and non-navigational.
-It contains only the shell-owned Share, Settings, and Keyboard help actions.
-Search, Open, browser history, subjects, inspectors, coordinates, and
-contextual working-surface actions keep their existing dedicated owners and
-locations. The button is the canonical action home at every supported width,
-not an overflow fallback whose inventory changes when space becomes scarce.
+The deliberate divergence is that the separate Application menu remains small
+and non-navigational. It contains only the shell-owned Share, Settings, and
+Keyboard help actions. Home, Query, Workspace, and Activity instead live in
+the brand-triggered product-navigation menu, where they remain prominent
+without competing horizontally with Subject and Inspector navigation.
+Open Library follows those destinations as a separated product action rather
+than pretending to be a routed destination or an application utility. Search,
+browser history, subjects, inspectors, coordinates, and contextual
+working-surface actions keep their existing dedicated owners and locations.
+Neither menu is an overflow fallback whose inventory changes when space
+becomes scarce.
+
+## Product navigation menu
+
+The visible `dotnet-inspect` wordmark and product mark form one button with a
+disclosure indicator. Activation opens a vertically stacked navigation
+popover containing Home, Query, Workspace, and Activity in that order,
+followed by a separator and Open Library. The current routed destination is
+marked with `aria-current="page"`; ordinary inspection has no falsely selected
+destination. Open Library is a modal product action, never receives
+`aria-current`, and keeps the existing Open overlay's visible startup,
+progress, validation, and failure behavior. Workspace remains visible but is
+`aria-disabled` with an accessible reason when no Workspace is available.
+Query and Activity likewise remain visible but are `aria-disabled` with an
+accessible reason while runtime startup, inspection loading, or an inspection
+error prevents their route handlers from entering those destinations.
+Unavailable destinations remain in managed Arrow-key focus so keyboard and
+assistive-technology users can discover the reason, while activation has no
+effect.
+
+The product-navigation popover is viewport-constrained and renders above the
+shell without reflowing or clipping the Subject and Inspector region. Down or
+Up Arrow on the trigger opens it at the first or last menu item; Arrow keys,
+Home, and End move through destinations and Open Library; Escape closes it and
+returns focus to the trigger. Tab follows ordinary document order. Outside
+pointer or focus movement closes it without stealing focus.
+
+Home, Query, Activity, and Workspace continue to use their existing routed
+navigation outcomes, browser-history classification, retained Workspace
+state, and destination-focus behavior. Returning from Query or Activity to an
+inspection focuses the current rendered product-navigation trigger rather
+than a destroyed menu item.
+Activating Open Library closes the menu before opening the existing modal.
+Ordinary modal dismissal focuses the current rendered product-navigation
+trigger, including after shell replacement.
 
 ## Application menu
 
@@ -389,7 +440,7 @@ Open overlay is present. File drag/drop browser defaults remain suppressed
 while Open work is busy, so a second drop cannot navigate the tab away from the
 in-flight operation. Each Open rerender restores focus inside the modal to its
 title, progress status, or rejection as appropriate. Ordinary dismissal
-returns to the Home Open control, Application menu button, or originating
+returns to the Home Open control, product-navigation trigger, or originating
 surface heading; successful activation focuses the transient Library heading.
 Routed navigation retires any in-flight Open
 operation, and beginning Open work retires older routed acquisition; a retired
@@ -509,9 +560,13 @@ outcomes.
 
 ### Workspace title bar
 
-1. Confirm that row one contains the `dotnet-inspect` Home control, Subject and
-   Inspector navigation, Back and Forward, Search, and the Application menu,
-   with no Package coordinate controls.
+1. Confirm that row one contains the `dotnet-inspect` product-navigation
+   control, Subject and Inspector navigation, Back and Forward, Search, and
+   the Application menu, with no Package coordinate controls. Open the
+   product-navigation menu and confirm Home, Query, Workspace, Activity, a
+   separator, and Open Library in that order. Activate Open Library and confirm
+   that the existing modal opens, receives its owned initial focus, and returns
+   focus to the current product-navigation trigger on ordinary dismissal.
 2. Confirm that row one contains no workspace tabs, numeric workspace
    selectors, separate Platform workspace, or reconstructed inspected target.
 3. Open Workspace and confirm that retained coordinates move into its working
@@ -565,7 +620,7 @@ outcomes.
 7. Resize repeatedly across the supported range and confirm that the button and
    applicable action inventory remain stable rather than changing between
    direct and overflow forms.
-8. Confirm that Search, Open, history, subjects, inspectors, coordinates,
+8. Confirm that Search, history, subjects, inspectors, coordinates,
    Copy, Explore, graph actions, source actions, and `Open in workspace` do not
    enter the menu.
 9. Invoke Share, Settings, and Keyboard help through the command palette and

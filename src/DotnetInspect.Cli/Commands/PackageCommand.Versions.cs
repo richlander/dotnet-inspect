@@ -609,8 +609,7 @@ public partial class PackageCommand
         IEnumerable<string> versions,
         InspectionOptions options)
     {
-        if (options.JsonOutput
-            && options.Limit is null)
+        if (options.JsonOutput)
         {
             Console.Out.WriteLine(
                 JsonSerializer.Serialize(

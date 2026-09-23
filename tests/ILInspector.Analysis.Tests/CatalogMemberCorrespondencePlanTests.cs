@@ -394,6 +394,53 @@ public class CatalogMemberCorrespondencePlanTests
     }
 
     [Fact]
+    public void ShapeMismatchSkipsEstablishedCorrespondence()
+    {
+        byte[] image = BuildAssembly("Owner", ["Owner"]);
+        ResolvedAssemblyReference source = Descriptor(image);
+        TypeRef owner = ReadDefinition(image, "Owner");
+        CatalogMemberCorrespondencePlan plan =
+            CatalogMemberCorrespondencePlan.Create(
+                source,
+                Method(source, image, owner, [], owner));
+        using var catalog = new TypeResolutionCatalog();
+        using TypeResolutionContext context = catalog.CreateContext(
+            MissingPolicy.Instance,
+            [source],
+            plan.Requests);
+        var exact = Assert.IsType<CatalogMemberJoinProjection.Issued>(
+            plan.Project(context));
+        var differentArity = new CatalogMemberJoinProjection.Issued(
+            new CatalogMemberJoinKey(
+                exact.Key.Catalog,
+                exact.Key.Generation,
+                exact.Key.Kind,
+                exact.Key.DeclaringType,
+                exact.Key.Name,
+                exact.Key.MemberKind,
+                exact.Key.GenericArity + 1,
+                exact.Key.HasThis,
+                exact.Key.SignatureHeader,
+                exact.Key.RequiredParameterCount,
+                exact.Key.ParameterTypes,
+                exact.Key.ReturnType),
+            []);
+        int correspondenceChecks = 0;
+
+        Assert.False(
+            plan.CorrespondsToEstablished(
+                plan,
+                exact,
+                differentArity,
+                (_, _) =>
+                {
+                    correspondenceChecks++;
+                    return true;
+                }));
+        Assert.Equal(0, correspondenceChecks);
+    }
+
+    [Fact]
     public void EstablishedTypeRequestPairVouchesForRepeatedSignatureType()
     {
         byte[] targetImage = BuildAssembly("Target", ["Api"]);

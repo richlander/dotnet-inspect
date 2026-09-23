@@ -13,8 +13,6 @@ namespace DotnetInspector.Sections;
 /// </summary>
 public static class WorkspacePackageDependencyEnrichmentInspection
 {
-    private const string SharePrefix = "https://dotnet-inspect.net/?w=";
-
     public static async Task<
         InspectionEnvelope<WorkspacePackageDependencyEnrichmentOutcome>>
         ExecuteAsync(
@@ -295,7 +293,7 @@ public static class WorkspacePackageDependencyEnrichmentInspection
             WorkspacePackageDependencyEnrichmentOutcome>(
                 outcome,
                 new InspectionShare.Available(
-                    SharePrefix + encoded,
+                    WorkspaceShareUrl.Create(encoded),
                     encoded));
     }
 

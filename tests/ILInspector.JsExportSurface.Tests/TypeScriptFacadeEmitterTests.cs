@@ -105,6 +105,10 @@ public sealed class TypeScriptFacadeEmitterTests
     {
         global::ILInspector.JsExportSurface.JsExportSurface surface =
             BuildSurface(typeof(FixtureExports).Assembly.Location);
+        JsExportFunction asyncRename = surface.Functions.Single(
+            function => function.Name == "RenameWidgetAsync");
+        JsExportFunction transformedAsync = surface.Functions.Single(
+            function => function.Name == "RenameNormalizedWidgetAsync");
         JsExportFunction rename = surface.Functions.Single(
             function => function.Name == "RenameWidgetForOwner");
         JsExportFunction compare = surface.Functions.Single(
@@ -118,6 +122,36 @@ public sealed class TypeScriptFacadeEmitterTests
             surface,
             RuntimeModule);
 
+        Assert.Contains(
+            $"readonly \"{asyncRename.RuntimeDispatchKey}\": "
+                + "(widgetJson: string, newName: string) => Promise<string>;",
+            source,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "export async function renameWidgetAsync("
+                + "widgetJson: WidgetDto, newName: string): "
+                + "Promise<WidgetDto>",
+            source,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            $"[\"{asyncRename.RuntimeDispatchKey}\"]("
+                + "$serializeJsonInput(widgetJson, "
+                + $"\"{asyncRename.DeclaringType}."
+                + $"{asyncRename.RuntimeDispatchKey}\", "
+                + "\"widgetJson\"), newName);",
+            source,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "export async function renameNormalizedWidgetAsync("
+                + "widgetJson: string, newName: string): "
+                + "Promise<WidgetDto>",
+            source,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            $"[\"{transformedAsync.RuntimeDispatchKey}\"]("
+                + "$serializeJsonInput(widgetJson,",
+            source,
+            StringComparison.Ordinal);
         Assert.Contains(
             $"readonly \"{rename.RuntimeDispatchKey}\": "
                 + "(owner: string, widgetJson: string, "

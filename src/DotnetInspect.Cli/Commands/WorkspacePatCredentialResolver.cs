@@ -36,6 +36,24 @@ internal static class WorkspacePatCredentialResolver
         Func<Stream> openStandardInput,
         CancellationToken cancellationToken)
     {
+        WorkspacePackageSourceBindingPlan plan =
+            await ResolveBindingAsync(
+                sourceDefinitions,
+                bindings,
+                isInputRedirected,
+                openStandardInput,
+                cancellationToken).ConfigureAwait(false);
+        return [.. plan.Sources];
+    }
+
+    private static async Task<WorkspacePackageSourceBindingPlan>
+        ResolveBindingAsync(
+        IReadOnlyList<WorkspacePackageSourceDefinition> sourceDefinitions,
+        IReadOnlyList<WorkspacePatBindingInput> bindings,
+        bool isInputRedirected,
+        Func<Stream> openStandardInput,
+        CancellationToken cancellationToken)
+    {
         ArgumentNullException.ThrowIfNull(sourceDefinitions);
         ArgumentNullException.ThrowIfNull(bindings);
         ArgumentNullException.ThrowIfNull(openStandardInput);
@@ -43,35 +61,35 @@ internal static class WorkspacePatCredentialResolver
         Dictionary<string, WorkspacePatBindingInput> suppliedBindings =
             ValidateBindingsCore(sourceDefinitions, bindings);
 
-        var secrets = new Dictionary<string, string>(StringComparer.Ordinal);
+        var credentials = new Dictionary<
+            string,
+            PackageSourceCredential>(StringComparer.Ordinal);
         foreach ((string endpoint, WorkspacePatBindingInput binding)
             in suppliedBindings)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            secrets.Add(
+            credentials.Add(
                 endpoint,
-                await ReadSecretAsync(
-                        binding,
-                        isInputRedirected,
-                        openStandardInput,
-                        cancellationToken)
-                    .ConfigureAwait(false));
+                new PackageSourceCredential(
+                    binding.Username,
+                    await ReadSecretAsync(
+                            binding,
+                            isInputRedirected,
+                            openStandardInput,
+                            cancellationToken)
+                        .ConfigureAwait(false)));
         }
 
-        return
-        [
-            .. sourceDefinitions.Select(source =>
-                new PackageSource(
-                    source.Endpoint,
-                    source.Endpoint,
-                    suppliedBindings.TryGetValue(
-                        source.Endpoint,
-                        out WorkspacePatBindingInput? binding)
-                        ? new PackageSourceCredential(
-                            binding.Username,
-                            secrets[source.Endpoint])
-                        : null)),
-        ];
+        return WorkspacePackageSourceBinding.Create(
+            sourceDefinitions,
+            credentials) switch
+        {
+            WorkspacePackageSourceBindingResult.Bound bound => bound.Plan,
+            WorkspacePackageSourceBindingResult.Rejected rejected =>
+                throw new WorkspacePatBindingException(rejected.Message),
+            _ => throw new InvalidOperationException(
+                "Workspace package-source binding returned an unknown result."),
+        };
     }
 
     internal static async Task<WorkspacePackageSourceRuntime> BindAsync(
@@ -79,21 +97,16 @@ internal static class WorkspacePatCredentialResolver
         IReadOnlyList<WorkspacePatBindingInput> bindings,
         CancellationToken cancellationToken)
     {
-        PackageSource[] sources = await ResolveAsync(
-            sourceDefinitions,
-            bindings,
-            cancellationToken).ConfigureAwait(false);
-        HashSet<string> explicitlyBoundEndpoints =
-        [
-            .. bindings.Select(static binding => binding.Endpoint),
-        ];
+        WorkspacePackageSourceBindingPlan plan =
+            await ResolveBindingAsync(
+                sourceDefinitions,
+                bindings,
+                Console.IsInputRedirected,
+                Console.OpenStandardInput,
+                cancellationToken).ConfigureAwait(false);
+        PackageSource[] sources = [.. plan.Sources];
         WorkspacePackageSourceDefinition[] providerSources =
-        [
-            .. sourceDefinitions.Where(source =>
-                source.Authentication
-                    == WorkspacePackageSourceAuthentication.AuthenticationRequired
-                && !explicitlyBoundEndpoints.Contains(source.Endpoint)),
-        ];
+            [.. plan.UnboundAuthenticationRequirements];
         if (providerSources.Length == 0)
         {
             return new WorkspacePackageSourceRuntime(

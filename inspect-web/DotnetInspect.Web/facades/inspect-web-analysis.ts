@@ -316,6 +316,43 @@ export interface BrowserIntegrationSignal {
   readonly shape: string;
 }
 
+export interface BrowserLibraryMetrics {
+  readonly outcome: string;
+  readonly methodologyVersion: string | null;
+  readonly population: BrowserLibraryMetricsPopulation | null;
+  readonly distributions: ReadonlyArray<BrowserLibraryMetricsDistribution>;
+  readonly asyncStateMachinePresence: BrowserLibraryMetricsBooleanDisposition | null;
+  readonly diagnostics: ReadonlyArray<string>;
+  readonly failure: string | null;
+  readonly compileLibrary: BrowserCompileLibraryAvailability;
+}
+
+export interface BrowserLibraryMetricsBooleanDisposition {
+  readonly name: string;
+  readonly completeBodyCount: number;
+  readonly presentCount: number;
+  readonly absentCount: number;
+}
+
+export interface BrowserLibraryMetricsDistribution {
+  readonly metric: string;
+  readonly completeBodyCount: number;
+  readonly minimum: number | null;
+  readonly p50: number | null;
+  readonly p90: number | null;
+  readonly p95: number | null;
+  readonly p99: number | null;
+  readonly maximum: number | null;
+}
+
+export interface BrowserLibraryMetricsPopulation {
+  readonly physicalEvidenceBodyCount: number;
+  readonly profiledPhysicalEvidenceBodyCount: number;
+  readonly logicalOwnerCount: number;
+  readonly completeProfileCount: number;
+  readonly incompleteProfileCount: number;
+}
+
 export interface BrowserMemberFacts {
   readonly metadataToken: number;
   readonly signals: BrowserMethodSignals;
@@ -434,9 +471,11 @@ type $ManagedExports = {
             readonly "QueryCloneCandidates.976702342": (requestJson: string) => Promise<string>;
             readonly "QueryMemberFacts.581406856": (packageId: string, version: string, targetFramework: string, assemblyName: string, typeIdentity: string, memberName: string, memberSignature: string, selectorKey: string, metadataToken: number, implementationBodySelected: boolean) => Promise<string>;
             readonly "QueryPackageIntegrations.1579276339": (packageId: string, version: string, targetFramework: string, assemblyName: string) => Promise<string>;
+            readonly "QueryPackageLibraryMetrics.1579276339": (packageId: string, version: string, targetFramework: string, assemblyName: string) => Promise<string>;
             readonly "QueryPackageOpportunities.1579276339": (packageId: string, version: string, targetFramework: string, assemblyName: string) => Promise<string>;
             readonly "QueryPackagePerformance.1579276339": (packageId: string, version: string, targetFramework: string, assemblyName: string) => Promise<string>;
             readonly "QueryPlatformIntegrations.1579276339": (targetFramework: string, platformVersion: string, assemblyFileName: string, pack: string) => Promise<string>;
+            readonly "QueryPlatformLibraryMetrics.1579276339": (targetFramework: string, platformVersion: string, assemblyFileName: string, pack: string) => Promise<string>;
             readonly "QueryPlatformOpportunities.1579276339": (targetFramework: string, platformVersion: string, assemblyFileName: string, pack: string) => Promise<string>;
             readonly "QueryPlatformPerformance.1579276339": (targetFramework: string, platformVersion: string, assemblyFileName: string, pack: string) => Promise<string>;
           };
@@ -531,6 +570,18 @@ function $validateManagedExports(exports: unknown): asserts exports is $ManagedE
     value = $ownDataProperty(value, "Interop");
     value = $ownDataProperty(value, "Analysis");
     value = $ownDataProperty(value, "AnalysisExports");
+    value = $ownDataProperty(value, "QueryPackageLibraryMetrics.1579276339");
+    if (typeof value !== "function") {
+      throw new Error("Managed export \u0027DotnetInspect.Web.Interop.Analysis.AnalysisExports.QueryPackageLibraryMetrics.1579276339\u0027 is not callable.");
+    }
+  }
+  {
+    let value: unknown = exports;
+    value = $ownDataProperty(value, "DotnetInspect");
+    value = $ownDataProperty(value, "Web");
+    value = $ownDataProperty(value, "Interop");
+    value = $ownDataProperty(value, "Analysis");
+    value = $ownDataProperty(value, "AnalysisExports");
     value = $ownDataProperty(value, "QueryPackageOpportunities.1579276339");
     if (typeof value !== "function") {
       throw new Error("Managed export \u0027DotnetInspect.Web.Interop.Analysis.AnalysisExports.QueryPackageOpportunities.1579276339\u0027 is not callable.");
@@ -558,6 +609,18 @@ function $validateManagedExports(exports: unknown): asserts exports is $ManagedE
     value = $ownDataProperty(value, "QueryPlatformIntegrations.1579276339");
     if (typeof value !== "function") {
       throw new Error("Managed export \u0027DotnetInspect.Web.Interop.Analysis.AnalysisExports.QueryPlatformIntegrations.1579276339\u0027 is not callable.");
+    }
+  }
+  {
+    let value: unknown = exports;
+    value = $ownDataProperty(value, "DotnetInspect");
+    value = $ownDataProperty(value, "Web");
+    value = $ownDataProperty(value, "Interop");
+    value = $ownDataProperty(value, "Analysis");
+    value = $ownDataProperty(value, "AnalysisExports");
+    value = $ownDataProperty(value, "QueryPlatformLibraryMetrics.1579276339");
+    if (typeof value !== "function") {
+      throw new Error("Managed export \u0027DotnetInspect.Web.Interop.Analysis.AnalysisExports.QueryPlatformLibraryMetrics.1579276339\u0027 is not callable.");
     }
   }
   {
@@ -621,8 +684,22 @@ export function runEntryPoint(
   return $requireRuntime().runMain(mainAssemblyName, args);
 }
 
-export async function queryCloneCandidates(requestJson: string): Promise<BrowserCloneCandidateResult> {
-  const $result = await $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Analysis"]["AnalysisExports"]["QueryCloneCandidates.976702342"](requestJson);
+function $serializeJsonInput(
+  value: unknown,
+  operation: string,
+  parameter: string,
+): string {
+  const json = JSON.stringify(value);
+  if (json === undefined) {
+    throw new TypeError(
+      `${operation} parameter '${parameter}' could not be serialized as JSON.`,
+    );
+  }
+  return json;
+}
+
+export async function queryCloneCandidates(requestJson: BrowserCloneCandidateRequest): Promise<BrowserCloneCandidateResult> {
+  const $result = await $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Analysis"]["AnalysisExports"]["QueryCloneCandidates.976702342"]($serializeJsonInput(requestJson, "DotnetInspect.Web.Interop.Analysis.AnalysisExports.QueryCloneCandidates.976702342", "requestJson"));
   const $parsed: unknown = JSON.parse($result);
   return $parsed as BrowserCloneCandidateResult;
 }
@@ -637,6 +714,12 @@ export async function queryPackageIntegrations(packageId: string, version: strin
   const $result = await $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Analysis"]["AnalysisExports"]["QueryPackageIntegrations.1579276339"](packageId, version, targetFramework, assemblyName);
   const $parsed: unknown = JSON.parse($result);
   return $parsed as BrowserPackageIntegrations;
+}
+
+export async function queryPackageLibraryMetrics(packageId: string, version: string, targetFramework: string, assemblyName: string): Promise<BrowserLibraryMetrics> {
+  const $result = await $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Analysis"]["AnalysisExports"]["QueryPackageLibraryMetrics.1579276339"](packageId, version, targetFramework, assemblyName);
+  const $parsed: unknown = JSON.parse($result);
+  return $parsed as BrowserLibraryMetrics;
 }
 
 export async function queryPackageOpportunities(packageId: string, version: string, targetFramework: string, assemblyName: string): Promise<BrowserPackageOpportunities> {
@@ -655,6 +738,12 @@ export async function queryPlatformIntegrations(targetFramework: string, platfor
   const $result = await $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Analysis"]["AnalysisExports"]["QueryPlatformIntegrations.1579276339"](targetFramework, platformVersion, assemblyFileName, pack);
   const $parsed: unknown = JSON.parse($result);
   return $parsed as BrowserPackageIntegrations;
+}
+
+export async function queryPlatformLibraryMetrics(targetFramework: string, platformVersion: string, assemblyFileName: string, pack: string): Promise<BrowserLibraryMetrics> {
+  const $result = await $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Analysis"]["AnalysisExports"]["QueryPlatformLibraryMetrics.1579276339"](targetFramework, platformVersion, assemblyFileName, pack);
+  const $parsed: unknown = JSON.parse($result);
+  return $parsed as BrowserLibraryMetrics;
 }
 
 export async function queryPlatformOpportunities(targetFramework: string, platformVersion: string, assemblyFileName: string, pack: string): Promise<BrowserPackageOpportunities> {

@@ -93,7 +93,7 @@ public enum MemberRenderAttributeMode
 /// matches both reference decompilers and dotnet/runtime's per-type source
 /// files.
 /// </summary>
-public static class MemberBodyProducer
+public static partial class MemberBodyProducer
 {
     static readonly CSharpFormatter DefaultDeclarationFormatter = CreateDeclarationFormatter();
     static readonly CSharpFormatter ShellDeclarationFormatter =
@@ -139,6 +139,14 @@ public static class MemberBodyProducer
         Pipeline.MetadataSource source,
         MetadataMethodAddress address,
         SelectedPropertyAccessorSource? propertySource)
+        => ProduceBody(source, address, propertySource, null, false);
+
+    static MemberBodyProductionResult ProduceBody(
+        Pipeline.MetadataSource source,
+        MetadataMethodAddress address,
+        SelectedPropertyAccessorSource? propertySource,
+        Pipeline.PrinterOptions? printerOptions,
+        bool propagateUnexpectedFailures)
     {
         ArgumentNullException.ThrowIfNull(source);
         try
@@ -209,6 +217,7 @@ public static class MemberBodyProducer
             var projection = Pipeline.CSharpPrinter.PrintRaised(
                 function,
                 importMethodBody: methodRef => Pipeline.IrImporter.Import(source, methodRef),
+                options: printerOptions,
                 typesProvablyDisjoint: source.AreProvablyDisjoint);
             if (projection.Output is null)
             {
@@ -242,7 +251,10 @@ public static class MemberBodyProducer
                 SingleLineExpression = CSharpExpressionBody.FromSingleStatement(body.Source),
             };
         }
-        catch (Exception ex) when (ex is not OutOfMemoryException)
+        catch (Exception ex) when (
+            ex is not (OutOfMemoryException or OperationCanceledException)
+            && (!propagateUnexpectedFailures
+                || ex is BadImageFormatException or InvalidDataException))
         {
             return Failed(DiagnosticIds.InternalError, $"{ex.GetType().Name}: {ex.Message}");
         }

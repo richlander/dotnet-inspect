@@ -768,17 +768,22 @@ public sealed class CatalogMemberCorrespondencePlan
         CatalogMemberJoinProjection.Issued otherProjection,
         TypeResolutionRequest? correspondingTypeRequest = null,
         TypeResolutionRequest? otherCorrespondingTypeRequest = null)
-        => CorrespondsToCore(
+    {
+        ArgumentNullException.ThrowIfNull(other);
+        ArgumentNullException.ThrowIfNull(projection);
+        ArgumentNullException.ThrowIfNull(otherProjection);
+        if (!CouldCorrespond(projection, otherProjection))
+            return false;
+
+        return CorrespondsToCore(
             other,
             projection,
             otherProjection,
-            (request, otherRequest) =>
-                MatchesEstablishedCorrespondence(
-                    request,
-                    correspondingTypeRequest,
-                    otherRequest,
-                    otherCorrespondingTypeRequest),
+            new EstablishedCorrespondenceMatcher(
+                correspondingTypeRequest,
+                otherCorrespondingTypeRequest),
             establishedCorrespondenceRequiresDegradedShape: true);
+    }
 
     internal bool CorrespondsToEstablished(
         CatalogMemberCorrespondencePlan other,
@@ -787,12 +792,19 @@ public sealed class CatalogMemberCorrespondencePlan
         Func<TypeResolutionRequest, TypeResolutionRequest, bool>
             establishedCorrespondence)
     {
+        ArgumentNullException.ThrowIfNull(other);
+        ArgumentNullException.ThrowIfNull(projection);
+        ArgumentNullException.ThrowIfNull(otherProjection);
         ArgumentNullException.ThrowIfNull(establishedCorrespondence);
+        if (!CouldCorrespond(projection, otherProjection))
+            return false;
+
         return CorrespondsToCore(
             other,
             projection,
             otherProjection,
-            establishedCorrespondence,
+            new EstablishedCorrespondenceMatcher(
+                establishedCorrespondence),
             establishedCorrespondenceRequiresDegradedShape: false);
     }
 
@@ -800,8 +812,7 @@ public sealed class CatalogMemberCorrespondencePlan
         CatalogMemberCorrespondencePlan other,
         CatalogMemberJoinProjection.Issued projection,
         CatalogMemberJoinProjection.Issued otherProjection,
-        Func<TypeResolutionRequest, TypeResolutionRequest, bool>
-            establishedCorrespondence,
+        EstablishedCorrespondenceMatcher establishedCorrespondence,
         bool establishedCorrespondenceRequiresDegradedShape)
     {
         ArgumentNullException.ThrowIfNull(other);
@@ -810,18 +821,6 @@ public sealed class CatalogMemberCorrespondencePlan
 
         CatalogMemberJoinKey key = projection.Key;
         CatalogMemberJoinKey otherKey = otherProjection.Key;
-        if (key.Catalog != otherKey.Catalog
-            || !ReferenceEquals(key.Generation, otherKey.Generation)
-            || !string.Equals(key.Name, otherKey.Name, StringComparison.Ordinal)
-            || key.MemberKind != otherKey.MemberKind
-            || key.GenericArity != otherKey.GenericArity
-            || key.HasThis != otherKey.HasThis
-            || key.SignatureHeader != otherKey.SignatureHeader
-            || key.RequiredParameterCount != otherKey.RequiredParameterCount
-            || key.ParameterTypes.Length != otherKey.ParameterTypes.Length)
-        {
-            return false;
-        }
 
         bool usedNonKeyCorrespondence = false;
         if (!CompatibleType(
@@ -865,14 +864,35 @@ public sealed class CatalogMemberCorrespondencePlan
         return key.Kind == otherKey.Kind || usedNonKeyCorrespondence;
     }
 
+    static bool CouldCorrespond(
+        CatalogMemberJoinProjection.Issued projection,
+        CatalogMemberJoinProjection.Issued otherProjection)
+    {
+        CatalogMemberJoinKey key = projection.Key;
+        CatalogMemberJoinKey otherKey = otherProjection.Key;
+        return key.Catalog == otherKey.Catalog
+            && ReferenceEquals(key.Generation, otherKey.Generation)
+            && string.Equals(
+                key.Name,
+                otherKey.Name,
+                StringComparison.Ordinal)
+            && key.MemberKind == otherKey.MemberKind
+            && key.GenericArity == otherKey.GenericArity
+            && key.HasThis == otherKey.HasThis
+            && key.SignatureHeader == otherKey.SignatureHeader
+            && key.RequiredParameterCount
+                == otherKey.RequiredParameterCount
+            && key.ParameterTypes.Length
+                == otherKey.ParameterTypes.Length;
+    }
+
     bool CompatibleType(
         PlannedType planned,
         CatalogTypeShape shape,
         CatalogMemberCorrespondencePlan other,
         PlannedType otherPlanned,
         CatalogTypeShape otherShape,
-        Func<TypeResolutionRequest, TypeResolutionRequest, bool>
-            establishedCorrespondence,
+        EstablishedCorrespondenceMatcher establishedCorrespondence,
         bool establishedCorrespondenceRequiresDegradedShape,
         ref bool usedNonKeyCorrespondence)
     {
@@ -908,7 +928,7 @@ public sealed class CatalogMemberCorrespondencePlan
                         == CatalogTypeShapeKind.DegradedDefinition;
                 if ((!establishedCorrespondenceRequiresDegradedShape
                         || degraded)
-                    && establishedCorrespondence(
+                    && establishedCorrespondence.Matches(
                         Requests[planned.RequestIndex],
                         other.Requests[otherPlanned.RequestIndex]))
                 {
@@ -1020,8 +1040,7 @@ public sealed class CatalogMemberCorrespondencePlan
         CatalogMemberCorrespondencePlan other,
         ImmutableArray<PlannedType> otherPlanned,
         ImmutableArray<CatalogTypeShape> otherShapes,
-        Func<TypeResolutionRequest, TypeResolutionRequest, bool>
-            establishedCorrespondence,
+        EstablishedCorrespondenceMatcher establishedCorrespondence,
         bool establishedCorrespondenceRequiresDegradedShape,
         ref bool usedNonKeyCorrespondence)
     {
@@ -1049,6 +1068,48 @@ public sealed class CatalogMemberCorrespondencePlan
         }
 
         return true;
+    }
+
+    readonly struct EstablishedCorrespondenceMatcher
+    {
+        readonly TypeResolutionRequest? _correspondingTypeRequest;
+        readonly TypeResolutionRequest? _otherCorrespondingTypeRequest;
+        readonly Func<
+            TypeResolutionRequest,
+            TypeResolutionRequest,
+            bool>? _establishedCorrespondence;
+
+        internal EstablishedCorrespondenceMatcher(
+            TypeResolutionRequest? correspondingTypeRequest,
+            TypeResolutionRequest? otherCorrespondingTypeRequest)
+        {
+            _correspondingTypeRequest = correspondingTypeRequest;
+            _otherCorrespondingTypeRequest =
+                otherCorrespondingTypeRequest;
+            _establishedCorrespondence = null;
+        }
+
+        internal EstablishedCorrespondenceMatcher(
+            Func<
+                TypeResolutionRequest,
+                TypeResolutionRequest,
+                bool> establishedCorrespondence)
+        {
+            _correspondingTypeRequest = null;
+            _otherCorrespondingTypeRequest = null;
+            _establishedCorrespondence =
+                establishedCorrespondence;
+        }
+
+        internal bool Matches(
+            TypeResolutionRequest request,
+            TypeResolutionRequest other) =>
+            _establishedCorrespondence?.Invoke(request, other)
+            ?? MatchesEstablishedCorrespondence(
+                request,
+                _correspondingTypeRequest,
+                other,
+                _otherCorrespondingTypeRequest);
     }
 
     static bool EquivalentUnresolvedContract(

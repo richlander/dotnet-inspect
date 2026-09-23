@@ -83,6 +83,8 @@ type AnalysisOperationName =
   | "queryPackageOpportunities"
   | "queryPlatformOpportunities"
   | "queryPackagePerformance"
+  | "queryPackageLibraryMetrics"
+  | "queryPlatformLibraryMetrics"
   | "queryPlatformPerformance";
 
 type SourceOperationName =
@@ -108,6 +110,7 @@ type CatalogOperationName =
   | "activateRetainedWorkspaceDefinition"
   | "activateRetainedWorkspaceDefinitionWithCredentials"
   | "cancelRetainedWorkspaceActivation"
+  | "captureCompleteWorkspaceShareState"
   | "canonicalizeWorkspaceSharePacket"
   | "commitRetainedWorkspaceActivation"
   | "completeRetainedWorkspaceActivation"
@@ -1214,6 +1217,22 @@ export const engineWorkerOrdinaryOperations = {
         ...args: Parameters<AnalysisFacade["queryPackagePerformance"]>
       ) => facades.analysis.queryPackagePerformance(...args),
     ),
+    queryPackageLibraryMetrics: valueOperation(
+      "ordinary-analysis-query-package-library-metrics",
+      4,
+      (
+        facades,
+        ...args: Parameters<AnalysisFacade["queryPackageLibraryMetrics"]>
+      ) => facades.analysis.queryPackageLibraryMetrics(...args),
+    ),
+    queryPlatformLibraryMetrics: valueOperation(
+      "ordinary-analysis-query-platform-library-metrics",
+      4,
+      (
+        facades,
+        ...args: Parameters<AnalysisFacade["queryPlatformLibraryMetrics"]>
+      ) => facades.analysis.queryPlatformLibraryMetrics(...args),
+    ),
     queryPlatformPerformance: valueOperation(
       "ordinary-analysis-query-platform-performance",
       4,
@@ -1389,6 +1408,16 @@ export const engineWorkerOrdinaryOperations = {
           CatalogFacade["cancelRetainedWorkspaceActivation"]
         >
       ) => facades.catalog.cancelRetainedWorkspaceActivation(...args),
+    ),
+    captureCompleteWorkspaceShareState: valueOperation(
+      "ordinary-catalog-capture-complete-workspace-share-state",
+      1,
+      (
+        facades,
+        ...args: Parameters<
+          CatalogFacade["captureCompleteWorkspaceShareState"]
+        >
+      ) => facades.catalog.captureCompleteWorkspaceShareState(...args),
     ),
     canonicalizeWorkspaceSharePacket: valueOperation(
       "ordinary-catalog-canonicalize-workspace-share-packet",
@@ -1760,6 +1789,14 @@ export function bindEngineWorkerOrdinaryClient(
         engineWorkerOrdinaryOperations.analysis
           .queryPackagePerformance,
       ),
+      queryPackageLibraryMetrics: bind(
+        engineWorkerOrdinaryOperations.analysis
+          .queryPackageLibraryMetrics,
+      ),
+      queryPlatformLibraryMetrics: bind(
+        engineWorkerOrdinaryOperations.analysis
+          .queryPlatformLibraryMetrics,
+      ),
       queryPlatformPerformance: bind(
         engineWorkerOrdinaryOperations.analysis
           .queryPlatformPerformance,
@@ -1835,6 +1872,10 @@ export function bindEngineWorkerOrdinaryClient(
       cancelRetainedWorkspaceActivation: bind(
         engineWorkerOrdinaryOperations.catalog
           .cancelRetainedWorkspaceActivation,
+      ),
+      captureCompleteWorkspaceShareState: bind(
+        engineWorkerOrdinaryOperations.catalog
+          .captureCompleteWorkspaceShareState,
       ),
       canonicalizeWorkspaceSharePacket: bind(
         engineWorkerOrdinaryOperations.catalog

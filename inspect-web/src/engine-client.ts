@@ -68,6 +68,8 @@ type AnalysisOperations =
   | "queryPackageIntegrations"
   | "queryPackageOpportunities"
   | "queryPackagePerformance"
+  | "queryPackageLibraryMetrics"
+  | "queryPlatformLibraryMetrics"
   | "queryPlatformIntegrations"
   | "queryPlatformOpportunities"
   | "queryPlatformPerformance";
@@ -96,6 +98,7 @@ type CatalogOperations =
   | "activateRetainedWorkspaceDefinition"
   | "activateRetainedWorkspaceDefinitionWithCredentials"
   | "cancelRetainedWorkspaceActivation"
+  | "captureCompleteWorkspaceShareState"
   | "canonicalizeWorkspaceSharePacket"
   | "commitRetainedWorkspaceActivation"
   | "completeRetainedWorkspaceActivation"

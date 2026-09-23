@@ -109,6 +109,7 @@ public enum CSharpTypeImplementationKind
 {
     Body,
     Initializer,
+    ImplicitAccessors,
 }
 
 public enum CSharpTypeBodyContributionRole
@@ -787,6 +788,14 @@ static class CSharpTypeDocumentValidator
         {
             foreach (CSharpTypeRenderPart part in parts)
             {
+                if (part.OwnedBodies.IsEmpty
+                    && part.Contributions.Length > 1
+                    && part.Contributions.All(contribution =>
+                        contribution.Role == part.Contributions[0].Role
+                        && contribution.FullRange == part.Contributions[0].FullRange))
+                {
+                    continue;
+                }
                 int? activationOwner = null;
                 bool hasContribution = false;
                 foreach (int bodyId in part.OwnedBodies
@@ -1264,6 +1273,12 @@ static class CSharpTypeDocumentValidator
                     part.FullText,
                     $"Declaration {declaration.Id} owned body {reference.BodyId}",
                     allowEmpty: true);
+                if (reference.FullRange.Length == 0
+                    && !AllowsEmptyEvidence(declaration, part, reference, body))
+                {
+                    throw new ArgumentException(
+                        $"Declaration {declaration.Id} owned body {reference.BodyId} requires non-empty evidence unless it is an available empty body with identical alternatives.");
+                }
             }
 
             var contributed = new HashSet<(int BodyId, CSharpTypeBodyContributionRole Role, int Start, int Length)>();
@@ -1366,6 +1381,56 @@ static class CSharpTypeDocumentValidator
         }
         if ((!allowEmpty && range.Length == 0) || end > text.Length)
             throw new ArgumentOutOfRangeException(nameof(range), $"{owner} range is outside its full alternative.");
+    }
+
+    static bool IsEmptyBodyAlternative(string text, int bodyPosition)
+    {
+        int index = 0;
+        while (index < text.Length && char.IsWhiteSpace(text[index]))
+            index++;
+        if (index >= text.Length || text[index] != '{')
+            return false;
+
+        int contentStart = ++index;
+        while (index < text.Length && char.IsWhiteSpace(text[index]))
+            index++;
+        int contentEnd = index;
+        if (index >= text.Length || text[index] != '}')
+            return false;
+
+        index++;
+        while (index < text.Length && char.IsWhiteSpace(text[index]))
+            index++;
+        return index == text.Length
+            && bodyPosition >= contentStart
+            && bodyPosition <= contentEnd;
+    }
+
+    static bool AllowsEmptyEvidence(
+        CSharpTypeDeclaration declaration,
+        CSharpTypeRenderPart part,
+        CSharpTypeOwnedBodyReference reference,
+        CSharpTypePhysicalBody body)
+    {
+        if (!body.HasManagedBody || part.FullText != part.SkeletonText)
+            return false;
+        if (body.Outcome == CSharpTypeBodyOutcome.Available
+            && part.ImplementationKind == CSharpTypeImplementationKind.Body
+            && IsEmptyBodyAlternative(part.FullText, reference.FullRange.Start))
+        {
+            return true;
+        }
+        if (reference.HasDrillDownDestination)
+            return false;
+        if (body.Outcome is CSharpTypeBodyOutcome.Unavailable or CSharpTypeBodyOutcome.Failed)
+            return part.ImplementationKind is CSharpTypeImplementationKind.Body
+                or CSharpTypeImplementationKind.ImplicitAccessors;
+        return part.ImplementationKind == CSharpTypeImplementationKind.ImplicitAccessors
+            && body.Outcome == CSharpTypeBodyOutcome.Available
+            && ((declaration.Kind == CSharpTypeDeclarationKind.Property
+                    && body.Role is CSharpTypeBodyRole.Getter or CSharpTypeBodyRole.Setter or CSharpTypeBodyRole.Init)
+                || (declaration.Kind == CSharpTypeDeclarationKind.Event
+                    && body.Role is CSharpTypeBodyRole.Adder or CSharpTypeBodyRole.Remover));
     }
 
     static void ValidateFingerprint(string fingerprint, string owner)
@@ -1540,13 +1605,20 @@ static class CSharpTypeDocumentValidator
 
 public abstract record CSharpTypeDocumentOutcome
 {
-    private CSharpTypeDocumentOutcome()
+    private CSharpTypeDocumentOutcome(
+        int bodyProjectionsAttempted)
     {
+        ArgumentOutOfRangeException.ThrowIfNegative(
+            bodyProjectionsAttempted);
+        BodyProjectionsAttempted = bodyProjectionsAttempted;
     }
+
+    public int BodyProjectionsAttempted { get; }
 
     public sealed record Available : CSharpTypeDocumentOutcome
     {
         public Available(CSharpTypeDocument document)
+            : base(CountAttemptedBodyProjections(document))
         {
             ArgumentNullException.ThrowIfNull(document);
             if (document.Bodies.Any(static body =>
@@ -1568,6 +1640,7 @@ public abstract record CSharpTypeDocumentOutcome
         public Incomplete(
             CSharpTypeDocument document,
             ImmutableArray<int> failedBodyIds)
+            : base(CountAttemptedBodyProjections(document))
         {
             ArgumentNullException.ThrowIfNull(document);
             if (failedBodyIds.IsDefaultOrEmpty)
@@ -1603,7 +1676,10 @@ public abstract record CSharpTypeDocumentOutcome
 
     public sealed record Unavailable : CSharpTypeDocumentOutcome
     {
-        public Unavailable(string reason)
+        public Unavailable(
+            string reason,
+            int bodyProjectionsAttempted = 0)
+            : base(bodyProjectionsAttempted)
         {
             ArgumentException.ThrowIfNullOrWhiteSpace(reason);
             AnnotatedSourceText.ValidateWellFormedUtf16(
@@ -1618,7 +1694,10 @@ public abstract record CSharpTypeDocumentOutcome
 
     public sealed record Rejected : CSharpTypeDocumentOutcome
     {
-        public Rejected(string reason)
+        public Rejected(
+            string reason,
+            int bodyProjectionsAttempted = 0)
+            : base(bodyProjectionsAttempted)
         {
             ArgumentException.ThrowIfNullOrWhiteSpace(reason);
             AnnotatedSourceText.ValidateWellFormedUtf16(
@@ -1629,5 +1708,16 @@ public abstract record CSharpTypeDocumentOutcome
         }
 
         public string Reason { get; }
+    }
+
+    private static int CountAttemptedBodyProjections(
+        CSharpTypeDocument document)
+    {
+        ArgumentNullException.ThrowIfNull(document);
+        return document.Bodies.Count(static body =>
+            body.HasManagedBody
+            && !body.Diagnostics.Any(static diagnostic =>
+                diagnostic.Id
+                    == DiagnosticIds.CompositionBudgetExceeded));
     }
 }

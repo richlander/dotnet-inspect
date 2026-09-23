@@ -8,7 +8,7 @@ namespace ILInspector.CallGraph;
 /// How a projected node relates to the rest of the graph. Higher values win when the
 /// same member is reached more than once: a member expanded somewhere
 /// (<see cref="Normal"/>) is not a boundary even if depth-limited elsewhere, and the
-/// selected <see cref="Focus"/> member is sticky.
+/// selected <see cref="Focus"/> roots are sticky.
 /// </summary>
 public enum CallGraphNodeKind
 {
@@ -21,7 +21,7 @@ public enum CallGraphNodeKind
     /// <summary>Reached as an ordinary expanded or leaf node.</summary>
     Normal = 2,
 
-    /// <summary>The selected member the graph is centered on.</summary>
+    /// <summary>A caller-selected root.</summary>
     Focus = 3,
 }
 
@@ -29,8 +29,8 @@ public enum CallGraphNodeKind
 /// One node of a <see cref="CallGraphProjection"/>.
 /// </summary>
 /// <param name="Id">
-/// Dense zero-based index into <see cref="CallGraphProjection.Nodes"/>. The focus node is
-/// always id 0.
+/// Dense zero-based index into <see cref="CallGraphProjection.Nodes"/>. Selected
+/// roots occupy the leading ids in caller-supplied order.
 /// </param>
 /// <param name="Member">
 /// The typed member payload. Hosts use <paramref name="Identity"/> to join the
@@ -258,7 +258,8 @@ public enum CallGraphNodeMatch
 /// A format-neutral projection of the typed call-graph facts that
 /// <c>ILInspector.Analysis</c> produces (<see cref="CallTreeNode"/> caller and callee roots
 /// built by <c>LibraryBodyIndex.BuildCallerTree</c> / <c>BuildCallTree</c>) into a single
-/// deterministic directed graph centered on one selected overload:
+/// deterministic directed graph. A single-focus projection is centered on one
+/// selected overload:
 /// <code>
 /// callers -&gt; selected overload -&gt; callees
 /// </code>
@@ -277,9 +278,9 @@ public enum CallGraphNodeMatch
 /// (see issue #3120).
 /// </para>
 /// <para>
-/// Ordering is part of the contract, not an implementation detail: nodes appear focus
-/// first, then caller-side discovery order, then callee-side discovery order, and edges
-/// appear in first-seen order.
+/// Ordering is part of the contract, not an implementation detail: selected
+/// roots appear first, then caller-side discovery order, then callee-side
+/// discovery order, and edges appear in first-seen order.
 /// </para>
 /// </summary>
 public sealed partial class CallGraphProjection
@@ -288,12 +289,27 @@ public sealed partial class CallGraphProjection
         ImmutableArray<CallGraphNode> nodes,
         ImmutableArray<CallGraphEdge> edges,
         ImmutableArray<CallGraphCallSite> callSites,
+        ImmutableArray<int> rootNodeIds,
         bool hasUnexploredTraversalBoundary,
         bool hasAnalysisFailureBoundary)
     {
+        if (rootNodeIds.IsDefaultOrEmpty
+            || rootNodeIds.Distinct().Count() != rootNodeIds.Length
+            || rootNodeIds.Any(id => id < 0 || id >= nodes.Length)
+            || !rootNodeIds.SequenceEqual(
+                Enumerable.Range(0, rootNodeIds.Length))
+            || rootNodeIds.Any(id =>
+                nodes[id].Kind != CallGraphNodeKind.Focus))
+        {
+            throw new ArgumentException(
+                "Projection roots must be the distinct leading selected nodes.",
+                nameof(rootNodeIds));
+        }
+
         Nodes = nodes;
         Edges = edges;
         CallSites = callSites;
+        RootNodeIds = rootNodeIds;
         HasUnexploredTraversalBoundary =
             hasUnexploredTraversalBoundary;
         HasAnalysisFailureBoundary =
@@ -318,6 +334,12 @@ public sealed partial class CallGraphProjection
     public ImmutableArray<CallGraphCallSite> CallSites { get; }
 
     /// <summary>
+    /// Selected roots in caller-supplied order. A single-focus projection has
+    /// exactly one root; an equal-root projection has two or more.
+    /// </summary>
+    public ImmutableArray<int> RootNodeIds { get; }
+
+    /// <summary>
     /// Rows in deterministic order, one per <see cref="Edges"/> entry. Row numbers are
     /// one-based and stable across filtering.
     /// </summary>
@@ -338,8 +360,15 @@ public sealed partial class CallGraphProjection
     /// </summary>
     public bool HasAnalysisFailureBoundary { get; }
 
-    /// <summary>The selected overload the graph is centered on.</summary>
-    public CallGraphNode Focus => Nodes[0];
+    /// <summary>The selected overload of a single-focus projection.</summary>
+    /// <exception cref="InvalidOperationException">
+    /// The projection has several equal roots and therefore no primary focus.
+    /// </exception>
+    public CallGraphNode Focus =>
+        RootNodeIds.Length == 1
+            ? Nodes[RootNodeIds[0]]
+            : throw new InvalidOperationException(
+                "An equal-root call graph has no primary focus.");
 
     /// <summary>
     /// Resolves one physical call site in the selected member to its stable
@@ -615,6 +644,7 @@ public sealed partial class CallGraphProjection
         bool hasAnalysisFailureBoundary =
             HasAnalysisFailure(calleeRoot);
         return builder.Build(
+            [focusId],
             hasUnexploredTraversalBoundary,
             hasAnalysisFailureBoundary);
     }
@@ -631,6 +661,90 @@ public sealed partial class CallGraphProjection
     {
         ArgumentNullException.ThrowIfNull(calleeRoot);
         return Create(null, calleeRoot);
+    }
+
+    /// <summary>
+    /// Projects several equal outbound roots into one deterministic graph.
+    /// Every supplied root is retained before the combined node budget is
+    /// applied to downstream expansion.
+    /// </summary>
+    public static CallGraphProjection FromCallees(
+        IEnumerable<CallTreeNode> calleeRoots,
+        int maxNodes)
+    {
+        ArgumentNullException.ThrowIfNull(calleeRoots);
+        ImmutableArray<CallTreeNode> roots = [.. calleeRoots];
+        if (roots.Length < 2)
+        {
+            throw new ArgumentException(
+                "An equal-root projection requires at least two roots.",
+                nameof(calleeRoots));
+        }
+        if (roots.Any(static root => root is null))
+        {
+            throw new ArgumentException(
+                "Equal roots cannot contain null.",
+                nameof(calleeRoots));
+        }
+        ArgumentOutOfRangeException.ThrowIfLessThan(
+            maxNodes,
+            roots.Length);
+
+        bool useGraphEvidence =
+            roots.All(static root => HasCompleteGraphEvidence(root));
+        bool useAcquisitionReceiptIdentity =
+            useGraphEvidence
+            && roots.All(static root =>
+                HasCompleteCallerDefinitions(root));
+        GraphNodeIdentity[] rootIdentities =
+        [
+            .. roots.Select(root =>
+                Identity(root, useGraphEvidence)),
+        ];
+        if (rootIdentities.Distinct().Count() != roots.Length)
+        {
+            throw new ArgumentException(
+                "Equal roots must have distinct graph identities.",
+                nameof(calleeRoots));
+        }
+
+        var builder = new Builder(
+            useGraphEvidence,
+            useAcquisitionReceiptIdentity);
+        var rootNodeIds =
+            ImmutableArray.CreateBuilder<int>(roots.Length);
+        foreach (CallTreeNode root in roots)
+        {
+            rootNodeIds.Add(
+                builder.RegisterFocus(
+                    root.Member,
+                    root.Perf,
+                    root.GraphEvidence,
+                    null,
+                    root.DefinitionAssemblyIdentity,
+                    null,
+                    root.ResolutionAssemblyIdentity,
+                    null));
+        }
+
+        bool nodeBoundReached = false;
+        for (var index = 0; index < roots.Length; index++)
+        {
+            nodeBoundReached |= builder.WalkCallees(
+                roots[index],
+                rootNodeIds[index],
+                maxNodes);
+        }
+
+        return builder.Build(
+            rootNodeIds.MoveToImmutable(),
+            nodeBoundReached
+                || !IsTraversalComplete(
+                    roots,
+                    useGraphEvidence)
+                || roots.Any(static root =>
+                    HasUnresolvedDispatch(root)),
+            roots.Any(static root => HasAnalysisFailure(root)));
     }
 
     private sealed class MutableNode(
@@ -747,18 +861,31 @@ public sealed partial class CallGraphProjection
         }
 
         /// <summary>Walk an outbound (callee) tree: each parent calls its children, so edges point parent → child.</summary>
-        public void WalkCallees(CallTreeNode node, int nodeId)
+        public void WalkCallees(CallTreeNode node, int nodeId) =>
+            _ = WalkCallees(node, nodeId, int.MaxValue);
+
+        public bool WalkCallees(
+            CallTreeNode node,
+            int nodeId,
+            int maxNodes)
         {
+            bool nodeBoundReached = false;
             foreach (var child in node.Children)
             {
-                int childId = GetOrAdd(
+                if (!TryGetOrAdd(
                     Identity(child, useGraphEvidence),
                     child.Member,
                     KindFor(child.Status),
                     child.Perf,
                     child.GraphEvidence,
                     child.DefinitionAssemblyIdentity,
-                    child.ResolutionAssemblyIdentity);
+                    child.ResolutionAssemblyIdentity,
+                    maxNodes,
+                    out int childId))
+                {
+                    nodeBoundReached = true;
+                    continue;
+                }
                 AddEdge(
                     nodeId,
                     childId,
@@ -767,11 +894,16 @@ public sealed partial class CallGraphProjection
                     child.Perf is { InLoop: true },
                     child.Perf?.LoopHint,
                     CallGraphEdgeOrigin.Callees);
-                WalkCallees(child, childId);
+                nodeBoundReached |= WalkCallees(
+                    child,
+                    childId,
+                    maxNodes);
             }
+            return nodeBoundReached;
         }
 
         public CallGraphProjection Build(
+            ImmutableArray<int> rootNodeIds,
             bool hasUnexploredTraversalBoundary,
             bool hasAnalysisFailureBoundary)
         {
@@ -808,8 +940,38 @@ public sealed partial class CallGraphProjection
                 nodes.MoveToImmutable(),
                 edges.MoveToImmutable(),
                 [.. _callSites],
+                rootNodeIds,
                 hasUnexploredTraversalBoundary,
                 hasAnalysisFailureBoundary);
+        }
+
+        private bool TryGetOrAdd(
+            GraphNodeIdentity identity,
+            MemberRef member,
+            CallGraphNodeKind candidate,
+            CallTreePerf? perf,
+            GraphNodeEvidence? evidence,
+            AssemblyReferenceIdentity? definitionAssemblyIdentity,
+            AssemblyReferenceIdentity? resolutionAssemblyIdentity,
+            int maxNodes,
+            out int id)
+        {
+            if (!_ids.ContainsKey(identity)
+                && _nodes.Count >= maxNodes)
+            {
+                id = -1;
+                return false;
+            }
+
+            id = GetOrAdd(
+                identity,
+                member,
+                candidate,
+                perf,
+                evidence,
+                definitionAssemblyIdentity,
+                resolutionAssemblyIdentity);
+            return true;
         }
 
         private int GetOrAdd(
@@ -1102,9 +1264,19 @@ public sealed partial class CallGraphProjection
         if (root is null)
             return false;
 
+        return IsTraversalComplete(
+            [root],
+            useGraphEvidence);
+    }
+
+    static bool IsTraversalComplete(
+        IEnumerable<CallTreeNode> roots,
+        bool useGraphEvidence)
+    {
         var completeByIdentity =
             new Dictionary<GraphNodeIdentity, bool>();
-        Add(root);
+        foreach (CallTreeNode root in roots)
+            Add(root);
         return completeByIdentity.Values.All(
             static complete => complete);
 

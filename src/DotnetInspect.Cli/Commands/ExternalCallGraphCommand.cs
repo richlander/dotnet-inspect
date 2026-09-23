@@ -1,10 +1,13 @@
 using DotnetInspect.Cli.Inspectors;
 using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Output;
+using DotnetInspector.PackageQueries;
 using DotnetInspector.Packages;
 using DotnetInspector.Queries;
+using DotnetInspector.Sections;
 using DotnetInspector.Services;
 using ILInspector.Metadata;
+using NuGetFetch;
 
 namespace DotnetInspect.Cli.Commands;
 
@@ -23,16 +26,19 @@ public static class ExternalCallGraphCommand
     internal static async Task<int> ExecuteAsync(
         ExternalCallGraphOptions options,
         WorkspaceContextLoadOptions loadOptions,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        Func<
+            PackageDependencyMemberCallGraphInspectionRequest,
+            CancellationToken,
+            ValueTask<
+                InspectionEnvelope<
+                    PackageDependencyMemberCallGraphInspectionOutcome>>>?
+            inspectionExecutor = null)
     {
         ArgumentNullException.ThrowIfNull(options);
         ArgumentNullException.ThrowIfNull(loadOptions);
 
-        string[] packageInputs =
-        [
-            options.RootPackage,
-            .. options.Packages,
-        ];
+        string[] packageInputs = [options.RootPackage];
         if (!InspectionGraphCommand.TryCreateMembers(
                 packageInputs,
                 out WorkspaceMemberCoordinate[] members))
@@ -44,7 +50,7 @@ public static class ExternalCallGraphCommand
             (WorkspaceMemberCoordinate.PackageMember)members[0];
         var contextInput = new WorkspaceContextInput
         {
-            Framework = options.Tfm,
+            Framework = options.RootTfm,
             Members = members,
         };
 
@@ -69,38 +75,83 @@ public static class ExternalCallGraphCommand
 
         WorkspaceContextLoadOutcome.Loaded loaded =
             (WorkspaceContextLoadOutcome.Loaded)outcome;
-        using AssemblyContextGroup group = loaded.Group;
-
-        if (!TryResolveFocus(
-                group,
-                loaded.Members,
-                rootMember,
-                options,
-                out ResolvedFocus focus))
+        ResolvedFocus focus;
+        using (AssemblyContextGroup group = loaded.Group)
         {
+            if (!TryResolveFocus(
+                    group,
+                    loaded.Members,
+                    rootMember,
+                    options,
+                    out focus))
+            {
+                return 1;
+            }
+        }
+
+        if (loaded.PackageRoots.Length != 1)
+        {
+            CommandError.Write(
+                "The external call-graph root did not produce one exact package binding.");
             return 1;
         }
 
-        InspectionGraphDocument document;
         try
         {
-            using var session = new MemberCallGraphSession(
-                group,
-                focus.Participant.Assembly,
-                focus.MethodToken);
-            if (!session.HasCrossLibraryScope)
+            NuGetFetchOptions fetchOptions =
+                NuGetFetchOptions.FromRequestTimeout(
+                    loadOptions.HttpClient.Timeout);
+            PackageHouseOperation realizationOperation =
+                PackageHouseOperation.Create(
+                    PackageHouseOperationProfile.Realize,
+                    fetchOptions.RequestTimeout,
+                    fetchOptions.OperationTimeout);
+            var inspectionRequest =
+                new PackageDependencyMemberCallGraphInspectionRequest(
+                    loaded.PackageRoots[0],
+                    new PackageDependencyMemberCallGraphInspectionFocus(
+                        focus.ModuleVersionId,
+                        focus.MethodToken),
+                    options.Tfm is null
+                        ? TraversalTargetFrameworkPolicy.ProductDefault
+                        : new TraversalTargetFrameworkPolicy(
+                            options.Tfm),
+                    new MemberCallGraphCalleeNeighborhoodRequest(
+                        options.Depth,
+                        options.MaxNodes),
+                    realizationOperation,
+                    DateTimeOffset.UtcNow
+                        .Add(fetchOptions.OperationTimeout)
+                        .Add(fetchOptions.OperationTimeout));
+            InspectionEnvelope<
+                PackageDependencyMemberCallGraphInspectionOutcome> envelope =
+                inspectionExecutor is null
+                    ? await ExecuteInspectionAsync(
+                            inspectionRequest,
+                            options,
+                            fetchOptions,
+                            cancellationToken)
+                        .ConfigureAwait(false)
+                    : await inspectionExecutor(
+                            inspectionRequest,
+                            cancellationToken)
+                        .ConfigureAwait(false);
+            if (envelope.Content
+                is PackageDependencyMemberCallGraphInspectionOutcome
+                    .Unavailable unavailable)
             {
                 CommandError.Write(
-                    "The external call graph requires at least one additional assembly participant.",
-                    [
-                        "Add an external --package in the same target framework.",
-                    ]);
+                    "The dependency-aware external call graph was unavailable.",
+                    [$"{unavailable.Reason}: {unavailable.Detail}"]);
                 return 1;
             }
-            document = session.CrossLibraryCalleeNeighborhood(
-                new MemberCallGraphCalleeNeighborhoodRequest(
-                    options.Depth,
-                    options.MaxNodes));
+            var available =
+                (PackageDependencyMemberCallGraphInspectionOutcome
+                    .Available)envelope.Content;
+            WriteRouteDiagnostics(envelope.Diagnostics);
+            return ExternalCallGraphOutputAdapter.Write(
+                available.Document.Graph,
+                options);
         }
         catch (MemberCallGraphAcquisitionException ex)
         {
@@ -114,21 +165,14 @@ public static class ExternalCallGraphCommand
             CommandError.Write(ex.Message);
             return 1;
         }
-
-        try
+        catch (Exception ex)
         {
-            return ExternalCallGraphOutputAdapter.Write(
-                document,
-                options);
-        }
-        catch (InspectionQueryException ex)
-        {
-            CommandError.Write(ex.Message);
+            CommandError.Write(ex);
             return 1;
         }
     }
 
-    static WorkspaceContextLoadOptions CreateLoadOptions(
+    internal static WorkspaceContextLoadOptions CreateLoadOptions(
         ExternalCallGraphOptions options) =>
         new()
         {
@@ -137,11 +181,50 @@ public static class ExternalCallGraphCommand
                 new SourcePolicyPackageSourceAuthorization(
                     options.SourceOptions),
             PackageStore = new FileSystemPackageStore(),
+            IncludePackageRootBindings = true,
             UseVersionCache = true,
             Log = options.Verbose
                 ? CommandError.WriteLine
                 : null,
         };
+
+    internal static async ValueTask<
+        InspectionEnvelope<
+            PackageDependencyMemberCallGraphInspectionOutcome>>
+        ExecuteInspectionAsync(
+            PackageDependencyMemberCallGraphInspectionRequest request,
+            ExternalCallGraphOptions options,
+            NuGetFetchOptions fetchOptions,
+            CancellationToken cancellationToken)
+    {
+        await using var composition =
+            new DesktopPackageSourceComposition(
+                fetchOptions.RequestTimeout);
+        var candidateSource =
+            new DesktopPackageDependencyCandidateSource(
+                composition,
+                options.SourceOptions,
+                options.Verbose
+                    ? CommandError.WriteLine
+                    : null);
+        return await PackageDependencyMemberCallGraphInspection.ExecuteAsync(
+                request,
+                new PackageDependencyMemberCallGraphInspectionSource(
+                    new PackageDependencyTraversalCandidateAdapter(
+                        candidateSource),
+                    new DesktopPackageDependencyTraversalManifestSource(
+                        composition),
+                    composition.CreateDependencySettlementHouse(
+                        (_, _) => new FileSystemPackageStore(),
+                        options.SourceOptions,
+                        options.Verbose
+                            ? CommandError.WriteLine
+                            : null),
+                    (operation, token) =>
+                        composition.IssueSettlementOperation(token)),
+                cancellationToken)
+            .ConfigureAwait(false);
+    }
 
     static bool TryResolveFocus(
         AssemblyContextGroup group,
@@ -275,9 +358,22 @@ public static class ExternalCallGraphCommand
         }
 
         focus = new ResolvedFocus(
-            match.Participant,
+            metadata.ModuleVersionId(),
             methodToken);
         return true;
+    }
+
+    static void WriteRouteDiagnostics(
+        IEnumerable<InspectionDiagnostic> diagnostics)
+    {
+        foreach (InspectionDiagnostic diagnostic in diagnostics.Where(
+            static diagnostic =>
+                diagnostic.Code
+                    == "package-dependency-member-call-graph.route-unavailable"))
+        {
+            CommandError.WriteWarning(
+                diagnostic.Summary.ToString());
+        }
     }
 
     static string FormatAcquisitionFailure(
@@ -296,6 +392,6 @@ public static class ExternalCallGraphCommand
         ApiType Type);
 
     sealed record ResolvedFocus(
-        AssemblyContextParticipant Participant,
+        Guid ModuleVersionId,
         int MethodToken);
 }

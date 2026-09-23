@@ -116,6 +116,10 @@ test("library controls decode every rendered selector without eager work", () =>
   root.addAll("[data-platform-integrations-library]", integrations, opportunities);
   root.addAll("[data-platform-analysis-library]", analysis, emptyAnalysis);
   root.addAll("[data-platform-metadata-library]", metadata);
+  const metrics = new FakeElement();
+  metrics.value = "System.Text.Json";
+  metrics.selectedOptions = [new FakeElement({ pack: "netcore.app" })];
+  root.addAll("[data-platform-metrics-library]", metrics);
   const calls: string[] = [];
 
   bindLibraryControls(
@@ -139,6 +143,7 @@ test("library controls decode every rendered selector without eager work", () =>
   analysis.dispatch("change");
   emptyAnalysis.dispatch("change");
   metadata.dispatch("change");
+  metrics.dispatch("change");
 
   assert.deepEqual(calls, [
     "library-chip:System.Text.Json",
@@ -154,6 +159,7 @@ test("library controls decode every rendered selector without eager work", () =>
     "platform-lens:integrations:System.Text.Json:undefined",
     "platform-lens:analysis:System.Linq:undefined",
     "platform-lens:metadata:System.Console:windowsdesktop.app",
+    "platform-lens:metrics:System.Text.Json:netcore.app",
   ]);
 });
 

@@ -64,7 +64,8 @@ future Package History version-row counts remain distinct.
 The subsequent decision in
 [#7315](https://github.com/richlander/dotnet-inspect/issues/7315) locks the
 exact-Member Analysis source receipt consumed by bounded cell-pair execution.
-The first population Version in caller-directed order is the mandatory source.
+For ordinary evaluation policies, the first population Version in
+caller-directed order is the mandatory source.
 One selector resolution captures its exact declaration coordinate and kind;
 every checkpoint is then evaluated directly from that same detached receipt.
 History never scans later Versions for a replacement seed or chains
@@ -79,9 +80,9 @@ checkpoint versions; neither form authorizes an unbounded version scan.
 
 The 2026-09-19 bounded-investigation revision makes `--max-probes` a third,
 explicit History evaluation policy. It supersedes the earlier prohibition on
-automatic narrowing. Dense History remains the default when neither `--at`
-nor `--sample-percent` nor `--max-probes` is supplied; explicit checkpoints
-remain caller-selected;
+automatic narrowing. Dense History remains the default when none of `--at`, `--sample-percent`,
+`--major-versions`, or `--max-probes` is supplied; explicit checkpoints remain
+caller-selected;
 adaptive bisection evaluates endpoints and then chooses midpoint probes from
 observed changed intervals within the authorized budget. This revision does not
 restore `timeline` as a permanent operation or create a parallel Timeline
@@ -92,6 +93,16 @@ The 2026-09-21 representative-survey revision adds a fourth evaluation policy.
 population by position rather than by observed Finding values.
 `--max-probes N` composes as its absolute cap; without
 `--sample-percent`, that option retains its adaptive-bisection meaning.
+
+The 2026-09-22 major-version revision in
+[#8266](https://github.com/richlander/dotnet-inspect/issues/8266) adds a fifth
+evaluation policy under the
+[major-version History composition](major-version-history-composition.md).
+`--major-versions` consumes Package Version Selection's major-bound population
+and representative projection. API producers select the first stable admitted
+version in each major, falling back to the latest prerelease for a preview-only
+major; body-level Analysis producers select the latest admitted version in each
+major.
 
 This owner defines the semantic requests and terminal content.
 It consumes package version resolution, Finding correlation, acquisition,
@@ -138,9 +149,10 @@ named command or mode selects an admitted consumer:
 | Selector | Input and meaning |
 | --- | --- |
 | Plain top-level Diff | Compare the two literal endpoints using existing pairwise behavior, without enumerating interior versions. |
-| Type/Member-focused Diff with `--history` | Discover the bounded package-version population and evaluate all its versions unless `--at`, `--sample-percent`, or `--max-probes` selects another evaluation policy. |
+| Type/Member-focused Diff with `--history` | Discover the bounded package-version population and evaluate all its versions unless `--at`, `--sample-percent`, `--major-versions`, or `--max-probes` selects another evaluation policy. |
 | Type/Member-focused Diff with `--history --max-probes N` | Discover the bounded population and adaptively localize one or more observed endpoint changes with at most `N` evaluated versions. |
 | Type/Member-focused Diff with `--history --sample-percent P` | Discover the bounded population and evaluate a deterministic positional survey of approximately `P` percent of its versions. |
+| Type/Member-focused Diff with `--history --major-versions` | Discover a major-bound population and evaluate one producer-appropriate representative per major. |
 | Package range with `--count` | Count the selected package versions using source metadata alone, outside Diff. |
 
 Plain Diff means endpoint comparison; `--history` explicitly changes the
@@ -256,7 +268,7 @@ evaluating History.
 | Selection | Meaning |
 | --- | --- |
 | Explicit range or inferred exact-checkpoint bounds | The inclusive version population; an explicit range retains caller direction, while inferred bounds use ascending version order. |
-| Evaluation policy | Full population by default, exact checkpoints through repeated `--at ADDRESS`, a representative positional survey through `--sample-percent P`, or bounded adaptive bisection through `--max-probes N`. |
+| Evaluation policy | Full population by default, exact checkpoints through repeated `--at ADDRESS`, a representative positional survey through `--sample-percent P`, one representative per major through `--major-versions`, or bounded adaptive bisection through `--max-probes N`. |
 | `--rows`, `-n`, and other admitted row gestures | Projection over declared result cohorts, not a request to evaluate more versions. |
 
 Version discovery uses the package owner's normalization, source policy,
@@ -286,14 +298,32 @@ can inspect the evidence and use the returned exact version addresses to form
 the next narrower range. This target selection does not itself request an
 automated bisect operation.
 
-Within `--history`, omitting `--at`, `--sample-percent`, and `--max-probes`
-selects every version in the population, equivalent to explicit `--at all`.
-History itself authorizes that bounded evaluation; `--at` restricts its
-targets, `--sample-percent` selects a representative survey, and
-`--max-probes` alone selects adaptive evaluation. Work limits and acquisition
-failures remain visible and cannot silently shorten the request into
-successful full coverage. Version discovery without payload evaluation belongs
-to Package version listing or population Count, not a dormant History mode.
+Within `--history`, omitting `--at`, `--sample-percent`, `--major-versions`,
+and `--max-probes` selects every version in the population, equivalent to
+explicit `--at all`. History itself authorizes that bounded evaluation;
+`--at` restricts its targets, `--sample-percent` selects a representative
+survey, `--major-versions` selects major representatives, and `--max-probes`
+alone selects adaptive evaluation. Work limits and acquisition failures remain
+visible and cannot silently shorten the request into successful full coverage.
+Version discovery without payload evaluation belongs to Package version
+listing or population Count, not a dormant History mode.
+
+`--major-versions` is a distinct evaluation policy and cannot be combined with
+`--at`, `--sample-percent`, or `--max-probes`. It requests the version owner's
+major-bound settlement policy, so both boundary majors must have an admitted
+version while literal endpoint coordinates need not exist. `--preview` admits
+prereleases before major representatives are selected; it does not otherwise
+change the representative policy.
+
+For `api.type`, `api.member`, and `api.attribute`, History requests
+`FirstStable`: the lowest admitted stable address in each major, or that
+major's highest admitted prerelease when no stable address exists. For
+`analysis.allocation`, `analysis.call-site`, and `analysis.unsafety`, History
+requests `Latest`: the highest admitted address in each major. Selection
+preserves caller-directed major order and retains the complete version vector.
+Completion means every selected major representative was evaluated; it does
+not claim that skipped servicing versions were unchanged or localize a change
+within a major.
 
 `--sample-percent P` requires an integer from 1 through 100. For population
 size `M`, it authorizes `ceil(M * P / 100)` evaluations, with a minimum of two
@@ -354,15 +384,22 @@ not assume global monotonicity. Its claim is limited to refining intervals
 whose evaluated endpoints differ and reporting the exact observed boundaries,
 remaining unresolved intervals, equal endpoints, or blocking failure.
 
-An exact-Member Analysis History has one additional target-selection rule: the
-selected evaluations must include the first population Version in
-caller-directed order. That Version is the mandatory source where the Member
-selector is resolved. Default full evaluation, `--at all`, representative survey, and an explicit
-`--at first` satisfy the rule. A restricted selection that omits the first
-Version is rejected before payload evaluation; History never acquires an
-unselected source implicitly. Exact checkpoints that infer their own bounds
-already select the minimum bound, which is the first Version in their required
-ascending order.
+An exact-Member Analysis History has one additional target-selection rule. For
+ordinary policies, selected evaluations must include the first population
+Version in caller-directed order; that Version is the mandatory source where
+the Member selector is resolved. Default full evaluation, `--at all`,
+representative survey, and an explicit `--at first` satisfy the rule. A
+restricted selection that omits the required source is rejected before payload
+evaluation; History never acquires an unselected source implicitly. Exact
+checkpoints that infer their own bounds already select the minimum bound, which
+is the first Version in their required ascending order.
+
+Major-version Analysis instead designates its first selected `Latest`
+representative in caller direction as the mandatory source. This narrow
+exception makes the implementation-oriented policy truthful without acquiring
+or evaluating the first servicing version implicitly. Every later major
+representative still binds directly to that one source receipt; History does
+not chain identity between representatives.
 
 `#N`, `first`, `last`, `endpoints`, and `midpoint` address this resolved
 population, not a portable identity. Replay retains the population bounds and the existing
@@ -428,13 +465,14 @@ Source authorization, `--tfm`, `--preview`, and `--all` retain their meanings.
 ### Exact-Member Analysis seed and checkpoint correspondence
 
 The `analysis.allocation`, `analysis.call-site`, and `analysis.unsafety`
-producers require one exact Member. For those producers, the first population
-Version in caller-directed order is the designated source. Resolve the Member
-selector exactly once in that selected source cell and issue one typed,
-resource-free source receipt. The receipt atomically identifies the exact
-prepared source cell and exact selected declaration, including its declaration
-kind and one stable `FindingSubject`. It is the only seed currency accepted by
-later evaluations.
+producers require one exact Member. For ordinary evaluation policies, the first
+population Version in caller-directed order is the designated source.
+Major-version evaluation instead designates its first selected `Latest`
+representative. Resolve the Member selector exactly once in that designated
+source cell and issue one typed, resource-free source receipt. The receipt
+atomically identifies the exact prepared source cell and exact selected
+declaration, including its declaration kind and one stable `FindingSubject`.
+It is the only seed currency accepted by later evaluations.
 
 The receipt is detached identity and association evidence, not package opening
 authority or a live structural subject. Its Finding-subject key is stable
@@ -448,7 +486,7 @@ If source selection is absent, ambiguous, refused, or failed, History has no
 Analysis seed. Preserve that native source-selection non-success and do not
 evaluate destination Analysis. A later Version that happens to contain the
 same display name or ordinal is not a replacement source. The user must choose
-a range whose first Version supplies the intended Member.
+a range whose designated source Version supplies the intended Member.
 
 Caller cancellation is not a source-selection status or declaration edge. It
 terminates History after required cleanup and propagates with the caller token;
@@ -656,9 +694,11 @@ to Package version-row counting.
 
 For Type/Member History, each destination version is compared with its
 immediate predecessor in the selected population's caller-directed order,
-including reversed ranges. The first population version is the baseline and
-does not contribute a changed-version row. Result-row selection cannot replace
-that predecessor with the previous displayed row or rebase the population.
+including reversed ranges. The first evaluated version is the baseline and
+does not contribute a changed-version row. Except for major-version
+evaluation, that baseline is the first population version. Result-row selection
+cannot replace that predecessor with the previous displayed row or rebase the
+population.
 For exact-Member Analysis, each compared observation also retains its direct
 relationship to the designated source; predecessor order never becomes
 declaration identity.
@@ -882,6 +922,12 @@ The representative survey CLI gesture is
 `--max-probes N` as an absolute cap. It uses the same shared History terminal
 and does not add a sampling-specific Document or rendering path.
 
+The major-version CLI gesture is `diff --history --major-versions`. It uses the
+same shared History terminal and adds one typed evaluation plan and completion
+outcome, not a major-specific Document or rendering path. Browser/Wasm can
+submit and consume the same host-neutral plan when its Compare controls adopt
+the gesture; it must not reproduce representative selection in TypeScript.
+
 ## Counted adoption and evidence
 
 The authoritative
@@ -943,9 +989,11 @@ The implementation slices must supply Release gates for:
 - mode-aware section and row selection without extra payload evaluation;
 - plain endpoint Diff without interior version discovery, and default full
   History evaluation equivalent to explicit `--at all`;
-- exact-Member Analysis requiring the first population Version in every
-  evaluated selection, including rejection before payload work when restricted
-  `--at` omits it;
+- exact-Member Analysis requiring the designated source Version in every
+  evaluated selection: the first population Version for ordinary policies and
+  the first selected representative for major-version evaluation, including
+  rejection before payload work when restricted `--at` omits its ordinary
+  source;
 - baseline Member selection exactly once, with absent, ambiguous, refused,
   and failed source outcomes preventing destination Analysis rather than
   selecting a later same-named or same-ordinal seed;
@@ -984,6 +1032,10 @@ The implementation slices must supply Release gates for:
   same endpoints;
 - representative percentage rounding, endpoint-first positional spacing,
   forward and reverse population order, and absolute-cap composition;
+- forward and reverse major order, first-stable and latest representative
+  policies, a preview-only upper major, and partial boundary-major ranges;
+- major-version Analysis sourcing from its first selected representative
+  without acquiring an unselected servicing source;
 - representative surveys continuing despite equal endpoint Findings,
   preserving unsampled intervals, and reporting survey completion without an
   exhaustive or no-change claim;

@@ -51,6 +51,11 @@ The multi-section `@SourceLink` document is not one file-row sequence.
 
 ## Fetch PDB source
 
+For an authored-first result rather than one provider, select `Source` on one
+exact Type or Member. It prefers verified authored source, may use the shared
+decompiled fallback, and retains provider and fallback context. `PDB Source`
+below remains the provider-specific view and never substitutes decompiled text.
+
 `-S "PDB Source"` returns the source body selected by Portable PDB coordinates,
 acquired locally or through SourceLink, and verified against the PDB checksum
 (also part of the `-S @Source` bundle alongside the decompiled and IL views).
@@ -88,6 +93,8 @@ dnx dotnet-inspect -y -- member JsonSerializer --package System.Text.Json \
   Serialize:1 --source-parts --json
 dnx dotnet-inspect -y -- member JsonSerializer --package System.Text.Json \
   Serialize:1 --print --part xml-docs
+dnx dotnet-inspect -y -- member JsonSerializer --package System.Text.Json \
+  Serialize:1 --print --part body --markdown
 ```
 
 Both gestures imply Source Locations unless `-S` is explicit. Select one member
@@ -99,9 +106,10 @@ substitute. Multiple documentation or attribute fragments are joined with LF;
 selection uses exact character spans, not whole-line slicing.
 
 Discovery supports Markdown, plaintext, and `--json`. Printing supports
-ordinary text and `--json`, `--jsonl`, or `--json-array`; JSON preserves the
-selected source characters. Rendered CLI text restores each fragment's original
-first-line indentation and follows normal LF and text-containment rules.
+ordinary text, explicit `--markdown` framing, and `--json`, `--jsonl`, or
+`--json-array`; JSON preserves the selected source characters. Rendered CLI
+text restores each fragment's original first-line indentation and follows
+normal LF and text-containment rules.
 Unqualified `--print` still prints the whole file.
 `xml-docs` selects raw source comments, not parsed DocumentationHouse content.
 These lexical ranges do not strengthen the PDB/checksum provenance claim.

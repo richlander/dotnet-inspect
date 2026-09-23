@@ -714,8 +714,6 @@ public sealed partial class CSharpPrinter
     readonly Dictionary<int, TypeRef> _stackSlotUnifiedTypes = [];
     readonly SortedDictionary<(int Slot, int Ordinal), (string Name, TypeRef? Type)> _stackSlotDeclarations = [];
     readonly StackSlotUnifierTelemetryBuilder? _stackSlotTelemetry;
-    readonly Dictionary<StoreElement, StoreLocal> _inlineReceiverTempStores = [];
-    readonly HashSet<int> _inlineReceiverTempLocals = [];
 
     internal static StackSlotUnifierTelemetry CollectStackSlotUnifierTelemetry(IrFunction function)
     {
@@ -728,34 +726,7 @@ public sealed partial class CSharpPrinter
     string PrintBody(IrFunction function)
     {
         var sb = new StringBuilder();
-        _labelTargets = CollectBranchTargets(function);
-        _localDeclarationPlan =
-            LocalDeclarationPlan.Create(function, function.Locals.Length);
-        _usingLocals.UnionWith(_localDeclarationPlan.UsingLocals);
-        _foreachLocals.UnionWith(_localDeclarationPlan.ForeachLocals);
-        _isPatternLocals.UnionWith(_localDeclarationPlan.PatternLocals);
-        _deconstructionLocals.UnionWith(
-            _localDeclarationPlan.DeconstructionLocals);
-        _fixedLocals.UnionWith(_localDeclarationPlan.FixedLocals);
-        _catchLocals.UnionWith(_localDeclarationPlan.CatchLocals);
-        _outArgumentLocals.UnionWith(
-            _localDeclarationPlan.OutArgumentLocals);
-        _outVariableDeclarations.UnionWith(
-            _localDeclarationPlan.OutVariableDeclarations);
-        _scopedLocals.UnionWith(_localDeclarationPlan.ScopedLocals);
-        _declaringStores.UnionWith(
-            _localDeclarationPlan.DeclaringNodes);
-        CollectResidualStackSlotDeclaringStores(function);
-        CollectInlineReceiverTempStores(function);
-        CollectStackSlotNames(function);
-        foreach (var fixedNode in function.DescendantsOutsideNestedFunctions.OfType<Fixed>())
-        {
-            if (fixedNode.LocalIsStackSlot)
-                _fixedStackSlotNames.Add(FixedLocalName(fixedNode));
-        }
-        _readBeforeAssign = DefiniteAssignment.Compute(function, _labelTargets, _facts);
-        if (_facts is not null)
-            _facts.LocalNames = [.. Enumerable.Range(0, function.Locals.Length).Select(LocalName)];
+        PrepareBody(function);
 
         // A constructor prologue is leading field-initializer stores
         // (this.f = value) followed by the base(...)/this(...) chain call. C#
@@ -797,6 +768,64 @@ public sealed partial class CSharpPrinter
         if (NeedsUnsupportedFallbackReturn(function))
             sb.AppendLf("return default;");
         return sb.ToString().TrimEnd() is { Length: > 0 } text ? text + "\n" : "";
+    }
+
+    void PrepareBody(IrFunction function)
+    {
+        _labelTargets = CollectBranchTargets(function);
+        _localDeclarationPlan =
+            LocalDeclarationPlan.Create(
+                function,
+                function.Locals.Length,
+                _options,
+                _reservedScopeNames);
+        _usingLocals.UnionWith(_localDeclarationPlan.UsingLocals);
+        _foreachLocals.UnionWith(_localDeclarationPlan.ForeachLocals);
+        _isPatternLocals.UnionWith(_localDeclarationPlan.PatternLocals);
+        _deconstructionLocals.UnionWith(
+            _localDeclarationPlan.DeconstructionLocals);
+        _fixedLocals.UnionWith(_localDeclarationPlan.FixedLocals);
+        _catchLocals.UnionWith(_localDeclarationPlan.CatchLocals);
+        _outArgumentLocals.UnionWith(
+            _localDeclarationPlan.OutArgumentLocals);
+        _outVariableDeclarations.UnionWith(
+            _localDeclarationPlan.OutVariableDeclarations);
+        _scopedLocals.UnionWith(_localDeclarationPlan.ScopedLocals);
+        _declaringStores.UnionWith(
+            _localDeclarationPlan.DeclaringNodes);
+        foreach (var binding in _localDeclarationPlan.Bindings)
+        {
+            if (binding.Provenance
+                != LocalBindingNameProvenance.ApproximatePdb)
+            {
+                continue;
+            }
+
+            AddDecision(
+                "approximate-pdb-local-name",
+                DecompilerDecisionCategories.Taste,
+                $"V_{binding.LocalIndex}",
+                $"Used Portable PDB name '{binding.PreferredIdentifier}' as an approximate display name "
+                    + $"for physical local slot {binding.LocalIndex}; exact row/scope identity remains "
+                    + "unrepresented and fidelity is unchanged "
+                    + "(dotnet_inspect_style_approximate_pdb_local_names).",
+                newValue: binding.Identifier,
+                dedupDiscriminator:
+                    $"{_labelScopeSuffix}\0{binding.LocalIndex.ToString(CultureInfo.InvariantCulture)}");
+        }
+        CollectResidualStackSlotDeclaringStores(function);
+        CollectStackSlotNames(function);
+        foreach (var fixedNode in function.DescendantsOutsideNestedFunctions.OfType<Fixed>())
+        {
+            if (fixedNode.LocalIsStackSlot)
+                _fixedStackSlotNames.Add(FixedLocalName(fixedNode));
+        }
+        _readBeforeAssign = DefiniteAssignment.Compute(function, _labelTargets, _facts);
+        if (_facts is not null)
+            _facts.LocalNames = [
+                .. Enumerable.Range(0, function.Locals.Length)
+                    .Select(LocalFactLabel),
+            ];
     }
 
     static bool NeedsUnsupportedFallbackReturn(IrFunction function)
@@ -993,8 +1022,7 @@ public sealed partial class CSharpPrinter
             // Syntax-owned locals declare at their owner, not up front.
             if (_fixedLocals.Contains(index) || _usingLocals.Contains(index) || _foreachLocals.Contains(index)
                 || _isPatternLocals.Contains(index) || _deconstructionLocals.Contains(index)
-                || _catchLocals.Contains(index) || _inlineReceiverTempLocals.Contains(index)
-                || _outArgumentLocals.Contains(index))
+                || _catchLocals.Contains(index) || _outArgumentLocals.Contains(index))
                 continue;
             bool declaredAtStore = _declaringStores.Any(s =>
                 s is StoreLocal store && store.Index == index
@@ -1278,21 +1306,7 @@ public sealed partial class CSharpPrinter
         if (value is Constant { Value: null })
             return IsReferenceLike(target);
         if (value is Conditional conditional)
-            // A conditional unifies to a target its arms each satisfy — e.g.
-            // `cond ? null : value` (null + string) is assignable to `string`,
-            // even though its IL-merged ResultType widened to `object`. Without
-            // this the slot's object-typed store and string-typed load get
-            // different names (S_1 vs S_1_1) and the consumer reads an unassigned
-            // local (#1767). Restricted to reference-like targets: a non-reference
-            // target (char/numeric) needs per-arm target rendering that the
-            // conditional printer only does for immediate constant arms, so a
-            // nested conditional would unify to `char` yet render an `int` ternary
-            // (CS0266). The char/enum arm-cast path and the merged-ResultType
-            // fallback remain.
             return CanRenderConditionalForTarget(conditional, target)
-                || (IsProvenReference(target)
-                    && CanAssignTo(conditional.WhenTrue, target)
-                    && CanAssignTo(conditional.WhenFalse, target))
                 || (conditional.ResultType is { } condType && CanAssignType(condType, target));
         if (value is Constant { Value: int or long } constant
             && target.DeclaredValueTypeHint == ValueTypeHint.ValueType
@@ -1300,19 +1314,6 @@ public sealed partial class CSharpPrinter
             return true;
         return value.AssignmentType is { } source && CanAssignType(source, target);
     }
-
-    /// <summary>
-    /// A type known to be a reference WITHOUT resolution — a stack-O family
-    /// (object/string/array), a signature-declared class, or a same-assembly
-    /// reference shape. Unlike <see cref="IsReferenceLike"/> this excludes the
-    /// optimistic "a bare cross-assembly definition is probably a class" fallback:
-    /// narrowing a slot to an UNPROVEN target would print `MaybeStruct S = a ? null
-    /// : value`, which is CS0037 if the type resolves to a struct. Used to gate the
-    /// conditional arm-assignability unification so it only narrows to a target a
-    /// null arm is provably assignable to.
-    /// </summary>
-    bool IsProvenReference(TypeRef type)
-        => CoercionRendering.IsProvenReference(type, _function.TypeShapes);
 
     bool CanAssignType(TypeRef source, TypeRef target)
     {
@@ -1327,19 +1328,6 @@ public sealed partial class CSharpPrinter
 
     bool IsReferenceLike(TypeRef type)
         => CoercionRendering.IsReferenceLike(type, _function.TypeShapes);
-
-    bool IsKnownReferenceLike(TypeRef type)
-    {
-        if (type.Kind is TypeRefKind.ByRef or TypeRefKind.Pointer or TypeRefKind.FunctionPointer)
-            return false;
-        if (TypeFamilies.Of(type) == StackFamily.O)
-            return true;
-        if (type.DeclaredValueTypeHint == ValueTypeHint.ReferenceType)
-            return true;
-        if (_function.TypeShapes.GetValueOrDefault(NamedDefinition(type)) == TypeShape.Reference)
-            return true;
-        return type.Kind is TypeRefKind.SzArray or TypeRefKind.Array;
-    }
 
     static bool IsCoreObject(TypeRef type)
         => type is { Kind: TypeRefKind.Definition, Assembly: TypeRef.CoreLibrary, Namespace: "System", Name: "Object" };
@@ -1535,13 +1523,6 @@ public sealed partial class CSharpPrinter
                 && _labelTargets.Contains(n.SourceOffset));
     }
 
-    static bool ReferencesLocal(IrNode node, int index)
-    {
-        if (IsLocalReference(node, index))
-            return true;
-        return node.DescendantsOutsideNestedFunctions.Any(n => IsLocalReference(n, index));
-    }
-
     static bool ReferencesLocalIncludingSharedNestedScopes(IrNode node, int index)
     {
         if (node is Lambda { NeedsIsolatedLocalScope: true })
@@ -1587,111 +1568,6 @@ public sealed partial class CSharpPrinter
         }
         return false;
     }
-
-    void CollectInlineReceiverTempStores(IrFunction function)
-    {
-        foreach (var block in function.DescendantsOutsideNestedFunctions.OfType<Block>())
-        {
-            for (int i = 0; i + 1 < block.Children.Count; i++)
-            {
-                if (block.Children[i] is not StoreLocal store
-                    || block.Children[i + 1] is not StoreElement storeElement
-                    || !CanInlineReceiverTempStore(function, store, storeElement))
-                {
-                    continue;
-                }
-
-                _inlineReceiverTempStores[storeElement] = store;
-                _inlineReceiverTempLocals.Add(store.Index);
-            }
-        }
-    }
-
-    bool CanInlineReceiverTempStore(IrFunction function, StoreLocal store, StoreElement storeElement)
-    {
-        if (store.Type.Kind == TypeRefKind.ByRef)
-            return false;
-        if (store.Index < function.LocalNames.Length
-            && function.LocalNames[store.Index] is not null)
-        {
-            return false;
-        }
-        if (store.OwnsSourceLabel
-            && store.SourceOffset >= 0
-            && _labelTargets.Contains(store.SourceOffset))
-            return false;
-        if (storeElement.Value is not Call { Callee: { HasThis: true, Name: "ToString" } callee, Arguments: [LoadLocalAddress receiver] } call
-            || receiver.Index != store.Index
-            || (storeElement.ElementType is not null && !Equals(callee.ReturnType, storeElement.ElementType)))
-        {
-            return false;
-        }
-        if (!CanEvaluateBeforeInlineValue(storeElement.Array, store.Value)
-            || !CanEvaluateBeforeInlineValue(storeElement.Index, store.Value))
-        {
-            return false;
-        }
-
-        int stores = 0, addressLoads = 0;
-        foreach (var node in function.Descendants)
-        {
-            switch (node)
-            {
-                case StoreLocal s when s.Index == store.Index:
-                    stores++;
-                    if (!ReferenceEquals(s, store))
-                        return false;
-                    break;
-                case LoadLocalAddress a when a.Index == store.Index:
-                    addressLoads++;
-                    if (!ReferenceEquals(a, receiver))
-                        return false;
-                    break;
-                case LoadLocal l when l.Index == store.Index:
-                    return false;
-            }
-        }
-        return stores == 1 && addressLoads == 1 && ReferenceEquals(call.Arguments[0], receiver);
-    }
-
-    static bool CanEvaluateBeforeInlineValue(IrExpression expression, IrExpression value) => expression switch
-    {
-        Constant => true,
-        LoadArgument argument => !ReferencesArgument(
-            value,
-            argument.Index,
-            argument.Parameter),
-        LoadLocal local => !ReferencesLocal(value, local.Index),
-        _ => false,
-    };
-
-    static bool ReferencesArgument(
-        IrNode node,
-        int index,
-        Parameter? parameter)
-        => IsArgumentReference(node, index, parameter)
-            || node.Descendants.Any(
-                descendant => IsArgumentReference(
-                    descendant,
-                    index,
-                    parameter));
-
-    static bool IsArgumentReference(
-        IrNode node,
-        int index,
-        Parameter? parameter)
-        => node is LoadArgument argument
-                && PlaceIdentity.SameArgument(
-                    argument.Index,
-                    argument.Parameter,
-                    index,
-                    parameter)
-            || node is LoadArgumentAddress address
-                && PlaceIdentity.SameArgument(
-                    address.Index,
-                    address.Parameter,
-                    index,
-                    parameter);
 
     void AppendNestedLocalFunctionBody(StringBuilder sb, LocalFunctionStatement localFunction, int indent)
     {
@@ -2597,12 +2473,6 @@ public sealed partial class CSharpPrinter
         int separatorAlreadyAppliedAt = -1;
         while (i < statements.Count)
         {
-            if (statements[i] is StoreLocal inlineStore && _inlineReceiverTempStores.ContainsValue(inlineStore))
-            {
-                i++;
-                continue;
-            }
-
             if (EmitsExplicitUnsafeContexts
                 && _unsafeDepth == 0
                 && NeedsUnsafeBlock(statements[i]))
@@ -2645,8 +2515,6 @@ public sealed partial class CSharpPrinter
                 _unsafeDepth++;
                 for (int k = i; k < j; k++)
                 {
-                    if (statements[k] is StoreLocal unsafeInlineStore && _inlineReceiverTempStores.ContainsValue(unsafeInlineStore))
-                        continue;
                     bool visible = IsVisibleStatement(statements[k]);
                     if (visible && k != firstVisible)
                     {
@@ -2690,7 +2558,6 @@ public sealed partial class CSharpPrinter
 
         return statement switch
         {
-            StoreLocal store when _inlineReceiverTempStores.ContainsValue(store) => false,
             ExpressionStatement { Expression: Call call }
                 when IsImplicitParameterlessBaseCall(call) => false,
             _ => true,
@@ -2917,8 +2784,6 @@ public sealed partial class CSharpPrinter
             LocalFunctionStatement => false,
             TryCatch t => t.Clauses.Any(c => HasRequiredUnsafeOperation(c.Filter)),
             TryFinally => false,
-            StoreElement s when _inlineReceiverTempStores.TryGetValue(s, out var store)
-                => HasRequiredUnsafeOperation(s) || HasRequiredUnsafeOperation(store.Value),
             _ => HasRequiredUnsafeOperation(node),
         };
     }
@@ -2976,7 +2841,8 @@ public sealed partial class CSharpPrinter
                         store,
                         slotType?.Kind == TypeRefKind.ByRef,
                         slotRoot);
-            case StoreElement store when InlineReceiverTempStoreValue(store) is null:
+            case StoreElement store
+                when !store.ReceiverTempInlined:
                 return UnsafeRequirementsAreWithin(store, store.Value);
             case DeconstructionAssignment assignment:
                 return UnsafeRequirementsAreWithin(assignment, assignment.Source);
@@ -3581,7 +3447,6 @@ public sealed partial class CSharpPrinter
             s.UpdateKind,
             StorePropertyTargetType(s), forHeader: forHeader),
         EventSubscription e => $"{PropertyTarget(e.Accessor, e.HasInstance ? e.Instance : null, [], e.EventName, e.IsVirtual, isEvent: true)} {(e.IsAdd ? "+=" : "-=")} {UnsafeExpressionText(e.Value, CoerceText(e.Value, e.Accessor.ParameterTypes[0]))};",
-        StoreElement s when InlineReceiverTempStoreValue(s) is { } value => $"{Operand(s.Array)}[{ArrayIndexText(s.Index)}] = {value};",
         StoreElement s => $"{Operand(s.Array)}[{ArrayIndexText(s.Index)}] = {UnsafeExpressionText(s.Value, InitializerText(s.Value, StoreElementTargetType(s), StoreElementNewTarget(s)))};",
         PointerElementCompoundAssignment s => $"{Operand(s.Pointer)}[{Expression(s.Index)}] {BinaryOperator(s.Operation)}= {Expression(s.Value)};",
         PointerCompoundAssignment s => PointerUpdateText(s, statement: true),
@@ -3618,22 +3483,6 @@ public sealed partial class CSharpPrinter
         EndFilter f => $"// endfilter({CommentExpressionText(f.Value)})",
         _ => $"/* {node.Describe()} */",
     };
-
-    string? InlineReceiverTempStoreValue(StoreElement storeElement)
-    {
-        if (!_inlineReceiverTempStores.TryGetValue(storeElement, out var store)
-            || storeElement.Value is not Call call)
-        {
-            return null;
-        }
-
-        string receiver = ReceiverText(store.Value);
-        string typeArguments = call.Callee.TypeArguments.IsEmpty
-            ? ""
-            : $"<{string.Join(", ", call.Callee.TypeArguments.Select(TypeText))}>";
-        string rest = Arguments(call.Arguments.Skip(1), call.Callee.ParameterTypes, call.Callee.ParameterRefKinds);
-        return $"{receiver}.{CSharpNaming.SourceMethodName(call.Callee)}{typeArguments}({rest})";
-    }
 
     string ForLoopIncrementText(IrNode node)
     {
@@ -5941,158 +5790,48 @@ public sealed partial class CSharpPrinter
 
     HashSet<string>? _localScopeNames;
 
-    string[]? _localDisplayNames;
-    HashSet<int>? _retainedLocalSlots;
-
     IReadOnlySet<int> RetainedLocalSlots()
-    {
-        if (_retainedLocalSlots is null)
-        {
-            _retainedLocalSlots =
-                ExactLocalNameAllocation.RetainedLocalSlots(
-                    _function,
-                    _function.Locals.Length,
-                    _function.EliminatedLocalSlots);
-            _retainedLocalSlots.ExceptWith(_inlineReceiverTempLocals);
-        }
-
-        return _retainedLocalSlots;
-    }
+        => _localDeclarationPlan?.RetainedLocalSlots
+            ?? throw new InvalidOperationException(
+                "Local bindings are unavailable before declaration planning.");
 
     /// <summary>
     /// The display name for local slot <paramref name="index"/>: the PDB source
-    /// name when present, printer-usable, and admitted by the exact-local
-    /// collision plan; otherwise the synthetic <c>V_index</c>. Resolved once per
-    /// function so every reference to a slot — declaration, load, address,
-    /// shadow test — spells it identically.
+    /// name issued by the finalized declaration and binding plan. Every
+    /// reference to a slot — declaration, load, address, shadow test — spells
+    /// the same planned identifier.
     /// </summary>
     string LocalName(int index)
     {
-        if (_localDisplayNames is null)
+        if (_localDeclarationPlan is not { } plan)
         {
-            int count = _function.Locals.Length;
-            var display = new string[count];
-            var assigned = new bool[count];
-            for (int i = 0; i < count; i++)
-                display[i] = $"V_{i}";
-
-            var names = _function.LocalNames;
-            var taken = CurrentReservedNames();
-            var retainedLocalSlots = RetainedLocalSlots();
-            for (var i = 0; i < count; i++)
-                assigned[i] = !retainedLocalSlots.Contains(i);
-            var exact = ExactLocalNameAllocation.Allocate(
-                _function,
-                count,
-                names,
-                taken,
-                retainedLocalSlots,
-                _localDeclarationPlan?.DeclarationScopes);
-            for (var i = 0; i < count; i++)
-            {
-                if (exact.Dispositions[i]
-                        == ExactLocalNameDisposition.Preserved
-                    && exact.DisplayNames[i] is { } name)
-                {
-                    display[i] = name;
-                    assigned[i] = true;
-                }
-            }
-            taken.UnionWith(exact.DisplayNames.OfType<string>());
-
-            // Exact source names may legally shadow non-captured enclosing or
-            // descendant binders. Approximate and generated names remain
-            // conservative so they do not introduce avoidable shadowing.
-            taken.UnionWith(_reservedScopeNames);
-            AddDescendantBinderNames(taken);
-
-            if (_options.ApproximatePdbLocalNames)
-            {
-                for (int i = 0; i < count; i++)
-                {
-                    if (assigned[i]
-                        || ApproximatePdbLocalName(
-                            i,
-                            names,
-                            exact) is not { } candidate)
-                    {
-                        continue;
-                    }
-
-                    string approximate = ReserveName(candidate, taken);
-                    display[i] = approximate;
-                    assigned[i] = true;
-                    AddDecision(
-                        "approximate-pdb-local-name",
-                        DecompilerDecisionCategories.Taste,
-                        $"V_{i}",
-                        $"Used Portable PDB name '{candidate}' as an approximate display name "
-                            + $"for physical local slot {i}; exact row/scope identity remains "
-                            + "unrepresented and fidelity is unchanged "
-                            + "(dotnet_inspect_style_approximate_pdb_local_names).",
-                        newValue: approximate,
-                        dedupDiscriminator:
-                            $"{_labelScopeSuffix}\0{i.ToString(CultureInfo.InvariantCulture)}");
-                }
-            }
-
-            var synthesizedNames = _function.SynthesizedLocalNames;
-            for (int i = 0; i < count && i < synthesizedNames.Length; i++)
-            {
-                if (assigned[i] || synthesizedNames[i] is not { } synthesized)
-                    continue;
-                display[i] = ReserveName(synthesized, taken);
-                assigned[i] = true;
-            }
-
-            // When enabled, a local with no usable source name gets a synthesized
-            // name from IR evidence (its type, loop-counter role), collision-
-            // resolved against names already taken. The library default remains
-            // off; the CLI enables this for user-facing source.
-            if (_options.ReadableLocalNames)
-            {
-                var counters = LoopCounterLocals();
-                for (int i = 0; i < count; i++)
-                {
-                    if (assigned[i])
-                        continue;
-                    var type = i < _function.Locals.Length ? _function.Locals[i] : null;
-                    if (LocalNameSynthesizer.Synthesize(type, counters.Contains(i), taken) is { } synthesized)
-                    {
-                        display[i] = synthesized;
-                        taken.Add(synthesized);
-                        assigned[i] = true;
-                    }
-                }
-            }
-            for (int i = 0; i < count; i++)
-            {
-                if (assigned[i])
-                    continue;
-                display[i] = ReserveName(display[i], taken);
-            }
-            _localDisplayNames = display;
+            throw new InvalidOperationException(
+                "Local bindings are unavailable before declaration planning.");
         }
-        return index >= 0 && index < _localDisplayNames.Length ? _localDisplayNames[index] : $"V_{index}";
+        if ((uint)index >= (uint)plan.Bindings.Length)
+        {
+            throw new InvalidOperationException(
+                $"Local {index} is outside the planned binding population.");
+        }
+        var binding = plan.Bindings[index];
+        if (binding.Provenance == LocalBindingNameProvenance.Eliminated)
+        {
+            throw new InvalidOperationException(
+                $"Eliminated local {index} has no presentation binding.");
+        }
+        return binding.Identifier;
     }
 
-    string? ApproximatePdbLocalName(
-        int index,
-        ImmutableArray<string?> exactNames,
-        ExactLocalNameAllocation exact)
+    string LocalFactLabel(int index)
     {
-        if (index < exact.Dispositions.Length
-            && exact.Dispositions[index] == ExactLocalNameDisposition.Collision
-            && index < exactNames.Length
-            && exactNames[index] is { } collided
-            && CSharpNaming.IsUsableIdentifier(collided))
+        if (_localDeclarationPlan is { } plan
+            && (uint)index < (uint)plan.Bindings.Length
+            && plan.Bindings[index].Provenance
+                == LocalBindingNameProvenance.Eliminated)
         {
-            return collided;
+            return $"V_{index} (eliminated)";
         }
-
-        return index < _function.PdbLocalNameCandidates.Length
-            ? _function.PdbLocalNameCandidates[index]
-            : null;
+        return LocalName(index);
     }
 
     static string ReserveName(string baseName, HashSet<string> taken)
@@ -6105,26 +5844,6 @@ public sealed partial class CSharpPrinter
             if (taken.Add(candidate))
                 return candidate;
         }
-    }
-
-    /// <summary>
-    /// Locals written by a <see cref="ForLoop"/>'s increment — the induction
-    /// variables that earn the conventional <c>i</c>/<c>j</c>/<c>k</c> name in the
-    /// readable-names mode. Evidence from the structured tree, not a guess.
-    /// </summary>
-    HashSet<int> LoopCounterLocals()
-    {
-        var counters = new HashSet<int>();
-        foreach (var loop in _function.DescendantsOutsideNestedFunctions.OfType<ForLoop>())
-        {
-            var increment = loop.Increment;
-            if (increment is StoreLocal direct)
-                counters.Add(direct.Index);
-            foreach (var node in increment.Descendants)
-                if (node is StoreLocal store)
-                    counters.Add(store.Index);
-        }
-        return counters;
     }
 
     /// <summary>
@@ -6141,7 +5860,10 @@ public sealed partial class CSharpPrinter
             foreach (var parameter in _function.Signature.Parameters)
                 _localScopeNames.Add(parameter.DisplayName);
             for (int i = 0; i < _function.Locals.Length; i++)
-                _localScopeNames.Add(LocalName(i));
+            {
+                if (RetainedLocalSlots().Contains(i))
+                    _localScopeNames.Add(LocalName(i));
+            }
         }
         return _localScopeNames.Contains(fieldName);
     }

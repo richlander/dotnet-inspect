@@ -517,7 +517,7 @@ public partial class CommandExecutionTests
     [Theory]
     [InlineData("--versions", "--print")]
     [InlineData("--versions-with-feed", "--value")]
-    [InlineData("--version", "--urls")]
+    [InlineData("--versions", "--urls")]
     [InlineData("--tfms", "--paths")]
     [InlineData("--layout", "--print")]
     [InlineData("--content", "--value")]
@@ -525,7 +525,7 @@ public partial class CommandExecutionTests
         string lens,
         string projection)
     {
-        var target = lens is "--version" or "--versions" or "--versions-with-feed"
+        var target = lens is "--versions" or "--versions-with-feed"
             ? "ThisQueryMustNotReachTheNetwork"
             : Path.Combine(
                 Path.GetTempPath(),
@@ -545,14 +545,13 @@ public partial class CommandExecutionTests
     [Theory]
     [InlineData("--versions")]
     [InlineData("--versions-with-feed")]
-    [InlineData("--version")]
     [InlineData("--tfms")]
     [InlineData("--layout")]
     [InlineData("--content")]
     public async Task ProjectedJsonRoutingAudit_PackageLensFieldsFailBeforeAcquisition(
         string lens)
     {
-        var target = lens is "--version" or "--versions" or "--versions-with-feed"
+        var target = lens is "--versions" or "--versions-with-feed"
             ? "ThisQueryMustNotReachTheNetwork"
             : Path.Combine(
                 Path.GetTempPath(),

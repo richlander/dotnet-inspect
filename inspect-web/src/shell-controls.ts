@@ -4,9 +4,9 @@ import {
 } from "./package-controls.ts";
 import { renderBrand } from "./brand.ts";
 import type { KeybindingDescription } from "./keybinding-registry.ts";
+import { continueMenuButtonDocumentOrder } from "./menu-button.ts";
 
 export type ApplicationAction =
-  | "open-library"
   | "share"
   | "settings"
   | "keyboard-help";
@@ -39,7 +39,6 @@ export interface LoadErrorShellBindingActions {
 }
 
 export interface WorkbenchShellHtmlOptions {
-  applicationScopeHtml: string;
   contextualActionsHtml?: string;
   inspectedTargetHtml: string;
   subjectInspectorHtml: string;
@@ -52,9 +51,6 @@ export function workbenchShellHtml(
   return `
       <header class="titlebar">
         ${renderBrand()}
-        <div class="application-scope-region">
-          ${options.applicationScopeHtml}
-        </div>
         <div class="subject-inspector-region">
           ${options.subjectInspectorHtml}
         </div>
@@ -110,9 +106,6 @@ export function renderApplicationMenu(shareAvailable: boolean): string {
   return `<div id="application-menu-overlay" class="application-menu-overlay">
     <div id="application-menu" class="application-menu" role="menu"
       aria-label="Application menu" hidden>
-      <button type="button" role="menuitem"
-        data-application-action="open-library">Open Library…</button>
-      <div class="application-menu-separator" role="separator"></div>
       ${shareAvailable
         ? `<button type="button" role="menuitem" data-application-action="share">Share</button>
           <div class="application-menu-separator" role="separator"></div>`
@@ -345,9 +338,11 @@ export function bindWorkbenchShell(
         event.preventDefault();
         closeApplicationMenu(menuButton, menu, true);
       } else if (event.key === "Tab") {
-        // Let native Tab traversal continue from the trigger, including at
-        // document boundaries and past controls outside the page Tab sequence.
-        closeApplicationMenu(menuButton, menu, true);
+        continueMenuButtonDocumentOrder(
+          menuButton,
+          menu,
+          event,
+          () => closeApplicationMenu(menuButton, menu, false));
       } else if (event.key === "Home" || event.key === "End") {
         event.preventDefault();
         (event.key === "Home" ? items[0] : items.at(-1))?.focus();
@@ -360,8 +355,7 @@ export function bindWorkbenchShell(
     menu.querySelectorAll<HTMLElement>("[data-application-action]")
       .forEach(item => item.addEventListener("click", () => {
         const action = item.dataset.applicationAction;
-        if (action !== "open-library"
-          && action !== "share"
+        if (action !== "share"
           && action !== "settings"
           && action !== "keyboard-help") return;
         closeApplicationMenu(menuButton, menu, action === "share");

@@ -54,9 +54,9 @@ and presentation.
 credentials, transports, clients, stores, and disposal, but its
 composition-owned exact and selecting payload operations, asynchronous pinned
 candidate path, and candidate-manifest path now settle through PackageHouse.
-The CLI's online `package Package@latest --version` query and `@latest` package
-opening consume the shared `PackageVersionSettlementInspection` envelope, also
-used by Inspect Web exact/latest package opening. The shared inspection
+The CLI's online `package Package@latest --versions` query and `@latest`
+package opening consume the shared `PackageVersionSettlementInspection`
+envelope, also used by Inspect Web exact/latest package opening. The shared inspection
 projects House `Settle` evidence into a serialization-ready outcome; hosts
 render or consume the selected coordinate rather than choosing a latest row.
 The earlier desktop-only `SettleVersionAsync` bridge is retired. Desktop
@@ -72,13 +72,12 @@ consume this detached listing, request prerelease and unlisted evidence, and
 apply their existing exact NuGet match over its rows. A matching pin remains
 usable with visible partial-source diagnostics; a missing pin is not declared
 absent when a configured authority failed, except when the failure concerns
-listing state rather than version existence. Online bare `package Package
---version` is an authoritative at-most-one-row projection over the same
-listing, preserving stable filtering, optional prerelease and unlisted rows,
-and successful empty output. It remains a listing rather than explicit
-`@latest` coordinate settlement. Raw listing may publish
-usable partial rows because it selects no coordinate; source failures remain
-visible and cannot become authoritative absence. Inspect Web's
+listing state rather than version existence. A caller can request that pinned
+single row with `Package@Version --versions -n 1`; valued
+`package Package --version VERSION` instead selects the Package to inspect.
+Raw listing may publish usable partial rows because it selects no coordinate;
+source failures remain visible and cannot become authoritative absence.
+Inspect Web's
 `BrowserPackageVersionInventory` is the second host adopter under
 [#7530](https://github.com/richlander/dotnet-inspect/issues/7530); it consumes
 the same detached listing while retaining Browser-owned predecessor policy.
@@ -377,14 +376,13 @@ failures to distinguish unavailable version evidence from incomplete listing
 state. The direct desktop version-discovery call is retired from that exact-
 pinned path.
 
-Online bare CLI `package Package --version` is the fourth production adopter.
-It requires authoritative Content and projects at most the first ordered row
-while preserving stable filtering, optional prerelease and unlisted rows, and
-successful empty output. This remains single-version listing rather than
-explicit `@latest` coordinate selection. The direct desktop version-discovery
-call is retired from that bare path. Latest selection, range vectors and cells,
-offline queries, and payload acquisition remain outside this listing
-operation.
+Pinned single-row CLI verification is the fourth production adopter. It
+projects `Package@Version --versions -n 1` from authoritative or usable partial
+Content while preserving prerelease and unlisted evidence. The explicit
+`package Package --version VERSION` spelling selects the Package for ordinary
+inspection and does not create a second listing lens. Latest selection, range
+vectors and cells, offline queries, and payload acquisition remain outside
+this listing operation.
 
 ## Version-population settlement
 
@@ -769,8 +767,8 @@ lease. The inspection consumes that operation; hosts still own clients and
 the source root. A payload-free operation needs no Workspace.
 
 Production adoption has three steps within this slice: the shared boundary,
-CLI `Package@latest --version` queries, and Inspect Web exact/latest package
-opening.
+CLI `package Package@latest --versions` queries, and Inspect Web exact/latest
+package opening.
 The CLI retains scalar/feed/listing presentation. Inspect Web retains the
 same baseline through its richer package-opening composition and transport,
 then continues existing payload acquisition and Workspace admission.

@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import test from "node:test";
 import type {
   BrowserLibraryApiDiffEndpoint,
+  BrowserLibraryApiDiffRequest,
   BrowserLibraryApiDiffResult,
   InspectionShare,
 } from "../src/facades/inspect-web-metadata.d.ts";
@@ -212,13 +213,15 @@ test("replacement Package contexts cancel old work and suppress late publication
   };
   const pending = new Map<string, ReturnType<typeof deferred<BrowserLibraryApiDiffResult>>>();
   const cancellations: string[] = [];
+  const requests: BrowserLibraryApiDiffRequest[] = [];
   const ids = ["one", "two"];
   const coordinator = createLibraryApiDiffCoordinator({
     state,
     operationAuthority: createOperationAuthorityPage({
       allocation: { createId: () => ids.shift() ?? "unexpected" },
     }),
-    query: operationId => {
+    query: (operationId, request) => {
+      requests.push(request);
       const result = deferred<BrowserLibraryApiDiffResult>();
       pending.set(operationId, result);
       return result.promise;
@@ -234,6 +237,24 @@ test("replacement Package contexts cancel old work and suppress late publication
   coordinator.reconcile(selection(packageOne, "1.0.0"));
   coordinator.reconcile(selection(packageTwo, "1.5.0"));
   assert.deepEqual(cancellations, ["one"]);
+  assert.deepEqual(requests, [
+    {
+      schemaVersion: 1,
+      packageId: "Example.Package",
+      currentVersion: "2.0.0",
+      targetVersion: "1.0.0",
+      targetFramework: "net11.0",
+      compileAssetId: "lib/net11.0/Example.dll",
+    },
+    {
+      schemaVersion: 1,
+      packageId: "Example.Package",
+      currentVersion: "2.0.0",
+      targetVersion: "1.5.0",
+      targetFramework: "net11.0",
+      compileAssetId: "lib/net11.0/Example.dll",
+    },
+  ]);
   pending.get("one")?.resolve(succeeded("1.0.0"));
   await Promise.resolve();
   const replacedState = state.libraryApiDiff;

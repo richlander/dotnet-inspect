@@ -194,12 +194,12 @@ dnx dotnet-inspect -y -- library System.Text.Json -S Switches
 
 ## Which versions to compare
 
-Version resolution is source-scoped. Online `Foo@latest --version` resolves the
-newest listed version from fresh, complete discovery across all eligible
-configured sources, without legacy candidate cache reuse. Use `Foo --versions`
-(add `-n N` for N rows or `--preview` for
-prerelease) to list published versions. Unlisted
-versions are hidden unless
+Version resolution is source-scoped. Use `package Foo --versions -n 1` for one
+newest listed version row, or `package Foo@latest --versions` when the answer
+must be freshly discovered across every eligible configured source without
+legacy candidate cache reuse. Use `package Foo --version 1.2.3` to verify one
+exact version and `Foo --versions` (add `-n N` for N rows or `--preview` for
+prerelease) to list published versions. Unlisted versions are hidden unless
 `--include-unlisted` is explicit. `--versions-with-feed` retains each
 version/feed pair when source identity matters. Source declaration order is not
 precedence; load the `private-feeds` skill for source and credential workflows.
@@ -236,6 +236,9 @@ Diff History renders `Evaluations` and `Transitions` over the same vector. Omit
 `--at` for full-population evaluation, repeat it for explicit checkpoints, or
 use `--max-probes` for adaptive bisection. Add `--sample-percent P` for a
 deterministic population-relative survey, optionally capped by `--max-probes`.
+Use `--major-versions` for one representative per major: API findings choose
+the first stable version, with the latest prerelease fallback for preview-only
+majors, while Analysis findings choose the latest admitted version per major.
 Choose the type-focused census with `--type-presence`, `--members`, or
 `--attributes` (aliases for `api.type`, `api.member`, and `api.attribute`).
 Add `--member` to `api.member` for one exact member identity track. The same

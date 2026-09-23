@@ -15,6 +15,7 @@ using DotnetInspector.Packages;
 using DotnetInspector.Platforms;
 using DotnetInspector.Queries;
 using DotnetInspector.Queries.Definitions;
+using DotnetInspector.Sections;
 using DotnetInspector.Services;
 using ILInspector.Analysis;
 using ILInspector.CallGraph;
@@ -563,6 +564,111 @@ public sealed partial class BrowserEngineBoundaryTests
 
         Assert.Contains("n0 -- loop --> n1", mermaid);
         Assert.Contains("n0 --> n2", mermaid);
+    }
+
+    [Fact]
+    public void DependencyCallGraphDocument_ProjectsDetachedBrowserGraph()
+    {
+        var dependencyIdentity = new AssemblyReferenceIdentity(
+            "Dependency.Library",
+            new Version(1, 2, 3, 4),
+            Culture: null,
+            PublicKeyToken: null);
+        TypeRef type = TypeRef.Definition(
+            "Example.Dependency",
+            "Example",
+            "Worker");
+        TypeRef returnType = TypeRef.CoreLib("System", "Void");
+        var focus = new MemberRef(
+            type,
+            "Run",
+            [],
+            returnType,
+            MemberKind.Method);
+        var dependency = new MemberRef(
+            TypeRef.Definition(
+                "Dependency.Library",
+                "Dependency",
+                "Api",
+                new ResolvableTypeReference(
+                    new TypeReferenceOrigin.CurrentAssembly(
+                        dependencyIdentity),
+                    DefinitionName("Dependency", ["Api"]))),
+            "Invoke",
+            [],
+            returnType,
+            MemberKind.Method);
+        var tree = new CallTreeNode(
+            focus,
+            null,
+            CallTreeStatus.Expanded,
+            [
+                new CallTreeNode(
+                    dependency,
+                    null,
+                    CallTreeStatus.External,
+                    []),
+            ]);
+        InspectionGraphDocument graph =
+            CallGraphInspectionGraphAdapter.Create(
+                CallGraphProjection.FromCallees(tree));
+        var document =
+            new PackageDependencyMemberCallGraphDocument(
+                TraversalTargetFrameworkPolicy.ProductDefault,
+                new PackageDependencyTraversalSummary(
+                    CompleteRoots: 1,
+                    DepthBoundedRoots: 0,
+                    SourceBoundedRoots: 0,
+                    PartialRoots: 0),
+                [],
+                [
+                    new PackageDependencyMemberCallGraphPackageSubject(
+                        NodeId: 1,
+                        PackageId: "dependency.library",
+                        PackageVersion: "1.2.3",
+                        TargetFramework: "net8.0"),
+                ],
+                graph);
+
+        BrowserCallGraphInfo projected =
+            BrowserCallGraphProjection.Project(document);
+
+        Assert.Equal("Run", projected.Callees.MemberName);
+        Assert.Equal(
+            "Invoke",
+            Assert.Single(projected.Callees.Children).MemberName);
+        BrowserCallGraphTargetInfo dependencyTarget = Assert.Single(
+            projected.Targets,
+            target =>
+                target.Assembly == "Dependency.Library"
+                && target.MemberName == "Invoke");
+        Assert.Equal("dependency.library", dependencyTarget.PackageId);
+        Assert.Equal("1.2.3", dependencyTarget.PackageVersion);
+        Assert.Equal("net8.0", dependencyTarget.PackageFramework);
+        Assert.Equal("1.2.3.4", dependencyTarget.AssemblyVersion);
+        Assert.Contains("Example.Worker.Run", projected.Mermaid);
+        Assert.Equal("CrossLibrary", projected.Scope.CalleeScope);
+
+        BrowserCallGraph wire = BrowserCallGraphWireProjection.Project(
+            projected,
+            [
+                new InspectionDiagnostic(
+                    "package-dependency-member-call-graph.route-unavailable",
+                    InspectionDiagnosticSeverity.Warning,
+                    "A dependency route was unavailable."),
+            ]);
+        Assert.Equal(
+            1,
+            wire.Diagnostics.UnavailableDependencyRoutes);
+        Assert.True(wire.Diagnostics.IsIncomplete);
+        DotnetInspect.Web.Interop.CallGraph.BrowserCallGraphTarget wireTarget =
+            Assert.Single(
+                wire.Targets,
+                target => target.MemberName == "Invoke");
+        Assert.Equal("dependency.library", wireTarget.PackageId);
+        Assert.Equal("1.2.3", wireTarget.PackageVersion);
+        Assert.Equal("net8.0", wireTarget.PackageFramework);
+        Assert.Equal("1.2.3.4", wireTarget.AssemblyVersion);
     }
 
     [Fact]

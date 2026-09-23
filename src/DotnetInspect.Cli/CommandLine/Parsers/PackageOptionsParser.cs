@@ -42,7 +42,8 @@ public static class PackageOptionsParser
         Option<string?> TfmOption,
         Option<string?> DepthOption,
         Option<string?> TypeFilterOption,
-        Option<bool> VersionOption,
+        Option<bool> DetailsOption,
+        Option<string?> VersionOption,
         Option<bool> LinesOption,
         Option<bool> TailLinesOption,
         Option<string?> OutOption,
@@ -86,8 +87,8 @@ public static class PackageOptionsParser
         // and row-selection validation and must not run during argv ownership checks.
         var mode = new InspectionOptions
         {
-            ListVersions = result.GetValue(args.VersionOption)
-                || result.GetValue(args.VersionsOption)
+            ExplicitVersion = GetExplicitVersion(result, args),
+            ListVersions = result.GetValue(args.VersionsOption)
                 || result.GetValue(args.VersionsWithFeedOption),
             ListLayout = result.GetValue(args.LayoutOption) && !opts.IsDiscoveryMode(result),
             ListTfms = result.GetValue(args.TfmsOption),
@@ -112,6 +113,18 @@ public static class PackageOptionsParser
         return PackageCommand.GetMultiPackageConflicts(mode).Count > 0
             ? 1
             : args.PackageNameArg.Arity.MaximumNumberOfValues;
+    }
+
+    private static string? GetExplicitVersion(
+        ParseResult result,
+        PackageCommandArgs args)
+    {
+        OptionResult? optionResult =
+            result.GetResult(args.VersionOption);
+        return optionResult is { Implicit: false }
+            && !optionResult.Errors.Any()
+                ? result.GetValue(args.VersionOption)
+                : null;
     }
 
     private static string? GetExactLibrary(
@@ -178,6 +191,40 @@ public static class PackageOptionsParser
         if (badOption != null)
             return new UnrecognizedOption(badOption);
 
+        string? explicitVersion =
+            parseResult.GetValue(args.VersionOption);
+        bool hasExplicitVersionSelector =
+            parseResult.GetResult(args.VersionOption)
+                is { Implicit: false };
+        if (hasExplicitVersionSelector
+            && !PackageExtractor.TryNormalizePackageVersion(
+                explicitVersion,
+                out _))
+        {
+            return new InvalidArguments(
+                "--version requires an exact Package version.");
+        }
+
+        PackageReferenceTarget? selectedTarget =
+            packageArgs is [var selectedPackageReference]
+                ? PackageExtractor.ParsePackageTarget(
+                    selectedPackageReference)
+                : null;
+        if (explicitVersion is not null
+            && selectedTarget is not null)
+        {
+            if (selectedTarget.IsLocalFile)
+            {
+                return new InvalidArguments(
+                    "--version cannot be combined with a local Package file.");
+            }
+
+            if (selectedTarget.Version.Length > 0)
+            {
+                return new InvalidArguments(
+                    "--version cannot be combined with a versioned Package coordinate.");
+            }
+        }
         bool namesakeLibrary =
             parseResult.GetValue(args.NamesakeLibraryOption);
         bool explicitLibrary =
@@ -194,9 +241,6 @@ public static class PackageOptionsParser
         var packageLibrary = namesakeLibrary
             ? ""
             : GetExactLibrary(parseResult.CommandResult, args);
-
-        bool singleVersionQuery =
-            parseResult.GetValue(args.VersionOption);
 
         bool showVersionsWithFeed =
             parseResult.GetValue(args.VersionsWithFeedOption);
@@ -225,8 +269,7 @@ public static class PackageOptionsParser
                 "--versions and --versions-with-feed cannot be combined "
                 + "with each other or --version.");
         }
-        if (selectsVersionPopulation
-            && singleVersionQuery)
+        if (selectsVersionPopulation && hasExplicitVersionSelector)
         {
             return new InvalidArguments(
                 "--versions, --versions-with-feed, and range --count "
@@ -234,8 +277,7 @@ public static class PackageOptionsParser
         }
 
         bool showVersions =
-            singleVersionQuery
-            || showPluralVersions
+            showPluralVersions
             || countRange;
         bool selectsSourceLinkFiles =
             IsSourceLinkFileRowSelection(
@@ -440,6 +482,7 @@ public static class PackageOptionsParser
         var options = new InspectionOptions
         {
             PackageArgs = packageArgs,
+            ExplicitVersion = explicitVersion,
             WorkspacePacket = parseResult.GetValue(args.WorkspaceOption),
             ShareFormat = WorkspaceShareOption.Parse(
                 parseResult,
@@ -468,7 +511,6 @@ public static class PackageOptionsParser
             ScopeLib = parseResult.GetValue(args.LibOption),
             ScopeTools = parseResult.GetValue(args.ToolsOption),
             ListVersions = showVersions,
-            SingleVersionQuery = singleVersionQuery,
             ListVersionsWithFeed = showVersionsWithFeed,
             IncludePrerelease = parseResult.GetValue(args.PrereleaseOption),
             IncludeUnlisted = parseResult.GetValue(args.IncludeUnlistedOption),
@@ -484,7 +526,6 @@ public static class PackageOptionsParser
             FrontmatterRequested = frontmatterRequested,
             BodyRequested = bodyRequested,
             OutputPath = parseResult.GetValue(args.OutOption),
-            Limit = singleVersionQuery ? 1 : null,
             VersionRowSelection = versionRowSelection,
             SourceLinkFileRowSelection = sourceLinkFileRowSelection,
             PackageFileRowSelection = packageFileRowSelection,
@@ -506,6 +547,8 @@ public static class PackageOptionsParser
             Verbose = parseResult.GetValue(opts.Verbose),
             Verbosity = verbosity,
             Discover = opts.ParseDiscover(parseResult),
+            DiscoverDetails =
+                parseResult.GetValue(args.DetailsOption),
             Tree = parseResult.GetValue(opts.Tree),
             Select = opts.ParseSelect(parseResult),
             SelectDefault = opts.ParseSelectDefault(parseResult),
@@ -539,7 +582,7 @@ public static class PackageOptionsParser
         if (!string.IsNullOrWhiteSpace(typeFilter))
             options = options with { Select = [.. options.Select ?? [], Views.PackageSections.SourceLinkFiles] };
 
-        var tipLevel = options.FormatExplicitlySet || options.IsRawOutput || verbosity != Verbosity.Minimal || options.Select != null || options.SelectDefault || options.Discover != null || ArgumentPreprocessor.HeadLines != null || ArgumentPreprocessor.TailLines != null || options.Limit != null
+        var tipLevel = options.FormatExplicitlySet || options.IsRawOutput || verbosity != Verbosity.Minimal || options.Select != null || options.SelectDefault || options.Discover != null || ArgumentPreprocessor.HeadLines != null || ArgumentPreprocessor.TailLines != null
             ? TipLevel.Quiet : opts.ParseTipLevel(parseResult);
         options = options with { TipLevel = tipLevel };
 
@@ -573,8 +616,7 @@ public static class PackageOptionsParser
             || HasLibraryTarget(result, args)
             || result.GetValue(args.VersionsOption)
             || result.GetValue(args.VersionsWithFeedOption)
-            || result.GetValue(args.ContentOption)
-            || result.GetValue(args.VersionOption))
+            || result.GetValue(args.ContentOption))
         {
             return false;
         }
@@ -645,8 +687,7 @@ public static class PackageOptionsParser
             || HasLibraryTarget(result, args)
             || result.GetValue(args.VersionsOption)
             || result.GetValue(args.VersionsWithFeedOption)
-            || result.GetValue(args.ContentOption)
-            || result.GetValue(args.VersionOption))
+            || result.GetValue(args.ContentOption))
         {
             return false;
         }
@@ -778,8 +819,7 @@ public static class PackageOptionsParser
             && !HasLibraryTarget(result, args)
             && !result.GetValue(args.VersionsOption)
             && !result.GetValue(args.VersionsWithFeedOption)
-            && !result.GetValue(args.ContentOption)
-            && !result.GetValue(args.VersionOption);
+            && !result.GetValue(args.ContentOption);
     }
 
     private static bool HasExplicitRowSelection(
@@ -862,8 +902,7 @@ public static class PackageOptionsParser
             || result.GetValue(args.IncludeUnlistedOption)
             || result.GetValue(args.ContentOption)
             || result.GetValue(args.FrontmatterOption)
-            || result.GetValue(args.BodyOption)
-            || result.GetValue(args.VersionOption);
+            || result.GetValue(args.BodyOption);
 
     internal static bool IsPackageTfmRowSelection(
         ParseResult parseResult,
@@ -969,8 +1008,7 @@ public static class PackageOptionsParser
             || result.GetValue(args.IncludeUnlistedOption)
             || result.GetValue(args.ContentOption)
             || result.GetValue(args.FrontmatterOption)
-            || result.GetValue(args.BodyOption)
-            || result.GetValue(args.VersionOption);
+            || result.GetValue(args.BodyOption);
 
     private static string[]? ParseSelectors(string? value)
         => string.IsNullOrWhiteSpace(value)

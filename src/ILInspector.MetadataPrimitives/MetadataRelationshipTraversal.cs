@@ -143,11 +143,14 @@ public static class MetadataSafetyPolicy
     /// Maximum cumulative anchor-signature work charged across one classified-
     /// method scan. Prevents many near-limit successful identities from
     /// multiplying per-anchor cost when none individually trips the failure
-    /// counter. Gated by
-    /// <c>Scan_NearLimitMultiMethodIdentitiesFailClosedBeforeLargeAllocation</c>.
+    /// counter. The scan gets two per-anchor ceilings so a large ordinary
+    /// assembly can project many small identities without granting an
+    /// unbounded multiplier to hostile near-limit identities. Gated by
+    /// <c>Scan_NearLimitMultiMethodIdentitiesFailClosedBeforeLargeAllocation</c>
+    /// and <c>Scan_RealTestAssemblyWithMtpSurfaceStaysWithinBudget</c>.
     /// </summary>
     public const int MaxClassificationScanWorkChars =
-        MaxAnchorSignatureWorkChars;
+        2 * MaxAnchorSignatureWorkChars;
 
     /// <summary>
     /// Maximum unique handles in one TypeDef, TypeRef, or ExportedType
@@ -242,6 +245,19 @@ public static class MetadataRelationshipTraversal
             reader,
             handle);
 
+    internal static RelationshipTraversalResult<RelationshipChain<TypeDefinitionHandle>>
+        WalkTypeDefinitionDeclaringChain(
+            MetadataReader reader,
+            TypeDefinitionHandle handle,
+            Action<EntityHandle> beforeRelationshipFollow)
+    {
+        ArgumentNullException.ThrowIfNull(beforeRelationshipFollow);
+        return Walk<TypeDefinitionHandle, TypeDefinitionRelationship>(
+            reader,
+            handle,
+            beforeRelationshipFollow);
+    }
+
     /// <summary>
     /// Walks a TypeDef declaring-type chain into caller-owned storage without allocating
     /// on a completed traversal.
@@ -288,6 +304,19 @@ public static class MetadataRelationshipTraversal
         => Walk<TypeReferenceHandle, TypeReferenceRelationship>(
             reader,
             handle);
+
+    internal static RelationshipTraversalResult<RelationshipChain<TypeReferenceHandle>>
+        WalkTypeReferenceResolutionScope(
+            MetadataReader reader,
+            TypeReferenceHandle handle,
+            Action<EntityHandle> beforeRelationshipFollow)
+    {
+        ArgumentNullException.ThrowIfNull(beforeRelationshipFollow);
+        return Walk<TypeReferenceHandle, TypeReferenceRelationship>(
+            reader,
+            handle,
+            beforeRelationshipFollow);
+    }
 
     /// <summary>
     /// Walks a TypeRef resolution-scope chain into caller-owned storage without allocating
@@ -358,7 +387,8 @@ public static class MetadataRelationshipTraversal
 
     static RelationshipTraversalResult<RelationshipChain<THandle>> Walk<THandle, TRelationship>(
         MetadataReader reader,
-        EntityHandle start)
+        EntityHandle start,
+        Action<EntityHandle>? beforeRelationshipFollow = null)
         where THandle : unmanaged
         where TRelationship : struct, IRelationship<THandle>
     {
@@ -370,7 +400,8 @@ public static class MetadataRelationshipTraversal
                 rootToLeaf,
                 out int consumedNodes,
                 out EntityHandle terminal,
-                out var rejection))
+                out var rejection,
+                beforeRelationshipFollow))
         {
             return new RelationshipTraversalResult<RelationshipChain<THandle>>.Rejected(
                 rejection!);

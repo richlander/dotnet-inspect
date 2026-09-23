@@ -204,10 +204,12 @@ declaration-order Library before `All libraries`. Focused CLI adoption has
 begun: PR #8018 composes Workspace-backed Library inspection from the selected
 Package aggregate, and PR #8081 adopts the aggregate default plus exact and
 namesake narrowing for direct Package/Library inspection. Direct Package
-selection carries its version in `ID@VERSION`; zero-argument `--version`
-remains the scalar resolved-Version lens rather than another coordinate
-spelling. Shared Navigation, API/Type/Member, Find, and Browser adoption remain
-with their focused slices.
+selection accepts either `ID@VERSION` or explicit
+`package ID --version VERSION`; the latest Version is the one-row inventory
+query `package ID --versions -n 1`. Commandless routing deliberately rejects
+the singular `--version` option because a generic version lens does not
+compose across routable subjects. Shared Navigation, API/Type/Member, Find, and Browser
+adoption remain with their focused slices.
 
 ## Consumer and complexity record
 

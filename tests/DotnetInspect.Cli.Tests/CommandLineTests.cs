@@ -2053,36 +2053,54 @@ public class CommandLineTests
     // ── router --version / --versions parsing ────────────────────────
 
     [Fact]
-    public void Router_VersionFlag_ParsesCorrectly()
+    public async Task Router_VersionFlag_RequiresExplicitPackageCommand()
     {
-        var result = CommandLineBuilder.CreateRootCommand().Parse(
-            CommandLineBuilder.PreprocessArgs(["System.Text.Json", "--version"]));
+        var root = CommandLineBuilder.CreateRootCommand();
+        string[] args =
+            CommandLineBuilder.PreprocessArgs(
+                ["System.Text.Json", "--version"]);
+        var (exit, output, error) = await ConsoleCapture.RunAsync(
+            () => CommandLineBuilder.InvokeAsync(
+                root.Parse(args),
+                args));
 
-        Assert.Empty(result.Errors);
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains(
+            "'--version' requires the explicit 'package' command",
+            error,
+            StringComparison.Ordinal);
     }
 
     [Fact]
-    public async Task Router_LatestVersionFlag_ReturnsReplacementGuidance()
+    public async Task Router_LatestVersionFlag_IsAnOrdinaryUnrecognizedToken()
     {
         var root = CommandLineBuilder.CreateRootCommand();
         string[] args = CommandLineBuilder.PreprocessArgs(
             ["System.Text.Json", "--latest-version"]);
         var (exit, output, error) = await ConsoleCapture.RunAsync(
-            () => Task.FromResult(root.Parse(args).InvokeAsync().Result));
+            () => CommandLineBuilder.InvokeAsync(
+                root.Parse(args),
+                args));
 
         Assert.Equal(1, exit);
         Assert.Empty(output);
-        Assert.Contains("'--latest-version' is no longer valid", error);
-        Assert.Contains("Package@latest --version", error);
+        Assert.Contains(
+            "Unrecognized command or argument '--latest-version'",
+            error,
+            StringComparison.Ordinal);
     }
 
-    [Fact]
-    public async Task Router_LatestVersionTextAsOutputValue_RetainsMemberRoute()
+    [Theory]
+    [InlineData("--version")]
+    [InlineData("--latest-version")]
+    public async Task Router_PackageVersionTextAsOutputValue_RetainsMemberRoute(
+        string outputPath)
     {
         NuGetCache.Initialize("dotnet-inspect");
         var root = CommandLineBuilder.CreateRootCommand();
         string[] args = CommandLineBuilder.PreprocessArgs(
-            ["Missing.Type.Run", "--out", "--latest-version", "--help"]);
+            ["Missing.Type.Run", "--out", outputPath, "--help"]);
         var (exit, output, error) = await ConsoleCapture.RunAsync(
             () => CommandLineBuilder.InvokeAsync(
                 root.Parse(args),
@@ -2091,7 +2109,9 @@ public class CommandLineTests
         Assert.Equal(0, exit);
         Assert.Contains("Inspect type members", output);
         Assert.DoesNotContain("Inspect a NuGet package", output);
-        Assert.DoesNotContain("no longer valid", error);
+        Assert.DoesNotContain(
+            "requires the explicit 'package' command",
+            error);
     }
 
     [Fact]
@@ -2112,21 +2132,4 @@ public class CommandLineTests
         Assert.Empty(result.Errors);
     }
 
-    [Fact]
-    public void Router_PinnedVersionWithVersionFlag_ParsesCorrectly()
-    {
-        var result = CommandLineBuilder.CreateRootCommand().Parse(
-            CommandLineBuilder.PreprocessArgs(["System.Text.Json@9.0.0", "--version"]));
-
-        Assert.Empty(result.Errors);
-    }
-
-    [Fact]
-    public void Router_LatestTagWithVersionFlag_ParsesCorrectly()
-    {
-        var result = CommandLineBuilder.CreateRootCommand().Parse(
-            CommandLineBuilder.PreprocessArgs(["System.Text.Json@latest", "--version"]));
-
-        Assert.Empty(result.Errors);
-    }
 }

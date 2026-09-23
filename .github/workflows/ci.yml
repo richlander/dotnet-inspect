@@ -1112,7 +1112,8 @@ jobs:
             --filter-method '*Package_Manifest_RendersToolManifestRows*' \
             --report-xunit-xml \
             --report-xunit-xml-filename "$results_name" \
-            --results-directory "$results_dir"
+            --results-directory "$results_dir" \
+            --minimum-expected-tests 1
           if ! grep -Eq '<assembly[^>]+skipped="0"' "$results"; then
             echo "::error::Package fixture test skipped authenticated execution." >&2
             exit 1
@@ -1855,7 +1856,7 @@ jobs:
         # pointer carries no implementation, so SelfContained pulls in no runtime.
         # RID-specific packages are built by their dedicated steps; disabling
         # inner RID packs keeps this step pointer-only on .NET 11 Preview 7+.
-        run: dotnet pack src/DotnetInspect.Cli -c Release -p:SelfContained=true -p:OfficialBuild=true -p:CreateRidSpecificToolPackages=false
+        run: dotnet pack src/DotnetInspect.Cli -c Release -p:SelfContained=true -p:OfficialBuild=true -p:CreateRidSpecificToolPackages=false -p:DotnetInspectWebsiteUrl=https://dotnet-inspect.net
 
       - name: Upload pointer package
         uses: actions/upload-artifact@v7
@@ -1868,7 +1869,7 @@ jobs:
         # TFM is pinned to net10.0 structurally via Directory.Build.props
         # (OfficialBuild + non-AOT) so this fallback stays installable on the LTS
         # runtime even though dev/AOT builds use the latest runtime. See issue #240.
-        run: dotnet pack src/DotnetInspect.Cli -c Release -r any -p:PublishAot=false -p:OfficialBuild=true
+        run: dotnet pack src/DotnetInspect.Cli -c Release -r any -p:PublishAot=false -p:OfficialBuild=true -p:DotnetInspectWebsiteUrl=https://dotnet-inspect.net
 
       - name: Upload any package
         uses: actions/upload-artifact@v7
@@ -1878,7 +1879,7 @@ jobs:
           if-no-files-found: error
 
       - name: Pack linux-x64 AOT package
-        run: dotnet pack src/DotnetInspect.Cli -c Release -r linux-x64 -p:OfficialAotBuild=true
+        run: dotnet pack src/DotnetInspect.Cli -c Release -r linux-x64 -p:OfficialAotBuild=true -p:DotnetInspectWebsiteUrl=https://dotnet-inspect.net
 
       - name: Upload linux-x64 package
         uses: actions/upload-artifact@v7
@@ -1901,6 +1902,13 @@ jobs:
           OUTPUT=$(dotnet-inspect --help)
           echo "$OUTPUT"
           echo "$OUTPUT" | grep -q "dotnet-inspect"
+
+      - name: Smoke test - production share URL
+        run: |
+          PACKET=eyJmIjoxLCJ0IjpbWyI6UGxhdGZvcm0iLCIxMC4wLjEwIiwibmV0MTAuMCIsbnVsbF0sWyJTeXN0ZW0uVGV4dC5Kc29uIiwiMTAuMC4wIiwibmV0MTAuMCIsbnVsbF1dLCJnIjpbWzAsMV1dLCJhIjoxLCJ4IjowLCJ2IjoiYXBpIiwieSI6IlN5c3RlbS5UZXh0Lkpzb24uSnNvblNlcmlhbGl6ZXIiLCJsIjpbIlN5c3RlbS5UZXh0Lkpzb24iXX0
+          OUTPUT=$(dotnet-inspect workspace packet decode "$PACKET" | dotnet-inspect workspace packet encode - --url)
+          echo "$OUTPUT"
+          test "$OUTPUT" = "https://dotnet-inspect.net/?w=$PACKET"
 
       - name: Smoke test - package quiet
         run: |

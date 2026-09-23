@@ -146,6 +146,13 @@ public sealed record PackageDependencyMemberCallGraphRoute(
     PackageDependencyMemberCallGraphRouteSubject Subject,
     PackageDependencyMemberCallGraphDestination Destination);
 
+/// <summary>
+/// Resource-free package descriptor for one uniquely attributed graph node.
+/// </summary>
+public sealed record PackageDependencyMemberCallGraphNodePackage(
+    int NodeId,
+    WorkspacePackageDescriptor Descriptor);
+
 public enum PackageDependencyMemberCallGraphFailureReason
 {
     FocusUnavailable,
@@ -167,6 +174,8 @@ public abstract record PackageDependencyMemberCallGraphOutcome
         PackageDependencyTraversalSummary TraversalSummary,
         WorkspaceScopeRevisionIdentity ScopeRevision,
         ImmutableArray<PackageDependencyMemberCallGraphRoute> Routes,
+        ImmutableArray<PackageDependencyMemberCallGraphNodePackage>
+            NodePackages,
         InspectionGraphDocument Graph)
         : PackageDependencyMemberCallGraphOutcome;
 
@@ -335,16 +344,19 @@ public static class PackageDependencyMemberCallGraphOperation
                 unavailable.Failure);
         }
 
-        InspectionGraphDocument graph =
-            ((PackageRoleMemberCallGraphOutcome.Available)graphOutcome!)
-                .Document;
+        var availableGraph =
+            (PackageRoleMemberCallGraphOutcome.Available)graphOutcome!;
         cancellationToken.ThrowIfCancellationRequested();
         return new PackageDependencyMemberCallGraphOutcome.Completed(
             request.Traversal.TraversalTargetPolicy,
             request.Traversal.Summary,
             completedRoutes.Scope.Revision.Identity,
             DetachRoutes(completedRoutes),
-            graph);
+            DetachNodePackages(
+                availableGraph.NodePackages,
+                completedRoutes.Scope,
+                graphBindings),
+            availableGraph.Document);
     }
 
     internal static PackageDependencyMemberCallGraphOutcome.Failed?
@@ -544,24 +556,26 @@ public static class PackageDependencyMemberCallGraphOperation
         PackageDependencyMemberCallGraphRequest request,
         PackageDependencyWorkspaceRouteOutcome.Completed routes)
     {
-        var candidates =
-            new Dictionary<WorkspacePackageOccurrenceIdentity,
-                PackageRootBinding>(ReferenceEqualityComparer.Instance);
-        AddExactGraphBinding(
+        var selected =
+            new Dictionary<string, GraphBindingSelection>(
+                StringComparer.OrdinalIgnoreCase);
+        SelectExactGraphBinding(
             routes.Scope,
-            candidates,
+            selected,
             request.RootBindings[
-                request.Focus.RootOccurrenceIndex]);
+                request.Focus.RootOccurrenceIndex],
+            distance: int.MinValue);
         for (int rootIndex = 0;
             rootIndex < request.RootBindings.Length;
             rootIndex++)
         {
             if (rootIndex != request.Focus.RootOccurrenceIndex)
             {
-                AddExactGraphBinding(
+                SelectExactGraphBinding(
                     routes.Scope,
-                    candidates,
-                    request.RootBindings[rootIndex]);
+                    selected,
+                    request.RootBindings[rootIndex],
+                    distance: int.MinValue + 1);
             }
         }
         foreach (PackageDependencyWorkspaceDestination.Package package
@@ -572,13 +586,11 @@ public static class PackageDependencyMemberCallGraphOperation
                     != PackageDependencyWorkspacePackageRouteSource
                         .ResolvedCandidate
                 || package.Realization?.RootContribution
-                    is not PackageHouseRootContributionOutcome.Contributed
-                        contributed)
+                    is not PackageHouseRootContributionOutcome.Contributed)
             {
                 continue;
             }
-            PackageRootBinding binding =
-                contributed.Contribution.Binding;
+            PackageRootBinding binding = package.Binding;
             WorkspacePackageOccurrenceDescriptor? occurrence =
                 routes.Scope.FindExactPackageOccurrence(binding);
             if (!ReferenceEquals(occurrence, package.Occurrence))
@@ -586,11 +598,22 @@ public static class PackageDependencyMemberCallGraphOperation
                 throw new InvalidOperationException(
                     "A completed dependency Package route must retain the exact contributed binding or fail before graph construction.");
             }
-            candidates.TryAdd(
-                occurrence.Occurrence.Identity,
-                binding);
+            SelectGraphBinding(
+                selected,
+                occurrence,
+                binding,
+                package.Subject.Distance);
         }
 
+        var candidates =
+            new Dictionary<WorkspacePackageOccurrenceIdentity,
+                PackageRootBinding>(ReferenceEqualityComparer.Instance);
+        foreach (GraphBindingSelection selection in selected.Values)
+        {
+            candidates.Add(
+                selection.Occurrence.Occurrence.Identity,
+                selection.Binding);
+        }
         var bindings = ImmutableArray.CreateBuilder<PackageRootBinding>();
         foreach (WorkspacePackageOccurrenceDescriptor occurrence
             in routes.Scope.Packages)
@@ -612,11 +635,11 @@ public static class PackageDependencyMemberCallGraphOperation
         return bindings.ToImmutable();
     }
 
-    private static void AddExactGraphBinding(
+    private static void SelectExactGraphBinding(
         WorkspaceScopeSnapshot scope,
-        Dictionary<WorkspacePackageOccurrenceIdentity, PackageRootBinding>
-            bindings,
-        PackageRootBinding binding)
+        Dictionary<string, GraphBindingSelection> selections,
+        PackageRootBinding binding,
+        int distance)
     {
         WorkspacePackageOccurrenceDescriptor? occurrence =
             scope.FindExactPackageOccurrence(binding);
@@ -625,10 +648,41 @@ public static class PackageDependencyMemberCallGraphOperation
             throw new InvalidOperationException(
                 "A dependency call-graph root must retain its exact final Workspace occurrence.");
         }
-        bindings.TryAdd(
-            occurrence.Occurrence.Identity,
-            binding);
+        SelectGraphBinding(
+            selections,
+            occurrence,
+            binding,
+            distance);
     }
+
+    private static void SelectGraphBinding(
+        Dictionary<string, GraphBindingSelection> selections,
+        WorkspacePackageOccurrenceDescriptor occurrence,
+        PackageRootBinding binding,
+        int distance)
+    {
+        if (selections.TryGetValue(
+                binding.Root.PackageId,
+                out GraphBindingSelection? selected)
+            && (selected.Distance < distance
+                || selected.Distance == distance
+                    && PackageVersionPrecedence.Compare(
+                            selected.Binding.Root.PackageVersion,
+                            binding.Root.PackageVersion) >= 0))
+        {
+            return;
+        }
+        selections[binding.Root.PackageId] =
+            new GraphBindingSelection(
+                occurrence,
+                binding,
+                distance);
+    }
+
+    private sealed record GraphBindingSelection(
+        WorkspacePackageOccurrenceDescriptor Occurrence,
+        PackageRootBinding Binding,
+        int Distance);
 
     private static ImmutableArray<PackageDependencyMemberCallGraphRoute>
         DetachRoutes(
@@ -639,6 +693,40 @@ public static class PackageDependencyMemberCallGraphOperation
                     DetachSubject(destination.Subject),
                     DetachDestination(destination))),
         ];
+
+    private static ImmutableArray<
+        PackageDependencyMemberCallGraphNodePackage> DetachNodePackages(
+        ImmutableArray<PackageRoleMemberCallGraphNodePackage> nodePackages,
+        WorkspaceScopeSnapshot scope,
+        ImmutableArray<PackageRootBinding> bindings)
+    {
+        var descriptors =
+            new Dictionary<PackageRootIdentity, WorkspacePackageDescriptor>(
+                ReferenceEqualityComparer.Instance);
+        foreach (PackageRootBinding binding in bindings)
+        {
+            WorkspacePackageOccurrenceDescriptor occurrence =
+                scope.FindExactPackageOccurrence(binding)
+                ?? throw new InvalidOperationException(
+                    "A graph package binding was not retained in the completed Workspace Scope.");
+            descriptors.Add(
+                binding.Root.Identity,
+                occurrence.Occurrence.Package);
+        }
+
+        return
+        [
+            .. nodePackages.Select(nodePackage =>
+                new PackageDependencyMemberCallGraphNodePackage(
+                    nodePackage.NodeId,
+                    descriptors.TryGetValue(
+                            nodePackage.Package,
+                            out WorkspacePackageDescriptor? descriptor)
+                        ? descriptor
+                        : throw new InvalidOperationException(
+                            "A graph node named a package Root outside the completed graph bindings."))),
+        ];
+    }
 
     private static PackageDependencyMemberCallGraphRouteSubject
         DetachSubject(

@@ -715,7 +715,7 @@ version populations or ranges, Package discovery, or a Package child command.
 
 The first slice requires one positional canonical NuGet Package ID. The
 `ID@VERSION` form may additionally require one exact effective version. Bare
-`--version`, `--versions`,
+`--version VERSION`, `--versions`,
 `--versions-with-feed`, range selection, and multi-Package execution remain
 outside this route. ID and version comparison use their existing Package-owned
 canonical semantics; packet adoption does not add prefix, fuzzy, display-text,
@@ -1537,6 +1537,27 @@ credential-free declarations to the host. Before package acquisition, the host
 must validate any explicit bindings and install exactly the packet-declared
 source set. It must not import ambient `nuget.config` sources or persisted
 credentials when a version-5 source set exists.
+
+`WorkspacePackageSourceBinding` is the host-neutral construction boundary for
+that step. It accepts the declared source set plus explicit endpoint-bound
+Basic credentials and returns ordered `PackageSource` values together with the
+authentication-required declarations left unbound. Both CLI and Browser use
+this result. The CLI may assign provider authority to the remaining origins;
+Browser/Wasm must reject any remaining requirement before network work.
+`WorkspacePackageSourceBindingTests` gate declaration order, credential
+attachment, unbound requirements, unexpected credentials, same-origin partial
+binding, and incomplete credentials. This shared construction boundary is
+slice 1 of 2 in the CLI-and-Browser production adoption tracked by
+[#8154](https://github.com/richlander/dotnet-inspect/issues/8154).
+
+The second slice routes production Inspect Web initial-load, same-origin-link,
+and history URLs with source-bearing packets through retained complete
+restoration before the legacy format-1 decoder. It automatically activates
+anonymous-only declarations, prompts for endpoint-specific page-session
+credentials when required, admits the retained Package and Platform surfaces,
+and updates visible state and browser history only after retained publication
+is acknowledged. The original format-5 packet remains the refresh and share
+URL; it is not lowered through the format-1 encoder.
 
 For an authentication-required endpoint, one complete explicit Basic
 credential wins. If none is supplied, a host that supports noninteractive
@@ -2516,6 +2537,16 @@ quoting-free as a bare CLI argument.
 
 The browser keeps a terse `?w=` base64url JSON packet as a **projection** the
 transposition layer converts to and from one packet-local scenario composition.
+
+The CLI's managed share producers compose that packet with the website origin
+selected at build time by the `DotnetInspectWebsiteUrl` MSBuild property.
+Development builds default to `https://dotnet-inspect.ca`; production NuGet
+packaging sets the property to `https://dotnet-inspect.net`. The property is
+the origin without a trailing slash, and one generated `WorkspaceShareUrl`
+contract owns the resulting `/?w=` prefix for CLI commands and the query
+operations they consume. Browser-host URL selection is a separate host concern:
+production promotes the exact staging artifact rather than rebuilding it for a
+different origin.
 
 #### Packet format 1
 

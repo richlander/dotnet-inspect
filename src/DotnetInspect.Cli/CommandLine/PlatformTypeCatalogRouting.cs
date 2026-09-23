@@ -1,7 +1,6 @@
 using System.Collections.Immutable;
 using System.Runtime.ExceptionServices;
 using System.Runtime.InteropServices;
-using CSharpText;
 using DotnetInspect.Cli.Commands;
 using DotnetInspector.LibraryMetadata;
 using DotnetInspector.Libraries;
@@ -12,7 +11,7 @@ using DotnetInspector.PlatformHouse.Packages;
 using DotnetInspector.PlatformQueries;
 using DotnetInspector.Platforms;
 using DotnetInspector.Platforms.Installed;
-using ILInspector.Metadata;
+using DotnetInspector.Sections;
 
 namespace DotnetInspect.Cli.CommandLine;
 
@@ -62,68 +61,6 @@ internal abstract class CliPlatformTypeCatalogOutcome
         internal PlatformTypeCatalogDerivationOutcome? Derivation { get; }
         internal IReadOnlyList<PlatformHouseFailureKind> CleanupFailures
         { get; }
-    }
-}
-
-internal abstract class CliPlatformTypeRouteOutcome
-{
-    private protected CliPlatformTypeRouteOutcome()
-    {
-    }
-
-    internal sealed class Resolved : CliPlatformTypeRouteOutcome
-    {
-        internal Resolved(
-            PlatformTypeCatalogQueryOutcome.Resolved query,
-            string typeName,
-            string? memberSelector,
-            bool inputWasFullName)
-        {
-            Query = query;
-            TypeName = typeName;
-            MemberSelector = memberSelector;
-            InputWasFullName = inputWasFullName;
-        }
-
-        internal PlatformTypeCatalogQueryOutcome.Resolved Query { get; }
-        internal string TypeName { get; }
-        internal string? MemberSelector { get; }
-        internal bool InputWasFullName { get; }
-        internal string AssemblyName =>
-            Query.Candidate.ApiContent.AssemblyIdentity!.Identity.Name;
-        internal string Framework =>
-            $"runtime@{Query.Catalog.Target.Version.Value}";
-    }
-
-    internal sealed class Ambiguous : CliPlatformTypeRouteOutcome
-    {
-        internal Ambiguous(
-            PlatformTypeCatalogQueryOutcome.Ambiguous query,
-            string pattern)
-        {
-            Query = query;
-            Pattern = pattern;
-        }
-
-        internal PlatformTypeCatalogQueryOutcome.Ambiguous Query { get; }
-        internal string Pattern { get; }
-    }
-
-    internal sealed class Rejected : CliPlatformTypeRouteOutcome
-    {
-        internal Rejected(
-            PlatformTypeCatalogQueryOutcome.Rejected query) =>
-            Query = query;
-
-        internal PlatformTypeCatalogQueryOutcome.Rejected Query { get; }
-    }
-
-    internal sealed class Missing : CliPlatformTypeRouteOutcome
-    {
-        internal Missing(PlatformTypeCatalog catalog) =>
-            Catalog = catalog;
-
-        internal PlatformTypeCatalog Catalog { get; }
     }
 }
 
@@ -269,7 +206,7 @@ internal static class PlatformTypeCatalogRouting
         };
     }
 
-    internal static CliPlatformTypeRouteOutcome Resolve(
+    internal static InspectionEnvelope<PlatformTypeCatalogRouteOutcome> Resolve(
         PlatformTypeCatalog catalog,
         string target,
         CancellationToken cancellationToken)
@@ -277,24 +214,20 @@ internal static class PlatformTypeCatalogRouting
         ArgumentNullException.ThrowIfNull(catalog);
         ArgumentNullException.ThrowIfNull(target);
 
-        PlatformTypeCatalogQueryOutcome full =
-            PlatformTypeCatalogQuery.Execute(
+        InspectionEnvelope<PlatformTypeCatalogRouteOutcome> full =
+            PlatformTypeCatalogRouteInspection.Execute(
                 catalog,
-                target,
-                cancellationToken);
-        switch (full)
-        {
-            case PlatformTypeCatalogQueryOutcome.Resolved resolved:
-                return Resolved(
-                    resolved,
+                new PlatformTypeCatalogRouteRequest(
                     target,
-                    memberSelector: null);
-            case PlatformTypeCatalogQueryOutcome.Ambiguous ambiguous:
-                return new CliPlatformTypeRouteOutcome.Ambiguous(
-                    ambiguous,
-                    target);
-            case PlatformTypeCatalogQueryOutcome.Rejected rejected:
-                return new CliPlatformTypeRouteOutcome.Rejected(rejected);
+                    target,
+                    memberSelector: null),
+                cancellationToken);
+        switch (full.Content)
+        {
+            case PlatformTypeCatalogRouteOutcome.Resolved:
+            case PlatformTypeCatalogRouteOutcome.Ambiguous:
+            case PlatformTypeCatalogRouteOutcome.Rejected:
+                return full;
         }
 
         int probes = 0;
@@ -320,29 +253,24 @@ internal static class PlatformTypeCatalogRouting
             }
 
             probes++;
-            PlatformTypeCatalogQueryOutcome prefix =
-                PlatformTypeCatalogQuery.Execute(
+            InspectionEnvelope<PlatformTypeCatalogRouteOutcome> prefix =
+                PlatformTypeCatalogRouteInspection.Execute(
                     catalog,
-                    target[..index],
-                    cancellationToken);
-            switch (prefix)
-            {
-                case PlatformTypeCatalogQueryOutcome.Resolved resolved:
-                    return Resolved(
-                        resolved,
+                    new PlatformTypeCatalogRouteRequest(
+                        target,
                         target[..index],
-                        target[(index + 1)..]);
-                case PlatformTypeCatalogQueryOutcome.Ambiguous ambiguous:
-                    return new CliPlatformTypeRouteOutcome.Ambiguous(
-                        ambiguous,
-                        target[..index]);
-                case PlatformTypeCatalogQueryOutcome.Rejected rejected:
-                    return new CliPlatformTypeRouteOutcome.Rejected(
-                        rejected);
+                        target[(index + 1)..]),
+                    cancellationToken);
+            switch (prefix.Content)
+            {
+                case PlatformTypeCatalogRouteOutcome.Resolved:
+                case PlatformTypeCatalogRouteOutcome.Ambiguous:
+                case PlatformTypeCatalogRouteOutcome.Rejected:
+                    return prefix;
             }
         }
 
-        return new CliPlatformTypeRouteOutcome.Missing(catalog);
+        return full;
     }
 
     internal static string? FindActiveDotnetRoot()
@@ -374,23 +302,6 @@ internal static class PlatformTypeCatalogRouting
                 ? root.FullName
                 : null;
     }
-
-    private static CliPlatformTypeRouteOutcome.Resolved Resolved(
-        PlatformTypeCatalogQueryOutcome.Resolved query,
-        string inputTypeName,
-        string? memberSelector) =>
-        new(
-            query,
-            MetadataTypeNameFormatter.FormatGenericTypeName(
-                query.Candidate.Name.ToMetadataFullName()),
-            memberSelector,
-            query.Candidate.Name
-                .ToMetadataFullName()
-                .Replace('+', '.')
-                .Equals(
-                    FqnParser.NormalizeTypeName(inputTypeName)
-                        .Replace('+', '.'),
-                    StringComparison.OrdinalIgnoreCase));
 
     private static InstalledPlatformHouseAdapter CreateInstalledAdapter(
         string dotnetRoot)
