@@ -274,6 +274,16 @@ public partial class CommandExecutionTests
                         public static void Use()
                         {
                         }
+
+                        public static void Set(out int value)
+                        {
+                            value = 1;
+                        }
+
+                        public static void Use(int value)
+                        {
+                            _ = value;
+                        }
                     }
                 }
 
@@ -298,6 +308,18 @@ public partial class CommandExecutionTests
                         {
                             Foo.Helper.Use();
                             return new Bar.Widget[1];
+                        }
+
+                        public Bar.Widget CreateWithLambda()
+                        {
+                            System.Func<Bar.Widget> create = () =>
+                            {
+                                int local;
+                                Foo.Helper.Set(out local);
+                                Foo.Helper.Use(local);
+                                return new Bar.Widget();
+                            };
+                            return create();
                         }
                     }
                 }
@@ -332,6 +354,14 @@ public partial class CommandExecutionTests
                 StringComparison.Ordinal);
             Assert.Contains(
                 "return new global::Bar.Widget[1];",
+                output,
+                StringComparison.Ordinal);
+            Assert.Contains(
+                "global::Foo.Helper.Set(out ",
+                output,
+                StringComparison.Ordinal);
+            Assert.Contains(
+                "global::Foo.Helper.Use(",
                 output,
                 StringComparison.Ordinal);
 
