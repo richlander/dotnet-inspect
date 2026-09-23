@@ -1,49 +1,46 @@
 # Member call-graph supply-chain focus
 
-This document owns the subtractive supply-chain policy applied to
+This document owns the application of the shared
+[package supply-chain baseline](package-supply-chain-baseline.md) to
 dependency-aware member call graphs. Implementation is tracked by
-[#8334](https://github.com/richlander/dotnet-inspect/issues/8334).
+[#8334](https://github.com/richlander/dotnet-inspect/issues/8334), with the
+shared-policy transfer tracked by
+[#8368](https://github.com/richlander/dotnet-inspect/issues/8368).
 
 ## Claim and owner
 
-`DotnetInspector.Queries` owns one host-neutral policy:
+`DotnetInspector.Queries` owns one host-neutral graph composition:
 
 > Given exact Package ownership for every known graph node, classify the
 > focused root and selected baseline Packages as connectors, classify other
 > known Packages as highlighted boundaries, and preserve absent or ambiguous
 > ownership as unclassified.
 
-The policy does not change dependency traversal, Package acquisition,
+The composition does not change dependency traversal, Package acquisition,
 Platform pruning, call-graph topology, or rendering. PackageQueries composes
-the policy with the exact package-role context. Sections returns the selected
-baseline and typed graph in one inspection envelope. CLI and Browser/Wasm
-select product policy and render the same result.
+the shared baseline policy with the exact package-role context. Sections
+returns the selected baseline evidence and typed graph in one inspection
+envelope. CLI and Browser/Wasm select product policy and render the same
+result.
 
 [Package dependency call-graph operation](package-dependency-call-graph-operation.md)
 owns traversal, route realization, Package ownership, and graph execution.
 [Workspace registration and call-graph focal
 length](workspace-registration-and-call-graph-scope.md) owns inert Package
-Prefix and ecosystem registrations. This document consumes those facts
-without redefining them.
+Prefix and ecosystem registrations. The shared baseline owner consumes those
+facts and issues known-Package classification. This document consumes that
+classification without redefining it.
 
 ## Baseline orientation
 
-The baseline names what is excluded from highlighting:
-
-| Baseline | Known Package boundary behavior |
-| --- | --- |
-| `Nothing` | Highlight every known dependency Package |
-| `Self` | Keep the exact root and explicitly registered first-party Package Prefixes as connectors |
-| `SelfAndRegisteredEcosystems` | Also keep Packages contributed by registered ecosystems as connectors |
-
-The exact focused root is always a connector because it is the graph seed, not
-an incremental dependency. `Nothing` therefore means no dependency Package is
-excluded.
+The shared baseline owner defines `Nothing`, `Self`, and
+`SelfAndRegisteredEcosystems`, including exact root and registration membership.
+This graph maps a known `Baseline` Package to a connector and a known
+`Exposure` Package to a highlighted boundary.
 
 Traversal remains inclusive. It may acquire and analyze Packages that the
-baseline later classifies as connectors. The baseline never authorizes a
-source, changes a traversal target, reduces an acquisition budget, or prevents
-unknown boundaries from remaining visible.
+baseline later classifies as connectors. Shared baseline classification never
+prevents unknown boundaries from remaining visible.
 
 ## Identity and membership
 
@@ -56,21 +53,8 @@ before route execution. Baseline classification and detached evidence consume
 that revision even if the live Workspace registration set is replaced later;
 they never join graph ownership to an ambient latest revision.
 
-After ownership is known:
-
-- top-level `WorkspaceRegistration.PackagePrefix` values define explicit
-  first-party scope;
-- registered ecosystem core Packages, Package Prefix populations, and exact
-  Package-origin Library populations define registered-ecosystem Package
-  scope;
-- matching is case-insensitive over canonical Package IDs through the
-  owner-issued Package Prefix contract; and
-- namespaces, assembly names, graph labels, and inferred company prefixes do
-  not establish baseline membership.
-
-The completed document detaches the selected baseline, first-party prefixes,
-and registered ecosystem identities so hosts can explain the result without
-retaining a live Workspace.
+The completed document carries the shared detached baseline evidence so hosts
+can explain the result without retaining a live Workspace.
 
 ## Platform boundary
 
@@ -79,11 +63,11 @@ dependency delegated to an exact Platform target does not become a Package
 participant or a highlighted Package boundary. The detached Platform route
 remains evidence for that decision.
 
-This policy does not infer that an unresolved graph node belongs to Platform
-from an assembly name, namespace, or pruned Package ID. A node without exact
-Package ownership remains `unclassified-boundary`. A future exact Platform
-participant composition can classify such nodes without changing this
-Package-baseline contract.
+This graph composition does not infer that an unresolved graph node belongs to
+Platform from an assembly name, namespace, or pruned Package ID. A node without
+exact Package ownership remains `unclassified-boundary`. A future exact
+Platform participant composition can classify such nodes without changing the
+shared Package-baseline contract.
 
 Platform-baseline membership is product policy, not a security certification
 or vulnerability verdict.
@@ -144,7 +128,7 @@ This design does not:
 - infer first-party ownership;
 - treat every `Microsoft.*` Package as Platform;
 - classify unresolved Platform graph nodes from names;
-- change Package ownership;
+- change Package ownership or shared baseline membership;
 - reduce dependency traversal or acquisition to highlighted Packages;
 - make reusable Workspace construction implicitly curated; or
 - combine supply-chain focus with `Just My Code`.
