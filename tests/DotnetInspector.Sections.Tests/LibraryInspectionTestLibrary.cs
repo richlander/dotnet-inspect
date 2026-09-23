@@ -124,6 +124,15 @@ internal sealed class LibraryInspectionTestLibrary : IAsyncDisposable
                 "System.Text.Json.dll"),
             TestContext.Current.CancellationToken);
 
+    public static async Task<byte[]> RealNetstandardAsync() =>
+        await File.ReadAllBytesAsync(
+            Path.Combine(
+                AppContext.BaseDirectory,
+                "RealAssets",
+                "LibraryOverview",
+                "netstandard.dll"),
+            TestContext.Current.CancellationToken);
+
     public static ManagedMetadataIdentity.Assembly Identity(
         byte[] content)
     {
@@ -147,6 +156,7 @@ internal sealed class LibraryInspectionTestLibrary : IAsyncDisposable
         bool includeAssembly = true,
         bool emptyModuleVersionId = false,
         bool malformedPublicType = false,
+        bool includeModuleExport = false,
         string metadataVersion = "v4.0.30319")
     {
         var metadata = new MetadataBuilder();
@@ -185,6 +195,19 @@ internal sealed class LibraryInspectionTestLibrary : IAsyncDisposable
                 MetadataTokens.TypeReferenceHandle(1),
                 MetadataTokens.FieldDefinitionHandle(1),
                 MetadataTokens.MethodDefinitionHandle(1));
+        }
+        if (includeModuleExport)
+        {
+            AssemblyFileHandle file = metadata.AddAssemblyFile(
+                metadata.GetOrAddString("Probe.netmodule"),
+                default,
+                containsMetadata: true);
+            metadata.AddExportedType(
+                TypeAttributes.Public,
+                metadata.GetOrAddString("Probe"),
+                metadata.GetOrAddString("Exported"),
+                file,
+                typeDefinitionId: 1);
         }
 
         var peBuilder = new ManagedPEBuilder(

@@ -322,11 +322,29 @@ public partial class CommandExecutionTests
             document.GetProperty("assembly")
                 .GetProperty("name")
                 .GetString());
-        Assert.True(
+        JsonElement count =
             document.GetProperty("types")
-                .GetProperty("count")
-                .GetProperty("total")
-                .GetInt32() > 0);
+                .GetProperty("count");
+        int definitions =
+            count.GetProperty("definitions").GetInt32();
+        int forwarders =
+            count.GetProperty("forwarders").GetInt32();
+        Assert.True(definitions > 0);
+        Assert.Equal(
+            count.GetProperty("total").GetInt32(),
+            definitions + forwarders);
+        Assert.Equal(
+            definitions,
+            count.GetProperty("classes").GetInt32()
+                + count.GetProperty("structs").GetInt32()
+                + count.GetProperty("interfaces").GetInt32()
+                + count.GetProperty("enums").GetInt32()
+                + count.GetProperty("delegates").GetInt32());
+        JsonElement work = document.GetProperty("work");
+        Assert.True(work.GetProperty("assemblyBytes").GetInt32() > 0);
+        Assert.True(work.GetProperty("metadataRows").GetInt64() > 0);
+        Assert.True(
+            work.GetProperty("retainedDeclarations").GetInt32() > 0);
         Assert.Equal(
             "nonProjectable",
             root.GetProperty("share")

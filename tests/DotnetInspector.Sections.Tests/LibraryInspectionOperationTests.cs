@@ -37,6 +37,8 @@ public sealed class LibraryInspectionOperationTests
         Assert.Equal(new Version(10, 0, 0, 0), document.Assembly.Version);
         Assert.NotEqual(Guid.Empty, document.ModuleVersionId);
         Assert.Equal(content.Length, document.Work.AssemblyBytes);
+        Assert.True(document.Work.MetadataRows > 0);
+        Assert.True(document.Work.RetainedDeclarations > 0);
         Assert.Equal(
             document.ModuleVersionId,
             document.Types.Binding.ModuleVersionId);
@@ -47,8 +49,12 @@ public sealed class LibraryInspectionOperationTests
             Assert.IsType<LibraryTypePopulationCountOutcome.Counted>(
                     document.Types.Count);
         Assert.True(count.Total > 0);
+        Assert.True(count.Forwarders > 0);
         Assert.Equal(
             count.Total,
+            count.Definitions + count.Forwarders);
+        Assert.Equal(
+            count.Definitions,
             count.Classes
                 + count.Structs
                 + count.Interfaces
@@ -67,7 +73,7 @@ public sealed class LibraryInspectionOperationTests
 
     [Fact]
     public async Task
-        TypeForwarderFallbackBoundRetainsDocumentAndIncompleteCount()
+        DefinitionBoundRetainsDocumentAndIncompleteCount()
     {
         byte[] content =
             await LibraryInspectionTestLibrary.RealSystemTextJsonAsync();
@@ -87,13 +93,166 @@ public sealed class LibraryInspectionOperationTests
             Execute(library, bounds);
 
         Assert.Equal(
-            ApiSurfaceExtractionBound.Types,
+            LibraryTypePopulationCountBound.Definitions,
             Assert.IsType<
                     LibraryTypePopulationCountOutcome.Incomplete>(
                     Document(envelope).Types.Count)
                 .Bound);
         Assert.Equal(
-            "library-inspection.types.count.incomplete.extraction-bound",
+            1,
+            Assert.IsType<
+                    LibraryTypePopulationCountOutcome.Incomplete>(
+                    Document(envelope).Types.Count)
+                .Limit);
+        Assert.True(
+            Assert.IsType<
+                    LibraryTypePopulationCountOutcome.Incomplete>(
+                    Document(envelope).Types.Count)
+                .Measured > 1);
+        Assert.Equal(
+            "library-inspection.types.count.incomplete.definitions",
+            Assert.Single(envelope.Diagnostics).Code);
+        await library.RetireAsync();
+    }
+
+    [Fact]
+    public async Task
+        RealFacade_CountsDefinitionsAndForwardersWithoutTargetResolution()
+    {
+        byte[] content =
+            await LibraryInspectionTestLibrary.RealNetstandardAsync();
+        await using LibraryInspectionTestLibrary library =
+            await LibraryInspectionTestLibrary.CreateAsync(
+                content,
+                LibraryInspectionTestLibrary.Identity(content));
+
+        InspectionEnvelope<LibraryInspectionOutcome> envelope =
+            Execute(library);
+
+        LibraryTypePopulationCountOutcome.Counted count =
+            Assert.IsType<LibraryTypePopulationCountOutcome.Counted>(
+                Document(envelope).Types.Count);
+        Assert.True(count.Forwarders > 0);
+        Assert.Equal(
+            count.Total,
+            count.Definitions + count.Forwarders);
+        Assert.Equal(
+            count.Definitions,
+            count.Classes
+                + count.Structs
+                + count.Interfaces
+                + count.Enums
+                + count.Delegates);
+        Assert.Empty(envelope.Diagnostics);
+        await library.RetireAsync();
+    }
+
+    [Fact]
+    public async Task ForwarderBoundRetainsDocumentAndIncompleteCount()
+    {
+        byte[] content =
+            await LibraryInspectionTestLibrary.RealNetstandardAsync();
+        await using LibraryInspectionTestLibrary library =
+            await LibraryInspectionTestLibrary.CreateAsync(
+                content,
+                LibraryInspectionTestLibrary.Identity(content));
+        var bounds = new ApiSurfaceExtractionBounds(
+            maxTypes: 5_000,
+            maxMembers: 100_000,
+            maxInspectionFailures: 1_000,
+            maxTypeForwarders: 1,
+            maxMetadataRows: 1_000_000,
+            maxRetainedTextCharacters: 20_000_000);
+
+        InspectionEnvelope<LibraryInspectionOutcome> envelope =
+            Execute(library, bounds);
+
+        LibraryTypePopulationCountOutcome.Incomplete incomplete =
+            Assert.IsType<LibraryTypePopulationCountOutcome.Incomplete>(
+                Document(envelope).Types.Count);
+        Assert.Equal(
+            LibraryTypePopulationCountBound.Forwarders,
+            incomplete.Bound);
+        Assert.Equal(1, incomplete.Limit);
+        Assert.True(incomplete.Measured > incomplete.Limit);
+        Assert.Equal(
+            "library-inspection.types.count.incomplete.forwarders",
+            Assert.Single(envelope.Diagnostics).Code);
+        await library.RetireAsync();
+    }
+
+    [Fact]
+    public async Task MetadataRowBoundRetainsDocumentAndIncompleteCount()
+    {
+        byte[] content =
+            await LibraryInspectionTestLibrary.RealSystemTextJsonAsync();
+        await using LibraryInspectionTestLibrary library =
+            await LibraryInspectionTestLibrary.CreateAsync(
+                content,
+                LibraryInspectionTestLibrary.Identity(content));
+        var bounds = new ApiSurfaceExtractionBounds(
+            maxTypes: 5_000,
+            maxMembers: 100_000,
+            maxInspectionFailures: 1_000,
+            maxTypeForwarders: 10_000,
+            maxMetadataRows: 1,
+            maxRetainedTextCharacters: 20_000_000);
+
+        InspectionEnvelope<LibraryInspectionOutcome> envelope =
+            Execute(library, bounds);
+
+        LibraryDocument document = Document(envelope);
+        LibraryTypePopulationCountOutcome.Incomplete incomplete =
+            Assert.IsType<LibraryTypePopulationCountOutcome.Incomplete>(
+                document.Types.Count);
+        Assert.Equal(
+            LibraryTypePopulationCountBound.MetadataRows,
+            incomplete.Bound);
+        Assert.Equal(1, incomplete.Limit);
+        Assert.True(incomplete.Measured > incomplete.Limit);
+        Assert.Equal(incomplete.Measured, document.Work.MetadataRows);
+        Assert.Equal(0, document.Work.RetainedDeclarations);
+        Assert.Equal(
+            "library-inspection.types.count.incomplete.metadata-rows",
+            Assert.Single(envelope.Diagnostics).Code);
+        await library.RetireAsync();
+    }
+
+    [Fact]
+    public async Task
+        RetainedDeclarationBoundRetainsDocumentAndIncompleteCount()
+    {
+        byte[] content =
+            await LibraryInspectionTestLibrary.RealSystemTextJsonAsync();
+        await using LibraryInspectionTestLibrary library =
+            await LibraryInspectionTestLibrary.CreateAsync(
+                content,
+                LibraryInspectionTestLibrary.Identity(content));
+        var bounds = new ApiSurfaceExtractionBounds(
+            maxTypes: 0,
+            maxMembers: 100_000,
+            maxInspectionFailures: 1_000,
+            maxTypeForwarders: 0,
+            maxMetadataRows: 1_000_000,
+            maxRetainedTextCharacters: 20_000_000);
+
+        InspectionEnvelope<LibraryInspectionOutcome> envelope =
+            Execute(library, bounds);
+
+        LibraryDocument document = Document(envelope);
+        LibraryTypePopulationCountOutcome.Incomplete incomplete =
+            Assert.IsType<LibraryTypePopulationCountOutcome.Incomplete>(
+                document.Types.Count);
+        Assert.Equal(
+            LibraryTypePopulationCountBound.RetainedDeclarations,
+            incomplete.Bound);
+        Assert.Equal(0, incomplete.Limit);
+        Assert.True(incomplete.Measured > incomplete.Limit);
+        Assert.Equal(
+            incomplete.Measured,
+            document.Work.RetainedDeclarations);
+        Assert.Equal(
+            "library-inspection.types.count.incomplete.retained-declarations",
             Assert.Single(envelope.Diagnostics).Code);
         await library.RetireAsync();
     }
@@ -145,7 +304,7 @@ public sealed class LibraryInspectionOperationTests
 
     [Fact]
     public async Task
-        MalformedTypePopulationRetainsLibraryDocumentAndTypedCountFailure()
+        MalformedTypePopulationReturnsTypedTopLevelFailure()
     {
         byte[] content =
             LibraryInspectionTestLibrary.BuildMetadataImage(
@@ -158,17 +317,41 @@ public sealed class LibraryInspectionOperationTests
         InspectionEnvelope<LibraryInspectionOutcome> envelope =
             Execute(library);
 
-        LibraryDocument document = Document(envelope);
-        Assert.Equal("Probe", document.Assembly.Name.ToString());
-        Assert.NotEqual(Guid.Empty, document.ModuleVersionId);
         Assert.Equal(
-            LibraryTypePopulationCountUnavailableReason.MalformedTypeRow,
-            Assert.IsType<
-                    LibraryTypePopulationCountOutcome.Unavailable>(
-                    document.Types.Count)
+            LibraryInspectionFailure.MalformedMetadata,
+            Assert.IsType<LibraryInspectionOutcome.Failed>(
+                    envelope.Content)
                 .Reason);
         Assert.Equal(
-            "library-inspection.types.count.unavailable.malformed-type-row",
+            "library-inspection.failed.malformed-metadata",
+            Assert.Single(envelope.Diagnostics).Code);
+        await library.RetireAsync();
+    }
+
+    [Fact]
+    public async Task
+        PublicModuleExportRetainsDocumentAndTypedCountUnavailability()
+    {
+        byte[] content =
+            LibraryInspectionTestLibrary.BuildMetadataImage(
+                includeModuleExport: true);
+        await using LibraryInspectionTestLibrary library =
+            await LibraryInspectionTestLibrary.CreateAsync(
+                content,
+                LibraryInspectionTestLibrary.ProbeIdentity());
+
+        InspectionEnvelope<LibraryInspectionOutcome> envelope =
+            Execute(library);
+
+        Assert.Equal(
+            LibraryTypePopulationCountUnavailableReason
+                .UnsupportedModuleExport,
+            Assert.IsType<
+                    LibraryTypePopulationCountOutcome.Unavailable>(
+                    Document(envelope).Types.Count)
+                .Reason);
+        Assert.Equal(
+            "library-inspection.types.count.unavailable.unsupported-module-export",
             Assert.Single(envelope.Diagnostics).Code);
         await library.RetireAsync();
     }
@@ -318,12 +501,16 @@ public sealed class LibraryInspectionOperationTests
             new(
                 new(moduleVersionId, LibraryTypeAccessibility.Public),
                 new LibraryTypePopulationCountOutcome.Counted(
+                    forwarders: 6,
                     classes: 1,
                     structs: 2,
                     interfaces: 3,
                     enums: 4,
                     delegates: 5)),
-            new(1234),
+            new(
+                AssemblyBytes: 1234,
+                MetadataRows: 567,
+                RetainedDeclarations: 21),
             s_bounds);
         InspectionEnvelope<LibraryInspectionOutcome>[] envelopes =
         [
@@ -338,7 +525,22 @@ public sealed class LibraryInspectionOperationTests
                                 new LibraryTypePopulationCountOutcome
                                     .Unavailable(
                                         LibraryTypePopulationCountUnavailableReason
-                                            .TypeForwardersRequireResolution),
+                                            .UnsupportedModuleExport),
+                        },
+                    })),
+            Envelope(
+                new LibraryInspectionOutcome.Available(
+                    document with
+                    {
+                        Types = document.Types with
+                        {
+                            Count =
+                                new LibraryTypePopulationCountOutcome
+                                    .Incomplete(
+                                        LibraryTypePopulationCountBound
+                                            .MetadataRows,
+                                        Limit: 1,
+                                        Measured: 2),
                         },
                     })),
             Envelope(

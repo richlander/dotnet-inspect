@@ -27,16 +27,14 @@ public static class LibraryInspectionOperation
         {
             ArgumentNullException.ThrowIfNull(request);
             cancellationToken.ThrowIfCancellationRequested();
-            LibraryApiTypeInventoryCountInspectionOutcome outcome =
-                LibraryApiTypeInventoryCountInspection.Execute(
-                    new(request.Library),
+            LibraryTypeDeclarationInventoryInspectionOutcome outcome =
+                LibraryTypeDeclarationInventoryInspection.Execute(
+                    new(
+                        request.Library,
+                        InventoryBounds(request.Plan.Bounds)),
                     lease,
                     cancellationToken);
-            return Project(
-                outcome,
-                request,
-                lease,
-                cancellationToken);
+            return Project(outcome, request, cancellationToken);
         }
         finally
         {
@@ -45,34 +43,111 @@ public static class LibraryInspectionOperation
     }
 
     private static InspectionEnvelope<LibraryInspectionOutcome> Project(
-        LibraryApiTypeInventoryCountInspectionOutcome outcome,
+        LibraryTypeDeclarationInventoryInspectionOutcome outcome,
         LibraryInspectionRequest request,
-        LibraryOperationLease lease,
         CancellationToken cancellationToken) =>
         outcome switch
         {
-            LibraryApiTypeInventoryCountInspectionOutcome.Completed completed =>
+            LibraryTypeDeclarationInventoryInspectionOutcome.Completed
+                completed =>
                 Project(
                     completed.Correspondence,
                     request,
-                    lease,
                     cancellationToken),
-            LibraryApiTypeInventoryCountInspectionOutcome.Rejected rejected =>
+            LibraryTypeDeclarationInventoryInspectionOutcome.Incomplete
+                incomplete =>
+                Project(incomplete, request),
+            LibraryTypeDeclarationInventoryInspectionOutcome.Rejected
+                rejected =>
                 Rejected(rejected.Kind),
-            LibraryApiTypeInventoryCountInspectionOutcome.Failed failed =>
+            LibraryTypeDeclarationInventoryInspectionOutcome.Failed failed =>
                 Failed(failed.Kind),
             _ => throw new InvalidOperationException(
-                "Unknown Library Type Count inspection outcome."),
+                "Unknown Library declaration inventory outcome."),
         };
 
     private static InspectionEnvelope<LibraryInspectionOutcome> Project(
-        LibraryApiTypeInventoryCountCorrespondence correspondence,
+        LibraryTypeDeclarationInventoryCorrespondence correspondence,
         LibraryInspectionRequest request,
-        LibraryOperationLease lease,
         CancellationToken cancellationToken)
     {
-        AssemblyReferenceIdentity identity =
-            correspondence.AssemblyIdentity;
+        (
+            LibraryTypePopulationCountOutcome count,
+            ImmutableArray<InspectionDiagnostic> diagnostics) =
+            Count(
+                correspondence.Inventory,
+                request.Plan.Bounds,
+                cancellationToken);
+        return Available(
+            correspondence.Subject,
+            request,
+            count,
+            correspondence.MetadataRows,
+            correspondence.DeclarationCount,
+            diagnostics);
+    }
+
+    private static InspectionEnvelope<LibraryInspectionOutcome> Project(
+        LibraryTypeDeclarationInventoryInspectionOutcome.Incomplete incomplete,
+        LibraryInspectionRequest request)
+    {
+        LibraryTypeDeclarationInventorySubject subject =
+            incomplete.Subject
+            ?? throw new InvalidOperationException(
+                "Library inspection does not impose an assembly-byte bound.");
+        (
+            LibraryTypePopulationCountBound bound,
+            long limit,
+            long measured) = incomplete.Bound switch
+        {
+            LibraryTypeDeclarationInventoryInspectionBound.MetadataRows =>
+                (
+                    LibraryTypePopulationCountBound.MetadataRows,
+                    request.Plan.Bounds.MaxMetadataRows,
+                    incomplete.MeasuredMetadataRows
+                        ?? throw new InvalidOperationException(
+                            "Metadata-row exhaustion omitted its measurement.")),
+            LibraryTypeDeclarationInventoryInspectionBound
+                    .RetainedDeclarations =>
+                (
+                    LibraryTypePopulationCountBound.RetainedDeclarations,
+                    MaximumRetainedDeclarations(request.Plan.Bounds),
+                    incomplete.MeasuredDeclarations
+                        ?? throw new InvalidOperationException(
+                            "Declaration retention exhaustion omitted its measurement.")),
+            LibraryTypeDeclarationInventoryInspectionBound.AssemblyBytes =>
+                throw new InvalidOperationException(
+                    "Library inspection does not impose an assembly-byte bound."),
+            _ => throw new InvalidOperationException(
+                "Unknown Library declaration inventory bound."),
+        };
+        var count = new LibraryTypePopulationCountOutcome.Incomplete(
+            bound,
+            limit,
+            measured);
+        return Available(
+            subject,
+            request,
+            count,
+            incomplete.MeasuredMetadataRows ?? 0,
+            incomplete.MeasuredDeclarations ?? 0,
+            [
+                new(
+                    Code(bound),
+                    InspectionDiagnosticSeverity.Warning,
+                    Message(bound)),
+            ]);
+    }
+
+    private static InspectionEnvelope<LibraryInspectionOutcome> Available(
+        LibraryTypeDeclarationInventorySubject subject,
+        LibraryInspectionRequest request,
+        LibraryTypePopulationCountOutcome count,
+        long metadataRows,
+        long retainedDeclarations,
+        ImmutableArray<InspectionDiagnostic> diagnostics)
+    {
+        AssemblyReferenceIdentity identity = subject.AssemblyIdentity;
         var portableIdentity = new LibraryAssemblyIdentity(
             new InertString(TextPolicy.Field, identity.Name),
             identity.Version
@@ -87,56 +162,16 @@ public static class LibraryInspectionOperation
                     TextPolicy.Field,
                     identity.PublicKeyToken));
         var binding = new LibraryTypePopulationBinding(
-            correspondence.ModuleVersionId,
+            subject.ModuleVersionId,
             LibraryTypeAccessibility.Public);
-
-        LibraryTypePopulationCountOutcome count;
-        ImmutableArray<InspectionDiagnostic> diagnostics;
-        if (correspondence.Count
-            is ApiTypeInventoryCountResult.Counted counted)
-        {
-            count = new LibraryTypePopulationCountOutcome.Counted(
-                counted.Count.Classes,
-                counted.Count.Structs,
-                counted.Count.Interfaces,
-                counted.Count.Enums,
-                counted.Count.Delegates);
-            diagnostics = [];
-        }
-        else
-        {
-            var declined =
-                (ApiTypeInventoryCountResult.Declined)correspondence.Count;
-            if (declined.Reason
-                == ApiTypeInventoryCountDeclineReason.TypeForwarders)
-            {
-                (count, diagnostics) = Fallback(
-                    request,
-                    lease,
-                    correspondence.ModuleVersionId,
-                    cancellationToken);
-            }
-            else
-            {
-                LibraryTypePopulationCountUnavailableReason reason =
-                    Map(declined.Reason);
-                count =
-                    new LibraryTypePopulationCountOutcome.Unavailable(reason);
-                diagnostics =
-                [
-                    new(
-                        Code(reason),
-                        InspectionDiagnosticSeverity.Error,
-                        Message(reason)),
-                ];
-            }
-        }
-
         var document = new LibraryDocument(
             portableIdentity,
-            correspondence.ModuleVersionId,
+            subject.ModuleVersionId,
             new(binding, count),
-            new(correspondence.AssemblyBytes),
+            new(
+                subject.AssemblyBytes,
+                metadataRows,
+                retainedDeclarations),
             request.Plan.Bounds);
         return new(
             new LibraryInspectionOutcome.Available(document),
@@ -149,140 +184,149 @@ public static class LibraryInspectionOperation
     private static (
         LibraryTypePopulationCountOutcome Count,
         ImmutableArray<InspectionDiagnostic> Diagnostics)
-        Fallback(
-            LibraryInspectionRequest request,
-            LibraryOperationLease lease,
-            Guid moduleVersionId,
+        Count(
+            AssemblyTypeDeclarationInventory inventory,
+            ApiSurfaceExtractionBounds bounds,
             CancellationToken cancellationToken)
     {
-        LibraryApiSurfaceInspectionOutcome fallback =
-            LibraryApiSurfaceInspection.Execute(
-                new(
-                    request.Library,
-                    ApiSurfaceExtractionScope.Public,
-                    request.Plan.Bounds,
-                    typesOnly: true),
-                lease,
-                cancellationToken);
-        return fallback switch
-        {
-            LibraryApiSurfaceInspectionOutcome.Completed completed =>
-                Count(completed.Correspondence, moduleVersionId),
-            LibraryApiSurfaceInspectionOutcome.Incomplete incomplete =>
-                (
-                    new LibraryTypePopulationCountOutcome.Incomplete(
-                        incomplete.Bound),
-                    [
-                        new(
-                            "library-inspection.types.count.incomplete.extraction-bound",
-                            InspectionDiagnosticSeverity.Warning,
-                            "The public Type Count exceeded its extraction bounds."),
-                    ]),
-            LibraryApiSurfaceInspectionOutcome.Rejected rejected =>
-                throw new InvalidOperationException(
-                    $"A compact-count fallback rejected the already-attested Library ({rejected.Kind})."),
-            LibraryApiSurfaceInspectionOutcome.Failed failed =>
-                throw new InvalidOperationException(
-                    $"A compact-count fallback failed for the already-attested Library ({failed.Kind})."),
-            _ => throw new InvalidOperationException(
-                "Unknown Library API-surface fallback outcome."),
-        };
-    }
-
-    private static (
-        LibraryTypePopulationCountOutcome Count,
-        ImmutableArray<InspectionDiagnostic> Diagnostics)
-        Count(
-            LibraryApiSurfaceCorrespondence correspondence,
-            Guid moduleVersionId)
-    {
-        if (correspondence.ModuleVersionId != moduleVersionId)
-        {
-            throw new InvalidOperationException(
-                "Compact and fallback Library Type Counts observed different MVIDs.");
-        }
-
-        ApiSurface surface = correspondence.Surface;
-        if (surface.InspectionFailures.Count > 0)
-        {
-            return (
-                new LibraryTypePopulationCountOutcome.Unavailable(
-                    LibraryTypePopulationCountUnavailableReason
-                        .TypeForwardersRequireResolution),
-                [
-                    new(
-                        "library-inspection.types.count.unavailable.type-forwarders-require-resolution",
-                        InspectionDiagnosticSeverity.Error,
-                        "The public Type Count could not retain exact Type-forwarder evidence."),
-                ]);
-        }
-
+        int forwarders = 0;
         int classes = 0;
         int structs = 0;
         int interfaces = 0;
         int enums = 0;
         int delegates = 0;
-        foreach (ApiType type in surface.Types)
+        foreach (
+            AssemblyTypeDeclaration declaration
+            in inventory.GetDeclarations())
         {
-            switch (type.Kind)
+            cancellationToken.ThrowIfCancellationRequested();
+            switch (declaration.Kind)
             {
-                case "class":
-                    classes++;
+                case AssemblyTypeDeclarationKind.Definition:
+                    switch (
+                        declaration.DefinitionKind
+                        ?? throw new InvalidOperationException(
+                            "A Type definition declaration omitted its kind."))
+                    {
+                        case AssemblyTypeDefinitionKind.Class:
+                            classes++;
+                            break;
+                        case AssemblyTypeDefinitionKind.ValueType:
+                            structs++;
+                            break;
+                        case AssemblyTypeDefinitionKind.Interface:
+                            interfaces++;
+                            break;
+                        case AssemblyTypeDefinitionKind.Enum:
+                            enums++;
+                            break;
+                        case AssemblyTypeDefinitionKind.Delegate:
+                            delegates++;
+                            break;
+                        default:
+                            throw new InvalidOperationException(
+                                "Unknown Type definition kind.");
+                    }
                     break;
-                case "struct":
-                    structs++;
+                case AssemblyTypeDeclarationKind.Forwarder:
+                    forwarders++;
                     break;
-                case "interface":
-                    interfaces++;
-                    break;
-                case "enum":
-                    enums++;
-                    break;
-                case "delegate":
-                    delegates++;
-                    break;
+                case AssemblyTypeDeclarationKind.ModuleExport:
+                    {
+                        const LibraryTypePopulationCountUnavailableReason
+                            reason =
+                                LibraryTypePopulationCountUnavailableReason
+                                    .UnsupportedModuleExport;
+                        return (
+                            new LibraryTypePopulationCountOutcome.Unavailable(
+                                reason),
+                            [
+                                new(
+                                    Code(reason),
+                                    InspectionDiagnosticSeverity.Error,
+                                    Message(reason)),
+                            ]);
+                    }
                 default:
                     throw new InvalidOperationException(
-                        $"Unknown API Type kind '{type.Kind}'.");
+                        "Unknown Type declaration kind.");
             }
         }
 
-        var count = new ApiTypeInventoryCount(
-            moduleVersionId,
-            classes,
-            structs,
-            interfaces,
-            enums,
-            delegates);
-        if (count.Total != surface.PublicTypeCount)
+        int definitions =
+            checked(classes + structs + interfaces + enums + delegates);
+        if (definitions > bounds.MaxTypes)
         {
-            throw new InvalidOperationException(
-                "Fallback public Type-kind Counts do not equal the API-surface Type Count.");
+            return Incomplete(
+                LibraryTypePopulationCountBound.Definitions,
+                bounds.MaxTypes,
+                definitions);
+        }
+        if (forwarders > bounds.MaxTypeForwarders)
+        {
+            return Incomplete(
+                LibraryTypePopulationCountBound.Forwarders,
+                bounds.MaxTypeForwarders,
+                forwarders);
         }
 
         return (
             new LibraryTypePopulationCountOutcome.Counted(
-                count.Classes,
-                count.Structs,
-                count.Interfaces,
-                count.Enums,
-                count.Delegates),
+                forwarders,
+                classes,
+                structs,
+                interfaces,
+                enums,
+                delegates),
             []);
     }
 
+    private static (
+        LibraryTypePopulationCountOutcome Count,
+        ImmutableArray<InspectionDiagnostic> Diagnostics)
+        Incomplete(
+            LibraryTypePopulationCountBound bound,
+            long limit,
+            long measured) =>
+        (
+            new LibraryTypePopulationCountOutcome.Incomplete(
+                bound,
+                limit,
+                measured),
+            [
+                new(
+                    Code(bound),
+                    InspectionDiagnosticSeverity.Warning,
+                    Message(bound)),
+            ]);
+
+    private static LibraryTypeDeclarationInventoryInspectionBounds
+        InventoryBounds(ApiSurfaceExtractionBounds bounds) =>
+        new(
+            maximumAssemblyBytes: int.MaxValue,
+            maximumRetainedDeclarations:
+                MaximumRetainedDeclarations(bounds),
+            maximumMetadataRows: bounds.MaxMetadataRows);
+
+    private static int MaximumRetainedDeclarations(
+        ApiSurfaceExtractionBounds bounds) =>
+        (int)Math.Min(
+            (long)bounds.MaxTypes + bounds.MaxTypeForwarders,
+            int.MaxValue);
+
     private static InspectionEnvelope<LibraryInspectionOutcome> Rejected(
-        LibraryApiTypeInventoryCountInspectionRejectionKind rejection)
+        LibraryTypeDeclarationInventoryInspectionRejectionKind rejection)
     {
         LibraryInspectionRejection reason = rejection switch
         {
-            LibraryApiTypeInventoryCountInspectionRejectionKind
+            LibraryTypeDeclarationInventoryInspectionRejectionKind
                     .LeaseReferenceMismatch =>
                 LibraryInspectionRejection.LeaseReferenceMismatch,
-            LibraryApiTypeInventoryCountInspectionRejectionKind
+            LibraryTypeDeclarationInventoryInspectionRejectionKind
                     .AssemblyIdentityMismatch =>
                 LibraryInspectionRejection.AssemblyIdentityMismatch,
             _ => throw new InvalidOperationException(
-                "Unknown Library Type Count rejection."),
+                "Unknown Library declaration inventory rejection."),
         };
         string message = reason switch
         {
@@ -307,26 +351,27 @@ public static class LibraryInspectionOperation
     }
 
     private static InspectionEnvelope<LibraryInspectionOutcome> Failed(
-        LibraryApiTypeInventoryCountInspectionFailureKind failure)
+        LibraryTypeDeclarationInventoryInspectionFailureKind failure)
     {
         LibraryInspectionFailure reason = failure switch
         {
-            LibraryApiTypeInventoryCountInspectionFailureKind
+            LibraryTypeDeclarationInventoryInspectionFailureKind
                     .NotManagedAssembly =>
                 LibraryInspectionFailure.NotManagedAssembly,
-            LibraryApiTypeInventoryCountInspectionFailureKind.ManagedModule =>
+            LibraryTypeDeclarationInventoryInspectionFailureKind
+                    .ManagedModule =>
                 LibraryInspectionFailure.ManagedModule,
-            LibraryApiTypeInventoryCountInspectionFailureKind
+            LibraryTypeDeclarationInventoryInspectionFailureKind
                     .UnsupportedWindowsMetadata =>
                 LibraryInspectionFailure.UnsupportedWindowsMetadata,
-            LibraryApiTypeInventoryCountInspectionFailureKind
+            LibraryTypeDeclarationInventoryInspectionFailureKind
                     .MalformedMetadata =>
                 LibraryInspectionFailure.MalformedMetadata,
-            LibraryApiTypeInventoryCountInspectionFailureKind
+            LibraryTypeDeclarationInventoryInspectionFailureKind
                     .EmptyModuleVersionId =>
                 LibraryInspectionFailure.EmptyModuleVersionId,
             _ => throw new InvalidOperationException(
-                "Unknown Library Type Count failure."),
+                "Unknown Library declaration inventory failure."),
         };
         string message = reason switch
         {
@@ -356,45 +401,56 @@ public static class LibraryInspectionOperation
             ]);
     }
 
-    private static LibraryTypePopulationCountUnavailableReason Map(
-        ApiTypeInventoryCountDeclineReason reason) =>
-        reason switch
-        {
-            ApiTypeInventoryCountDeclineReason.MissingModuleVersionId =>
-                throw new InvalidOperationException(
-                    "Compact Type Count declined after a non-empty MVID was established."),
-            ApiTypeInventoryCountDeclineReason.TypeForwarders =>
-                LibraryTypePopulationCountUnavailableReason
-                    .TypeForwardersRequireResolution,
-            ApiTypeInventoryCountDeclineReason.MalformedExportedType =>
-                LibraryTypePopulationCountUnavailableReason
-                    .MalformedExportedType,
-            ApiTypeInventoryCountDeclineReason.MalformedTypeIdentity =>
-                LibraryTypePopulationCountUnavailableReason
-                    .MalformedTypeIdentity,
-            ApiTypeInventoryCountDeclineReason.MalformedTypeRow =>
-                LibraryTypePopulationCountUnavailableReason.MalformedTypeRow,
-            _ => throw new InvalidOperationException(
-                "Unknown compact Type Count decline."),
-        };
-
     private static string Code(
         LibraryTypePopulationCountUnavailableReason reason) =>
         reason switch
         {
             LibraryTypePopulationCountUnavailableReason
-                    .TypeForwardersRequireResolution =>
-                "library-inspection.types.count.unavailable.type-forwarders-require-resolution",
-            LibraryTypePopulationCountUnavailableReason
-                    .MalformedExportedType =>
-                "library-inspection.types.count.unavailable.malformed-exported-type",
-            LibraryTypePopulationCountUnavailableReason
-                    .MalformedTypeIdentity =>
-                "library-inspection.types.count.unavailable.malformed-type-identity",
-            LibraryTypePopulationCountUnavailableReason.MalformedTypeRow =>
-                "library-inspection.types.count.unavailable.malformed-type-row",
+                    .UnsupportedModuleExport =>
+                "library-inspection.types.count.unavailable.unsupported-module-export",
             _ => throw new InvalidOperationException(
                 "Unknown Library Type Count unavailability."),
+        };
+
+    private static string Message(
+        LibraryTypePopulationCountUnavailableReason reason) =>
+        reason switch
+        {
+            LibraryTypePopulationCountUnavailableReason
+                    .UnsupportedModuleExport =>
+                "The public Type Count encountered a module-export declaration that is not an admitted definition or forwarder.",
+            _ => throw new InvalidOperationException(
+                "Unknown Library Type Count unavailability."),
+        };
+
+    private static string Code(LibraryTypePopulationCountBound bound) =>
+        bound switch
+        {
+            LibraryTypePopulationCountBound.MetadataRows =>
+                "library-inspection.types.count.incomplete.metadata-rows",
+            LibraryTypePopulationCountBound.RetainedDeclarations =>
+                "library-inspection.types.count.incomplete.retained-declarations",
+            LibraryTypePopulationCountBound.Definitions =>
+                "library-inspection.types.count.incomplete.definitions",
+            LibraryTypePopulationCountBound.Forwarders =>
+                "library-inspection.types.count.incomplete.forwarders",
+            _ => throw new InvalidOperationException(
+                "Unknown Library Type Count bound."),
+        };
+
+    private static string Message(LibraryTypePopulationCountBound bound) =>
+        bound switch
+        {
+            LibraryTypePopulationCountBound.MetadataRows =>
+                "The public Type Count exceeded its Metadata-row bound.",
+            LibraryTypePopulationCountBound.RetainedDeclarations =>
+                "The public Type Count exceeded its retained-declaration bound.",
+            LibraryTypePopulationCountBound.Definitions =>
+                "The public Type Count exceeded its definition bound.",
+            LibraryTypePopulationCountBound.Forwarders =>
+                "The public Type Count exceeded its forwarder bound.",
+            _ => throw new InvalidOperationException(
+                "Unknown Library Type Count bound."),
         };
 
     private static string Code(LibraryInspectionRejection reason) =>
@@ -424,24 +480,4 @@ public static class LibraryInspectionOperation
             _ => throw new InvalidOperationException(
                 "Unknown Library inspection failure."),
         };
-
-    private static string Message(
-        LibraryTypePopulationCountUnavailableReason reason) =>
-        reason switch
-        {
-            LibraryTypePopulationCountUnavailableReason
-                    .TypeForwardersRequireResolution =>
-                "The public Type Count requires resolution of Type forwarders.",
-            LibraryTypePopulationCountUnavailableReason
-                    .MalformedExportedType =>
-                "The public Type Count encountered malformed exported-Type Metadata.",
-            LibraryTypePopulationCountUnavailableReason
-                    .MalformedTypeIdentity =>
-                "The public Type Count encountered a malformed Type identity.",
-            LibraryTypePopulationCountUnavailableReason.MalformedTypeRow =>
-                "The public Type Count encountered a malformed Type row.",
-            _ => throw new InvalidOperationException(
-                "Unknown Library Type Count unavailability."),
-        };
-
 }

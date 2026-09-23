@@ -125,6 +125,36 @@ public sealed partial class AssemblyTypeDeclarationInventoryTests
     }
 
     [Fact]
+    public void RetainedDeclarationBound_StopsBeforeReturningPartialInventory()
+    {
+        byte[] image = BuildImage(metadata =>
+        {
+            AddDefinition(
+                metadata,
+                TypeAttributes.Public,
+                "N",
+                "First");
+            AddDefinition(
+                metadata,
+                TypeAttributes.Public,
+                "N",
+                "Second");
+        });
+        using var session =
+            AssemblyInspectionSession.Open(Descriptor(image));
+
+        var incomplete =
+            Assert.IsType<AssemblyTypeDeclarationInventoryOutcome.Incomplete>(
+                session.TypeDeclarations(
+                    maximumRetainedDeclarations: 1));
+
+        Assert.Equal(2, incomplete.MeasuredDeclarations);
+        Assert.Equal(
+            2,
+            Read(session).Declarations.Length);
+    }
+
+    [Fact]
     public void BorrowedInventory_RejectsUseAfterLenderDisposal()
     {
         byte[] image = BuildImage(_ => { });

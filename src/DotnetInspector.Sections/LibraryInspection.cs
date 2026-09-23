@@ -121,10 +121,15 @@ public sealed record LibraryTypePopulationBinding(
 
 public enum LibraryTypePopulationCountUnavailableReason
 {
-    TypeForwardersRequireResolution,
-    MalformedExportedType,
-    MalformedTypeIdentity,
-    MalformedTypeRow,
+    UnsupportedModuleExport,
+}
+
+public enum LibraryTypePopulationCountBound
+{
+    MetadataRows,
+    RetainedDeclarations,
+    Definitions,
+    Forwarders,
 }
 
 [JsonPolymorphic(TypeDiscriminatorPropertyName = "kind")]
@@ -146,18 +151,21 @@ public abstract record LibraryTypePopulationCountOutcome
     public sealed record Counted : LibraryTypePopulationCountOutcome
     {
         public Counted(
+            int forwarders,
             int classes,
             int structs,
             int interfaces,
             int enums,
             int delegates)
         {
+            ArgumentOutOfRangeException.ThrowIfNegative(forwarders);
             ArgumentOutOfRangeException.ThrowIfNegative(classes);
             ArgumentOutOfRangeException.ThrowIfNegative(structs);
             ArgumentOutOfRangeException.ThrowIfNegative(interfaces);
             ArgumentOutOfRangeException.ThrowIfNegative(enums);
             ArgumentOutOfRangeException.ThrowIfNegative(delegates);
 
+            Forwarders = forwarders;
             Classes = classes;
             Structs = structs;
             Interfaces = interfaces;
@@ -166,8 +174,11 @@ public abstract record LibraryTypePopulationCountOutcome
         }
 
         public int Total =>
-            checked(Classes + Structs + Interfaces + Enums + Delegates);
+            checked(Definitions + Forwarders);
 
+        public int Definitions =>
+            checked(Classes + Structs + Interfaces + Enums + Delegates);
+        public int Forwarders { get; }
         public int Classes { get; }
         public int Structs { get; }
         public int Interfaces { get; }
@@ -193,7 +204,10 @@ public abstract record LibraryTypePopulationCountOutcome
         LibraryTypePopulationCountUnavailableReason Reason)
         : LibraryTypePopulationCountOutcome;
 
-    public sealed record Incomplete(ApiSurfaceExtractionBound Bound)
+    public sealed record Incomplete(
+        LibraryTypePopulationCountBound Bound,
+        long Limit,
+        long Measured)
         : LibraryTypePopulationCountOutcome;
 }
 
@@ -207,7 +221,10 @@ public sealed record LibraryTypePopulationResult(
 /// <summary>
 /// Measured work retained for one Library inspection.
 /// </summary>
-public sealed record LibraryInspectionWork(int AssemblyBytes);
+public sealed record LibraryInspectionWork(
+    int AssemblyBytes,
+    long MetadataRows,
+    long RetainedDeclarations);
 
 /// <summary>
 /// Resource-free, request-shaped content for one exact Library.

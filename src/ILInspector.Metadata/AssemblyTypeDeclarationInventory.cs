@@ -123,6 +123,14 @@ public abstract class AssemblyTypeDeclarationInventoryOutcome
 
         public CandidateOpenFailure Failure { get; }
     }
+
+    public sealed class Incomplete : AssemblyTypeDeclarationInventoryOutcome
+    {
+        internal Incomplete(long measuredDeclarations) =>
+            MeasuredDeclarations = measuredDeclarations;
+
+        public long MeasuredDeclarations { get; }
+    }
 }
 
 /// <summary>
@@ -172,7 +180,11 @@ public static class AssemblyTypeDeclarationInventoryReader
                     "The opened image identity does not match the acquisition descriptor.");
             }
 
-            AssemblyTypeDeclarationInventoryOutcome outcome = ReadDeclarations(reader, actual);
+            AssemblyTypeDeclarationInventoryOutcome outcome =
+                ReadDeclarations(
+                    reader,
+                    actual,
+                    maximumRetainedDeclarations: int.MaxValue);
             rejectionEstablished = outcome is AssemblyTypeDeclarationInventoryOutcome.Rejected;
             return outcome;
         }
@@ -247,8 +259,15 @@ public static class AssemblyTypeDeclarationInventoryReader
 
     internal static AssemblyTypeDeclarationInventoryOutcome Read(
         PEReader peReader)
+        => Read(peReader, int.MaxValue);
+
+    internal static AssemblyTypeDeclarationInventoryOutcome Read(
+        PEReader peReader,
+        int maximumRetainedDeclarations)
     {
         ArgumentNullException.ThrowIfNull(peReader);
+        ArgumentOutOfRangeException.ThrowIfNegative(
+            maximumRetainedDeclarations);
 
         try
         {
@@ -260,7 +279,10 @@ public static class AssemblyTypeDeclarationInventoryReader
             }
 
             MetadataReader reader = MetadataFormatAdmission.GetMetadataReader(peReader);
-            return ReadDeclarations(reader, AssemblyReferenceIdentity.FromAssemblyDefinition(reader));
+            return ReadDeclarations(
+                reader,
+                AssemblyReferenceIdentity.FromAssemblyDefinition(reader),
+                maximumRetainedDeclarations);
         }
         catch (UnsupportedMetadataFormatException)
         {
@@ -292,7 +314,8 @@ public static class AssemblyTypeDeclarationInventoryReader
 
     static AssemblyTypeDeclarationInventoryOutcome ReadDeclarations(
         MetadataReader reader,
-        AssemblyReferenceIdentity identity)
+        AssemblyReferenceIdentity identity,
+        int maximumRetainedDeclarations)
     {
         var definitions = ImmutableArray.CreateBuilder<MetadataTypeDefinitionName>();
         var forwarders = ImmutableArray.CreateBuilder<MetadataTypeDefinitionName>();
@@ -311,6 +334,15 @@ public static class AssemblyTypeDeclarationInventoryReader
                     CandidateOpenFailureKind.InvalidImage,
                     "A type definition name could not be decoded.");
             }
+            bool isModule =
+                read.Name.Namespace.Length == 0
+                && read.Name.Segments is ["<Module>"];
+            if (!isModule
+                && declarations.Count >= maximumRetainedDeclarations)
+            {
+                return new AssemblyTypeDeclarationInventoryOutcome.Incomplete(
+                    (long)declarations.Count + 1);
+            }
             if (!names.Add(read.Name))
                 return DuplicateDeclaration();
 
@@ -323,8 +355,7 @@ public static class AssemblyTypeDeclarationInventoryReader
 
             // Keep the legacy name projection intact; the module row is not
             // a discoverable type, even in the all-declaration view.
-            if (read.Name.Namespace.Length == 0
-                && read.Name.Segments is ["<Module>"])
+            if (isModule)
             {
                 continue;
             }
@@ -346,6 +377,11 @@ public static class AssemblyTypeDeclarationInventoryReader
                 return Rejected(
                     CandidateOpenFailureKind.InvalidImage,
                     "An exported type name could not be decoded.");
+            }
+            if (declarations.Count >= maximumRetainedDeclarations)
+            {
+                return new AssemblyTypeDeclarationInventoryOutcome.Incomplete(
+                    (long)declarations.Count + 1);
             }
             if (!names.Add(read.Name))
                 return DuplicateDeclaration();
