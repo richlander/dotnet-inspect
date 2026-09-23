@@ -9,7 +9,8 @@ internal sealed record DeclaredJsExportReturnWireBinding(
     string WireType,
     IReadOnlyList<ApiTypeReferenceIdentity> WireTypeReferences,
     ApiTypeShape WireTypeShape,
-    IReadOnlyList<string> ContextScopeKeys);
+    IReadOnlyList<string> ContextScopeKeys,
+    JsExportJsonOutputMode Mode);
 
 internal readonly record struct JsonContextGetterIdentity(
     string Assembly,
@@ -368,6 +369,10 @@ public static class JsonWireContractResolver
                     : []),
             ReturnWireTypeShape = declaredReturn?.WireTypeShape
                 ?? returnType?.Shape,
+            ReturnWireMode = declaredReturn?.Mode
+                ?? (returnType is not null
+                    ? JsExportJsonOutputMode.Parsed
+                    : null),
             ParameterWireTypes =
                 [.. parameterTypeDisplays.Order(StringComparer.Ordinal)],
             ParameterWireBindings =

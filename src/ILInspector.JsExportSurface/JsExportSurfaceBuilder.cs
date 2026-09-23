@@ -1018,7 +1018,10 @@ public static class JsExportSurfaceBuilder
                     FormatWireType(wireType),
                     [.. EnumerateNamedTypes(wireType).Distinct()],
                     wireType,
-                    [registeredJsonTypeInfoContextScopeKeys[context]]));
+                    [registeredJsonTypeInfoContextScopeKeys[context]],
+                    declaration.DeferParsing
+                        ? JsExportJsonOutputMode.JsonText
+                        : JsExportJsonOutputMode.Parsed));
         }
 
         return bindings;

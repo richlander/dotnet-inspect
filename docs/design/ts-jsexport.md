@@ -712,10 +712,11 @@ facade.
 `JsExportJsonOutputAttribute` has one constructor taking, in order:
 
 1. the managed method name; and
-2. the compiler-bound `System.Type` of the outgoing JSON wire root.
+2. the compiler-bound `System.Type` of the outgoing JSON wire root; and
+3. an optional `deferParsing` boolean, `false` by default.
 
-Its readable properties are `MethodName` and `WireType`. At most one output
-declaration may resolve to a given exported member.
+Its readable properties are `MethodName`, `WireType`, and `DeferParsing`. At
+most one output declaration may resolve to a given exported member.
 
 The declaration belongs on the export type, including an otherwise empty
 partial declaration in a dedicated contract file. It does not belong on the
@@ -756,6 +757,43 @@ Output declaration resolution follows the same authentication rules, except
 that it identifies one exact exported method, requires its raw return to be
 `System.String` or `Task<System.String>`, and requires exactly one
 serialization-capable source-generated contract for the declared root.
+
+### Deferred complete JSON output
+
+An output declaration with `deferParsing: true` remains a complete declared
+JSON association, but the generated facade preserves its runtime result as an
+encoded string rather than calling `JSON.parse`. The public TypeScript return
+uses the collision-safe generic brand:
+
+```ts
+declare const jsonTextBrand: unique symbol;
+
+export type JsonText<T> = string & {
+  readonly [jsonTextBrand]: T;
+};
+```
+
+For an asynchronous export, `Task<string>` therefore becomes
+`Promise<JsonText<T>>`. The `Promise` represents asynchronous completion; the
+`JsonText<T>` value represents one complete encoded JSON document after that
+completion. A synchronous `string` export becomes `JsonText<T>`.
+
+The brand authenticates only the producer-declared association with `T`. It
+does not claim that a JavaScript consumer has parsed, structurally validated,
+or admitted the text under a feature-specific size or complexity policy. The
+generated module exposes no public constructor, unchecked branding helper,
+parser, or decoder. A consumer that requires bounded admission supplies its
+own decoder and obtains `T` only after that decoder succeeds.
+
+`JsonText<T>` is not a streaming, chunking, pagination, or progressive-
+realization contract. It always represents one complete JSON document.
+`ReadableStream`, `AsyncIterable`, chunk identity, ordering, backpressure,
+cancellation, and partial-failure semantics require a separately owned design.
+
+Ordinary output declarations retain the existing parsed lowering. Deferred
+and parsed declarations use the same authenticated source-generated shape,
+complete-member certification, conflict checking, TypeScript declaration
+inventory, and canonical drift protection.
 
 The declaration establishes only the parameter association. The source-
 generated serializer contract remains the authority for members, names,

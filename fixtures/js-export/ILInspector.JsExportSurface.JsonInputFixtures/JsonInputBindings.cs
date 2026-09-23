@@ -18,7 +18,8 @@ namespace ILInspector.JsExportSurface.JsonInputFixtures;
     typeof(JsonInputWidget))]
 [JsExportJsonOutput(
     nameof(JsonInputExports.CreateWidget),
-    typeof(JsonInputWidget))]
+    typeof(JsonInputWidget),
+    deferParsing: true)]
 [JsExportJsonInput(
     nameof(JsonInputExports.WidgetMatchesAudit),
     "widgetJson",

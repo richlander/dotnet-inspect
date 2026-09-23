@@ -1235,6 +1235,9 @@ public sealed class JsonWireContractResolverTests
             typeof(JsonInputWidget).FullName,
             function.ReturnWireType);
         Assert.Equal(
+            JsExportJsonOutputMode.Parsed,
+            function.ReturnWireMode);
+        Assert.Equal(
             JsExportJsonContractCertification.Declared,
             function.JsonContractCertification);
         Assert.Empty(function.CertificationDiagnostics);
@@ -1325,6 +1328,9 @@ public sealed class JsonWireContractResolverTests
         Assert.Equal(
             typeof(JsonInputWidget).FullName,
             function.ReturnWireType);
+        Assert.Equal(
+            JsExportJsonOutputMode.JsonText,
+            function.ReturnWireMode);
         Assert.Equal(
             JsExportJsonContractCertification.Declared,
             function.JsonContractCertification);
@@ -1437,7 +1443,8 @@ public sealed class JsonWireContractResolverTests
                 declaration => declaration.MethodName
                     == nameof(JsonInputExports.CreateWidget)),
             nameof(JsonInputExports.CreateWidget),
-            nameof(JsonInputWidget));
+            nameof(JsonInputWidget),
+            deferParsing: true);
         AssertJsonOutputDeclaration(
             Assert.Single(
                 exports.JsExportJsonOutputDeclarations,
@@ -1987,6 +1994,7 @@ public sealed class JsonWireContractResolverTests
                 TsJsExport.JsExportContractIdentity.Api,
                 methodName,
                 JsonSerializableShape(apiSurface, wireTypeName),
+                DeferParsing: false,
                 UnsupportedReason: null));
     }
 
@@ -2051,7 +2059,8 @@ public sealed class JsonWireContractResolverTests
     private static void AssertJsonOutputDeclaration(
         ApiJsExportJsonOutputDeclaration declaration,
         string methodName,
-        string wireTypeName)
+        string wireTypeName,
+        bool deferParsing = false)
     {
         AssemblyName attributeAssembly =
             typeof(TsJsExport.JsExportJsonOutputAttribute)
@@ -2065,6 +2074,7 @@ public sealed class JsonWireContractResolverTests
             wireTypeName,
             declaration.WireType?.Definition?.DefinitionName?.Segments
                 .Single());
+        Assert.Equal(deferParsing, declaration.DeferParsing);
         Assert.Null(declaration.UnsupportedReason);
     }
 

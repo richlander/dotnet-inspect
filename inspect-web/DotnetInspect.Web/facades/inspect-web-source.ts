@@ -6,6 +6,12 @@ export type InertString = string & {
   readonly [inertStringBrand]: "InertString";
 };
 
+declare const jsonTextBrand: unique symbol;
+
+export type JsonText<T> = string & {
+  readonly [jsonTextBrand]: T;
+};
+
 export type BrowserAllocationExceptionPathKind = "ThrownValue" | "ExceptionHandler" | number;
 
 export type BrowserAnnotatedSourceCallCycleLimit = "TraversalBoundary" | "IncompleteCorrespondence" | "WitnessBudget" | "PathBudget" | "AnalysisFailure" | number;
@@ -944,10 +950,9 @@ export async function queryMemberSource(packageId: string, version: string, targ
   return $parsed as BrowserMemberSource;
 }
 
-export async function queryMemberSourceComparison(operationId: string, requestJson: BrowserSourceComparisonRequest): Promise<BrowserSourceComparisonResult> {
+export async function queryMemberSourceComparison(operationId: string, requestJson: BrowserSourceComparisonRequest): Promise<JsonText<BrowserSourceComparisonResult>> {
   const $result = await $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Source"]["SourceExports"]["QueryMemberSourceComparison.451505237"](operationId, $serializeJsonInput(requestJson, "DotnetInspect.Web.Interop.Source.SourceExports.QueryMemberSourceComparison.451505237", "requestJson"));
-  const $parsed: unknown = JSON.parse($result);
-  return $parsed as BrowserSourceComparisonResult;
+  return $result as JsonText<BrowserSourceComparisonResult>;
 }
 
 export async function queryMethodBodyComparison(operationId: string, requestJson: BrowserMethodBodyComparisonRequest): Promise<BrowserMethodBodyComparisonResult> {

@@ -2021,6 +2021,7 @@ public sealed record ApiJsExportJsonOutputDeclaration(
     ApiAssemblyIdentity? AttributeAssembly,
     string? MethodName,
     ApiTypeShape? WireType,
+    bool DeferParsing,
     string? UnsupportedReason);
 
 public sealed record ApiJsonSerializableRoot(

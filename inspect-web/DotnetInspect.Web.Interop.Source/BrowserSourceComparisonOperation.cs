@@ -17,7 +17,8 @@ namespace DotnetInspect.Web.Interop.Source;
     typeof(BrowserSourceComparisonRequest))]
 [JsExportJsonOutput(
     nameof(SourceExports.QueryMemberSourceComparison),
-    typeof(BrowserSourceComparisonResult))]
+    typeof(BrowserSourceComparisonResult),
+    deferParsing: true)]
 public static partial class SourceExports
 {
     [JSExport]

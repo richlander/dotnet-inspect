@@ -1533,11 +1533,12 @@ public static partial class AttributeReader
 
             string? methodName = null;
             ApiTypeShape? wireType = null;
+            bool deferParsing = false;
             if (currentAssemblyIdentity is null
                 || !HasExpectedConstructor(
                     reader,
                     attribute.Constructor,
-                    FrameworkConstructorKind.StringSystemType,
+                    FrameworkConstructorKind.StringSystemTypeBoolean,
                     beforeMaterialize)
                 || AttributeDecoder
                     .TryDecodePreservingSerializedTypeNames(
@@ -1545,11 +1546,12 @@ public static partial class AttributeReader
                         attribute,
                         beforeMaterialize) is not
                     {
-                        FixedArguments.Length: 2,
+                        FixedArguments.Length: 3,
                         NamedArguments.Length: 0,
                     } decoded
                 || decoded.FixedArguments[0].Value is not string decodedMethod
-                || decoded.FixedArguments[1].Value is not string serializedType)
+                || decoded.FixedArguments[1].Value is not string serializedType
+                || decoded.FixedArguments[2].Value is not bool decodedDeferParsing)
             {
                 unsupportedReason ??=
                     "attribute constructor or value is malformed";
@@ -1557,6 +1559,7 @@ public static partial class AttributeReader
             else
             {
                 methodName = decodedMethod;
+                deferParsing = decodedDeferParsing;
                 wireType = ParseJsonSerializableRootShape(
                     serializedType,
                     currentAssemblyIdentity);
@@ -1572,6 +1575,7 @@ public static partial class AttributeReader
                 attributeAssembly,
                 methodName,
                 wireType,
+                deferParsing,
                 unsupportedReason));
         }
         return declarations;
@@ -2019,6 +2023,7 @@ public static partial class AttributeReader
         StringString,
         StringStringString,
         StringSystemType,
+        StringSystemTypeBoolean,
         StringStringSystemType,
         JsonSerializerDefaults,
         JsonNumberHandling,
@@ -2195,6 +2200,18 @@ public static partial class AttributeReader
                     [
                         PrimitiveTypeNode { Name: "string" },
                         NamedTypeNode type,
+                    ]
+                    && IsExpectedTopLevelSignatureType(
+                        type,
+                        "System",
+                        "Type",
+                        IsCoreContractAssembly),
+                FrameworkConstructorKind.StringSystemTypeBoolean =>
+                    signature.ParameterTypes is
+                    [
+                        PrimitiveTypeNode { Name: "string" },
+                        NamedTypeNode type,
+                        PrimitiveTypeNode { Name: "bool" },
                     ]
                     && IsExpectedTopLevelSignatureType(
                         type,

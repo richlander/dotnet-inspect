@@ -147,6 +147,12 @@ public sealed record JsExportCertificationDiagnostic(string Message);
 /// One <c>[JSExport]</c>-attributed static member, with its declaring type, parameters, and
 /// return type as reported by <see cref="ApiSurfaceExtractor"/> — unmodified C# signature facts.
 /// </summary>
+public enum JsExportJsonOutputMode
+{
+    Parsed,
+    JsonText,
+}
+
 public sealed class JsExportFunction
 {
     [JsonIgnore]
@@ -243,6 +249,9 @@ public sealed class JsExportFunction
     /// </remarks>
     [JsonIgnore]
     public ApiTypeShape? ReturnWireTypeShape { get; init; }
+
+    [JsonIgnore]
+    public JsExportJsonOutputMode? ReturnWireMode { get; init; }
 
     /// <summary>
     /// DTO type(s) this method's own body deserializes from a JSON-string

@@ -94,8 +94,76 @@ public sealed class TypeScriptFacadeEmitterTests
             "export declare function",
             source,
             StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "export type JsonText<",
+            source,
+            StringComparison.Ordinal);
         Assert.Contains(
             "}\n\nexport async function getWidgetAsync",
+            source,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Emit_PreservesDeferredJsonOutputAsBrandedText()
+    {
+        var dto = new ApiType
+        {
+            Namespace = "Fixture",
+            Name = "WidgetDto",
+            Kind = "class",
+        };
+        var function = new JsExportFunction
+        {
+            DeclaringType = "Fixture.Exports",
+            Name = "GetWidgetAsync",
+            RuntimeDispatchKey = "GetWidgetAsync.1",
+            ReturnType = "Task<string>",
+            ReturnWireType = "Fixture.WidgetDto",
+            ReturnWireMode = JsExportJsonOutputMode.JsonText,
+        };
+        var surface =
+            new global::ILInspector.JsExportSurface.JsExportSurface
+            {
+                AssemblyIdentity = new ApiAssemblyIdentity(
+                    "Fixture",
+                    new Version(1, 0, 0, 0),
+                    culture: null,
+                    publicKeyToken: null),
+                Functions = [function],
+                Records = [dto],
+                WireDirections =
+                    new Dictionary<ApiType, JsonWireDirection>
+                    {
+                        [dto] = JsonWireDirection.Serialize,
+                    },
+            };
+
+        string source = TypeScriptFacadeEmitter.Emit(
+            surface,
+            RuntimeModule);
+
+        Assert.Contains(
+            """
+            declare const jsonTextBrand: unique symbol;
+
+            export type JsonText<T> = string & {
+              readonly [jsonTextBrand]: T;
+            };
+            """,
+            source,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            """
+            export async function getWidgetAsync(): Promise<JsonText<WidgetDto>> {
+              const $result = await $requireManagedExports()["Fixture"]["Exports"]["GetWidgetAsync.1"]();
+              return $result as JsonText<WidgetDto>;
+            }
+            """,
+            source,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "JSON.parse($result)",
             source,
             StringComparison.Ordinal);
     }
