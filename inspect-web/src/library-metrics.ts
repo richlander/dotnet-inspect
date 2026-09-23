@@ -20,6 +20,10 @@ function metricLabel(metric: string): string {
     .replace(/^./, character => character.toUpperCase());
 }
 
+function metricValue(value: number | null): string {
+  return value === null ? "\u2014" : value.toLocaleString();
+}
+
 export function renderLibraryMetricsSurface(
   options: LibraryMetricsOptions,
 ): string {
@@ -52,10 +56,13 @@ export function renderLibraryMetricsSurface(
       status = `${(population?.completeProfileCount ?? 0).toLocaleString()} complete bodies`;
       const rows = distributions.map(distribution => `<tr>
         <th scope="row">${escapeHtml(metricLabel(distribution.metric))}</th>
-        <td>${distribution.minimum ?? "\u2014"}</td>
-        <td>${distribution.p50 ?? "\u2014"}</td>
-        <td>${distribution.p90 ?? "\u2014"}</td>
-        <td>${distribution.maximum ?? "\u2014"}</td>
+        <td>${metricValue(distribution.completeBodyCount)}</td>
+        <td>${metricValue(distribution.minimum)}</td>
+        <td>${metricValue(distribution.p50)}</td>
+        <td>${metricValue(distribution.p90)}</td>
+        <td>${metricValue(distribution.p95)}</td>
+        <td>${metricValue(distribution.p99)}</td>
+        <td>${metricValue(distribution.maximum)}</td>
       </tr>`).join("");
       const coverageGap = population
         && population.profiledPhysicalEvidenceBodyCount
@@ -77,11 +84,44 @@ export function renderLibraryMetricsSurface(
             : ""
         }</section>`
         : "";
+      const populationRows = population
+        ? `<section class="document-section">
+            <div class="section-title"><h2>Population</h2><span>${population.completeProfileCount.toLocaleString()} complete profiles</span></div>
+            <dl class="fact-rows library-metrics-population">
+              <div><dt>Physical evidence bodies</dt><dd><code>${population.physicalEvidenceBodyCount.toLocaleString()}</code></dd></div>
+              <div><dt>Profiled bodies</dt><dd><code>${population.profiledPhysicalEvidenceBodyCount.toLocaleString()}</code></dd></div>
+              <div><dt>Complete profiles</dt><dd><code>${population.completeProfileCount.toLocaleString()}</code></dd></div>
+              <div><dt>Incomplete profiles</dt><dd><code>${population.incompleteProfileCount.toLocaleString()}</code></dd></div>
+              <div><dt>Logical owners</dt><dd><code>${population.logicalOwnerCount.toLocaleString()}</code></dd></div>
+            </dl>
+          </section>`
+        : "";
+      const asyncDisposition = resolved.asyncStateMachinePresence
+        ? `<section class="document-section">
+            <div class="section-title"><h2>${escapeHtml(metricLabel(resolved.asyncStateMachinePresence.name))}</h2><span>${resolved.asyncStateMachinePresence.completeBodyCount.toLocaleString()} complete bodies</span></div>
+            <dl class="fact-rows library-metrics-population">
+              <div><dt>Present</dt><dd><code>${resolved.asyncStateMachinePresence.presentCount.toLocaleString()}</code></dd></div>
+              <div><dt>Absent</dt><dd><code>${resolved.asyncStateMachinePresence.absentCount.toLocaleString()}</code></dd></div>
+            </dl>
+          </section>`
+        : "";
       content = `${incomplete}
-        <section class="document-section">
+        <section class="document-section library-metrics-intro">
           <p>Compiled IL metrics for <strong>${escapeHtml(libraryName)}</strong>. These are structural implementation measures, not authored-source complexity.</p>
-          <table class="metrics-table"><thead><tr><th>Metric</th><th>Min</th><th>P50</th><th>P90</th><th>Max</th></tr></thead><tbody>${rows}</tbody></table>
-        </section>`;
+        </section>
+        ${populationRows}
+        <section class="document-section">
+          <div class="section-title"><h2>Distributions</h2><span>${distributions.length.toLocaleString()} measure${distributions.length === 1 ? "" : "s"}</span></div>
+          ${distributions.length
+            ? `<div class="library-metrics-table-wrap" role="region" aria-label="Metric distributions" tabindex="0">
+                <table class="library-metrics-table">
+                  <thead><tr><th scope="col">Metric</th><th scope="col">Complete</th><th scope="col">Min</th><th scope="col">P50</th><th scope="col">P90</th><th scope="col">P95</th><th scope="col">P99</th><th scope="col">Max</th></tr></thead>
+                  <tbody>${rows}</tbody>
+                </table>
+              </div>`
+            : `<div class="empty-list">No complete metric distributions were produced.</div>`}
+        </section>
+        ${asyncDisposition}`;
     }
   }
   const identity = assetPath ? `${assetPath} \u00b7 ${assemblyIdentity}` : assemblyIdentity;

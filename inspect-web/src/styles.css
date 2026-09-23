@@ -2146,6 +2146,35 @@ kbd {
 .library-analysis-scroll .perf-shape { max-width: 100%; overflow-wrap: anywhere; }
 .library-analysis-scroll .perf-meta { min-width: 0; flex-wrap: wrap; justify-content: flex-end; }
 .library-analysis-scroll > .metadata-warning { margin: 0; padding: 14px 16px; border-inline: 0; border-top: 0; border-radius: 0; }
+.library-metrics-intro { border-bottom: 1px solid var(--line); }
+.library-metrics-population { margin: 0; }
+.library-metrics-table-wrap { min-width: 0; overflow-x: auto; border-top: 1px solid var(--line); }
+.library-metrics-table {
+  width: 100%;
+  min-width: 700px;
+  border-collapse: collapse;
+  font: 11px var(--mono);
+}
+.library-metrics-table th,
+.library-metrics-table td {
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--line);
+  text-align: right;
+  white-space: nowrap;
+}
+.library-metrics-table th:first-child,
+.library-metrics-table td:first-child { text-align: left; }
+.library-metrics-table thead th {
+  color: var(--dim);
+  font-size: 9px;
+  font-weight: 400;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+}
+.library-metrics-table tbody th { color: var(--text); font-weight: 500; }
+.library-metrics-table tbody td { color: var(--muted); }
+.library-metrics-table tbody tr:last-child th,
+.library-metrics-table tbody tr:last-child td { border-bottom: 0; }
 .opp-list { display: flex; flex-direction: column; gap: 6px; padding: 12px 10px; border-top: 1px solid var(--line); }
 .opp-row { display: flex; align-items: flex-start; gap: 12px; padding: 9px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); }
 .opp-body { flex: 1 1 auto; display: flex; flex-direction: column; gap: 8px; min-width: 0; }
@@ -2652,6 +2681,8 @@ kbd {
   .library-opportunities-scroll .opp-row { padding-inline: 12px; }
   .library-analysis-scroll .perf-row { grid-template-columns: 32px minmax(0, 1fr); align-items: start; padding-inline: 12px; }
   .library-analysis-scroll .perf-meta { grid-column: 2; justify-content: flex-start; }
+  .library-metrics-table th,
+  .library-metrics-table td { padding-inline: 10px; }
   .metadata-surface-head { padding-inline: 12px; }
   .metadata-surface-scroll > .document-section,
   .metadata-surface-scroll > [data-type-graph-surface] > .document-section { padding-inline: 12px; }
