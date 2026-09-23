@@ -79,7 +79,7 @@ This query composes existing owner-issued evidence:
 | Governing framework | [Traversal target-framework policy](traversal-target-framework-policy.md) | One retained product-default or configured target for every newly reached participant |
 | Dependency declarations | [Package input and dependency evidence](package-dependency-evidence.md) | Normalized declaration identity, canonical constraints, selected-group state, and contained source evidence |
 | Candidate identity | [Package dependency candidate resolution](package-dependency-candidate-resolution.md) | Source-authorized exact candidates and canonical Package coordinate identity |
-| Supply-chain policy | [#8368](https://github.com/richlander/dotnet-inspect/issues/8368) | One captured baseline evaluation basis and detached classification evidence for already-known Package IDs |
+| Supply-chain policy | [Package supply-chain baseline](package-supply-chain-baseline.md) | One captured baseline evaluation basis and detached classification evidence for already-known Package IDs |
 | Completed host boundary | [Inspection envelope](inspection-envelope.md) | A later Sections inspection hands one detached owner-issued Document to CLI and Browser/Wasm |
 
 The traversal owner's deliberate divergence from NuGet restore remains intact.
@@ -118,8 +118,8 @@ One request carries:
 
 - one Before `PackageDependencyTraversalOutcome`;
 - one After `PackageDependencyTraversalOutcome`; and
-- one owner-issued package supply-chain baseline evaluation basis from #8368,
-  captured for both endpoint roots.
+- one owner-issued package supply-chain baseline evaluation basis, captured for
+  both endpoint roots.
 
 Each endpoint must contain exactly one root occurrence. The two root
 coordinates must have the same canonical Package ID and may have different

@@ -68,14 +68,14 @@ After a caller has established Package ownership, the policy classifies a
 canonical Package ID in this order:
 
 1. a root Package ID is `Baseline`;
-2. under `Nothing`, every other Package is `Exposure`;
+2. under `Nothing`, every other Package is `IncrementalExposure`;
 3. a matching top-level first-party Package Prefix is `Baseline`;
-4. under `Self`, every remaining Package is `Exposure`;
+4. under `Self`, every remaining Package is `IncrementalExposure`;
 5. a registered ecosystem core Package is `Baseline`;
 6. a registered ecosystem Package Prefix population is `Baseline`;
 7. a registered ecosystem exact Package-origin Library contributes its Package
    ID as `Baseline`; and
-8. every remaining Package is `Exposure`.
+8. every remaining Package is `IncrementalExposure`.
 
 Matching is case-insensitive over canonical Package IDs through the existing
 Package ID and Package Prefix contracts. Namespace roots, assembly names,

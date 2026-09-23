@@ -36,7 +36,7 @@ classification without redefining it.
 The shared baseline owner defines `Nothing`, `Self`, and
 `SelfAndRegisteredEcosystems`, including exact root and registration membership.
 This graph maps a known `Baseline` Package to a connector and a known
-`Exposure` Package to a highlighted boundary.
+`IncrementalExposure` Package to a highlighted boundary.
 
 Traversal remains inclusive. It may acquire and analyze Packages that the
 baseline later classifies as connectors. Shared baseline classification never
