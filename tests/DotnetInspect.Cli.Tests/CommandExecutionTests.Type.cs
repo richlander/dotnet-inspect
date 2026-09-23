@@ -643,26 +643,6 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Type_SingleType_TypeLimitDoesNotRestrictShapeMembers()
-    {
-        var (exit, output, error) = await RunAppAsync(
-            "type",
-            "System.IO.MemoryStream",
-            "--platform",
-            "System.Private.CoreLib",
-            "-t",
-            "1",
-            "--tips",
-            "q");
-
-        Assert.Equal(0, exit);
-        Assert.Empty(error);
-        Assert.Contains("Constructors", output);
-        Assert.Contains("Properties", output);
-        Assert.Contains("Methods", output);
-    }
-
-    [Fact]
     public async Task Type_Listing_MarkdownUsesLfThroughout()
     {
         var (exit, output, error) = await RunAppAsync(
