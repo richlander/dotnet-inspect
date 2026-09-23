@@ -21,6 +21,21 @@ public sealed class PackageRoleMemberCallGraphQueryTests
     static string TargetV2Path =>
         FixtureCatalog.AnalysisCallerGraphTargetV2.AssemblyPath();
 
+    static string ExternalFocusRole(
+        InspectionGraphDocument document,
+        InspectionGraphEdge edge) =>
+        Assert.IsType<InspectionGraphValue.Token>(
+            Assert.Single(
+                document.Characteristics,
+                characteristic =>
+                    ReferenceEquals(
+                        characteristic.Descriptor,
+                        ExternalFocusedCallGraphInspectionCatalog.EdgeRole)
+                    && characteristic.Target
+                        == InspectionGraphTarget.Edge(edge.Id))
+                .Value)
+            .Value;
+
     [Fact]
     public async Task
         ExecuteUsesExactRootImplementationAndReturnsDetachedExternalGraph()
@@ -44,6 +59,7 @@ public sealed class PackageRoleMemberCallGraphQueryTests
             (
                 Member(document.Nodes[edge.FromNodeId]).Name,
                 Member(document.Nodes[edge.ToNodeId]).Name));
+        Assert.Equal("boundary", ExternalFocusRole(document, edge));
         Assert.Equal(
             [
                 (edge.FromNodeId, "callgraph.caller"),
@@ -52,6 +68,28 @@ public sealed class PackageRoleMemberCallGraphQueryTests
             nodePackages
                 .OrderBy(item => item.NodeId)
                 .Select(item => (item.NodeId, item.Package.PackageId)));
+    }
+
+    [Fact]
+    public async Task SamePackageImplementationAssembliesRemainHubLocal()
+    {
+        PackageRootBinding root = PackageBinding(
+            "callgraph.root",
+            CallerPath,
+            TargetPath);
+
+        (InspectionGraphDocument document,
+            ImmutableArray<PackageRoleMemberCallGraphNodePackage>
+                nodePackages) =
+            await ExecuteAsync(root);
+
+        Assert.Empty(document.Edges);
+        InspectionGraphNode seed = Assert.Single(document.Nodes);
+        Assert.Equal("RunAcrossBoundary", Member(seed).Name);
+        Assert.Equal(
+            [(seed.Id, "callgraph.root")],
+            nodePackages.Select(item =>
+                (item.NodeId, item.Package.PackageId)));
     }
 
     [Fact]
@@ -157,7 +195,7 @@ public sealed class PackageRoleMemberCallGraphQueryTests
 
     private static PackageRootBinding PackageBinding(
         string packageId,
-        string assemblyPath)
+        params string[] assemblyPaths)
     {
         byte[] manifest = Encoding.UTF8.GetBytes(
             $$"""
@@ -181,9 +219,12 @@ public sealed class PackageRoleMemberCallGraphQueryTests
             {
                 nuspec.Write(manifest);
             }
-            using Stream assembly = archive.CreateEntry(
-                $"lib/net11.0/{Path.GetFileName(assemblyPath)}").Open();
-            assembly.Write(File.ReadAllBytes(assemblyPath));
+            foreach (string assemblyPath in assemblyPaths)
+            {
+                using Stream assembly = archive.CreateEntry(
+                    $"lib/net11.0/{Path.GetFileName(assemblyPath)}").Open();
+                assembly.Write(File.ReadAllBytes(assemblyPath));
+            }
         }
 
         var payload = new AcquiredPackageSourcePayload(
