@@ -9,6 +9,8 @@ Tracking:
 
 - [#7253](https://github.com/richlander/dotnet-inspect/issues/7253) — this
   focused owner and first CLI adopter;
+- [#8380](https://github.com/richlander/dotnet-inspect/issues/8380) —
+  completed host-neutral inspection and CLI migration;
 - [#6313](https://github.com/richlander/dotnet-inspect/issues/6313) — broader
   semantic feature relationships and package or ecosystem rollups;
 - [#6601](https://github.com/richlander/dotnet-inspect/issues/6601) — public
@@ -31,21 +33,22 @@ dotnet-inspect graph libraries \
   -S "Direct Use Clusters"
 ```
 
-The complete production path has four steps:
+The Query projection and first CLI adoption are complete. The shared
+completed-inspection production path has three executable steps:
 
-1. This slice locks the cluster contract, implements the host-neutral
-   projection, and adopts it in the CLI through typed Markout views.
-2. Browser/Wasm consumes the same projection after its two-library selection
+1. The completed Sections inspection consumes the pair inspection and the CLI
+   migrates to it without changing sections or rendering.
+2. Browser/Wasm consumes the same inspection after its two-library selection
    surface exists; it does not reimplement clustering in TypeScript.
-3. Issue #7390 composes Metadata roots and Analysis path evidence from #6601
-   above these clusters without changing their identity or assignment.
-4. #6313 may add separately proven semantic capability identity and package or
-   ecosystem aggregation without relabeling direct-use clusters as features.
+3. A selected Browser cluster calls the existing #7390 root-path inspection.
 
-The first slice is useful independently: it distinguishes an isolated
-one-method dependency footprint from one co-used component and from several
-disconnected components. It does not recommend package removal or source
-inlining.
+Issue #6313 may add separately proven semantic capability identity and package or
+ecosystem aggregation without relabeling direct-use clusters as features.
+
+The completed Query and CLI behavior is useful independently: it distinguishes
+an isolated one-method dependency footprint from one co-used component and
+from several disconnected components. It does not recommend package removal
+or source inlining.
 
 ## Normative claim
 
@@ -141,6 +144,29 @@ expands each distinct source or target method's occurrence adjacency only once,
 so traversal work is linear in retained occurrences and method endpoints.
 `ProjectionKeepsRepeatedPhysicalSitesLinear` gates the practical repeated-site
 boundary with 50,000 exact physical occurrences and a ten-second timeout.
+
+## Completed inspection
+
+`AssemblyPairDirectUseClusterInspection.Execute` consumes one completed
+`InspectionEnvelope<AssemblyPairCallUseInspectionOutcome>` and returns
+`InspectionEnvelope<AssemblyPairDirectUseClusterInspectionOutcome>`.
+
+An available pair outcome produces exactly one
+`AssemblyPairDirectUseClusterProjection` over the upstream exact pair result.
+The operation does not rerun pair analysis, reopen either Library, reconstruct
+participant identity, or alter pair completion. The returned cluster
+projection retains the same `AssemblyPairCallUseResult` instance.
+
+A rejected pair outcome remains rejected and retains the exact upstream typed
+rejection. Clustering adds no diagnostic because it is a total in-memory
+projection; the completed cluster envelope preserves the upstream diagnostics
+unchanged. Its Share outcome is independently non-projectable until Workspace
+Share owns a canonical pair-and-cluster coordinate.
+
+The CLI remains the first production consumer. It invokes this inspection only
+when cluster output, cluster selection, a semantic row set requiring clusters,
+or selected-cluster root paths require the projection. Pair-only views retain
+the cheaper pair inspection path.
 
 ## Pathological evidence
 
