@@ -772,6 +772,7 @@ public sealed partial class CSharpPrinter
 
     void PrepareBody(IrFunction function)
     {
+        EnsureNoResidualManagedReferenceSlots(function);
         _labelTargets = CollectBranchTargets(function);
         _localDeclarationPlan =
             LocalDeclarationPlan.Create(
@@ -826,6 +827,24 @@ public sealed partial class CSharpPrinter
                 .. Enumerable.Range(0, function.Locals.Length)
                     .Select(LocalFactLabel),
             ];
+    }
+
+    static void EnsureNoResidualManagedReferenceSlots(IrFunction function)
+    {
+        foreach (var node in function.DescendantsOutsideNestedFunctions)
+        {
+            int? slot = node switch
+            {
+                StoreStackSlot { Value.ResultType.Kind: TypeRefKind.ByRef } store => store.Slot,
+                LoadStackSlot { Type.Kind: TypeRefKind.ByRef } load => load.Slot,
+                _ => null,
+            };
+            if (slot is { } residual)
+            {
+                throw new InvalidOperationException(
+                    $"Managed-reference stack slot {residual} reached C# emission after slot materialization.");
+            }
+        }
     }
 
     static bool NeedsUnsupportedFallbackReturn(IrFunction function)
@@ -1017,6 +1036,8 @@ public sealed partial class CSharpPrinter
             _switchTemps.TryAdd(switchBranch, name);
             yield return $"int {name} = default;";
         }
+        var materializedSlotDeclarations =
+            new SortedDictionary<(int Slot, int Ordinal), string>();
         foreach (int index in locals)
         {
             // Syntax-owned locals declare at their owner, not up front.
@@ -1042,21 +1063,38 @@ public sealed partial class CSharpPrinter
                 // reference, whose faithful C# spelling is Unsafe.NullRef<T>().
                 // Fully qualified so the per-member view compiles without a
                 // using; the whole-type hoister shortens it and adds the using.
-                yield return LocalDeclaration(function, index);
+                string declaration = LocalDeclaration(function, index);
+                if (function.TryGetMaterializedStackSlotLocal(
+                        index,
+                        out int slot))
+                {
+                    materializedSlotDeclarations.Add(
+                        (slot, 0),
+                        declaration);
+                }
+                else
+                {
+                    yield return declaration;
+                }
             }
         }
-        foreach (var ((_, _), (name, type)) in _stackSlotDeclarations)
+
+        foreach (var (key, (name, type)) in _stackSlotDeclarations)
         {
             if (_fixedStackSlotNames.Contains(name))
                 continue;
-            if (_declaringStores.OfType<StoreStackSlot>().Any(s => StackSlotName(s) == name))
+            if (_declaringStores
+                .OfType<StoreStackSlot>()
+                .Any(s => StackSlotName(s) == name))
+            {
                 continue;
-            // A ref-typed slot, like a ref-typed local, can't be declared bare
-            // (CS8174); spell IL's null-reference zero-init as Unsafe.NullRef<T>().
-            yield return type is { Kind: TypeRefKind.ByRef }
-                ? $"{TypeText(type)} {name} = ref System.Runtime.CompilerServices.Unsafe.NullRef<{TypeText(type.ElementType!)}>();"
-                : $"{(type is null ? "var" : TypeText(type))} {name};";
+            }
+            materializedSlotDeclarations.Add(
+                key,
+                $"{(type is null ? "var" : TypeText(type))} {name};");
         }
+        foreach (string declaration in materializedSlotDeclarations.Values)
+            yield return declaration;
     }
 
     string LocalDeclaration(IrFunction function, int index)
@@ -1432,15 +1470,6 @@ public sealed partial class CSharpPrinter
                     {
                         _declaringStores.Add(slotStore);
                     }
-                    else if (StackSlotTargetType(slotStore) is { Kind: TypeRefKind.ByRef }
-                        && StackSlotReferencesStayInBlockAfterStore(function, slotStore))
-                    {
-                        // A ref stack-slot temp cannot be declared bare up front
-                        // (CS8174), and synthesizing Unsafe.NullRef<T>() adds IL.
-                        // If every reference stays in the assignment block after
-                        // the first store, declare at that ref assignment instead.
-                        _declaringStores.Add(slotStore);
-                    }
                     else if (!_newMemorySafetyRules
                         && _containsAwaitSyntax
                         && ContainsPointer(StackSlotTargetType(slotStore))
@@ -1603,6 +1632,8 @@ public sealed partial class CSharpPrinter
                 // merges each raised body's maps into the enclosing function, so these
                 // include the definitions this local function references.
             };
+            function.RestoreMaterializedStackSlotLocals(
+                localFunction.MaterializedStackSlotLocals);
             function.CopyTypeFactsFrom(_function);
 
             var nestedPrinter = new CSharpPrinter(
@@ -2833,14 +2864,10 @@ public sealed partial class CSharpPrinter
                 return AssignmentUnsafeExpressionRoot(store.Value, store.UpdateKind) is { } root
                     && UnsafeRequirementsAreWithin(store, store is StoreLocal { Type.Kind: TypeRefKind.ByRef }, root);
             case StoreStackSlot { Value: not StackAllocate } store:
-                var slotType = StackSlotTargetType(store);
                 return AssignmentUnsafeExpressionRoot(
                         store.Value,
                         ResidualSlotUpdateKind(store)) is { } slotRoot
-                    && UnsafeRequirementsAreWithin(
-                        store,
-                        slotType?.Kind == TypeRefKind.ByRef,
-                        slotRoot);
+                    && UnsafeRequirementsAreWithin(store, slotRoot);
             case StoreElement store
                 when !store.ReceiverTempInlined:
                 return UnsafeRequirementsAreWithin(store, store.Value);
@@ -3170,7 +3197,9 @@ public sealed partial class CSharpPrinter
                     ? $"{DeclarationTypeText(store.Type, store.Value)} {LocalName(store.Index)} = "
                     : $"{LocalName(store.Index)} = ";
                 return true;
-            case StoreStackSlot store when store.Value is Call call && StackSlotTargetType(store) is { Kind: not TypeRefKind.ByRef }:
+            case StoreStackSlot store
+                when store.Value is Call call
+                    && StackSlotTargetType(store) is not null:
                 root = call;
                 prefix = _declaringStores.Contains(store)
                     ? $"{DeclarationTypeText(StackSlotTargetType(store)!, store.Value)} {StackSlotName(store)} = "
@@ -3247,7 +3276,12 @@ public sealed partial class CSharpPrinter
                     ? $"{DeclarationTypeText(store.Type, store.Value)} {LocalName(store.Index)} = "
                     : $"{LocalName(store.Index)} = ";
                 return true;
-            case StoreStackSlot store when store.Value is (ObjectInitializerExpression or WithExpression or AnonymousObject) && StackSlotTargetType(store) is { Kind: not TypeRefKind.ByRef }:
+            case StoreStackSlot store
+                when store.Value is
+                    (ObjectInitializerExpression
+                        or WithExpression
+                        or AnonymousObject)
+                    && StackSlotTargetType(store) is not null:
                 value = store.Value;
                 prefix = _declaringStores.Contains(store)
                     ? $"{DeclarationTypeText(StackSlotTargetType(store)!, store.Value)} {StackSlotName(store)} = "
@@ -3336,7 +3370,9 @@ public sealed partial class CSharpPrinter
         {
             Return { Value: { } returned } => returned,
             StoreLocal { Type.Kind: not TypeRefKind.ByRef, Value: { } stored } => stored,
-            StoreStackSlot store when StackSlotTargetType(store) is { Kind: not TypeRefKind.ByRef } => store.Value,
+            StoreStackSlot store
+                when StackSlotTargetType(store) is not null
+                => store.Value,
             _ => null,
         };
         while (value is Convert convert)
@@ -3367,7 +3403,9 @@ public sealed partial class CSharpPrinter
                     ? $"{DeclarationTypeText(store.Type, store.Value)} {LocalName(store.Index)} = "
                     : $"{LocalName(store.Index)} = ";
                 return true;
-            case StoreStackSlot store when store.Value is LogicalBinary logical && StackSlotTargetType(store) is { Kind: not TypeRefKind.ByRef }:
+            case StoreStackSlot store
+                when store.Value is LogicalBinary logical
+                    && StackSlotTargetType(store) is not null:
                 root = logical;
                 prefix = _declaringStores.Contains(store)
                     ? $"{DeclarationTypeText(StackSlotTargetType(store)!, store.Value)} {StackSlotName(store)} = "
@@ -3428,11 +3466,6 @@ public sealed partial class CSharpPrinter
             s.Value,
             s.UpdateKind,
             s.Type, forHeader: forHeader),
-        // A ref-typed slot stores by rebinding the reference — C#'s ref
-        // (re)assignment, exactly as for ref locals above.
-        StoreStackSlot s when StackSlotTargetType(s) is { Kind: TypeRefKind.ByRef } refType => _declaringStores.Contains(s)
-            ? $"{TypeText(refType)} {StackSlotName(s)} = ref {UnsafeExpressionText(s.Value, Deref(s.Value), force: RendersAsPointerDeref(s.Value))};"
-            : $"{StackSlotName(s)} = ref {UnsafeExpressionText(s.Value, Deref(s.Value), force: RendersAsPointerDeref(s.Value))};",
         StoreStackSlot s => _declaringStores.Contains(s)
             ? $"{DeclarationTypeText(StackSlotTargetType(s)!, s.Value)} {StackSlotName(s)} = {UnsafeExpressionText(s.Value, DeclarationInitializerText(StackSlotTargetType(s)!, s.Value))};"
             : AssignmentText(s, s.Value, ResidualSlotUpdateKind(s), StackSlotTargetType(s), forHeader: forHeader),

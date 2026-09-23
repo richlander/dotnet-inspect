@@ -40,7 +40,6 @@ public class ValueSlotMaterializationTests
 
     [Theory]
     [InlineData("unknown")]
-    [InlineData("byref")]
     [InlineData("ref-like")]
     [InlineData("span")]
     [InlineData("open-generic")]
@@ -59,7 +58,6 @@ public class ValueSlotMaterializationTests
         };
         var type = shape switch
         {
-            "byref" => TypeRef.ByRef(Value),
             "span" => TypeRef.GenericInstance(definition, [Int32]),
             "wrong-arity" => TypeRef.GenericInstance(definition, [Int32, Int32]),
             "out-of-scope" => TypeRef.GenericInstance(definition, [TypeRef.MethodGenericParameter(0, "T")]),

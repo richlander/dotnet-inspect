@@ -330,6 +330,8 @@ public sealed partial class CSharpPrinter
                 UsesUpdatedMemorySafetyRules = lambda.UsesUpdatedMemorySafetyRules,
                 SkipLocalsInit = lambda.SkipLocalsInit,
             };
+            function.RestoreMaterializedStackSlotLocals(
+                lambda.MaterializedStackSlotLocals);
             function.CopyTypeFactsFrom(_function);
             var printer = new CSharpPrinter(
                 function,

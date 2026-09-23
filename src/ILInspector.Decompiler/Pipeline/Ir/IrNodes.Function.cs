@@ -11,6 +11,10 @@ namespace ILInspector.Decompiler.Pipeline;
 /// <summary>The C# method kind decoded from a reserved metadata method name: an ordinary method, an instance constructor (<c>.ctor</c>), or a static constructor (<c>.cctor</c>).</summary>
 public enum IrMethodKind { Method, Constructor, StaticConstructor }
 
+internal readonly record struct MaterializedStackSlotLocal(
+    int Slot,
+    bool ProducerOnly);
+
 /// <summary>The root of one method's IR: signature plus a body container, with diagnostics accumulated during construction and passes.</summary>
 public sealed class IrFunction : IrNode
 {
@@ -45,6 +49,9 @@ public sealed class IrFunction : IrNode
     public IrMethodKind MethodKind { get; set; } = IrMethodKind.Method;
     public ImmutableArray<TypeRef> Locals { get; private set; }
     ImmutableHashSet<int> _eliminatedLocalSlots = ImmutableHashSet<int>.Empty;
+    ImmutableDictionary<int, MaterializedStackSlotLocal>
+        _materializedStackSlotLocals =
+            ImmutableDictionary<int, MaterializedStackSlotLocal>.Empty;
     public MetadataFactState CompilerGenerated { get; set; } = MetadataFactState.Unknown;
     public MetadataFactState DeclaringTypeCompilerGenerated { get; set; } = MetadataFactState.Unknown;
     public MetadataFactState IsRuntimeAsync { get; set; } = MetadataFactState.Unknown;
@@ -170,6 +177,58 @@ public sealed class IrFunction : IrNode
         return index;
     }
 
+    internal void MarkMaterializedStackSlotLocal(
+        int index,
+        int slot,
+        bool producerOnly)
+    {
+        if (index < 0 || index >= Locals.Length)
+            throw new ArgumentOutOfRangeException(nameof(index));
+        _materializedStackSlotLocals =
+            _materializedStackSlotLocals.Add(
+                index,
+                new(
+                    slot,
+                    producerOnly));
+    }
+
+    internal bool TryGetMaterializedStackSlotLocal(
+        int index,
+        out int slot)
+    {
+        if (_materializedStackSlotLocals.TryGetValue(
+                index,
+                out var materialized))
+        {
+            slot = materialized.Slot;
+            return true;
+        }
+        slot = default;
+        return false;
+    }
+
+    internal ImmutableDictionary<int, MaterializedStackSlotLocal>
+        MaterializedStackSlotLocals => _materializedStackSlotLocals;
+
+    internal void RestoreMaterializedStackSlotLocals(
+        ImmutableDictionary<int, MaterializedStackSlotLocal>
+            materialized)
+    {
+        if (materialized.Keys.Any(
+                index => index < 0 || index >= Locals.Length))
+        {
+            throw new ArgumentException(
+                "Materialized stack-slot local provenance does not match the local table.");
+        }
+        _materializedStackSlotLocals = materialized;
+    }
+
+    internal bool IsProducerOnlySlotLocal(int index)
+        => _materializedStackSlotLocals.TryGetValue(
+                index,
+                out var materialized)
+            && materialized.ProducerOnly;
+
     /// <summary>
     /// Replaces the local slot table wholesale. Used by a pass that installs a
     /// transplanted body whose local indices are its own — iterator reconstruction
@@ -182,6 +241,8 @@ public sealed class IrFunction : IrNode
     /// <see cref="EliminatedLocalSlots"/> so a raise that landed inside the
     /// transplanted body is not silently undone. A null set drops any prior
     /// marking, since the new numbering no longer names the same locals.
+    /// Materialized stack-slot provenance is likewise cleared because its keys
+    /// belong to the replaced local table.
     /// </summary>
     public void ResetLocals(
         ImmutableArray<TypeRef> locals,
@@ -193,6 +254,8 @@ public sealed class IrFunction : IrNode
         ImmutableArray<string?> pdbLocalNameCandidates = default)
     {
         Locals = locals;
+        _materializedStackSlotLocals =
+            ImmutableDictionary<int, MaterializedStackSlotLocal>.Empty;
         var aligned = names;
         while (aligned.Length < locals.Length)
             aligned = aligned.Add(null);

@@ -14,6 +14,7 @@ internal sealed class SlotMaterializationInvariant
     readonly ImmutableArray<TypeRef> _locals;
     readonly Node[] _nodes;
     readonly Dictionary<int, CoercionSinks.SlotTypeTestimony> _testimony;
+    readonly Dictionary<int, TypeRef> _producerOnlyManagedReferences;
     readonly (int Destination, int Source)[] _copies;
 
     readonly record struct Node(IrNode Original, int ChildCount, bool OuterSlot);
@@ -32,6 +33,29 @@ internal sealed class SlotMaterializationInvariant
             function.Body, function.Signature.ReturnType, function.TypeShapes,
             recoverBooleanIdentity: true, recoverElementIdentity: true,
             enumUnderlyingTypes: function.EnumUnderlyingTypes);
+        var loadedSlots = outerSlots
+            .OfType<LoadStackSlot>()
+            .Select(static load => load.Slot)
+            .ToHashSet();
+        _producerOnlyManagedReferences = outerSlots
+            .OfType<StoreStackSlot>()
+            .Where(store => !loadedSlots.Contains(store.Slot))
+            .GroupBy(static store => store.Slot)
+            .Select(group => (
+                Slot: group.Key,
+                Types: group
+                    .Select(static store => store.Value.ResultType)
+                    .Distinct()
+                    .ToArray()))
+            .Where(static candidate => candidate.Types is
+                [
+                    {
+                        Kind: TypeRefKind.ByRef,
+                    },
+                ])
+            .ToDictionary(
+                static candidate => candidate.Slot,
+                static candidate => candidate.Types[0]!);
         _copies = outerSlots.OfType<StoreStackSlot>()
             .Where(static store => store.Value is LoadStackSlot)
             .Select(static store => (store.Slot, ((LoadStackSlot)store.Value).Slot))
@@ -91,9 +115,17 @@ internal sealed class SlotMaterializationInvariant
                 Fail($"S_{slot} does not refer to a fresh local");
             if (!type.Equals(locals[index]))
                 Fail($"S_{slot} reference disagrees with its local table type");
-            if (!_testimony.TryGetValue(slot, out var testimony)
-                || testimony.Status != CoercionSinks.SlotTypeTestimonyStatus.Decided
-                || !type.Equals(testimony.Type))
+            bool observerTestified =
+                _testimony.TryGetValue(slot, out var testimony)
+                && testimony.Status
+                    == CoercionSinks.SlotTypeTestimonyStatus.Decided
+                && type.Equals(testimony.Type);
+            bool producerTestified =
+                _producerOnlyManagedReferences.TryGetValue(
+                    slot,
+                    out var producerType)
+                && type.Equals(producerType);
+            if (!observerTestified && !producerTestified)
                 Fail($"S_{slot} local type disagrees with pre-rewrite testimony");
             RecordBinding(slot, index);
             if (localOwners.TryGetValue(index, out int owner) && owner != slot)
