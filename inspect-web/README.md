@@ -2306,9 +2306,10 @@ or version discovery. The exact selected Library operation acquires its own
 source dependencies. The explicit Platform catalog retains its broader warmup
 and version picker. This follows the package opening interstitial convention
 and preserves source-owner cache reuse rather than adding another cache.
-`browser/library-hierarchy.platform.spec.ts` gates delayed `System.Text.Json`
-success, failure, supersession, and selected-Library demand through the production
-navigation binding and controlled facade completions.
+`browser/library-hierarchy.platform.spec.ts` gates accessible pending status,
+delayed `System.Text.Json` success, failure, supersession, URL-encoding
+settlement, rejected-history rollback, and selected-Library demand through the
+production navigation binding and controlled facade completions.
 
 The loading cost includes acquiring a compressed NuGet runtime archive on a
 cold cache, validating cached archive content, realizing the selected assembly,

@@ -3894,9 +3894,18 @@ function commitStagedWorkspaceNavigation(
   navigationSeq: number,
   publication: StagedWorkspacePublication,
 ): boolean {
+  return commitStagedWorkspaceWithNavigation(
+    publication,
+    () => commitDemoNavigation(navigationSeq));
+}
+
+function commitStagedWorkspaceWithNavigation(
+  publication: StagedWorkspacePublication,
+  commitNavigation: () => boolean,
+): boolean {
   const previousCollection = retainedWorkspaces;
   retainedWorkspaces = publication.collection;
-  if (!commitDemoNavigation(navigationSeq)) {
+  if (!commitNavigation()) {
     retainedWorkspaces = previousCollection;
     return false;
   }
@@ -12047,7 +12056,6 @@ async function openPlatformLibrary(
     recordPlatformRecent(library.name, row.pack);
     state.platformOpeningStatus = { loading: false, error: "" };
     if (scopeOnly) return pkg;
-    state.loading = false;
     state.atPackageRoot = false;
     state.atLibraryRoot = true;
     state.libraryLens = "overview";
@@ -12064,18 +12072,24 @@ async function openPlatformLibrary(
         location.href,
         withPlatformRootParentHistory(history.state, hasPlatformRootParent));
     }
-    render();
     await loadSelectionData();
     if (!navigationSequence.isCurrent(navigationSeq)) return undefined;
     if (construction) {
       const destination = (await buildStateUrl()).toString();
       if (!navigationSequence.isCurrent(navigationSeq)) return undefined;
-      publishCurrentWorkspace(construction.retainedSnapshot);
-      workspaceLocation.push(destination);
-      render({ synchronizeUrl: false });
+      const publication = stageCurrentWorkspacePublication(
+        construction.retainedSnapshot,
+        destination);
+      if (!commitStagedWorkspaceWithNavigation(
+          publication,
+          () => workspaceLocation.push(destination))) {
+        throw new Error("Browser history could not be updated.");
+      }
     } else {
       ensureCurrentWorkspacePublished();
     }
+    state.loading = false;
+    render(construction ? { synchronizeUrl: false } : undefined);
     if (navigationGeneration != null)
       focusTypeList(navigationGeneration, focusGeneration);
     return pkg;
@@ -13340,13 +13354,7 @@ function renderHomeView(preservedFocus: HomeFocusTarget | null) {
           <button id="home-theme" aria-label="Switch theme">${state.theme === "dark" ? "light" : "dark"}</button>
         </div>
       </header>
-      ${visibleQueryNotice()
-        ? `<div class="query-notice" role="alert">
-            <span class="query-notice-glyph">⚠</span>
-            <span class="query-notice-text">${escapeHtml(visibleQueryNotice())}</span>
-            <button id="dismiss-notice" type="button" aria-label="Dismiss">×</button>
-          </div>`
-        : ""}
+      ${renderQueryNotice()}
       <main class="home-hero">
         <div class="home-copy">
           <p class="home-kicker">Browser-native · WebAssembly · zero install</p>
@@ -15477,6 +15485,10 @@ const loadErrorShellActions: LoadErrorShellBindingActions = {
 };
 
 function renderLoading() {
+  if (pendingWorkspaceConstruction !== null) {
+    // The interstitial replaces every Workspace control, so its status can remain exposed.
+    app.inert = false;
+  }
   app.innerHTML = `
     <div class="loading-screen">
       <a class="loading-brand" href="/" aria-label="dotnet inspect home"><span>◇</span> dotnet-inspect</a>
