@@ -195,11 +195,11 @@ test.describe("published authored Source comparison transport", () => {
           metadataToken: body.token,
         };
         const compared = await source.queryMemberSourceComparison(
-          "source-comparison-public-pair", JSON.stringify(request),
+          "source-comparison-public-pair", request,
         );
         const same = await source.queryMemberSourceComparison(
           "source-comparison-public-same",
-          JSON.stringify({ ...request, afterVersion: request.beforeVersion }),
+          { ...request, afterVersion: request.beforeVersion },
         );
         return { request, compared, same };
       });
@@ -330,7 +330,7 @@ test.describe("published authored Source comparison transport", () => {
         const result = await targetPage.evaluate(async request => {
           const source = await import("/inspect-web-source.js");
           return source.queryMemberSourceComparison(
-            `source-comparison-fixture-${request.memberName}`, JSON.stringify(request));
+            `source-comparison-fixture-${request.memberName}`, request);
         }, selected);
         return decodeSourceComparison(result);
       }
@@ -692,13 +692,16 @@ test.describe("published authored Source comparison transport", () => {
         };
       });
       const canceledId = "source-comparison-worker-canceled";
-      await page.evaluate(({ operationId, requestJson }) => {
+      await page.evaluate(({ operationId, comparisonRequest }) => {
         const target = window as SourceComparisonGateWindow;
         const bridge = target.__inspectWebSourceComparison;
         if (!bridge) throw new Error("Source comparison bridge is unavailable.");
         target.__sourceComparisonPending =
-          bridge.source.queryMemberSourceComparison(operationId, requestJson);
-      }, { operationId: canceledId, requestJson: JSON.stringify(request) });
+          bridge.source.queryMemberSourceComparison(
+            operationId,
+            comparisonRequest,
+          );
+      }, { operationId: canceledId, comparisonRequest: request });
       await sourceStart;
       await page.evaluate(async operationId => {
         const bridge = (window as SourceComparisonGateWindow)
@@ -722,18 +725,18 @@ test.describe("published authored Source comparison transport", () => {
       expect(canceled.reason).toBe("superseded");
 
       const successor = await page.evaluate(
-        async ({ operationId, requestJson }) => {
+        async ({ operationId, comparisonRequest }) => {
           const bridge = (window as SourceComparisonGateWindow)
             .__inspectWebSourceComparison;
           if (!bridge) throw new Error("Source comparison bridge is unavailable.");
           return await bridge.source.queryMemberSourceComparison(
             operationId,
-            requestJson,
+            comparisonRequest,
           );
         },
         {
           operationId: "source-comparison-worker-successor",
-          requestJson: JSON.stringify(request),
+          comparisonRequest: request,
         },
       );
       expect(successor.kind).toBe("Succeeded");
