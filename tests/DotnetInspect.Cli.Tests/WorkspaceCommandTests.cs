@@ -1838,7 +1838,7 @@ public sealed partial class WorkspaceCommandTests
 
         Assert.Equal(0, captured.ExitCode);
         Assert.Empty(captured.Error);
-        const string prefix = "https://dotnet-inspect.net/?w=";
+        const string prefix = "https://dotnet-inspect.ca/?w=";
         Assert.StartsWith(prefix, captured.Output, StringComparison.Ordinal);
         WorkspaceSharePacket packet = WorkspaceSharePacketCodec.Decode(
             captured.Output.TrimEnd()[prefix.Length..],

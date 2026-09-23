@@ -12,7 +12,7 @@ dotnet --list-sdks
 dotnet --version
 ```
 
-The [repository development SDK](../../README.md#repository-development-sdk) is
+The [repository development SDK](../../docs/cli-reference.md#repository-development-sdk) is
 the current .NET 11 release candidate. As of RC1, that resolves to
 `11.0.100-rc.1.26425.128`. Use the installed SDK when that exact version
 appears in `dotnet --list-sdks` and `dotnet --version` selects it. If `dotnet`

@@ -146,6 +146,13 @@ public sealed record PackageDependencyMemberCallGraphRoute(
     PackageDependencyMemberCallGraphRouteSubject Subject,
     PackageDependencyMemberCallGraphDestination Destination);
 
+/// <summary>
+/// Resource-free package descriptor for one uniquely attributed graph node.
+/// </summary>
+public sealed record PackageDependencyMemberCallGraphNodePackage(
+    int NodeId,
+    WorkspacePackageDescriptor Descriptor);
+
 public enum PackageDependencyMemberCallGraphFailureReason
 {
     FocusUnavailable,
@@ -167,6 +174,8 @@ public abstract record PackageDependencyMemberCallGraphOutcome
         PackageDependencyTraversalSummary TraversalSummary,
         WorkspaceScopeRevisionIdentity ScopeRevision,
         ImmutableArray<PackageDependencyMemberCallGraphRoute> Routes,
+        ImmutableArray<PackageDependencyMemberCallGraphNodePackage>
+            NodePackages,
         InspectionGraphDocument Graph)
         : PackageDependencyMemberCallGraphOutcome;
 
@@ -335,16 +344,19 @@ public static class PackageDependencyMemberCallGraphOperation
                 unavailable.Failure);
         }
 
-        InspectionGraphDocument graph =
-            ((PackageRoleMemberCallGraphOutcome.Available)graphOutcome!)
-                .Document;
+        var availableGraph =
+            (PackageRoleMemberCallGraphOutcome.Available)graphOutcome!;
         cancellationToken.ThrowIfCancellationRequested();
         return new PackageDependencyMemberCallGraphOutcome.Completed(
             request.Traversal.TraversalTargetPolicy,
             request.Traversal.Summary,
             completedRoutes.Scope.Revision.Identity,
             DetachRoutes(completedRoutes),
-            graph);
+            DetachNodePackages(
+                availableGraph.NodePackages,
+                completedRoutes.Scope,
+                graphBindings),
+            availableGraph.Document);
     }
 
     internal static PackageDependencyMemberCallGraphOutcome.Failed?
@@ -681,6 +693,40 @@ public static class PackageDependencyMemberCallGraphOperation
                     DetachSubject(destination.Subject),
                     DetachDestination(destination))),
         ];
+
+    private static ImmutableArray<
+        PackageDependencyMemberCallGraphNodePackage> DetachNodePackages(
+        ImmutableArray<PackageRoleMemberCallGraphNodePackage> nodePackages,
+        WorkspaceScopeSnapshot scope,
+        ImmutableArray<PackageRootBinding> bindings)
+    {
+        var descriptors =
+            new Dictionary<PackageRootIdentity, WorkspacePackageDescriptor>(
+                ReferenceEqualityComparer.Instance);
+        foreach (PackageRootBinding binding in bindings)
+        {
+            WorkspacePackageOccurrenceDescriptor occurrence =
+                scope.FindExactPackageOccurrence(binding)
+                ?? throw new InvalidOperationException(
+                    "A graph package binding was not retained in the completed Workspace Scope.");
+            descriptors.Add(
+                binding.Root.Identity,
+                occurrence.Occurrence.Package);
+        }
+
+        return
+        [
+            .. nodePackages.Select(nodePackage =>
+                new PackageDependencyMemberCallGraphNodePackage(
+                    nodePackage.NodeId,
+                    descriptors.TryGetValue(
+                            nodePackage.Package,
+                            out WorkspacePackageDescriptor? descriptor)
+                        ? descriptor
+                        : throw new InvalidOperationException(
+                            "A graph node named a package Root outside the completed graph bindings."))),
+        ];
+    }
 
     private static PackageDependencyMemberCallGraphRouteSubject
         DetachSubject(

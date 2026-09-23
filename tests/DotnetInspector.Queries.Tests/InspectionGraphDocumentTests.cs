@@ -220,6 +220,46 @@ public sealed class InspectionGraphDocumentTests
     }
 
     [Fact]
+    public void CallAdapter_BindsEveryEqualRootAsPeerSeed()
+    {
+        MemberRef first = Member("First");
+        MemberRef second = Member("Second");
+        MemberRef shared = Member("Shared");
+        CallGraphProjection projection =
+            CallGraphProjection.FromCallees(
+                [
+                    Node(
+                        first,
+                        CallTreeStatus.Expanded,
+                        Node(shared, CallTreeStatus.Leaf)),
+                    Node(
+                        second,
+                        CallTreeStatus.Expanded,
+                        Node(shared, CallTreeStatus.Leaf)),
+                ],
+                maxNodes: 3);
+
+        InspectionGraphDocument document =
+            CallGraphInspectionGraphAdapter.Create(projection);
+
+        Assert.Equal(InspectionGraphMode.PeerSeeds, document.ModeRequest.Mode);
+        Assert.Equal(
+            [first, second],
+            document.Seeds.Select(seed =>
+                CallGraphMember(seed.Subject)));
+        Assert.Equal(
+            [InspectionGraphTarget.Node(0), InspectionGraphTarget.Node(1)],
+            document.Seeds.Select(static seed => seed.Target));
+        Assert.All(
+            document.Seeds,
+            seed => Assert.Equal(
+                InspectionGraphSeedRole.Peer,
+                seed.Role));
+        Assert.Equal(3, document.Nodes.Length);
+        Assert.Equal(2, document.Edges.Length);
+    }
+
+    [Fact]
     public void CallAdapter_RetainsPhysicalSitesAndTypedAggregates()
     {
         MemberRef focus = Member("Focus");

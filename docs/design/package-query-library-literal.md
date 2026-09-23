@@ -114,7 +114,14 @@ display-string identity.
 
 CLI Package Query presentation exposes the selected-library context, complete
 occurrence count, bounded coordinate preview, and opaque Root reopening token
-on each semantic package row. Package Query JSON serializes the typed
+on each semantic package row. Its explicit `Literal Strings` section projects
+one row per physical decoded `ldstr` occurrence across the selected package
+Results, preserving package and occurrence order. Each row contains Package,
+Library, Method Token, IL Offset, and the complete retained Literal. Repeated
+operand hits within one decoded string do not split or duplicate that physical
+occurrence; repeated uses of the same full string at different IL coordinates
+remain separate rows. A match such as `https://` does not extract or split URL
+substrings from a larger literal. Package Query JSON serializes the typed
 `RootRequest` as that same opaque token so `workspace --root-request` can
 consume it without reconstructing owner-private fields.
 
@@ -138,7 +145,9 @@ package-wide or all-assembly absence claim.
 `-n`, `--rows`, and Browser match credit apply only to final matched package
 Results after ordinary prequalification and semantic evaluation. They never
 select occurrence evidence or turn a prequalification survivor into a
-published match.
+published match. CLI `Literal Strings` rows are a presentation projection over
+those already selected package Results, not a second semantic row-selection
+grain.
 
 When CLI pushes one semantic Head into execution, the selected-library
 evaluator stops after establishing the Nth final package match. Later
@@ -208,6 +217,9 @@ Focused Release gates must cover:
 - one package Result for a candidate with multiple occurrences;
 - final-match-only publication and Browser credit consumption;
 - complete occurrence retention with bounded presentation preview;
+- physical full-literal CLI rows that preserve package, library, MethodDef, and
+  IL-offset coordinates; retain separate IL sites; and do not split one string
+  when the operand occurs more than once;
 - semantic miss, not applicable, acquisition failure, not evaluated, and a
   later match in one bounded population;
 - unified Package Query envelope, result kind, Summary, and failure accounting;

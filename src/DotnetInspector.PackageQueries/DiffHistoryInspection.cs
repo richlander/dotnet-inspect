@@ -712,6 +712,8 @@ public sealed class DiffHistoryApiMemberDocument
                 adaptive.MaximumProbes,
             DiffHistoryEvaluationPlan.RepresentativeSurvey =>
                 EvaluationPlan.ResolveAuthorizedEvaluationCount(Population),
+            DiffHistoryEvaluationPlan.MajorVersionRepresentatives =>
+                EvaluationPlan.ResolveAuthorizedEvaluationCount(Population),
             _ => null,
         };
 

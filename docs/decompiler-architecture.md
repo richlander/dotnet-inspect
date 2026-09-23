@@ -274,7 +274,7 @@ defines that boundary and the still-unimplemented receipt strengthening.
 ### Running a focused slice
 
 Run from the repository/worktree root with the
-[repository development SDK](../README.md#repository-development-sdk). Inspect
+[repository development SDK](cli-reference.md#repository-development-sdk). Inspect
 `dotnet --list-sdks` and `dotnet --version` first. Use Release and the executable
 test host via `dotnet run`, not `dotnet test`.
 

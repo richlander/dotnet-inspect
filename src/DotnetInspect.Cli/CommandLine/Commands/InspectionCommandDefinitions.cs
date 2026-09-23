@@ -64,6 +64,10 @@ public static class InspectionCommandDefinitions
         {
             Description = "History representative positional sample (1-100 percent), optionally capped by --max-probes",
         };
+        var majorVersionsOption = new Option<bool>("--major-versions")
+        {
+            Description = "History: evaluate one representative per package major; API uses first stable, Analysis uses latest",
+        };
         var prereleaseOption = new Option<bool>("--preview")
         {
             Description = "History: include prerelease versions inside the package range",
@@ -109,6 +113,7 @@ public static class InspectionCommandDefinitions
         diffCommand.Options.Add(atOption);
         diffCommand.Options.Add(maxProbesOption);
         diffCommand.Options.Add(samplePercentOption);
+        diffCommand.Options.Add(majorVersionsOption);
         diffCommand.Options.Add(prereleaseOption);
         diffCommand.Options.Add(configDirectoryOption);
         diffCommand.Options.Add(typeFilterOption);
@@ -207,7 +212,7 @@ public static class InspectionCommandDefinitions
 
         var commandArgs = new DiffOptionsParser.DiffCommandArgs(
             argsArg, packageOption, platformOption, libraryOption, frameworkOption, tfmOption, allOption,
-            historyOption, atOption, maxProbesOption, samplePercentOption, prereleaseOption, opts.Count,
+            historyOption, atOption, maxProbesOption, samplePercentOption, majorVersionsOption, prereleaseOption, opts.Count,
             typeFilterOption, memberFilterOption, opts.NoHeaders, nameOnlyOption, breakingOption, additiveOption, changedOption, allocRegressionsOption, pdbSourceOption, legacyAuthoredSourceOption, findingOption, legendOption, repoOption, compactOption);
 
         diffCommand.SetAction(async (parseResult, ct) =>

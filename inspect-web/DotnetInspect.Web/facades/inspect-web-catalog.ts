@@ -82,6 +82,9 @@ export interface BrowserCallGraphTarget {
   readonly kind: string;
   readonly platformPack: string | null;
   readonly surfaceAssemblyId: string | null;
+  readonly packageId: string | null;
+  readonly packageVersion: string | null;
+  readonly packageFramework: string | null;
 }
 
 export interface BrowserCompileLibraryAvailability {

@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using System.IO.Compression;
 using System.Text;
 
@@ -17,6 +18,9 @@ public sealed class PackageRoleMemberCallGraphQueryTests
     static string TargetPath =>
         FixtureCatalog.AnalysisCallerGraphTarget.AssemblyPath();
 
+    static string TargetV2Path =>
+        FixtureCatalog.AnalysisCallerGraphTargetV2.AssemblyPath();
+
     [Fact]
     public async Task
         ExecuteUsesExactRootImplementationAndReturnsDetachedExternalGraph()
@@ -27,6 +31,74 @@ public sealed class PackageRoleMemberCallGraphQueryTests
         PackageRootBinding target = PackageBinding(
             "callgraph.target",
             TargetPath);
+        PackageRootBinding versionSkewedTarget = PackageBinding(
+            "callgraph.target.v2",
+            TargetV2Path);
+        (InspectionGraphDocument document,
+            ImmutableArray<PackageRoleMemberCallGraphNodePackage>
+                nodePackages) =
+            await ExecuteAsync(caller, target, versionSkewedTarget);
+        InspectionGraphEdge edge = Assert.Single(document.Edges);
+        Assert.Equal(
+            ("RunAcrossBoundary", "Forward"),
+            (
+                Member(document.Nodes[edge.FromNodeId]).Name,
+                Member(document.Nodes[edge.ToNodeId]).Name));
+        Assert.Equal(
+            [
+                (edge.FromNodeId, "callgraph.caller"),
+                (edge.ToNodeId, "callgraph.target"),
+            ],
+            nodePackages
+                .OrderBy(item => item.NodeId)
+                .Select(item => (item.NodeId, item.Package.PackageId)));
+    }
+
+    [Fact]
+    public void AmbiguousAssemblyNameOwnershipReturnsNoPackage()
+    {
+        PackageRootBinding firstTarget = PackageBinding(
+            "callgraph.target.one",
+            TargetPath);
+        PackageRootBinding secondTarget = PackageBinding(
+            "callgraph.target.two",
+            TargetV2Path);
+        var firstParticipant = new PackageAssemblyRoleParticipant(
+            firstTarget.Root.Identity,
+            Assert.Single(firstTarget.Root.AssetSelection.Assets),
+            new AssemblyContextParticipant(
+                ResolvedAssemblyReference.CreateFromPath(
+                    TargetPath,
+                    AssemblyResolutionProvenance.Local("query test")),
+                NoResolverAssemblyBindingPolicy.Instance));
+        var secondParticipant = new PackageAssemblyRoleParticipant(
+            secondTarget.Root.Identity,
+            Assert.Single(secondTarget.Root.AssetSelection.Assets),
+            new AssemblyContextParticipant(
+                ResolvedAssemblyReference.CreateFromPath(
+                    TargetV2Path,
+                    AssemblyResolutionProvenance.Local("query test")),
+                NoResolverAssemblyBindingPolicy.Instance));
+
+        (PackageRootIdentity? package, bool ambiguous) =
+            PackageRoleMemberCallGraphQuery.MatchPackage(
+                [firstParticipant, secondParticipant],
+                identity: null,
+                firstParticipant.Participant.Assembly.Identity.Name);
+
+        Assert.Null(package);
+        Assert.True(ambiguous);
+    }
+
+    private static async Task<(
+        InspectionGraphDocument Document,
+        ImmutableArray<PackageRoleMemberCallGraphNodePackage> NodePackages)>
+        ExecuteAsync(
+            PackageRootBinding caller,
+            params PackageRootBinding[] packages)
+    {
+        ImmutableArray<PackageRootBinding> bindings =
+            [caller, .. packages];
         await using var workspace = new InspectionWorkspace();
         WorkspaceScopeSnapshot empty =
             Assert.IsType<WorkspaceScopeReadResult.Available>(
@@ -36,19 +108,17 @@ public sealed class PackageRoleMemberCallGraphQueryTests
                 await workspace.AddPackagesAsync(
                     empty.Revision,
                     empty.PublicationBase,
-                    [caller, target],
+                    bindings,
                     DateTimeOffset.UtcNow.AddMinutes(1),
                     TestContext.Current.CancellationToken)).Snapshot;
-        Assert.Equal(2, scope.Packages.Length);
+        Assert.Equal(bindings.Length, scope.Packages.Length);
 
         PackageAssemblyContextCompletionOperation operation =
-            workspace.PreparePackageAssemblyContextCompletion(
-                [caller, target]);
+            workspace.PreparePackageAssemblyContextCompletion(bindings);
         PackageAssemblyContextCompletion completion =
             await operation.ExecuteAsync(operation.Identity);
         PackageAssemblyContextProjection projection =
-            completion.CreateProjection([caller, target]);
-        InspectionGraphDocument document;
+            completion.CreateProjection(bindings);
         try
         {
             PackageRoleMemberCallGraphOutcome outcome =
@@ -69,27 +139,20 @@ public sealed class PackageRoleMemberCallGraphQueryTests
             Assert.True(
                 outcome is PackageRoleMemberCallGraphOutcome.Available,
                 unavailable?.Failure.ToString());
-            document =
-                ((PackageRoleMemberCallGraphOutcome.Available)outcome)
-                    .Document;
+            var available =
+                (PackageRoleMemberCallGraphOutcome.Available)outcome;
+            return (available.Document, available.NodePackages);
         }
         finally
         {
             await projection.ReturnAsync();
+            PackageRoleCleanupReport cleanup =
+                await completion.CloseAsync();
+            Assert.DoesNotContain(
+                cleanup.Groups,
+                static group =>
+                    group is PackageRoleGroupCleanupRecord.Failed);
         }
-
-        PackageRoleCleanupReport cleanup =
-            await completion.CloseAsync();
-        Assert.DoesNotContain(
-            cleanup.Groups,
-            static group =>
-                group is PackageRoleGroupCleanupRecord.Failed);
-        InspectionGraphEdge edge = Assert.Single(document.Edges);
-        Assert.Equal(
-            ("RunAcrossBoundary", "Forward"),
-            (
-                Member(document.Nodes[edge.FromNodeId]).Name,
-                Member(document.Nodes[edge.ToNodeId]).Name));
     }
 
     private static PackageRootBinding PackageBinding(
