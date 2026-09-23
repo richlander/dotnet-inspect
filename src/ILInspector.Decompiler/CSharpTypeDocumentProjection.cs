@@ -152,15 +152,8 @@ public static class CSharpTypeDocumentProjector
         ArgumentNullException.ThrowIfNull(request);
 
         CSharpTypeDeclaration? selected = null;
-        if (request.BodyMode == CSharpTypeBodyMode.SelectedBody)
+        if (request.SelectedMember is not null)
         {
-            if (request.SelectedMember is null)
-            {
-                return Reject(
-                    CSharpTypeProjectionFailureKind.SelectedMemberRequired,
-                    "Selected body requires an exact member identity.");
-            }
-
             selected = document.Declarations.FirstOrDefault(
                 declaration => declaration.Anchor == request.SelectedMember);
             if (selected is null)
@@ -176,18 +169,28 @@ public static class CSharpTypeDocumentProjector
                     "The selected member is excluded by the structural filters.");
             }
         }
+        else if (request.BodyMode == CSharpTypeBodyMode.SelectedBody)
+        {
+            return Reject(
+                CSharpTypeProjectionFailureKind.SelectedMemberRequired,
+                "Selected body requires an exact member identity.");
+        }
 
-        ImmutableHashSet<int> selectedOwnedBodies = selected is null
+        CSharpTypeDeclaration? selectedBody =
+            request.BodyMode == CSharpTypeBodyMode.SelectedBody
+                ? selected
+                : null;
+        ImmutableHashSet<int> selectedOwnedBodies = selectedBody is null
             ? []
-            : selected.Parts
+            : selectedBody.Parts
                 .SelectMany(static part => part.OwnedBodies)
                 .Select(static body => body.BodyId)
                 .ToImmutableHashSet();
 
-        if (selected is not null
+        if (selectedBody is not null
             && !HasSelectedImplementationDifference(
                 document,
-                selected,
+                selectedBody,
                 selectedOwnedBodies,
                 request))
         {
@@ -218,7 +221,7 @@ public static class CSharpTypeDocumentProjector
         {
             if (!IsVisible(declaration, request))
             {
-                if (selected is not null)
+                if (selectedBody is not null)
                 {
                     foreach (CSharpTypeBodyContribution contribution
                         in declaration.Parts
@@ -251,7 +254,7 @@ public static class CSharpTypeDocumentProjector
                     declaration,
                     part,
                     request,
-                    selected,
+                    selectedBody,
                     selectedOwnedBodies,
                     text,
                     regions,

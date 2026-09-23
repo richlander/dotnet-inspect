@@ -1065,8 +1065,12 @@ public class CSharpTypeDocumentTests
             hidden.Select(static diagnostic => diagnostic.ContributionRole));
     }
 
-    [Fact]
-    public void SelectedBody_RejectsHiddenAndForeignMembers()
+    [Theory]
+    [InlineData(CSharpTypeBodyMode.Bodies)]
+    [InlineData(CSharpTypeBodyMode.Skeleton)]
+    [InlineData(CSharpTypeBodyMode.SelectedBody)]
+    public void SelectedMember_RejectsHiddenAndForeignMembers(
+        CSharpTypeBodyMode bodyMode)
     {
         CSharpTypeDocument document = Create(Input());
 
@@ -1074,7 +1078,7 @@ public class CSharpTypeDocumentTests
             CSharpTypeDocumentProjector.Project(
                 document,
                 new(
-                    CSharpTypeBodyMode.SelectedBody,
+                    bodyMode,
                     document.Declarations[0].Anchor,
                     accessibilities: [CSharpTypeAccessibility.Public])));
         Assert.Equal(
@@ -1085,7 +1089,7 @@ public class CSharpTypeDocumentTests
             CSharpTypeDocumentProjector.Project(
                 document,
                 new(
-                    CSharpTypeBodyMode.SelectedBody,
+                    bodyMode,
                     Anchor("Foreign", "void Foreign()"))));
         Assert.Equal(
             CSharpTypeProjectionFailureKind.SelectedMemberNotFound,

@@ -448,28 +448,33 @@ public sealed class BrowserTypeSourceOperationTests(ITestOutputHelper output)
                         selected.Accessibility,
                         StringComparison.Ordinal));
 
-        BrowserTypeExplorerInspection rejected = AssertTypeExplorerDocument(
-            await QueryTypeExplorer(
-                packageId,
-                new(
-                    BrowserTypeExplorerBodyMode.SelectedBody,
-                    selected.DeclarationId,
-                    initial.Document!.Projection!.Revision,
-                    BrowserTypeExplorerPlacement.All,
-                    [hiddenBy],
-                    IncludeGenerated: true,
-                    IncludeDocumentation: true,
-                    IncludeAttributes: true)));
+        foreach (BrowserTypeExplorerBodyMode bodyMode
+            in Enum.GetValues<BrowserTypeExplorerBodyMode>())
+        {
+            BrowserTypeExplorerInspection rejected =
+                AssertTypeExplorerDocument(
+                    await QueryTypeExplorer(
+                        packageId,
+                        new(
+                            bodyMode,
+                            selected.DeclarationId,
+                            initial.Document!.Projection!.Revision,
+                            BrowserTypeExplorerPlacement.All,
+                            [hiddenBy],
+                            IncludeGenerated: true,
+                            IncludeDocumentation: true,
+                            IncludeAttributes: true)));
 
-        Assert.Null(rejected.Document!.Projection);
-        BrowserTypeExplorerProjectionFailure failure =
-            Assert.IsType<BrowserTypeExplorerProjectionFailure>(
-                rejected.Document.ProjectionFailure);
-        Assert.Equal("SelectedMemberHidden", failure.Kind);
-        Assert.Contains(
-            "excluded by the structural filters",
-            failure.Message,
-            StringComparison.Ordinal);
+            Assert.Null(rejected.Document!.Projection);
+            BrowserTypeExplorerProjectionFailure failure =
+                Assert.IsType<BrowserTypeExplorerProjectionFailure>(
+                    rejected.Document.ProjectionFailure);
+            Assert.Equal("SelectedMemberHidden", failure.Kind);
+            Assert.Contains(
+                "excluded by the structural filters",
+                failure.Message,
+                StringComparison.Ordinal);
+        }
     }
 
     // PR-fast: the bounded route selection currency never resolves against a different document.

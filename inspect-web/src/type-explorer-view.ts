@@ -414,7 +414,7 @@ function projectionHtml(
               <span>${escapeHtml(declaration.kind)} · ${escapeHtml(
                 accessibilityLabel(declaration.accessibility))}</span>
               <span class="type-explorer-outline-signature">${
-                escapeHtml(declaration.identity.stableSelector)
+                escapeHtml(declaration.identity.canonicalSignature)
               }</span>
             </button>
           </li>`;

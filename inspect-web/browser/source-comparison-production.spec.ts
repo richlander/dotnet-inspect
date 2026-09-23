@@ -537,6 +537,21 @@ test.describe("published authored Source comparison transport", () => {
       await valueOutline.click();
       await expect(valueOutline).toHaveAttribute("aria-current", "true");
       await expect(valueOutline).toBeFocused();
+      const staticMembers = applicationPage.getByRole("radio", {
+        name: "Static",
+      });
+      await staticMembers.check();
+      await expect(
+        applicationPage.locator(".type-explorer-failure"),
+      ).toContainText("SelectedMemberHidden");
+      const allMembers = applicationPage.getByRole("radio", {
+        name: "All",
+      });
+      await allMembers.check();
+      await expect(
+        applicationPage.getByRole("region", { name: "Whole-Type C#" }),
+      ).toContainText("Counter", { timeout: 60_000 });
+      await expect(valueOutline).toHaveAttribute("aria-current", "true");
       const sourceDeclaration = applicationPage
         .locator(".type-explorer-source-declaration")
         .filter({ hasText: /\bCounter\b/u })

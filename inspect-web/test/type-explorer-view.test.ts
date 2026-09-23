@@ -94,11 +94,11 @@ test("Type Explorer renders owner-issued declarations and selection", () => {
   assert.match(html, /aria-expanded="false"/u);
 });
 
-test("Type Explorer visibly disambiguates overloads with owner-issued selectors", () => {
-  const text = [
-    "public string ConvertName(string name);",
-    "public string ConvertName(char[] name);",
-  ].join("\n");
+test("Type Explorer visibly disambiguates colliding stable selectors", () => {
+  const first = "public void Overload(Parameter930885 value);";
+  const second = "public void Overload(Parameter1349381 value);";
+  const text = `${first}\n${second}`;
+  const stableSelector = "Overload~2e56935e85";
   const overloadedInspection: TypeExplorerInspection = {
     ...inspection,
     document: {
@@ -109,19 +109,30 @@ test("Type Explorer visibly disambiguates overloads with owner-issued selectors"
         declarations: [
           {
             ...inspection.document!.projection!.declarations[0]!,
-            range: { start: 0, length: 39 },
+            identity: {
+              ...identity,
+              stableSelector,
+              canonicalSignature:
+                "M:Samples.Collision.Overload(Samples.Parameter930885)",
+              fingerprint: "2e56935e85",
+              typeFullName: "Samples.Collision",
+              memberName: "Overload",
+            },
+            range: { start: 0, length: first.length },
           },
           {
             ...inspection.document!.projection!.declarations[0]!,
             declarationId: 8,
             identity: {
               ...identity,
-              stableSelector: "M:ConvertName(System.Char[])",
+              stableSelector,
               canonicalSignature:
-                "System.String System.Text.Json.JsonNamingPolicy::ConvertName(System.Char[])",
-              fingerprint: "9876543210",
+                "M:Samples.Collision.Overload(Samples.Parameter1349381)",
+              fingerprint: "2e56935e85",
+              typeFullName: "Samples.Collision",
+              memberName: "Overload",
             },
-            range: { start: 40, length: 39 },
+            range: { start: first.length + 1, length: second.length },
           },
         ],
       },
@@ -145,10 +156,11 @@ test("Type Explorer visibly disambiguates overloads with owner-issued selectors"
 
   assert.match(
     html,
-    /<button[^>]*data-type-explorer-declaration="7"[\s\S]*M:ConvertName\(System\.String\)[\s\S]*<\/button>/u);
+    /<span class="type-explorer-outline-signature">M:Samples\.Collision\.Overload\(Samples\.Parameter930885\)<\/span>/u);
   assert.match(
     html,
-    /<button[^>]*data-type-explorer-declaration="8"[\s\S]*M:ConvertName\(System\.Char\[\]\)[\s\S]*<\/button>/u);
+    /<span class="type-explorer-outline-signature">M:Samples\.Collision\.Overload\(Samples\.Parameter1349381\)<\/span>/u);
+  assert.doesNotMatch(html, /Overload~2e56935e85/u);
   assert.match(
     html,
     /data-type-explorer-declaration="8"[^>]*aria-current="true"/u);
