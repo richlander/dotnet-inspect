@@ -540,7 +540,25 @@ test("Browser source composes library-literal terms and uses terminal Document t
     completed: 1,
     limit: 1,
   }]);
-  assert.deepEqual(assessments, []);
+  assert.deepEqual(assessments, [{
+    packageId: "contoso.package",
+    version: "2.0.0",
+    disposition: "Matched",
+    message:
+      "The selected implementation libraries contain matching decoded ldstr uses.",
+    assetPath: "lib/net10.0/Contoso.Package.dll",
+    rootRequest: "opaque-root",
+    libraries: [{
+      path: "lib/net10.0/Contoso.Package.dll",
+      assemblyName: "Contoso.Package",
+      targetFramework: "net10.0",
+      ordinal: 0,
+      disposition: "Matched",
+      occurrenceCount: 2,
+      failureStage: null,
+      message: null,
+    }],
+  }]);
   assert.deepEqual(completion, {
     kind: "library-literal",
     population: "ExactPackageComplete",
@@ -630,31 +648,33 @@ test("Browser source preserves typed semantic non-match, applicability, failure,
         assert.ok(typeof eventSink === "object" && eventSink !== null);
         const candidate =
           result.inspection!.content.libraryLiteralAssessments[0]!;
-        Reflect.set(eventSink, "event", JSON.stringify({
-          kind: "Assessment",
-          row: null,
-          failure: null,
-          completion: null,
-          progress: null,
-          assessment: {
-            packageId: candidate.packageId,
-            version: candidate.version,
-            disposition: candidate.kind,
-            message: candidate.message,
-            assetPath: candidate.selectedAsset?.path ?? null,
-            rootRequest: candidate.rootRequest,
-            libraries: candidate.libraries,
-          },
-        }));
-        for (const failure of result.inspection!.content.failures) {
+        if (kind !== "NotEvaluated") {
           Reflect.set(eventSink, "event", JSON.stringify({
-            kind: "Failure",
+            kind: "Assessment",
             row: null,
-            failure,
+            failure: null,
             completion: null,
             progress: null,
-            assessment: null,
+            assessment: {
+              packageId: candidate.packageId,
+              version: candidate.version,
+              disposition: candidate.kind,
+              message: candidate.message,
+              assetPath: candidate.selectedAsset?.path ?? null,
+              rootRequest: candidate.rootRequest,
+              libraries: candidate.libraries,
+            },
           }));
+          for (const failure of result.inspection!.content.failures) {
+            Reflect.set(eventSink, "event", JSON.stringify({
+              kind: "Failure",
+              row: null,
+              failure,
+              completion: null,
+              progress: null,
+              assessment: null,
+            }));
+          }
         }
         return result;
       },

@@ -3,6 +3,8 @@ import type {
   BrowserPackageQueryPresetDescriptor,
   BrowserPackageQueryTermDescriptor,
   BrowserPackageAssemblyAssessment,
+  BrowserPackageAssemblySemanticCandidateOutcome,
+  BrowserPackageAssemblySemanticLibraryAssessment,
   BrowserPackageQueryCompletion as BrowserPackageQueryCompletionPayload,
   BrowserPackageQueryFailure as BrowserPackageQueryFailurePayload,
   BrowserPackageQueryInspection,
@@ -165,6 +167,8 @@ export function createBrowserPackageQueryDataSource(
       onInspection(null);
 
       let completion: TerminalQueryCompletion | null = null;
+      const streamedAssessmentKeys = new Set<string>();
+      const streamedFailureCounts = new Map<string, number>();
       const flushState: {
         failed: boolean;
         error: unknown;
@@ -195,6 +199,20 @@ export function createBrowserPackageQueryDataSource(
               continue;
             }
             flushRows();
+            if (queryEvent.kind === "Assessment"
+                && queryEvent.assessment !== null) {
+              streamedAssessmentKeys.add(packageCoordinateKey(
+                queryEvent.assessment.packageId,
+                queryEvent.assessment.version));
+            } else if (
+              queryEvent.kind === "Failure"
+              && queryEvent.failure !== null
+            ) {
+              const key = failureKey(queryEvent.failure);
+              streamedFailureCounts.set(
+                key,
+                (streamedFailureCounts.get(key) ?? 0) + 1);
+            }
             dispatchEvent(
               queryEvent,
               onPage,
@@ -299,6 +317,27 @@ export function createBrowserPackageQueryDataSource(
         if (result.value !== null || result.inspection === null) {
           throw new TypeError(
             "The Browser package-query result did not contain its inspection envelope.");
+        }
+        for (
+          const assessment
+          of result.inspection.content.libraryLiteralAssessments
+        ) {
+          const projected = toQueryAssessmentFromOutcome(assessment);
+          if (!streamedAssessmentKeys.has(packageCoordinateKey(
+            projected.packageId,
+            projected.version))) {
+            onAssessment?.(projected);
+          }
+        }
+        const unmatchedStreamedFailures = new Map(streamedFailureCounts);
+        for (const failure of result.inspection.content.failures) {
+          const key = failureKey(failure);
+          const remaining = unmatchedStreamedFailures.get(key) ?? 0;
+          if (remaining > 0) {
+            unmatchedStreamedFailures.set(key, remaining - 1);
+          } else {
+            onFailure(formatFailure(failure));
+          }
         }
         const finalEvent: BrowserPackageQueryEventPayload = {
           kind: "Completed",
@@ -1175,17 +1214,53 @@ function toQueryAssessment(
     message: assessment.message,
     assetPath: assessment.assetPath,
     rootRequest: assessment.rootRequest,
-    libraries: assessment.libraries.map(library => ({
-      path: library.selectedAsset.path,
-      assemblyName: library.selectedAsset.assemblyName,
-      targetFramework: library.selectedAsset.targetFramework,
-      ordinal: library.selectedAsset.ordinal,
-      disposition: libraryAssessmentDispositionValue(library.kind),
-      occurrenceCount: library.occurrences,
-      failureStage: library.failureStage,
-      message: library.message,
-    })),
+    libraries: toQueryLibraryAssessments(assessment.libraries),
   };
+}
+
+function toQueryAssessmentFromOutcome(
+  assessment: BrowserPackageAssemblySemanticCandidateOutcome,
+): QueryAssemblyAssessment {
+  return {
+    packageId: assessment.packageId,
+    version: assessment.version,
+    disposition: assessmentDispositionValue(assessment.kind),
+    message: assessment.message
+      ?? "The selected implementation libraries contain matching decoded ldstr uses.",
+    assetPath: assessment.selectedAsset?.path ?? null,
+    rootRequest: assessment.rootRequest,
+    libraries: toQueryLibraryAssessments(assessment.libraries),
+  };
+}
+
+function toQueryLibraryAssessments(
+  libraries: readonly BrowserPackageAssemblySemanticLibraryAssessment[],
+): QueryAssemblyAssessment["libraries"] {
+  return libraries.map(library => ({
+    path: library.selectedAsset.path,
+    assemblyName: library.selectedAsset.assemblyName,
+    targetFramework: library.selectedAsset.targetFramework,
+    ordinal: library.selectedAsset.ordinal,
+    disposition: libraryAssessmentDispositionValue(library.kind),
+    occurrenceCount: library.occurrences,
+    failureStage: library.failureStage,
+    message: library.message,
+  }));
+}
+
+function packageCoordinateKey(packageId: string, version: string): string {
+  return `${packageId.toUpperCase()}\n${version.toUpperCase()}`;
+}
+
+function failureKey(failure: BrowserPackageQueryFailurePayload): string {
+  return JSON.stringify([
+    failure.packageId?.toUpperCase() ?? null,
+    failure.version?.toUpperCase() ?? null,
+    failure.producer,
+    failure.kind,
+    failure.message,
+    failure.manifestFailureReason,
+  ]);
 }
 
 function formatFailure(failure: BrowserPackageQueryFailurePayload): string {
