@@ -16,7 +16,8 @@ public static class PlatformHouseTypeDefinitionResolver
         "platform-type-definition-implementation";
 
     public static async ValueTask<PlatformHouseOutcome<
-        PlatformTypeDefinitionValue.Implementation<TypeResolutionOutcome>>>
+        PlatformTypeDefinitionValue.Implementation<
+            PlatformTypeDefinitionResolutionResult>>>
         ResolveImplementationAsync(
             PlatformHouseRequest request,
             PlatformPopulationArtifactMaterializationOutcome.Completed
@@ -41,6 +42,7 @@ public static class PlatformHouseTypeDefinitionResolver
         var failureKinds = new List<PlatformHouseFailureKind>();
         var cleanupFailures = new List<Exception>();
         TypeResolutionOutcome? metadataOutcome = null;
+        PlatformTypeDefinitionResolutionResult? detachedOutcome = null;
         OperationCanceledException? cancellation = null;
         Exception? unexpected = null;
 
@@ -59,6 +61,9 @@ public static class PlatformHouseTypeDefinitionResolver
                     implementationPopulation,
                     request.Work.MaxForwardingHops
                         - consumedWork.ForwardingHops);
+                detachedOutcome =
+                    PlatformTypeDefinitionResolutionProjection.Project(
+                        metadataOutcome);
             }
             catch (OperationCanceledException failure)
                 when (request.CancellationToken.IsCancellationRequested)
@@ -174,7 +179,7 @@ public static class PlatformHouseTypeDefinitionResolver
                 $"{IdentityPrefix}.work-incomplete");
         }
 
-        if (metadataOutcome is null)
+        if (metadataOutcome is null || detachedOutcome is null)
         {
             return Failed(
                 request,
@@ -185,8 +190,9 @@ public static class PlatformHouseTypeDefinitionResolver
         }
 
         var outcomeEvidence =
-            new PlatformMetadataOutcomeEvidence<TypeResolutionOutcome>(
-                metadataOutcome,
+            new PlatformMetadataOutcomeEvidence<
+                PlatformTypeDefinitionResolutionResult>(
+                detachedOutcome,
                 $"{IdentityPrefix}.metadata-outcome");
         var completion = new PlatformHouseCompletion.TypeDefinition(
             (PlatformHouseOperationSnapshot.ResolveTypeDefinition)
@@ -203,7 +209,8 @@ public static class PlatformHouseTypeDefinitionResolver
             completion);
         return new PlatformHouseOutcome<
             PlatformTypeDefinitionValue
-                .Implementation<TypeResolutionOutcome>>.Completed(
+                .Implementation<
+                    PlatformTypeDefinitionResolutionResult>>.Completed(
                     completion.BindImplementation(outcomeEvidence),
                     receipt);
     }
@@ -433,7 +440,8 @@ public static class PlatformHouseTypeDefinitionResolver
             : outcome?.Hops.Length ?? 0;
 
     static PlatformHouseOutcome<
-        PlatformTypeDefinitionValue.Implementation<TypeResolutionOutcome>>
+        PlatformTypeDefinitionValue.Implementation<
+            PlatformTypeDefinitionResolutionResult>>
         Rejected(
             PlatformHouseRequest request,
             PlatformHouseConsumedWork consumedWork,
@@ -453,13 +461,15 @@ public static class PlatformHouseTypeDefinitionResolver
             termination: termination);
         return new PlatformHouseOutcome<
             PlatformTypeDefinitionValue
-                .Implementation<TypeResolutionOutcome>>.Rejected(
+                .Implementation<
+                    PlatformTypeDefinitionResolutionResult>>.Rejected(
                     termination,
                     receipt);
     }
 
     static PlatformHouseOutcome<
-        PlatformTypeDefinitionValue.Implementation<TypeResolutionOutcome>>
+        PlatformTypeDefinitionValue.Implementation<
+            PlatformTypeDefinitionResolutionResult>>
         Incomplete(
             PlatformHouseRequest request,
             PlatformHouseConsumedWork consumedWork,
@@ -475,13 +485,15 @@ public static class PlatformHouseTypeDefinitionResolver
             termination: termination);
         return new PlatformHouseOutcome<
             PlatformTypeDefinitionValue
-                .Implementation<TypeResolutionOutcome>>.Incomplete(
+                .Implementation<
+                    PlatformTypeDefinitionResolutionResult>>.Incomplete(
                     termination,
                     receipt);
     }
 
     static PlatformHouseOutcome<
-        PlatformTypeDefinitionValue.Implementation<TypeResolutionOutcome>>
+        PlatformTypeDefinitionValue.Implementation<
+            PlatformTypeDefinitionResolutionResult>>
         Failed(
             PlatformHouseRequest request,
             PlatformHouseConsumedWork consumedWork,
@@ -501,7 +513,8 @@ public static class PlatformHouseTypeDefinitionResolver
             termination: termination);
         return new PlatformHouseOutcome<
             PlatformTypeDefinitionValue
-                .Implementation<TypeResolutionOutcome>>.Failed(
+                .Implementation<
+                    PlatformTypeDefinitionResolutionResult>>.Failed(
                     termination,
                     receipt);
     }

@@ -22,6 +22,9 @@ public sealed class PlatformTypeDefinitionResolverTests
         PlatformPopulationMember starting = Member(
             prepared.Completed,
             "System.Xml");
+        LibraryContentReference terminalContent = Member(
+            prepared.Completed,
+            "System.Private.Xml").Library.ImplementationAssembly!;
         ResolvedAssemblyReference start =
             SnapshotDescriptor(prepared.Completed, starting);
         PlatformHouseRequest request = TypeRequest(
@@ -34,7 +37,8 @@ public sealed class PlatformTypeDefinitionResolverTests
             Owner(prepared.Completed, starting);
 
         PlatformHouseOutcome<
-            PlatformTypeDefinitionValue.Implementation<TypeResolutionOutcome>>
+            PlatformTypeDefinitionValue.Implementation<
+                PlatformTypeDefinitionResolutionResult>>
             outcome =
                 await PlatformHouseTypeDefinitionResolver
                     .ResolveImplementationAsync(
@@ -44,20 +48,23 @@ public sealed class PlatformTypeDefinitionResolverTests
 
         var completed = Assert.IsType<PlatformHouseOutcome<
             PlatformTypeDefinitionValue
-                .Implementation<TypeResolutionOutcome>>.Completed>(
+                .Implementation<
+                    PlatformTypeDefinitionResolutionResult>>.Completed>(
                     outcome);
         Assert.True(
             completed.Value.Outcome
-                is TypeResolutionOutcome.Resolved,
+                is PlatformTypeDefinitionResolutionResult.Resolved,
             completed.Value.Outcome
-                is TypeResolutionOutcome.Rejected rejected
+                is PlatformTypeDefinitionResolutionResult.Rejected rejected
                     ? rejected.Failure.ToString()
                     : completed.Value.Outcome
-                        is TypeResolutionOutcome.UnboundBinding unbound
+                        is PlatformTypeDefinitionResolutionResult
+                            .UnboundBinding unbound
                             ? $"{unbound.Target}; hops: {string.Join(", ", unbound.Hops.Select(hop => hop.TargetReference.Name))}"
                     : completed.Value.Outcome.GetType().FullName);
         var resolved =
-            (TypeResolutionOutcome.Resolved)completed.Value.Outcome;
+            (PlatformTypeDefinitionResolutionResult.Resolved)
+                completed.Value.Outcome;
 
         Assert.Collection(
             resolved.Hops,
@@ -84,7 +91,19 @@ public sealed class PlatformTypeDefinitionResolverTests
         Assert.Equal(
             "System.Private.Xml",
             resolved.Definition.Assembly.Assembly.Identity.Name);
+        Assert.Same(
+            terminalContent.Registration,
+            resolved.Definition.Assembly.Assembly.Registration
+                .ArtifactRegistration);
+        Assert.Equal(
+            resolved.Definition.Assembly.Assembly.ModuleVersionId,
+            resolved.Definition.Address.ModuleVersionId);
+        Assert.NotEqual(Guid.Empty, resolved.Definition.Address.ModuleVersionId);
+        Assert.True(resolved.Definition.Address.Definition.Value > 0);
         Assert.Equal(XmlReaderName(), resolved.Definition.Type);
+        Assert.Equal(
+            MetadataTypeDefinitionKind.Class,
+            resolved.Definition.Kind);
         Assert.Equal(2, completed.Receipt.ConsumedWork.ForwardingHops);
 
         var completion =
@@ -122,7 +141,8 @@ public sealed class PlatformTypeDefinitionResolverTests
             cancellationToken);
 
         PlatformHouseOutcome<
-            PlatformTypeDefinitionValue.Implementation<TypeResolutionOutcome>>
+            PlatformTypeDefinitionValue.Implementation<
+                PlatformTypeDefinitionResolutionResult>>
             outcome =
                 await PlatformHouseTypeDefinitionResolver
                     .ResolveImplementationAsync(
@@ -132,17 +152,19 @@ public sealed class PlatformTypeDefinitionResolverTests
 
         var completed = Assert.IsType<PlatformHouseOutcome<
             PlatformTypeDefinitionValue
-                .Implementation<TypeResolutionOutcome>>.Completed>(
+                .Implementation<
+                    PlatformTypeDefinitionResolutionResult>>.Completed>(
                     outcome);
         Assert.True(
             completed.Value.Outcome
-                is TypeResolutionOutcome.Resolved,
+                is PlatformTypeDefinitionResolutionResult.Resolved,
             completed.Value.Outcome
-                is TypeResolutionOutcome.Rejected rejected
+                is PlatformTypeDefinitionResolutionResult.Rejected rejected
                     ? rejected.Failure.ToString()
                     : completed.Value.Outcome.GetType().FullName);
         var resolved =
-            (TypeResolutionOutcome.Resolved)completed.Value.Outcome;
+            (PlatformTypeDefinitionResolutionResult.Resolved)
+                completed.Value.Outcome;
         Assert.Empty(resolved.Hops);
         Assert.Equal(
             "System.Private.Xml",
@@ -182,20 +204,25 @@ public sealed class PlatformTypeDefinitionResolverTests
 
         var completed = Assert.IsType<PlatformHouseOutcome<
             PlatformTypeDefinitionValue
-                .Implementation<TypeResolutionOutcome>>.Completed>(
+                .Implementation<
+                    PlatformTypeDefinitionResolutionResult>>.Completed>(
                     await PlatformHouseTypeDefinitionResolver
                         .ResolveImplementationAsync(
                             request,
                             prepared.Completed,
                             prepared.Consumed));
         Assert.True(
-            completed.Value.Outcome is TypeResolutionOutcome.Resolved,
-            completed.Value.Outcome is TypeResolutionOutcome.Rejected rejected
+            completed.Value.Outcome
+                is PlatformTypeDefinitionResolutionResult.Resolved,
+            completed.Value.Outcome
+                is PlatformTypeDefinitionResolutionResult.Rejected rejected
                 ? rejected.Failure.ToString()
                 : completed.Value.Outcome.GetType().FullName);
         var resolved =
-            (TypeResolutionOutcome.Resolved)completed.Value.Outcome;
-        TypeForwardingHop hop = Assert.Single(resolved.Hops);
+            (PlatformTypeDefinitionResolutionResult.Resolved)
+                completed.Value.Outcome;
+        PlatformTypeForwardingHopEvidence hop =
+            Assert.Single(resolved.Hops);
         Assert.Equal("System", hop.SourceAssembly.Assembly.Identity.Name);
         Assert.Equal("System.ObjectModel", hop.TargetReference.Name);
         Assert.Equal(
@@ -230,7 +257,8 @@ public sealed class PlatformTypeDefinitionResolverTests
             cancellationToken);
 
         PlatformHouseOutcome<
-            PlatformTypeDefinitionValue.Implementation<TypeResolutionOutcome>>
+            PlatformTypeDefinitionValue.Implementation<
+                PlatformTypeDefinitionResolutionResult>>
             outcome =
                 await PlatformHouseTypeDefinitionResolver
                     .ResolveImplementationAsync(
@@ -240,13 +268,16 @@ public sealed class PlatformTypeDefinitionResolverTests
         Assert.True(
             outcome is PlatformHouseOutcome<
                 PlatformTypeDefinitionValue
-                    .Implementation<TypeResolutionOutcome>>.Completed,
+                    .Implementation<
+                        PlatformTypeDefinitionResolutionResult>>.Completed,
             $"{outcome.GetType().FullName}; {outcome.Receipt.SettlementKind}");
         var completed = (PlatformHouseOutcome<
             PlatformTypeDefinitionValue
-                .Implementation<TypeResolutionOutcome>>.Completed)outcome;
-        var notFound = Assert.IsType<TypeResolutionOutcome.NotFound>(
-            completed.Value.Outcome);
+                .Implementation<
+                    PlatformTypeDefinitionResolutionResult>>.Completed)outcome;
+        var notFound = Assert.IsType<
+            PlatformTypeDefinitionResolutionResult.NotFound>(
+                completed.Value.Outcome);
         Assert.Empty(notFound.Hops);
         Assert.Equal(
             "System.Private.Xml",
@@ -279,15 +310,18 @@ public sealed class PlatformTypeDefinitionResolverTests
 
         var completed = Assert.IsType<PlatformHouseOutcome<
             PlatformTypeDefinitionValue
-                .Implementation<TypeResolutionOutcome>>.Completed>(
+                .Implementation<
+                    PlatformTypeDefinitionResolutionResult>>.Completed>(
                     await PlatformHouseTypeDefinitionResolver
                         .ResolveImplementationAsync(
                             request,
                             prepared.Completed,
                             prepared.Consumed));
-        var unbound = Assert.IsType<TypeResolutionOutcome.UnboundBinding>(
-            completed.Value.Outcome);
-        TypeForwardingHop hop = Assert.Single(unbound.Hops);
+        var unbound = Assert.IsType<
+            PlatformTypeDefinitionResolutionResult.UnboundBinding>(
+                completed.Value.Outcome);
+        PlatformTypeForwardingHopEvidence hop =
+            Assert.Single(unbound.Hops);
         Assert.Equal(
             "System.Xml",
             hop.SourceAssembly.Assembly.Identity.Name);
@@ -321,7 +355,8 @@ public sealed class PlatformTypeDefinitionResolverTests
             Work(maxForwardingHops: 1));
 
         PlatformHouseOutcome<
-            PlatformTypeDefinitionValue.Implementation<TypeResolutionOutcome>>
+            PlatformTypeDefinitionValue.Implementation<
+                PlatformTypeDefinitionResolutionResult>>
             outcome =
                 await PlatformHouseTypeDefinitionResolver
                     .ResolveImplementationAsync(
@@ -331,15 +366,19 @@ public sealed class PlatformTypeDefinitionResolverTests
         Assert.True(
             outcome is PlatformHouseOutcome<
                 PlatformTypeDefinitionValue
-                    .Implementation<TypeResolutionOutcome>>.Completed,
+                    .Implementation<
+                        PlatformTypeDefinitionResolutionResult>>.Completed,
             $"{outcome.GetType().FullName}; {outcome.Receipt.SettlementKind}");
         var completed = (PlatformHouseOutcome<
             PlatformTypeDefinitionValue
-                .Implementation<TypeResolutionOutcome>>.Completed)outcome;
-        var rejected = Assert.IsType<TypeResolutionOutcome.Rejected>(
-            completed.Value.Outcome);
-        Assert.IsType<TypeResolutionFailure.HopBudgetExceeded>(
-            rejected.Failure);
+                .Implementation<
+                    PlatformTypeDefinitionResolutionResult>>.Completed)outcome;
+        var rejected = Assert.IsType<
+            PlatformTypeDefinitionResolutionResult.Rejected>(
+                completed.Value.Outcome);
+        Assert.IsType<
+            PlatformTypeResolutionFailureEvidence.HopBudgetExceeded>(
+                rejected.Failure);
         Assert.Equal(2, rejected.Hops.Length);
         Assert.Equal(1, completed.Receipt.ConsumedWork.ForwardingHops);
     }
@@ -375,7 +414,8 @@ public sealed class PlatformTypeDefinitionResolverTests
         {
             Assert.IsType<PlatformHouseOutcome<
                 PlatformTypeDefinitionValue
-                    .Implementation<TypeResolutionOutcome>>.Rejected>(
+                    .Implementation<
+                        PlatformTypeDefinitionResolutionResult>>.Rejected>(
                         await PlatformHouseTypeDefinitionResolver
                             .ResolveImplementationAsync(
                                 request,
@@ -421,7 +461,8 @@ public sealed class PlatformTypeDefinitionResolverTests
 
         Assert.IsType<PlatformHouseOutcome<
             PlatformTypeDefinitionValue
-                .Implementation<TypeResolutionOutcome>>.Rejected>(
+                .Implementation<
+                    PlatformTypeDefinitionResolutionResult>>.Rejected>(
                     await PlatformHouseTypeDefinitionResolver
                         .ResolveImplementationAsync(
                             request,
@@ -470,7 +511,8 @@ public sealed class PlatformTypeDefinitionResolverTests
 
         var rejected = Assert.IsType<PlatformHouseOutcome<
             PlatformTypeDefinitionValue
-                .Implementation<TypeResolutionOutcome>>.Rejected>(
+                .Implementation<
+                    PlatformTypeDefinitionResolutionResult>>.Rejected>(
                     await PlatformHouseTypeDefinitionResolver
                         .ResolveImplementationAsync(
                             request,
@@ -509,7 +551,8 @@ public sealed class PlatformTypeDefinitionResolverTests
 
         Assert.IsType<PlatformHouseOutcome<
             PlatformTypeDefinitionValue
-                .Implementation<TypeResolutionOutcome>>.Incomplete>(
+                .Implementation<
+                    PlatformTypeDefinitionResolutionResult>>.Incomplete>(
                     await PlatformHouseTypeDefinitionResolver
                         .ResolveImplementationAsync(
                             request,
@@ -581,7 +624,11 @@ public sealed class PlatformTypeDefinitionResolverTests
                     prepared.Consumed);
 
         var visited = new HashSet<Type>();
-        var pending = new Stack<Type>([outcome.GetType()]);
+        var pending = new Stack<Type>(
+            [
+                outcome.GetType(),
+                typeof(PlatformTypeDefinitionResolutionResult),
+            ]);
         while (pending.TryPop(out Type? type))
         {
             type = Normalize(type);
@@ -593,8 +640,7 @@ public sealed class PlatformTypeDefinitionResolverTests
                 || type == typeof(DateTime)
                 || type == typeof(TimeSpan)
                 || type == typeof(Guid)
-                || type == typeof(Version)
-                || type == typeof(Func<Stream>))
+                || type == typeof(Version))
             {
                 continue;
             }
@@ -618,6 +664,11 @@ public sealed class PlatformTypeDefinitionResolverTests
             }
             foreach (Type argument in type.GetGenericArguments())
                 pending.Push(argument);
+            foreach (Type nested in type.GetNestedTypes(
+                BindingFlags.Public))
+            {
+                pending.Push(nested);
+            }
             foreach (PropertyInfo property in type.GetProperties(
                 BindingFlags.Instance | BindingFlags.Public))
             {

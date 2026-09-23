@@ -649,7 +649,7 @@ collapsed into strings, optional parameters, or nullable tuples.
 | --- | --- | --- |
 | **Realize** | One library identity or complete population demand | One owning Library realization or one platform population of owning Library realizations, each with resource-free source and view correspondence |
 | **Resolve assembly reference** | One exact Metadata `AssemblyBindingRequest` and platform-route prerequisites | Metadata-owned binding decision plus the platform contribution used by the ladder |
-| **Resolve type definition** | One exact Metadata `TypeResolutionRequest`, starting candidate with its owner-issued view, and required view | Metadata-owned `TypeResolutionOutcome` plus reference/implementation correspondence when the required view differs from the starting view |
+| **Resolve type definition** | One exact Metadata `TypeResolutionRequest`, starting candidate with its owner-issued view, and required view | One resource-free Platform projection of the exact Metadata terminal arm and forwarding evidence, plus reference/implementation correspondence when the required view differs from the starting view |
 
 `Realize` supports direct platform browsing and supplies source candidates for
 the other operations. The two reference-resolution operations are the only
@@ -674,6 +674,16 @@ The House rejects an unsupported start/required-view pair before Metadata
 work. The completed value and receipt preserve whether the operation returned
 one reference outcome, one implementation outcome, or the existing paired
 reference-and-implementation outcomes.
+
+The live `TypeResolutionOutcome` remains inside execution while its Metadata
+catalog and copied Library images are available. Before those authorities are
+retired, PlatformHouse projects its exact terminal arm, ordered forwarding
+hops, terminal assembly identity, physical definition address and supplier
+when resolved, and typed non-success evidence into a detached
+`PlatformTypeDefinitionResolutionResult`. The projection retains
+owner-issued Metadata names, tokens, identities, provenance, and failure
+values, but no `ResolvedAssemblyReference`, opener, candidate, context,
+catalog, stream, or disposal obligation.
 
 ### View and population demand
 
@@ -1546,7 +1556,8 @@ When a platform operation begins from a .NET Standard facade:
 3. the House supplies those candidates through an explicit Metadata binding
    policy;
 4. Metadata follows any exact `ExportedType` and `AssemblyRef` evidence and
-   returns its unchanged reference-view outcome;
+   returns its reference-view outcome, which the House projects without
+   changing its terminal arm or forwarding evidence;
 5. when implementation demand remains, the House requires an explicit
    reference-to-implementation view correspondence for the resolved contract
    definition and starts a second Metadata resolution in the authorized
@@ -1972,7 +1983,8 @@ one exact .NET runtime target. The starting and required views are both
 Implementation. Metadata follows the exact `System.Xml` and
 `System.Xml.ReaderWriter` forwarding declarations to the physical
 `System.Private.Xml` definition under the House-supplied implementation
-policy. The House retains one Metadata outcome and every forwarding hop. It
+policy. The House retains the outcome's exact terminal arm, physical
+definition identity, and every forwarding hop in one resource-free result. It
 does not introduce a reference resolution or view-correspondence transition.
 
 ### .NET Standard facade resolves to runtime implementation
@@ -2358,13 +2370,13 @@ The implementation and adoption slices own these Release gates:
 | Package-backed reference population ownership | One authoritative package-backed reference population produces one source-ordered reference-only Library owner per distinct managed identity and one source settlement after Package Source detaches. Every content item retains source-issued package provenance. Completion transfers every Library owner beside one Artifact session; terminal, cancellation, duplicate identity, foreign contribution, and incomplete work transfer neither authority. |
 | Package-backed implementation population ownership | One authoritative package-backed runtime population produces one source-ordered implementation-only Library owner per distinct managed identity, assigns each exact runtime content both mandatory roles under Platform-owned declaration-surface evidence, and records one source settlement after Package Source detaches. Every content item retains source-issued package and runtime-support provenance. Completion transfers every Library owner beside one Artifact session; terminal, cancellation, duplicate identity, foreign contribution, and incomplete work transfer neither authority. |
 | Selected reference population | One family-default, reference-only complete-population operation freezes one exact target, applies the authorized Reference source policy, and publishes one non-empty authoritative population. Installed success suppresses package work; package fallback uses only the exact selected discovery association; failure or work exhaustion cannot publish a shortened population. Completion preserves the original request, selected target and discovery evidence, source-generation settlements, and cumulative work while transferring all Library owners beside the separate Artifact session. Every terminal path cleans up before projection and retains no live authority. |
-| Resource-free House boundary | Focused contract tests over contributions, completed House values, receipts, requests, and cache entries prove that they retain no live source handle or content obligation, Artifact owner or lease, Library owner or lease, callback, opener, stream, or disposal delegate. |
+| Resource-free House boundary | Focused contract tests over contributions, completed House values, type-definition resolution results, receipts, requests, and cache entries prove that they retain no live source handle or content obligation, Artifact owner or lease, Library owner or lease, Metadata context or catalog, candidate, callback, opener, stream, or disposal delegate. |
 | Internal Library access | PlatformHouse Metadata work reads exact content only through a fresh internal `LibraryOperationLease`; every borrow ends before `await`, and the lease settles before completion. |
 | Terminal owner disposition | Completed non-owning operations, unavailability, ambiguity, rejection, failure, incomplete completion, and cancellation retire every constructed owner the House does not return, including partially constructed multi-Library population work; only a completed owning `Realize` result transfers owners, and retirement failure remains visible. |
 | Failure precedence | A superseded source fault may remain evidence in another terminal outcome; construction, borrow, lease-settlement, retirement, or child-release failure produces `Failed`, including when cleanup fails after cancellation. |
 | Permissive Workspace admission | A participant targeting a newer platform remains admissible and usable for same-participant inspection without realizing a matching complete platform. |
 | Exact traversal compatibility | Under an owner-classified unsupported downgrade, an exact Metadata member-signature match succeeds with downgrade context; a missing or changed signature returns the attributed compatibility failure without blocking unrelated work. Supported upward compatibility does not warn merely because targets differ. |
-| Metadata ownership | Platform type resolution invokes the structured Metadata API and preserves its exact outcome and forwarding hops. |
+| Metadata ownership | Platform type resolution invokes the structured Metadata API and projects its exact terminal arm, owner-issued facts, and ordered forwarding hops before retiring the live resolution context. |
 | Direct implementation start | An implementation-view `System.Xml.XmlReader` request resolves through `System.Xml.ReaderWriter` to the physical `System.Private.Xml` definition in one Metadata outcome, with no fabricated reference outcome or view correspondence. |
 | Transparent .NET Standard | A `.NET Standard` facade can resolve through an exact runtime target without constructing a `NetStandard` family or implementation population. |
 | Physical supplier retention | A resolved implementation type or assembly retains its physical supplier rather than being relabeled as the reference facade. |
