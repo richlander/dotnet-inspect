@@ -172,21 +172,34 @@ region boundary, so it never splits a surrogate pair.
 An edit carries one or more kinds, derived only from its two gap contents and
 its position.
 
-Line boundaries split a gap into *segments*. A segment *ends a line* when a
-boundary or the end of the text follows it, and *starts a line* when a boundary
-or the start of the text or region precedes it. A segment that does both is a
-blank line's content.
+Line boundaries split a gap into *segments*. Each segment has exactly one
+position:
 
-| Kind | The two gaps… |
+| Position | Preceded by | Followed by |
+| --- | --- | --- |
+| *interior* | a non-whitespace character | a non-whitespace character |
+| *leading* | a boundary, or the start of the text | a non-whitespace character |
+| *trailing* | a non-whitespace character | a boundary, or the end of the text |
+| *blank* | a boundary, or the start of the text | a boundary, or the end of the text |
+
+Inside a line-diff region, the edge of an adjacent anchor's content counts as
+a non-whitespace neighbor. A gap without boundaries is one segment. A gap with
+*n* boundaries has *n*+1 segments. When both gaps of an edit have equal boundary counts, their segments
+correspond by index and have the same positions.
+
+| Kind | The edit… |
 | --- | --- |
-| `LineBreaks` | contain different numbers of line boundaries: a split or joined line, or blank lines added or removed. No other kind below applies to that edit. |
-| `TerminatorSpelling` | have equal boundary counts, and a boundary is spelled differently (CRLF, CR, or LF) |
-| `Indentation` | have equal boundary counts, and a segment that starts, but does not end, a line differs |
-| `Trailing` | have equal boundary counts, and a segment that ends, but does not start, a line differs |
-| `BlankLineContent` | have equal boundary counts, and the content of a blank line differs |
-| `Spacing` | contain no boundary, lie inside one line, and are both non-empty but different |
-| `Separation` | contain no boundary, lie inside one line, and exactly one is empty, so two non-whitespace characters become adjacent or separated |
-| `FinalLineTerminator` | end the text, and differ in whether a final line boundary is present (also `LineBreaks`) |
+| `LineBreaks` | has gaps with different boundary counts: a split or joined line, or blank lines added or removed. Only `FinalLineTerminator` may accompany it. |
+| `FinalLineTerminator` | ends the text, and its gaps differ in whether a boundary is last |
+| `TerminatorSpelling` | has equal boundary counts, and some corresponding boundary is spelled differently (CRLF, CR, or LF) |
+| `Indentation` | has equal boundary counts, and some corresponding *leading* segment differs |
+| `Trailing` | has equal boundary counts, and some corresponding *trailing* segment differs |
+| `BlankLineContent` | has equal boundary counts, and some corresponding *blank* segment differs |
+| `Spacing` | has an *interior* segment on both sides, both non-empty and different |
+| `Separation` | has an *interior* segment on both sides, exactly one empty, so two non-whitespace characters become adjacent or separated |
+
+The kinds under equal boundary counts come from the differing segments, so an
+edit whose single differing segment is leading is exactly `Indentation`.
 
 Kinds are facts about characters, not judgements. For example, `Separation`
 applies equally to `foo( x )` → `foo(x)` and to `x - -y` → `x--y`. The first
@@ -216,9 +229,14 @@ adoptions are separate efforts.
 ### Input
 
 The input is a completed `AnalysisDiff<string>` and the two texts it was
-computed from. Those texts' logical lines must equal the diff's Before and
-After sequences, and a mismatch is an argument failure. The relations are
-consumed unchanged.
+computed from. Each text's logical lines must equal the diff's sequence for
+that side under the `TextFindings` analysis-line model:
+
+- CRLF, CR, and LF are boundaries;
+- empty text has no lines; and
+- a final boundary ends the last line and does not start another.
+
+A mismatch is an argument failure. The relations are consumed unchanged.
 
 ### Regions
 
@@ -226,15 +244,22 @@ The stable, unchanged, one-to-one correspondences are *anchors*. They
 partition the two line sequences into *regions*: maximal runs of non-anchor
 lines between consecutive anchors. The partition is the same one that turns a
 diff into `MappedTextDiff` changes, so each region corresponds to exactly one
-mapped change. A region's text is each of its lines together with its logical
-line boundary, so a region of added blank lines differs from an empty region
-by `LineBreaks`.
+mapped change.
+
+On each side, a region's *text* is the span from the end of the preceding
+anchor's content (or the start of the text) to the start of the following
+anchor's content (or the end of the text). It therefore includes the boundary
+after the preceding anchor. Each boundary between two regions' lines belongs
+to exactly one region, and every boundary difference is located. For example,
+`a⏎␠` → `a` gives the region texts `⏎␠` and the empty string, so the edit is
+`LineBreaks`. A region of added blank lines likewise differs from an empty
+region by `LineBreaks`.
 
 Each region receives one outcome:
 
 | Outcome | Condition |
 | --- | --- |
-| `WhitespaceOnly` | The region texts differ whitespace-only and the region contains no `Moved` correspondence. Its edits are issued. |
+| `WhitespaceOnly` | The region texts differ whitespace-only, and no `Moved` correspondence has an endpoint in the region. Its edits are issued. |
 | `Changed` | Otherwise. Movement is never whitespace. |
 
 ### Localization inside changed regions
@@ -244,20 +269,23 @@ whitespace. Examples include a reflowed brace next to a real edit, and a
 removed blank line inside a rewritten block. For each `Changed` region, the
 owner issues either:
 
-- `Localized`: a monotone alignment of the region's non-whitespace characters
-  together with the whitespace edits it implies; or
+- `Localized`: a partial, monotone alignment that pairs some of the region's
+  non-whitespace characters with equal characters on the other side; or
 - `NotLocalized`: the region exceeded the localization budget.
 
-Localization is best-effort in precision but sound. A line marked as
-whitespace-only or unaffected under the issued alignment satisfies both of the
-following, and a validator can check both without trusting the aligner:
+A `WhitespaceOnly` region is always localized, by its canonical alignment.
 
-- every one of its non-whitespace characters is aligned to an equal character;
-  and
-- every gap that touches it holds only whitespace on both sides.
+Consecutive aligned pairs, together with the region start and end, split the
+region texts into corresponding *intervals*. An interval is *clean* when both
+of its sides contain only whitespace. It is *dirty* when either side contains
+an unaligned non-whitespace character. A clean interval whose sides differ is
+an issued whitespace edit, with kinds as defined above. Dirty intervals are
+content changes, and their whitespace is not issued separately.
 
-How many lines get localized is quality, not contract. Localization is
-deterministic for the same inputs.
+Localization is best-effort in precision but sound. A validator can check the
+facts below from the texts and the issued alignment alone, without trusting
+the aligner. How many characters get aligned is quality, not contract.
+Localization is deterministic for the same inputs.
 
 ### Line facts
 
@@ -265,11 +293,14 @@ Every Before and After line inside a region receives exactly one fact:
 
 | Fact | Meaning |
 | --- | --- |
-| `Unaffected` | No edit or unaligned character touches the line. |
-| `WhitespaceOnly` | Only whitespace edits touch the line. |
-| `Changed` | An unaligned non-whitespace character touches the line. |
+| `Changed` | The line contains an unaligned non-whitespace character. |
+| `WhitespaceOnly` | Every non-whitespace character on the line is aligned to an equal character, and a differing interval (a whitespace edit or a dirty interval) overlaps the line. The line holds no content change, although its placement or surrounding whitespace changed. |
+| `Unaffected` | Every non-whitespace character on the line is aligned, and every interval that overlaps the line is clean and identical on both sides. |
 | `NotLocalized` | The line is in a `NotLocalized` region. |
 
+The first three facts partition the lines of every localized region by their
+content. For example, a blank line removed inside a rewritten block has no
+non-whitespace characters, lies in a dirty interval, and is `WhitespaceOnly`.
 Anchor lines are outside every region and carry no fact.
 
 ### Document summary
@@ -317,6 +348,17 @@ annotations. Addition-only and removal-only regions, such as blank lines,
 present at line level. The first adopter owns the lowering's exact shape and
 must take it from the issued edits rather than re-derive it.
 
+Markout is the rendering substrate, not a consumer. S2 requires no Markout
+change: annotations serve mark mode in every formatter, and the Unicode and
+Spectre formatters render inner mappings for highlight mode. The Markdown and
+plain-text unified diffs cannot express intraline ranges, so hosts using them
+fall back from highlight to mark. Two Markout additions would improve
+highlight mode and are optional follow-ons under the
+[Markout co-development loop](../markout-co-development.md): visible glyphs
+for spaces, tabs, and boundaries inside changed spans, and a typed category on
+inner mappings so formatters can style whitespace edits differently from
+content edits.
+
 ## Bounds and failure
 
 - The whitespace-only predicate and canonical edits are linear. They run
@@ -351,6 +393,7 @@ their region.
 | No-break space | `a b` → `a`U+00A0`b` | `Changed` |
 | Word merge | `foo bar` → `foobar` | `WhitespaceOnly`, `Separation` |
 | Swapped lines | `a` / `b` → `b` / `a` | `Changed` (movement) |
+| Trailing line after an anchor | `a⏎␠` → `a` (unterminated text) | region `WhitespaceOnly`, `LineBreaks` covering the anchor's boundary |
 | Final newline | `x` → `x⏎` | `WhitespaceOnly`, `LineBreaks` and `FinalLineTerminator` |
 | Terminator spelling, line diff | `a⏎b` with CRLF → LF | *doc* `WhitespaceOnly`, no region |
 | Terminator spelling, pair | `a⏎b` with CRLF → LF | `WhitespaceOnly`, `TerminatorSpelling` |
@@ -389,7 +432,8 @@ This design does not define:
 - intraline ranges for non-whitespace changes, though a follow-on may reuse the
   localization alignment;
 - whitespace beyond U+0020, U+0009, and logical line boundaries;
-- locating line-terminator spelling changes;
+- locating line-terminator spelling changes in the line-diff characterization
+  (the pair characterization locates them);
 - host rendering, gestures, or interaction; or
 - adoption by any owner other than the first adopter.
 
