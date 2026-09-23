@@ -1,0 +1,370 @@
+using System.Buffers.Binary;
+using System.IO.Compression;
+using BinaryFetch;
+
+namespace ZipFetch;
+
+/// <summary>
+/// Reads a ZIP archive's central directory and individual entries over a
+/// <see cref="RandomAccessSource"/>, remote or local, under caller-supplied
+/// bounds. Structure failures are <see cref="ZipReadException"/>s; source
+/// failures propagate as the source raises them.
+/// </summary>
+/// <remarks>
+/// <para>
+/// The directory read fetches the archive's tail (the end-of-central-directory
+/// record plus the largest comment the format allows), derives the archive
+/// length from the record, confirms it with the source, and reads the central
+/// directory from the tail or with one more ranged read. Caps are applied
+/// before the directory is parsed.
+/// </para>
+/// <para>
+/// An entry read fetches the local header and compressed data in one ranged
+/// read sized from the directory entry plus the configured slack, clamped to
+/// the directory offset, with exactly one follow-up when the local header
+/// shows a longer extra field than the directory declared. Expansion proceeds
+/// up to the caller's bound; crossing it is <see cref="ZipReadFailure.OverBound"/>,
+/// and a finished expansion whose length or CRC differs from the directory's
+/// declaration is <see cref="ZipReadFailure.Malformed"/>.
+/// </para>
+/// </remarks>
+public static class ZipArchiveReader
+{
+    private const uint EndOfCentralDirectorySignature = 0x06054b50;
+    private const uint CentralDirectoryEntrySignature = 0x02014b50;
+    private const uint LocalFileHeaderSignature = 0x04034b50;
+    private const int EndOfCentralDirectoryLength = 22;
+    private const int CentralDirectoryEntryLength = 46;
+    private const int LocalFileHeaderLength = 30;
+    private const int MaximumZipCommentLength = ushort.MaxValue;
+    private const int TailLength = EndOfCentralDirectoryLength + MaximumZipCommentLength;
+
+    // Bits 1 and 2 (deflate options), 3 (data descriptor), 11 (UTF-8 names).
+    private const ushort SupportedFlags = (1 << 1) | (1 << 2) | (1 << 3) | (1 << 11);
+    private const ushort CorrespondingFlags = (1 << 3) | (1 << 11);
+
+    /// <summary>Reads the central directory and derives the archive length.</summary>
+    public static async Task<ZipDirectory> ReadDirectoryAsync(
+        RandomAccessSource source,
+        ZipReadLimits limits,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(source);
+        ArgumentNullException.ThrowIfNull(limits);
+
+        ReadOnlyMemory<byte> tail = await source
+            .ReadTailAsync(TailLength, cancellationToken)
+            .ConfigureAwait(false);
+        if (tail.Length < EndOfCentralDirectoryLength)
+            throw Malformed("The archive has no end-of-central-directory record.");
+
+        ReadOnlySpan<byte> tailSpan = tail.Span;
+        for (int offset = tail.Length - EndOfCentralDirectoryLength; offset >= 0; offset--)
+        {
+            ReadOnlySpan<byte> record = tailSpan[offset..];
+            if (BinaryPrimitives.ReadUInt32LittleEndian(record) != EndOfCentralDirectorySignature)
+                continue;
+
+            ushort commentLength = BinaryPrimitives.ReadUInt16LittleEndian(record[20..]);
+            if (offset + EndOfCentralDirectoryLength + commentLength != tail.Length)
+                continue;
+
+            ushort disk = BinaryPrimitives.ReadUInt16LittleEndian(record[4..]);
+            ushort centralDisk = BinaryPrimitives.ReadUInt16LittleEndian(record[6..]);
+            ushort entriesOnDisk = BinaryPrimitives.ReadUInt16LittleEndian(record[8..]);
+            ushort entryCount = BinaryPrimitives.ReadUInt16LittleEndian(record[10..]);
+            uint directoryLength = BinaryPrimitives.ReadUInt32LittleEndian(record[12..]);
+            uint directoryOffset = BinaryPrimitives.ReadUInt32LittleEndian(record[16..]);
+
+            // Caps first, so an over-cap declaration is refused as a bound
+            // whether or not it is also a Zip64 sentinel.
+            if (entryCount > limits.MaxEntryCount || directoryLength > limits.MaxDirectoryBytes)
+                throw OverBound("The archive's central directory exceeds the caller's caps.");
+            if (entryCount == ushort.MaxValue
+                || directoryLength == uint.MaxValue
+                || directoryOffset == uint.MaxValue)
+            {
+                throw Unsupported("The archive uses Zip64, which the reader does not support.");
+            }
+
+            if (disk != 0 || centralDisk != 0 || entriesOnDisk != entryCount)
+                throw Malformed("The archive spans disks or declares inconsistent entry counts.");
+
+            // The record sits immediately after the directory, so the archive
+            // length follows from the record alone; the source confirms it.
+            long archiveLength = (long)directoryOffset + directoryLength
+                + EndOfCentralDirectoryLength + commentLength;
+            long recordOffset = archiveLength - tail.Length + offset;
+            if ((long)directoryOffset + directoryLength != recordOffset)
+                throw Malformed("The archive's central-directory extent is inconsistent.");
+            if (archiveLength > limits.MaxArchiveBytes)
+                throw OverBound("The archive exceeds the caller's archive bound.");
+            source.ConfirmLength(archiveLength);
+
+            byte[] directoryBytes;
+            long tailStart = archiveLength - tail.Length;
+            if (directoryOffset >= tailStart)
+            {
+                directoryBytes = tailSpan.Slice(
+                    checked((int)(directoryOffset - tailStart)),
+                    checked((int)directoryLength)).ToArray();
+            }
+            else
+            {
+                directoryBytes = new byte[directoryLength];
+                await source.ReadRangeAsync(directoryOffset, directoryBytes, cancellationToken)
+                    .ConfigureAwait(false);
+            }
+
+            return new ZipDirectory(
+                ParseEntries(directoryBytes, entryCount),
+                archiveLength,
+                directoryOffset,
+                directoryLength);
+        }
+
+        throw Malformed("The archive has no valid end-of-central-directory record.");
+    }
+
+    /// <summary>
+    /// Reads and expands one entry. <paramref name="maxExpandedBytes"/> bounds
+    /// the expansion; when <see langword="null"/>, the limits' per-entry bound
+    /// applies.
+    /// </summary>
+    public static async Task<byte[]> ReadEntryAsync(
+        RandomAccessSource source,
+        ZipDirectory directory,
+        ZipEntry entry,
+        ZipReadLimits limits,
+        long? maxExpandedBytes = null,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(source);
+        ArgumentNullException.ThrowIfNull(directory);
+        ArgumentNullException.ThrowIfNull(entry);
+        ArgumentNullException.ThrowIfNull(limits);
+        long expandedBound = maxExpandedBytes ?? limits.MaxExpandedBytes;
+        ArgumentOutOfRangeException.ThrowIfNegative(expandedBound);
+
+        if (HasUnsupportedFlags(entry.Flags, entry.Method))
+            throw Unsupported("The entry uses encryption or flags the reader does not support.");
+        if (entry.Method is not 0 and not 8)
+            throw Unsupported("The entry uses a compression method other than stored or deflate.");
+        if (entry.ExpandedLength > expandedBound)
+            throw OverBound("The entry's declared expansion exceeds the caller's bound.");
+
+        long declaredExtent = (long)entry.LocalHeaderOffset
+            + LocalFileHeaderLength
+            + entry.NameBytes.Length
+            + entry.ExtraLength
+            + entry.CompressedLength;
+        if (declaredExtent > directory.DirectoryOffset)
+            throw Malformed("The entry's declared extent lies past the central directory.");
+
+        // First read: the declared extent plus slack, clamped to the directory.
+        long firstLength = Math.Min(
+            declaredExtent + limits.EntryReadSlack,
+            directory.DirectoryOffset) - entry.LocalHeaderOffset;
+        var first = new byte[checked((int)firstLength)];
+        await source.ReadRangeAsync(entry.LocalHeaderOffset, first, cancellationToken)
+            .ConfigureAwait(false);
+
+        LocalHeader header = ParseLocalHeader(first);
+        if (HasUnsupportedFlags(header.Flags, header.Method))
+            throw Unsupported("The entry's local header uses flags the reader does not support.");
+        if ((header.Flags & CorrespondingFlags) != (entry.Flags & CorrespondingFlags)
+            || header.Method != entry.Method)
+        {
+            throw Malformed("The entry's local header disagrees with the central directory.");
+        }
+
+        ushort localNameLength = header.NameLength;
+        ushort localExtraLength = header.ExtraLength;
+        long dataOffset = (long)entry.LocalHeaderOffset
+            + LocalFileHeaderLength
+            + localNameLength
+            + localExtraLength;
+        long dataEnd = dataOffset + entry.CompressedLength;
+        if (dataEnd > directory.DirectoryOffset)
+            throw Malformed("The entry's data lies past the central directory.");
+        if (LocalFileHeaderLength + localNameLength > first.Length)
+        {
+            // The name did not fit the first read; fetch it with the data.
+            first = await ExtendAsync(source, entry.LocalHeaderOffset, first, dataEnd, cancellationToken)
+                .ConfigureAwait(false);
+        }
+
+        if (!first.AsSpan(LocalFileHeaderLength, localNameLength).SequenceEqual(entry.NameBytes.Span))
+            throw Malformed("The entry's local name disagrees with the central directory.");
+        if (!entry.HasDataDescriptor
+            && (header.Crc != entry.Crc
+                || header.CompressedLength != entry.CompressedLength
+                || header.ExpandedLength != entry.ExpandedLength))
+        {
+            throw Malformed("The entry's local declaration disagrees with the central directory.");
+        }
+
+        long fetchedEnd = entry.LocalHeaderOffset + first.Length;
+        if (dataEnd > fetchedEnd)
+        {
+            // Exactly one follow-up: the local extra field was longer than the
+            // directory declared.
+            first = await ExtendAsync(source, entry.LocalHeaderOffset, first, dataEnd, cancellationToken)
+                .ConfigureAwait(false);
+        }
+
+        int dataStart = checked((int)(dataOffset - entry.LocalHeaderOffset));
+        var compressed = new ReadOnlyMemory<byte>(first, dataStart, checked((int)entry.CompressedLength));
+        byte[] content = await ExpandAsync(compressed, entry.Method, expandedBound, cancellationToken)
+            .ConfigureAwait(false);
+        if (content.LongLength != entry.ExpandedLength)
+            throw Malformed("The entry expanded to a length other than it declares.");
+        if (Crc32.Compute(content) != entry.Crc)
+            throw Malformed("The entry's content does not match its CRC.");
+        return content;
+    }
+
+    private static async Task<byte[]> ExtendAsync(
+        RandomAccessSource source,
+        long start,
+        byte[] fetched,
+        long requiredEnd,
+        CancellationToken cancellationToken)
+    {
+        long fetchedEnd = start + fetched.Length;
+        var extended = new byte[checked((int)(requiredEnd - start))];
+        fetched.CopyTo(extended, 0);
+        await source.ReadRangeAsync(
+            fetchedEnd,
+            extended.AsMemory(fetched.Length),
+            cancellationToken).ConfigureAwait(false);
+        return extended;
+    }
+
+    private static IReadOnlyList<ZipEntry> ParseEntries(byte[] bytes, int entryCount)
+    {
+        var entries = new List<ZipEntry>(entryCount);
+        int offset = 0;
+        for (int index = 0; index < entryCount; index++)
+        {
+            if (offset > bytes.Length - CentralDirectoryEntryLength
+                || BinaryPrimitives.ReadUInt32LittleEndian(bytes.AsSpan(offset))
+                    != CentralDirectoryEntrySignature)
+            {
+                throw Malformed("The archive's central directory is malformed.");
+            }
+
+            ReadOnlySpan<byte> record = bytes.AsSpan(offset);
+            ushort flags = BinaryPrimitives.ReadUInt16LittleEndian(record[8..]);
+            ushort method = BinaryPrimitives.ReadUInt16LittleEndian(record[10..]);
+            uint crc = BinaryPrimitives.ReadUInt32LittleEndian(record[16..]);
+            uint compressedLength = BinaryPrimitives.ReadUInt32LittleEndian(record[20..]);
+            uint expandedLength = BinaryPrimitives.ReadUInt32LittleEndian(record[24..]);
+            ushort nameLength = BinaryPrimitives.ReadUInt16LittleEndian(record[28..]);
+            ushort extraLength = BinaryPrimitives.ReadUInt16LittleEndian(record[30..]);
+            ushort commentLength = BinaryPrimitives.ReadUInt16LittleEndian(record[32..]);
+            ushort disk = BinaryPrimitives.ReadUInt16LittleEndian(record[34..]);
+            uint localHeaderOffset = BinaryPrimitives.ReadUInt32LittleEndian(record[42..]);
+            int recordLength = CentralDirectoryEntryLength + nameLength + extraLength + commentLength;
+            if (recordLength > bytes.Length - offset || disk != 0)
+                throw Malformed("The archive's central-directory entry is inconsistent.");
+            if (compressedLength == uint.MaxValue
+                || expandedLength == uint.MaxValue
+                || localHeaderOffset == uint.MaxValue)
+            {
+                throw Unsupported("The archive uses Zip64 entry fields, which the reader does not support.");
+            }
+
+            entries.Add(new ZipEntry(
+                bytes.AsSpan(offset + CentralDirectoryEntryLength, nameLength).ToArray(),
+                flags,
+                method,
+                crc,
+                compressedLength,
+                expandedLength,
+                extraLength,
+                localHeaderOffset));
+            offset += recordLength;
+        }
+
+        if (offset != bytes.Length)
+            throw Malformed("The archive's central-directory extent is inconsistent.");
+        return entries;
+    }
+
+    private readonly record struct LocalHeader(
+        ushort Flags,
+        ushort Method,
+        uint Crc,
+        uint CompressedLength,
+        uint ExpandedLength,
+        ushort NameLength,
+        ushort ExtraLength);
+
+    private static LocalHeader ParseLocalHeader(byte[] bytes)
+    {
+        ReadOnlySpan<byte> header = bytes.AsSpan(0, LocalFileHeaderLength);
+        if (BinaryPrimitives.ReadUInt32LittleEndian(header) != LocalFileHeaderSignature)
+            throw Malformed("The entry's local header is missing.");
+        return new LocalHeader(
+            BinaryPrimitives.ReadUInt16LittleEndian(header[6..]),
+            BinaryPrimitives.ReadUInt16LittleEndian(header[8..]),
+            BinaryPrimitives.ReadUInt32LittleEndian(header[14..]),
+            BinaryPrimitives.ReadUInt32LittleEndian(header[18..]),
+            BinaryPrimitives.ReadUInt32LittleEndian(header[22..]),
+            BinaryPrimitives.ReadUInt16LittleEndian(header[26..]),
+            BinaryPrimitives.ReadUInt16LittleEndian(header[28..]));
+    }
+
+    private static bool HasUnsupportedFlags(ushort flags, ushort method) =>
+        (flags & ~SupportedFlags) != 0
+        || method != 8 && (flags & ((1 << 1) | (1 << 2))) != 0;
+
+    private static async Task<byte[]> ExpandAsync(
+        ReadOnlyMemory<byte> compressed,
+        ushort method,
+        long maximumBytes,
+        CancellationToken cancellationToken)
+    {
+        if (method == 0)
+        {
+            if (compressed.Length > maximumBytes)
+                throw OverBound("The entry's expansion crossed the caller's bound.");
+            return compressed.ToArray();
+        }
+
+        using var input = new MemoryStream(compressed.ToArray(), writable: false);
+        using var inflate = new DeflateStream(input, CompressionMode.Decompress, leaveOpen: true);
+        using var output = new MemoryStream();
+        var buffer = new byte[8192];
+        while (true)
+        {
+            int read;
+            try
+            {
+                read = await inflate.ReadAsync(buffer, cancellationToken).ConfigureAwait(false);
+            }
+            catch (InvalidDataException exception)
+            {
+                throw Malformed("The entry's deflate stream is malformed.", exception);
+            }
+
+            if (read == 0)
+                break;
+            if (output.Length + read > maximumBytes)
+                throw OverBound("The entry's expansion crossed the caller's bound.");
+            output.Write(buffer, 0, read);
+        }
+
+        return output.ToArray();
+    }
+
+    private static ZipReadException Malformed(string message, Exception? inner = null) =>
+        new(ZipReadFailure.Malformed, message, inner);
+
+    private static ZipReadException OverBound(string message) =>
+        new(ZipReadFailure.OverBound, message);
+
+    private static ZipReadException Unsupported(string message) =>
+        new(ZipReadFailure.Unsupported, message);
+}

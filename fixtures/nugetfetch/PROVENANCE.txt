@@ -1,0 +1,10 @@
+pclstorage.1.0.2.nupkg
+Source: https://api.nuget.org/v3-flatcontainer/pclstorage/1.0.2/pclstorage.1.0.2.nupkg
+SHA-256: ac8da91134d908d3fd1ea6f889ae30fd8d3c3b9ffe7497fc7fc61890a46e9005
+License: the package's own license (see its nuspec licenseUrl); redistributed unmodified as a read-only test input
+
+Real asset for the ZipFetch entry-read gate (docs/design/package-archive-range-access.md,
+gate 14): 40 of its entries carry local file headers with extra fields longer
+than the central directory declares, so an entry request sized from the
+directory alone comes up short and the reader's single follow-up request is
+exercised. The archive is read as a ZIP only; nothing in it is executed.
