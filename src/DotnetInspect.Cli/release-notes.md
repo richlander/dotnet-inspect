@@ -217,6 +217,10 @@
   as a scalar `InspectionEnvelope<LibraryOverviewOutcome>`, with compact or
   file JSON publication and pre-acquisition rejection of incompatible
   section, row, and query controls (#8225).
+- **Breaking:** Treats `--bare` as a formatter and rejects combining it with
+  `--json`, `--jsonl`, `--tsv`, `--table`, `--markdown`, `--plaintext`, or
+  `--mermaid` on `package` and `project` before acquisition. These combinations
+  previously ran with one format silently winning or losing (#8307).
 - **Breaking:** Positional `depends <type> --json` now emits shared camel-case
   `TypeDependencySectionResult` Content rather than the former presentation
   graph. Unprojected single-Library `diff --json` emits complete

@@ -431,6 +431,10 @@ not adopted this transport.
 with a concrete `-S` when querying sectioned output. Markdown and JSON can
 represent multi-section documents.
 
+`--bare` is itself a formatter. On `package` and `project`, do not combine it
+with `--json`, `--jsonl`, `--tsv`, `--table`, `--markdown`, `--plaintext`, or
+`--mermaid`; the command rejects those combinations before acquisition.
+
 Source URLs are fetchable by default. `--prefer-rendered-urls` prefers a browser
 view when supported; it changes neither `--print` acquisition nor `--bare`
 decoration. The old `--raw` and `--blob` flags are no longer accepted.

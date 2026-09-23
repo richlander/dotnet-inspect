@@ -58,6 +58,10 @@ Default output is Markdown. Pick a machine or compact shape when you need one:
 - `--mermaid` — a standalone diagram; combine it with `--markdown` to embed
   the diagram in a Markdown document.
 
+`--bare` is a formatter, so never combine it with `--json`, `--jsonl`, `--tsv`,
+`--table`, `--markdown`, `--plaintext`, or `--mermaid`. `package` and `project`
+reject those combinations before acquisition.
+
 `--envelope` normally implies JSON and emits the complete service value with
 `schema_version`, `result_kind`, `content`, `share`, and `diagnostics`.
 Workspace coordinate replacement is the exception: request
