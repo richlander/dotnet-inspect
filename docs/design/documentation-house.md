@@ -1052,12 +1052,15 @@ assembly and XML companion in the .NET 11 reference pack.
     [#8155](https://github.com/richlander/dotnet-inspect/issues/8155) and
     [#8357](https://github.com/richlander/dotnet-inspect/pull/8357).**
     Adopt authored-source documentation in Inspect Web;
-21. **In progress under
-    [#8366](https://github.com/richlander/dotnet-inspect/issues/8366).**
+21. **Completed under
+    [#8366](https://github.com/richlander/dotnet-inspect/issues/8366) and
+    [#8379](https://github.com/richlander/dotnet-inspect/pull/8379).**
     Adopt authored-source documentation in the CLI and remove the remaining
     `SourceEnricher` composition; and
-22. delete `DocCommentParser` from CSharpText after all consumers are gone and
-    close the documentation portion of #6335.
+22. **Completed under
+    [#8391](https://github.com/richlander/dotnet-inspect/issues/8391).**
+    Delete `DocCommentParser` from CSharpText after all consumers are gone and
+    close the documentation-specific retirement obligation linked from #6335.
 
 Each slice changes one owner or one production consumer. The count changes only
 through an explicit tracker update that preserves both hosts and retirement of

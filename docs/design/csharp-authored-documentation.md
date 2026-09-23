@@ -7,8 +7,9 @@ tracked by
 [#6583](https://github.com/richlander/dotnet-inspect/issues/6583). It is
 DocumentationHouse production-adoption slice 15 under
 [#6579](https://github.com/richlander/dotnet-inspect/issues/6579).
-The CSharpText operation is implemented in slice 16. SourceHouse and
-DocumentationHouse integration remain later slices.
+The CSharpText operation, SourceHouse and DocumentationHouse integration, and
+CLI and Inspect Web adoption are implemented through slices 16-21. Slice 22
+retires the superseded name-searching parser.
 
 The one claim is:
 
@@ -349,20 +350,18 @@ contract rather than test an interaction.
 
 ## Production adoption and retirement
 
-This slice locks only the CSharpText contract. The remaining
-DocumentationHouse plan is:
+The DocumentationHouse production-adoption plan is complete:
 
-1. use the implemented owner-issued CSharpText operation from slice 16;
-2. add the SourceHouse-to-DocumentationHouse deferred operation in slice 17;
-3. add the authored channel and field settlement in slice 18;
-4. publish authored evidence through Queries in slice 19;
-5. adopt it in Inspect Web and the CLI in slices 20 and 21; and
-6. delete the name-searching `DocCommentParser` in slice 22.
+1. slice 16 implemented the owner-issued CSharpText operation;
+2. slice 17 added the SourceHouse-to-DocumentationHouse deferred operation;
+3. slice 18 added the authored channel and field settlement;
+4. slice 19 published authored evidence through Queries;
+5. slices 20 and 21 adopted it in Inspect Web and the CLI; and
+6. slice 22 deleted the name-searching `DocCommentParser`.
 
-`DocCommentParser` remains a migration surface until its consumers move. Its
-name search, unbounded whole-file sample scan, broad exception fallback, and
-plain-text malformed-comment success are not compatibility requirements for
-the new operation.
+The retired parser's name search, unbounded whole-file sample scan, broad
+exception fallback, and plain-text malformed-comment success are not
+compatibility requirements for the exact declaration-attached operation.
 
 ## Non-claims
 
@@ -379,5 +378,4 @@ This contract does not:
 - convert PDB logical lines into physical coordinates;
 - expand `<include>` or `<inheritdoc>` or bind `cref`;
 - settle compiled and authored channels or documentation fields;
-- define serialization, rendering, CLI, or Browser behavior; or
-- preserve `DocCommentParser` behavior after its planned retirement.
+- define serialization, rendering, CLI, or Browser behavior.
