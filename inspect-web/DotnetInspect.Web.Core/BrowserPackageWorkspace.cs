@@ -239,6 +239,7 @@ internal static class BrowserPackageWorkspace
     static readonly Dictionary<string, Task> PendingPackageEvictions =
         new(StringComparer.Ordinal);
     static readonly HashSet<string> Downloaded = new(StringComparer.Ordinal);
+    static WorkspacePlan? _productWorkspacePlan;
     static long _clock;
 
     static long NextClock() => Interlocked.Increment(ref _clock);
@@ -253,6 +254,15 @@ internal static class BrowserPackageWorkspace
         CatalogPublicEvidenceProxyHandler.Configure(origin);
         AdvisoryPublicEvidenceProxyHandler.Configure(origin);
     }
+    internal static void ConfigureProductWorkspacePlan(WorkspacePlan plan)
+    {
+        ArgumentNullException.ThrowIfNull(plan);
+        Volatile.Write(ref _productWorkspacePlan, plan);
+    }
+    internal static WorkspacePlan ProductWorkspacePlan =>
+        Volatile.Read(ref _productWorkspacePlan)
+        ?? throw new InvalidOperationException(
+            "The browser product Workspace plan has not been configured.");
     internal static IPackageSourceAuthorization PackageSourceAuthorization =>
         SourceAuthorizationFor(Gallery);
     internal static IPackageStore SessionPackageStore => Store;

@@ -12,7 +12,6 @@
     <InternalsVisibleTo Include="DotnetInspect.Web.Tests" />
     <AdditionalFiles Include="..\DotnetInspect.Web\BannedSymbols.txt" />
     <ProjectReference Include="..\DotnetInspect.Web.Core\DotnetInspect.Web.Core.csproj" />
-    <ProjectReference Include="..\..\src\DotnetInspector.Ecosystems\DotnetInspector.Ecosystems.csproj" />
     <ProjectReference Include="..\..\src\DotnetInspector.Queries\DotnetInspector.Queries.csproj" />
     <ProjectReference Include="..\..\src\ILInspector.Analysis\ILInspector.Analysis.csproj" />
     <ProjectReference Include="..\..\src\ILInspector.CallGraph\ILInspector.CallGraph.csproj" />

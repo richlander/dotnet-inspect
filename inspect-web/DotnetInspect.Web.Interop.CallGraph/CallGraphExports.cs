@@ -1,7 +1,6 @@
 using System.Runtime.InteropServices.JavaScript;
 using System.Runtime.Versioning;
 using System.Text.Json;
-using DotnetInspector.Ecosystems;
 using DotnetInspector.Queries;
 using DotnetInspector.Sections;
 
@@ -55,7 +54,7 @@ public static partial class CallGraphExports
                 memberName,
                 selectorKey,
                 metadataToken,
-                EcosystemPackCatalog.CreatePlatformWorkspacePlan(),
+                BrowserPackageWorkspace.ProductWorkspacePlan,
                 MemberCallGraphSupplyChainBaseline
                     .SelfAndRegisteredEcosystems);
         if (envelope.Content

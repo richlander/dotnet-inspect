@@ -26,6 +26,8 @@ using ILInspector.Metadata;
 using NuGetFetch;
 
 using DotnetInspect.Web.Interop.Package;
+using BrowserProductWorkspacePlans =
+    DotnetInspect.Web.Interop.Catalog.BrowserProductWorkspacePlans;
 using BrowserMetadataJsonContext = DotnetInspect.Web.Interop.Metadata.BrowserMetadataJsonContext;
 using BrowserAnalysisJsonContext = DotnetInspect.Web.Interop.Analysis.BrowserAnalysisJsonContext;
 using BrowserSourceJsonContext = DotnetInspect.Web.Interop.Source.BrowserSourceJsonContext;
@@ -564,6 +566,24 @@ public sealed partial class BrowserEngineBoundaryTests
 
         Assert.Contains("n0 -- loop --> n1", mermaid);
         Assert.Contains("n0 --> n2", mermaid);
+    }
+
+    [Fact]
+    public void ProductWorkspacePlan_ConfiguresSupplyChainBaseline()
+    {
+        BrowserProductWorkspacePlans.ConfigurePlatform();
+
+        string[] ecosystems =
+        [
+            .. BrowserPackageWorkspace.ProductWorkspacePlan.Registrations
+                .OfType<WorkspaceRegistration.Ecosystem>()
+                .Select(registration =>
+                    registration.Declaration.Id.Value),
+        ];
+
+        Assert.Contains("ecosystem.runtime", ecosystems);
+        Assert.Contains("ecosystem.aspnetcore", ecosystems);
+        Assert.Contains("ecosystem.microsoft-extensions", ecosystems);
     }
 
     [Fact]
