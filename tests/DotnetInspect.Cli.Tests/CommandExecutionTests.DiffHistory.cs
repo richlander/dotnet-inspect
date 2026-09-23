@@ -61,6 +61,115 @@ public partial class CommandExecutionTests
         Assert.DoesNotContain("Package 'Definitely.Does.Not.Exist'", error);
     }
 
+    [Theory]
+    [InlineData("-1")]
+    [InlineData("0")]
+    [InlineData("101")]
+    public async Task
+        DiffHistory_RejectsInvalidSurveyPercentageBeforeAcquisition(
+            string percentage)
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "diff",
+            "--history",
+            "--package",
+            "Definitely.Does.Not.Exist@1.0.0..2.0.0",
+            "--type",
+            "Example.Widget",
+            "--sample-percent",
+            percentage);
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains(
+            "--sample-percent must be from 1 through 100",
+            error);
+        Assert.DoesNotContain("Package 'Definitely.Does.Not.Exist'", error);
+    }
+
+    [Fact]
+    public async Task
+        DiffHistory_RejectsExplicitAndSurveyPoliciesBeforeAcquisition()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "diff",
+            "--history",
+            "--package",
+            "Definitely.Does.Not.Exist@1.0.0..2.0.0",
+            "--type",
+            "Example.Widget",
+            "--at",
+            "first",
+            "--sample-percent",
+            "50");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains(
+            "--at cannot be combined with --max-probes, --sample-percent, or --major-versions",
+            error);
+        Assert.DoesNotContain("Package 'Definitely.Does.Not.Exist'", error);
+    }
+
+    [Fact]
+    public async Task DiffSurveyPolicyRequiresHistory()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "diff",
+            "--package",
+            "Definitely.Does.Not.Exist@1.0.0..2.0.0",
+            "--sample-percent",
+            "50");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains("--sample-percent", error);
+        Assert.Contains("require --history", error);
+        Assert.DoesNotContain("Package 'Definitely.Does.Not.Exist'", error);
+    }
+
+    [Fact]
+    public async Task DiffMajorVersionsPolicyRequiresHistory()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "diff",
+            "--package",
+            "Definitely.Does.Not.Exist@8.0.0..11.0.0",
+            "--major-versions");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains("--major-versions", error);
+        Assert.Contains("require --history", error);
+        Assert.DoesNotContain("Package 'Definitely.Does.Not.Exist'", error);
+    }
+
+    [Theory]
+    [InlineData("--at", "first")]
+    [InlineData("--sample-percent", "50")]
+    [InlineData("--max-probes", "4")]
+    public async Task
+        DiffHistory_MajorVersionsRejectsAnotherEvaluationPolicy(
+            string option,
+            string value)
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "diff",
+            "--history",
+            "--package",
+            "Definitely.Does.Not.Exist@8.0.0..11.0.0",
+            "--type",
+            "Example.Widget",
+            "--major-versions",
+            option,
+            value);
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains("--major-versions", error);
+        Assert.DoesNotContain("Package 'Definitely.Does.Not.Exist'", error);
+    }
+
     [Fact]
     public async Task DiffHistory_CountAdmitsOnlyChangedVersions()
     {

@@ -54,6 +54,13 @@ test("call graph diagnostics distinguish failures from expected bounds", () => {
   })), "Partial call graph: one or more method bodies could not be analyzed.");
   assert.equal(callGraphDiagnosticsMessage(engineCallGraphDiagnostics({
     isIncomplete: true,
+    incompleteNodes: 0,
+    incompleteEdges: 0,
+    bindingIdentityConflicts: 0,
+    unavailableDependencyRoutes: 2
+  })), "Partial call graph: 2 unavailable dependency routes.");
+  assert.equal(callGraphDiagnosticsMessage(engineCallGraphDiagnostics({
+    isIncomplete: true,
     incompleteNodes: 1,
     incompleteEdges: 0,
     bindingIdentityConflicts: 0,
@@ -207,13 +214,13 @@ test("workspace UI routes replacements and restore notices through bounded paths
     /onClose: closeWorkspacePackage/);
   assert.match(
     appSource,
-    /onSelect: selectRetainedWorkspace,\s+onActivateWorkspace: selectRetainedWorkspace,\s+onDeleteWorkspace: deleteRetainedWorkspace,\s+onActivate: action =>\s+observeAction\(\s+\(\) => activateWorkspacePackageOccurrence\(action\)/);
+    /onSelect: selectRetainedWorkspace,\s+onActivateWorkspace: selectRetainedWorkspace,\s+onDeleteWorkspace: deleteRetainedWorkspace,\s+onProductPackageAction: navigationId => observeAsync\(\s+activateRetainedPackageAction\(navigationId\),\s+"Activating retained Package",\s+\),\s+onProductPlatformAction: navigationId => observeAsync\(\s+activateRetainedPlatformAction\(navigationId\),\s+"Activating retained Platform",\s+\),\s+onActivate: action =>\s+observeAction\(\s+\(\) => activateWorkspacePackageOccurrence\(action\)/);
   assert.match(
     appSource,
     /function selectRetainedWorkspace\(workspaceId: string\): void \{\s*navigationSequence\.begin\(\)/);
   assert.match(
     appSource,
-    /function deleteRetainedWorkspace\(workspaceId: string\): void \{\s*try \{\s*navigationSequence\.begin\(\)/);
+    /function deleteRetainedWorkspace\(workspaceId: string\): void \{\s*if \(retainedWorkspaceActivation\?\.state\.definitions\.some\([\s\S]*deleteManagedRetainedWorkspace\(workspaceId\),\s+"Deleting retained Workspace",\s+\);\s+return;\s+\}\s+try \{\s*navigationSequence\.begin\(\)/);
   assert.match(
     appSource,
     /onScopeSelect: target => \{[\s\S]*if \(target === "workspace"\) \{\s*navigationSequence\.begin\(\);/);
@@ -231,10 +238,7 @@ test("workspace UI routes replacements and restore notices through bounded paths
     /function packageLibraries\(\) \{\s*return packageLibraryInventory\(\);\s*\}/);
   assert.match(
     appSource,
-    /function currentLibraryQueryMatchIds\(\)[\s\S]*inspection\.content\.results\.map\(result => result\.assetId\)/);
-  assert.match(
-    appSource,
-    /const matchingLibraryIds = currentLibraryQueryMatchIds\(\);[\s\S]*renderLibrarySubjectNav\(\{[\s\S]*libraries: packageLibraries\(\)[\s\S]*matchingLibraryIds/);
+    /renderLibrarySubjectNav\(\{\s*libraries: packageLibraries\(\)/);
   assert.match(
     appSource,
     /assemblyDescriptorForType\(pkg\.assemblies, type\)/);

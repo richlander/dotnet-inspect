@@ -56,11 +56,15 @@ CLI and Browser now consume the same production vocabulary:
 `depends=<package-id>`, `depends-transitive=<package-id>`,
 `dependency-depth=2|3|4`, `downloads=10k|100k|1m`,
 `license=any|MIT|OSMF`, `readme=true`, `tool=true`, `tool-format=v1|v2`, and
-`references=<simple-assembly-name>` and `skill=true`.
+`references=<simple-assembly-name>`, `skill=true`, and
+`library-literal=<decoded UTF-16 text>`.
 `package=<id>`, `prefix=<literal-prefix>`, and
 `prerelease=stable|include` are structural terms authored by the shared input
-planner rather than host-visible inspection controls. Assembly-semantic
-qualification is an explicit Package Query mode owned by
+planner rather than host-visible inspection controls. When `library-literal`
+is selected, the same planner authors the contextual
+`library-target=<canonical-tfm>` term from required CLI `--tfm`; that context
+term is not user-selectable through `--where` or discovery. Semantic
+composition is owned by
 [Package Query library-literal qualification](package-query-library-literal.md).
 Its Results have package grain; decoded literal occurrences remain typed
 evidence within each matched package Result. The one-candidate evaluator
@@ -115,8 +119,8 @@ Related docs:
 - [Progressive disclosure](progressive-disclosure.md) — owns capability-gated,
   explicit-cost package enrichment.
 - [Package Query library-literal qualification](package-query-library-literal.md)
-  — owns the bounded package-population composition and package-grain Results
-  for decoded literal qualification.
+  — owns ordinary-term prequalification, selected-library evaluation, and the
+  unified package-grain Result composition.
 - [Inspection graph document](inspection-graph-document.md) — owns the
   relational (`graph integrations`) shape a subset of "wide query" questions
   actually need, instead of this document's flat, per-package row model.
@@ -151,6 +155,7 @@ The production inspection vocabulary is:
 | `tool-format` | `v1` or `v2` | package content | package content | Tool settings use the selected format |
 | `references` | Assembly simple name | package content | metadata | At least one admitted managed `ref/` or `lib/` asset declares the requested `AssemblyRef` simple name |
 | `skill` | `true` | package content | package content | The archive contains an admitted skill document |
+| `library-literal` | Exact decoded UTF-16 text | package content | metadata-expensive | The selected primary implementation library contains the ordinal text in at least one decoded `ldstr` use |
 
 Acquisition tier authorizes evidence access and enforces candidate bounds.
 Execution class is the product-owned discovery and UI taxonomy for the work
@@ -158,9 +163,10 @@ performed after that evidence is available. They intentionally differ for
 `references`: the term downloads a package archive but performs managed
 metadata inspection. The complete class vocabulary is `search-metadata`,
 `nuspec`, `nuspec-expensive`, `package-content`, `metadata`, and
-`metadata-expensive`. Transitive dependency search uses `nuspec-expensive`;
-call-graph or decompiler-driven metadata search remains future explicit work
-rather than behavior implied by this vocabulary.
+`metadata-expensive`. Transitive dependency search uses `nuspec-expensive`.
+`library-literal` is the first `metadata-expensive` term; call-graph or
+decompiler-driven search remains future explicit work rather than behavior
+implied by that class.
 Execution class is descriptor metadata, not acquisition authority or predicate
 meaning. Hosts may use it to lower their default candidate controls, while the
 product still validates each term's concrete work bound.
@@ -204,6 +210,15 @@ dotnet-inspect package query wix \
   --where "license=OSMF" --nuspec-only
 dotnet-inspect package query Newtonsoft.Json \
   --where "license=MIT" --nuspec-only
+
+dotnet-inspect package query Newtonsoft.Json \
+  --where "library-literal=Unexpected end when reading JSON" \
+  --tfm net6.0
+
+dotnet-inspect package query 'Azure.Identity*' \
+  --where "downloads=1m" \
+  --where "library-literal=DefaultAzureCredential" \
+  --tfm net8.0 --take 5
 ```
 
 The old `facet=<opaque-id>` spelling is rejected; it is not retained as an
@@ -211,11 +226,29 @@ alias. `-Q Packages` and `Query: Packages` expose the product term keys,
 closed values, value kinds, and examples without acquisition. The CLI does not
 define a parallel vocabulary or infer terms from labels or evidence text.
 
-One request admits at most 22 authored inspection terms. Package Query reserves
-the other two slots in Portable Query's 24-term payload limit for its required
-population and prerelease terms. The count is charged before duplicate
-collapse, matching the canonical codec; both CLI and Browser receive the same
-typed planning rejection for a twenty-third inspection term.
+One request ordinarily admits at most 22 authored inspection terms. Package
+Query reserves the other two slots in Portable Query's 24-term payload limit
+for its required population and prerelease terms. A request containing
+`library-literal` admits at most 21 authored inspection terms because the
+Product planner adds the required contextual `library-target` term. The count
+is charged before duplicate collapse, matching the canonical codec; both CLI
+and Browser receive the same typed planning rejection when the complete intent
+would exceed the bound.
+
+`library-literal` preserves its exact decoded UTF-16 value, including leading
+and trailing whitespace and embedded newlines. It accepts 1 through 1,024
+UTF-16 code units and has no regex, glob, or byte-pattern interpretation.
+The term requires `--tfm`; CLI validates the exact target and passes it to the
+Product planner, which canonicalizes it and authors `library-target`. Users
+cannot submit `library-target` through `--where`.
+
+Ordinary terms AND-compose with `library-literal` and prequalify candidates
+before the existing selected-primary-implementation-library evaluator runs.
+The combined request has package-content acquisition,
+`metadata-expensive` execution, and a five-candidate maximum. Only final
+semantic matches enter `PackageQueryDocument.Results`; complete occurrences,
+selected-library context, exact Root reopening, assessments, failures, and
+Summary accounting remain typed content in the same Document.
 
 `depends=<package-id>` uses NuGet package-ID comparison semantics and matches
 one exact direct dependency. Without `dependency-target`, or with
@@ -400,8 +433,8 @@ output parity.
 The CLI adapter lowers every selection to the product-owned bounded
 `PackageQuery` plan and renders returned evidence rather than recomputing it.
 The shared engine owns predicate meaning, compatible alternatives, acquisition
-tiers, and completion. Browser is the second consumer of the same descriptors
-and planner. Assembly-pattern CLI adoption remains separate.
+tiers, semantic composition, and completion. Browser is the second consumer of
+the same descriptors and planner.
 
 The CLI provider consumes the package owner's configured-authority exact-pin
 acquisition and authority-scoped filesystem store. It acquires the selected
@@ -417,9 +450,10 @@ per-source allowance. Candidate work includes nonmatches and failed candidates
 because each admitted candidate may require exact-manifest or package-content
 evaluation before its match status is known. The manifest-only default remains
 200 candidates and an explicit value may raise it to 1,000. Package-content
-queries default to and reject values above 20. Reaching either default or
-explicit candidate bound remains visible bounded incompleteness; the integer
-is not a matched-row count.
+queries default to and reject values above 20; a `metadata-expensive`
+`library-literal` query instead defaults to and rejects values above five.
+Reaching either default or explicit candidate bound remains visible bounded
+incompleteness; the integer is not a matched-row count.
 
 `-n` is semantic Head over final matched-package rows. When no explicit
 `--take` is present and the row plan is one Head operation, the CLI pushes that
@@ -515,11 +549,11 @@ retirement diagnostics, and the neighboring patterned Find contract.
 `package query` is the package-row CLI verb. It consumes the host-neutral L1
 term engine to ask whether an exact package or packages under a literal prefix
 satisfy selected product-owned facts available from source metadata, exact
-manifests, or an explicitly supplied package archive. `find` remains the
-type/member/API verb; its package prefix option only scopes a patterned API
-search. Assembly-semantic literal evaluation remains a separate explicit
-operation under #6767; bounded `AssemblyRef` metadata is an ordinary
-package-content term.
+manifests, an explicitly supplied package archive, or the selected primary
+implementation library. `find` remains the type/member/API verb; its package
+prefix option only scopes a patterned API search. Decoded string-literal
+qualification is the `library-literal` Package Query term; bounded
+`AssemblyRef` metadata remains the separate `references` package-content term.
 This document defines where those pieces belong across the existing L1/L2/L3
 split, rather than treating the CLI project as a place to accumulate new
 bespoke logic the way it did before that split existed.
@@ -550,9 +584,9 @@ Core. Concretely:
   query that evaluates nuspec-tier terms over a streamed manifest and
   package-content terms through an explicit host capability returns typed
   results and chooses no renderer — the existing L1 contract.
-  Assembly-semantic Find is a separate L1 composition owned by
-  [Find assembly-semantic query](find-assembly-semantic-query.md); it does not
-  extend this term engine.
+  The existing assembly-semantic query remains a composed evaluator beneath
+  Package Query's `library-literal` term; its separate Find-era public route
+  does not extend the CLI surface.
   This is what makes the term engine reachable from a second consumer (the
   browser/Wasm engine) without re-deriving it, the exact failure mode
   [inspection-layers.md](inspection-layers.md) exists to prevent.
@@ -779,6 +813,11 @@ product-issued keys and values and do not reconstruct those predicates:
   `PackageQuery` applies all cheaper predicates first. Tool v1 and v2 are
   combining members, so selecting both returns either recognized settings
   format with evidence identifying the observed version.
+- **`metadata-expensive` execution.** `library-literal` acquires package
+  content, requires one exact planner-authored `library-target`, and admits at
+  most five candidates. Package Query applies ordinary terms first, then
+  invokes the existing selected-primary-implementation-library evaluator only
+  for prequalified candidates.
 
 CLI and Browser invoke the same L1 definitions. The CLI applies semantic row
 selection to
@@ -796,27 +835,28 @@ explicit cost gesture in both Browser and CLI. Each host lowers its candidate
 bound from 200 to 20 before dispatch; the CLI additionally offers
 `--nuspec-only` to reject such a plan before acquisition.
 
-Assembly-semantic escalation is not a `package query --where` tier and does
-not use a future `--deepen` flag. The explicit `--library-literal` gesture is
-owned by
-[Package Query library-literal qualification](package-query-library-literal.md).
-It uses a separate five-candidate ceiling, evaluates the selected primary
-implementation library, and returns package-grain Results with occurrence
-evidence. The occurrence-oriented
-[assembly-semantic evaluator query](find-assembly-semantic-query.md) remains
-the reusable evidence producer beneath that package adapter.
+`library-literal` is an ordinary `package query --where` term with
+package-content acquisition and `metadata-expensive` execution. It does not
+use a `--deepen` flag or a separate command mode. The Product planner requires
+CLI `--tfm`, authors contextual `library-target`, enforces the five-candidate
+ceiling, and composes the existing occurrence-oriented
+[assembly-semantic evaluator query](find-assembly-semantic-query.md) beneath
+the unified Package Query operation.
 
-## Historical assembly-semantic route
+## Retired assembly-semantic command route
 
 This document originally recorded `find --literal` as a promoted Package Query
-tier, then temporarily assigned assembly-semantic presentation to Find. That
-route is retired because Find returns Type Results.
+tier, then temporarily assigned assembly-semantic presentation to Find, and
+later exposed `package query --library-literal` with a separate result kind.
+Those routes are retired. Find returns Type Results, while Package Query now
+binds decoded literal qualification through
+`--where "library-literal=..." --tfm TFM`.
 
-The current package-grain command behavior, Count, exact Root reopening, and
-bounded exact-ID or prefix population are specified by
+The package-grain composition, Count, exact Root reopening, complete occurrence
+evidence, and bounded exact-ID or prefix population are specified by
 [Package Query library-literal
-qualification](package-query-library-literal.md). The occurrence-oriented
-evaluator contract remains in
+qualification](package-query-library-literal.md). The reusable
+occurrence-oriented evaluator contract remains in
 [Find assembly-semantic query](find-assembly-semantic-query.md), and the
 one-candidate selected-asset and producer contract remains in
 [Package Query assembly-pattern
@@ -840,6 +880,15 @@ document specifies:
   of being flattened into an `Evidence` column. The query layer retrieves
   values, facts, and counts; hosts render any explanation from those typed
   values without re-deriving semantic identity.
+- **Literal strings are an explicit evidence projection.** For a
+  `library-literal` query, `-S "Literal Strings"` renders one row for each
+  physical matching `ldstr` occurrence across the selected package Results.
+  Rows contain Package, Library, Method Token, IL Offset, and the complete
+  Literal. Multiple operand matches within one decoded string do not split that
+  occurrence, while repeated uses of the same string at distinct IL
+  coordinates remain distinct rows. The projection does not extract the
+  operand or URL-shaped substrings and does not change package-grain `-n`,
+  `--rows`, or `--count` semantics.
 - **Denormalization is a per-term decision, not a generic mechanism.** A
   term whose answer is inherently per-sub-item (for example, "which of this
   package's target frameworks are out of support" when a package targets
@@ -878,6 +927,12 @@ order:
   the first 20 matches," not "inspect 20 candidates." If only seven match
   before the candidate bound is reached, the command returns seven and
   preserves bounded incompleteness.
+- **`library-literal` with ordinary terms** admits at most five candidates,
+  evaluates ordinary terms first, and runs selected-library semantic work only
+  for those prequalified matches. Semantic `-n` then selects final package
+  Results. A candidate that fails an ordinary term does not become a semantic
+  `NoMatch`, and a semantic survivor does not become a published match until
+  its selected primary implementation library contains the literal.
 
 The implementation must preserve the orderings: candidate admission precedes
 term evaluation, nuspec predicates precede semantic `-n`, the package-content
@@ -914,10 +969,9 @@ one-row-per-candidate lowering, while
 candidate population.
 `PresentMatchBudget_PreservesExistingStopBehavior` must retain the current
 product behavior for Browser and other budgeted callers, including the
-numeric summary denominator and completion mapping. Existing Package Query
-gates continue to own the shared product match-budget behavior; CLI gates do
-not redefine it. Assembly-semantic Find ordering is owned separately by
-[Find assembly-semantic query](find-assembly-semantic-query.md).
+numeric summary denominator and completion mapping. Existing Package Query gates continue to own the shared product match-budget
+behavior; CLI gates do not redefine it. The library-literal composition owner
+adds the final-match-only publication and selected-library evaluation ordering.
 
 ## Shared request/outcome shape with the browser
 
@@ -947,10 +1001,11 @@ the product's named terms as canonical for both hosts.
   package-to-integration questions route through the existing inspection
   graph, not through a new edge concept invented for this document.
 - No unbounded package-content evaluation. Package-content terms retain their
-  product-owned 20-candidate maximum.
-- No assembly-semantic Find gesture, population, occurrence, or result
-  contract. Those belong to
-  [Find assembly-semantic query](find-assembly-semantic-query.md).
+  product-owned 20-candidate maximum, while `metadata-expensive`
+  `library-literal` requests have a five-candidate maximum.
+- No regex, byte-pattern, arbitrary assembly selector, all-assembly scan, RID,
+  traversal, or untyped-detail expansion for `library-literal`.
+- No separate assembly-semantic CLI mode, output contract, or result kind.
 
 ## Landing sequence
 
@@ -988,10 +1043,10 @@ the product's named terms as canonical for both hosts.
 6. **Command retirement — implemented by #6768.** `package search` and
    patternless `find --package-prefix` are removed without aliases.
    Patterned `find PATTERN --package-prefix PREFIX` remains API search.
-7. **Assembly-semantic Find transferred to its focused owner.**
-   [Find assembly-semantic query](find-assembly-semantic-query.md) owns the
-   existing exact-package route and target bounded package-prefix population.
-   They are not Package Query terms or acquisition tiers.
+7. **Assembly-semantic evaluator extracted behind its focused owners.**
+   [Find assembly-semantic query](find-assembly-semantic-query.md) retains the
+   reusable bounded evaluator composition, while Package Query owns its public
+   package-row adoption.
 8. **Define the shared save/resume file shape**, coordinated with whatever
    the browser experience's local-storage record settles on when it is
    implemented.
@@ -1005,6 +1060,14 @@ the product's named terms as canonical for both hosts.
     `ref/` and `lib/` framework groups. CLI and Browser project the same free
     term, package-grain match, count-plus-preview evidence, and visible
     package-content failures.
+11. **Library-literal term unification — #7993.** Register
+    `library-literal` as a user-selectable term, have the Product planner author
+    non-user-selectable `library-target` from CLI `--tfm`, prequalify ordinary
+    terms before selected-library evaluation, and return one
+    `InspectionEnvelope<PackageQueryDocument>`. Retire `--library-literal`,
+    `package-assembly-semantic-query`, and their separate CLI presentation
+    path. The production demo combines an ordinary term with the literal term
+    and reopens the exact returned Root.
 
 Each step should name its own gating tests as it lands, per this project's
 "asserted properties name their gate" rule — this document is not itself a

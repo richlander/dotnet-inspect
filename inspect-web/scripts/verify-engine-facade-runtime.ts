@@ -1,5 +1,5 @@
 // Executes the compiler-derived JavaScript modules of the production facade set against a
-// probe runtime. It proves that the seven independently generated modules compose over one
+// probe runtime. It proves that the eight independently generated modules compose over one
 // shared runtime module, that each one acquires its own managed export assembly, that
 // importing a module performs no managed work, and that only the host module's
 // `runEntryPoint()` reaches the runtime.
@@ -30,6 +30,12 @@ const typeSourceResult: BrowserTypeSourceResult = {
       pdbSourceLimitation: null,
       text: "class Example {}",
     },
+    share: {
+      kind: "available",
+      fullUrl: "https://example.test/type-source",
+      packet: "type-source",
+    },
+    diagnostics: [],
   },
   failureKind: null,
   error: null,
@@ -63,6 +69,11 @@ const facades: readonly FacadeIdentity[] = [
     module: "inspect-web-package",
     assembly: "DotnetInspect.Web.Interop.Package",
     rootPath: ["DotnetInspect", "Web", "Interop", "Package", "PackageExports"],
+  },
+  {
+    module: "inspect-web-library",
+    assembly: "DotnetInspect.Web.Interop.Library",
+    rootPath: ["DotnetInspect", "Web", "Interop", "Library", "LibraryExports"],
   },
   {
     module: "inspect-web-metadata",
@@ -119,6 +130,11 @@ const representativeOperations: Readonly<Record<string, RepresentativeOperation>
       }],
     ],
     key: "MatchPackageDependencyCoordinate",
+  },
+  "inspect-web-library": {
+    name: "openUploadedLibrary",
+    args: ["Example.dll", [0x4d, 0x5a]],
+    key: "OpenUploadedLibrary",
   },
   "inspect-web-metadata": {
     name: "queryPackageMetadata",

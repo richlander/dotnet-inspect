@@ -25,7 +25,7 @@ public sealed record WorkspaceReplacementInspector(
 
 public sealed record WorkspacePortableCoordinateReplacementOutcome(
     bool Succeeded,
-    string Navigation,
+    WorkspacePackageComponentPath Component,
     WorkspacePortableCoordinateReplacementFailure? Failure,
     WorkspaceReplacementCoordinate? Source,
     WorkspaceReplacementCoordinate? Destination,
@@ -38,7 +38,7 @@ public sealed record WorkspacePortableCoordinateReplacementOutcome(
 
 public static class WorkspacePortableCoordinateReplacementOperation
 {
-    const string SharePath = "workspace/coordinate-replacement";
+    const string SharePath = "workspace/package-update";
 
     public static async ValueTask<
         InspectionEnvelope<WorkspacePortableCoordinateReplacementOutcome>>
@@ -68,7 +68,7 @@ public static class WorkspacePortableCoordinateReplacementOperation
         NavigationConsumerLensOutcome? lens = snapshot?.LensOutcome;
         var content = new WorkspacePortableCoordinateReplacementOutcome(
             result.Succeeded,
-            request.Navigation,
+            request.Component,
             result.Failure,
             Coordinate(retention?.Source),
             Coordinate(retention?.Destination),
@@ -96,7 +96,7 @@ public static class WorkspacePortableCoordinateReplacementOperation
         if (result.Failure is { } failure)
         {
             diagnostics.Add(new(
-                $"workspace.coordinate-replacement.{failure.Kind}",
+                $"workspace.package-update.{failure.Kind}",
                 InspectionDiagnosticSeverity.Error,
                 failure.Detail));
         }
@@ -105,14 +105,14 @@ public static class WorkspacePortableCoordinateReplacementOperation
                 != NavigationCoordinateRetentionDisposition.ExactPath)
         {
             diagnostics.Add(new(
-                "workspace.coordinate-replacement.fallback",
+                "workspace.package-update.fallback",
                 InspectionDiagnosticSeverity.Warning,
                 retained.Detail));
         }
         if (lens?.Kind is NavigationOutcomeKind.Unavailable or NavigationOutcomeKind.Failed)
         {
             diagnostics.Add(new(
-                "workspace.coordinate-replacement.inspector",
+                "workspace.package-update.inspector",
                 InspectionDiagnosticSeverity.Warning,
                 lens.Resolution?.Message
                     ?? $"The retained inspector is {lens.Kind}."));
@@ -124,7 +124,7 @@ public static class WorkspacePortableCoordinateReplacementOperation
         foreach (NavigationConsumerDiagnostic diagnostic in nativeDiagnostics)
         {
             diagnostics.Add(new(
-                $"workspace.coordinate-replacement.navigation.{diagnostic.Kind}",
+                $"workspace.package-update.navigation.{diagnostic.Kind}",
                 InspectionDiagnosticSeverity.Warning,
                 diagnostic.Message,
                 diagnostic.Library));
@@ -161,7 +161,7 @@ public static class WorkspacePortableCoordinateReplacementOperation
         {
             string packet = WorkspaceSharePacketCodec.Encode(projection.Packet!);
             return new InspectionShare.Available(
-                $"https://dotnet-inspect.net/?w={packet}", packet);
+                WorkspaceShareUrl.Create(packet), packet);
         }
         catch (WorkspaceSharePacketException failure)
         {

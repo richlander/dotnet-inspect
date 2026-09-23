@@ -1,6 +1,7 @@
 import type * as AnalysisFacadeModule from "./facades/inspect-web-analysis.d.ts";
 import type * as CallGraphFacadeModule from "./facades/inspect-web-call-graph.d.ts";
 import type * as CatalogFacadeModule from "./facades/inspect-web-catalog.d.ts";
+import type * as LibraryFacadeModule from "./facades/inspect-web-library.d.ts";
 import type * as MetadataFacadeModule from "./facades/inspect-web-metadata.d.ts";
 import type * as PackageFacadeModule from "./facades/inspect-web-package.d.ts";
 import type * as SourceFacadeModule from "./facades/inspect-web-source.d.ts";
@@ -28,6 +29,7 @@ import type { WorkerOperationCatalog } from "./worker-runtime-realm.ts";
 type AnalysisFacade = typeof AnalysisFacadeModule;
 type CallGraphFacade = typeof CallGraphFacadeModule;
 type CatalogFacade = typeof CatalogFacadeModule;
+type LibraryFacade = typeof LibraryFacadeModule;
 type MetadataFacade = typeof MetadataFacadeModule;
 type PackageFacade = typeof PackageFacadeModule;
 type SourceFacade = typeof SourceFacadeModule;
@@ -57,6 +59,8 @@ type PackageOperationName =
   | "queryWorkspacePackageOccurrences"
   | "resolvePackageDependencyVersion";
 
+type LibraryOperationName = "openUploadedLibrary";
+
 type MetadataOperationName =
   | "cancelLibraryApiDiff"
   | "queryLibraryApiDiff"
@@ -72,12 +76,15 @@ type MetadataOperationName =
   | "queryGraphMemberSurface";
 
 type AnalysisOperationName =
+  | "queryCloneCandidates"
   | "queryMemberFacts"
   | "queryPackageIntegrations"
   | "queryPlatformIntegrations"
   | "queryPackageOpportunities"
   | "queryPlatformOpportunities"
   | "queryPackagePerformance"
+  | "queryPackageLibraryMetrics"
+  | "queryPlatformLibraryMetrics"
   | "queryPlatformPerformance";
 
 type SourceOperationName =
@@ -103,6 +110,7 @@ type CatalogOperationName =
   | "activateRetainedWorkspaceDefinition"
   | "activateRetainedWorkspaceDefinitionWithCredentials"
   | "cancelRetainedWorkspaceActivation"
+  | "captureCompleteWorkspaceShareState"
   | "canonicalizeWorkspaceSharePacket"
   | "commitRetainedWorkspaceActivation"
   | "completeRetainedWorkspaceActivation"
@@ -130,6 +138,7 @@ type AsyncFacadeGroup<TFacade, TName extends keyof TFacade> = {
 
 export interface EngineWorkerOrdinaryFacades {
   readonly package: Pick<PackageFacade, PackageOperationName>;
+  readonly library: Pick<LibraryFacade, LibraryOperationName>;
   readonly metadata: Pick<MetadataFacade, MetadataOperationName>;
   readonly analysis: Pick<AnalysisFacade, AnalysisOperationName>;
   readonly source: Pick<SourceFacade, SourceOperationName>;
@@ -139,6 +148,7 @@ export interface EngineWorkerOrdinaryFacades {
 
 export interface EngineWorkerOrdinaryClient {
   readonly package: AsyncFacadeGroup<PackageFacade, PackageOperationName>;
+  readonly library: AsyncFacadeGroup<LibraryFacade, LibraryOperationName>;
   readonly metadata: AsyncFacadeGroup<MetadataFacade, MetadataOperationName>;
   readonly analysis: AsyncFacadeGroup<AnalysisFacade, AnalysisOperationName>;
   readonly source: AsyncFacadeGroup<SourceFacade, SourceOperationName>;
@@ -149,6 +159,7 @@ export interface EngineWorkerOrdinaryClient {
 export const engineWorkerOrdinaryMaximumJsonCharacters = 16_777_216;
 export const engineWorkerOrdinaryMaximumNesting = 64;
 export const engineWorkerOrdinaryMaximumCollectionEntries = 524_288;
+export const engineWorkerUploadedLibraryMaximumBytes = 32 * 1024 * 1024;
 
 type JsonPrimitive = null | boolean | number | string;
 type JsonValue = JsonPrimitive | JsonValue[] | { [name: string]: JsonValue };
@@ -422,6 +433,93 @@ function createInputDecoder<TArgs extends readonly unknown[]>(
   };
 }
 
+interface OrdinaryInputTransport<TArgs extends readonly unknown[]> {
+  readonly input: BoundedPayloadDecoder<TArgs>;
+  readonly encode: (
+    input: TArgs,
+  ) => BoundedPayloadDecodeResult<unknown>;
+}
+
+function jsonInputTransport<TArgs extends readonly unknown[]>(
+  argumentCount: number,
+): OrdinaryInputTransport<TArgs> {
+  return {
+    input: createInputDecoder<TArgs>(argumentCount),
+    encode: input => encodeInputTuple(input),
+  };
+}
+
+type UploadedLibraryArguments =
+  Parameters<LibraryFacade["openUploadedLibrary"]>;
+
+function validateUploadedLibraryArguments(
+  value: unknown,
+): UploadedLibraryArguments {
+  if (!Array.isArray(value) || value.length !== 2) {
+    throw new OrdinaryPayloadError(
+      "Uploaded Library input must be a two-element array.",
+    );
+  }
+  const declaredName: unknown = value[0];
+  const content: unknown = value[1];
+  if (typeof declaredName !== "string") {
+    throw new OrdinaryPayloadError(
+      "Uploaded Library declared name must be a string.",
+    );
+  }
+  if (!Array.isArray(content)) {
+    throw new OrdinaryPayloadError(
+      "Uploaded Library content must be a byte array.",
+    );
+  }
+  if (content.length > engineWorkerUploadedLibraryMaximumBytes) {
+    throw new OrdinaryPayloadError(
+      `Uploaded Library content exceeds ${
+        engineWorkerUploadedLibraryMaximumBytes
+      } bytes.`,
+      "oversized",
+    );
+  }
+  for (const byte of content) {
+    if (!Number.isInteger(byte) || byte < 0 || byte > 255) {
+      throw new OrdinaryPayloadError(
+        "Uploaded Library content contains a value outside the byte range.",
+      );
+    }
+  }
+  // Complete tuple and byte validation establishes the generated facade arguments.
+  // oxlint-disable-next-line typescript/no-unsafe-type-assertion
+  return value as UploadedLibraryArguments;
+}
+
+const uploadedLibraryInputTransport:
+  OrdinaryInputTransport<UploadedLibraryArguments> = {
+    input: {
+      decode(value) {
+        try {
+          return {
+            kind: "decoded",
+            value: validateUploadedLibraryArguments(value),
+          };
+        } catch (error: unknown) {
+          if (!(error instanceof OrdinaryPayloadError)) throw error;
+          return rejectedPayload(error);
+        }
+      },
+    },
+    encode: input => {
+      try {
+        return {
+          kind: "decoded",
+          value: validateUploadedLibraryArguments(input),
+        };
+      } catch (error: unknown) {
+        if (!(error instanceof OrdinaryPayloadError)) throw error;
+        return rejectedPayload(error);
+      }
+    },
+  };
+
 function encodeInputTuple(
   input: readonly unknown[],
 ): BoundedPayloadDecodeResult<unknown> {
@@ -582,15 +680,17 @@ function createOrdinaryOperation<
     result: TResult,
     error: OrdinaryPayloadError,
   ) => void | PromiseLike<void>,
+  inputTransport: OrdinaryInputTransport<TArgs> =
+    jsonInputTransport<TArgs>(argumentCount),
 ): EngineWorkerOrdinaryOperation<TArgs, TResult> {
-  const input = createInputDecoder<TArgs>(argumentCount);
+  const input = inputTransport.input;
   return {
     kind,
     argumentCount,
     resultKind,
     input,
     value,
-    encodeInput: inputValue => encodeInputTuple(inputValue),
+    encodeInput: inputTransport.encode,
     registerWorker(operations, facades) {
       operations.register({
         kind,
@@ -649,7 +749,7 @@ function createOrdinaryOperation<
       const adapter = host.registerOperation({
         kind,
         allowance: { kind: "unbounded" },
-        encodeInput: encodeInputTuple,
+        encodeInput: inputTransport.encode,
         value,
         error: engineWorkerText,
         diagnostic: engineWorkerText,
@@ -744,6 +844,22 @@ function voidOperation<TArgs extends readonly unknown[]>(
 }
 
 export const engineWorkerOrdinaryOperations = {
+  library: {
+    openUploadedLibrary: createOrdinaryOperation(
+      "ordinary-library-open-uploaded-library",
+      2,
+      "value",
+      createValueDecoder<
+        Awaited<ReturnType<LibraryFacade["openUploadedLibrary"]>>
+      >(),
+      (
+        facades,
+        ...args: Parameters<LibraryFacade["openUploadedLibrary"]>
+      ) => facades.library.openUploadedLibrary(...args),
+      undefined,
+      uploadedLibraryInputTransport,
+    ),
+  },
   package: {
     classifyPackageGraphIdentities: valueOperation(
       "ordinary-package-classify-graph-identities",
@@ -1045,6 +1161,14 @@ export const engineWorkerOrdinaryOperations = {
     ),
   },
   analysis: {
+    queryCloneCandidates: valueOperation(
+      "ordinary-analysis-query-clone-candidates",
+      1,
+      (
+        facades,
+        ...args: Parameters<AnalysisFacade["queryCloneCandidates"]>
+      ) => facades.analysis.queryCloneCandidates(...args),
+    ),
     queryMemberFacts: valueOperation(
       "ordinary-analysis-query-member-facts",
       10,
@@ -1092,6 +1216,22 @@ export const engineWorkerOrdinaryOperations = {
         facades,
         ...args: Parameters<AnalysisFacade["queryPackagePerformance"]>
       ) => facades.analysis.queryPackagePerformance(...args),
+    ),
+    queryPackageLibraryMetrics: valueOperation(
+      "ordinary-analysis-query-package-library-metrics",
+      4,
+      (
+        facades,
+        ...args: Parameters<AnalysisFacade["queryPackageLibraryMetrics"]>
+      ) => facades.analysis.queryPackageLibraryMetrics(...args),
+    ),
+    queryPlatformLibraryMetrics: valueOperation(
+      "ordinary-analysis-query-platform-library-metrics",
+      4,
+      (
+        facades,
+        ...args: Parameters<AnalysisFacade["queryPlatformLibraryMetrics"]>
+      ) => facades.analysis.queryPlatformLibraryMetrics(...args),
     ),
     queryPlatformPerformance: valueOperation(
       "ordinary-analysis-query-platform-performance",
@@ -1268,6 +1408,16 @@ export const engineWorkerOrdinaryOperations = {
           CatalogFacade["cancelRetainedWorkspaceActivation"]
         >
       ) => facades.catalog.cancelRetainedWorkspaceActivation(...args),
+    ),
+    captureCompleteWorkspaceShareState: valueOperation(
+      "ordinary-catalog-capture-complete-workspace-share-state",
+      1,
+      (
+        facades,
+        ...args: Parameters<
+          CatalogFacade["captureCompleteWorkspaceShareState"]
+        >
+      ) => facades.catalog.captureCompleteWorkspaceShareState(...args),
     ),
     canonicalizeWorkspaceSharePacket: valueOperation(
       "ordinary-catalog-canonicalize-workspace-share-packet",
@@ -1447,6 +1597,7 @@ export const engineWorkerOrdinaryOperations = {
 } as const;
 
 const ordinaryOperationList: readonly ErasedOrdinaryOperation[] = [
+  ...Object.values(engineWorkerOrdinaryOperations.library),
   ...Object.values(engineWorkerOrdinaryOperations.package),
   ...Object.values(engineWorkerOrdinaryOperations.metadata),
   ...Object.values(engineWorkerOrdinaryOperations.analysis),
@@ -1486,6 +1637,11 @@ export function bindEngineWorkerOrdinaryClient(
     operation.bindPage(host, page, epoch, reportDiagnostic);
 
   return {
+    library: {
+      openUploadedLibrary: bind(
+        engineWorkerOrdinaryOperations.library.openUploadedLibrary,
+      ),
+    },
     package: {
       classifyPackageGraphIdentities: bind(
         engineWorkerOrdinaryOperations.package
@@ -1607,6 +1763,9 @@ export function bindEngineWorkerOrdinaryClient(
       ),
     },
     analysis: {
+      queryCloneCandidates: bind(
+        engineWorkerOrdinaryOperations.analysis.queryCloneCandidates,
+      ),
       queryMemberFacts: bind(
         engineWorkerOrdinaryOperations.analysis.queryMemberFacts,
       ),
@@ -1629,6 +1788,14 @@ export function bindEngineWorkerOrdinaryClient(
       queryPackagePerformance: bind(
         engineWorkerOrdinaryOperations.analysis
           .queryPackagePerformance,
+      ),
+      queryPackageLibraryMetrics: bind(
+        engineWorkerOrdinaryOperations.analysis
+          .queryPackageLibraryMetrics,
+      ),
+      queryPlatformLibraryMetrics: bind(
+        engineWorkerOrdinaryOperations.analysis
+          .queryPlatformLibraryMetrics,
       ),
       queryPlatformPerformance: bind(
         engineWorkerOrdinaryOperations.analysis
@@ -1705,6 +1872,10 @@ export function bindEngineWorkerOrdinaryClient(
       cancelRetainedWorkspaceActivation: bind(
         engineWorkerOrdinaryOperations.catalog
           .cancelRetainedWorkspaceActivation,
+      ),
+      captureCompleteWorkspaceShareState: bind(
+        engineWorkerOrdinaryOperations.catalog
+          .captureCompleteWorkspaceShareState,
       ),
       canonicalizeWorkspaceSharePacket: bind(
         engineWorkerOrdinaryOperations.catalog

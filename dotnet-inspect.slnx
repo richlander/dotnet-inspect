@@ -55,6 +55,7 @@
     <Project Path="fixtures/decompiler/ILInspector.Decompiler.Fixtures.LegacyUnsafe/ILInspector.Decompiler.Fixtures.LegacyUnsafe.csproj" />
     <Project Path="fixtures/decompiler/ILInspector.Decompiler.Fixtures.NewUnsafe/ILInspector.Decompiler.Fixtures.NewUnsafe.csproj" />
     <Project Path="fixtures/decompiler/ILInspector.Decompiler.Fixtures.OptInNet11/ILInspector.Decompiler.Fixtures.OptInNet11.csproj" />
+    <Project Path="fixtures/decompiler/ILInspector.Decompiler.Fixtures.StructuredTypes/ILInspector.Decompiler.Fixtures.StructuredTypes.csproj" />
     <Project Path="fixtures/decompiler/ILInspector.Decompiler.Fixtures.TypeIdentity/ILInspector.Decompiler.Fixtures.TypeIdentity.csproj" />
     <Project Path="fixtures/decompiler/ILInspector.Decompiler.Fixtures.UnsafeChainA/ILInspector.Decompiler.Fixtures.UnsafeChainA.csproj" />
     <Project Path="fixtures/decompiler/ILInspector.Decompiler.Fixtures.UnsafeChainB/ILInspector.Decompiler.Fixtures.UnsafeChainB.csproj" />
@@ -162,6 +163,7 @@
     <Project Path="src/DotnetInspector.Presentation/DotnetInspector.Presentation.csproj" />
     <Project Path="src/DotnetInspector.Queries/DotnetInspector.Queries.csproj" />
     <Project Path="src/DotnetInspector.ResearchQueries/DotnetInspector.ResearchQueries.csproj" />
+    <Project Path="src/DotnetInspector.ResearchSections/DotnetInspector.ResearchSections.csproj" />
     <Project Path="src/DotnetInspector.Sections/DotnetInspector.Sections.csproj" />
     <Project Path="src/DotnetInspector.Sections.Installed/DotnetInspector.Sections.Installed.csproj" />
     <Project Path="src/DotnetInspector.SourceDelegation/DotnetInspector.SourceDelegation.csproj" />

@@ -117,6 +117,81 @@ public static class CSharpDecompilerService
                     tracker));
     }
 
+    /// <summary>
+    /// Produces one immutable structured document for the exact caller-selected
+    /// TypeDef. Assembly and PDB acquisition remain caller-owned.
+    /// </summary>
+    public static CSharpTypeDocumentOutcome ProduceTypeDocument(
+        ApiType type,
+        ResolvedAssemblyReference assembly,
+        IAssemblyBindingPolicy bindingPolicy,
+        ImmutableArray<byte>? pdbImage = null,
+        PrinterOptions? printerOptions = null,
+        int maxBodyProjections = DefaultMaxBodyProjections,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(type);
+        ArgumentNullException.ThrowIfNull(assembly);
+        ArgumentNullException.ThrowIfNull(bindingPolicy);
+        ArgumentOutOfRangeException.ThrowIfNegative(maxBodyProjections);
+        cancellationToken.ThrowIfCancellationRequested();
+
+        bool pdbSupplied = pdbImage.HasValue;
+        var tracker =
+            new CSharpTypeDocumentProductionTracker(
+                maxBodyProjections,
+                cancellationToken);
+        if (pdbImage is { IsDefaultOrEmpty: true })
+        {
+            return new CSharpTypeDocumentOutcome.Rejected(
+                "The supplied Portable PDB image is default or empty.");
+        }
+
+        var effectivePolicy =
+            new CancellationCheckingBindingPolicy(
+                bindingPolicy,
+                cancellationToken);
+        try
+        {
+            using MetadataSource source = pdbImage is { } supplied
+                ? MetadataSource.OpenWithSuppliedPortablePdb(
+                    assembly,
+                    supplied,
+                    effectivePolicy,
+                    cancellationToken:
+                        cancellationToken)
+                : MetadataSource.OpenWithoutSymbols(
+                    assembly,
+                    effectivePolicy);
+            cancellationToken.ThrowIfCancellationRequested();
+            CSharpTypeDocumentOutcome outcome =
+                MemberBodyProducer.ProduceTypeDocument(
+                    type,
+                    source,
+                    pdbSupplied,
+                    printerOptions,
+                    tracker,
+                    cancellationToken);
+            cancellationToken.ThrowIfCancellationRequested();
+            return outcome;
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception ex) when (
+            ex is BadImageFormatException
+                or InvalidDataException
+                or IOException)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            return new CSharpTypeDocumentOutcome.Unavailable(
+                $"Structured C# Type production is unavailable: "
+                    + $"{ex.GetType().Name}: {ex.Message}",
+                tracker.Attempted);
+        }
+    }
+
     static CSharpDecompilationAttempt Produce(
         ResolvedAssemblyReference assembly,
         IAssemblyBindingPolicy bindingPolicy,
@@ -353,6 +428,29 @@ internal sealed record CSharpServiceCompositionResult(
 
 internal sealed class CSharpCompositionBudgetExceededException : Exception
 {
+}
+
+internal sealed class CSharpTypeDocumentProductionTracker(
+    int maximum,
+    CancellationToken cancellationToken)
+{
+    int _attempted;
+
+    internal int Attempted => _attempted;
+    internal int Maximum { get; } =
+        maximum >= 0
+            ? maximum
+            : throw new ArgumentOutOfRangeException(nameof(maximum));
+
+    internal bool TryBegin()
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        if (_attempted >= Maximum)
+            return false;
+
+        _attempted++;
+        return true;
+    }
 }
 
 internal sealed class CSharpCompositionTracker(

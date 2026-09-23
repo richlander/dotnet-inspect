@@ -53,6 +53,9 @@ neighborhoods. `Execute_PeerNeighborhoodConnectsEqualSeeds`,
 `Execute_PeerNeighborhoodRetainsAdmissibleDisconnectedSeed` gate multi-source
 peer neighborhoods. `Execute_PeerCountDoesNotMultiplyProducerDemand` gates
 that peer count does not multiply producer work.
+`SystemTextJsonSerializeFamilyRetainsFifteenOrderedPeers` gates exact
+overload-family discovery and equal-root call admission from one complete
+Analysis generation.
 `Execute_ExplicitPackageSetInducesOnlyInternalEvidence`,
 `Execute_ExplicitInducedSetRequiresBothEndpointClosures`, and
 `Execute_ExplicitInducedSetRetainsOnlyInClosureFailures` gate explicit
@@ -320,6 +323,33 @@ existing document identities. The result does not prune disconnected peers or
 discard evidence merely because it does not lie on a shortest path between two
 anchors. Depth zero retains every peer without traversing an edge, and the
 common requested depth is disclosed at each peer target.
+
+### Overload-family member peers
+
+An overload-family call request starts from one exact Analysis-issued
+`MethodIdentity`. Its module version, declaring type, and logical metadata name
+identify the family without parsing a display signature. The anchor must belong
+to the supplied Analysis generation, and that generation must carry complete
+method evidence for the module so family absence and membership are not inferred
+from a partial body scope.
+
+The request resolves every declared method with the same module version,
+declaring type, and ordinal metadata name, orders those exact definitions by
+MethodDef token, and requires at least two members. The finite node bound must
+admit every family member. Each member becomes an equal peer seed and an equal
+root in the Call Graph-owned multi-root projection; no member becomes primary.
+The result is an outgoing `call` neighborhood with one common depth bound and
+one combined node bound. Shared downstream identities and physical call sites
+retain the existing Call Graph collapse rules, while disconnected roots,
+traversal limits, unresolved dispatch, bodiless declarations, and recoverable
+analysis failures remain visible.
+
+Instance constructors use the same rule: same-type `.ctor` definitions form a
+family, and their ordinary `CallKind.Call` occurrences remain call evidence.
+`.cctor` has a different metadata name, base constructors have another
+declaring type, and object construction does not change family membership. This
+mode retains topology and exact evidence only; it does not classify delegation,
+family entries, convergence, canonical implementations, or private helpers.
 
 ## Induced-set mode
 

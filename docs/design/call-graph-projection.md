@@ -35,13 +35,19 @@ Markout Graph → tree | edge table | Mermaid
 ```
 
 `ILInspector.Analysis` stays presentation-free: it owns the graph evidence and
-the bounded traversal (`LibraryBodyIndex.BuildCallerTree` /
-`BuildCallTree`) plus exact local root-to-destination witnesses
-(`LibraryBodyRootPathAnalysis.FindShortestPaths`). `ILInspector.CallGraph`
-turns `CallTreeNode` roots into a deterministic node/edge set. It knows nothing
-about Mermaid, Markdown, tables, or any other format, takes no dependency on
-Markout, the CLI, or inspected-assembly loading, and stays SRM-only,
-NativeAOT-friendly, and browser-Wasm compatible.
+the bounded traversal (`LibraryCallGraphAnalysisResult.BuildCallerTree` /
+`BuildCallTree`) plus exact local root-to-destination witnesses over the same
+focused result (`LibraryBodyRootPathAnalysis.FindShortestPaths`). For one fixed
+catalog population, `CatalogCallGraphScope.Census` additionally publishes every
+exact declared member and resolved physical `call`, `callvirt`, and `newobj`
+occurrence without traversal bounds. The census retains its catalog generation,
+physical evidence, unresolved physical occurrences, graph diagnostics, and
+owner-issued total ordering keys; it is session-bound until an explicit
+detachment operation issues durable occurrence references.
+`ILInspector.CallGraph` turns `CallTreeNode` roots into a deterministic
+node/edge set. It knows nothing about Mermaid, Markdown, tables, or any other
+format, takes no dependency on Markout, the CLI, or inspected-assembly loading,
+and stays SRM-only, NativeAOT-friendly, and browser-Wasm compatible.
 
 Each host owns its own rendering. `dotnet-inspect` lowers the projection to a
 Markout `Graph` in `CallGraphSectionAdapter`, which is where all call-graph
@@ -131,6 +137,7 @@ The projection owns everything a host must not re-invent in JavaScript:
   An older surface without that structural payload cannot claim a structural
   match for `T[*]`, but an exact MethodDef-token candidate may still recover
   the body when no structural candidate matches.
+
   `CallGraphArrayKindIdentityTests.Resolve_PreservesArrayKindAcrossExtractedApiAndMemberRefSelectors`
   gates producer agreement for vectors, non-SZ arrays, nested generics,
   pointers, by-reference types, tuples, method generic parameters, custom
@@ -325,6 +332,46 @@ The projection owns everything a host must not re-invent in JavaScript:
   reports `0` and can never pin it. For depth this publishes the taller of the
   two subtrees rooted at the member — its widest reach in the bounded graph,
   in whichever direction that reach runs.
+
+### Equal-root outbound projection
+
+`CallGraphProjection.FromCallees(calleeRoots, maxNodes)` projects two or more
+ordered outbound roots without choosing a primary focus. `RootNodeIds` retains
+their caller-supplied order as the leading projection nodes. `Focus` remains
+the single-root convenience and fails explicitly for an equal-root projection
+rather than silently selecting the first root.
+
+All roots come from one Analysis evidence generation and use the same identity
+domain. The projection registers every root before expanding any downstream
+tree, so the combined node budget cannot discard a requested root. The budget
+must therefore be at least the root count. Downstream nodes retain the existing
+identity collapse, edge direction, occurrence deduplication, node-kind
+precedence, and deterministic first-seen ordering. Shared helpers appear once;
+disconnected roots remain present. When the combined node budget stops
+expansion, `HasUnexploredTraversalBoundary` remains true.
+Traversal completeness is likewise projection-wide: one complete expansion of
+an identity satisfies a depth-limited or already-shown occurrence reached from
+another equal root.
+
+Analysis and the consuming query continue to own traversal depth. Each supplied
+tree retains its Analysis-issued depth, external, unresolved-dispatch, and
+body-failure boundaries; projection combines those boundaries without claiming
+that absence beyond any root is complete. The overload-family mode tracked by
+issue #8243 supplies the common requested depth and binds `RootNodeIds` as equal
+peer seeds. Structural entry and convergence interpretation remains outside
+projection and is tracked by issue #8258.
+
+`EqualRootsPrecedeOneSharedNeighborhood`,
+`EqualRootNodeBoundRetainsEveryRootAndDisclosesBoundary`, and
+`EqualRootsCombineTraversalAndAnalysisBoundaries` gate shared topology, the
+combined bound, root ordering, occurrence reuse, and failure preservation.
+`EqualRootsRetainDisconnectedNeighborhoods` and
+`EqualRootCycleIsCompleteWithoutChoosingFocus` gate the pathological graph
+shapes. `EqualRootExpansionCompletesBoundaryDuplicate` gates completeness
+composition across roots. The pinned `System.Text.Json` gate
+`MultiRootProjection_SystemTextJsonRetainsEverySerializeRootAndSharedHelper`
+retains all 15 public `JsonSerializer.Serialize` roots and a downstream helper
+reached from more than one root.
 
 ### Lowering a bidirectional graph to a tree
 

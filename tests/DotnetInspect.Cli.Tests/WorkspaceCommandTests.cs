@@ -388,7 +388,8 @@ public sealed partial class WorkspaceCommandTests
             "--make-package-dependencies-explicit",
         ];
 
-        var result = CommandLineBuilder.CreateRootCommand().Parse(arguments);
+        var result = CommandLineBuilder.CreateRootCommand().Parse(
+            CommandLineBuilder.PreprocessArgs(arguments));
 
         Assert.Empty(result.Errors);
     }
@@ -1837,7 +1838,7 @@ public sealed partial class WorkspaceCommandTests
 
         Assert.Equal(0, captured.ExitCode);
         Assert.Empty(captured.Error);
-        const string prefix = "https://dotnet-inspect.net/?w=";
+        const string prefix = "https://dotnet-inspect.ca/?w=";
         Assert.StartsWith(prefix, captured.Output, StringComparison.Ordinal);
         WorkspaceSharePacket packet = WorkspaceSharePacketCodec.Decode(
             captured.Output.TrimEnd()[prefix.Length..],

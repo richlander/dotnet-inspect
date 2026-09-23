@@ -2,6 +2,7 @@ using System.Globalization;
 using System.Runtime.Versioning;
 using System.Text;
 using DotnetInspector.Queries;
+using DotnetInspector.Sections;
 using ILInspector.CallGraph;
 using ILInspector.Metadata;
 using Analysis = ILInspector.Analysis;
@@ -28,7 +29,10 @@ internal sealed record BrowserCallGraphTargetInfo(
     string SelectorKey,
     string Kind,
     string? PlatformPack,
-    string? SurfaceAssemblyId);
+    string? SurfaceAssemblyId,
+    string? PackageId,
+    string? PackageVersion,
+    string? PackageFramework);
 
 internal sealed record BrowserCallGraphNodeInfo(
     string Label,
@@ -110,6 +114,77 @@ internal static class BrowserCallGraphProjection
                 projection.HasUnexploredTraversalBoundary,
                 projection.HasAnalysisFailureBoundary),
             NoBody: view.CalleeRoot is null && view.CallerRoot is null);
+    }
+
+    internal static BrowserCallGraphInfo Project(
+        PackageDependencyMemberCallGraphDocument document)
+    {
+        ArgumentNullException.ThrowIfNull(document);
+        InspectionGraphDocument graph = document.Graph;
+        if (graph.Nodes.Length == 0)
+        {
+            return new BrowserCallGraphInfo(
+                "graph LR\n",
+                Tree(node: null),
+                Tree(node: null),
+                new BrowserCallGraphScopeInfo(
+                    Packages: 1,
+                    Assemblies: 0,
+                    CallerAssemblies: 0,
+                    CalleeScope: "CrossLibrary"),
+                [],
+                Diagnostics(graph),
+                NoBody: true);
+        }
+
+        int focusNodeId =
+            graph.Seeds.FirstOrDefault(seed =>
+                seed.Role == InspectionGraphSeedRole.Primary
+                && seed.Target.Kind
+                    == InspectionGraphTargetKind.Node)?.Target.Id
+            ?? 0;
+        InspectionGraphNode focus = graph.Nodes[focusNodeId];
+        string focusAssembly = NodeAssembly(focus);
+        int packageCount = 1
+            + document.Routes
+                .Select(route => route.Destination)
+                .OfType<
+                    PackageDependencyMemberCallGraphInspectionDestination
+                        .Package>()
+                .Select(package =>
+                    (
+                        package.Descriptor.PackageId.ToLowerInvariant(),
+                        package.Descriptor.PackageVersion,
+                        package.Descriptor.TargetFramework))
+                .Distinct()
+                .Count();
+        string[] assemblies =
+        [
+            .. graph.Nodes.Select(NodeAssembly)
+                .Where(static assembly =>
+                    !string.IsNullOrWhiteSpace(assembly))
+                .Distinct(StringComparer.OrdinalIgnoreCase),
+        ];
+        Dictionary<int, PackageDependencyMemberCallGraphPackageSubject>
+            packageSubjects = document.PackageSubjects.ToDictionary(
+                static subject => subject.NodeId);
+        return new BrowserCallGraphInfo(
+            Mermaid(graph),
+            EmptyTree(),
+            Tree(graph, focusNodeId),
+            new BrowserCallGraphScopeInfo(
+                packageCount,
+                assemblies.Length,
+                string.IsNullOrWhiteSpace(focusAssembly) ? 0 : 1,
+                "CrossLibrary"),
+            [
+                .. graph.Nodes.Select(node =>
+                    Target(
+                        node,
+                        packageSubjects.GetValueOrDefault(node.Id))),
+            ],
+            Diagnostics(graph),
+            NoBody: false);
     }
 
     internal static string Mermaid(CallGraphProjection projection)
@@ -203,6 +278,153 @@ internal static class BrowserCallGraphProjection
         builder.Append("&#92;u")
             .Append(((int)character).ToString("X4", CultureInfo.InvariantCulture));
 
+    static string Mermaid(InspectionGraphDocument graph)
+    {
+        var builder = new StringBuilder("graph LR\n");
+        foreach (InspectionGraphNode node in graph.Nodes)
+        {
+            builder.Append("  n").Append(node.Id).Append("[\"")
+                .Append(MermaidLabel(NodeLabel(node)))
+                .Append("\"]:::")
+                .Append(node.Role.ToString().ToLowerInvariant())
+                .Append('\n');
+        }
+        foreach (InspectionGraphEdge edge in graph.Edges)
+        {
+            builder.Append("  n").Append(edge.FromNodeId)
+                .Append(" --> n").Append(edge.ToNodeId)
+                .Append('\n');
+        }
+        return builder.ToString();
+    }
+
+    static BrowserCallGraphNodeInfo EmptyTree() =>
+        new("", "None", false, null, [], "", "", "");
+
+    static BrowserCallGraphNodeInfo Tree(
+        InspectionGraphDocument graph,
+        int nodeId) =>
+        Tree(
+            graph,
+            nodeId,
+            incomingSource: null,
+            new HashSet<int>());
+
+    static BrowserCallGraphNodeInfo Tree(
+        InspectionGraphDocument graph,
+        int nodeId,
+        string? incomingSource,
+        HashSet<int> path)
+    {
+        InspectionGraphNode node = graph.Nodes[nodeId];
+        Analysis.MemberRef member = NodeMember(node);
+        bool inLoop = !path.Add(nodeId);
+        BrowserCallGraphNodeInfo[] children = inLoop
+            ? []
+            :
+            [
+                .. graph.Edges
+                    .Where(edge => edge.FromNodeId == nodeId)
+                    .OrderBy(edge => edge.Id)
+                    .Select(edge => Tree(
+                        graph,
+                        edge.ToNodeId,
+                        edge.Relationship.Id,
+                        new HashSet<int>(path))),
+            ];
+        return new BrowserCallGraphNodeInfo(
+            NodeLabel(node),
+            node.Role.ToString(),
+            inLoop,
+            incomingSource,
+            children,
+            NodeAssembly(node),
+            member.DeclaringType.ToQualifiedDisplayString(),
+            member.Name);
+    }
+
+    static BrowserCallGraphTargetInfo Target(
+        InspectionGraphNode node,
+        PackageDependencyMemberCallGraphPackageSubject? packageSubject)
+    {
+        Analysis.MemberRef member = NodeMember(node);
+        Analysis.TypeRef? definition =
+            DeclaringTypeDefinition(member.DeclaringType);
+        AssemblyReferenceIdentity? identity =
+            definition?.Resolution?.Origin switch
+            {
+                Analysis.TypeReferenceOrigin.AssemblyReference
+                    reference => reference.Assembly,
+                Analysis.TypeReferenceOrigin.CurrentAssembly
+                    current => current.Assembly,
+                _ => null,
+            };
+        string assembly =
+            identity?.Name
+            ?? member.DeclaringType.Assembly
+            ?? "";
+        return new BrowserCallGraphTargetInfo(
+            $"n{node.Id}",
+            assembly,
+            identity?.Version?.ToString(),
+            identity?.Culture,
+            identity?.PublicKeyToken,
+            member.DeclaringType.ToQualifiedDisplayString(),
+            definition is null ? null : LegacyMetadataTypeId(definition),
+            DefinitionTypeId(definition),
+            member.Name,
+            [.. member.ParameterTypes.Select(
+                type => type.ToQualifiedDisplayString())],
+            member.ReturnType.ToQualifiedDisplayString(),
+            member.GenericArity,
+            MetadataToken: null,
+            Analysis.CallGraphMemberResolver.CreateSelector(member).Key,
+            node.Role.ToString().ToLowerInvariant(),
+            PlatformPack: null,
+            SurfaceAssemblyId: null,
+            packageSubject?.PackageId,
+            packageSubject?.PackageVersion,
+            packageSubject?.TargetFramework);
+    }
+
+    static Analysis.MemberRef NodeMember(
+        InspectionGraphNode node) =>
+        node.Subject
+            is InspectionGraphSubject.MemberSubject
+            {
+                Identity:
+                    InspectionGraphMemberIdentity.CallGraph callGraph,
+            }
+                ? callGraph.Member
+                : throw new InvalidOperationException(
+                    "The dependency member call graph contained a non-member node.");
+
+    static string NodeLabel(InspectionGraphNode node)
+    {
+        Analysis.MemberRef member = NodeMember(node);
+        return $"{member.DeclaringType.ToQualifiedDisplayString()}.{member.Name}";
+    }
+
+    static string NodeAssembly(InspectionGraphNode node) =>
+        NodeMember(node).DeclaringType.Assembly ?? "";
+
+    static BrowserCallGraphDiagnosticsInfo Diagnostics(
+        InspectionGraphDocument graph)
+    {
+        int incompleteNodes = graph.Limits.Count(limit =>
+            limit.Target?.Kind == InspectionGraphTargetKind.Node);
+        int incompleteEdges = graph.Limits.Count(limit =>
+            limit.Target?.Kind == InspectionGraphTargetKind.Edge);
+        return new BrowserCallGraphDiagnosticsInfo(
+            incompleteNodes,
+            incompleteEdges,
+            BindingIdentityConflicts: 0,
+            HasUnexploredTraversalBoundary:
+                graph.Limits.Length > 0,
+            HasAnalysisFailureBoundary:
+                graph.Failures.Length > 0);
+    }
+
     internal static BrowserCallGraphTargetInfo Target(
         CallGraphNode node,
         IReadOnlyList<AssemblyReferenceIdentity> loadedIdentities,
@@ -266,7 +488,10 @@ internal static class BrowserCallGraphProjection
             Analysis.CallGraphMemberResolver.CreateSelector(node.Member).Key,
             node.Kind.ToString().ToLowerInvariant(),
             platformPackForAssembly?.Invoke(assembly),
-            surfaceAssemblyId);
+            surfaceAssemblyId,
+            PackageId: null,
+            PackageVersion: null,
+            PackageFramework: null);
     }
 
     internal static BrowserCallGraphTargetInfo Target(
@@ -307,7 +532,10 @@ internal static class BrowserCallGraphProjection
             Analysis.CallGraphMemberResolver.CreateSelector(member).Key,
             "method",
             PlatformPack: null,
-            surfaceAssemblyId);
+            surfaceAssemblyId,
+            PackageId: null,
+            PackageVersion: null,
+            PackageFramework: null);
     }
 
     /// <summary>

@@ -62,9 +62,6 @@ function recordingActions(calls: string[]): LibraryControlBindingActions {
     onLibraryApiRetry: () => calls.push("library-api-retry"),
     onLibraryChipSelect: value => calls.push(`library-chip:${value}`),
     onLibraryJump: value => calls.push(`library-jump:${value}`),
-    onLibraryQueryClear: () => calls.push("library-query-clear"),
-    onLibraryQuerySubmit: reference =>
-      calls.push(`library-query:${reference}`),
     onPlatformLibrarySelect: (name, pack) =>
       calls.push(`platform:${name}:${pack}`),
     onPlatformLensLibrarySelect: (
@@ -88,14 +85,6 @@ test("library controls decode every rendered selector without eager work", () =>
   root.addAll("[data-access-chip]", accessChip, allAccessChip);
   const libraryApiRetry = new FakeElement();
   root.addAll("[data-library-api-retry]", libraryApiRetry);
-  const libraryQueryClear = new FakeElement();
-  root.addAll("[data-library-query-clear]", libraryQueryClear);
-  const libraryQueryForm =
-    root.add("[data-library-query-form]", new FakeElement());
-  const libraryQueryReference =
-    root.add("[data-library-query-reference]", new FakeElement());
-  libraryQueryReference.value = "System.Text.Json";
-
   const libraryJump = root.add("#library-jump", new FakeElement());
   libraryJump.value = "System.Collections";
 
@@ -127,6 +116,10 @@ test("library controls decode every rendered selector without eager work", () =>
   root.addAll("[data-platform-integrations-library]", integrations, opportunities);
   root.addAll("[data-platform-analysis-library]", analysis, emptyAnalysis);
   root.addAll("[data-platform-metadata-library]", metadata);
+  const metrics = new FakeElement();
+  metrics.value = "System.Text.Json";
+  metrics.selectedOptions = [new FakeElement({ pack: "netcore.app" })];
+  root.addAll("[data-platform-metrics-library]", metrics);
   const calls: string[] = [];
 
   bindLibraryControls(
@@ -139,8 +132,6 @@ test("library controls decode every rendered selector without eager work", () =>
   accessChip.dispatch("click");
   allAccessChip.dispatch("click");
   libraryApiRetry.dispatch("click");
-  libraryQueryForm.dispatch("submit");
-  libraryQueryClear.dispatch("click");
   libraryJump.dispatch("change");
   libraryJump.value = "";
   libraryJump.dispatch("change");
@@ -152,6 +143,7 @@ test("library controls decode every rendered selector without eager work", () =>
   analysis.dispatch("change");
   emptyAnalysis.dispatch("change");
   metadata.dispatch("change");
+  metrics.dispatch("change");
 
   assert.deepEqual(calls, [
     "library-chip:System.Text.Json",
@@ -159,8 +151,6 @@ test("library controls decode every rendered selector without eager work", () =>
     "accessibility:public",
     "accessibility:",
     "library-api-retry",
-    "library-query:System.Text.Json",
-    "library-query-clear",
     "library-jump:System.Collections",
     "library-jump:",
     "platform:System.Private.CoreLib:netcore.app",
@@ -169,6 +159,7 @@ test("library controls decode every rendered selector without eager work", () =>
     "platform-lens:integrations:System.Text.Json:undefined",
     "platform-lens:analysis:System.Linq:undefined",
     "platform-lens:metadata:System.Console:windowsdesktop.app",
+    "platform-lens:metrics:System.Text.Json:netcore.app",
   ]);
 });
 

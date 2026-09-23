@@ -376,6 +376,7 @@ public partial class PackageCommand
         bool libraryRoute =
             options.WorkspaceLibrarySelection is not null;
         if (options.Tfm is not null
+            || options.ExplicitVersion is not null
             || options.ListVersions
             || options.IncludePrerelease
             || options.ForceLatest
@@ -387,7 +388,7 @@ public partial class PackageCommand
         {
             CommandError.Write(
                 "--workspace supplies the Package location and target; it "
-                    + "cannot combine with --tfm, version populations, "
+                    + "cannot combine with --tfm, version selection or populations, "
                     + "preview/latest selection, discovery, or Package "
                     + "Library routes.");
             return false;
@@ -406,9 +407,8 @@ public partial class PackageCommand
         }
 #endif
 
-        PackageReferenceTarget target = PackageExtractor.ParsePackageTarget(
-            options.PackageArgs[0],
-            options.ExplicitVersion);
+        PackageReferenceTarget target =
+            PackageExtractor.ParsePackageTarget(options.PackageArgs[0]);
         if (target.IsLocalFile
             || !PackageExtractor.IsValidPackageId(target.PackageName))
         {

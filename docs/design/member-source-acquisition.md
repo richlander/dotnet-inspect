@@ -60,7 +60,8 @@ handoff with independent type bounds and a type-document projection.
 `MemberSourceInspection` in Sections is the completed host-neutral facade.
 It returns `InspectionEnvelope<AssemblyMemberSourceEntry>` for ordinary Source
 and `InspectionEnvelope<AssemblyMemberSourceComparisonEntry>` for explicit
-same-member comparison. Browser member Source consumes the first operation;
+same-member comparison. Browser member Source and the explicit CLI
+[Source section](cli-source-section.md) consume the first operation;
 CLI Source Diff consumes the second. The existing pair facade consumes the
 same authored acquisition internally. Hosts retain their permissions,
 resolution, cancellation gestures, and presentation rather than independently

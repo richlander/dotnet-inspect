@@ -60,26 +60,11 @@ public sealed class DiffHistoryAnalysisInspectionRequest
         }
 
         ImmutableArray<PackageVersionAddress> selected =
-            evaluationPlan switch
-            {
-                DiffHistoryEvaluationPlan.FullPopulation =>
-                    population.Vector.Addresses,
-                DiffHistoryEvaluationPlan.ExplicitCheckpoints explicitPlan =>
-                    explicitPlan.Addresses,
-                DiffHistoryEvaluationPlan.AdaptiveBisect =>
-                [
-                    population.Vector.Addresses[0],
-                    population.Vector.Addresses[^1],
-                ],
-                _ => throw new ArgumentException(
-                    "Unknown Diff History evaluation plan.",
-                    nameof(evaluationPlan)),
-            };
-        int authorizedEvaluations = evaluationPlan
-            is DiffHistoryEvaluationPlan.AdaptiveBisect adaptivePlan
-                ? adaptivePlan.MaximumProbes
-                : selected.Length;
-        if (authorizedEvaluations > evaluationLimits.MaximumEvaluations)
+            evaluationPlan.ResolveInitialSelection(population.Vector);
+        int maximumEvaluations =
+            evaluationPlan.ResolveMaximumRealizableEvaluationCount(
+                population.Vector);
+        if (maximumEvaluations > evaluationLimits.MaximumEvaluations)
         {
             throw new ArgumentException(
                 "The Diff History evaluation plan exceeds its work limit.",
@@ -103,9 +88,14 @@ public sealed class DiffHistoryAnalysisInspectionRequest
                 "A Diff History evaluation address cannot be selected more than once.",
                 nameof(evaluationPlan));
         }
+        PackageVersionAddress sourceAddress =
+            evaluationPlan
+                is DiffHistoryEvaluationPlan.MajorVersionRepresentatives
+                ? selected[0]
+                : population.Vector.Addresses[0];
         if (!selected.Any(address => ReferenceEquals(
                 address,
-                population.Vector.Addresses[0])))
+                sourceAddress)))
         {
             throw new ArgumentException(
                 "Exact-Member Analysis History must evaluate the first population version as its source.",
@@ -115,10 +105,7 @@ public sealed class DiffHistoryAnalysisInspectionRequest
         Finding = finding;
         Population = population;
         EvaluationPlan = evaluationPlan;
-        InitialEvaluationSelection =
-        [
-            .. selected.OrderBy(static address => address.Position),
-        ];
+        InitialEvaluationSelection = selected;
         Operation = operation;
         TargetContext = targetContext;
         EvaluationLimits = evaluationLimits;
@@ -128,6 +115,7 @@ public sealed class DiffHistoryAnalysisInspectionRequest
         FindingSubject = findingSubject;
         MatchAcceptanceThreshold = matchAcceptanceThreshold;
         ReplayContext = replayContext;
+        SourceAddress = sourceAddress;
     }
 
     public PackageVersionCellAnalysisProducerKind Finding { get; }
@@ -146,6 +134,8 @@ public sealed class DiffHistoryAnalysisInspectionRequest
     public FindingSubject FindingSubject { get; }
     public int MatchAcceptanceThreshold { get; }
     public DiffHistoryPackageReplayContext? ReplayContext { get; }
+
+    public PackageVersionAddress SourceAddress { get; }
 }
 
 public enum DiffHistoryAnalysisEvaluationState
@@ -399,9 +389,16 @@ public sealed class DiffHistoryAnalysisDocument<T>
     public DiffHistoryEvaluationLimits EvaluationLimits { get; }
     public DiffHistoryEvaluationPlan EvaluationPlan { get; }
     public int? AuthorizedProbeCount =>
-        EvaluationPlan is DiffHistoryEvaluationPlan.AdaptiveBisect adaptive
-            ? adaptive.MaximumProbes
-            : null;
+        EvaluationPlan switch
+        {
+            DiffHistoryEvaluationPlan.AdaptiveBisect adaptive =>
+                adaptive.MaximumProbes,
+            DiffHistoryEvaluationPlan.RepresentativeSurvey =>
+                EvaluationPlan.ResolveAuthorizedEvaluationCount(Population),
+            DiffHistoryEvaluationPlan.MajorVersionRepresentatives =>
+                EvaluationPlan.ResolveAuthorizedEvaluationCount(Population),
+            _ => null,
+        };
     public int UsedProbeCount => Probes.Length;
     public PackageVersionCellWorkspaceLimits WorkspaceLimits { get; }
     public ImmutableArray<PackageVersionAddress> EvaluationSelection { get; }

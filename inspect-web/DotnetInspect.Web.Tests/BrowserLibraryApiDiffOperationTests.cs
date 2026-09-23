@@ -147,7 +147,7 @@ public sealed class BrowserLibraryApiDiffOperationTests
             value.Types,
             type => type.Display
                 == "LibraryApiDiffFixture.ProjectionExtensions");
-        Assert.Equal(2, receiver.ChangedMemberCount);
+        Assert.Equal(1, receiver.ChangedMemberCount);
         Assert.Equal(1, extensions.ChangedMemberCount);
         BrowserLibraryApiDiffMember receiverMoved = Assert.Single(
             receiver.Members,
@@ -173,12 +173,90 @@ public sealed class BrowserLibraryApiDiffOperationTests
             receiverMoved.After!.DeclaringTypeIdentifier);
         Assert.Equal("Transform", receiverMoved.Before.MemberName);
         Assert.Equal("Transform", receiverMoved.After.MemberName);
+        // Both placements of one relation carry the same correspondence
+        // provenance, and a projected match is always a bounded soft match.
+        Assert.Equal(receiverMoved.Match, extensionMoved.Match);
+        if (receiverMoved.Match is { } match)
+        {
+            Assert.NotEmpty(match.Tier);
+            Assert.InRange(match.Confidence, 1, 99);
+        }
         Assert.NotEmpty(receiverMoved.After.StableSelector);
         Assert.NotEmpty(receiverMoved.After.CanonicalSignature);
         Assert.Equal(10, receiverMoved.After.Fingerprint.Length);
         Assert.Equal(
-            new BrowserLibraryApiDiffAggregate(7, 1, 1, 10, 4, 2, 0),
+            new BrowserLibraryApiDiffAggregate(7, 1, 1, 9, 4, 2, 0),
             value.Aggregate);
+    }
+
+    [Fact]
+    public async Task ExportPlacesCompatibilityChangesOnTheirTypeAndMember()
+    {
+        await using Fixture fixture = await Fixture.Open();
+
+        BrowserLibraryApiDiffResult result =
+            await fixture.Query(fixture.Request());
+        BrowserLibraryApiDiffSucceeded value =
+            Assert.IsType<BrowserLibraryApiDiffSucceeded>(result.Value);
+
+        // Member-level changes land on the Member relation they describe, with
+        // the producer's classification and message; the Type keeps none of them.
+        BrowserLibraryApiDiffType hard = Assert.Single(
+            value.Types,
+            type => type.Display == "LibraryApiDiffFixture.HardChangedType");
+        Assert.Empty(hard.Changes);
+        BrowserLibraryApiDiffMember first = Assert.Single(hard.Members);
+        BrowserLibraryApiDiffChange virtualRemoved = Assert.Single(
+            first.Changes,
+            change => change.Kind
+                == BrowserLibraryApiDiffChangeKind.VirtualRemoved);
+        Assert.Equal(
+            BrowserLibraryApiDiffChangeClassification.Breaking,
+            virtualRemoved.Classification);
+        Assert.Equal(
+            BrowserLibraryApiDiffChangeCategory.Signature,
+            virtualRemoved.Category);
+        Assert.NotEmpty(virtualRemoved.Message);
+        Assert.Equal(hard.BreakingCount, first.Changes.Length);
+
+        // A definition-only change is a fact without a classified change row; the
+        // Browser must show it from TypeDefinitionChanged, not from Changes.
+        BrowserLibraryApiDiffType definitionOnly = Assert.Single(
+            value.Types,
+            type => type.Display
+                == "LibraryApiDiffFixture.TypeDefinitionOnly");
+        Assert.True(definitionOnly.TypeDefinitionChanged);
+        Assert.Empty(definitionOnly.Changes);
+        Assert.Empty(definitionOnly.Members);
+
+        // Whole-Type additions and removals are Type-level changes: the Type
+        // entry carries the one classified change and its Members carry none.
+        BrowserLibraryApiDiffType added = Assert.Single(
+            value.Types,
+            type => type.Display == "LibraryApiDiffFixture.AddedType");
+        BrowserLibraryApiDiffChange typeAdded = Assert.Single(added.Changes);
+        Assert.Equal(BrowserLibraryApiDiffChangeKind.TypeAdded, typeAdded.Kind);
+        Assert.Equal(
+            BrowserLibraryApiDiffChangeClassification.Additive,
+            typeAdded.Classification);
+        Assert.All(added.Members, member => Assert.Empty(member.Changes));
+        BrowserLibraryApiDiffType removed = Assert.Single(
+            value.Types,
+            type => type.Display == "LibraryApiDiffFixture.RemovedType");
+        BrowserLibraryApiDiffChange typeRemoved = Assert.Single(removed.Changes);
+        Assert.Equal(
+            BrowserLibraryApiDiffChangeKind.TypeRemoved,
+            typeRemoved.Kind);
+        Assert.Equal(
+            BrowserLibraryApiDiffChangeClassification.Breaking,
+            typeRemoved.Classification);
+        Assert.All(removed.Members, member => Assert.Empty(member.Changes));
+        int placed = value.Types.Sum(type =>
+            type.Changes.Length
+            + type.Members.Sum(member => member.Changes.Length));
+        int issued = value.Types.Sum(type =>
+            type.BreakingCount + type.AdditiveCount + type.PotentiallyBreakingCount);
+        Assert.Equal(issued, placed);
     }
 
     [Fact]
@@ -858,6 +936,44 @@ public sealed class BrowserLibraryApiDiffOperationTests
             Cancel(secondId, "user").Kind);
     }
 
+    [Theory]
+    [InlineData("{")]
+    [InlineData(
+        """
+        {
+          "schemaVersion": 2,
+          "packageId": "Example.Package",
+          "currentVersion": "2.0.0",
+          "targetVersion": "1.0.0",
+          "targetFramework": "net11.0",
+          "compileAssetId": "lib/net11.0/Example.dll"
+        }
+        """)]
+    public async Task InvalidRequestJsonReturnsExpectedTypedFailure(
+        string requestJson)
+    {
+        string json = await MetadataExports.QueryLibraryApiDiff(
+            Guid.NewGuid().ToString(),
+            requestJson);
+        BrowserLibraryApiDiffResult result =
+            JsonSerializer.Deserialize(
+                json,
+                BrowserMetadataJsonContext.Default
+                    .BrowserLibraryApiDiffResult)!;
+
+        Assert.Equal(
+            BrowserLibraryApiDiffResultKind.Failed,
+            result.Kind);
+        Assert.Equal(
+            BrowserLibraryApiDiffFailureKind.Expected,
+            result.FailureKind);
+        Assert.Null(result.Request);
+        Assert.Null(result.Value);
+        Assert.Null(result.Inspection);
+        Assert.NotNull(result.Error);
+        Assert.NotNull(result.Diagnostic);
+    }
+
     [Fact]
     public async Task SourceGeneratedJsonRoundTripsTheClosedInventoryShape()
     {
@@ -904,6 +1020,7 @@ public sealed class BrowserLibraryApiDiffOperationTests
                 "before",
                 "breakingCount",
                 "changedMemberCount",
+                "changes",
                 "display",
                 "documentIdentifier",
                 "members",
@@ -925,7 +1042,9 @@ public sealed class BrowserLibraryApiDiffOperationTests
             [
                 "after",
                 "before",
+                "changes",
                 "documentIdentifier",
+                "match",
                 "pairKind",
                 "role",
             ],

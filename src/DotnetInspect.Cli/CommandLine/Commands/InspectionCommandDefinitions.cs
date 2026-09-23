@@ -58,7 +58,15 @@ public static class InspectionCommandDefinitions
         };
         var maxProbesOption = new Option<int?>("--max-probes")
         {
-            Description = "History adaptive-bisection probe budget (minimum 2)",
+            Description = "History probe cap (minimum 2); selects adaptive bisection unless --sample-percent selects a survey",
+        };
+        var samplePercentOption = new Option<int?>("--sample-percent")
+        {
+            Description = "History representative positional sample (1-100 percent), optionally capped by --max-probes",
+        };
+        var majorVersionsOption = new Option<bool>("--major-versions")
+        {
+            Description = "History: evaluate one representative per package major; API uses first stable, Analysis uses latest",
         };
         var prereleaseOption = new Option<bool>("--preview")
         {
@@ -104,6 +112,8 @@ public static class InspectionCommandDefinitions
         diffCommand.Options.Add(historyOption);
         diffCommand.Options.Add(atOption);
         diffCommand.Options.Add(maxProbesOption);
+        diffCommand.Options.Add(samplePercentOption);
+        diffCommand.Options.Add(majorVersionsOption);
         diffCommand.Options.Add(prereleaseOption);
         diffCommand.Options.Add(configDirectoryOption);
         diffCommand.Options.Add(typeFilterOption);
@@ -131,7 +141,7 @@ public static class InspectionCommandDefinitions
         diffCommand.Options.Add(opts.Select);
         opts.AddEnvelopeOptionTo(
             diffCommand,
-            opts.Discover, opts.Select, opts.Verbosity,
+            opts.Discover, opts.Verbosity,
             nameOnlyOption,
             breakingOption, additiveOption, changedOption,
             allocRegressionsOption, pdbSourceOption, legacyAuthoredSourceOption,
@@ -167,12 +177,33 @@ public static class InspectionCommandDefinitions
                 || result.GetValue(historyOption))
                 return;
 
+            string? selector = result.GetValue(opts.Select);
+            bool implementationTransport =
+                string.Equals(
+                    selector,
+                    DiffSections.ImplementationDiff.Name,
+                    StringComparison.OrdinalIgnoreCase);
+            if (!implementationTransport)
+            {
+                if (result.GetResult(opts.Select) is { Implicit: false })
+                {
+                    result.AddError(
+                        "--envelope cannot be combined with --select unless "
+                            + "Implementation Diff is selected by itself.");
+                }
+                if (result.GetResult(typeFilterOption) is { Implicit: false })
+                    result.AddError("--envelope cannot be combined with --type.");
+                if (result.GetResult(memberFilterOption) is { Implicit: false })
+                    result.AddError("--envelope cannot be combined with --member.");
+            }
+
             bool explicitSource =
                 result.GetValue(packageOption) is not null
                 || result.GetValue(platformOption) is not null
                 || result.GetValue(libraryOption) is not null;
             int positionalCount = result.GetValue(argsArg)?.Length ?? 0;
-            if (positionalCount > (explicitSource ? 0 : 1))
+            if (!implementationTransport
+                && positionalCount > (explicitSource ? 0 : 1))
             {
                 result.AddError(
                     "--envelope cannot be combined with positional type filters.");
@@ -181,7 +212,7 @@ public static class InspectionCommandDefinitions
 
         var commandArgs = new DiffOptionsParser.DiffCommandArgs(
             argsArg, packageOption, platformOption, libraryOption, frameworkOption, tfmOption, allOption,
-            historyOption, atOption, maxProbesOption, prereleaseOption, opts.Count,
+            historyOption, atOption, maxProbesOption, samplePercentOption, majorVersionsOption, prereleaseOption, opts.Count,
             typeFilterOption, memberFilterOption, opts.NoHeaders, nameOnlyOption, breakingOption, additiveOption, changedOption, allocRegressionsOption, pdbSourceOption, legacyAuthoredSourceOption, findingOption, legendOption, repoOption, compactOption);
 
         diffCommand.SetAction(async (parseResult, ct) =>
@@ -330,6 +361,11 @@ public static class InspectionCommandDefinitions
         {
             Description = "Extract embedded resources beneath a directory without overwriting files"
         };
+        var compactOption = new Option<bool>("--compact")
+        {
+            Description =
+                "Minified JSON (use with --envelope)",
+        };
         var outOption = SharedOptions.CreateOutputPathOption();
         assemblyCommand.Arguments.Add(assemblyPathArg);
         assemblyCommand.Options.Add(referencesOption);
@@ -348,6 +384,7 @@ public static class InspectionCommandDefinitions
         assemblyCommand.Options.Add(detailsOption);
         assemblyCommand.Options.Add(opts.PreferRenderedUrls);
         assemblyCommand.Options.Add(extractResourcesOption);
+        assemblyCommand.Options.Add(compactOption);
         assemblyCommand.Options.Add(outOption);
         SharedOptions.AddOutputPathValidator(assemblyCommand, outOption);
         // Registered per-command rather than in AddOutputOptionsTo: only the commands that build a
@@ -360,6 +397,60 @@ public static class InspectionCommandDefinitions
         opts.AddPrintOptionTo(assemblyCommand);
         opts.AddShapeProjectionOptionsTo(assemblyCommand);
         opts.AddPerformanceTriageOptionsTo(assemblyCommand);
+        opts.AddEnvelopeOptionTo(
+            assemblyCommand,
+            opts.Discover,
+            opts.Schema,
+            opts.Verbosity,
+            opts.Rows,
+            opts.Row,
+            opts.RowWhere,
+            opts.Limit,
+            opts.Head,
+            opts.Tail,
+            opts.Lines,
+            opts.TailLines,
+            opts.Trace,
+            opts.Count,
+            opts.Effective,
+            opts.Source,
+            opts.AddSource,
+            opts.NuGetConfig,
+            referencesOption,
+            dependenciesOption,
+            referenceDepthOption,
+            asmPlatformOption,
+            asmPackageOption,
+            workspaceOption,
+            namesakeLibraryOption,
+            asmPrereleaseOption,
+            asmFrameworkOption,
+            asmVersionOption,
+            asmTfmOption,
+            typeFilterOption,
+            metadataRootOption,
+            detailsOption,
+            extractResourcesOption);
+        assemblyCommand.Validators.Add(result =>
+        {
+            if (result.GetResult(compactOption)
+                    is { Implicit: false }
+                && !result.GetValue(opts.Envelope))
+            {
+                result.AddError(
+                    "--compact requires library --envelope.");
+            }
+            if (!result.GetValue(opts.Envelope))
+                return;
+
+            if (result.GetResult(opts.Select)
+                is { Implicit: false })
+            {
+                result.AddError(
+                    "library --envelope does not accept section "
+                        + "selection.");
+            }
+        });
         assemblyCommand.Subcommands.Add(
             LibraryCoordinateCommandDefinitions.Create(
                 opts,
@@ -446,7 +537,11 @@ public static class InspectionCommandDefinitions
                         + "combined with an exact Library source.");
                 return 1;
             }
-            if (workspacePacket is not null)
+            if (parseResult.GetValue(opts.Envelope))
+            {
+                assemblyPath = source;
+            }
+            else if (workspacePacket is not null)
             {
                 if (string.IsNullOrWhiteSpace(explicitPackage))
                 {
@@ -728,6 +823,10 @@ public static class InspectionCommandDefinitions
                 FieldsExplicitlySet =
                     parseResult.GetResult(opts.Fields) is { Implicit: false },
                 Count = parseResult.GetValue(opts.Count),
+                EnvelopeOutput =
+                    parseResult.GetValue(opts.Envelope),
+                CompactJson =
+                    parseResult.GetValue(compactOption),
                 Print = parseResult.GetValue(opts.Print),
                 Value = parseResult.GetValue(opts.Value),
                 Urls = parseResult.GetValue(opts.Urls),
@@ -757,7 +856,7 @@ public static class InspectionCommandDefinitions
                 ExtractResources = parseResult.GetValue(extractResourcesOption)
             };
 
-            return await LibraryCommand.ExecuteAsync(options);
+            return await LibraryCommand.ExecuteAsync(options, ct);
         });
 
         CliRowSelectionCommandRegistry.Register(

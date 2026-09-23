@@ -114,6 +114,10 @@ internal static class DiffHistoryCommand
                             range!,
                             PackageHouseOperation.Create(
                                 PackageHouseOperationProfile.Settle),
+                            options.MajorVersions
+                                ? PackageVersionPopulationPolicy.MajorBounds
+                                : PackageVersionPopulationPolicy
+                                    .ExactEndpoints,
                             options.IncludePrerelease),
                         options.SourceOptions,
                         cancellationToken,
@@ -127,16 +131,6 @@ internal static class DiffHistoryCommand
                     DescribePopulationFailure(populationResult));
                 return 1;
             }
-            if (population.Vector.Addresses.Length
-                > MaximumHistoryEvaluations)
-            {
-                CommandError.Write(
-                    $"Diff History selected "
-                    + $"{population.Vector.Addresses.Length} versions, "
-                    + $"exceeding the {MaximumHistoryEvaluations}-evaluation "
-                    + "work limit. Narrow the package range.");
-                return 1;
-            }
             if (!TryCreateEvaluationPlan(
                     population.Vector,
                     options,
@@ -145,6 +139,18 @@ internal static class DiffHistoryCommand
                     out error))
             {
                 CommandError.Write(error!);
+                return 1;
+            }
+            int maximumEvaluations =
+                plan!.ResolveMaximumRealizableEvaluationCount(
+                    population.Vector);
+            if (maximumEvaluations > MaximumHistoryEvaluations)
+            {
+                CommandError.Write(
+                    $"Diff History selected {maximumEvaluations} "
+                    + $"evaluations, exceeding the "
+                    + $"{MaximumHistoryEvaluations}-evaluation work limit. "
+                    + "Narrow the package range or evaluation policy.");
                 return 1;
             }
 
@@ -223,15 +229,31 @@ internal static class DiffHistoryCommand
         DiffOptions options,
         out string? error)
     {
-        if (options.At.Length > 0 && options.MaxProbes is not null)
+        if (options.At.Length > 0
+            && (options.MaxProbes is not null
+                || options.SamplePercent is not null
+                || options.MajorVersions))
         {
             error =
-                "--at and --max-probes select different History policies and cannot be combined.";
+                "--at cannot be combined with --max-probes, --sample-percent, or --major-versions.";
+            return false;
+        }
+        if (options.MajorVersions
+            && (options.MaxProbes is not null
+                || options.SamplePercent is not null))
+        {
+            error =
+                "--major-versions cannot be combined with --max-probes or --sample-percent.";
             return false;
         }
         if (options.MaxProbes is < 2)
         {
             error = "--max-probes must be at least 2.";
+            return false;
+        }
+        if (options.SamplePercent is < 1 or > 100)
+        {
+            error = "--sample-percent must be from 1 through 100.";
             return false;
         }
         if (options.Schema && options.Discover is null)
@@ -418,6 +440,7 @@ internal static class DiffHistoryCommand
                     options.Count
                         ? DiffHistorySections.ChangedVersions
                         : options.MaxProbes is not null
+                            && options.SamplePercent is null
                             ? DiffHistorySections.Outcome
                             : DiffHistorySections.Evaluations,
                 ],
@@ -458,15 +481,10 @@ internal static class DiffHistoryCommand
             string.IsNullOrWhiteSpace(options.Tfm)
                 ? PackageHouseTargetContext.OwnerDefault()
                 : PackageHouseTargetContext.Exact(options.Tfm);
-        int authorizedEvaluations =
-            plan is DiffHistoryEvaluationPlan.AdaptiveBisect adaptive
-                ? adaptive.MaximumProbes
-                : plan is DiffHistoryEvaluationPlan.ExplicitCheckpoints
-                    explicitPlan
-                    ? explicitPlan.Addresses.Length
-                    : population.Vector.Addresses.Length;
+        int maximumEvaluations =
+            plan.ResolveMaximumRealizableEvaluationCount(population.Vector);
         var evaluationLimits =
-            new DiffHistoryEvaluationLimits(authorizedEvaluations);
+            new DiffHistoryEvaluationLimits(maximumEvaluations);
         var workspaceLimits = new PackageVersionCellWorkspaceLimits(
             MaximumAssembliesPerVersion,
             MaximumAssemblyEntryBytes,
@@ -553,6 +571,25 @@ internal static class DiffHistoryCommand
         out string? error)
     {
         plan = null;
+        if (options.MajorVersions)
+        {
+            plan =
+                new DiffHistoryEvaluationPlan.MajorVersionRepresentatives(
+                    IsAnalysisFinding(finding)
+                        ? PackageVersionMajorRepresentativePolicy.Latest
+                        : PackageVersionMajorRepresentativePolicy
+                            .FirstStable);
+            error = null;
+            return true;
+        }
+        if (options.SamplePercent is { } samplePercent)
+        {
+            plan = new DiffHistoryEvaluationPlan.RepresentativeSurvey(
+                samplePercent,
+                options.MaxProbes);
+            error = null;
+            return true;
+        }
         if (options.MaxProbes is { } maximumProbes)
         {
             plan = new DiffHistoryEvaluationPlan.AdaptiveBisect(

@@ -1,5 +1,6 @@
 using System.Collections.Immutable;
 using System.Reflection.Metadata;
+using System.Reflection.Metadata.Ecma335;
 
 namespace ILInspector.Metadata;
 
@@ -45,6 +46,34 @@ internal static class GuardedProviderDecode
             : new DecodeResult<MethodSignature<T>>(
                 FallbackSignature(fallbackReturn),
                 IsDegraded: true);
+
+    public static DecodeResult<MethodSignature<T>> MethodResult<T, TContext>(
+        MetadataReader reader,
+        BlobHandle signature,
+        ISignatureTypeProvider<T, TContext> provider,
+        TContext context,
+        T fallbackReturn)
+    {
+        if (!SignatureBlobGuard.IsSafeToDecode(
+                reader,
+                signature,
+                SignatureBlobGuard.Kind.Method))
+        {
+            return new DecodeResult<MethodSignature<T>>(
+                FallbackSignature(fallbackReturn),
+                IsDegraded: true);
+        }
+
+        BlobReader blob = reader.GetBlobReader(signature);
+        var decoder =
+            new SignatureDecoder<T, TContext>(
+                provider,
+                reader,
+                context);
+        return new DecodeResult<MethodSignature<T>>(
+            decoder.DecodeMethodSignature(ref blob),
+            IsDegraded: false);
+    }
 
     public static MethodSignature<T> MemberRefMethod<T, TContext>(
         MetadataReader reader,

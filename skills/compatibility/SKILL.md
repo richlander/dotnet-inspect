@@ -194,12 +194,12 @@ dnx dotnet-inspect -y -- library System.Text.Json -S Switches
 
 ## Which versions to compare
 
-Version resolution is source-scoped. Online `Foo@latest --version` resolves the
-newest listed version from fresh, complete discovery across all eligible
-configured sources, without legacy candidate cache reuse. Use `Foo --versions`
-(add `-n N` for N rows or `--preview` for
-prerelease) to list published versions. Unlisted
-versions are hidden unless
+Version resolution is source-scoped. Use `package Foo --versions -n 1` for one
+newest listed version row, or `package Foo@latest --versions` when the answer
+must be freshly discovered across every eligible configured source without
+legacy candidate cache reuse. Use `package Foo --version 1.2.3` to verify one
+exact version and `Foo --versions` (add `-n N` for N rows or `--preview` for
+prerelease) to list published versions. Unlisted versions are hidden unless
 `--include-unlisted` is explicit. `--versions-with-feed` retains each
 version/feed pair when source identity matters. Source declaration order is not
 precedence; load the `private-feeds` skill for source and credential workflows.
@@ -212,9 +212,9 @@ then probe only the cells you choose:
 dnx dotnet-inspect -y -- package Foo@1.0.0..2.0.0 --versions
 dnx dotnet-inspect -y -- type TargetType --package Foo@1.0.0..2.0.0 --at '#5'
 dnx dotnet-inspect -y -- member TargetType TargetMember --package Foo@1.0.0..2.0.0 --at 1.6.0
-dnx dotnet-inspect -y -- timeline --package Foo@1.0.0..2.0.0 \
+dnx dotnet-inspect -y -- diff --history --package Foo@1.0.0..2.0.0 \
   --type TargetType --members --at first --at last
-dnx dotnet-inspect -y -- timeline --package Foo@1.0.0..2.0.0 \
+dnx dotnet-inspect -y -- diff --history --package Foo@1.0.0..2.0.0 \
   --type TargetType --member TargetMember \
   --finding analysis.unsafety --at first --at last
 ```
@@ -225,21 +225,25 @@ acquired. The agent owns the search policy and bound. For recurrence-safe
 current onset, walk backward from the bad version until the first successful
 absence; use binary search only for a predicate known to be monotonic.
 
-Online API/timeline ranges support configured folder and HTTP feeds. Discovery
+Online API/history ranges support configured folder and HTTP feeds. Discovery
 must be complete, and each probe can acquire only from a source that reported
 its coordinate. These vectors are listed-only; an `--include-unlisted`
 metadata listing can have different ordinals. Use an exact pin to inspect an
 unlisted coordinate. Local payload caches retain configured authority; HTTP
 payloads use temporary storage and are downloaded again on a later invocation.
 
-`timeline` renders `Evaluations` and `Transitions` over the same vector. Omit
-`--at` for a zero-payload address view and midpoint recommendation, repeat
-`--at` for sparse probes, or pass `--at all` for explicit dense traversal.
+Diff History renders `Evaluations` and `Transitions` over the same vector. Omit
+`--at` for full-population evaluation, repeat it for explicit checkpoints, or
+use `--max-probes` for adaptive bisection. Add `--sample-percent P` for a
+deterministic population-relative survey, optionally capped by `--max-probes`.
+Use `--major-versions` for one representative per major: API findings choose
+the first stable version, with the latest prerelease fallback for preview-only
+majors, while Analysis findings choose the latest admitted version per major.
 Choose the type-focused census with `--type-presence`, `--members`, or
 `--attributes` (aliases for `api.type`, `api.member`, and `api.attribute`).
 Add `--member` to `api.member` for one exact member identity track. The same
 member selector scopes `analysis.allocation`, `analysis.call-site`, and
-`analysis.unsafety` timelines to one method body.
+`analysis.unsafety` history to one method body.
 Gap-spanning transitions are evidence across the selected probes, not claims
 about the exact introduction or removal version.
 Online recommendations retain source/configuration, TFM, prerelease, and

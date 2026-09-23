@@ -174,7 +174,10 @@ public sealed class PdbScopeEntryLocalPass : IIrPass
 
             var value = new LoadLocal(carrier, type);
             value.SetSourceOffset(binding.Scope.StartOffset);
-            var declaration = new StoreLocal(local, type, value);
+            var declaration = new StoreLocal(local, type, value)
+            {
+                PdbScopeEntryProjection = new(carrier, binding),
+            };
             declaration.SetSourceOffset(binding.Scope.StartOffset);
             entry.Add(declaration);
             foreach (IrNode statement in statements)

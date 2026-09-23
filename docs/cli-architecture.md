@@ -23,9 +23,9 @@ See:
   [style guide](design/style-guide.md) for presentation contracts; and
 - [LLM design](llm-design.md) for agent-facing workflows and output choices.
 
-Current command behavior and examples belong in the root
-[`README.md`](../README.md), the embedded product skills, and tests rather than
-in this architecture guide.
+Current command behavior and examples belong in the
+[CLI reference](cli-reference.md), the embedded product skills, and tests
+rather than in this architecture guide.
 
 ## Host responsibilities
 
@@ -90,6 +90,16 @@ Share basis. Packet restoration derives its basis from the exact
 `CompleteRestorationResult.Activated`, including the owner-issued definition
 and projection. The CLI does not independently pair packet text with a
 definition snapshot.
+
+`workspace packet encode` and `workspace packet decode` expose the same
+resource-free canonical codec beneath the Workspace noun. `workspace component
+list` projects a packet-local typed component catalog as JSON. Its canonical
+Package paths are emitted by Workspace Definitions and accepted unchanged by
+`workspace package update` and `workspace package remove`; the CLI does not
+derive identity from package inventory order, Navigation row order, or display
+text. Package add and remove are resource-free immutable packet
+transformations. Package update delegates to the existing realization-backed
+fresh-successor operation and preserves its completed envelope.
 
 The existing `--active-package` path resolves Package source order through the
 operation's selection receipt, validates the exact occurrence identity, and
@@ -539,7 +549,7 @@ architectural subsystem:
 | Unary subject inspection | `package`, `project`, `library`, `type`, `member`, `ecosystem` | Resolve one subject and choose inspection lenses; ecosystem focus reads the product-owned static catalog without acquisition. |
 | Comparison and correlation | `diff`, `match` | Resolve ordered or paired subjects and choose comparison, History correlation, or correspondence producers. |
 | Search and relationships | `find`, `depends`, `extensions`, `implements`, `graph` | Resolve a bounded search/workspace scope and project typed relationships. |
-| Product metadata and utilities | `vocabulary`, `workspace-state`, `cache`, `skill`, `demo` | Expose product-owned vocabularies, portable host state, CLI runtime state, embedded guidance, or closed demonstrations. |
+| Product metadata and utilities | `vocabulary`, `cache`, `skill`, `demo` | Expose product-owned vocabularies, CLI runtime state, embedded guidance, or closed demonstrations. |
 
 Noun-first and operation-first commands share independent source, focus, lens,
 traversal, and rendering axes. The

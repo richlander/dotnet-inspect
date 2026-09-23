@@ -649,7 +649,7 @@ public sealed class LibraryCallGraphAnalysisResult
         return null;
     }
 
-    private void EnsureRequested()
+    internal void EnsureRequested()
     {
         if (!WasRequested)
         {

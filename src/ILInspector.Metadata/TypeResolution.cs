@@ -982,6 +982,24 @@ public readonly record struct MetadataTypeDefinitionAddress(
     TypeDefinitionToken Definition)
 {
     /// <summary>
+    /// Rehydrates a durable TypeDef address from its serialized components.
+    /// </summary>
+    public static MetadataTypeDefinitionAddress FromToken(
+        Guid moduleVersionId,
+        int definitionToken)
+    {
+        if (moduleVersionId == Guid.Empty)
+        {
+            throw new ArgumentException(
+                "A TypeDef address requires a non-empty MVID.",
+                nameof(moduleVersionId));
+        }
+        return new(
+            moduleVersionId,
+            TypeDefinitionToken.FromToken(definitionToken));
+    }
+
+    /// <summary>
     /// Creates a durable address from a TypeDef row in the supplied module.
     /// </summary>
     public static MetadataTypeDefinitionAddress FromHandle(

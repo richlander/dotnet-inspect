@@ -295,7 +295,7 @@ portable basis.
 
 ### The `workspace` command
 
-The `workspace` command transforms portable Workspace state:
+The `workspace` command authors and transforms portable Workspace definitions:
 
 ```text
 direct definition inputs | packet
@@ -714,8 +714,8 @@ positional Packages, an explicit target framework, preview/latest selection,
 version populations or ranges, Package discovery, or a Package child command.
 
 The first slice requires one positional canonical NuGet Package ID. The
-existing `ID@VERSION` and `ID --version VERSION` forms may additionally require
-one exact effective version. Bare `--version`, `--versions`,
+`ID@VERSION` form may additionally require one exact effective version. Bare
+`--version VERSION`, `--versions`,
 `--versions-with-feed`, range selection, and multi-Package execution remain
 outside this route. ID and version comparison use their existing Package-owned
 canonical semantics; packet adoption does not add prefix, fuzzy, display-text,
@@ -803,7 +803,7 @@ An explicit version requirement applied to a floating Package member may
 validate the current ordinary inspection, but it is not faithfully projectable:
 the derived packet preserves the original floating definition and the active
 Package state has no separate version predicate. Share therefore succeeds for
-an explicit `ID@VERSION` or `--version VERSION` request only when the preserved
+an explicit `ID@VERSION` request only when the preserved
 Package member is already pinned to that exact version. It never silently pins
 or otherwise mutates the input Workspace definition.
 
@@ -955,6 +955,92 @@ Existing CLI inventory and `--active-package` behavior are transitional. They
 may be retired only after the definition-first command and equivalent
 packet-context noun-command paths exist.
 
+### Component identity and immutable packet editing
+
+Workspace Definitions owns packet-local component identity. It applies the
+same separation established by
+[Resource Explanation](resource-explanation.md#resource-identity-and-path-projection):
+typed owner identity remains authoritative, while a separate canonical,
+shell-safe path is emitted for unchanged handoff to a consuming command.
+Resource Explanation's `ResourcePath` is not reused: it names installed product
+contracts, while a Workspace component path names one component in one
+immutable packet snapshot.
+
+The first adopted component domain is every direct Package tuple. Its path is:
+
+```text
+packages/<lowercase-package-id>@<version>/<tfm>/<rid>
+```
+
+`~` represents an absent Version, TFM, or RID. Package ID equality follows the
+existing case-insensitive packet identity; Version, TFM, and RID use the
+packet's canonical normalized spellings. Because packet validity already
+rejects duplicate normalized source tuples, this projection is complete and
+unique for the adopted domain. Reordering unrelated tuples does not change a
+Package path. Updating a coordinate produces a new path in the derived packet,
+as expected for snapshot-local identity.
+
+Context paths use the existing packet-local context identity:
+`contexts/g0`, `contexts/g1`, and so on. They have the same scope as
+`WorkspaceContextAddress`: they are stable for one canonical packet, not global
+context identity. Package add defaults to the packet's selected context;
+`--context` is needed only to override that choice. Component inspection emits
+both typed path families and their relationship, so no edit command derives
+identity from display text or row order.
+
+Packet editing is immutable:
+
+```console
+$ dotnet-inspect workspace component list --packet "$w"
+{
+  "schema_version": 1,
+  "contexts": [
+    {
+      "path": "contexts/g0",
+      "packages": [
+        "packages/system.text.json@10.0.0/net10.0/~"
+      ]
+    }
+  ],
+  "packages": [
+    {
+      "path": "packages/system.text.json@10.0.0/net10.0/~",
+      "package_id": "System.Text.Json",
+      "version": "10.0.0",
+      "framework": "net10.0"
+    }
+  ]
+}
+
+$ w=$(dotnet-inspect workspace package add \
+    Microsoft.Extensions.Logging.Abstractions@10.0.0 --packet "$w")
+$ w=$(dotnet-inspect workspace package update \
+    packages/system.text.json@10.0.0/net10.0/~ \
+    --version 9.0.0 --packet "$w")
+$ w=$(dotnet-inspect workspace package remove \
+    packages/microsoft.extensions.logging.abstractions@10.0.0/net10.0/~ \
+    --packet "$w")
+```
+
+Add and remove are resource-free definition transformations. They preserve
+unselected tuples, contexts, registrations, package sources, queries, and view
+states, compact affected indexes, prune only query identities made unreachable
+by removal, and pass the complete result through the canonical packet validity
+gate before emitting it. A removal that cannot produce a valid complete packet
+is a visible refusal.
+
+Update is the user-facing name for the existing realization-backed portable
+Package-coordinate replacement. It accepts an emitted Package path rather than
+a navigation-row ordinal and retains the fresh successor Workspace,
+correspondence, committed-view, and complete-output obligations of that
+contract. "Replacement" remains an implementation description of the
+remove-old/admit-successor mechanism, not CLI vocabulary.
+
+Packet conversion is representation work beneath the same noun:
+`workspace packet decode` and `workspace packet encode`. It remains
+resource-free and canonical. The former peer `workspace-state` name is retired
+because the packet is durable snapshot data, not live Workspace authority.
+
 ### CLI mockup
 
 The target mockup uses real Package and registration intent. Final option
@@ -1023,6 +1109,9 @@ Implementation proceeds in focused slices:
    placement, context-local duplicate handling, all-or-nothing completion, and
    that no graph result enters the packet. Implemented under
    [#7494](https://github.com/richlander/dotnet-inspect/issues/7494).
+   Canonical component paths and immutable Package add/update/remove adoption
+   are implemented under
+   [#8145](https://github.com/richlander/dotnet-inspect/issues/8145).
 5. **Noun-command packet context.** Adopt canonical Base64URL packet-string
    input and derived packet-or-URL Share in `type` under
    [#7555](https://github.com/richlander/dotnet-inspect/issues/7555), then
@@ -1448,6 +1537,27 @@ credential-free declarations to the host. Before package acquisition, the host
 must validate any explicit bindings and install exactly the packet-declared
 source set. It must not import ambient `nuget.config` sources or persisted
 credentials when a version-5 source set exists.
+
+`WorkspacePackageSourceBinding` is the host-neutral construction boundary for
+that step. It accepts the declared source set plus explicit endpoint-bound
+Basic credentials and returns ordered `PackageSource` values together with the
+authentication-required declarations left unbound. Both CLI and Browser use
+this result. The CLI may assign provider authority to the remaining origins;
+Browser/Wasm must reject any remaining requirement before network work.
+`WorkspacePackageSourceBindingTests` gate declaration order, credential
+attachment, unbound requirements, unexpected credentials, same-origin partial
+binding, and incomplete credentials. This shared construction boundary is
+slice 1 of 2 in the CLI-and-Browser production adoption tracked by
+[#8154](https://github.com/richlander/dotnet-inspect/issues/8154).
+
+The second slice routes production Inspect Web initial-load, same-origin-link,
+and history URLs with source-bearing packets through retained complete
+restoration before the legacy format-1 decoder. It automatically activates
+anonymous-only declarations, prompts for endpoint-specific page-session
+credentials when required, admits the retained Package and Platform surfaces,
+and updates visible state and browser history only after retained publication
+is acknowledged. The original format-5 packet remains the refresh and share
+URL; it is not lowered through the format-1 encoder.
 
 For an authentication-required endpoint, one complete explicit Basic
 credential wins. If none is supplied, a host that supports noninteractive
@@ -2427,6 +2537,16 @@ quoting-free as a bare CLI argument.
 
 The browser keeps a terse `?w=` base64url JSON packet as a **projection** the
 transposition layer converts to and from one packet-local scenario composition.
+
+The CLI's managed share producers compose that packet with the website origin
+selected at build time by the `DotnetInspectWebsiteUrl` MSBuild property.
+Development builds default to `https://dotnet-inspect.ca`; production NuGet
+packaging sets the property to `https://dotnet-inspect.net`. The property is
+the origin without a trailing slash, and one generated `WorkspaceShareUrl`
+contract owns the resulting `/?w=` prefix for CLI commands and the query
+operations they consume. Browser-host URL selection is a separate host concern:
+production promotes the exact staging artifact rather than rebuilding it for a
+different origin.
 
 #### Packet format 1
 
@@ -3702,7 +3822,7 @@ Definition records and product demos (this slice):
   outcomes. Its fixed .NET vectors cover composed package/platform contexts,
   independent focus and context indexes, Unicode metadata and canonical
   signatures, and the pinned scalar-escaping rules. Its `ParseJson` and
-  `SerializeJson` boundary powers CLI `workspace-state encode` / `decode`;
+  `SerializeJson` boundary powers CLI `workspace packet encode` / `decode`;
   those commands accept inline input or bounded strict UTF-8 stdin/file input
   and emit BOM-free UTF-8 without acquisition or execution. Stream and file
   input may carry one terminal LF or CRLF outside the declared payload bound.

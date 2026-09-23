@@ -63,11 +63,15 @@ static class DiffHistoryMethodology
         ArgumentNullException.ThrowIfNull(pairwiseAction);
         cancellationToken.ThrowIfCancellationRequested();
 
+        int maximumEvaluations = Math.Min(
+            evaluationLimits.MaximumEvaluations,
+            evaluationPlan.ResolveMaximumRealizableEvaluationCount(
+                population));
         var chronological = ImmutableArray.CreateBuilder<TPoint>(
-            evaluationLimits.MaximumEvaluations);
+            maximumEvaluations);
         var probes = ImmutableArray.CreateBuilder<
             DiffHistoryMethodologyProbe<T, TPoint>>(
-                evaluationLimits.MaximumEvaluations);
+                maximumEvaluations);
         if (evaluationPlan
             is DiffHistoryEvaluationPlan.AdaptiveBisect adaptive)
         {
@@ -84,9 +88,21 @@ static class DiffHistoryMethodology
         else
         {
             DiffHistoryProbePurpose purpose =
-                evaluationPlan is DiffHistoryEvaluationPlan.FullPopulation
-                    ? DiffHistoryProbePurpose.DenseCensus
-                    : DiffHistoryProbePurpose.ExplicitCheckpoint;
+                evaluationPlan switch
+                {
+                    DiffHistoryEvaluationPlan.FullPopulation =>
+                        DiffHistoryProbePurpose.DenseCensus,
+                    DiffHistoryEvaluationPlan.ExplicitCheckpoints =>
+                        DiffHistoryProbePurpose.ExplicitCheckpoint,
+                    DiffHistoryEvaluationPlan.RepresentativeSurvey =>
+                        DiffHistoryProbePurpose.RepresentativeSample,
+                    DiffHistoryEvaluationPlan
+                            .MajorVersionRepresentatives =>
+                        DiffHistoryProbePurpose
+                            .MajorVersionRepresentative,
+                    _ => throw new InvalidOperationException(
+                        "Unknown Diff History evaluation plan."),
+                };
             foreach (PackageVersionAddress address
                 in initialEvaluationSelection)
             {
@@ -408,6 +424,18 @@ static class DiffHistoryMethodology
             return new DiffHistoryTerminalOutcome
                 .ExplicitCheckpointsCompleted();
         }
+        if (evaluationPlan
+            is DiffHistoryEvaluationPlan.RepresentativeSurvey)
+        {
+            return new DiffHistoryTerminalOutcome
+                .RepresentativeSurveyCompleted();
+        }
+        if (evaluationPlan
+            is DiffHistoryEvaluationPlan.MajorVersionRepresentatives)
+        {
+            return new DiffHistoryTerminalOutcome
+                .MajorVersionRepresentativesCompleted();
+        }
         if (!unresolved.IsEmpty)
         {
             return new DiffHistoryTerminalOutcome.BudgetExhausted(
@@ -457,6 +485,19 @@ static class DiffHistoryMethodology
                         .Append(address)
                         .OrderBy(static value => value.Position)
                         .ToImmutableArray()),
+            ];
+        }
+        if (evaluationPlan
+            is DiffHistoryEvaluationPlan.RepresentativeSurvey
+                or DiffHistoryEvaluationPlan
+                    .MajorVersionRepresentatives)
+        {
+            return
+            [
+                .. ChangedIntervals(transitions)
+                    .Where(static interval => interval.IsAdjacent)
+                    .Select(interval =>
+                        (DiffHistoryNextAction)pairwiseAction(interval)),
             ];
         }
         if (evaluationPlan

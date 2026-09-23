@@ -1,5 +1,21 @@
 import { dotnet } from "./runtime-loader.js";
 
+declare const dateTimeOffsetStringBrand: unique symbol;
+
+export type DateTimeOffsetString = string & {
+  readonly [dateTimeOffsetStringBrand]: "DateTimeOffsetString";
+};
+
+export type AuthoredDocumentationAmbiguityReason = "PhysicalDeclarationConflict" | "DeclarationAmbiguous" | number;
+
+export type AuthoredDocumentationFailureReason = "SourceFailed" | "PhysicalDeclarationFailed" | "MalformedDocumentation" | number;
+
+export type AuthoredDocumentationIncompleteReason = "DeclarationUncertain" | "ImplementationSurface" | "Deadline" | "SourceDocuments" | "SourceBytes" | "SourceCharacters" | "SourceHouse" | "PhysicalDeclaration" | "Documentation" | number;
+
+export type AuthoredDocumentationRejectionReason = "OperationEvidenceMismatch" | "AlreadyInvoked" | "BindingMismatch" | "LeaseReferenceMismatch" | "SourceRejected" | "SourceEvidenceMismatch" | "PhysicalDeclarationRejected" | number;
+
+export type AuthoredDocumentationUnavailableReason = "OperationUnavailable" | "SourceUnavailable" | "PhysicalDeclarationUnavailable" | "DeclarationNotFound" | number;
+
 export type BrowserCompileLibraryStatus = "Selected" | "NoCompileAssets" | "NoMatchingTargetFramework" | "EmptyCompileGroup" | "InvalidImplementationAssets" | number;
 
 export type BrowserDependencyCoordinateMatchOutcome = "NoMatch" | "Unique" | "Ambiguous" | number;
@@ -25,8 +41,6 @@ export type BrowserPackageAssemblySemanticCandidateOutcomeKind = "Matched" | "No
 export type BrowserPackageAssemblySemanticFailureKind = "Acquisition" | "Evaluation" | number;
 
 export type BrowserPackageAssemblySemanticNonEvaluationKind = "OperationDeadline" | number;
-
-export type BrowserPackageAssemblySemanticPopulationCompletionKind = "ExactPackageComplete" | "PrefixExhausted" | "CandidateLimitReached" | "SourcePageLimitReached" | "ClientPageLimitReached" | "SourceFailed" | number;
 
 export type BrowserPackageChangesCancellationKind = "Requested" | "AlreadyRequested" | "NotActive" | number;
 
@@ -54,7 +68,7 @@ export type BrowserPackageQueryEvidenceScope = "Package" | "Query" | number;
 
 export type BrowserPackageQueryExecutionClass = "SearchMetadata" | "Nuspec" | "NuspecExpensive" | "PackageContent" | "Metadata" | "MetadataExpensive" | number;
 
-export type BrowserPackageQueryFailureKind = "Search" | "SearchContract" | "ManifestAcquisition" | "ManifestContract" | "InvalidManifest" | "PackageContentAcquisition" | "PackageContentEvaluation" | "DependencyTraversal" | "AssemblyAcquisition" | "AssemblyEvaluation" | number;
+export type BrowserPackageQueryFailureKind = "Search" | "SearchContract" | "ManifestAcquisition" | "ManifestContract" | "InvalidManifest" | "PackageContentAcquisition" | "PackageContentEvaluation" | "DependencyTraversal" | "AssemblyAcquisition" | "AssemblyEvaluation" | "AssemblyNotEvaluated" | number;
 
 export type BrowserPackageQueryManifestFailureReason = "MalformedXml" | "UnsupportedDocumentShape" | "IdentityMismatch" | "InvalidDependencyContract" | "ConfiguredLimitExceeded" | "InvalidIdentityContract" | number;
 
@@ -79,6 +93,20 @@ export type CompiledDocumentationSourceEvidenceKind = "Candidate" | "Absent" | "
 export type CompiledDocumentationSourceKind = "Package" | "Platform" | "DirectLibrary" | "SourceHouse" | number;
 
 export type CompiledDocumentationSourceRejectionKind = "SubjectMismatch" | "LibraryMismatch" | "ApiContentMismatch" | "CompanionMismatch" | number;
+
+export type DocumentationQueryChannel = "CompiledXml" | "AuthoredSource" | number;
+
+export type DocumentationQueryFailureReason = "CompiledXmlMalformedOrUnreadableDocument" | "CompiledXmlContentAccessFailed" | number;
+
+export type DocumentationQueryFieldEvidenceKind = "Selected" | "Corroborated" | "Conflict" | "Absent" | number;
+
+export type DocumentationQueryRequestRejectionReason = "LibraryReferenceMismatch" | "ApiContentMismatch" | "LeaseReferenceMismatch" | "AuthoredSourceBindingMismatch" | number;
+
+export interface AuthoredDocumentationObservation {
+  readonly code?: string;
+  readonly detail?: string;
+  readonly detailWasTruncated: boolean;
+}
 
 export interface BrowserAccessibilityDescriptor {
   readonly id: string;
@@ -345,30 +373,6 @@ export interface BrowserPackageAssemblySemanticCandidateOutcome {
   readonly message: string | null;
 }
 
-export interface BrowserPackageAssemblySemanticCompletion {
-  readonly population: BrowserPackageAssemblySemanticPopulationCompletionKind;
-  readonly isRequestedPopulationComplete: boolean;
-  readonly allCandidatesHaveTerminalOutcomes: boolean;
-  readonly hasFailures: boolean;
-  readonly isSemanticEvaluationComplete: boolean;
-  readonly isOperationDeadlineExpired: boolean;
-}
-
-export interface BrowserPackageAssemblySemanticDocument {
-  readonly population: BrowserPackageAssemblySemanticPopulation;
-  readonly results: ReadonlyArray<BrowserPackageAssemblySemanticResult>;
-  readonly candidateOutcomes: ReadonlyArray<BrowserPackageAssemblySemanticCandidateOutcome>;
-  readonly candidateCount: number;
-  readonly evaluatedCandidateCount: number;
-  readonly notEvaluatedCount: number;
-  readonly matchedPackageCount: number;
-  readonly occurrenceCount: number;
-  readonly semanticMissCount: number;
-  readonly notApplicableCount: number;
-  readonly failureCount: number;
-  readonly completion: BrowserPackageAssemblySemanticCompletion;
-}
-
 export interface BrowserPackageAssemblySemanticOccurrence {
   readonly moduleVersionId: string;
   readonly methodDefinitionToken: number;
@@ -376,25 +380,6 @@ export interface BrowserPackageAssemblySemanticOccurrence {
   readonly userStringToken: number;
   readonly literalCharacterCount: number;
   readonly literalText: string;
-}
-
-export interface BrowserPackageAssemblySemanticPopulation {
-  readonly requestedCandidates: number;
-  readonly candidates: number;
-  readonly completion: BrowserPackageAssemblySemanticPopulationCompletionKind;
-  readonly isRequestedPopulationComplete: boolean;
-  readonly failures: ReadonlyArray<BrowserPackageAssemblySemanticPopulationFailure>;
-}
-
-export interface BrowserPackageAssemblySemanticPopulationFailure {
-  readonly candidateOrdinal: number | null;
-  readonly packageId: string | null;
-  readonly version: string | null;
-  readonly authority: string;
-  readonly kind: string;
-  readonly message: string;
-  readonly timeoutKind: string | null;
-  readonly timeoutSeconds: number | null;
 }
 
 export interface BrowserPackageAssemblySemanticResult {
@@ -431,7 +416,7 @@ export interface BrowserPackageCacheStats {
 export interface BrowserPackageChangesAdvisoryAcquisition {
   readonly packageProducerKey: string;
   readonly advisoryProducer: string;
-  readonly observedAt: string;
+  readonly observedAt: DateTimeOffsetString;
   readonly apiRequests: number;
   readonly responseBytes: number;
   readonly complete: boolean;
@@ -456,8 +441,8 @@ export interface BrowserPackageChangesAdvisoryReference {
   readonly cveId: string | null;
   readonly severity: string;
   readonly advisoryUrl: string;
-  readonly publishedAt: string;
-  readonly updatedAt: string;
+  readonly publishedAt: DateTimeOffsetString;
+  readonly updatedAt: DateTimeOffsetString;
 }
 
 export interface BrowserPackageChangesCancellation {
@@ -472,7 +457,7 @@ export interface BrowserPackageChangesCatalogActivity {
   readonly normalizedVersion: string;
   readonly leafUrl: string;
   readonly commitId: string;
-  readonly commitTimestamp: string;
+  readonly commitTimestamp: DateTimeOffsetString;
   readonly catalogKind: string;
   readonly activity: string;
 }
@@ -501,7 +486,7 @@ export interface BrowserPackageChangesInspection {
 }
 
 export interface BrowserPackageChangesPackageReceipt {
-  readonly receivedAt: string;
+  readonly receivedAt: DateTimeOffsetString;
   readonly basis: string;
 }
 
@@ -536,7 +521,7 @@ export interface BrowserPackageChangesProgress {
   readonly phase: string;
   readonly completed: number;
   readonly total: number | null;
-  readonly capturedHorizon: string | null;
+  readonly capturedHorizon: DateTimeOffsetString | null;
   readonly catalogPagesAcquired: number;
   readonly catalogHttpAttempts: number;
   readonly catalogDecodedBytes: number;
@@ -556,9 +541,9 @@ export interface BrowserPackageChangesRequest {
 }
 
 export interface BrowserPackageChangesResolvedRequest {
-  readonly referenceTime: string;
-  readonly fromExclusive: string;
-  readonly throughInclusive: string;
+  readonly referenceTime: DateTimeOffsetString;
+  readonly fromExclusive: DateTimeOffsetString;
+  readonly throughInclusive: DateTimeOffsetString;
   readonly usedDefaultInterval: boolean;
   readonly packageScope: BrowserPackageChangesPackageScope;
   readonly securitySelection: string;
@@ -599,7 +584,7 @@ export interface BrowserPackageChangesSource {
 }
 
 export interface BrowserPackageChangesSummary {
-  readonly capturedHorizon: string | null;
+  readonly capturedHorizon: DateTimeOffsetString | null;
   readonly catalogCompletion: string | null;
   readonly catalogFailure: BrowserPackageChangesPackageSourceFailure | null;
   readonly catalogPagesAcquired: number;
@@ -780,6 +765,8 @@ export interface BrowserPackageQueryCompletion {
   readonly scope: string | null;
   readonly occurrences: number | null;
   readonly notEvaluated: number | null;
+  readonly evaluatedCandidates: number | null;
+  readonly semanticMatches: number | null;
 }
 
 export interface BrowserPackageQueryDeclaredDependency {
@@ -798,7 +785,7 @@ export interface BrowserPackageQueryDocument {
   readonly hasPackages: boolean;
   readonly failures: ReadonlyArray<BrowserPackageQueryFailure>;
   readonly completion: BrowserPackageQueryCompletion;
-  readonly assemblySemantic: BrowserPackageAssemblySemanticDocument | null;
+  readonly libraryLiteralAssessments: ReadonlyArray<BrowserPackageAssemblySemanticCandidateOutcome>;
 }
 
 export interface BrowserPackageQueryEvent {
@@ -933,6 +920,7 @@ export interface BrowserPackageQueryTermDescriptor {
   readonly operators: ReadonlyArray<string>;
   readonly valueKind: string;
   readonly example: string;
+  readonly multiline: boolean;
 }
 
 export interface BrowserPackageSurface {
@@ -1153,26 +1141,93 @@ export interface CompiledDocumentationSubject {
   readonly documentationId?: string;
 }
 
+export interface DocumentationQueryExceptionFieldContribution {
+  readonly channel: DocumentationQueryChannel;
+  readonly value: ReadonlyArray<CompiledDocumentationException>;
+}
+
+export interface DocumentationQueryExceptionFieldEvidence {
+  readonly kind: DocumentationQueryFieldEvidenceKind;
+  readonly requestedChannels: ReadonlyArray<DocumentationQueryChannel>;
+  readonly contributions: ReadonlyArray<DocumentationQueryExceptionFieldContribution>;
+}
+
+export interface DocumentationQueryFieldSettlement {
+  readonly summary: DocumentationQueryTextFieldEvidence;
+  readonly remarks: DocumentationQueryTextFieldEvidence;
+  readonly returns: DocumentationQueryTextFieldEvidence;
+  readonly parameters: ReadonlyArray<DocumentationQueryParameterField>;
+  readonly exceptions: DocumentationQueryExceptionFieldEvidence;
+  readonly samples: DocumentationQuerySampleFieldEvidence;
+}
+
+export interface DocumentationQueryParameterField {
+  readonly name?: string;
+  readonly evidence: DocumentationQueryTextFieldEvidence;
+}
+
+export interface DocumentationQuerySampleFieldContribution {
+  readonly channel: DocumentationQueryChannel;
+  readonly value: ReadonlyArray<CompiledDocumentationSample>;
+}
+
+export interface DocumentationQuerySampleFieldEvidence {
+  readonly kind: DocumentationQueryFieldEvidenceKind;
+  readonly requestedChannels: ReadonlyArray<DocumentationQueryChannel>;
+  readonly contributions: ReadonlyArray<DocumentationQuerySampleFieldContribution>;
+}
+
+export interface DocumentationQueryTextFieldContribution {
+  readonly channel: DocumentationQueryChannel;
+  readonly value?: string;
+}
+
+export interface DocumentationQueryTextFieldEvidence {
+  readonly kind: DocumentationQueryFieldEvidenceKind;
+  readonly requestedChannels: ReadonlyArray<DocumentationQueryChannel>;
+  readonly contributions: ReadonlyArray<DocumentationQueryTextFieldContribution>;
+}
+
 export interface Absent {
   readonly kind: "absent";
-  readonly subject: CompiledDocumentationSubject;
-  readonly sources: ReadonlyArray<CompiledDocumentationSourceEvidence>;
-  readonly sourcesTruncated?: boolean;
 }
 
 export interface Ambiguous {
   readonly kind: "ambiguous";
-  readonly subject: CompiledDocumentationSubject;
-  readonly candidates: ReadonlyArray<CompiledDocumentationSource>;
-  readonly candidatesTruncated?: boolean;
+  readonly reason: AuthoredDocumentationAmbiguityReason;
+  readonly observation: AuthoredDocumentationObservation | null;
 }
 
 export interface Available {
   readonly kind: "available";
-  readonly subject: CompiledDocumentationSubject;
-  readonly source: CompiledDocumentationSource;
   readonly documentation: CompiledDocumentationEntry;
 }
+
+export interface Failed {
+  readonly kind: "failed";
+  readonly reason: AuthoredDocumentationFailureReason;
+  readonly observation: AuthoredDocumentationObservation | null;
+}
+
+export interface Incomplete {
+  readonly kind: "incomplete";
+  readonly reason: AuthoredDocumentationIncompleteReason;
+  readonly observation: AuthoredDocumentationObservation | null;
+}
+
+export interface Rejected {
+  readonly kind: "rejected";
+  readonly reason: AuthoredDocumentationRejectionReason;
+  readonly observation: AuthoredDocumentationObservation | null;
+}
+
+export interface Unavailable {
+  readonly kind: "unavailable";
+  readonly reason: AuthoredDocumentationUnavailableReason;
+  readonly observation: AuthoredDocumentationObservation | null;
+}
+
+export type AuthoredDocumentationOutcome = Available | Absent | Unavailable | Ambiguous | Rejected | Failed | Incomplete;
 
 export interface ContentAccessFailed {
   readonly kind: "contentAccessFailed";
@@ -1187,14 +1242,6 @@ export interface ContributionsRejected {
   readonly rejectionsTruncated?: boolean;
 }
 
-export interface Incomplete {
-  readonly kind: "incomplete";
-  readonly subject: CompiledDocumentationSubject;
-  readonly reason: CompiledDocumentationIncompleteReason;
-  readonly sources: ReadonlyArray<CompiledDocumentationSourceEvidence>;
-  readonly sourcesTruncated?: boolean;
-}
-
 export interface MalformedOrUnreadableDocument {
   readonly kind: "malformedOrUnreadableDocument";
   readonly subject: CompiledDocumentationSubject;
@@ -1207,14 +1254,72 @@ export interface RequestRejected {
   readonly reason: CompiledDocumentationRequestRejectionKind;
 }
 
-export interface Unavailable {
+export interface type_09ed4ff7 {
+  readonly kind: "ambiguous";
+  readonly subject: CompiledDocumentationSubject;
+  readonly candidates: ReadonlyArray<CompiledDocumentationSource>;
+  readonly candidatesTruncated?: boolean;
+}
+
+export interface type_b58c2bef {
+  readonly kind: "available";
+  readonly subject: CompiledDocumentationSubject;
+  readonly source: CompiledDocumentationSource;
+  readonly documentation: CompiledDocumentationEntry;
+}
+
+export interface type_c09463af {
+  readonly kind: "incomplete";
+  readonly subject: CompiledDocumentationSubject;
+  readonly reason: CompiledDocumentationIncompleteReason;
+  readonly sources: ReadonlyArray<CompiledDocumentationSourceEvidence>;
+  readonly sourcesTruncated?: boolean;
+}
+
+export interface type_d6f98266 {
   readonly kind: "unavailable";
   readonly subject: CompiledDocumentationSubject;
   readonly sources: ReadonlyArray<CompiledDocumentationSourceEvidence>;
   readonly sourcesTruncated?: boolean;
 }
 
-export type CompiledDocumentationOutcome = Available | Absent | Unavailable | Ambiguous | ContributionsRejected | MalformedOrUnreadableDocument | Incomplete | RequestRejected | ContentAccessFailed;
+export interface type_fabd3005 {
+  readonly kind: "absent";
+  readonly subject: CompiledDocumentationSubject;
+  readonly sources: ReadonlyArray<CompiledDocumentationSourceEvidence>;
+  readonly sourcesTruncated?: boolean;
+}
+
+export type CompiledDocumentationOutcome = type_b58c2bef | type_fabd3005 | type_d6f98266 | type_09ed4ff7 | ContributionsRejected | MalformedOrUnreadableDocument | type_c09463af | RequestRejected | ContentAccessFailed;
+
+export interface Completed {
+  readonly kind: "completed";
+  readonly subject: CompiledDocumentationSubject;
+  readonly compiledXml: CompiledDocumentationOutcome | null;
+  readonly authoredSource: AuthoredDocumentationOutcome | null;
+  readonly fields: DocumentationQueryFieldSettlement;
+}
+
+export interface type_0808982e {
+  readonly kind: "failed";
+  readonly subject: CompiledDocumentationSubject;
+  readonly reason: DocumentationQueryFailureReason;
+  readonly source: CompiledDocumentationSource;
+}
+
+export interface type_29dfca00 {
+  readonly kind: "incomplete";
+  readonly subject: CompiledDocumentationSubject;
+  readonly reason: CompiledDocumentationIncompleteReason;
+}
+
+export interface type_4486029c {
+  readonly kind: "requestRejected";
+  readonly subject: CompiledDocumentationSubject;
+  readonly reason: DocumentationQueryRequestRejectionReason;
+}
+
+export type DocumentationQueryOutcome = Completed | type_4486029c | type_0808982e | type_29dfca00;
 
 export type BrowserAssemblyReferenceResult = BrowserAssemblyReferenceList | string | null;
 
@@ -1252,8 +1357,7 @@ type $ManagedExports = {
             readonly "RequestPackageQueryMatches.146925470": (operationId: string, additionalMatchCredit: number) => string;
             readonly "ResolvePackageDependencyVersion.451505237": (packageId: string, declaredRange: string | null) => Promise<string>;
             readonly "RunPackageActivity.1791926993": (operationId: string, requestJson: string, eventSink: unknown) => Promise<string>;
-            readonly "RunPackageAssemblySemanticQuery.1998922553": (operationId: string, packageInput: string, literal: string, targetFramework: string, maximumCandidates: number, includePrerelease: boolean, initialMatchCredit: number, eventSink: unknown) => Promise<string>;
-            readonly "RunPackageQuery.52840355": (operationId: string, prefix: string, termsJson: string, maximumCandidates: number, maximumMatches: number, includePrerelease: boolean, initialMatchCredit: number, eventSink: unknown) => Promise<string>;
+            readonly "RunPackageQuery.1685943924": (operationId: string, prefix: string, termsJson: string, targetFramework: string | null, maximumCandidates: number, maximumMatches: number, includePrerelease: boolean, initialMatchCredit: number, eventSink: unknown) => Promise<string>;
             readonly "SearchTypes.271973316": (query: string, candidatesJson: string) => string;
           };
         };
@@ -1647,21 +1751,9 @@ function $validateManagedExports(exports: unknown): asserts exports is $ManagedE
     value = $ownDataProperty(value, "Interop");
     value = $ownDataProperty(value, "Package");
     value = $ownDataProperty(value, "PackageExports");
-    value = $ownDataProperty(value, "RunPackageAssemblySemanticQuery.1998922553");
+    value = $ownDataProperty(value, "RunPackageQuery.1685943924");
     if (typeof value !== "function") {
-      throw new Error("Managed export \u0027DotnetInspect.Web.Interop.Package.PackageExports.RunPackageAssemblySemanticQuery.1998922553\u0027 is not callable.");
-    }
-  }
-  {
-    let value: unknown = exports;
-    value = $ownDataProperty(value, "DotnetInspect");
-    value = $ownDataProperty(value, "Web");
-    value = $ownDataProperty(value, "Interop");
-    value = $ownDataProperty(value, "Package");
-    value = $ownDataProperty(value, "PackageExports");
-    value = $ownDataProperty(value, "RunPackageQuery.52840355");
-    if (typeof value !== "function") {
-      throw new Error("Managed export \u0027DotnetInspect.Web.Interop.Package.PackageExports.RunPackageQuery.52840355\u0027 is not callable.");
+      throw new Error("Managed export \u0027DotnetInspect.Web.Interop.Package.PackageExports.RunPackageQuery.1685943924\u0027 is not callable.");
     }
   }
   {
@@ -1821,10 +1913,10 @@ export async function queryLibraryApi(packageId: string, version: string, target
   return $parsed as BrowserExactLibraryApiInspection;
 }
 
-export async function queryMemberDocumentation(packageId: string, version: string, framework: string, assemblyName: string, documentationId: string): Promise<CompiledDocumentationOutcome> {
+export async function queryMemberDocumentation(packageId: string, version: string, framework: string, assemblyName: string, documentationId: string): Promise<DocumentationQueryOutcome> {
   const $result = await $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Package"]["PackageExports"]["QueryMemberDocumentation.1330709314"](packageId, version, framework, assemblyName, documentationId);
   const $parsed: unknown = JSON.parse($result);
-  return $parsed as CompiledDocumentationOutcome;
+  return $parsed as DocumentationQueryOutcome;
 }
 
 export async function queryPackage(packageId: string, version: string, targetFramework: string): Promise<BrowserPackageLoadResult> {
@@ -1839,8 +1931,8 @@ export async function queryPackageDependencies(packageId: string, version: strin
   return $parsed as BrowserPackageDependencies;
 }
 
-export async function queryPackagePruning(packageId: string, version: string, targetFramework: string, requestJson: string): Promise<BrowserPackagePruningResult> {
-  const $result = await $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Package"]["PackageExports"]["QueryPackagePruning.1579276339"](packageId, version, targetFramework, requestJson);
+export async function queryPackagePruning(packageId: string, version: string, targetFramework: string, requestJson: BrowserPackagePruningRequest): Promise<BrowserPackagePruningResult> {
+  const $result = await $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Package"]["PackageExports"]["QueryPackagePruning.1579276339"](packageId, version, targetFramework, $serializeJsonInput(requestJson, "DotnetInspect.Web.Interop.Package.PackageExports.QueryPackagePruning.1579276339", "requestJson"));
   const $parsed: unknown = JSON.parse($result);
   return $parsed as BrowserPackagePruningResult;
 }
@@ -1863,8 +1955,8 @@ export async function queryPlatformMemberDocumentation(framework: string, platfo
   return $parsed as CompiledDocumentationOutcome;
 }
 
-export async function queryWorkspacePackageOccurrences(workspaceJson: string): Promise<BrowserWorkspacePackageOccurrenceView> {
-  const $result = await $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Package"]["PackageExports"]["QueryWorkspacePackageOccurrences.976702342"](workspaceJson);
+export async function queryWorkspacePackageOccurrences(workspaceJson: ReadonlyArray<BrowserWorkspacePackage>): Promise<BrowserWorkspacePackageOccurrenceView> {
+  const $result = await $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Package"]["PackageExports"]["QueryWorkspacePackageOccurrences.976702342"]($serializeJsonInput(workspaceJson, "DotnetInspect.Web.Interop.Package.PackageExports.QueryWorkspacePackageOccurrences.976702342", "workspaceJson"));
   const $parsed: unknown = JSON.parse($result);
   return $parsed as BrowserWorkspacePackageOccurrenceView;
 }
@@ -1879,20 +1971,14 @@ export async function resolvePackageDependencyVersion(packageId: string, declare
   return await $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Package"]["PackageExports"]["ResolvePackageDependencyVersion.451505237"](packageId, declaredRange);
 }
 
-export async function runPackageActivity(operationId: string, requestJson: string, eventSink: unknown): Promise<BrowserPackageChangesResult> {
-  const $result = await $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Package"]["PackageExports"]["RunPackageActivity.1791926993"](operationId, requestJson, eventSink);
+export async function runPackageActivity(operationId: string, requestJson: BrowserPackageChangesRequest, eventSink: unknown): Promise<BrowserPackageChangesResult> {
+  const $result = await $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Package"]["PackageExports"]["RunPackageActivity.1791926993"](operationId, $serializeJsonInput(requestJson, "DotnetInspect.Web.Interop.Package.PackageExports.RunPackageActivity.1791926993", "requestJson"), eventSink);
   const $parsed: unknown = JSON.parse($result);
   return $parsed as BrowserPackageChangesResult;
 }
 
-export async function runPackageAssemblySemanticQuery(operationId: string, packageInput: string, literal: string, targetFramework: string, maximumCandidates: number, includePrerelease: boolean, initialMatchCredit: number, eventSink: unknown): Promise<BrowserPackageQueryResult> {
-  const $result = await $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Package"]["PackageExports"]["RunPackageAssemblySemanticQuery.1998922553"](operationId, packageInput, literal, targetFramework, maximumCandidates, includePrerelease, initialMatchCredit, eventSink);
-  const $parsed: unknown = JSON.parse($result);
-  return $parsed as BrowserPackageQueryResult;
-}
-
-export async function runPackageQuery(operationId: string, prefix: string, termsJson: string, maximumCandidates: number, maximumMatches: number, includePrerelease: boolean, initialMatchCredit: number, eventSink: unknown): Promise<BrowserPackageQueryResult> {
-  const $result = await $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Package"]["PackageExports"]["RunPackageQuery.52840355"](operationId, prefix, termsJson, maximumCandidates, maximumMatches, includePrerelease, initialMatchCredit, eventSink);
+export async function runPackageQuery(operationId: string, prefix: string, termsJson: ReadonlyArray<BrowserPackageQueryTerm>, targetFramework: string | null, maximumCandidates: number, maximumMatches: number, includePrerelease: boolean, initialMatchCredit: number, eventSink: unknown): Promise<BrowserPackageQueryResult> {
+  const $result = await $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Package"]["PackageExports"]["RunPackageQuery.1685943924"](operationId, prefix, $serializeJsonInput(termsJson, "DotnetInspect.Web.Interop.Package.PackageExports.RunPackageQuery.1685943924", "termsJson"), targetFramework, maximumCandidates, maximumMatches, includePrerelease, initialMatchCredit, eventSink);
   const $parsed: unknown = JSON.parse($result);
   return $parsed as BrowserPackageQueryResult;
 }

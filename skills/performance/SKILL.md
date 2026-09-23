@@ -28,6 +28,16 @@ dnx dotnet-inspect -y -- type MyType --library MyLib.dll --all -S "Top Leverage"
 Ranking rows carry a copyable `Stable` selector, `Visibility`, and `Selector`.
 Add `--all` to include non-public members.
 
+For a whole-library structural report rather than ranked candidates, select
+the explicit `Library Metrics` section:
+
+```bash
+dnx dotnet-inspect -y -- library MyLib.dll -S "Library Metrics"
+```
+
+It reports the Research-owned compiled-IL population metrics without assigning
+an overall score or source-level meaning.
+
 ## Triage against rewrite shapes
 
 Library triage is split into kind-scoped sections under `@Performance`
@@ -153,7 +163,7 @@ source member, it can name the generated `MoveNext` body whose offset appears in
 otherwise `MethodToken`) + `IL`; `ModuleVersionId` distinguishes physical
 module builds when static inputs carry it, and `Token` is the operand of
 `Operation`. Use these fields for runtime/static joins or to carry one triage
-row into the matching `diff`/`timeline` confirmation workflow
+row into the matching pairwise `diff` or `diff --history` confirmation workflow
 without parsing `Evidence` text:
 
 ```bash
@@ -300,7 +310,7 @@ Correlate one method's native allocation census across caller-selected package
 cells:
 
 ```bash
-dnx dotnet-inspect -y -- timeline --package MyLib@1.0.0..2.0.0 \
+dnx dotnet-inspect -y -- diff --history --package MyLib@1.0.0..2.0.0 \
   -t MyType -m HotPath \
   --finding analysis.allocation --at first --at last
 ```

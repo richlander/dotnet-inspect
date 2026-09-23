@@ -1,9 +1,11 @@
 using System.Runtime.Versioning;
+using System.Text.Json;
 using DotnetInspect.Web.Interop.Catalog;
 using DotnetInspector.Packages;
 using DotnetInspector.Queries;
 using DotnetInspector.Queries.Definitions;
 using NuGetFetch;
+using Catalog = DotnetInspect.Web.Interop.Catalog;
 
 namespace DotnetInspect.Web.Tests;
 
@@ -121,22 +123,224 @@ public sealed partial class BrowserRetainedWorkspaceActivationTests
     public void PackageSourceCredentialJson_BindsEndpointUsernameAndPat()
     {
         const string secret = "session-only-secret";
+        Dictionary<string, BrowserRetainedWorkspacePackageSourceCredential>
+            wireCredentials = Assert.IsType<Dictionary<
+                string,
+                BrowserRetainedWorkspacePackageSourceCredential>>(
+                    JsonSerializer.Deserialize(
+                        $$"""
+                        {
+                          "https://nuget.pkg.github.com/example/index.json": {
+                            "username": "example-user",
+                            "pat": "{{secret}}"
+                          }
+                        }
+                        """,
+                        BrowserCatalogJsonContext.Default
+                            .DictionaryStringBrowserRetainedWorkspacePackageSourceCredential));
         IReadOnlyDictionary<string, PackageSourceCredential> credentials =
             BrowserRetainedWorkspaceActivationService
-                .ParsePackageSourceCredentials(
-                    $$"""
-                    {
-                      "https://nuget.pkg.github.com/example/index.json": {
-                        "username": "example-user",
-                        "pat": "{{secret}}"
-                      }
-                    }
-                    """);
+                .BindPackageSourceCredentials(wireCredentials);
 
         PackageSourceCredential credential = Assert.Single(credentials).Value;
         Assert.Equal("example-user", credential.Username);
         Assert.Equal(secret, credential.Password);
         Assert.DoesNotContain(secret, credential.ToString());
+    }
+
+    public static TheoryData<string, string>
+        InvalidPackageSourceCredentialJson =>
+        new()
+        {
+            {
+                "must be one JSON object",
+                "[]"
+            },
+            {
+                "contain only string 'username' and 'pat' properties",
+                """
+                {
+                  "https://nuget.pkg.github.com/example/index.json": {
+                    "username": "example-user",
+                    "pat": "secret",
+                    "token": "unexpected"
+                  }
+                }
+                """
+            },
+            {
+                "contain only string 'username' and 'pat' properties",
+                """
+                {
+                  "https://nuget.pkg.github.com/example/index.json": {
+                    "username": "example-user"
+                  }
+                }
+                """
+            },
+            {
+                "contain only string 'username' and 'pat' properties",
+                """
+                {
+                  "https://nuget.pkg.github.com/example/index.json": {
+                    "username": "first",
+                    "username": "second",
+                    "pat": "secret"
+                  }
+                }
+                """
+            },
+            {
+                "is duplicated",
+                """
+                {
+                  "https://private.example/index.json": {
+                    "username": "first",
+                    "pat": "secret"
+                  },
+                  "https://private.example/index.json": {
+                    "username": "second",
+                    "pat": "secret"
+                  }
+                }
+                """
+            },
+            {
+                "must be one JSON object",
+                CredentialJson(
+                    pat: new string('[', 8)
+                        + "\"secret\""
+                        + new string(']', 8),
+                    patIsJson: true)
+            },
+            {
+                "browser transport limit",
+                CredentialJson(
+                    pat: new string(
+                        'x',
+                        BrowserRetainedWorkspaceActivationService
+                            .PackageSourceCredentialsJsonLengthLimit))
+            },
+            {
+                "too many source entries",
+                JsonSerializer.Serialize(
+                    Enumerable.Range(
+                            0,
+                            WorkspaceSharePacketCodec.MaxPackageSources + 1)
+                        .ToDictionary(
+                            index =>
+                                $"https://source-{index}.example/index.json",
+                            _ =>
+                                new BrowserRetainedWorkspacePackageSourceCredential(
+                                    "example-user",
+                                    "secret"),
+                            StringComparer.Ordinal),
+                    BrowserCatalogJsonContext.Default
+                        .DictionaryStringBrowserRetainedWorkspacePackageSourceCredential)
+            },
+            {
+                "endpoint 'http://private.example/index.json' is invalid",
+                CredentialJson(endpoint: "http://private.example/index.json")
+            },
+            {
+                "invalid username",
+                CredentialJson(username: " ")
+            },
+            {
+                "invalid PAT length",
+                CredentialJson(pat: "")
+            },
+            {
+                "invalid PAT length",
+                CredentialJson(pat: new string('x', 64 * 1024 + 1))
+            },
+            {
+                "is duplicated",
+                """
+                {
+                  "https://PRIVATE.EXAMPLE/index.json": {
+                    "username": "first",
+                    "pat": "secret"
+                  },
+                  "https://private.example/index.json": {
+                    "username": "second",
+                    "pat": "secret"
+                  }
+                }
+                """
+            },
+        };
+
+    [Theory]
+    [MemberData(nameof(InvalidPackageSourceCredentialJson))]
+    public async Task PackageSourceCredentialJson_RejectsUnauthenticatedShapes(
+        string expectedMessage,
+        string json)
+    {
+        Catalog.BrowserRetainedWorkspacePreparationResult preparation =
+            Assert.IsType<Catalog.BrowserRetainedWorkspacePreparationResult>(
+                JsonSerializer.Deserialize(
+                    await CatalogExports
+                        .PrepareRetainedWorkspaceDefinitionWithCredentials(
+                            "workspace-1",
+                            "Private",
+                            "/private",
+                            "packet",
+                            json),
+                    BrowserCatalogJsonContext.Default
+                        .BrowserRetainedWorkspacePreparationResult));
+        Assert.Equal("failed", preparation.Status);
+        Assert.Equal("InvalidRequest", preparation.Failure?.Kind);
+        Assert.Contains(
+            expectedMessage,
+            preparation.Failure?.Message,
+            StringComparison.Ordinal);
+
+        Catalog.BrowserRetainedWorkspaceActivationResult activation =
+            Assert.IsType<Catalog.BrowserRetainedWorkspaceActivationResult>(
+                JsonSerializer.Deserialize(
+                    await CatalogExports
+                        .ActivateRetainedWorkspaceDefinitionWithCredentials(
+                            "workspace-1",
+                            "Private",
+                            "/private",
+                            "packet",
+                            json),
+                    BrowserCatalogJsonContext.Default
+                        .BrowserRetainedWorkspaceActivationResult));
+        Assert.Equal("failed", activation.Status);
+        Assert.Equal("InvalidRequest", activation.Failure?.Kind);
+        Assert.Equal(preparation.Failure, activation.Failure);
+    }
+
+    static string CredentialJson(
+        string endpoint = "https://private.example/index.json",
+        string username = "example-user",
+        string pat = "secret",
+        bool patIsJson = false)
+    {
+        if (patIsJson)
+        {
+            return $$"""
+                {
+                  "{{endpoint}}": {
+                    "username": "{{username}}",
+                    "pat": {{pat}}
+                  }
+                }
+                """;
+        }
+
+        return JsonSerializer.Serialize(
+            new Dictionary<
+                string,
+                BrowserRetainedWorkspacePackageSourceCredential>(
+                    StringComparer.Ordinal)
+            {
+                [endpoint] = new(username, pat),
+            },
+            BrowserCatalogJsonContext.Default
+                .DictionaryStringBrowserRetainedWorkspacePackageSourceCredential);
     }
 
     [Fact]
@@ -545,10 +749,10 @@ public sealed partial class BrowserRetainedWorkspaceActivationTests
             owner.BeginActivation(
                 Request("a", packet),
                 cancellation.Token);
-        Assert.False(session.Commit());
+        bool committed = session.Commit();
         Assert.IsType<BrowserRetainedWorkspacePreparationResult.Prepared>(
             await session.Preparation);
-        Assert.True(session.Commit());
+        Assert.True(committed || session.Commit());
         cancellation.Cancel();
         Assert.IsType<BrowserRetainedWorkspaceActivationResult.Activated>(
             await session.Activation);

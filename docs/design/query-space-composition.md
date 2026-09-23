@@ -46,6 +46,14 @@ execution request, retains the selected terminal, and executes Rows or Count
 without section-name or presentation-schema inference. A mismatched terminal
 cannot be invoked through the composed executor. The independent consumer
 exercises that path over application-owned types.
+
+The source-aware one-association path additionally carries one opaque
+owner-issued disposition/completion-evidence pair plus independent
+Rows-usability and Count-sufficiency decisions for every participating set.
+Rows execute residual shaping only for usable sets and preserve source-only
+companions. Count returns every source outcome and enters no residual cohort
+when any set is insufficient; complete empty input remains exact zero.
+
 Because the current structural descriptor cannot distinguish unqualified Top
 from explicit-ranking-only Top, a scope advertises Top only when its executable
 vocabulary supplies a default Top ranking. A future richer capability may
@@ -53,8 +61,8 @@ represent the explicit-ranking-only form separately.
 
 Transitional Query Operation route order and stage capabilities are not
 operation-scope capabilities. Multiple row-intent associations, source
-evidence, projection stages, continuation binding, the full structural-plan
-meaning record, and the remaining gates in
+delegation and accepted upstream Count, projection stages, continuation
+binding, the full structural-plan meaning record, and the remaining gates in
 [Required gates](#required-gates) remain **unverified** until their named
 implementation slices land and run in Release.
 
@@ -523,6 +531,14 @@ be satisfied for a participating set:
 - after `Head(N)`, by witnessing N applicable ordered rows or exhausting the
   population with fewer than N.
 
+For an already exhausted local source, terminal resolution may snapshot only
+its exact cardinality when the resolved binding proves that every remaining
+stage can execute without row values. That cardinality is captured at
+resolution time, preserving the same isolation from later caller mutation as a
+Rows snapshot. A plan that requires row values retains the complete row
+snapshot and uses the reference interpreter; it cannot consume a
+cardinality-only declaration.
+
 Count publication is all-or-failure across the participating sets. A failed,
 `Absent`, or Count-insufficient source outcome prevents every Count entry,
 preserves every participating set's disposition and completion evidence in one
@@ -793,19 +809,21 @@ Implementation proceeds as focused owner adoptions:
 6. Extend Source Delegation through a separate focused continuation-receipt
    design and implementation.
 7. Rework #7944 onto the shared `depends starts-with VALUE` operator model.
-8. Use #7945 as the focused Library Query operation adoption, then restack the
-   Browser work from #7872 onto its settled query space.
-9. Add the References row space and Assembly Reference Prefixes summary over
+8. Use #7945 as the focused Library Query operation adoption, then use #8201
+   to add its query-space binding and restack the Browser work from #7872.
+9. Use #8200 to adopt Platform type catalog lookup as one QuerySpace operation,
+   then use #8202 to route the Browser/Wasm Platform consumer through it.
+10. Add the References row space and Assembly Reference Prefixes summary over
    owner-issued assembly-reference evidence.
-10. Rebase Inspect Web result demand on the shared execution/continuation
+11. Rebase Inspect Web result demand on the shared execution/continuation
    boundary without moving scroll or virtualization policy into the substrate;
    migrate `-Q` to the descriptor while leaving future `explain` adoption with
    its owning effort.
-11. Add one small non-CLI .NET consumer, including descriptor enumeration and
-    owner-issued value-vocabulary and result-contract links, before enabling
-    supported package publication.
-12. Evaluate source generation after the first three explicit query-space
-    adopters establish repeated boilerplate.
+12. Add one small non-CLI .NET consumer, including descriptor enumeration and
+   owner-issued value-vocabulary and result-contract links, before enabling
+   supported package publication.
+13. Evaluate source generation after the first three explicit query-space
+   adopters establish repeated boilerplate.
 
 Each step names one adopting owner and retains every other owner's contract.
 
@@ -821,7 +839,7 @@ slices:
 | `QuerySpaceRequestLowersToExplicitRowAssociations` | One operation intent and zero or more ordered row-intent associations lower deterministically; the operation intent rejects order and semantic stages, row intents reject execution bounds, every participating set is assigned exactly once, one shared association targets only compatible sets, heterogeneous or independently shaped sets remain separate, ambiguous unqualified order or selection fails before execution, and selection executes exactly once after row predicates. |
 | `EffectiveQuerySpaceIdentitiesRemainScoped` | Handwritten and generated registration reject duplicate canonical term keys across the query space; each portable intent resolves inside one operation or row query vocabulary; same-named owner-local families and predicates remain isolated across scopes, while distinct keys within one scope preserve their shared combining, exclusive, required-family, and duplicate-binding behavior. |
 | `OperationAndRowFacetStagesRemainDistinct` | An operation facet may authorize work; a row facet cannot, and identical display spelling never changes the bound stage. |
-| `QuerySpacePreservesSectionRowBranch` | The composed plan reuses `SelectedRowSetListIsNonEmpty`, `MembershipProjectionPrecedesRowQuery`, `CellProjectionFollowsSelectionAndPreservesCardinality`, `RowsPreserveIndependentSourceOutcomes`, `IncompleteRowsRemainVisibleWithoutBecomingCount`, `CrossCohortRowsAreAtomicOnExecutionFailure`, `CountObservesPrecedingSemanticStages`, `CountPreservesDeclaredRowSetScope`, `CountFailurePrecedenceIsDeterministic`, and `CountSourceFailureBindingPreservesOutcomes`; terminal resolution requires a participating row set, Rows preserves independent source evidence but publishes no partial execution result, and Count preserves its owner-issued success and all-or-failure branches. |
+| `QuerySpacePreservesSectionRowBranch` | The composed plan reuses `SelectedRowSetListIsNonEmpty`, `MembershipProjectionPrecedesRowQuery`, `CellProjectionFollowsSelectionAndPreservesCardinality`, `RowsPreserveIndependentSourceOutcomes`, `IncompleteRowsRemainVisibleWithoutBecomingCount`, `CrossCohortRowsAreAtomicOnExecutionFailure`, `CountObservesPrecedingSemanticStages`, `CountPreservesDeclaredRowSetScope`, `CountFailurePrecedenceIsDeterministic`, and `CountSourceFailureBindingPreservesOutcomes`; terminal resolution requires a participating row set, Rows preserves independent source evidence but publishes no partial execution result, and Count preserves its owner-issued success and all-or-failure branches. `CountCapturesCardinalityWhileRowsCaptureValues` verifies the terminal-specific snapshot boundary and caller-mutation isolation for the Graph Libraries adopter. |
 | `ResolvedRowPlanRetainsStructuralMeaning` | Every executable predicate and order remains associated with its facet, operator, normalized operand, row set, and semantic stage. |
 | `ClosedOperatorAlgebraRejectsExecutableContent` | Portable resolution rejects unknown operators and carries no delegate, expression tree, regex program, or host callback. |
 | `SemanticHeadAndCandidateTakeRemainDistinct` | Candidate work and final-row cardinality coincide only through an explicitly proven optimization. |

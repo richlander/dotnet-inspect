@@ -4,7 +4,8 @@
 
 Focused Research design for [#7987](https://github.com/richlander/dotnet-inspect/issues/7987).
 Its Analysis coverage prerequisite is tracked by
-[#7989](https://github.com/richlander/dotnet-inspect/issues/7989).
+[#7989](https://github.com/richlander/dotnet-inspect/issues/7989) and is
+consumed as an issued receipt by this report.
 
 The **Library Metrics** report is the single normative owner for a
 descriptive structural population report over one exact compiled library.
@@ -77,10 +78,12 @@ qualification.
 
 ## Report document
 
-The available result is one resource-free
-`LibraryStructuralReportDocument`, carried through an
-`InspectionEnvelope<LibraryStructuralReportDocument>` at its completed
-host-neutral boundary. It contains:
+The Research result is a typed `LibraryStructuralReportResult`. Its
+`Available` outcome carries one resource-free
+`LibraryStructuralReportDocument`; its `Unavailable` outcome preserves the
+Analysis receipt, coverage receipt, reason, and message. A later completed
+host-neutral boundary carries the document through an
+`InspectionEnvelope<LibraryStructuralReportDocument>`. The document contains:
 
 - the exact Analysis receipt and a report methodology version;
 - a `LibraryStructuralPopulationReceipt` that preserves the Analysis coverage
@@ -114,7 +117,10 @@ narrow denominator cannot masquerade as library-wide completeness.
 A physical evidence identity may occur once in the profile collection. A
 duplicate is an invalid owner input and cannot issue a document. The Report
 implementation must fail visibly rather than coalescing identities or counting
-an arbitrary copy. Analysis owns validation of its separate coverage receipt.
+an arbitrary copy. A profile collection whose physical evidence identities do
+not match the Analysis-issued `ProfiledEvidenceBodies` receipt is the same
+class of invalid owner input. Analysis owns validation of its separate
+coverage receipt.
 
 ### Measures
 
@@ -186,11 +192,12 @@ the report preserves them and derives report-local distributions. No host
 rebuilds coverage, completeness, or a statistic from display text.
 
 The resource-free Research document is the structured rendering input. The CLI
-adoption owns a `Markout` lowering that renders population receipt,
-distributions, maximum evidence, and diagnostics as separate sections.
-Markout's existing Markdown, table, TSV, JSONL, and projected-JSON lowerings
-remain format mechanics; numeric measures and coverage states stay typed until
-that boundary.
+adoption owns the exact-name-only `Library Metrics` section and its `Markout`
+lowering. That section renders population receipt rows, distribution rows,
+maximum evidence, async disposition, and diagnostic rows without changing their
+Research-owned meaning. Markout's existing Markdown, table, TSV, JSONL, and
+projected-JSON lowerings remain format mechanics; numeric measures and
+coverage states stay typed until that boundary.
 
 Browser/Wasm deliberately bypasses Markout for its interactive Library-detail
 view. Its later host design serializes the same typed document through the
@@ -232,14 +239,22 @@ does not collapse them into one source-owned profile.
 The implementation belongs in the Release
 `ILInspector.Research.Tests` executable. It must demonstrate:
 
-| Gate | Required observation |
-| --- | --- |
-| `LibraryStructuralReport_RejectsScopedProfilePopulation` | A profile result from scoped method evidence is unavailable and retains its receipt. |
-| `LibraryStructuralReport_PreservesIssuedBodyCoverage` | The Analysis-issued coverage receipt survives unchanged beside report-local complete, incomplete, physical, and logical-owner counts. |
-| `LibraryStructuralReport_ExcludesIncompleteProfilesFromStatistics` | Incomplete evidence remains visible in the receipt but contributes to no numeric denominator or percentile. |
-| `LibraryStructuralReport_PreservesMultipleEvidenceBodiesPerLogicalOwner` | One logical async source with multiple physical bodies retains both bodies and the correct denominators. |
-| `LibraryStructuralReport_UsesDeterministicNearestRankAndMaximumTies` | The fixed metric fixture proves percentile positions, exact maxima, deterministic ordering, and the additional-tie count. |
-| `LibraryStructuralReport_RejectsDuplicateOrUnaccountedEvidenceIdentity` | Invalid owner input cannot issue a plausible report. |
+- `LibraryStructuralReport_RejectsScopedProfilePopulation`: A profile result
+  from scoped method evidence is unavailable and retains its receipt.
+- `LibraryStructuralReport_PreservesIssuedBodyCoverage`: The Analysis-issued
+  coverage receipt survives unchanged beside report-local complete, incomplete,
+  physical, and logical-owner counts.
+- `LibraryStructuralReport_ExcludesIncompleteProfilesFromStatistics`:
+  Incomplete evidence remains visible in the receipt but contributes to no
+  numeric denominator or percentile.
+- `LibraryStructuralReport_PreservesMultipleEvidenceBodiesPerLogicalOwner`:
+  One logical async source with multiple physical bodies retains both bodies
+  and the correct denominators.
+- `LibraryStructuralReport_UsesDeterministicNearestRankAndMaximumTies`: The
+  fixed metric fixture proves percentile positions, exact maxima, deterministic
+  ordering, and the additional-tie count.
+- `LibraryStructuralReport_RejectsDuplicateOrUnaccountedEvidenceIdentity`:
+  Invalid owner input cannot issue a plausible report.
 
 The probe command is reproducible design evidence, not a CI gate. Fixture
 tests establish the deterministic contract; an eventual pinned package corpus
@@ -254,15 +269,19 @@ hosts:
 1. Analysis publishes the profile-coverage receipt tracked by #7989.
 2. Research publishes the document and typed unavailable outcome.
 3. A Research-backed L1 query carries that completed document without rendering
-   it.
-4. The CLI adopts an explicit `Library Metrics` section. It is
-   exact-name-only and outside default `-v:m` output; the existing
-   `Member Metrics` inventory remains the detail surface.
+   it. Implemented as `LibraryMetricsQuery`.
+4. The CLI adopts an explicit `Library Metrics` section. It is exact-name-only
+   and outside default `-v:m` output; the existing `Member Metrics` inventory
+   remains the detail surface.
 5. Browser/Wasm adopts the same document through its settled Library detail
-   path after shared Navigation and terminal-result prerequisites land. It
-   presents the library summary at the Library boundary and preserves
-   Type/Member drill-down rather than adding method rows to Compare.
+   path. Its managed Analysis facade runs the host-neutral
+   `AssemblyContextLibraryMetricsQuery` over the exact implementation
+   participant, and its explicit `Metrics` lens presents the library summary
+   while preserving Type/Member drill-down rather than adding method rows to
+   Compare.
 
-The CLI path has four steps and the Browser/Wasm path has four steps; the
-first three are shared. This document establishes no command spelling,
-renderer, Browser component, or Compare UX.
+The CLI path has four steps and the Browser/Wasm path has five steps; the first
+three are shared. The completed CLI adoption establishes the `Library Metrics`
+section spelling and Markout row-group renderer. Browser deliberately lowers
+the same typed document into its interactive summary instead of introducing a
+second Research model or using Markout for the Library-detail view.

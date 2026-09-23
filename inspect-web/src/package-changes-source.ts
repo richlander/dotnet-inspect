@@ -2,6 +2,7 @@ import type {
   BrowserPackageChangesInspection,
   BrowserPackageChangesPackageSetCatalog,
   BrowserPackageChangesPackageSetDescriptor,
+  BrowserPackageChangesRequest,
   BrowserPackageChangesResult,
 } from "./facades/inspect-web-package.d.ts";
 import {
@@ -17,7 +18,7 @@ export interface BrowserPackageChangesEngine {
   cancel(operationId: string, reason: string): void;
   run(
     operationId: string,
-    requestJson: string,
+    request: BrowserPackageChangesRequest,
     eventSink: unknown,
   ): Promise<BrowserPackageChangesResult>;
 }
@@ -151,7 +152,7 @@ export function createBrowserPackageChangesDataSource(
       try {
         const result = await engine.run(
           operationId,
-          JSON.stringify(request),
+          request,
           eventSink);
         flush();
         if (observerFailure !== null) {

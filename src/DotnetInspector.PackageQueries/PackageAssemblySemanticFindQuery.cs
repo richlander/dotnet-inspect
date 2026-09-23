@@ -57,7 +57,8 @@ public sealed class PackageAssemblySemanticFindRequest
         PackageAcquisitionPopulation population,
         PackageHouseTargetContext target,
         PackageAssemblyPatternRequest pattern,
-        PackageAssemblySemanticFindBudget? budget = null)
+        PackageAssemblySemanticFindBudget? budget = null,
+        int? maximumMatches = null)
     {
         ArgumentNullException.ThrowIfNull(population);
         ArgumentNullException.ThrowIfNull(target);
@@ -69,11 +70,14 @@ public sealed class PackageAssemblySemanticFindRequest
                 nameof(target));
         }
         ArgumentNullException.ThrowIfNull(pattern);
+        if (maximumMatches is <= 0)
+            throw new ArgumentOutOfRangeException(nameof(maximumMatches));
 
         Population = population;
         Target = target;
         Pattern = pattern;
         Budget = budget ?? PackageAssemblySemanticFindBudget.Default;
+        MaximumMatches = maximumMatches;
     }
 
     public PackageAcquisitionPopulation Population { get; }
@@ -83,6 +87,8 @@ public sealed class PackageAssemblySemanticFindRequest
     public PackageAssemblyPatternRequest Pattern { get; }
 
     public PackageAssemblySemanticFindBudget Budget { get; }
+
+    public int? MaximumMatches { get; }
 }
 
 /// <summary>
@@ -261,7 +267,9 @@ public sealed class PackageAssemblySemanticFindCompletion
     internal PackageAssemblySemanticFindCompletion(
         PackageAcquisitionPopulation population,
         int candidateCount,
-        int failureCount)
+        int failureCount,
+        int matchedCandidateCount,
+        int? maximumMatches)
     {
         Population = population.Completion;
         IsRequestedPopulationComplete =
@@ -269,8 +277,13 @@ public sealed class PackageAssemblySemanticFindCompletion
         AllCandidatesCompleted =
             candidateCount == population.Candidates.Length;
         HasFailures = failureCount != 0;
+        MatchLimit = maximumMatches;
+        MatchLimitReached =
+            maximumMatches is int limit
+            && matchedCandidateCount >= limit;
         IsSemanticEvaluationComplete =
-            AllCandidatesCompleted && !HasFailures;
+            (AllCandidatesCompleted || MatchLimitReached)
+            && !HasFailures;
     }
 
     public PackageAcquisitionPopulationCompletionKind Population { get; }
@@ -280,6 +293,10 @@ public sealed class PackageAssemblySemanticFindCompletion
     public bool AllCandidatesCompleted { get; }
 
     public bool HasFailures { get; }
+
+    public int? MatchLimit { get; }
+
+    public bool MatchLimitReached { get; }
 
     public bool IsSemanticEvaluationComplete { get; }
 }
@@ -293,7 +310,8 @@ public sealed class PackageAssemblySemanticFindDocument
     internal PackageAssemblySemanticFindDocument(
         PackageAcquisitionPopulation population,
         ImmutableArray<PackageAssemblySemanticFindCandidateOutcome> outcomes,
-        ImmutableArray<PackageAssemblySemanticFindResult> results)
+        ImmutableArray<PackageAssemblySemanticFindResult> results,
+        int? maximumMatches)
     {
         ArgumentNullException.ThrowIfNull(population);
         if (outcomes.IsDefault)
@@ -304,10 +322,10 @@ public sealed class PackageAssemblySemanticFindDocument
             throw new ArgumentException(
                 "Find results must be initialized.",
                 nameof(results));
-        if (outcomes.Length != population.Candidates.Length)
+        if (outcomes.Length > population.Candidates.Length)
         {
             throw new ArgumentException(
-                "Every admitted candidate requires one terminal outcome.",
+                "Candidate outcomes cannot exceed the admitted population.",
                 nameof(outcomes));
         }
 
@@ -351,7 +369,9 @@ public sealed class PackageAssemblySemanticFindDocument
         Completion = new(
             population,
             CandidateCount,
-            FailureCount);
+            FailureCount,
+            MatchedCandidateCount,
+            maximumMatches);
     }
 
     public PackageAcquisitionPopulation Population { get; }
@@ -437,6 +457,7 @@ internal static class PackageAssemblySemanticFindQuery
             var results =
                 ImmutableArray.CreateBuilder<
                     PackageAssemblySemanticFindResult>();
+            int matchedCandidates = 0;
 
             try
             {
@@ -481,6 +502,7 @@ internal static class PackageAssemblySemanticFindQuery
                         is PackageAssemblySemanticFindCandidateOutcome.Matched
                         matched)
                     {
+                        matchedCandidates++;
                         PackageAssemblySelectedAssetContext selectedAsset =
                             matched.Evaluation.SelectedAsset
                             ?? throw new InvalidOperationException(
@@ -516,6 +538,11 @@ internal static class PackageAssemblySemanticFindQuery
                         }
                     }
                     ObserveCancellation();
+                    if (request.MaximumMatches is int maximumMatches
+                        && matchedCandidates >= maximumMatches)
+                    {
+                        break;
+                    }
                 }
                 ObserveCancellation();
             }
@@ -533,8 +560,11 @@ internal static class PackageAssemblySemanticFindQuery
 
             return new(
                 request.Population,
-                outcomes.MoveToImmutable(),
-                results.ToImmutable());
+                outcomes.Count == outcomes.Capacity
+                    ? outcomes.MoveToImmutable()
+                    : outcomes.ToImmutable(),
+                results.ToImmutable(),
+                request.MaximumMatches);
 
             void ObserveCancellation()
             {

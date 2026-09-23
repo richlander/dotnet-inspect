@@ -25,14 +25,16 @@ public sealed record BrowserCallGraphDiagnostics(
     int IncompleteEdges,
     int BindingIdentityConflicts,
     bool HasUnexploredTraversalBoundary,
-    bool HasAnalysisFailureBoundary)
+    bool HasAnalysisFailureBoundary,
+    int UnavailableDependencyRoutes)
 {
     public bool IsIncomplete =>
         IncompleteNodes > 0
         || IncompleteEdges > 0
         || BindingIdentityConflicts > 0
         || HasUnexploredTraversalBoundary
-        || HasAnalysisFailureBoundary;
+        || HasAnalysisFailureBoundary
+        || UnavailableDependencyRoutes > 0;
 }
 
 public sealed record BrowserCallGraphTarget(
@@ -52,7 +54,10 @@ public sealed record BrowserCallGraphTarget(
     string SelectorKey,
     string Kind,
     string? PlatformPack,
-    string? SurfaceAssemblyId);
+    string? SurfaceAssemblyId,
+    string? PackageId = null,
+    string? PackageVersion = null,
+    string? PackageFramework = null);
 
 public sealed record BrowserCallGraphNode(
     string Label,
@@ -70,12 +75,6 @@ public sealed record BrowserCallGraphScope(
     int CallerAssemblies,
     string CalleeScope);
 
-public sealed record BrowserWorkspacePackage(
-    string Package,
-    string Version,
-    string Framework);
-
 [JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase)]
 [JsonSerializable(typeof(BrowserCallGraph))]
-[JsonSerializable(typeof(BrowserWorkspacePackage[]))]
 internal sealed partial class BrowserCallGraphJsonContext : JsonSerializerContext;

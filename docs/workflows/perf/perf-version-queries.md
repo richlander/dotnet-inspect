@@ -44,7 +44,7 @@ Prime an exact package payload and the version index:
 Warm the payload for the actual latest version without pinning its value:
 
 ```bash
-latest=$("$INSPECT" package System.CommandLine@latest --version | head -1)
+latest=$("$INSPECT" package System.CommandLine --versions -n 1 | head -1)
 "$INSPECT" package "System.CommandLine@$latest" -v:q > /dev/null
 "$INSPECT" type System.Text.Json -v:q > /dev/null
 "$INSPECT" library System.Text.Json -v:q > /dev/null
@@ -60,13 +60,14 @@ How fast is a cached version lookup?
 
 ```bash
 for i in 1 2 3 4; do
-  "$INSPECT" package System.CommandLine@2.0.3 --version > /dev/null
+  "$INSPECT" package System.CommandLine --version 2.0.3 -v:q > /dev/null
 done
-"$INSPECT" package System.CommandLine@2.0.3 --version
+"$INSPECT" package System.CommandLine --version 2.0.3 \
+  -S "Package Info" -v:q
 ```
 
 ```expect
-2.0.3
+exact-version
 ```
 
 ```perf
@@ -74,7 +75,7 @@ max_ms: 250
 ```
 
 ```query
-head -1
+grep -Fq '| Version | 2.0.3 |' && echo exact-version
 ```
 
 ## 2. Latest version from NuGet
@@ -84,7 +85,7 @@ head -1
 > The 5s bound is an external-service smoke target, not a local latency target.
 
 ```bash
-"$INSPECT" package System.CommandLine@latest --version
+"$INSPECT" package System.CommandLine@latest --versions
 ```
 
 ```perf
@@ -122,13 +123,13 @@ awk '/^[0-9]+\.[0-9]+\.[0-9]+([-.].*)?$/ { count++ } END { if (count > 1) print 
 multiple-versions-ok
 ```
 
-## 4. @latest resolution
+## 4. `@latest` Package resolution
 
 > Network operation: resolve `@latest` from NuGet, then use the already-warm
 > payload. The 5s bound is an external-service smoke target.
 
 ```bash
-"$INSPECT" package System.CommandLine@latest --version
+"$INSPECT" package System.CommandLine@latest -S "Package Info" -v:q
 ```
 
 ```perf
@@ -136,11 +137,11 @@ max_ms: 5000
 ```
 
 ```query
-awk '/^[0-9]+\.[0-9]+\.[0-9]+([-.].*)?$/ { print "version-format-ok"; exit }'
+grep -Fq '| Source | NuGet |' && echo source-nuget
 ```
 
 ```expect
-version-format-ok
+source-nuget
 ```
 
 ## 5. Exact package metadata (quiet)
@@ -249,10 +250,10 @@ grep -o 'Source: [A-Za-z]*'
 
 ```bash
 for i in 1 2 3 4; do
-  "$INSPECT" package System.CommandLine@99.99.99 --version \
+  "$INSPECT" package System.CommandLine --version 99.99.99 \
     > /dev/null 2>&1 || true
 done
-"$INSPECT" package System.CommandLine@99.99.99 --version 2>&1
+"$INSPECT" package System.CommandLine --version 99.99.99 2>&1
 ```
 
 ```expect-error

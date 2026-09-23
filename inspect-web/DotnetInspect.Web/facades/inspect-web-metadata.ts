@@ -10,6 +10,12 @@ export type BrowserCompileLibraryStatus = "Selected" | "NoCompileAssets" | "NoMa
 
 export type BrowserLibraryApiDiffCancellationKind = "Requested" | "AlreadyRequested" | "NotActive" | number;
 
+export type BrowserLibraryApiDiffChangeCategory = "Signature" | "Attribute" | number;
+
+export type BrowserLibraryApiDiffChangeClassification = "Additive" | "Breaking" | "PotentiallyBreaking" | number;
+
+export type BrowserLibraryApiDiffChangeKind = "TypeAdded" | "TypeRemoved" | "TypeKindChanged" | "SealedAdded" | "SealedRemoved" | "AbstractAdded" | "AbstractRemoved" | "BaseTypeChanged" | "InterfaceAdded" | "InterfaceRemoved" | "TypeParameterCountChanged" | "TypeParameterVarianceChanged" | "TypeParameterConstraintTightened" | "TypeParameterConstraintLoosened" | "MemberAdded" | "MemberRemoved" | "MemberSignatureChanged" | "VirtualRemoved" | "AbstractMemberAdded" | "EnumValueChanged" | "TypeAttributeAdded" | "TypeAttributeRemoved" | "MemberAttributeAdded" | "MemberAttributeRemoved" | number;
+
 export type BrowserLibraryApiDiffEndpointIssueKind = "Truncated" | "Rejected" | "Failed" | "InspectionFailures" | "DegradedSignatures" | "UnexpectedAssemblyPopulation" | number;
 
 export type BrowserLibraryApiDiffFailureKind = "Expected" | "Unexpected" | number;
@@ -139,6 +145,15 @@ export interface BrowserLibraryApiDiffCancellation {
   readonly reason: string | null;
 }
 
+export interface BrowserLibraryApiDiffChange {
+  readonly kind: BrowserLibraryApiDiffChangeKind;
+  readonly classification: BrowserLibraryApiDiffChangeClassification;
+  readonly category: BrowserLibraryApiDiffChangeCategory;
+  readonly message: string;
+  readonly oldValue: string | null;
+  readonly newValue: string | null;
+}
+
 export interface BrowserLibraryApiDiffCompileAsset {
   readonly id: string;
   readonly path: string;
@@ -176,12 +191,19 @@ export interface BrowserLibraryApiDiffInspectionFailure {
   readonly dependencyAssembly: BrowserLibraryApiDiffAssemblyIdentity | null;
 }
 
+export interface BrowserLibraryApiDiffMatch {
+  readonly tier: string;
+  readonly confidence: number;
+}
+
 export interface BrowserLibraryApiDiffMember {
   readonly documentIdentifier: string;
   readonly pairKind: BrowserLibraryApiDiffMemberPairKind;
   readonly role: BrowserLibraryApiDiffMemberRelationRole;
   readonly before: BrowserLibraryApiDiffMemberIdentity | null;
   readonly after: BrowserLibraryApiDiffMemberIdentity | null;
+  readonly changes: ReadonlyArray<BrowserLibraryApiDiffChange>;
+  readonly match: BrowserLibraryApiDiffMatch | null;
 }
 
 export interface BrowserLibraryApiDiffMemberIdentity {
@@ -259,6 +281,7 @@ export interface BrowserLibraryApiDiffType {
   readonly before: BrowserLibraryApiDiffTypeIdentity | null;
   readonly after: BrowserLibraryApiDiffTypeIdentity | null;
   readonly members: ReadonlyArray<BrowserLibraryApiDiffMember>;
+  readonly changes: ReadonlyArray<BrowserLibraryApiDiffChange>;
 }
 
 export interface BrowserLibraryApiDiffTypeIdentity {
@@ -961,6 +984,20 @@ export function runEntryPoint(
   return $requireRuntime().runMain(mainAssemblyName, args);
 }
 
+function $serializeJsonInput(
+  value: unknown,
+  operation: string,
+  parameter: string,
+): string {
+  const json = JSON.stringify(value);
+  if (json === undefined) {
+    throw new TypeError(
+      `${operation} parameter '${parameter}' could not be serialized as JSON.`,
+    );
+  }
+  return json;
+}
+
 export function cancelLibraryApiDiff(operationId: string, reason: string): BrowserLibraryApiDiffCancellation {
   const $result = $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Metadata"]["MetadataExports"]["CancelLibraryApiDiff.271973316"](operationId, reason);
   const $parsed: unknown = JSON.parse($result);
@@ -973,8 +1010,8 @@ export async function queryGraphMemberSurface(packageId: string, version: string
   return $parsed as BrowserGraphMemberSurface;
 }
 
-export async function queryLibraryApiDiff(operationId: string, requestJson: string): Promise<BrowserLibraryApiDiffResult> {
-  const $result = await $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Metadata"]["MetadataExports"]["QueryLibraryApiDiff.451505237"](operationId, requestJson);
+export async function queryLibraryApiDiff(operationId: string, requestJson: BrowserLibraryApiDiffRequest): Promise<BrowserLibraryApiDiffResult> {
+  const $result = await $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Metadata"]["MetadataExports"]["QueryLibraryApiDiff.451505237"](operationId, $serializeJsonInput(requestJson, "DotnetInspect.Web.Interop.Metadata.MetadataExports.QueryLibraryApiDiff.451505237", "requestJson"));
   const $parsed: unknown = JSON.parse($result);
   return $parsed as BrowserLibraryApiDiffResult;
 }

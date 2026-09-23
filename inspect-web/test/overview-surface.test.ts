@@ -58,7 +58,7 @@ test("Package Overview composes Package info without a Library inventory", () =>
   assert.match(html, /package-overview-resources[\s\S]*Documents[\s\S]*Comparison/);
   assert.doesNotMatch(
     html,
-    /library-list|data-lib-scope|<h2>Libraries<\/h2>|data-library-query-form|library-query-status/);
+    /library-list|data-lib-scope|<h2>Libraries<\/h2>/);
 });
 
 test("Overview retains zero totals and supplied document navigation", () => {

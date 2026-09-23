@@ -33,6 +33,8 @@ internal static class NativePasses
     public static StackSlotLiveRangePass StackSlotLiveRange => new();
     [Native(NativeCategory.EmitArtifact, "a spilled single-use struct rvalue temp (V = a.Prop; ldloca V; call get_Member) folded back into its member receiver a.Prop.Member so the guard block it sat in becomes a pure condition structuring can nest")]
     public static StructReceiverInliningPass StructReceiverInlining => new();
+    [Native(NativeCategory.EmitArtifact, "single-use address receiver temp in an array-element ToString store folded before declaration planning")]
+    public static StoreElementReceiverInliningPass StoreElementReceiverInlining => new();
     [Native(NativeCategory.EmitArtifact, "in-place struct .ctor (ldloca; call S::.ctor) back to s = new S(...)")]
     public static StructConstructorPass StructConstructor => new();
     [Native(NativeCategory.EmitArtifact, "spilled-this base()/this() call back to a chain initializer")]
@@ -133,6 +135,8 @@ internal static class NativePasses
     public static SlotMaterializationPass SlotMaterialization => new();
     [Native(NativeCategory.EmitArtifact, "reference-coalesce assignment testimony and no-IL object argument conversions decided before emission")]
     public static ReferenceCoalesceBindingPass ReferenceCoalesceBinding => new();
+    [Native(NativeCategory.EmitArtifact, "reference-conditional arm assignment targets decided before emission without replacing storage admission")]
+    public static ReferenceConditionalBindingPass ReferenceConditionalBinding => new();
     [Native(NativeCategory.IlErasure, "bool marshalled as int (cgt against 0) normalized")]
     public static BoolToIntNormalizationPass BoolToIntNormalization => new();
     [Native(NativeCategory.IlErasure, "a bool operand of integer arithmetic (erased to i4 on the IL stack) materialized back to (cond ? 1 : 0) so the mix is not CS0019 int + bool")]

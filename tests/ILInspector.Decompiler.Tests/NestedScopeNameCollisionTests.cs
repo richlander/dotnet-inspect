@@ -8,11 +8,16 @@ namespace ILInspector.Decompiler.Tests;
 public class NestedScopeNameCollisionTests
 {
     static readonly TypeRef Int32 = TypeRef.CoreLib("System", "Int32");
+    static readonly TypeRef Object = TypeRef.CoreLib("System", "Object");
+    static readonly TypeRef Boolean = TypeRef.CoreLib("System", "Boolean");
     static readonly TypeRef Void = TypeRef.CoreLib("System", "Void");
     static readonly TypeRef Action = TypeRef.CoreLib("System", "Action");
     static readonly TypeRef FuncIntInt = TypeRef.GenericInstance(
         TypeRef.CoreLib("System", "Func`2"),
         [TypeRef.CoreLib("System", "Int32"), TypeRef.CoreLib("System", "Int32")]);
+    static readonly TypeRef FuncObjectBool = TypeRef.GenericInstance(
+        TypeRef.CoreLib("System", "Func`2"),
+        [Object, Boolean]);
     static readonly TypeRef Owner = TypeRef.Definition("Synthetic", "", "Holder");
 
     [Theory]
@@ -102,6 +107,64 @@ public class NestedScopeNameCollisionTests
         AssertCompiles(body);
     }
 
+    [Fact]
+    public void ExpressionBodiedLambda_UsesItsOwnLocalBindingPlan()
+    {
+        var lambda = new Lambda(
+            FuncObjectBool,
+            [new Parameter("value", Object)],
+            [Int32],
+            ["number"],
+            usesUpdatedMemorySafetyRules: false,
+            skipLocalsInit: false,
+            Body(new Return(new IsPattern(
+                new LoadArgument(0, "value", Object),
+                Int32,
+                localIndex: 0))));
+        var function = new IrFunction(
+            "M",
+            Owner,
+            new MethodSignature(
+                Void,
+                [],
+                HasThis: false,
+                GenericParameterCount: 0),
+            [Int32, FuncObjectBool],
+            Body(new StoreLocal(1, FuncObjectBool, lambda)));
+        function.MarkLocalEliminated(0);
+
+        string body = CSharpPrinter.Print(function).Output!
+            .ReplaceLineEndings("\n")
+            .Trim();
+
+        Assert.Contains("value => value is int number", body);
+        AssertCompiles(body);
+    }
+
+    [Fact]
+    public void ExpressionBodiedLambdaFallbackLocal_AvoidsOuterFallbackName()
+    {
+        var lambda = new Lambda(
+            FuncObjectBool,
+            [new Parameter("value", Object)],
+            [Int32],
+            [],
+            usesUpdatedMemorySafetyRules: false,
+            skipLocalsInit: false,
+            Body(new Return(new IsPattern(
+                new LoadArgument(0, "value", Object),
+                Int32,
+                localIndex: 0))));
+
+        string body = RenderBody(
+            [Int32, FuncObjectBool],
+            new StoreLocal(0, Int32, new Constant(1, Int32)),
+            new StoreLocal(1, FuncObjectBool, lambda));
+
+        Assert.Contains("value => value is int V_0_1", body);
+        AssertCompiles(body);
+    }
+
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
@@ -156,6 +219,54 @@ public class NestedScopeNameCollisionTests
         Assert.Contains("int S_0_1 = 1;", body);
         Assert.Contains("void S_0()", body);
         Assert.DoesNotContain("int S_0 = 1;", body);
+        AssertCompiles(body);
+    }
+
+    [Fact]
+    public void NestedCatchVariableDoesNotSuppressOuterDeclaration()
+    {
+        var exception = TypeRef.CoreLib("System", "Exception");
+        var catchBody = Body(
+            new ExpressionStatement(new LoadLocal(0, exception)));
+        var catchClause = new CatchClause(exception, catchBody)
+        {
+            VariableIndex = 0,
+        };
+        var localFunction = new LocalFunctionStatement(
+            "Inner",
+            Void,
+            [],
+            isStatic: true,
+            [exception],
+            ["error"],
+            usesUpdatedMemorySafetyRules: false,
+            skipLocalsInit: false,
+            Body(new TryCatch(
+                Body(new Return(null)),
+                [catchClause])));
+        var function = new IrFunction(
+            "M",
+            Owner,
+            new MethodSignature(
+                Void,
+                [],
+                HasThis: false,
+                GenericParameterCount: 0),
+            [Int32],
+            Body(
+                new ExpressionStatement(new LoadLocal(0, Int32)),
+                localFunction));
+
+        var outerPlan = LocalDeclarationPlan.Create(function, 1);
+        var nestedPlan = LocalDeclarationPlan.Create(localFunction, 1);
+        string body = CSharpPrinter.Print(function).Output!
+            .ReplaceLineEndings("\n")
+            .Trim();
+
+        Assert.Empty(outerPlan.CatchLocals);
+        Assert.Contains(0, nestedPlan.CatchLocals);
+        Assert.Contains("int V_0 = default;", body);
+        Assert.Contains("catch (Exception error)", body);
         AssertCompiles(body);
     }
 

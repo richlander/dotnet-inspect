@@ -66,16 +66,20 @@ public abstract class PackageDependencyWorkspaceDestination
         internal Package(
             PackageDependencyWorkspaceRouteSubject subject,
             WorkspacePackageOccurrenceDescriptor occurrence,
+            PackageRootBinding binding,
             PackageDependencyWorkspacePackageRouteSource source,
             PackageDependencyEdgeRealizationEvidence? realization)
             : base(subject)
         {
             Occurrence = occurrence;
+            Binding = binding;
             Source = source;
             Realization = realization;
         }
 
         public WorkspacePackageOccurrenceDescriptor Occurrence { get; }
+
+        internal PackageRootBinding Binding { get; }
 
         public PackageDependencyWorkspacePackageRouteSource Source { get; }
 
@@ -232,6 +236,10 @@ public static class PackageDependencyWorkspaceRouteQuery
 
         var plans = ImmutableArray.CreateBuilder<DestinationPlan>();
         var contributions = ImmutableArray.CreateBuilder<PackageRootBinding>();
+        var contributedBindings =
+            new Dictionary<
+                PackageAcquisitionCandidateCorrespondence,
+                PackageRootBinding>();
         for (int rootIndex = 0;
             rootIndex < request.Traversal.Roots.Length;
             rootIndex++)
@@ -275,11 +283,23 @@ public static class PackageDependencyWorkspaceRouteQuery
                             is PackageHouseRootContributionOutcome.Contributed
                                 contributed)
                         {
-                            contributions.Add(
-                                contributed.Contribution.Binding);
+                            PackageRootBinding binding;
+                            if (!contributedBindings.TryGetValue(
+                                    realization.Subject.Candidate
+                                        .Correspondence,
+                                    out binding!))
+                            {
+                                binding =
+                                    contributed.Contribution.Binding;
+                                contributedBindings.Add(
+                                    realization.Subject.Candidate
+                                        .Correspondence,
+                                    binding);
+                                contributions.Add(binding);
+                            }
                             plans.Add(new DestinationPlan.Package(
                                 subject,
-                                contributed.Contribution.Binding,
+                                binding,
                                 realization));
                             break;
                         }
@@ -538,16 +558,17 @@ public static class PackageDependencyWorkspaceRouteQuery
                 WorkspaceScopeSnapshot scope)
             {
                 WorkspacePackageOccurrenceDescriptor? occurrence =
-                    scope.FindPackageOccurrence(Binding);
+                    scope.FindExactPackageOccurrence(Binding);
                 if (occurrence is null)
                 {
                     throw new InvalidOperationException(
-                        "The committed Workspace Scope omitted one admitted dependency Package.");
+                        "The committed Workspace Scope omitted one exact admitted dependency Package.");
                 }
 
                 return new PackageDependencyWorkspaceDestination.Package(
                     Subject,
                     occurrence,
+                    Binding,
                     PackageDependencyWorkspacePackageRouteSource
                         .ResolvedCandidate,
                     Realization);
@@ -568,16 +589,17 @@ public static class PackageDependencyWorkspaceRouteQuery
                 WorkspaceScopeSnapshot scope)
             {
                 WorkspacePackageOccurrenceDescriptor? occurrence =
-                    scope.FindPackageOccurrence(Binding);
+                    scope.FindExactPackageOccurrence(Binding);
                 if (occurrence is null)
                 {
                     throw new InvalidOperationException(
-                        "The committed Workspace Scope omitted one supplied dependency root.");
+                        "The committed Workspace Scope omitted one exact supplied dependency root.");
                 }
 
                 return new PackageDependencyWorkspaceDestination.Package(
                     Subject,
                     occurrence,
+                    Binding,
                     PackageDependencyWorkspacePackageRouteSource.SuppliedRoot,
                     realization: null);
             }

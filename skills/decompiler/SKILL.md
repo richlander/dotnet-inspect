@@ -19,6 +19,12 @@ dnx dotnet-inspect -y -- <command>
 
 ## Decompiled source and IL
 
+A selected Type or exact Member supports explicit authored-first `-S Source`.
+It prefers verified authored source and uses the shared fallback policy when
+that source is unavailable, retaining provider and fallback context. Use
+`PDB Source` when only the Portable-PDB-selected provider is wanted, or
+`Decompiled Source` when only locally reconstructed C# is wanted.
+
 A selected overload and bare `-S` both render its bounded `Signature` overview.
 Select `Decompiled Source` explicitly when implementation evidence is the
 question. Use `-S "Decompiled Source,Annotated Source,IL" --offline` for the
@@ -30,7 +36,8 @@ full zero-network evidence set:
 - `IL` — raw IL, the highest-fidelity view.
 
 Use `Annotated Source` or `IL` when exact opcodes, offsets, branches, tokens, or
-calls matter. Use `--bare` for a whole-type listing.
+calls matter. One selected Type or Member source payload writes native source by
+default; add `--markdown` when document framing is useful.
 `-S @Source` is broader and may fetch network `PDB Source` content when
 SourceLink is available; the fetch follows host-permitted redirects and returns
 the body only when it matches the PDB checksum, without treating the final
@@ -39,10 +46,13 @@ destination as source provenance.
 changed.
 
 ```bash
+dnx dotnet-inspect -y -- type JsonSerializer --package System.Text.Json -S Source
+dnx dotnet-inspect -y -- member JsonSerializer --package System.Text.Json \
+  Serialize:1 -S Source
 dnx dotnet-inspect -y -- member JsonSerializer --platform System.Text.Json \
   Serialize:1 -S "Decompiled Source,Annotated Source,IL" --offline
 dnx dotnet-inspect -y -- member JsonSerializer --platform System.Text.Json Serialize:1 -S "Annotated Source"
-dnx dotnet-inspect -y -- type JsonSerializer --platform System.Text.Json -S "Decompiled Source" --bare
+dnx dotnet-inspect -y -- type JsonSerializer --platform System.Text.Json -S "Decompiled Source"
 dnx dotnet-inspect -y -- member Command --project ./src/App Add:1 -S "Decompiled Source,Annotated Source,IL"
 ```
 

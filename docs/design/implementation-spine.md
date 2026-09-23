@@ -667,11 +667,11 @@ normative algorithm.
 | --- | --- | --- |
 | Library body execution | `LibraryBodyAnalysisService` publishes detached focused results | Reuse directly |
 | Local caller/callee populations | `LibraryCallGraphAnalysisResult` owns trees and direct calls | Reuse directly |
-| Cross-Library catalog correspondence | `CatalogCallGraphScope` accepts focused call-graph participants | Add a graph-wide detached call census without returning to `LibraryBodyIndex` |
+| Cross-Library catalog correspondence | `CatalogCallGraphScope` accepts focused call-graph participants and publishes one generation-bound exact member/call census with resolved and unresolved physical occurrences, owner-issued ordering keys, and graph diagnostics | Reuse directly; portable occurrence detachment remains adoption step 4 |
 | Method leverage | `LibraryLeverageAnalysisResult` is focused and detached | Use as an optional annotation or comparison input, not the spine definition |
 | Implementation profiles | Focused Analysis result and Research comparison exist | Reuse for characteristics |
-| Pairwise direct-use acquisition | `AssemblyPairCallUseQuery` still opens compatibility indexes | Migrate participant execution to focused call-graph results |
-| Root paths | `LibraryBodyRootPathAnalysis` and `AssemblyPairClusterRootPathQuery` still consume a compatibility index | Move the path input to `LibraryCallGraphAnalysisResult` |
+| Group-wide direct-call acquisition | `AssemblyContextCallCensusQuery` executes focused participant Analysis over one admitted assembly group and carries typed participant failures beside the Analysis-owned census | Reuse directly as the Library-population prerequisite |
+| Root paths | `LibraryBodyRootPathAnalysis` and `AssemblyPairClusterRootPathQuery` consume `LibraryCallGraphAnalysisResult` | Reuse the focused bounded path result |
 | Argument and receiver populations | Direct-call argument evidence exists, while result sinks, field stores/loads, and return flows remain index-only | Not required by methodology version 1; a separately approved dispatch design decides whether and how to consume a focused result |
 | Member Research composition | `AssemblyContextMemberProjectionQuery` still creates `CompatibilityIndex` and `ResearchAssemblyContext` | Consume exact focused results and receipt-associated Research inputs |
 | Body-signal comparison | `BodySignalComparisonInput` and parts of `ResearchDiff` remain index-shaped | Migrate only when the reporting or comparison consumer requires those facts |

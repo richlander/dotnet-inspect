@@ -21,7 +21,7 @@ namespace DotnetInspector.Queries.Tests;
 
 public sealed partial class AssemblyContextSourceQueryTests
 {
-    sealed class TestAssembly
+    internal sealed class TestAssembly
     {
         readonly ApiSurface _surface;
 
@@ -225,7 +225,7 @@ public sealed partial class AssemblyContextSourceQueryTests
         }
     }
 
-    sealed class QueryHost : IDisposable
+    internal sealed class QueryHost : IDisposable
     {
         readonly HttpClient _symbolClient;
         readonly HttpClient _sourceClient;
@@ -340,6 +340,17 @@ public sealed partial class AssemblyContextSourceQueryTests
                 allowLocalSourceReads: allowLocalSourceReads,
                 allowAdjacentPdbReads: allowAdjacentPdbReads,
                 maxDecompilerBodyProjections: maxDecompilerBodyProjections);
+
+        internal static QueryHost WithFailedPdbProvider()
+            => new(
+                new SymbolPackageHandler(
+                    new byte[65]),
+                new SourceHandler(content: null),
+                symbolAcquisitionLimits:
+                    new SymbolAcquisitionLimits(
+                        maxSymbolPackageBytes: 64,
+                        maxPortablePdbBytes: 64,
+                        maxSymbolPackageEntries: 8));
 
         internal static QueryHost WithPairPdb(
             TestAssembly before,

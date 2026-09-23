@@ -141,7 +141,7 @@ public partial class PackageCommand
 
         if (packageLibraryMode
             && options.Discover is not null
-            && options.Schema)
+            && (options.Schema || options.DiscoverDetails))
         {
             if (GetLibraryInspectionModeError(
                     options,
@@ -487,6 +487,20 @@ public partial class PackageCommand
         if (GetLibraryInspectionModeError(options) is { } libraryModeError)
         {
             CommandError.Write(libraryModeError);
+            return 1;
+        }
+        if (options.PackageLibrary is not null
+            && LibrarySectionCardinality.ValidateExactTerminals(
+                options.Select,
+                options.SelectDefault,
+                options.IncludeSections,
+                fixedOverview: false,
+                options.Verbosity,
+                options.Count,
+                options.Rows is not null,
+                options.Discover is not null) is { } cardinalityError)
+        {
+            CommandError.Write(cardinalityError);
             return 1;
         }
 
@@ -1058,7 +1072,11 @@ public partial class PackageCommand
 
         var client = context.HttpClient;
 
-        var target = PackageExtractor.ParsePackageTarget(packageArgs[0], explicitVersion);
+        PackageReferenceTarget target =
+            options.DeclaredPackageTarget
+            ?? PackageExtractor.ParsePackageTarget(
+                packageArgs[0],
+                explicitVersion);
         string packageName = target.PackageName;
         string version = target.Version;
         if (target.IsLocalFile)
@@ -1071,9 +1089,7 @@ public partial class PackageCommand
         }
         else
         {
-            if (explicitVersion != null)
-                logger.Log($"Using --version: {version}");
-            else if (version.Length > 0)
+            if (version.Length > 0)
                 logger.Log($"Using specified version: {version}");
 
             if (!PackageExtractor.IsValidPackageReferenceVersion(version))
@@ -1115,7 +1131,18 @@ public partial class PackageCommand
             if (preResolved is null)
             {
                 PackageExtractionOutcome outcome;
-                if (!target.IsLocalFile && !DotnetInspector.Networking.HttpClientFactory.IsOffline)
+                if (options.DeclaredPackageTarget
+                    is { IsLocalFile: true })
+                {
+                    outcome = await PackageExtractor.ExtractPackageAsync(
+                        client,
+                        target,
+                        logger.Log,
+                        sourceOptions: options.SourceOptions,
+                        includePrerelease: options.IncludePrerelease);
+                }
+                else if (!target.IsLocalFile
+                    && !DotnetInspector.Networking.HttpClientFactory.IsOffline)
                 {
                     outcome = PackageExtractor.TryNormalizePackageVersion(version, out string pinnedVersion)
                         ? await PackageExtractor.ExtractPinnedPackageAsync(

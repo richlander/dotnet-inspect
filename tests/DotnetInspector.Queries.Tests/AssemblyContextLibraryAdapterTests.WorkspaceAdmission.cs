@@ -40,6 +40,12 @@ public sealed partial class AssemblyContextLibraryAdapterTests
                     [completed.Owner]));
         WorkspaceLibraryOccurrence occurrence =
             Assert.Single(accepted.Receipt.Occurrences);
+        WorkspaceLibraryAdmissionRelation relation =
+            Assert.Single(accepted.Receipt.LibraryRelations);
+        Assert.Same(workspace.Identity, relation.Workspace);
+        Assert.Same(workspace.Identity, relation.Identity.Workspace);
+        Assert.Same(accepted.Receipt.Identity, relation.Admission);
+        Assert.Same(occurrence, relation.Library);
         var issued = Assert.IsType<
             WorkspaceLibraryOperationIssueOutcome.Issued>(
                 workspace.IssueLibraryOperation(occurrence));
@@ -69,6 +75,139 @@ public sealed partial class AssemblyContextLibraryAdapterTests
         Assert.Equal(
             LibraryContentOwnerState.Released,
             completed.Owner.State);
+    }
+
+    [Fact]
+    public async Task
+        WorkspaceAdmission_BatchPreservesOccurrenceRelationOrder()
+    {
+        AssemblySource source =
+            AssemblySource.FromPathlessRuntimeImage();
+        await using var workspace = new InspectionWorkspace();
+        using AssemblyContextGroup group =
+            workspace.CreateAssemblyContextGroup(
+                [
+                    new AssemblyContextParticipant(
+                        source.Assembly,
+                        new TestBindingPolicy()),
+                ]);
+        AssemblyContextParticipant participant =
+            Assert.Single(group.Participants);
+        var completed = Assert.IsType<
+            AssemblyContextLibraryAdapterResult.Completed>(
+                await AssemblyContextLibraryAdapter.MaterializeAsync(
+                    group,
+                    participant,
+                    AssemblyContextLibraryRole.ApiOnly,
+                    Limits(source.Bytes.Length),
+                    cancellationToken:
+                        TestContext.Current.CancellationToken));
+        ArtifactContentReference content =
+            completed.Owner.Reference.ApiAssembly.ArtifactReference;
+        var secondIdentity =
+            new ManagedMetadataIdentity.Assembly(
+                new AssemblyReferenceIdentity(
+                    "Workspace.Admission.Second",
+                    new Version(1, 0, 0, 0),
+                    Culture: null,
+                    PublicKeyToken: null));
+        LibraryReference secondLibrary =
+            LibraryReference.CreateDirect(
+                new LibraryAssemblyCorrespondence(
+                    content,
+                    secondIdentity,
+                    content,
+                    secondIdentity));
+        ArtifactQueryAuthorization authorization =
+            completed.Artifacts.CreateQueryAuthorization();
+        using ArtifactQueryLease queryLease =
+            completed.Artifacts.IssueLease(authorization);
+        var secondOwner =
+            new LibraryContentOwner(
+                secondLibrary,
+                [
+                    completed.Artifacts.IssueContentLease(
+                        content,
+                        queryLease),
+                ]);
+
+        WorkspaceLibraryAdmissionReceipt receipt =
+            Assert.IsType<
+                    WorkspaceLibraryAdmissionOutcome.Accepted>(
+                        await workspace.AdmitLibraryBatchAsync(
+                            CurrentRegistrations(workspace),
+                            completed.Artifacts,
+                            [completed.Owner, secondOwner]))
+                .Receipt;
+
+        Assert.Equal(2, receipt.Occurrences.Length);
+        Assert.Equal(2, receipt.LibraryRelations.Length);
+        Assert.Same(
+            completed.Owner.Reference,
+            receipt.LibraryRelations[0].Library.Library);
+        Assert.Same(
+            secondOwner.Reference,
+            receipt.LibraryRelations[1].Library.Library);
+        Assert.Same(
+            receipt.Occurrences[0],
+            receipt.LibraryRelations[0].Library);
+        Assert.Same(
+            receipt.Occurrences[1],
+            receipt.LibraryRelations[1].Library);
+        Assert.NotSame(
+            receipt.LibraryRelations[0].Identity,
+            receipt.LibraryRelations[1].Identity);
+    }
+
+    [Fact]
+    public async Task
+        WorkspaceAdmission_RepeatedLibraryAdmissionIssuesDistinctRelations()
+    {
+        AssemblySource source =
+            AssemblySource.FromPathlessRuntimeImage();
+        await using var workspace = new InspectionWorkspace();
+        using AssemblyContextGroup group =
+            workspace.CreateAssemblyContextGroup(
+                [
+                    new AssemblyContextParticipant(
+                        source.Assembly,
+                        new TestBindingPolicy()),
+                ]);
+        AssemblyContextParticipant participant =
+            Assert.Single(group.Participants);
+
+        async Task<WorkspaceLibraryAdmissionReceipt> AdmitAsync()
+        {
+            var completed = Assert.IsType<
+                AssemblyContextLibraryAdapterResult.Completed>(
+                    await AssemblyContextLibraryAdapter.MaterializeAsync(
+                        group,
+                        participant,
+                        AssemblyContextLibraryRole.ApiOnly,
+                        Limits(source.Bytes.Length),
+                        cancellationToken:
+                            TestContext.Current.CancellationToken));
+            return Assert.IsType<
+                    WorkspaceLibraryAdmissionOutcome.Accepted>(
+                        await workspace.AdmitLibraryBatchAsync(
+                            CurrentRegistrations(workspace),
+                            completed.Artifacts,
+                            [completed.Owner]))
+                .Receipt;
+        }
+
+        WorkspaceLibraryAdmissionReceipt first = await AdmitAsync();
+        WorkspaceLibraryAdmissionReceipt second = await AdmitAsync();
+        WorkspaceLibraryAdmissionRelation firstRelation =
+            Assert.Single(first.LibraryRelations);
+        WorkspaceLibraryAdmissionRelation secondRelation =
+            Assert.Single(second.LibraryRelations);
+
+        Assert.Same(workspace.Identity, firstRelation.Workspace);
+        Assert.Same(workspace.Identity, secondRelation.Workspace);
+        Assert.NotSame(first.Identity, second.Identity);
+        Assert.NotSame(firstRelation.Identity, secondRelation.Identity);
+        Assert.NotSame(firstRelation.Library, secondRelation.Library);
     }
 
     [Fact]
@@ -324,6 +463,8 @@ public sealed partial class AssemblyContextLibraryAdapterTests
                     [completed.Owner]));
         WorkspaceLibraryOccurrence occurrence =
             Assert.Single(accepted.Receipt.Occurrences);
+        WorkspaceLibraryAdmissionRelation relation =
+            Assert.Single(accepted.Receipt.LibraryRelations);
         Assert.IsType<
             WorkspaceRegistrationOperationResult.Committed>(
                 workspace.ReplaceRegistrations(
@@ -346,6 +487,10 @@ public sealed partial class AssemblyContextLibraryAdapterTests
                 static (view, expected, _) =>
                     view.Content.SequenceEqual(expected),
                 TestContext.Current.CancellationToken));
+        Assert.Same(
+            relation,
+            Assert.Single(accepted.Receipt.LibraryRelations));
+        Assert.Same(occurrence, relation.Library);
     }
 
     [Fact]

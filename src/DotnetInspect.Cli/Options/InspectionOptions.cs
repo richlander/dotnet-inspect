@@ -18,9 +18,11 @@ public record InspectionOptions : IProjectionOptions
     public string[] PackageArgs { get; init; } = [];
 
     /// <summary>
-    /// Explicit version override (from --version option).
+    /// Exact Package version selected by the explicit Package command.
     /// </summary>
     public string? ExplicitVersion { get; init; }
+
+    internal PackageReferenceTarget? DeclaredPackageTarget { get; init; }
 
     /// <summary>
     /// Canonical Workspace packet supplying the selected Package context.
@@ -69,15 +71,21 @@ public record InspectionOptions : IProjectionOptions
     public bool PreferRenderedUrls { get; init; }
 
     /// <summary>
-    /// Library inside the package to inspect. Null means package inspection; empty string means select
-    /// the primary library when unambiguous; a non-empty value selects a specific DLL.
+    /// Library inside the package to inspect. Null means package inspection;
+    /// an empty string means namesake narrowing; a non-empty value selects a
+    /// specific DLL.
     /// </summary>
     public string? PackageLibrary { get; init; }
 
     /// <summary>
-    /// Inspect all compatible libraries in the package instead of selecting one.
+    /// Execute the selected Package compile-Library aggregate.
     /// </summary>
     public bool AllLibraries { get; init; }
+
+    /// <summary>
+    /// Narrow Package Library inspection by managed assembly identity.
+    /// </summary>
+    public bool NamesakeLibrary { get; init; }
 
     internal WorkspaceLibrarySelection? WorkspaceLibrarySelection { get; init; }
 
@@ -157,7 +165,7 @@ public record InspectionOptions : IProjectionOptions
     public bool ListVersions { get; init; }
 
     /// <summary>
-    /// Select one version with bare --version, rather than limit a raw listing.
+    /// Select one resolved version from an ordinary listing.
     /// </summary>
     public bool SingleVersionQuery { get; init; }
 

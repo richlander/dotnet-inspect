@@ -286,6 +286,87 @@ public sealed partial class PackageHouseExecutionTests
     }
 
     [Fact]
+    public async Task MajorBoundPopulationProjectsOriginalAddressesWithoutPayloadAcquisition()
+    {
+        await using HouseEnvironment environment = HouseEnvironment.Create(
+            new SourceBehavior(
+            [
+                "8.0.0",
+                "8.1.0",
+                "9.0.0",
+                "10.0.0",
+                "11.0.0-rc.1",
+            ]));
+        PackageHouseVersionPopulationRequest request =
+            PopulationRequest(
+                "8.0.0..11.0.0",
+                includePrerelease: true,
+                policy: PackageVersionPopulationPolicy.MajorBounds);
+
+        var available = Assert.IsType<
+            PackageHouseVersionPopulationResult.Available>(
+                await environment.CreateHouse()
+                    .SettleVersionPopulationAsync(
+                        request,
+                        environment.Root.IssueOperationLease(
+                            TestContext.Current.CancellationToken,
+                            request.Operation.RequestTimeout,
+                            request.Operation.OperationTimeout)));
+
+        PackageVersionMajorRepresentativeProjection projection =
+            available.ProjectMajorRepresentatives(
+                PackageVersionMajorRepresentativePolicy.Latest);
+        Assert.Equal(
+            ["8.1.0", "9.0.0", "10.0.0", "11.0.0-rc.1"],
+            projection.Addresses.Select(address => address.NormalizedVersion));
+        Assert.All(
+            projection.Addresses,
+            address => Assert.Contains(
+                available.Vector.Addresses,
+                candidate => ReferenceEquals(candidate, address)));
+        Assert.All(
+            environment.Clients,
+            client =>
+            {
+                Assert.Equal(1, client.VersionRequests);
+                Assert.Equal(0, client.PayloadRequests);
+            });
+        await environment.AssertRootSettledAsync();
+    }
+
+    [Fact]
+    public async Task MajorBoundPopulationReportsMissingBoundaryMajorAsNoMatch()
+    {
+        await using HouseEnvironment environment = HouseEnvironment.Create(
+            new SourceBehavior(["8.0.0", "9.0.0", "10.0.0"]));
+        PackageHouseVersionPopulationRequest request =
+            PopulationRequest(
+                "8.0.0..11.0.0",
+                includePrerelease: true,
+                policy: PackageVersionPopulationPolicy.MajorBounds);
+
+        var noMatch = Assert.IsType<
+            PackageHouseVersionPopulationResult.NoMatch>(
+                await environment.CreateHouse()
+                    .SettleVersionPopulationAsync(
+                        request,
+                        environment.Root.IssueOperationLease(
+                            TestContext.Current.CancellationToken,
+                            request.Operation.RequestTimeout,
+                            request.Operation.OperationTimeout)));
+
+        Assert.Contains("both boundary majors", noMatch.Reason.ToString());
+        Assert.All(
+            environment.Clients,
+            client =>
+            {
+                Assert.Equal(1, client.VersionRequests);
+                Assert.Equal(0, client.PayloadRequests);
+            });
+        await environment.AssertRootSettledAsync();
+    }
+
+    [Fact]
     public async Task VersionPopulationCanIncludeUnlistedDiscovery()
     {
         await using HouseEnvironment environment = HouseEnvironment.Create(
@@ -2847,7 +2928,9 @@ public sealed partial class PackageHouseExecutionTests
         string endpoints,
         bool includePrerelease = false,
         TimeSpan? operationTimeout = null,
-        bool includeUnlisted = false)
+        bool includeUnlisted = false,
+        PackageVersionPopulationPolicy policy =
+            PackageVersionPopulationPolicy.ExactEndpoints)
     {
         Assert.True(
             PackageVersionRange.TryParse(
@@ -2860,8 +2943,10 @@ public sealed partial class PackageHouseExecutionTests
             PackageHouseOperation.Create(
                 PackageHouseOperationProfile.Settle,
                 operationTimeout: operationTimeout),
-            includePrerelease,
-            includeUnlisted: includeUnlisted);
+            policy: policy,
+            includePrerelease: includePrerelease,
+            includeUnlisted: includeUnlisted,
+            association: null);
     }
 
     private static PackageHouseVersionListingRequest ListingRequest(
@@ -3204,6 +3289,8 @@ public sealed partial class PackageHouseExecutionTests
 
         public int PayloadRequests { get; private set; }
 
+        public List<string> PayloadPackageIds { get; } = [];
+
         public Task<PackageSourceOperationResult<PackageVersionResult>>
             GetVersionsAsync(
             string packageId,
@@ -3260,6 +3347,7 @@ public sealed partial class PackageHouseExecutionTests
             NuGetOperationContext? operationContext = null)
         {
             PayloadRequests++;
+            PayloadPackageIds.Add(packageId);
             PackageSourceCoordinate coordinate =
                 PackageSourceCoordinate.Create(packageId, version);
             if (behavior.PayloadNotFound

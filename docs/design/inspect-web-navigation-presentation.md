@@ -15,8 +15,6 @@ browser history; that model belongs to
 
 This owner defines:
 
-- the application-scope strip that composes the presentation-owned Query and
-  Activity route entries with the product-issued Workspace subject entry;
 - the Package, Library, Type, and Member subject hierarchy, the Browser-local
   Platform target surface, the inspected-target rendering, and the adaptive
   subject and inspector navigation groups;
@@ -45,7 +43,8 @@ It does not own:
   (owned by
   [Inspect Web Navigation Consumer](inspect-web-navigation-consumer.md));
 - shell actions, Spotlight, Open, Settings entry, or modal/routed
-  classification (owned by
+  classification, including the brand-triggered Home, Query, Workspace, and
+  Activity product navigation (owned by
   [Inspect Web Shell Interaction](inspect-web-shell-interaction.md));
 - page-level placement or responsive composition (owned by
   [Inspect Web Surface Composition](inspect-web-surface-composition.md));
@@ -78,25 +77,17 @@ This document consumes, without redefining:
   [Inspect Web Navigation Consumer](inspect-web-navigation-consumer.md)
   validates before this document's rendered focus targets receive focus.
 
-## Application scopes, subject hierarchy, and target selection
-
-The application-scope strip composes three entries with different semantic
-owners:
-
-- **Query** is a presentation-owned route entry for package discovery and
-  bounded streamed evaluation without an active inspection coordinate.
-- **Activity** is a presentation-owned route entry for the product-issued
-  package activity report without an active inspection coordinate.
-- **Workspace** is the product-issued Workspace subject presented as the entry
-  to retained-coordinate management.
+## Subject hierarchy and target selection
 
 Inspection Subject Navigation continues to own Workspace, Package, Library,
-Type, and Member identity. Inspect Web presents Workspace separately because it
-manages retained Packages. Inspect Web also composes the approved Browser-local
-Platform target surface in the same visual position without issuing a shared
-Navigation subject. The visible paths therefore narrow from Package or
-Platform through Library, Type, and Member, while only the Package path belongs
-to the shared Navigation grammar:
+Type, and Member identity. Shell Interaction presents Workspace as a
+product-navigation destination because it manages retained Packages; this
+owner renders the resulting Workspace surface after that transition commits.
+Inspect Web also composes the approved Browser-local Platform target surface
+in the same visual position without issuing a shared Navigation subject. The
+visible paths therefore narrow from Package or Platform through Library, Type,
+and Member, while only the Package path belongs to the shared Navigation
+grammar:
 
 - **Package** means one selected package-adapter coordinate.
 - **Platform** means the Browser-local library catalog for one exact selected
@@ -116,44 +107,15 @@ Navigation, and inventory behavior together through its own focused contract.
 Surface Composition places this owner's persistent navigation
 presentations before the primary content:
 
-1. Row one renders the application-scope strip followed by the Slideable
-   Subject Strip between the product control and the Shell Interaction-owned
-   history, Search, and Application menu controls.
+1. Row one renders the Slideable Subject Strip between the Shell
+   Interaction-owned product-navigation control and its history, Search, and
+   Application menu controls.
 2. Row two renders the icon-backed ordered active subject path before any
    page-level contextual working-surface actions.
 
 The two rows together follow the CLI's product-to-subject-to-inspector grammar
 but are not command text. Inventories, hierarchy menus, and other target
 navigation stay inside the working surface.
-
-### Application scope strip
-
-The leading application-scope strip renders `Query`, `Activity`, and
-`Workspace` as one presentation composition. Query and Activity remain
-semantically separate from Inspection Subject Navigation; Workspace retains
-its product-issued subject identity and action even though it is rendered
-outside the inspection-subject strip. Query is selected only on `/query`,
-Activity only on `/activity`, and Workspace only while retained-coordinate
-management is visible. None remains selected merely because an inspection
-coordinate was reached through it.
-The strip is navigation rather than a tablist: the current Query, Activity, or
-Workspace surface uses `aria-current="page"`, and ordinary Package, Library,
-Type, or Member inspection leaves all three entries without `aria-current`.
-
-Selecting Query enters the routed query surface through Navigation Consumer's
-history and focus contract. A return without a new seed restores the current
-session's request and outcome rather than resetting them. Selecting Activity
-enters the routed Package Activity surface and preserves its session-local
-request and outcome. Selecting Workspace submits the product-issued Workspace
-action and shows retained-coordinate management. The Query and Activity
-entries issue no product subject identity, and the strip issues no Package,
-Library, Type, Member, or lens identity.
-
-The application-scope strip uses a quieter treatment than the subject and
-inspector strips. Surface Composition gives it lower responsive priority: it
-yields before either inspection strip reduces required identity. A selected or
-focused control is not removed without the focus transfer and alternate access
-owned by the composing surface.
 
 ### Slideable Subject Strip
 
@@ -430,10 +392,10 @@ behavior; Surface Composition owns their row-one placement and pressure order.
 
 ### Workspace surface
 
-Workspace is the product-issued subject presented as the persistent
-application-scope entry point for workspace packet inspection and
-retained-Workspace and coordinate management. Its primary inventory is the
-host's published Workspace collection. Each row is one live Workspace identity,
+Workspace is the product-issued subject reached through the shell-owned
+product-navigation entry for workspace packet inspection and retained-
+Workspace and coordinate management. Its primary inventory is the host's
+published Workspace collection. Each row is one live Workspace identity,
 marks the active row, and exposes **Activate** for an inactive row and the
 shared trailing close control for deletion. Workspaces with equal portable
 contents remain distinct rows. This collection lives inside the Workspace
@@ -499,7 +461,7 @@ loaded coordinates while open without displaying the Workspace inventory,
 saved definitions, or coordinate controls. A direct visit or refresh starts
 without a loaded Workspace. After an Open demo
 or coordinate action returns to a canonical Workspace URL, Share and refresh
-preserve the Workspace subject, its application-scope presentation, and its
+preserve the Workspace subject, its product-navigation presentation, and its
 retained coordinates. The home-demo packet inventory is session-scoped until
 scenario identity is part of the share format; after refresh, the generic
 current Workspace remains viewable without reconstructing a demo identity from
@@ -509,9 +471,9 @@ Workspace renders stable focus targets for its heading and every coordinate
 action; Demos renders its own heading and every demo action. Post-result focus and failure
 handling are owned by
 [Inspect Web Navigation Consumer](inspect-web-navigation-consumer.md#workspace-result-focus).
-The Workspace content panel is labelled by the active Workspace
-application-scope control. Demos has its own page heading, not a selected
-Workspace subject.
+The Workspace content panel has its own level-one heading; the shell marks the
+Workspace product-navigation destination current while that surface is active.
+Demos has its own page heading, not a selected Workspace subject.
 
 Workspace also exposes the same Search and Open actions as the shell. It does
 not infer source identity, package equivalence, local-file correspondence, or
@@ -611,9 +573,9 @@ Each row's product-issued activation state governs any later commit. Opening
 the choices changes no snapshot, URL, or history and does not invent a default
 Member.
 
-The Workspace application scope, row-one subject/inspector region, row-two
-inspected target, and content region all render the same returned navigation
-snapshot.
+The shell-owned Workspace product destination, row-one subject/inspector
+region, row-two inspected target, and content region all reflect the same
+returned navigation snapshot.
 The UI does not infer initial, fallback, or reconciliation policy from
 descriptor order, assembly order, current filters, package kind, or display
 text.
@@ -718,19 +680,9 @@ The active library subject remains visible while the library list is filtered
 or collapsed. A lens heading distinguishes aggregate results from a
 single-library result.
 
-The package-backed Library navigation may compose the Direct reference filter
-owned by [Library Query](library-query.md#browserwasm-adoption). A settled
-result narrows only the rendered exact-Library candidates by owner-issued asset
-ID; `All libraries` and the active exact Library remain visible even when they
-are not matches. Duplicate-name qualification is computed from the complete
-admitted inventory before filtering. The query submits those same exact asset
-IDs as its population roster, so a Library omitted by surface extraction or
-transport bounds cannot create an invisible positive match; the surface's
-typed inspection notice continues to disclose the omission. Loading or
-top-level failure leaves the candidate list unfiltered, while zero matches is
-represented by a settled empty match set. The filter does not alter the
-committed Library subject, aggregate composition, breadcrumbs, scopes,
-history, or restoration.
+Library navigation carries no query control of its own. It renders the complete
+admitted inventory, and narrowing a population belongs to the Query experience
+rather than to a navigation pane.
 
 Package and Type navigation render producer-owned Type and Member inventory
 rows with the activation descriptors returned in the snapshot. They submit the
@@ -959,7 +911,7 @@ add and pass these named Inspect Web tests:
   controls, compact representations, windows, edge indicators, and
   wheel-sliding state.
 - `adaptive-navigation.spec.ts` covers complete production inventories,
-  deterministic form selection, application-scope yielding, equal constrained
+  deterministic form selection, persistent product navigation, equal constrained
   shares, complete accessible labels under visual elision, manual activation
   for both roomy tablists, Tabs-to-Chooser and
   Chooser-to-Tabs focus handoff, an open menu surviving resize, menu

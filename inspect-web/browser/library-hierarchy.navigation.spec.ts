@@ -12,86 +12,13 @@ import {
   empty,
   surface,
   installFacades,
-  installLibraryQueryFacades,
   releaseFacade,
   root,
   currentWorkspaceHistoryState,
+  openProductDestination,
 } from "./library-hierarchy.support.ts";
 
 test.use({ viewport: { width: 900, height: 900 } });
-
-test("Library Query filters exact assets and retains the current Library", async ({ page }) => {
-  await installLibraryQueryFacades(page, "partial");
-  await page.goto(root);
-  await selectLibrary(page, other.id);
-  await page.locator("[data-library-query-reference]").fill("System.Runtime");
-  await page.locator("[data-library-query-form]")
-    .getByRole("button", { name: "Query" })
-    .click();
-
-  await expect(page.locator("html")).toHaveAttribute(
-    "data-library-query-request",
-    JSON.stringify([
-      surface.package,
-      surface.version,
-      surface.activeFramework,
-      JSON.stringify(surface.assemblies.map(assembly => assembly.id)),
-      JSON.stringify(["System.Runtime"]),
-    ]),
-  );
-  const rows = page.locator(".library-subject-list [data-library-subject]");
-  await expect(rows).toHaveCount(3);
-  await expect(rows.nth(0)).toHaveAttribute("data-library-subject", "all");
-  await expect(page.locator(
-    `.library-subject-list [data-library-subject="${core.id}"]`)).toBeVisible();
-  await expect(page.locator(
-    `.library-subject-list [data-library-subject="${empty.id}"]`)).toHaveCount(0);
-  const retained = page.locator(
-    `.library-subject-list [data-library-subject="${other.id}"]`);
-  await expect(retained).toHaveClass(/retained-current/);
-  await expect(retained).toContainText("current selection");
-  await expect(page.locator(".library-query-status")).toContainText(
-    "1 of 3 libraries directly reference System.Runtime");
-  await expect(page.locator(".library-query-status")).toContainText(
-    "Results are incomplete (EvaluationFailures)");
-  await expect(page.locator(".library-query-failures")).toContainText(
-    "Invalid metadata image.");
-});
-
-test("Library Query zero matches leaves only All libraries", async ({ page }) => {
-  await installLibraryQueryFacades(page, "empty");
-  await page.goto(root);
-  await chooseSubject(page, "library", "Library");
-  await page.locator("[data-library-query-reference]").fill("Missing.Reference");
-  await page.locator("[data-library-query-form]")
-    .getByRole("button", { name: "Query" })
-    .click();
-
-  const rows = page.locator(".library-subject-list [data-library-subject]");
-  await expect(rows).toHaveCount(1);
-  await expect(rows.first()).toContainText("All libraries");
-  await expect(page.locator(".library-query-status")).toContainText(
-    "No admitted libraries directly reference Missing.Reference");
-});
-
-test("Library Query keeps the full inventory while loading and after failure", async ({ page }) => {
-  await installLibraryQueryFacades(page, "deferred-error");
-  await page.goto(root);
-  await chooseSubject(page, "library", "Library");
-  await page.locator("[data-library-query-reference]").fill("System.Runtime");
-  await page.locator("[data-library-query-form]")
-    .getByRole("button", { name: "Query" })
-    .click();
-
-  const rows = page.locator(".library-subject-list [data-library-subject]");
-  await expect(rows).toHaveCount(4);
-  await expect(page.locator(".library-query-status")).toContainText(
-    "Checking which libraries directly reference System.Runtime");
-  await releaseFacade(page, "finish-library-query");
-  await expect(page.locator(".library-query-status[role='alert']")).toContainText(
-    "Library Query offline");
-  await expect(rows).toHaveCount(4);
-});
 
 test("exact Library inspectors auto-select the alphabetical fallback only on navigation", async ({ page }) => {
   await installFacades(page);
@@ -252,7 +179,7 @@ test("Workspace occurrence activation retains Package Info", async ({ page }) =>
   const overview = page.locator(".package-overview-surface");
   await expect(overview.locator(".package-info-rows")).toBeVisible();
 
-  await page.locator('[data-application-scope="workspace"]').click();
+  await openProductDestination(page, "workspace");
   const occurrence = page.locator("[data-workspace-activate]");
   await expect(occurrence).toBeEnabled();
   await occurrence.click();
@@ -263,6 +190,58 @@ test("Workspace occurrence activation retains Package Info", async ({ page }) =>
   await expect(overview.locator(
     ".package-overview-summary .section-title h2"))
     .toHaveText("Package Info");
+});
+
+test("Workspace product navigation exits every routed product surface", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await installFacades(page);
+  await page.goto(root);
+
+  const openWorkspace = async () => {
+    await openProductDestination(page, "workspace");
+    await expect(page.locator("#inspector-panel h1")).toHaveText("Workspace");
+  };
+
+  await openProductDestination(page, "home");
+  await expect(page).toHaveURL("/");
+  await openWorkspace();
+
+  await openProductDestination(page, "query");
+  await expect(page).toHaveURL(/\/query$/);
+  await openWorkspace();
+
+  await openProductDestination(page, "activity");
+  await expect(page).toHaveURL(/\/activity$/);
+  await openWorkspace();
+
+  await page.getByRole("link", { name: "Credits" }).click();
+  await expect(page).toHaveURL("/credits");
+  await openWorkspace();
+});
+
+test("Workspace projection failure pushes a degraded package successor", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await installFacades(page);
+  await page.goto(root);
+  await openProductDestination(page, "query");
+  await expect(page).toHaveURL(/\/query$/);
+
+  await releaseFacade(page, "fail-workspace-encode");
+  await openProductDestination(page, "workspace");
+
+  await expect(page.locator("#inspector-panel h1")).toHaveText("Workspace");
+  await expect(page).not.toHaveURL(/\/query$/);
+  await expect(page.locator(".query-notice"))
+    .toContainText("Fixture workspace projection failure.");
+
+  await page.goBack();
+  await expect(page).toHaveURL(/\/query$/);
+  await expect(page.locator("#package-query-heading"))
+    .toHaveText("Package query");
 });
 
 for (const width of [1440, 800, 390]) {
@@ -1046,7 +1025,7 @@ test("browser history from before reload reuses the active Workspace", async ({ 
   await expect(page.locator(".inspected-target")).toContainText("Second.Package");
   await expect.poll(() =>
     currentWorkspaceHistoryState(page)).toEqual(reloadedWorkspace);
-  await page.locator('[data-application-scope="workspace"]').click();
+  await openProductDestination(page, "workspace");
   await expect(page.locator(".workspace-card")).toHaveCount(1);
   await expect(page.locator(".query-notice-text", {
     hasText: "Workspace limit reached",

@@ -322,9 +322,16 @@ public sealed class DiffHistoryApiFindingDocument<T>
     public DiffHistoryEvaluationLimits EvaluationLimits { get; }
     public DiffHistoryEvaluationPlan EvaluationPlan { get; }
     public int? AuthorizedProbeCount =>
-        EvaluationPlan is DiffHistoryEvaluationPlan.AdaptiveBisect adaptive
-            ? adaptive.MaximumProbes
-            : null;
+        EvaluationPlan switch
+        {
+            DiffHistoryEvaluationPlan.AdaptiveBisect adaptive =>
+                adaptive.MaximumProbes,
+            DiffHistoryEvaluationPlan.RepresentativeSurvey =>
+                EvaluationPlan.ResolveAuthorizedEvaluationCount(Population),
+            DiffHistoryEvaluationPlan.MajorVersionRepresentatives =>
+                EvaluationPlan.ResolveAuthorizedEvaluationCount(Population),
+            _ => null,
+        };
     public int UsedProbeCount => Probes.Length;
     public PackageVersionCellWorkspaceLimits WorkspaceLimits { get; }
     public ApiSurfaceProjectionLimits ProjectionLimits { get; }

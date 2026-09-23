@@ -66,6 +66,16 @@ public static class SourceResolver
                 .IsExplicitLibraryPath(value);
     }
 
+    public static bool IsPackageLibraryValue(
+        string target,
+        string value) =>
+        IsPackageRelativeLibraryValue(value)
+        || (!string.IsNullOrWhiteSpace(value)
+            && target.Contains('@')
+            && !value.Contains('/')
+            && !value.Contains('\\')
+            && !CommandLineHelpers.IsExplicitLibraryPath(value));
+
     /// <summary>
     /// Peels segments from the right of a dotted name, probing each candidate
     /// against the dotnet hive and source-scoped package candidate metadata.

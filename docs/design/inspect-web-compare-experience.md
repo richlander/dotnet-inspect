@@ -100,12 +100,16 @@ and bounded Browser wire projection are implemented by
 adapter receives only the public Library, Type, or Member entry result; it does
 not inspect execution targets or choose Diff or Clone.
 
-Drill-down also requires one product-owned atomic descendant-subject and
-exact-lens activation. That contract is tracked by
-[#6490](https://github.com/richlander/dotnet-inspect/issues/6490), but its named
-runtime gates remain unverified. The Browser must not emulate it by
-coordinating a subject request and a later lens request through local mutable
-state. Sticky Compare drill-down therefore remains specified but unimplemented.
+Drill-down requires one product-owned atomic descendant-subject and exact-lens
+activation. That contract is owned by
+[#6490](https://github.com/richlander/dotnet-inspect/issues/6490); its retained
+Browser consumer is tracked by #5510 and #5511. Until that consumer lands, the
+Browser installs the exact destination subject and the Compare lens in one
+synchronous transition with one history entry. It never issues a subject
+request followed by a compensating lens request, and it never reconstructs a
+subject from display text: Type rows carry the exact metadata definition
+identity and Member rows carry the exact anchor digest issued by the Diff or
+Clone document, joined to the loaded surface before a row becomes activatable.
 
 ## One inspector, two modes
 
@@ -399,7 +403,9 @@ The staged path is:
 6. Library and Type Clone drill-down adoption;
 7. Type and Member Diff narrowing;
 8. Member Clone detail and checked-relation composition when available; and
-9. whole-Type and Member immersive viewer adoption under their focused owners.
+9. whole-Type and Member immersive viewer adoption under their focused owners;
+   the Member Diff destination is owned by
+   [Inspect Web Compare Explore](inspect-web-compare-explore.md).
 
 Each stage lands only when its own result and failure states are complete. An
 unimplemented downstream destination remains unavailable; the UI does not
@@ -407,7 +413,12 @@ advertise an action backed by a placeholder or success-shaped fallback.
 
 Stage 4 is implemented as the subject-scoped managed entry handoff and bounded
 Browser wire projection. It installs no Compare UI and executes no Diff or
-Clone query; stages 5 through 9 remain the production result experiences.
+Clone query. Stages 5 through 8 are the Browser's production Compare
+experiences: Library and Type Diff and Clone inventories, Member Diff and
+Member Clone detail. No checked clone relation is issued yet, so Member Clone
+labels its retrieval similarity and states that no relation was issued. Stage
+9 has no owner-issued destination yet, so Compare advertises no Explore or
+whole-Type action.
 
 The stage-3 Navigation capability follows Navigation's existing shared
 two-host plan: #6111 and #5513 consume its stateless exact-pair evaluator in
