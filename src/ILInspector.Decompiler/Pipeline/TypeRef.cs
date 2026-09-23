@@ -1037,17 +1037,29 @@ public sealed class TypeRef : IEquatable<TypeRef>
     /// scope and idiomatic (<c>Enumerator</c> inside <c>List&lt;T&gt;.GetEnumerator</c>).
     /// A null scope keeps the bare innermost spelling used by diagnostics and tests.
     /// </summary>
-    public string ToDisplayString(TypeRef? scope) => Kind switch
+    public string ToDisplayString(TypeRef? scope)
+        => ToDisplayString(scope, fullyQualified: false);
+
+    internal string ToFullyQualifiedDisplayString(TypeRef? scope)
+        => ToDisplayString(scope, fullyQualified: true);
+
+    string ToDisplayString(TypeRef? scope, bool fullyQualified) => Kind switch
     {
-        TypeRefKind.Definition => RenderDefinition(scope),
-        TypeRefKind.GenericInstance => RenderGenericInstance(scope),
-        TypeRefKind.SzArray or TypeRefKind.Array => RenderArray(scope),
-        TypeRefKind.ByRef => $"ref {ElementType!.ToDisplayString(scope)}",
-        TypeRefKind.Pointer => $"{ElementType!.ToDisplayString(scope)}*",
-        TypeRefKind.Pinned => $"pinned {ElementType!.ToDisplayString(scope)}",
+        TypeRefKind.Definition => RenderDefinition(scope, fullyQualified),
+        TypeRefKind.GenericInstance =>
+            RenderGenericInstance(scope, fullyQualified),
+        TypeRefKind.SzArray or TypeRefKind.Array =>
+            RenderArray(scope, fullyQualified),
+        TypeRefKind.ByRef =>
+            $"ref {ElementType!.ToDisplayString(scope, fullyQualified)}",
+        TypeRefKind.Pointer =>
+            $"{ElementType!.ToDisplayString(scope, fullyQualified)}*",
+        TypeRefKind.Pinned =>
+            $"pinned {ElementType!.ToDisplayString(scope, fullyQualified)}",
         TypeRefKind.GenericParameter or TypeRefKind.MethodGenericParameter =>
             GenericParameterName.Length > 0 ? CSharpNaming.ContainedIdentifier(GenericParameterName) : $"!{GenericParameterIndex}",
-        TypeRefKind.FunctionPointer => RenderFunctionPointer(scope),
+        TypeRefKind.FunctionPointer =>
+            RenderFunctionPointer(scope, fullyQualified),
         _ => $"<unsupported: {UnsupportedReason}>",
     };
 
@@ -1059,7 +1071,7 @@ public sealed class TypeRef : IEquatable<TypeRef>
     /// from the outside in so mixed SZ/MD ranks keep source order. A rank outside
     /// the loadable range renders as a bounded diagnostic instead of allocating.
     /// </summary>
-    string RenderArray(TypeRef? scope)
+    string RenderArray(TypeRef? scope, bool fullyQualified)
     {
         var suffixes = new List<string>();
         TypeRef element = this;
@@ -1070,7 +1082,8 @@ public sealed class TypeRef : IEquatable<TypeRef>
                 : $"[{FormatArrayDimensions(element.Rank)}]");
             element = element.ElementType!;
         }
-        return element.ToDisplayString(scope) + string.Concat(suffixes);
+        return element.ToDisplayString(scope, fullyQualified)
+            + string.Concat(suffixes);
     }
 
     internal static string FormatArrayDimensions(int rank)
@@ -1107,8 +1120,21 @@ public sealed class TypeRef : IEquatable<TypeRef>
     /// mirroring <see cref="RenderGenericInstance"/>. A null scope keeps the bare
     /// innermost spelling used by diagnostics and tests.
     /// </summary>
-    string RenderDefinition(TypeRef? scope)
+    string RenderDefinition(TypeRef? scope, bool fullyQualified)
     {
+        string name;
+        if (fullyQualified
+            && !(Assembly == CoreLibrary
+                && Namespace == "System"
+                && PrimitiveTypeNames.TryToKeywordForSystemType(
+                    Name,
+                    out _)))
+        {
+            name = MetadataNameSegments().Count > 1
+                ? RenderNestedDefinition()
+                : DisplayName();
+            return FullyQualifyNamedType(name);
+        }
         if (scope is not null
             && MetadataNameSegments().Count > 1
             && !IsPrivateImplementationDetails
@@ -1213,11 +1239,17 @@ public sealed class TypeRef : IEquatable<TypeRef>
     /// the declaring chain (<c>ImmutableArray&lt;string&gt;.Builder</c>, not a
     /// bare <c>Builder</c> that fails CS0246).
     /// </summary>
-    string RenderGenericInstance(TypeRef? scope = null)
+    string RenderGenericInstance(
+        TypeRef? scope = null,
+        bool fullyQualified = false)
     {
         long declaredArity = ElementType!.DeclaredGenericArity();
         if (ElementType.HasDefinitionArityMismatch)
-            return string.Join(".", ElementType.MetadataNameSegments());
+        {
+            return QualifyGenericName(
+                string.Join(".", ElementType.MetadataNameSegments()),
+                fullyQualified);
+        }
         bool completeCompilerGenerated =
             TypeArguments.Length > 0
             && TypeArguments.Length < declaredArity
@@ -1231,12 +1263,15 @@ public sealed class TypeRef : IEquatable<TypeRef>
             && declaredArity != TypeArguments.Length
             && !completeCompilerGenerated)
         {
-            return string.Join(".", ElementType.MetadataNameSegments());
+            return QualifyGenericName(
+                string.Join(".", ElementType.MetadataNameSegments()),
+                fullyQualified);
         }
 
         IReadOnlyList<string> segments = ElementType.MetadataNameSegments();
         bool foreignNestedReference =
-            scope is not null
+            fullyQualified
+            || scope is not null
             && segments.Count > 1
             && (appendArgumentsToZeroArityHead
                 ? !EnclosingDefinitionInScope(scope)
@@ -1244,9 +1279,10 @@ public sealed class TypeRef : IEquatable<TypeRef>
         if (foreignNestedReference
             && RenderNestedGenericInstance(
                 scope,
-                completeCompilerGenerated) is { } qualified)
+                completeCompilerGenerated,
+                fullyQualified) is { } qualified)
         {
-            return qualified;
+            return QualifyGenericName(qualified, fullyQualified);
         }
         string innermost = segments[^1];
         int ownArity = ElementType.EffectiveSegmentArity(
@@ -1258,15 +1294,23 @@ public sealed class TypeRef : IEquatable<TypeRef>
         if (ownArity == 0)
         {
             if (!appendArgumentsToZeroArityHead)
-                return simpleName;
+                return QualifyGenericName(simpleName, fullyQualified);
             var arguments = TypeArguments
-                .Select(argument => argument.ToDisplayString(scope));
-            return $"{simpleName}<{string.Join(", ", arguments)}>";
+                .Select(argument =>
+                    argument.ToDisplayString(scope, fullyQualified));
+            return QualifyGenericName(
+                $"{simpleName}<{string.Join(", ", arguments)}>",
+                fullyQualified);
         }
         int firstOwnArgument = checked((int)declaredArity) - ownArity;
         var ownArguments = Enumerable.Range(firstOwnArgument, ownArity)
-            .Select(index => GenericArgumentDisplay(index, scope));
-        return $"{simpleName}<{string.Join(", ", ownArguments)}>";
+            .Select(index => GenericArgumentDisplay(
+                index,
+                scope,
+                fullyQualified));
+        return QualifyGenericName(
+            $"{simpleName}<{string.Join(", ", ownArguments)}>",
+            fullyQualified);
     }
 
     /// <summary>
@@ -1326,7 +1370,8 @@ public sealed class TypeRef : IEquatable<TypeRef>
     /// </summary>
     string? RenderNestedGenericInstance(
         TypeRef? scope,
-        bool completeCompilerGenerated)
+        bool completeCompilerGenerated,
+        bool fullyQualified)
     {
         IReadOnlyList<string> segments = ElementType!.MetadataNameSegments();
         var arities = segments
@@ -1348,7 +1393,10 @@ public sealed class TypeRef : IEquatable<TypeRef>
             if (arity > 0)
             {
                 var segmentArguments = Enumerable.Range(argIndex, arity)
-                    .Select(index => GenericArgumentDisplay(index, scope));
+                    .Select(index => GenericArgumentDisplay(
+                        index,
+                        scope,
+                        fullyQualified));
                 name = $"{name}<{string.Join(", ", segmentArguments)}>";
                 argIndex += arity;
             }
@@ -1357,10 +1405,31 @@ public sealed class TypeRef : IEquatable<TypeRef>
         return string.Join(".", parts);
     }
 
-    string GenericArgumentDisplay(int index, TypeRef? scope)
+    string GenericArgumentDisplay(
+        int index,
+        TypeRef? scope,
+        bool fullyQualified)
         => index < TypeArguments.Length
-            ? TypeArguments[index].ToDisplayString(scope)
+            ? TypeArguments[index].ToDisplayString(scope, fullyQualified)
             : $"T{index + 1}";
+
+    string QualifyGenericName(string name, bool fullyQualified)
+        => fullyQualified
+            ? ElementType!.FullyQualifyNamedType(name)
+            : name;
+
+    string FullyQualifyNamedType(string name)
+    {
+        string prefix = Namespace.Length == 0
+            ? "global::"
+            : "global::"
+                + string.Join(
+                    ".",
+                    Namespace.Split('.').Select(
+                        CSharpNaming.SafeIdentifier))
+                + ".";
+        return prefix + name;
+    }
 
     long DeclaredGenericArity()
     {
@@ -1473,21 +1542,38 @@ public sealed class TypeRef : IEquatable<TypeRef>
     /// the return type last, with the calling-convention keyword (when the
     /// pointer is unmanaged) between <c>delegate*</c> and the type list.
     /// </summary>
-    string RenderFunctionPointer(TypeRef? scope = null)
+    string RenderFunctionPointer(
+        TypeRef? scope = null,
+        bool fullyQualified = false)
     {
-        var parts = TypeArguments.Select((p, index) => FunctionPointerParameterText(p, index, scope)).Append(ElementType!.ToDisplayString(scope));
+        var parts = TypeArguments
+            .Select((parameter, index) =>
+                FunctionPointerParameterText(
+                    parameter,
+                    index,
+                    scope,
+                    fullyQualified))
+            .Append(ElementType!.ToDisplayString(
+                scope,
+                fullyQualified));
         string convention = CallingConvention.Length > 0 ? $" {CallingConvention}" : "";
         return $"delegate*{convention}<{string.Join(", ", parts)}>";
     }
 
-    string FunctionPointerParameterText(TypeRef parameter, int index, TypeRef? scope)
+    string FunctionPointerParameterText(
+        TypeRef parameter,
+        int index,
+        TypeRef? scope,
+        bool fullyQualified)
     {
         var kind = index >= 0 && index < FunctionPointerParameterRefKinds.Length
             ? FunctionPointerParameterRefKinds[index]
             : parameter.Kind == TypeRefKind.ByRef ? ArgumentRefKind.Ref : ArgumentRefKind.Value;
         if (kind == ArgumentRefKind.Value || parameter.Kind != TypeRefKind.ByRef)
-            return parameter.ToDisplayString(scope);
-        string element = parameter.ElementType!.ToDisplayString(scope);
+            return parameter.ToDisplayString(scope, fullyQualified);
+        string element = parameter.ElementType!.ToDisplayString(
+            scope,
+            fullyQualified);
         return kind switch
         {
             ArgumentRefKind.In => $"in {element}",

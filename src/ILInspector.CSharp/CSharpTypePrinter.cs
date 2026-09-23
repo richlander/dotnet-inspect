@@ -1074,7 +1074,8 @@ public sealed class CSharpTypePrinter
             Accessibility = member.Accessibility,
             IsExtension = member.IsExtension,
             IsObsolete = member.IsObsolete,
-            ObsoleteMessage = member.ObsoleteMessage
+            ObsoleteMessage = member.ObsoleteMessage,
+            ObsoleteIsError = member.ObsoleteIsError
         };
     }
 

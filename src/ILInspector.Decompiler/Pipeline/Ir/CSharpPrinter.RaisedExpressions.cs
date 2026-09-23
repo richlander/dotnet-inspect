@@ -340,7 +340,8 @@ public sealed partial class CSharpPrinter
                 _stackSlotTelemetry,
                 stackSlotTelemetryScope: lambda,
                 decisions: _decisions,
-                decisionKeys: _decisionKeys)
+                decisionKeys: _decisionKeys,
+                fullyQualifyTypeNames: _fullyQualifyTypeNames)
             {
                 _labelScopeSuffix = AllocateNestedLabelScopeSuffix(),
             };
