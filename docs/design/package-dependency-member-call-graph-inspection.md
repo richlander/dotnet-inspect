@@ -4,7 +4,8 @@ This document owns the Sections boundary that hands one completed
 dependency-aware package member call graph to production hosts.
 
 Implementation is tracked by
-[#8197](https://github.com/richlander/dotnet-inspect/issues/8197).
+[#8197](https://github.com/richlander/dotnet-inspect/issues/8197) and
+[#8240](https://github.com/richlander/dotnet-inspect/issues/8240).
 [Package dependency call-graph operation](package-dependency-call-graph-operation.md)
 owns the lower PackageQueries lifecycle. This inspection composes that
 operation without redefining traversal, PackageHouse, Workspace publication,
@@ -110,12 +111,27 @@ Its available case contains one
 
 - the traversal target policy and completion summary;
 - one detached route per admitted root-relative edge; and
+- one detached package subject for each graph node that has exactly one
+  contributing package Root; and
 - the portable `InspectionGraphDocument`.
 
 A Package destination copies the resource-free Workspace package descriptor,
 realization status, and route source but drops the process-local occurrence
 identity. Platform and unavailable destinations retain their lower-owner typed
 facts.
+
+PackageQueries determines graph-node package ownership while the operation-local
+package-role projection remains live. It joins the node's exact contributing
+assembly to the role participant and retains the participant's package Root
+identity only when that association names one package. The lower operation then
+replaces that process-local identity with the corresponding
+`WorkspacePackageDescriptor`. Sections copies its package id, version, and
+effective target framework beside the node id; hosts do not infer ownership
+from assembly names, member display text, route order, or package labels.
+
+An unavailable or ambiguous association emits no package subject for that node.
+It does not remove the graph node or change its existing loaded-package or
+Platform navigation possibilities.
 
 Its unavailable case carries one typed reason and contained detail for:
 
@@ -155,7 +171,17 @@ Browser/Wasm:
 - resolves the active package member to exact implementation identity;
 - supplies Browser source and bounded in-memory payload capabilities;
 - consumes the same shared envelope; and
-- lowers the Document through its existing Browser call-graph projection.
+- lowers the Document through its existing Browser call-graph projection; and
+- exposes a complete detached package subject as an explicit navigation
+  capability.
+
+Selecting an unloaded package target is an ordinary user-requested package
+open. Browser acquires the exact package id, version, and selected target
+framework through its existing package path, publishes the resulting
+application Workspace state, and then resolves the exact graph member. Merely
+producing or rendering the graph does not install automatically acquired
+dependencies into the application Workspace. Incomplete package subjects are
+not actionable and retain the existing fallback behavior.
 
 Host-specific Markdown, tables, JSON rows, Mermaid, navigation, and
 interaction remain outside Sections.
@@ -178,7 +204,11 @@ Release gates prove:
 8. the real `Microsoft.Extensions.Http.Polly` scenario reaches Polly without
    manual dependency participants;
 9. dependency and graph bounds remain visible when exhausted; and
-10. cancellation, source ownership, cleanup precedence, and detached-result
+10. unique root and dependency graph nodes retain their exact detached package
+    subjects while ambiguous ownership retains none;
+11. Browser opens an unloaded dependency target through the exact package
+    coordinate before applying existing Platform fallback; and
+12. cancellation, source ownership, cleanup precedence, and detached-result
     behavior remain unchanged.
 
 ## Non-claims
@@ -188,6 +218,7 @@ This inspection does not:
 - change exact root package, asset, type, or member selection;
 - change dependency traversal, version choice, or Platform pruning;
 - add active Platform assemblies to package graph analysis;
+- automatically install dependency packages into a host Workspace;
 - change external-focused graph topology;
 - define a canonical Share packet;
 - serialize live execution capabilities;
