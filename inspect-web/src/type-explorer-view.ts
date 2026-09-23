@@ -455,12 +455,13 @@ function renderSourceDeclarations(
   for (const declaration of projection.declarations) {
     const start = declaration.range.start;
     const end = start + declaration.range.length;
+    const selected = sameIdentity(declaration.identity, selectedMember);
     html += highlightCSharp(projection.text.slice(cursor, start));
     html += `<span class="type-explorer-source-declaration${
-      sameIdentity(declaration.identity, selectedMember)
-        ? " selected"
-        : ""
-    }" role="button" tabindex="0"
+      selected ? " selected" : ""
+    }" role="button" tabindex="0"${selected
+      ? ' aria-current="true"'
+      : ""}
       data-type-explorer-declaration="${declaration.declarationId}">${
         highlightCSharp(projection.text.slice(start, end))
       }</span>`;

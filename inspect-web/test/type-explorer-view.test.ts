@@ -85,6 +85,9 @@ test("Type Explorer renders owner-issued declarations and selection", () => {
   assert.match(html, /data-type-explorer-declaration="7"/u);
   assert.match(html, /aria-current="true"/u);
   assert.match(html, /type-explorer-source-declaration selected/u);
+  assert.match(
+    html,
+    /type-explorer-source-declaration selected" role="button" tabindex="0" aria-current="true"/u);
   assert.match(html, /ConvertName/u);
   assert.match(html, /id="type-explorer-outline-toggle"/u);
   assert.match(html, /aria-expanded="false"/u);

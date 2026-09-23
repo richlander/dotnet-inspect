@@ -511,6 +511,25 @@ test.describe("published authored Source comparison transport", () => {
       await expect(
         applicationPage.getByRole("region", { name: "Whole-Type C#" }),
       ).toContainText("Counter", { timeout: 60_000 });
+      await applicationPage.setViewportSize({ width: 1120, height: 520 });
+      const typeExplorerLayout = await applicationPage.evaluate(() => {
+        const route = document.querySelector<HTMLElement>(
+          ".type-explorer-route");
+        const source = document.querySelector<HTMLElement>(
+          ".type-explorer-source pre");
+        if (route === null || source === null)
+          throw new Error("Type Explorer layout was not rendered.");
+        return {
+          routeClientHeight: route.clientHeight,
+          routeScrollHeight: route.scrollHeight,
+          sourceClientHeight: source.clientHeight,
+          sourceScrollHeight: source.scrollHeight,
+        };
+      });
+      expect(typeExplorerLayout.routeScrollHeight)
+        .toBe(typeExplorerLayout.routeClientHeight);
+      expect(typeExplorerLayout.sourceScrollHeight)
+        .toBeGreaterThan(typeExplorerLayout.sourceClientHeight);
       const valueOutline = applicationPage
         .locator(".type-explorer-outline [data-type-explorer-declaration]")
         .filter({ hasText: /\bValue\b/u })
@@ -524,6 +543,13 @@ test.describe("published authored Source comparison transport", () => {
         .first();
       await sourceDeclaration.click();
       await expect(sourceDeclaration).toBeFocused();
+      await expect(sourceDeclaration).toHaveAttribute("aria-current", "true");
+      await applicationPage.setViewportSize({ width: 600, height: 520 });
+      await expect(
+        applicationPage.locator(".type-explorer-outline"),
+      ).toBeHidden();
+      await expect(sourceDeclaration).toBeVisible();
+      await expect(sourceDeclaration).toHaveAttribute("aria-current", "true");
       const skeleton = applicationPage.getByLabel("Skeleton");
       await skeleton.check();
       await expect(skeleton).toBeFocused();
