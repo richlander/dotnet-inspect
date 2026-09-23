@@ -20,7 +20,7 @@ The normative claim is:
 
 - the whitespace vocabulary and the whitespace-only predicate;
 - the pair characterization of two texts;
-- the region, line, and document characterization of a line diff;
+- the region, change, line, and document characterization of a line diff;
 - the edit coordinates and edit kinds;
 - determinism, soundness, bounds, and failure outcomes.
 
@@ -122,7 +122,7 @@ removed blank line. Today both are only `Changed`. Authored code has blank
 lines and the decompiler emits none, so this shape recurs across PDB and
 decompiled comparisons. `JToken.Annotation<T>()` in the same package shows a
 removed blank line inside a larger changed region, which motivates
-[localization](#localization-inside-changed-regions).
+[splitting into changes](#changes).
 
 S1 retains the pathological cases below as deterministic `Inspector.Text`
 fixtures. Each adopting slice retains its motivating member as pinned-package
@@ -164,8 +164,8 @@ unique and complete. No heuristic chooses them.
 Each edit carries a Before range and an After range. A range is a pair of
 zero-based `(line, column)` positions over logical lines, with columns in UTF-16
 code units. A range may span lines and may be empty (an insertion point). An
-edit boundary is always adjacent to a non-whitespace character or to a text or
-region boundary, so it never splits a surrogate pair.
+edit boundary is always adjacent to a non-whitespace character or to a text,
+region, or change boundary, so it never splits a surrogate pair.
 
 ### Edit kinds
 
@@ -178,9 +178,9 @@ position:
 | Position | Preceded by | Followed by |
 | --- | --- | --- |
 | *interior* | a non-whitespace character | a non-whitespace character |
-| *leading* | a boundary, or the start of the text | a non-whitespace character |
-| *trailing* | a non-whitespace character | a boundary, or the end of the text |
-| *blank* | a boundary, or the start of the text | a boundary, or the end of the text |
+| *leading* | a boundary, or the start of the text or change | a non-whitespace character |
+| *trailing* | a non-whitespace character | a boundary, or the end of the text or change |
+| *blank* | a boundary, or the start of the text or change | a boundary, or the end of the text or change |
 
 Inside a line-diff region, the edge of an adjacent anchor's content counts as
 a non-whitespace neighbor. A gap without boundaries is one segment. A gap with
@@ -251,100 +251,98 @@ anchor's content (or the start of the text) to the start of the following
 anchor's content (or the end of the text). It therefore includes the boundary
 after the preceding anchor. Each boundary between two regions' lines belongs
 to exactly one region, and every boundary difference is located. For example,
+with the pair producer, whose texts are unterminated,
 `a⏎␠` → `a` gives the region texts `⏎␠` and the empty string, so the edit is
 `LineBreaks`. A region of added blank lines likewise differs from an empty
 region by `LineBreaks`.
 
-Each region receives one outcome:
+### Changes
+
+The owner partitions each region into an ordered sequence of *changes*. Each
+change is a contiguous run of Before lines and a contiguous run of After lines,
+either of which may be empty but not both. The changes are in order on both
+sides, share no
+line, and together cover the region.
+
+A change's *text* on each side runs from the start of its first line to the
+start of the line after its last line. For the first change in a region, it
+starts instead where the region's text starts. The change texts on a side
+therefore concatenate to that side's region text.
+
+Each change receives exactly one outcome:
 
 | Outcome | Condition |
 | --- | --- |
-| `WhitespaceOnly` | The region texts differ whitespace-only, and no `Moved` correspondence has an endpoint in the region. Its edits are issued. |
-| `Changed` | Otherwise. Movement is never whitespace. |
+| `WhitespaceOnly` | The change texts differ whitespace-only, and no `Moved` correspondence has an endpoint in the change. Its canonical edits and their kinds are issued. |
+| `Changed` | The whitespace-stripped change texts differ, or a `Moved` correspondence has an endpoint in the change. Movement is never whitespace. |
 
-### Localization inside changed regions
+A change whose texts are ordinal-equal is never issued alone. It joins a
+neighboring change, which keeps that neighbor's outcome.
 
-A `Changed` region may still contain lines whose only differences are
-whitespace. Examples include a reflowed brace next to a real edit, and a
-removed blank line inside a rewritten block. For each `Changed` region, the
-owner issues either:
+The partition must meet two rules:
 
-- `Localized`: a partial, monotone alignment that pairs some of the region's
-  non-whitespace characters with equal characters on the other side; or
-- `NotLocalized`: the region exceeded the localization budget.
+- A region whose texts differ whitespace-only, with no `Moved` endpoint, is
+  exactly one `WhitespaceOnly` change.
+- A region whose whitespace-stripped texts differ, or that has a `Moved`
+  endpoint, contains at least one `Changed` change. Where the owner can
+  isolate a whitespace-only part of it as its own change, that part becomes a
+  `WhitespaceOnly` change.
 
-A `WhitespaceOnly` region is always localized, by its canonical alignment.
+How far a `Changed` region is split is quality, not contract. The owner finds
+the split points with an alignment of the non-whitespace characters. Splitting
+is deterministic for the same inputs, and bounded by an owner budget. A region
+over the budget is one `Changed` change.
 
-Consecutive aligned pairs, together with the region start and end, split the
-region texts into corresponding *intervals*. An interval is *clean* when both
-of its sides contain only whitespace. It is *dirty* when either side contains
-an unaligned non-whitespace character. A clean interval whose sides differ is
-an issued whitespace edit, with kinds as defined above. Dirty intervals are
-content changes, and their whitespace is not issued separately.
+Soundness doesn't depend on the aligner. A validator checks that:
 
-Localization is best-effort in precision but sound. A validator can check the
-facts below from the texts and the issued alignment alone, without trusting
-the aligner. How many characters get aligned is quality, not contract.
-Localization is deterministic for the same inputs.
+- the partition is ordered, non-overlapping, and complete; and
+- each change's outcome matches its own texts under the whitespace-only
+  predicate and the `Moved` rule.
+
+For example, `class Foo {` / `int x;` → `class Foo` / `{` / `int y;` splits
+into two changes:
+
+- `class Foo {` → `class Foo` / `{`, `WhitespaceOnly`, with one `LineBreaks`
+  edit; and
+- `int x;` → `int y;`, `Changed`.
+
+By contrast, in `return (x);` → `return (T)(x);` both lines belong to one
+`Changed` change, because no split can separate the insertion from the line
+that holds it.
 
 ### Line facts
 
-Line facts come from *components*, not from where intervals fall. An aligned
-pair links the Before line that holds one of its characters to the After line
-that holds the other. A component is a maximal set of lines connected by those
-links. A line without non-whitespace characters has no links, so it is a
-component by itself.
-
-A component is *changed* when either:
-
-- one of its lines contains an unaligned non-whitespace character; or
-- a dirty interval lies strictly between two non-whitespace characters of one
-  of its lines.
-
-Every Before and After line inside a region receives exactly one fact:
-
-| Fact | Meaning |
-| --- | --- |
-| `Changed` | The line's component is changed. |
-| `Unaffected` | The component is not changed and is exactly one Before line and one After line, and those lines are ordinal-equal. |
-| `WhitespaceOnly` | Any other line in a component that is not changed. |
-| `NotLocalized` | The line is in a `NotLocalized` region. |
-
-Both sides of a content edit are `Changed`, including a side whose own
-characters all survive. `WhitespaceOnly` therefore means that the line and
-every line linked to it hold exactly the same non-whitespace characters, in
-order, and differ only in whitespace or line structure. For example:
-
-- a reflowed brace forms one component of whitespace-only lines;
-- a removed blank line inside a rewritten block is its own component, and is
-  `WhitespaceOnly`; and
-- in `return (x);` → `return (T)(x);`, both lines are `Changed`.
-
-The facts depend only on the texts and the issued alignment, so a validator can
-recompute them exactly. Anchor lines are outside every region and carry no
-fact.
+Every Before and After line inside a region takes its change's outcome. So a
+line is `WhitespaceOnly` exactly when the change holding it is. Anchor lines
+are outside every region and carry no fact. A presentation that labels changes
+therefore marks lines too, without any per-line machinery.
 
 ### Document summary
 
 | Summary | Condition |
 | --- | --- |
 | `NoDifference` | The two input texts are ordinal-equal. |
-| `WhitespaceOnly` | The texts differ, and every region is `WhitespaceOnly`. This includes texts that differ only in line-terminator spelling and so have no region. |
-| `Changed` | At least one region is `Changed`. |
+| `WhitespaceOnly` | The texts differ, and every change is `WhitespaceOnly`. This includes texts that differ only in line-terminator spelling and so have no region. |
+| `Changed` | At least one change is `Changed`. |
 
 A line diff's logical lines don't retain terminator spelling. The summary
 therefore reports a CRLF-versus-LF-only difference without locating it. The
 pair characterization, which sees both texts, locates it as
 `TerminatorSpelling`.
 
+The relationship with the pair characterization runs one way. A
+`WhitespaceOnly` summary implies that the pair characterization of the same
+texts is `WhitespaceOnly`. The converse doesn't hold: movement or the line
+diff's anchor choices can make the summary `Changed` even when the whole texts
+differ whitespace-only. An example is `ab⏎a` → `a⏎ba`.
+
 ## Consumer presentation
 
 Consumers choose the presentation. The characterization supports three modes
 without re-comparison:
 
-1. **Suppress:** show whitespace-only regions as unchanged context.
-2. **Mark:** show them as changes, with a whitespace-only indicator on each
-   affected line.
+1. **Suppress:** show `WhitespaceOnly` changes as unchanged context.
+2. **Mark:** show them as changes, labeled whitespace-only.
 3. **Highlight:** show them as changes, with the exact edits as intraline
    ranges.
 
@@ -352,47 +350,61 @@ Every mode must preserve these facts:
 
 - Only `NoDifference` may be called identical or "no difference." Suppress
   mode discloses what it hid, for example "no differences except
-  whitespace" together with the hidden region count.
+  whitespace" together with the count of hidden changes or lines.
 - `AnalysisDiff<T>` statistics remain available unchanged. A host may add
-  whitespace-only counts, but never subtracts them from `Changed` without
-  saying so.
-- `Changed`, `NotLocalized`, and `Changed`-fact lines always present as
-  ordinary changes.
+  whitespace-only counts, but never subtracts them from its changed counts
+  without saying so.
+- `Changed` changes always present as ordinary changes.
 - A host must never describe a whitespace-only difference as insignificant.
   Only a language certifier may make that claim.
 
-In highlight mode, a lowering to Markout maps edits to
-`TextDiffInnerMapping` span pairs. Markout admits inner mappings only on
-replacement changes and only as single-line spans, so line-boundary edits
-lower through the line structure plus empty (insertion-point) spans or
-annotations. Addition-only and removal-only regions, such as blank lines,
-present at line level. The first adopter owns the lowering's exact shape and
-must take it from the issued edits rather than re-derive it.
+### Markout lowering
 
-Markout is the rendering substrate, not a consumer. Mark mode needs no Markout
-change, because annotations render in every formatter. The Unicode and Spectre
-formatters also render inner mappings, but they render every changed span the
-same way. The Markdown and plain-text unified diffs cannot express intraline
-ranges, so hosts using them fall back from highlight to mark.
+Each issued change lowers to one Markout `TextDiffChange`. Markout already
+accepts changes that are in order, don't overlap, and may be adjacent. Mark
+mode lowers the outcome to a change label. Highlight mode lowers the edits of
+a `WhitespaceOnly` replacement to `TextDiffInnerMapping` span pairs, which
+Markout admits only on replacement changes and only as single-line spans.
+Boundary edits lower through the line structure plus empty (insertion-point)
+spans. Whitespace-only additions and removals, such as blank lines, present at
+line level. The adopter takes the lowering from the issued changes and edits
+rather than re-deriving it.
 
-Views that style whitespace-only changes differently need a typed whitespace
-class in Markout, on changes or lines and on inner mappings, because
-whitespace-only additions and removals have no inner mappings. Visible glyphs
-for spaces, tabs, and boundaries would also be needed. That Markout slice (M1)
-runs under the [Markout co-development loop](../markout-co-development.md) and
-is proposed in #8393 pending operator approval. It doesn't change the facts
-defined here. Terminal color also requires the CLI to adopt an ANSI formatter.
-Inspect Web styles directly from the typed facts. None of these hosts may use
-color as the only cue: whitespace styling pairs a color shade with a non-color
-cue, such as visible glyphs or a label.
+Markout is the rendering substrate, not a consumer. The operator approved
+Markout slice M1, under the
+[Markout co-development loop](../markout-co-development.md), for the
+presentation this design needs:
+
+- **A typed label per change,** rendered in the unified-diff hunk header after
+  the closing `@@`. That is the free-form slot git uses for function context,
+  and member diffs, which are already scoped to one member, leave it unused.
+  Formatters without that slot render the label as a label.
+- **No merging across labels.** A hunk never holds changes with different
+  labels. Adjacent or nearby changes with different labels become separate
+  hunks. Unchanged context between them goes to at most one hunk, so no line
+  appears in two hunks.
+- **Visible whitespace glyphs** inside whitespace edits in human formats, with
+  literal glyph characters escaped. Glyphs make an invisible edit readable;
+  the label, not the glyph, classifies the change.
+
+Hunks split this way remain valid unified diff. GNU `patch` applies adjacent
+hunks that share no line, and `git apply` applies them with `--unidiff-zero`,
+because git reads uneven context as anchored to the start or end of the file.
+Member diffs use member-relative line numbers, so they were never applicable
+to the source file in any case.
+
+M1 changes presentation only, never the facts defined here. Terminal color is
+a separate CLI decision. Inspect Web styles directly from the typed facts. No
+host uses color as the only cue: a color shade is always paired with a label
+or glyphs.
 
 ## Bounds and failure
 
 - The whitespace-only predicate and canonical edits are linear. They run
   within the bounds the input diff already satisfied.
-- Localization runs under an owner-defined budget. Exceeding the budget yields
-  `NotLocalized` for that region only. The owner never guesses, never omits
-  the region, and never downgrades the document summary.
+- Splitting runs under an owner-defined budget. A region over the budget is
+  one `Changed` change. The owner never guesses, never omits the region, and
+  never downgrades the document summary.
 - Inputs that don't match the diff endpoints fail visibly and never produce an
   empty characterization.
 
@@ -400,7 +412,7 @@ cue, such as visible glyphs or a label.
 
 Each row becomes an S1 Release test in `tests/Inspector.Text.Tests`. Rows
 marked *doc* are observed at the document summary. The others are observed on
-their region.
+their region's changes.
 
 | Case | Before → After | Expected |
 | --- | --- | --- |
@@ -409,13 +421,13 @@ their region.
 | Re-indentation | block indented one level deeper | `WhitespaceOnly`, `Indentation` on each line |
 | Tabs versus spaces | `⇥x` → `␠␠␠␠x` | `WhitespaceOnly`, `Indentation` |
 | Blank-line spaces (Scrutor) | a blank line with spaces becomes empty | `WhitespaceOnly`, `BlankLineContent` |
-| Blank line removed (JToken.Remove) | blank line between statements removed | own region `WhitespaceOnly`, `LineBreaks` |
-| Blank line in rewrite (JToken.Annotation) | blank line removed inside a changed region | region `Changed`; blank line localized `WhitespaceOnly` |
-| Mixed reflow and edit | `class Foo {` / `int x;` → `class Foo` / `{` / `int y;` | region `Changed`; `class Foo {`, `class Foo`, and `{` form one component and are `WhitespaceOnly`; `int` lines `Changed` |
-| Insertion inside a line (JToken.Annotation) | `return (_annotations as T);` → `return (T)(_annotations as T);` | both lines `Changed` |
-| Pure deletion | `foo(a, b)` → `foo(a)` | both lines `Changed` |
-| Append at line end | `x = 1;` → `x = 1; z` | both lines `Changed` |
-| Scatter | `ab` → `a` / `XYZ` / `b` | every line `Changed` |
+| Blank line removed (JToken.Remove) | blank line between statements removed | own region, one `WhitespaceOnly` change, `LineBreaks` |
+| Blank line after a rewritten line | `x = Foo(); // old` / `` / `y();` → `x = Foo(); // new` / `y();` | `x` lines one `Changed` change; the removed blank line its own `WhitespaceOnly` change, `LineBreaks` |
+| Mixed reflow and edit | `class Foo {` / `int x;` → `class Foo` / `{` / `int y;` | two changes: `class Foo {` → `class Foo` / `{` `WhitespaceOnly`, `LineBreaks`; `int x;` → `int y;` `Changed` |
+| Insertion inside a line (JToken.Annotation) | `return (_annotations as T);` → `return (T)(_annotations as T);` | one `Changed` change |
+| Pure deletion | `foo(a, b)` → `foo(a)` | one `Changed` change |
+| Append at line end | `x = 1;` → `x = 1; z` | one `Changed` change |
+| Scatter | `ab` → `a` / `XYZ` / `b` | one `Changed` change |
 | Separation | `foo( x )` → `foo(x)` | `WhitespaceOnly`, `Separation` |
 | Token fusion | `x - -y` → `x--y` | `WhitespaceOnly`, `Separation`; the text layer makes no layout claim |
 | Literal whitespace | `"a b"` → `"a  b"` | `WhitespaceOnly`, `Spacing`; significance left to a certifier |
@@ -424,20 +436,23 @@ their region.
 | No-break space | `a b` → `a`U+00A0`b` | `Changed` |
 | Word merge | `foo bar` → `foobar` | `WhitespaceOnly`, `Separation` |
 | Swapped lines | `a` / `b` → `b` / `a` | `Changed` (movement) |
-| Trailing line after an anchor | `a⏎␠` → `a` (unterminated text) | region `WhitespaceOnly`, `LineBreaks` covering the anchor's boundary |
+| Trailing line after an anchor | `a⏎␠` → `a` (unterminated, pair producer) | `WhitespaceOnly`, `LineBreaks` covering the anchor's boundary |
 | Final newline | `x` → `x⏎` | `WhitespaceOnly`, `LineBreaks` and `FinalLineTerminator` |
 | Terminator spelling, line diff | `a⏎b` with CRLF → LF | *doc* `WhitespaceOnly`, no region |
 | Terminator spelling, pair | `a⏎b` with CRLF → LF | `WhitespaceOnly`, `TerminatorSpelling` |
 | Surrogate adjacency | `😀 x` → `😀x` | edit spans are valid UTF-16 boundaries |
-| Localization budget | a region above the budget with one real edit | region `Changed`, `NotLocalized`; summary `Changed` |
+| Split budget | a region above the budget with one real edit | one `Changed` change; summary `Changed` |
 
 Soundness gates, planned in S1:
 
-- a property test checks every `WhitespaceOnly` outcome by comparing the
-  whitespace-stripped texts; and
-- an independent validator checks every localized line against the
-  [localization obligations](#localization-inside-changed-regions), over the
-  fixtures and a pinned real-source corpus.
+- an independent validator runs over the fixtures and a pinned real-source
+  corpus. It checks that every region's changes form an ordered,
+  non-overlapping, complete partition, and recomputes each change's outcome
+  from its own texts, as [Changes](#changes) requires.
+
+The Mixed reflow and Blank line after a rewritten line rows state quality
+expectations for the S1 splitter. The validator gate is what enforces
+soundness.
 
 ## Precedent
 
@@ -461,7 +476,7 @@ This design does not define:
   producer's statistics;
 - move detection across whitespace edits for line diffs;
 - intraline ranges for non-whitespace changes, though a follow-on may reuse the
-  localization alignment;
+  splitting alignment;
 - whitespace beyond U+0020, U+0009, and logical line boundaries;
 - locating line-terminator spelling changes in the line-diff characterization
   (the pair characterization locates them);
@@ -478,12 +493,24 @@ counted plan:
 | S0 | `Inspector.Text` | This design |
 | S1 | `Inspector.Text` | Pair and line-diff characterization, fixtures, soundness gates |
 | S2 | `DotnetInspector.Presentation` | First adopter: lowering and statistics for member source diffs; CLI member Source Diff |
-| S3 | `ILInspector.Research` | Implementation-diff PDB Source lane classification; CLI `diff --pdb-source` |
+| M1 | Markout | Change labels in hunk headers, no merging across labels, visible whitespace glyphs |
+| S3 | `ILInspector.Research` and CLI | Authored-source text diff for `diff --pdb-source` |
 | S4 | Inspect Web source-diff transport | Typed Worker transport of the characterization |
 | S5 | Inspect Web diff viewer | The three presentation modes |
 
-The CLI is first reached at S2, which is three steps. Inspect Web is reached at
-S5, which follows S0–S2 and S4. S3 is independent of S4 and S5.
+The CLI is first reached at S2, which is three steps. Labeled hunks need M1
+first. Inspect Web is reached at S5, which follows S0–S2 and S4. S3 is
+independent of S4 and S5.
+
+The operator directed S3's adoption decisions for `diff` with authored source
+on both sides. That owner's slice records them:
+
+- the diff body shows every change by default, including whitespace-only
+  changes, which are labeled;
+- an opt-in mode excludes whitespace-only changes and discloses that it did;
+- a summary-only mode reports counts without the body; and
+- the summary reports changed lines, whitespace-only lines as a subset of the
+  changed lines, and moved lines.
 
 Follow-on owners track separately in #8393:
 
