@@ -28,8 +28,6 @@ export type BrowserMemberSourcePartKind = "Member" | "XmlDocumentation" | "Attri
 
 export type BrowserMethodBodyResultKind = "Succeeded" | "Failed" | "Canceled" | number;
 
-export type BrowserSourceComparisonResultKind = "Succeeded" | "Failed" | "Canceled" | number;
-
 export type BrowserSynchronousCompletionKind = "TaskWait" | "TaskResult" | "TaskAwaiterGetResult" | number;
 
 export type BrowserTypeSourceCancellationKind = "Requested" | "AlreadyRequested" | "NotActive" | number;
@@ -422,43 +420,6 @@ export interface BrowserSource {
   readonly text: string;
 }
 
-export interface BrowserSourceComparison {
-  readonly request: BrowserSourceComparisonRequest;
-  readonly status: string;
-  readonly isExact: boolean;
-  readonly before: BrowserSourceComparisonEndpoint;
-  readonly after: BrowserSourceComparisonEndpoint;
-  readonly lines: ReadonlyArray<BrowserSourceComparisonLine>;
-  readonly failure: string | null;
-}
-
-export interface BrowserSourceComparisonEndpoint {
-  readonly packageId: string;
-  readonly version: string;
-  readonly framework: string;
-  readonly assembly: string;
-  readonly assetPath: string;
-  readonly moduleVersionId: string | null;
-  readonly assemblyIdentity: string;
-  readonly memberIdentity: string | null;
-  readonly metadataToken: number | null;
-  readonly state: string;
-  readonly detail: string | null;
-  readonly text: string | null;
-  readonly sourceUrl: string | null;
-  readonly repositoryUrl: string | null;
-  readonly revision: string | null;
-}
-
-export interface BrowserSourceComparisonLine {
-  readonly kind: string;
-  readonly difference: string;
-  readonly beforeLine: number | null;
-  readonly beforeText: string | null;
-  readonly afterLine: number | null;
-  readonly afterText: string | null;
-}
-
 export interface BrowserSourceComparisonRequest {
   readonly packageId: string;
   readonly beforeVersion: string;
@@ -469,16 +430,6 @@ export interface BrowserSourceComparisonRequest {
   readonly memberName: string;
   readonly selectorKey: string;
   readonly metadataToken: number;
-}
-
-export interface BrowserSourceComparisonResult {
-  readonly version: number;
-  readonly kind: BrowserSourceComparisonResultKind;
-  readonly value: BrowserSourceComparison | null;
-  readonly failureKind: BrowserTypeSourceFailureKind | null;
-  readonly error: string | null;
-  readonly diagnostic: string | null;
-  readonly reason: string | null;
 }
 
 export interface BrowserSourceFactInstance {
@@ -812,6 +763,20 @@ export function runEntryPoint(
   return $requireRuntime().runMain(mainAssemblyName, args);
 }
 
+function $serializeJsonInput(
+  value: unknown,
+  operation: string,
+  parameter: string,
+): string {
+  const json = JSON.stringify(value);
+  if (json === undefined) {
+    throw new TypeError(
+      `${operation} parameter '${parameter}' could not be serialized as JSON.`,
+    );
+  }
+  return json;
+}
+
 export function cancelMemberSourceComparison(operationId: string, reason: string): BrowserTypeSourceCancellation {
   const $result = $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Source"]["SourceExports"]["CancelMemberSourceComparison.271973316"](operationId, reason);
   const $parsed: unknown = JSON.parse($result);
@@ -852,14 +817,12 @@ export async function queryMemberSource(packageId: string, version: string, targ
   return $parsed as BrowserMemberSource;
 }
 
-export async function queryMemberSourceComparison(operationId: string, requestJson: string): Promise<BrowserSourceComparisonResult> {
-  const $result = await $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Source"]["SourceExports"]["QueryMemberSourceComparison.451505237"](operationId, requestJson);
-  const $parsed: unknown = JSON.parse($result);
-  return $parsed as BrowserSourceComparisonResult;
+export async function queryMemberSourceComparison(operationId: string, requestJson: string): Promise<string> {
+  return await $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Source"]["SourceExports"]["QueryMemberSourceComparison.451505237"](operationId, requestJson);
 }
 
-export async function queryMethodBodyComparison(operationId: string, requestJson: string): Promise<BrowserMethodBodyComparisonResult> {
-  const $result = await $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Source"]["SourceExports"]["QueryMethodBodyComparison.451505237"](operationId, requestJson);
+export async function queryMethodBodyComparison(operationId: string, requestJson: BrowserMethodBodyComparisonRequest): Promise<BrowserMethodBodyComparisonResult> {
+  const $result = await $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Source"]["SourceExports"]["QueryMethodBodyComparison.451505237"](operationId, $serializeJsonInput(requestJson, "DotnetInspect.Web.Interop.Source.SourceExports.QueryMethodBodyComparison.451505237", "requestJson"));
   const $parsed: unknown = JSON.parse($result);
   return $parsed as BrowserMethodBodyComparisonResult;
 }

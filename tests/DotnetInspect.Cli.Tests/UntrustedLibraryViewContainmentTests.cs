@@ -1492,6 +1492,7 @@ public class LibraryViewShapeDerivedContainmentTests
     /// </remarks>
     private static readonly string[] OutOfReach =
     [
+        "ApiJsExportJsonInputDeclaration.WireType (ApiTypeShape): no public constructor",
         "ApiJsonSerializableRoot.Type (ApiTypeShape): no public constructor",
         "ApiMember.DeclaringTypeDefinitionName (MetadataTypeDefinitionName): no public constructor",
         "ApiSignature.PublicAccessorsSummary (String): string with no setter",

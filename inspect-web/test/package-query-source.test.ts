@@ -117,6 +117,7 @@ function semanticSucceeded(): BrowserPackageQueryResult {
     rootRequest: "opaque-root",
   };
   const occurrences = [{
+    libraryPath: "lib/net10.0/Contoso.Package.dll",
     moduleVersionId: "00000000-0000-0000-0000-000000000001",
     methodDefinitionToken: 0x06000001,
     ilOffset: 4,
@@ -124,6 +125,7 @@ function semanticSucceeded(): BrowserPackageQueryResult {
     literalCharacterCount: 25,
     literalText: "shared-literal-use-marker",
   }, {
+    libraryPath: "lib/net10.0/Contoso.Package.dll",
     moduleVersionId: "00000000-0000-0000-0000-000000000001",
     methodDefinitionToken: 0x06000002,
     ilOffset: 8,
@@ -155,6 +157,13 @@ function semanticSucceeded(): BrowserPackageQueryResult {
     timeoutKind: null,
     timeoutSeconds: null,
     message: null,
+    libraries: [{
+      selectedAsset,
+      kind: "Matched" as const,
+      occurrences: 2,
+      failureStage: null,
+      message: null,
+    }],
   };
   return {
     version: 3,
@@ -204,7 +213,7 @@ function semanticSucceeded(): BrowserPackageQueryResult {
           sourceCandidates: 1,
           semanticMisses: 0,
           notApplicable: 0,
-          scope: "Selected primary implementation libraries only.",
+          scope: "All selected implementation libraries for one compatible target framework.",
           occurrences: 2,
           notEvaluated: 0,
           evaluatedCandidates: 1,
@@ -261,6 +270,15 @@ function semanticAssessmentSucceeded(
     timeoutKind: kind === "NotEvaluated" ? "Operation" : null,
     timeoutSeconds: kind === "NotEvaluated" ? 25 : null,
     message: `${kind} candidate`,
+    libraries: kind === "NoMatch" || kind === "Failure"
+      ? [{
+          selectedAsset: selectedAsset!,
+          kind,
+          occurrences: 0,
+          failureStage: kind === "Failure" ? "DecodeMethodBody" : null,
+          message: `${kind} Library`,
+        }]
+      : [],
   };
   const notEvaluated = kind === "NotEvaluated" ? 1 : 0;
   const failureCount = kind === "Failure" ? 1 : 0;
@@ -522,7 +540,25 @@ test("Browser source composes library-literal terms and uses terminal Document t
     completed: 1,
     limit: 1,
   }]);
-  assert.deepEqual(assessments, []);
+  assert.deepEqual(assessments, [{
+    packageId: "contoso.package",
+    version: "2.0.0",
+    disposition: "Matched",
+    message:
+      "The selected implementation libraries contain matching decoded ldstr uses.",
+    assetPath: "lib/net10.0/Contoso.Package.dll",
+    rootRequest: "opaque-root",
+    libraries: [{
+      path: "lib/net10.0/Contoso.Package.dll",
+      assemblyName: "Contoso.Package",
+      targetFramework: "net10.0",
+      ordinal: 0,
+      disposition: "Matched",
+      occurrenceCount: 2,
+      failureStage: null,
+      message: null,
+    }],
+  }]);
   assert.deepEqual(completion, {
     kind: "library-literal",
     population: "ExactPackageComplete",
@@ -610,9 +646,9 @@ test("Browser source preserves typed semantic non-match, applicability, failure,
         const result = semanticAssessmentSucceeded(kind);
         const eventSink = args[8];
         assert.ok(typeof eventSink === "object" && eventSink !== null);
-        if (kind === "NoMatch" || kind === "NotApplicable") {
-          const candidate =
-            result.inspection!.content.libraryLiteralAssessments[0]!;
+        const candidate =
+          result.inspection!.content.libraryLiteralAssessments[0]!;
+        if (kind !== "NotEvaluated") {
           Reflect.set(eventSink, "event", JSON.stringify({
             kind: "Assessment",
             row: null,
@@ -626,18 +662,19 @@ test("Browser source preserves typed semantic non-match, applicability, failure,
               message: candidate.message,
               assetPath: candidate.selectedAsset?.path ?? null,
               rootRequest: candidate.rootRequest,
+              libraries: candidate.libraries,
             },
           }));
-        }
-        for (const failure of result.inspection!.content.failures) {
-          Reflect.set(eventSink, "event", JSON.stringify({
-            kind: "Failure",
-            row: null,
-            failure,
-            completion: null,
-            progress: null,
-            assessment: null,
-          }));
+          for (const failure of result.inspection!.content.failures) {
+            Reflect.set(eventSink, "event", JSON.stringify({
+              kind: "Failure",
+              row: null,
+              failure,
+              completion: null,
+              progress: null,
+              assessment: null,
+            }));
+          }
         }
         return result;
       },
@@ -667,18 +704,30 @@ test("Browser source preserves typed semantic non-match, applicability, failure,
 
     assert.deepEqual(
       assessments,
-      kind === "NoMatch" || kind === "NotApplicable"
-        ? [{
-            packageId: "contoso.package",
-            version: "2.0.0",
-            disposition: kind,
-            message: `${kind} candidate`,
-            assetPath: kind === "NoMatch"
-              ? "lib/net10.0/Contoso.Package.dll"
-              : null,
-            rootRequest: "opaque-root",
-          }]
-        : []);
+      [{
+        packageId: "contoso.package",
+        version: "2.0.0",
+        disposition: kind,
+        message: `${kind} candidate`,
+        assetPath: kind === "NoMatch" || kind === "Failure"
+          ? "lib/net10.0/Contoso.Package.dll"
+          : null,
+        rootRequest: kind === "NotEvaluated" ? null : "opaque-root",
+        libraries: kind === "NoMatch" || kind === "Failure"
+          ? [{
+              path: "lib/net10.0/Contoso.Package.dll",
+              assemblyName: "Contoso.Package",
+              targetFramework: "net10.0",
+              ordinal: 0,
+              disposition: kind,
+              occurrenceCount: 0,
+              failureStage: kind === "Failure"
+                ? "DecodeMethodBody"
+                : null,
+              message: `${kind} Library`,
+            }]
+          : [],
+      }]);
     assert.deepEqual(retainedAssessmentKinds, [kind]);
     assert.deepEqual(
       retainedFailureKinds,

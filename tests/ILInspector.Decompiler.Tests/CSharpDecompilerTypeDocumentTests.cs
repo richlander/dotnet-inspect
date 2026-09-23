@@ -568,7 +568,7 @@ public sealed class CSharpDecompilerTypeDocumentTests
     [Trait("Speed", "Slow")]
     [InlineData(
         "System.Text.Json.JsonSerializerOptions",
-        "<get_CacheContext>g__GetOrCreate|1_0")]
+        "<Default>k__BackingField")]
     [InlineData(
         "System.Collections.Generic.OrderedDictionary`2+Enumerator",
         "inheritance obligations")]
@@ -697,5 +697,58 @@ public sealed class CSharpDecompilerTypeDocumentTests
                 includeAll: true,
                 includeCompilerGenerated: true).Types,
             type => type.MetadataToken == metadataToken);
+    }
+
+    [Fact]
+    public void ProduceTypeDocument_PreservesInitializerExecutionOrder()
+    {
+        CSharpTypeDocument document = Available(
+            Produce(Type<InterleavedInitializers>()));
+        CSharpTypeDocumentProjection bodies = Project(
+            document,
+            new(CSharpTypeBodyMode.Bodies));
+
+        int first = bodies.Text.IndexOf(
+            "First = Next();",
+            StringComparison.Ordinal);
+        int second = bodies.Text.IndexOf(
+            "Second",
+            StringComparison.Ordinal);
+        int third = bodies.Text.IndexOf(
+            "Third = Next();",
+            StringComparison.Ordinal);
+        Assert.True(first >= 0, bodies.Text);
+        Assert.True(second > first, bodies.Text);
+        Assert.True(third > second, bodies.Text);
+        AssertCompiles(bodies.Text);
+    }
+
+    [Fact]
+    public void ProduceTypeDocument_PreservesRequiredConstantInitializers()
+    {
+        CSharpTypeDocument document = Available(
+            Produce(Type(typeof(ConstantField))));
+        CSharpTypeDocumentProjection bodies = Project(
+            document,
+            new(CSharpTypeBodyMode.Bodies));
+        CSharpTypeDocumentProjection skeleton = Project(
+            document,
+            new(CSharpTypeBodyMode.Skeleton));
+        CSharpTypeDeclaration read = document.Declarations.Single(
+            declaration =>
+                declaration.Kind == CSharpTypeDeclarationKind.Method);
+        CSharpTypeDocumentProjection selected = Project(
+            document,
+            new(CSharpTypeBodyMode.SelectedBody, read.Anchor));
+
+        foreach (CSharpTypeDocumentProjection projection in
+            new[] { bodies, skeleton, selected })
+        {
+            Assert.Contains(
+                "public const int Value = 7;",
+                projection.Text,
+                StringComparison.Ordinal);
+            AssertCompiles(projection.Text);
+        }
     }
 }

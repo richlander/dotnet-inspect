@@ -3,6 +3,8 @@ using System.Runtime.InteropServices.JavaScript;
 using System.Runtime.Versioning;
 using System.Text.Json;
 
+using DotnetInspect.Web.Interop.Catalog;
+
 namespace DotnetInspect.Web;
 
 /// <summary>
@@ -18,8 +20,10 @@ namespace DotnetInspect.Web;
 /// </para>
 /// <para>
 /// It inspects no assembly, opens no workspace, and publishes no capability result. Shared browser
-/// policy — the same-origin proxy base <see cref="ConfigureHost"/> configures — belongs to
-/// <c>DotnetInspect.Web.Core</c> and is applied before the entry point starts application work.
+/// policy — the same-origin proxy base and product Workspace plan
+/// <see cref="ConfigureHost"/> configures — belongs to
+/// <c>DotnetInspect.Web.Core</c> and is applied before the entry point starts
+/// application work.
 /// </para>
 /// </remarks>
 [SupportedOSPlatform("browser")]
@@ -65,6 +69,9 @@ public static partial class InspectionEngine
     /// application work.
     /// </summary>
     [JSExport]
-    public static void ConfigureHost(string origin) =>
+    public static void ConfigureHost(string origin)
+    {
         BrowserPackageWorkspace.ConfigureHostProxies(origin);
+        BrowserProductWorkspacePlans.ConfigurePlatform();
+    }
 }

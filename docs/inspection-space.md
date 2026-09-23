@@ -959,6 +959,26 @@ sequential for Browser/Wasm.
 allocation/call/exception/opportunity evidence, visible invalid and bodyless
 failures, and unbounded query cost.
 
+`AssemblyContextImplementationProfilesQuery` is the participant-scoped
+whole-assembly implementation-profile seam. It borrows one selected
+participant's retained snapshot, runs one focused implementation-profile
+Analysis execution without materializing the compatibility body index, and
+preserves the Analysis-issued population-coverage receipt, every physical
+profile, exact overload relationship, generated-framework Type, Analysis
+diagnostic, and API-surface inspection failure. The query joins each
+Analysis-issued logical source body token to every product-issued public API
+metadata Type identity and stable Member selector that owns it, then carries
+the complete physical evidence-token set for that owner. Private and otherwise
+unattributed profiles remain present with no inferred owner. A completed host
+handoff uses
+`ImplementationProfileInspectionOperation` and retains the participant outcome
+as `InspectionEnvelope` content with an explicit non-projectable Share result.
+`AssemblyContextImplementationProfilesQueryTests` gate participant scoping,
+exact public-body attribution, generated-body separation, unattributed
+profiles, relationship preservation, and unbounded cost.
+`ImplementationProfileInspectionOperationTests` gate completed envelope Share,
+diagnostic, and failure behavior.
+
 `AssemblyContextStructuralCloneRetrievalQuery` is the first query that joins
 two explicitly selected assembly participants while both immutable snapshots
 remain borrowed. Its input names the seed and candidate groups and
@@ -1362,11 +1382,11 @@ The assembly-local string-keyed scanner predecessor has been retired.
 typed metadata, direct-reference,
 assembly-context reference, package dependency-group, extension-method,
 custom-attribute, manifest-resource, type-forwarder, union-type, switch,
-SourceLink, API-comparison, and Analysis body-signal comparison plans. The
-Analysis query
-consumes old/new `LibraryBodyIndex` collections and returns
-`ResearchComparison`; the diff CLI still owns lazy path-to-index acquisition as
-a transitional adapter. Mutable CLI models, path-shaped residual inputs, and command-owned acquisition
+SourceLink, API-comparison, and Analysis body-signal comparison plans. The Analysis query consumes old/new `BodySignalAnalysisInput` collections that
+compose allocation, safety, call-graph, and optimization results from one
+`LibraryBodyAnalysisExecution`, and returns `ResearchComparison`. The diff CLI
+still owns lazy path-to-execution acquisition as a transitional adapter.
+Mutable CLI models, path-shaped residual inputs, and command-owned acquisition
 remain migration boundaries rather than workspace contracts.
 
 The registry executes synchronous and asynchronous queries in deterministic

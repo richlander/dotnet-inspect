@@ -67,3 +67,22 @@ public interface IPackageStore
         CancellationToken cancellationToken = default);
 
 }
+
+internal interface IPreparedPackageStore
+{
+    ValueTask<PreparedPackageCommit> CommitPreparedAsync(
+        string packageName,
+        string version,
+        string sourceKey,
+        PackageArchivePayload archive,
+        CancellationToken cancellationToken = default);
+}
+
+/// <summary>
+/// The content a prepared commit selected and whether it may be an earlier
+/// concurrent or immutable-slot winner that still needs admission under the
+/// current caller's limits.
+/// </summary>
+internal readonly record struct PreparedPackageCommit(
+    IPackageContent Content,
+    bool RequiresAdmission);

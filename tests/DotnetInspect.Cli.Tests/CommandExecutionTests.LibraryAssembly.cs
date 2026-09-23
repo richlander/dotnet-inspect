@@ -291,7 +291,7 @@ public partial class CommandExecutionTests
 
     [Fact]
     public async Task
-        Library_DirectEnvelope_EmitsHostNeutralOverview()
+        Library_DirectEnvelope_EmitsHostNeutralInspection()
     {
         var (exit, output, error) = await RunAppAsync(
             "library",
@@ -307,7 +307,7 @@ public partial class CommandExecutionTests
         using JsonDocument json = JsonDocument.Parse(output);
         JsonElement root = json.RootElement;
         Assert.Equal(
-            "library-overview",
+            "library-inspection",
             root.GetProperty("result_kind").GetString());
         Assert.Equal(
             "available",
@@ -322,9 +322,31 @@ public partial class CommandExecutionTests
             document.GetProperty("assembly")
                 .GetProperty("name")
                 .GetString());
+        JsonElement count =
+            document.GetProperty("types")
+                .GetProperty("count");
+        int definitions =
+            count.GetProperty("definitions").GetInt32();
+        int forwarders =
+            count.GetProperty("forwarders").GetInt32();
+        Assert.True(definitions > 0);
+        Assert.Equal(
+            count.GetProperty("total").GetInt32(),
+            definitions + forwarders);
+        Assert.Equal(
+            definitions,
+            count.GetProperty("classes").GetInt32()
+                + count.GetProperty("structs").GetInt32()
+                + count.GetProperty("interfaces").GetInt32()
+                + count.GetProperty("enums").GetInt32()
+                + count.GetProperty("delegates").GetInt32());
+        JsonElement work = document.GetProperty("work");
+        Assert.True(work.GetProperty("assemblyBytes").GetInt32() > 0);
+        Assert.True(work.GetProperty("metadataRows").GetInt64() > 0);
         Assert.True(
-            document.GetProperty("publicTypeCount")
-                .GetInt32() > 0);
+            work.GetProperty("retainedDeclarations").GetInt32() > 0);
+        Assert.True(
+            work.GetProperty("retainedTextCharacters").GetInt64() > 0);
         Assert.Equal(
             "nonProjectable",
             root.GetProperty("share")
@@ -342,7 +364,7 @@ public partial class CommandExecutionTests
         string outputPath =
             Path.Combine(
                 Path.GetTempPath(),
-                $"library-overview-{Guid.NewGuid():N}.json");
+                $"library-inspection-{Guid.NewGuid():N}.json");
         try
         {
             var (exit, output, error) = await RunAppAsync(
@@ -366,7 +388,7 @@ public partial class CommandExecutionTests
             using JsonDocument json =
                 JsonDocument.Parse(payload);
             Assert.Equal(
-                "library-overview",
+                "library-inspection",
                 json.RootElement
                     .GetProperty("result_kind")
                     .GetString());

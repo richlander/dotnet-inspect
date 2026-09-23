@@ -1,7 +1,4 @@
 using System.Collections.Immutable;
-using System.Reflection.Metadata;
-using System.Reflection.Metadata.Ecma335;
-using System.Reflection.PortableExecutable;
 using System.Text;
 
 using CSharpText;
@@ -465,12 +462,6 @@ public static partial class SourceHouse
                     work));
         }
 
-        SourceHousePhysicalTargetEvidence physicalTarget =
-            CreatePhysicalTargetEvidence(
-                assemblyBytes,
-                surface,
-                request.Target);
-
         var observations =
             new List<SourceHouseNativeObservation>();
         void Log(string detail) =>
@@ -679,7 +670,6 @@ public static partial class SourceHouse
                 pdb,
                 mapping.Mapping,
                 candidate,
-                physicalTarget,
                 mappingWork,
                 Terminal: null);
         }
@@ -1215,39 +1205,6 @@ public static partial class SourceHouse
                         continue;
                     }
 
-                    var resultIdentity =
-                        new SourceHouseResultIdentity();
-                    SourceHousePhysicalSourceEncoding physicalEncoding =
-                        SourceHousePhysicalSourceEncodings.Detect(
-                            bytes);
-                    if (available.PhysicalInput is not null
-                        && !SourceHousePhysicalSourceEncodings.IsValid(
-                            bytes,
-                            physicalEncoding))
-                    {
-                        attempts.Add(
-                            Attempt(
-                                capability,
-                                SourceHouseSourceAttemptKind.Failed,
-                                bytes.Length,
-                                verification,
-                                new(
-                                    "PhysicalSourceEncodingInvalid")));
-                        observedFailure ??= new(
-                            SourceHouseFailureStage
-                                .SourceVerification,
-                            "PhysicalSourceEncodingInvalid");
-                        continue;
-                    }
-                    SourceHousePhysicalSourceEvidence? physicalSource =
-                        available.PhysicalInput is { } physicalInput
-                            ? new(
-                                resultIdentity,
-                                physicalInput,
-                                SourceHouseSha256Digest.Compute(bytes),
-                                physicalEncoding,
-                                text.Length)
-                            : null;
                     sourceCharacters =
                         checked(sourceCharacters + text.Length);
                     if (sourceCharacters
@@ -1367,35 +1324,17 @@ public static partial class SourceHouse
                             attempts);
                     }
                     attempts.Add(selected);
-                    PhysicalDeclarationSettlement physical =
-                        await SettlePhysicalDeclarationAsync(
-                                request,
-                                prepared,
-                                capability,
-                                physicalSource,
-                                operationDeadline,
-                                operationCancellation,
-                                cancellationToken)
-                            .ConfigureAwait(false);
                     var authored =
                         new SourceHouseAuthoredAttempt.Available(
-                            resultIdentity,
                             text,
                             prepared.Mapping,
                             selected,
                             attempts,
-                            physicalSource,
                             memberDocument);
                     return new AvailableOutcome(
                         prepared.PdbContribution,
                         authored,
-                        prepared.PhysicalTarget,
-                        physical.Outcome,
-                        Charge() with
-                        {
-                            AttestationContributionsObserved =
-                                physical.ContributionsObserved,
-                        });
+                        Charge());
                 default:
                     throw new InvalidOperationException(
                         "Unknown source capability outcome.");
@@ -1504,536 +1443,6 @@ public static partial class SourceHouse
                     ChecksumVerification: null,
                     outcome.Observation));
         }
-    }
-
-    private static async ValueTask<PhysicalDeclarationSettlement>
-        SettlePhysicalDeclarationAsync(
-            SourceHouseAuthoredRequest request,
-            PreparedAuthoredSource prepared,
-            ISourceHouseSourceCapability selectedCapability,
-            SourceHousePhysicalSourceEvidence? physicalSource,
-            DeadlineCancellation operationDeadline,
-            CancellationToken operationCancellation,
-            CancellationToken callerCancellation)
-    {
-        if (physicalSource is null)
-        {
-            return Physical(
-                new SourceHousePhysicalDeclarationOutcome.Unavailable(
-                    Receipt(
-                        capability: null,
-                        issuer: null,
-                        profile: null,
-                        generation: null,
-                        contributionsObserved: 0),
-                    new("SourceResultHasNoPhysicalInputIdentity")),
-                0);
-        }
-        if (prepared.Mapping.IsPartial)
-        {
-            return Physical(
-                new SourceHousePhysicalDeclarationOutcome.Unavailable(
-                    Receipt(
-                        capability: null,
-                        issuer: null,
-                        profile: null,
-                        generation: null,
-                        contributionsObserved: 0),
-                    new("PartialDeclarationUnsupported")),
-                0);
-        }
-        SourceHousePhysicalTargetEvidence physicalTarget =
-            prepared.PhysicalTarget;
-        if (physicalTarget.XmlDocumentationIdentity
-            is not { } xmlDocumentationIdentity)
-        {
-            return Physical(
-                new SourceHousePhysicalDeclarationOutcome.Unavailable(
-                    Receipt(
-                        capability: null,
-                        issuer: null,
-                        profile: null,
-                        generation: null,
-                        contributionsObserved: 0),
-                    new("TargetOutsideSupportedProfile")),
-                0);
-        }
-        if (selectedCapability
-            is not ISourceHousePhysicalDeclarationCapability capability)
-        {
-            return Physical(
-                new SourceHousePhysicalDeclarationOutcome.Unavailable(
-                    Receipt(
-                        capability: null,
-                        issuer: null,
-                        profile: null,
-                        generation: null,
-                        contributionsObserved: 0),
-                    new("SelectedCapabilityHasNoAttestationAuthority")),
-                0);
-        }
-
-        SourceHouseAttestationCapabilityOutcome capabilityOutcome;
-        try
-        {
-            capabilityOutcome =
-                await capability.ReadAttestationsAsync(
-                        new(
-                            request.Identity,
-                            request.Library,
-                            request.SelectedAssembly,
-                            request.Plan.Identity,
-                            request.Plan.PolicyGeneration,
-                            physicalTarget,
-                            physicalSource),
-                        request.Plan.Limits
-                            .MaximumAttestationContributions,
-                        operationCancellation)
-                    .ConfigureAwait(false)
-                ?? throw new InvalidOperationException(
-                    "An attestation capability returned no outcome.");
-        }
-        catch (OperationCanceledException exception)
-        {
-            callerCancellation.ThrowIfCancellationRequested();
-            if (operationDeadline.IsDeadlineCancellationRequested)
-            {
-                return Physical(
-                    new SourceHousePhysicalDeclarationOutcome.Incomplete(
-                        Receipt(
-                            capability.Identity,
-                            capability.Issuer,
-                            capability.Profile,
-                            capability.Generation,
-                            contributionsObserved: 0),
-                        new(
-                            "DeadlineExpiredDuringAttestation",
-                            ExceptionDetail(exception))),
-                    0);
-            }
-
-            throw;
-        }
-        catch (Exception exception) when (
-            exception is IOException
-                or UnauthorizedAccessException
-                or InvalidOperationException
-                or ArgumentException
-                or NotSupportedException)
-        {
-            callerCancellation.ThrowIfCancellationRequested();
-            return Physical(
-                new SourceHousePhysicalDeclarationOutcome.Failed(
-                    Receipt(
-                        capability.Identity,
-                        capability.Issuer,
-                        capability.Profile,
-                        capability.Generation,
-                        contributionsObserved: 0),
-                    new(
-                        "AttestationCapabilityThrew",
-                        ExceptionDetail(exception))),
-                0);
-        }
-
-        callerCancellation.ThrowIfCancellationRequested();
-        if (DeadlineExpired(request.Plan))
-        {
-            return Physical(
-                new SourceHousePhysicalDeclarationOutcome.Incomplete(
-                    Receipt(
-                        capability.Identity,
-                        capability.Issuer,
-                        capability.Profile,
-                        capability.Generation,
-                        Contributions(capabilityOutcome)),
-                    new("DeadlineExpiredAfterAttestation")),
-                Contributions(capabilityOutcome));
-        }
-
-        return capabilityOutcome switch
-        {
-            SourceHouseAttestationCapabilityOutcome.Unavailable unavailable =>
-                Physical(
-                    new SourceHousePhysicalDeclarationOutcome.Unavailable(
-                        Receipt(
-                            capability.Identity,
-                            capability.Issuer,
-                            capability.Profile,
-                            capability.Generation,
-                            contributionsObserved: 0),
-                        unavailable.Observation!),
-                    0),
-            SourceHouseAttestationCapabilityOutcome.Rejected rejected =>
-                Physical(
-                    new SourceHousePhysicalDeclarationOutcome.Rejected(
-                        Receipt(
-                            capability.Identity,
-                            capability.Issuer,
-                            capability.Profile,
-                            capability.Generation,
-                            contributionsObserved: 0),
-                        rejected.Observation!),
-                    0),
-            SourceHouseAttestationCapabilityOutcome.Failed failed =>
-                Physical(
-                    new SourceHousePhysicalDeclarationOutcome.Failed(
-                        Receipt(
-                            capability.Identity,
-                            capability.Issuer,
-                            capability.Profile,
-                            capability.Generation,
-                            contributionsObserved: 0),
-                        failed.Observation!),
-                    0),
-            SourceHouseAttestationCapabilityOutcome.Incomplete incomplete =>
-                Physical(
-                    new SourceHousePhysicalDeclarationOutcome.Incomplete(
-                        Receipt(
-                            capability.Identity,
-                            capability.Issuer,
-                            capability.Profile,
-                            capability.Generation,
-                            incomplete.ContributionsObserved),
-                        incomplete.Observation!),
-                    incomplete.ContributionsObserved),
-            SourceHouseAttestationCapabilityOutcome.Available available =>
-                Validate(available),
-            _ => throw new InvalidOperationException(
-                "Unknown attestation capability outcome."),
-        };
-
-        PhysicalDeclarationSettlement Validate(
-            SourceHouseAttestationCapabilityOutcome.Available available)
-        {
-            IReadOnlyList<SourceHousePhysicalDeclarationAttestation>
-                attestations = available.Attestations;
-            int observed = attestations.Count;
-            SourceHousePhysicalDeclarationReceipt receipt = Receipt(
-                capability.Identity,
-                capability.Issuer,
-                capability.Profile,
-                capability.Generation,
-                observed);
-            if (observed
-                > request.Plan.Limits.MaximumAttestationContributions)
-            {
-                return Physical(
-                    new SourceHousePhysicalDeclarationOutcome.Incomplete(
-                        receipt,
-                        new("AttestationContributionLimitExceeded")),
-                    observed);
-            }
-            if (observed == 0)
-            {
-                return Physical(
-                    new SourceHousePhysicalDeclarationOutcome.Unavailable(
-                        receipt,
-                        available.Observation
-                        ?? new("NoPhysicalDeclarationAttestation")),
-                    observed);
-            }
-
-            var claims =
-                new HashSet<(int Start, int Length, string SyntaxKind)>();
-            bool rejected = false;
-            bool incomplete = false;
-            foreach (
-                SourceHousePhysicalDeclarationAttestation attestation
-                in attestations)
-            {
-                if (!ReferenceEquals(
-                        attestation.Request,
-                        request.Identity)
-                    || !ReferenceEquals(
-                        attestation.Library,
-                        request.Library)
-                    || !ReferenceEquals(
-                        attestation.SelectedAssembly,
-                        request.SelectedAssembly)
-                    || !ReferenceEquals(
-                        attestation.OperationPlan,
-                        request.Plan.Identity)
-                    || !ReferenceEquals(
-                        attestation.PolicyGeneration,
-                        request.Plan.PolicyGeneration)
-                    || !MatchesIssuer(
-                        attestation.Issuer,
-                        capability.Issuer)
-                    || !MatchesProfile(
-                        attestation.Profile,
-                        capability.Profile)
-                    || !MatchesGeneration(
-                        attestation.Generation,
-                        capability.Generation)
-                    || !attestation.ModuleDigest.Matches(
-                        physicalTarget.ModuleDigest)
-                    || attestation.Target
-                        != physicalTarget.Address
-                    || !Equals(
-                        attestation.XmlDocumentationIdentity,
-                        xmlDocumentationIdentity)
-                    || !ReferenceEquals(
-                        attestation.SourceResult,
-                        physicalSource.Result)
-                    || !ReferenceEquals(
-                        attestation.SourceInput,
-                        physicalSource.Input)
-                    || !attestation.SourceDigest.Matches(
-                        physicalSource.ContentDigest)
-                    || attestation.SourceEncoding
-                        != physicalSource.Encoding
-                    || attestation.Span.Length == 0
-                    || (long)attestation.Span.Start
-                        + attestation.Span.Length
-                        > physicalSource.RawUtf16Length
-                    || !CompatibleSyntaxKind(
-                        attestation.Target,
-                        attestation.SyntaxKind))
-                {
-                    rejected = true;
-                    continue;
-                }
-
-                if (attestation.Span.Length
-                    > request.Plan.Limits
-                        .MaximumPhysicalDeclarationCharacters)
-                {
-                    incomplete = true;
-                    continue;
-                }
-
-                claims.Add(
-                    (
-                        attestation.Span.Start,
-                        attestation.Span.Length,
-                        attestation.SyntaxKind.Name));
-            }
-
-            if (incomplete)
-            {
-                return Physical(
-                    new SourceHousePhysicalDeclarationOutcome.Incomplete(
-                        receipt,
-                        new("PhysicalDeclarationCharacterLimitExceeded")),
-                    observed);
-            }
-            if (rejected)
-            {
-                return Physical(
-                    new SourceHousePhysicalDeclarationOutcome.Rejected(
-                        receipt,
-                        new("AttestationAssociationMismatch")),
-                    observed);
-            }
-            if (claims.Count != 1)
-            {
-                return Physical(
-                    new SourceHousePhysicalDeclarationOutcome.Conflict(
-                        receipt,
-                        new("PhysicalDeclarationClaimsDisagree"),
-                        claims
-                            .OrderBy(static claim => claim.Start)
-                            .ThenBy(static claim => claim.Length)
-                            .ThenBy(static claim => claim.SyntaxKind)
-                            .Select(static claim =>
-                                new SourceHousePhysicalDeclarationClaim(
-                                    new(
-                                        claim.Start,
-                                        claim.Length),
-                                    SourceHouseDeclarationSyntaxKind
-                                        .Create(
-                                            claim.SyntaxKind)))
-                            .ToArray()),
-                    observed);
-            }
-
-            (int start, int length, string syntaxKind) =
-                claims.Single();
-            return Physical(
-                new SourceHousePhysicalDeclarationOutcome.Exact(
-                    receipt,
-                    new(start, length),
-                    SourceHouseDeclarationSyntaxKind.Create(syntaxKind)),
-                observed);
-        }
-
-        SourceHousePhysicalDeclarationReceipt Receipt(
-            SourceHouseCapabilityIdentity? capability,
-            SourceHouseAttestationIssuerIdentity? issuer,
-            SourceHouseAttestationProfileIdentity? profile,
-            SourceHouseAttestationGeneration? generation,
-            int contributionsObserved) =>
-            new(
-                capability,
-                issuer,
-                profile,
-                generation,
-                prepared.PhysicalTarget,
-                physicalSource,
-                contributionsObserved);
-
-        static bool MatchesIssuer(
-            SourceHouseAttestationIssuerIdentity left,
-            SourceHouseAttestationIssuerIdentity right) =>
-            string.Equals(
-                left.Name,
-                right.Name,
-                StringComparison.Ordinal);
-
-        static bool MatchesProfile(
-            SourceHouseAttestationProfileIdentity left,
-            SourceHouseAttestationProfileIdentity right) =>
-            string.Equals(
-                left.Name,
-                right.Name,
-                StringComparison.Ordinal);
-
-        static bool MatchesGeneration(
-            SourceHouseAttestationGeneration left,
-            SourceHouseAttestationGeneration right) =>
-            string.Equals(
-                left.Name,
-                right.Name,
-                StringComparison.Ordinal);
-
-        static int Contributions(
-            SourceHouseAttestationCapabilityOutcome outcome) =>
-            outcome switch
-            {
-                SourceHouseAttestationCapabilityOutcome.Available
-                    available => available.Attestations.Count,
-                SourceHouseAttestationCapabilityOutcome.Incomplete
-                    incomplete =>
-                        incomplete.ContributionsObserved,
-                _ => 0,
-            };
-
-        static bool CompatibleSyntaxKind(
-            SourceHousePhysicalTargetAddress target,
-            SourceHouseDeclarationSyntaxKind syntaxKind) =>
-            target switch
-            {
-                SourceHousePhysicalTargetAddress.Type =>
-                    syntaxKind.Name
-                        is "ClassDeclaration"
-                            or "StructDeclaration"
-                            or "InterfaceDeclaration"
-                            or "EnumDeclaration"
-                            or "RecordDeclaration"
-                            or "RecordStructDeclaration"
-                            or "DelegateDeclaration",
-                SourceHousePhysicalTargetAddress.Method =>
-                    syntaxKind.Name
-                        is "MethodDeclaration"
-                            or "ConstructorDeclaration"
-                            or "DestructorDeclaration"
-                            or "OperatorDeclaration"
-                            or "ConversionOperatorDeclaration",
-                _ => false,
-            };
-
-        static PhysicalDeclarationSettlement Physical(
-            SourceHousePhysicalDeclarationOutcome outcome,
-            int contributionsObserved) =>
-            new(outcome, contributionsObserved);
-    }
-
-    private static SourceHousePhysicalTargetEvidence
-        CreatePhysicalTargetEvidence(
-            byte[] assemblyBytes,
-            ApiSurface surface,
-            SourceHouseTarget target)
-    {
-        ApiType type = surface.Types.Single(
-            candidate => candidate.DefinitionName == target.Type);
-        using var stream = new MemoryStream(
-            assemblyBytes,
-            writable: false);
-        using var peReader = new PEReader(stream);
-        MetadataReader reader = peReader.GetMetadataReader();
-        SourceHousePhysicalTargetAddress address;
-        XmlDocMemberIdentity? xmlIdentity;
-        if (target is SourceHouseTarget.TypeTarget)
-        {
-            if (type.MetadataToken is not { } typeToken)
-            {
-                throw new InvalidOperationException(
-                    "The exact type target has no metadata token.");
-            }
-            xmlIdentity =
-                ApiMemberIdentity.TryGetXmlDocTypeIdentity(
-                    type,
-                    out XmlDocMemberIdentity typeIdentity)
-                    ? typeIdentity
-                    : null;
-
-            EntityHandle handle = MetadataTokens.EntityHandle(typeToken);
-            if (handle.Kind != HandleKind.TypeDefinition)
-            {
-                throw new InvalidOperationException(
-                    "The exact type target does not identify a TypeDef row.");
-            }
-
-            address = new SourceHousePhysicalTargetAddress.Type(
-                MetadataTypeDefinitionAddress.FromHandle(
-                    reader,
-                    (TypeDefinitionHandle)handle));
-        }
-        else
-        {
-            var memberTarget =
-                (SourceHouseTarget.MemberTarget)target;
-            ApiMember[] members =
-            [
-                .. type.Members.Concat(
-                        type.Members.SelectMany(
-                            owner => ApiMemberAccessors.Create(
-                                owner,
-                                type)))
-                    .Where(candidate =>
-                        candidate.MetadataToken
-                            == memberTarget.MetadataToken
-                        && ApiMemberIdentity.GetMemberAnchor(
-                            type,
-                            candidate)
-                            == memberTarget.Member),
-            ];
-            XmlDocMemberIdentity[] identities =
-            [
-                .. members
-                    .Select(member =>
-                        ApiMemberIdentity.TryGetXmlDocMemberIdentity(
-                            type,
-                            member,
-                            out XmlDocMemberIdentity identity)
-                                ? identity
-                                : null)
-                    .OfType<XmlDocMemberIdentity>()
-                    .Distinct(),
-            ];
-            EntityHandle handle = MetadataTokens.EntityHandle(
-                memberTarget.MetadataToken);
-            if (handle.Kind != HandleKind.MethodDefinition)
-            {
-                throw new InvalidOperationException(
-                    "The exact member target does not identify a MethodDef row.");
-            }
-
-            xmlIdentity = identities.Length == 1
-                ? identities[0]
-                : null;
-            address = new SourceHousePhysicalTargetAddress.Method(
-                new MetadataMethodAddress(
-                    reader.GetGuid(
-                        reader.GetModuleDefinition().Mvid),
-                    (MethodDefinitionHandle)handle));
-        }
-
-        return new(
-            SourceHouseSha256Digest.Compute(assemblyBytes),
-            address,
-            xmlIdentity);
     }
 
     private static bool TargetExists(
@@ -2369,7 +1778,6 @@ public static partial class SourceHouse
         SourceHousePdbContribution PdbContribution,
         SourceHouseAuthoredMapping Mapping,
         SourceHouseSourceCandidate Candidate,
-        SourceHousePhysicalTargetEvidence PhysicalTarget,
         SourceHouseWorkCharge Work,
         ProvisionalOutcome? Terminal)
     {
@@ -2379,14 +1787,9 @@ public static partial class SourceHouse
                 PdbUnavailable(),
                 Mapping: null!,
                 Candidate: null!,
-                PhysicalTarget: null!,
                 EmptyWork(),
                 terminal);
     }
-
-    private sealed record PhysicalDeclarationSettlement(
-        SourceHousePhysicalDeclarationOutcome Outcome,
-        int ContributionsObserved);
 
     private sealed class SourceHouseDisposalException : Exception
     {
@@ -2580,8 +1983,6 @@ public static partial class SourceHouse
     private sealed record AvailableOutcome(
         SourceHousePdbContribution PdbContribution,
         SourceHouseAuthoredAttempt.Available Available,
-        SourceHousePhysicalTargetEvidence PhysicalTarget,
-        SourceHousePhysicalDeclarationOutcome PhysicalDeclaration,
         SourceHouseWorkCharge Work)
         : ProvisionalOutcome(PdbContribution, Available, Work)
     {
@@ -2592,8 +1993,6 @@ public static partial class SourceHouse
                 request,
                 PdbContribution,
                 Available,
-                PhysicalTarget,
-                PhysicalDeclaration,
                 Work,
                 settlement);
     }

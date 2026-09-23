@@ -23,9 +23,6 @@ public static class PackageAssemblyEvaluator
         ArgumentNullException.ThrowIfNull(budget);
         cancellationToken.ThrowIfCancellationRequested();
 
-        using var operation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        operation.CancelAfter(budget.MaximumDuration);
-        long started = Stopwatch.GetTimestamp();
         var subject = new PackageAssemblyEvaluationSubject(
             binding.CreateReacquisitionRequest(),
             binding.ContentGenerationIdentity,
@@ -37,12 +34,74 @@ public static class PackageAssemblyEvaluator
                 out PackageAssemblySelectedAssetContext? context);
         if (selectionOutcome is not null)
         {
-            ObserveCancellation();
+            cancellationToken.ThrowIfCancellationRequested();
             return selectionOutcome;
         }
         if (asset is null || context is null)
             throw new InvalidOperationException("A selected package evaluation requires one canonical asset.");
 
+        return await EvaluateSelectedAsync(
+            binding,
+            budget,
+            asset,
+            context,
+            cancellationToken).ConfigureAwait(false);
+    }
+
+    internal static Task<PackageAssemblyEvaluationOutcome>
+        EvaluateImplementationAssetAsync(
+            PackageRootBinding binding,
+            PackageAssemblyPatternRequest pattern,
+            PackageAssemblyEvaluationBudget budget,
+            PackageCompileAsset asset,
+            CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(binding);
+        ArgumentNullException.ThrowIfNull(pattern);
+        ArgumentNullException.ThrowIfNull(budget);
+        ArgumentNullException.ThrowIfNull(asset);
+        cancellationToken.ThrowIfCancellationRequested();
+        if (pattern.Pattern.Role != PackageAssemblyPatternRole.ImplementationBody)
+        {
+            throw new ArgumentException(
+                "An explicit implementation-asset evaluation requires an implementation-body pattern.",
+                nameof(pattern));
+        }
+
+        PackageCompileAssetSelection selection = binding.Root.AssetSelection;
+        var subject = new PackageAssemblyEvaluationSubject(
+            binding.CreateReacquisitionRequest(),
+            binding.ContentGenerationIdentity,
+            binding.SelectionIdentity,
+            pattern);
+        PackageAssemblySelectedAssetContext context =
+            SelectedContext(
+                subject,
+                asset,
+                selection.ImplementationAssets,
+                PackageAssemblyAssetSequence.Implementation,
+                siblings: 0);
+        return EvaluateSelectedAsync(
+            binding,
+            budget,
+            asset,
+            context,
+            cancellationToken);
+    }
+
+    private static async Task<PackageAssemblyEvaluationOutcome>
+        EvaluateSelectedAsync(
+            PackageRootBinding binding,
+            PackageAssemblyEvaluationBudget budget,
+            PackageCompileAsset asset,
+            PackageAssemblySelectedAssetContext context,
+            CancellationToken cancellationToken)
+    {
+        PackageAssemblyEvaluationSubject subject = context.Subject;
+        using var operation =
+            CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        operation.CancelAfter(budget.MaximumDuration);
+        long started = Stopwatch.GetTimestamp();
         var workspace = new InspectionWorkspace();
         PackageAssemblyEvaluationOutcome? outcome = null;
         ExceptionDispatchInfo? primary = null;

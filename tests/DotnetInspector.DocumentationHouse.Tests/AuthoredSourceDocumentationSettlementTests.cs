@@ -4,7 +4,6 @@ using CSharpText;
 using DotnetInspector.DocumentationHouse.Source;
 using DotnetInspector.Libraries;
 using DotnetInspector.SourceHouse;
-using DotnetInspector.SourceHouse.BuildAttestation;
 
 namespace DotnetInspector.DocumentationHouse.Tests;
 
@@ -14,14 +13,10 @@ public sealed partial class CompiledXmlDocumentationHouseTests
     public async Task
         RealCombinedDemand_RetainsBothAttemptsConflictAndSourceHouseSettlement()
     {
-        SourceHouseBuildAttestation attestation =
-            s_authoredBuildAttestation.Value;
-        var capability = new CountingAttestationCapability(attestation);
+        var capability = new CountingSourceCapability(SourceBytes());
         string identity;
         await using (LibraryFixture probe =
-            await LibraryFixture.CreateSourceAsync(
-                attestation.PeImage.ToArray(),
-                attestation.PortablePdbImage.ToArray()))
+            await CreateSourceLibraryAsync())
         {
             identity = AuthoredScenario
                 .Create(probe, capability)
@@ -34,8 +29,8 @@ public sealed partial class CompiledXmlDocumentationHouseTests
         byte[] xml = Xml(identity, "compiled-channel-summary");
         await using LibraryFixture library =
             await LibraryFixture.CreateSourceAsync(
-                attestation.PeImage.ToArray(),
-                attestation.PortablePdbImage.ToArray(),
+                File.ReadAllBytes(AssemblyPath()),
+                File.ReadAllBytes(PdbPath()),
                 xml);
         AuthoredScenario scenario =
             AuthoredScenario.Create(library, capability);
@@ -99,7 +94,6 @@ public sealed partial class CompiledXmlDocumentationHouseTests
                     StringComparison.Ordinal);
             });
         Assert.Equal(1, capability.SourceReads);
-        Assert.Equal(1, capability.AttestationReads);
         Assert.True(completed.Work.ParsedCompiledXml);
         Assert.NotNull(completed.Work.AuthoredSourceWork);
         Assert.Equal(
@@ -383,7 +377,7 @@ public sealed partial class CompiledXmlDocumentationHouseTests
                 new DocumentationAuthoredSourceOperationOutcome.Unavailable(
                     invocation,
                     DocumentationAuthoredUnavailableKind
-                        .PhysicalDeclarationConflict,
+                        .DeclarationAmbiguous,
                     EmptyAuthoredWork(),
                     OperationSettlement()),
             DocumentationAuthoredSourceAttemptKind.Ambiguous);
@@ -802,8 +796,7 @@ public sealed partial class CompiledXmlDocumentationHouseTests
             DocumentationSourceReference.Create(
                 DocumentationSourceKind.SourceHouse,
                 "scripted-source"),
-            new ScriptedSourceEvidence(),
-            new ScriptedPhysicalDeclarationEvidence());
+            new ScriptedSourceEvidence());
         return new DocumentationAuthoredSourceOperationOutcome.Produced(
             invocation,
             new(
@@ -814,7 +807,6 @@ public sealed partial class CompiledXmlDocumentationHouseTests
                 SourceBytesObserved: source.Length,
                 SourceTextCharactersObserved: source.Length,
                 SourceDocumentsObserved: 1,
-                AttestationContributionsObserved: 1,
                 documentation.Work),
             OperationSettlement());
     }
@@ -862,7 +854,6 @@ public sealed partial class CompiledXmlDocumentationHouseTests
             SourceBytesObserved: 0,
             SourceTextCharactersObserved: 0,
             SourceDocumentsObserved: 0,
-            AttestationContributionsObserved: 0,
             DocumentationWork: null);
 
     private static DocumentationAuthoredLeaseSettlement
@@ -924,9 +915,6 @@ public sealed partial class CompiledXmlDocumentationHouseTests
 
     private sealed class ScriptedSourceEvidence
         : DocumentationAuthoredSourceEvidenceReference;
-
-    private sealed class ScriptedPhysicalDeclarationEvidence
-        : DocumentationPhysicalDeclarationEvidenceReference;
 
     private sealed record ScriptedRequest(
         DocumentationHouseRequest Request,

@@ -47,7 +47,11 @@ internal static class ExternalCallGraphOutputAdapter
         }
         else if (options.Tree)
         {
-            WriteGraph(document, rows, OutputFormat.PlainText);
+            WriteGraph(
+                document,
+                rows,
+                OutputFormat.PlainText,
+                GraphTitle(options));
         }
         else
         {
@@ -58,19 +62,22 @@ internal static class ExternalCallGraphOutputAdapter
                         document,
                         rows,
                         OutputFormat.Markdown,
+                        GraphTitle(options),
                         embeddedMermaid: options.EmbeddedMermaid);
                     break;
                 case OutputFormat.PlainText:
                     WriteGraph(
                         document,
                         rows,
-                        OutputFormat.PlainText);
+                        OutputFormat.PlainText,
+                        GraphTitle(options));
                     break;
                 case OutputFormat.Mermaid:
                     WriteGraph(
                         document,
                         rows,
-                        OutputFormat.Mermaid);
+                        OutputFormat.Mermaid,
+                        GraphTitle(options));
                     break;
                 case OutputFormat.Table:
                     WriteTable(rows, options.NoHeader);
@@ -220,19 +227,21 @@ internal static class ExternalCallGraphOutputAdapter
         InspectionGraphDocument document,
         IReadOnlyList<ExternalCallGraphRow> rows,
         OutputFormat format,
+        string title,
         bool embeddedMermaid = false)
     {
         Markout.Graph graph = BuildGraph(document, rows);
         if (format == OutputFormat.Markdown)
         {
-            Console.WriteLine("# External Call Graph");
+            Console.Write("# ");
+            Console.WriteLine(title);
             Console.WriteLine();
             WriteFocus(document);
             Console.WriteLine();
             if (rows.Count == 0)
             {
                 Console.WriteLine(
-                    "No external boundary calls were found in the explicit package context.");
+                    "No out-of-baseline package calls were found in the explicit package context.");
                 return;
             }
         }
@@ -250,6 +259,12 @@ internal static class ExternalCallGraphOutputAdapter
         writer.WriteGraph(graph);
         writer.Flush();
     }
+
+    static string GraphTitle(ExternalCallGraphOptions options) =>
+        options.SupplyChainBaseline
+            is MemberCallGraphSupplyChainBaseline.Nothing
+            ? "External Call Graph"
+            : "Supply Chain Call Graph";
 
     static void WriteFocus(InspectionGraphDocument document)
     {

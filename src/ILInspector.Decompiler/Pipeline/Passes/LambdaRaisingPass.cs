@@ -465,6 +465,8 @@ public sealed class LambdaRaisingPass : IIrPass
             LocalDeclarationBindings = body.LocalDeclarationBindings,
             PdbLocalNameCandidates = body.PdbLocalNameCandidates,
             LocalNameImportCauses = body.LocalNameImportCauses,
+            MaterializedStackSlotLocals =
+                body.MaterializedStackSlotLocals,
             CapturedBinderNames = capturedBinderNames.IsDefault ? [] : capturedBinderNames,
         };
         lambda.InheritSourceOffset(provenance);

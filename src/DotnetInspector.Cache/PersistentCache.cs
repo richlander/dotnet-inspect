@@ -292,6 +292,26 @@ public static class PersistentCache
     }
 
     /// <summary>
+    /// Removes one cached entry. Returns whether an entry existed and was
+    /// removed; a missing entry or a failed delete returns false.
+    /// </summary>
+    public static bool Remove(string category, string key, string extension = "json")
+    {
+        try
+        {
+            var path = GetFilePath(category, key, extension);
+            if (!File.Exists(path))
+                return false;
+            File.Delete(path);
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    /// <summary>
     /// Stores content in the cache under the given category and key.
     /// Best-effort — failures are silently ignored.
     /// </summary>

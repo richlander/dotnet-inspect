@@ -29,6 +29,9 @@ public class StackSlotDeclarationTests
             [String],
             body);
 
+        new SlotMaterializationPass().Run(
+            function,
+            PassContext.None);
         string output = CSharpPrinter.Print(function).Output!.ReplaceLineEndings("\n");
 
         Assert.DoesNotContain("Unsafe.NullRef", output);

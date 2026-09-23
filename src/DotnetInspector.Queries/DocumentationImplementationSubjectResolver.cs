@@ -57,6 +57,11 @@ public static class DocumentationImplementationSubjectResolver
             return new DocumentationImplementationSubjectResolution
                 .Unavailable();
         }
+        if (subject.MethodSemantics is not ApiMethodSemanticsKind.None)
+        {
+            return new DocumentationImplementationSubjectResolution
+                .Unavailable();
+        }
         if (ReferenceEquals(library.ApiAssembly, implementation)
             && subject.MetadataToken is { } metadataToken)
         {
@@ -178,6 +183,7 @@ public static class DocumentationImplementationSubjectResolver
                         type.DefinitionName!,
                         ApiMemberIdentity.GetMemberAnchor(type, member),
                         metadataToken,
+                        member.MethodSemantics,
                         xmlIdentity);
             }
         }
@@ -217,7 +223,7 @@ public static class DocumentationImplementationSubjectResolver
     {
         private static readonly
             DocumentationAuthoredSourceOperationWorkCharge s_emptyWork =
-                new(0, 0, 0, 0, DocumentationWork: null);
+                new(0, 0, 0, DocumentationWork: null);
 
         private readonly DocumentationAuthoredSourceOperationBinding
             _binding;

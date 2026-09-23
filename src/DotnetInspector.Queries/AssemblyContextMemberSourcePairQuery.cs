@@ -115,7 +115,9 @@ public static partial class AssemblyContextMemberSourcePairQuery
         AssemblyContextParticipant afterParticipant,
         AssemblyMemberSourcePairRequest request,
         AssemblyContextSourceQueryContext context,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        Action<AssemblyMemberSourcePairEndpoint, AssemblyMemberSourcePairEndpoint>?
+            admitEndpoints = null)
     {
         ArgumentNullException.ThrowIfNull(beforeGroup);
         ArgumentNullException.ThrowIfNull(beforeParticipant);
@@ -164,7 +166,16 @@ public static partial class AssemblyContextMemberSourcePairQuery
             {
                 return Failed(afterFailed.Failure);
             }
+        }
+        catch (Exception ex) when (AssemblyContextSourceQuery.IsInspectionFailure(ex))
+        {
+            return Failed(AssemblyContextSourceQuery.InspectionFailure(ex));
+        }
 
+        admitEndpoints?.Invoke(before, after);
+
+        try
+        {
             if (before is not AssemblyMemberSourcePairEndpoint.Resolved
                 {
                     Source: AssemblyMemberPdbSourceAttempt.Available beforeSource,

@@ -136,7 +136,14 @@ internal sealed class ApiMemberAnalysisInspection
         }
     }
 
-    internal Analysis.LibraryBodyIndex BodyIndex => Session.BodyIndex;
+    internal Analysis.LibraryAllocationAnalysisResult Allocations =>
+        Session.AnalysisExecution.Allocations;
+
+    internal Analysis.LibrarySafetyAnalysisResult Safety =>
+        Session.AnalysisExecution.Safety;
+
+    internal Analysis.LibraryCallGraphAnalysisResult CallGraph =>
+        Session.AnalysisExecution.CallGraph;
 
     internal MemberProjectionAnalysisInput? ResearchAnalysis =>
         _includeResearchAnalysis

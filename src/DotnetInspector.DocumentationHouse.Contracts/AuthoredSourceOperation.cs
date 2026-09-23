@@ -146,17 +146,9 @@ public abstract class DocumentationAuthoredSourceEvidenceReference
     }
 }
 
-public abstract class DocumentationPhysicalDeclarationEvidenceReference
-{
-    protected DocumentationPhysicalDeclarationEvidenceReference()
-    {
-    }
-}
-
 public sealed record DocumentationAuthoredSourceOperationEvidence(
     DocumentationSourceReference Source,
-    DocumentationAuthoredSourceEvidenceReference AuthoredSource,
-    DocumentationPhysicalDeclarationEvidenceReference PhysicalDeclaration);
+    DocumentationAuthoredSourceEvidenceReference AuthoredSource);
 
 public sealed class DocumentationAuthoredSourceContribution
 {
@@ -199,8 +191,6 @@ public enum DocumentationAuthoredSourceOperationOutcomeKind
 public enum DocumentationAuthoredUnavailableKind
 {
     SourceUnavailable,
-    PhysicalDeclarationUnavailable,
-    PhysicalDeclarationConflict,
     DeclarationNotFound,
     DeclarationAmbiguous,
     DeclarationUncertain,
@@ -213,13 +203,11 @@ public enum DocumentationAuthoredRejectionKind
     LeaseReferenceMismatch,
     SourceRejected,
     SourceEvidenceMismatch,
-    PhysicalDeclarationRejected,
 }
 
 public enum DocumentationAuthoredFailureKind
 {
     SourceFailed,
-    PhysicalDeclarationFailed,
     MalformedDocumentation,
 }
 
@@ -231,7 +219,6 @@ public enum DocumentationAuthoredIncompleteBoundary
     SourceBytes,
     SourceCharacters,
     SourceHouse,
-    PhysicalDeclaration,
     Documentation,
 }
 
@@ -262,7 +249,6 @@ public sealed record DocumentationAuthoredSourceOperationWorkCharge(
     long SourceBytesObserved,
     long SourceTextCharactersObserved,
     int SourceDocumentsObserved,
-    int AttestationContributionsObserved,
     CSharpAuthoredDocumentationWork? DocumentationWork);
 
 public enum DocumentationAuthoredLeaseConsumer

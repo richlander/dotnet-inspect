@@ -330,6 +330,7 @@ internal enum MetadataOperationWorkKind
     TypeDefinitionIndexTextRetention,
     InterfaceImplementationRowRead,
     MethodDeclarationPublication,
+    TypeDeclarationPublication,
 }
 
 internal sealed class MetadataOperationBudgetExceededException(

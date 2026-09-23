@@ -105,7 +105,9 @@ public static class PlatformHousePopulationArtifactMaterializer
                 completed)
         {
             PlatformHouseFailureKind[] failures =
-                await RetireCompletedAsync(completed).ConfigureAwait(false);
+                [.. (await PlatformPopulationAuthorityRetirement
+                    .RetireAsync(completed)
+                    .ConfigureAwait(false)).FailureKinds];
             if (failures.Length != 0)
             {
                 return Failed(
@@ -809,35 +811,6 @@ public static class PlatformHousePopulationArtifactMaterializer
     static PlatformPopulationArtifactMaterializationOutcome.Terminal Terminal(
         PlatformPopulationRealizationResult result) =>
         new((PlatformPopulationRealizationResult.Terminal)result);
-
-    static async ValueTask<PlatformHouseFailureKind[]> RetireCompletedAsync(
-        PlatformPopulationArtifactMaterializationOutcome.Completed completed)
-    {
-        var failures = new List<PlatformHouseFailureKind>();
-        foreach (LibraryContentOwner owner in completed.Population.Owners)
-        {
-            try
-            {
-                await owner.DisposeAsync().ConfigureAwait(false);
-            }
-            catch
-            {
-                failures.Add(PlatformHouseFailureKind.LibraryRetirement);
-            }
-        }
-        try
-        {
-            await completed.Artifacts.DisposeAsync().ConfigureAwait(false);
-        }
-        catch
-        {
-            failures.Add(PlatformHouseFailureKind.ArtifactRetirement);
-        }
-        if (completed.Artifacts.CleanupFailures.Count != 0)
-            failures.Add(PlatformHouseFailureKind.ArtifactRetirement);
-
-        return [.. failures.Distinct()];
-    }
 
     static PlatformPopulationArtifactMaterializationOutcome Rejected(
         PlatformHouseReceipt priorReceipt,

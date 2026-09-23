@@ -7,6 +7,7 @@ using DotnetInspector.Packages;
 using DotnetInspector.Platforms;
 using DotnetInspector.Queries;
 using DotnetInspector.Sections;
+using DotnetInspector.SourceSelection;
 using ILInspector.Metadata;
 using NuGet.Versioning;
 using NuGetFetch;
@@ -115,6 +116,9 @@ public sealed partial class PackageHouseExecutionTests
                 GraphMember(
                     available.Document.Graph.Nodes[edge.ToNodeId]).Name));
         Assert.Equal(
+            "boundary",
+            ExternalFocusRole(available.Document.Graph, edge));
+        Assert.Equal(
             [
                 (
                     edge.FromNodeId,
@@ -140,7 +144,6 @@ public sealed partial class PackageHouseExecutionTests
             [
                 "call.traversal-incomplete",
                 "call.correspondence-incomplete",
-                "queries.call.external-boundary-classification-incomplete",
             ],
             envelope.Diagnostics.Select(
                 diagnostic => diagnostic.Correspondence!.ToString()));
@@ -275,9 +278,12 @@ public sealed partial class PackageHouseExecutionTests
                     [rootBinding],
                     DateTimeOffset.UtcNow.AddMinutes(1),
                     TestContext.Current.CancellationToken)).Snapshot;
+        WorkspaceRegistrationRevision graphRegistrations =
+            CurrentRegistrations(workspace);
         var request = new PackageDependencyMemberCallGraphRequest(
             workspace,
             rooted,
+            graphRegistrations,
             traversal,
             [rootBinding],
             [execution],
@@ -291,7 +297,29 @@ public sealed partial class PackageHouseExecutionTests
             new(
                 maxDepth: 2,
                 maxNodes: 10),
-            DateTimeOffset.UtcNow.AddMinutes(1));
+            DateTimeOffset.UtcNow.AddMinutes(1),
+            supplyChainBaseline:
+                MemberCallGraphSupplyChainBaseline
+                    .SelfAndRegisteredEcosystems);
+        var laterEcosystem =
+            new WorkspaceEcosystemRegistrationDeclaration(
+                WorkspaceEcosystemRegistrationId.Create(
+                    "ecosystem.later"),
+                [],
+                [],
+                [
+                    new WorkspaceEcosystemPopulationDeclaration
+                        .PackagePrefix(
+                            new PackagePrefixDeclaration(
+                                CallGraphTargetPackage)),
+                ]);
+        Assert.IsType<WorkspaceRegistrationOperationResult.Committed>(
+            workspace.ReplaceRegistrations(
+                graphRegistrations,
+                [
+                    new WorkspaceRegistration.Ecosystem(
+                        laterEcosystem),
+                ]));
 
         PackageDependencyMemberCallGraphOutcome.Completed completed =
             Assert.IsType<
@@ -317,6 +345,7 @@ public sealed partial class PackageHouseExecutionTests
         Assert.Equal(
             "net12.0",
             completed.TraversalTargetPolicy.TargetFramework);
+        Assert.Empty(completed.Baseline.RegisteredEcosystems);
         WorkspaceScopeSnapshot finalScope =
             await CurrentScopeAsync(workspace);
         Assert.Equal(
@@ -385,6 +414,7 @@ public sealed partial class PackageHouseExecutionTests
         var request = new PackageDependencyMemberCallGraphRequest(
             workspace,
             rooted,
+            CurrentRegistrations(workspace),
             traversal,
             [rootBinding],
             [],
@@ -475,6 +505,7 @@ public sealed partial class PackageHouseExecutionTests
         var request = new PackageDependencyMemberCallGraphRequest(
             workspace,
             rooted,
+            CurrentRegistrations(workspace),
             traversal,
             [requestBinding],
             [execution],
@@ -569,6 +600,7 @@ public sealed partial class PackageHouseExecutionTests
         var request = new PackageDependencyMemberCallGraphRequest(
             workspace,
             rooted,
+            CurrentRegistrations(workspace),
             traversal,
             [rootBinding],
             [execution],
@@ -666,6 +698,7 @@ public sealed partial class PackageHouseExecutionTests
         var request = new PackageDependencyMemberCallGraphRequest(
             workspace,
             rooted,
+            CurrentRegistrations(workspace),
             traversal,
             [rootBinding],
             [.. executions.Reverse()],
@@ -752,6 +785,7 @@ public sealed partial class PackageHouseExecutionTests
         var request = new PackageDependencyMemberCallGraphRequest(
             workspace,
             rooted,
+            CurrentRegistrations(workspace),
             traversal,
             [rootBinding],
             [execution],
@@ -844,6 +878,7 @@ public sealed partial class PackageHouseExecutionTests
         var request = new PackageDependencyMemberCallGraphRequest(
             workspace,
             rooted,
+            CurrentRegistrations(workspace),
             traversal,
             [rootBinding],
             [execution],
@@ -935,6 +970,7 @@ public sealed partial class PackageHouseExecutionTests
         var request = new PackageDependencyMemberCallGraphRequest(
             workspace,
             rooted,
+            CurrentRegistrations(workspace),
             traversal,
             [rootBinding],
             [execution],
@@ -1018,7 +1054,24 @@ public sealed partial class PackageHouseExecutionTests
                         platformTarget: platformTarget),
                     inventory));
 
-        await using var workspace = new InspectionWorkspace();
+        var platformEcosystem =
+            new WorkspaceEcosystemRegistrationDeclaration(
+                WorkspaceEcosystemRegistrationId.Create(
+                    "ecosystem.runtime"),
+                [],
+                [],
+                [
+                    new WorkspaceEcosystemPopulationDeclaration
+                        .PackagePrefix(
+                            new PackagePrefixDeclaration(
+                                CallGraphTargetPackage)),
+                ]);
+        await using var workspace = new InspectionWorkspace(
+            new WorkspacePlan(
+                [
+                    new WorkspaceRegistration.Ecosystem(
+                        platformEcosystem),
+                ]));
         WorkspaceScopeSnapshot empty = await CurrentScopeAsync(workspace);
         WorkspaceScopeSnapshot rooted =
             Assert.IsType<WorkspaceScopeOperationResult.Committed>(
@@ -1031,6 +1084,7 @@ public sealed partial class PackageHouseExecutionTests
         var request = new PackageDependencyMemberCallGraphRequest(
             workspace,
             rooted,
+            CurrentRegistrations(workspace),
             traversal,
             [rootBinding],
             [execution],
@@ -1044,7 +1098,10 @@ public sealed partial class PackageHouseExecutionTests
             new(
                 maxDepth: 2,
                 maxNodes: 10),
-            DateTimeOffset.UtcNow.AddMinutes(1));
+            DateTimeOffset.UtcNow.AddMinutes(1),
+            supplyChainBaseline:
+                MemberCallGraphSupplyChainBaseline
+                    .SelfAndRegisteredEcosystems);
 
         PackageDependencyMemberCallGraphOutcome.Completed completed =
             Assert.IsType<
@@ -1065,6 +1122,19 @@ public sealed partial class PackageHouseExecutionTests
         Assert.True(destination.Supply.DelegatesToPlatform);
         Assert.Empty(environment.Clients[0].PayloadPackageIds);
         Assert.Single((await CurrentScopeAsync(workspace)).Packages);
+        Assert.Equal(
+            MemberCallGraphSupplyChainBaseline
+                .SelfAndRegisteredEcosystems,
+            completed.Baseline.Kind);
+        Assert.Equal(
+            ["ecosystem.runtime"],
+            completed.Baseline.RegisteredEcosystems);
+        Assert.DoesNotContain(
+            completed.NodePackages,
+            subject => string.Equals(
+                subject.Descriptor.PackageId,
+                CallGraphTargetPackage,
+                StringComparison.OrdinalIgnoreCase));
         InspectionGraphEdge edge = Assert.Single(completed.Graph.Edges);
         Assert.Equal(
             ("RunAcrossBoundary", "Forward"),
@@ -1073,6 +1143,9 @@ public sealed partial class PackageHouseExecutionTests
                     completed.Graph.Nodes[edge.FromNodeId]).Name,
                 GraphMember(
                     completed.Graph.Nodes[edge.ToNodeId]).Name));
+        Assert.Equal(
+            "unclassified-boundary",
+            ExternalFocusRole(completed.Graph, edge));
         await environment.AssertRootSettledAsync();
     }
 
@@ -1167,4 +1240,24 @@ public sealed partial class PackageHouseExecutionTests
                 node.Subject)
                 .Identity)
             .Member;
+
+    private static string ExternalFocusRole(
+        InspectionGraphDocument document,
+        InspectionGraphEdge edge) =>
+        Assert.IsType<InspectionGraphValue.Token>(
+            Assert.Single(
+                document.Characteristics,
+                characteristic =>
+                    ReferenceEquals(
+                        characteristic.Descriptor,
+                        ExternalFocusedCallGraphInspectionCatalog.EdgeRole)
+                    && characteristic.Target
+                        == InspectionGraphTarget.Edge(edge.Id))
+                .Value)
+            .Value;
+
+    private static WorkspaceRegistrationRevision CurrentRegistrations(
+        InspectionWorkspace workspace) =>
+        Assert.IsType<WorkspaceRegistrationReadResult.Available>(
+            workspace.GetRegistrationSnapshot()).Revision;
 }

@@ -35,7 +35,9 @@ public readonly record struct SlotMaterializationDecision(
 /// <see cref="IrFunction.AddLocal"/>, keeping its <c>S_{slot}</c> name so slot
 /// references read the same — declaration order and form may still change
 /// (materialized locals append to the locals table, and a single-store local
-/// collapses to an initializer) — and its <see cref="StoreStackSlot"/>/
+/// collapses to an initializer). Managed-reference locals retain their slot
+/// provenance because their legacy declaration order and scope remain part
+/// of the output contract. Its <see cref="StoreStackSlot"/>/
 /// <see cref="LoadStackSlot"/> nodes stop reaching the printer. What remains
 /// on slots is the counted residual the printer's unifier still owns:
 /// ambiguous testimony, cross-family (true disjoint ranges), and nested-body
@@ -67,13 +69,27 @@ public sealed class SlotMaterializationPass : IIrPass
         // with the analysis decision.
         var indices = new Dictionary<int, int>();
         foreach (var candidate in decided)
-            indices[candidate.Slot] = function.AddSynthesizedLocal(candidate.Type!, $"S_{candidate.Slot}");
+        {
+            int index = function.AddSynthesizedLocal(
+                candidate.Type!,
+                $"S_{candidate.Slot}");
+            indices[candidate.Slot] = index;
+            if (candidate.Type!.Kind == TypeRefKind.ByRef)
+            {
+                function.MarkMaterializedStackSlotLocal(
+                    index,
+                    candidate.Slot,
+                    producerOnly: candidate.Loads.Count == 0);
+            }
+        }
         foreach (var candidate in decided)
         {
             foreach (var load in candidate.Loads)
             {
                 context.Stepper.StepOver($"materialize slot {candidate.Slot} load as local {indices[candidate.Slot]}", load);
-                load.ReplaceWith(new LoadLocal(indices[candidate.Slot], candidate.Type!));
+                load.ReplaceWith(new LoadLocal(
+                    indices[candidate.Slot],
+                    candidate.Type!));
             }
         }
         foreach (var candidate in decided)
@@ -167,6 +183,11 @@ public sealed class SlotMaterializationPass : IIrPass
             {
                 throw new InvalidOperationException($"Slot {candidate.Slot} loads had no testimony decision.");
             }
+            else if (UnanimousManagedReferenceStoreType(candidate.Stores) is { } storeType)
+            {
+                candidate.Type = storeType;
+                candidate.Vetoes &= ~SlotMaterializationVeto.MissingLoad;
+            }
 
             if (candidate.Type is not { } slotType)
                 continue;
@@ -190,6 +211,7 @@ public sealed class SlotMaterializationPass : IIrPass
                             || MemberIdentity.IsCoreLibraryType(slotType, "System", "Object"))
                         || CSharpSpellability.CanSpellArrayStorageType(slotType, function)
                         || CSharpSpellability.CanSpellPointerStorageType(slotType, function)
+                        || HasCompleteManagedReferenceStorageType(slotType)
                         || CSharpSpellability.CanSpellNamedReferenceStorageType(slotType, function)
                         || CSharpSpellability.CanSpellNamedValueStorageType(slotType, function)
                         || CSharpSpellability.CanSpellGenericParameterStorageType(slotType, function));
@@ -220,6 +242,40 @@ public sealed class SlotMaterializationPass : IIrPass
             List<StoreStackSlot> slotStores,
             List<LoadStackSlot> slotLoads)
             => new(scope, slot, slotStores, slotLoads);
+
+        static bool HasCompleteManagedReferenceStorageType(TypeRef type)
+            => type is
+                {
+                    Kind: TypeRefKind.ByRef,
+                    ElementType:
+                    {
+                        Kind: not (TypeRefKind.ByRef
+                            or TypeRefKind.Pinned
+                            or TypeRefKind.Unsupported),
+                    } element,
+                }
+                && !type.ContainsUnsupported
+                && !MemberIdentity.IsCoreLibraryType(
+                    element,
+                    "System",
+                    "Void");
+
+        static TypeRef? UnanimousManagedReferenceStoreType(
+            IReadOnlyList<StoreStackSlot> stores)
+        {
+            TypeRef? type = null;
+            foreach (var store in stores)
+            {
+                if (store.Value.ResultType is not { } producerType
+                    || !HasCompleteManagedReferenceStorageType(producerType)
+                    || type is not null && !type.Equals(producerType))
+                {
+                    return null;
+                }
+                type = producerType;
+            }
+            return type;
+        }
 
         static void MarkIncompleteCopyComponents(
             IReadOnlyDictionary<int, List<StoreStackSlot>> stores,

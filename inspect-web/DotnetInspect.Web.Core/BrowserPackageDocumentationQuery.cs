@@ -19,13 +19,11 @@ internal static class BrowserPackageDocumentationQuery
         PackageHouseSettlement.Acquired settlement,
         PackageHouseLibraryHandoff.Compile handoff,
         string documentationId,
-        IReadOnlyList<ISourceHouseSourceCapability> sourceCapabilities,
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(settlement);
         ArgumentNullException.ThrowIfNull(handoff);
         ArgumentException.ThrowIfNullOrWhiteSpace(documentationId);
-        ArgumentNullException.ThrowIfNull(sourceCapabilities);
 
         var queryLimits = new PackageCompiledDocumentationQueryLimits
         {
@@ -98,7 +96,6 @@ internal static class BrowserPackageDocumentationQuery
                 subject,
                 implementationSubject,
                 completed.Receipt.Library,
-                sourceCapabilities,
                 deadline);
         var operationPlan = new DocumentationHouseOperationPlan(
             planIdentity,
@@ -131,7 +128,6 @@ internal static class BrowserPackageDocumentationQuery
             DocumentationImplementationSubjectResolution
                 implementationResolution,
             LibraryReference library,
-            IReadOnlyList<ISourceHouseSourceCapability> sourceCapabilities,
             DateTimeOffset deadline)
     {
         if (library.ImplementationAssembly
@@ -181,7 +177,8 @@ internal static class BrowserPackageDocumentationQuery
                                 "inspect-web-package-documentation-v1"),
                             sourceLimits,
                             deadline,
-                            sourceCapabilities)))
+                            BrowserSourceQueryContext
+                                .CreateSourceCapabilities())))
                 : DocumentationImplementationSubjectResolver
                     .CreateTerminalOperation(
                         binding,
@@ -211,10 +208,6 @@ internal static class BrowserPackageDocumentationQuery
                 documentation.MaxSourceCharacters),
             Math.Min(
                 source.MaximumSourceTextCharacters,
-                documentation.MaxSourceCharacters),
-            source.MaximumAttestationContributions,
-            Math.Min(
-                source.MaximumPhysicalDeclarationCharacters,
                 documentation.MaxSourceCharacters));
 
     private static DocumentationQueryPlan ResolveCombinedQuery(

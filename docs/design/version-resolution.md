@@ -33,6 +33,82 @@ dependency graph traversal.
 `PackageCoordinate` and `PackageSourceCoordinate` remain exact-coordinate
 types. They are not wildcard, range, or latest-selector grammars.
 
+## Consistency principles
+
+Three principles govern every version-resolving path this owner defines. They
+are the rule; the request family, receipt, and host spellings below implement
+them. [#8285](https://github.com/richlander/dotnet-inspect/issues/8285) tracks
+the adoption of the parts marked pending.
+
+### A bound request is exact and never re-resolved
+
+A request is **bound** when the caller supplied one exact version, or when the
+product advertised one exact version and the caller accepted it. A bound
+request acquires that coordinate with no version lookup and no substitution;
+nuget.org immutability makes it trivially consistent. Advertisement is the act
+of binding: whatever the product shows and lets the user pick is acquired as
+shown. A bound request never degrades to an unbound one. An advertised version
+that is unlisted or absent fails visibly rather than sliding to latest.
+
+Implemented: exact `Name@Version` and the pinned-candidate path in
+[PackageHouse](package-house.md), whose exact demand either acquires the named
+coordinate or fails visibly and never selects another version; and Inspect Web
+Spotlight, whose hits carry a version and whose selection acquires exactly
+that coordinate.
+
+### An unbound request is served under eventual consistency
+
+`latest`, wildcards, range endpoints, and major-bound populations discover
+their answer, so they are **unbound** and eventual by nature. A time-to-live is
+one eventual-consistency schedule, not a correctness guarantee. Three rules
+keep eventual results honest:
+
+- the resolved version is always disclosed in the result;
+- the freshness of that resolution is available on request, from the
+  `PackageVersionResolutionReceipt` freshness arm; and
+- a caller who needs consistency now has an explicit switch: `Name@latest`
+  for one coordinate, and a request-level always-check modifier for a whole
+  invocation (pending, #8285).
+
+On the migrated online single-package CLI path the switch is observable: a
+bare `Name` declares the `Current` requirement and is answered by a prior
+settlement inside its window through the
+[Package Version Service](package-version-service.md), while `Name@latest`
+declares `RefreshedForRequest` and always discovers. The legacy `find`,
+search-scope, and assembly-set paths still discover a bare `Name` on their
+own hourly schedule until adoption step 3.
+
+Eventual consistency is per coordinate. A set can transiently mix versions;
+type discovery tolerates that, and set-level coherence is a separate opt-in
+property that this owner does not promise.
+
+### Prefer a prior resolution over blocking
+
+The rule (pending, #8285): when a prior resolution exists, an unbound request
+serves it and refreshes rather than blocking on discovery; a request blocks
+on discovery only when there is no prior resolution at all.
+
+Current behavior differs. Migrated online single-package CLI resolution
+performs fresh discovery on every bare `Name` request and stamps the receipt
+`RefreshedForRequest`; unmigrated consumers use a one-hour version cache and,
+when it has expired and local payloads exist, fail visibly on a one-second
+discovery budget rather than serving the expired entry. The mechanisms that
+adopt the rule are:
+
+- serve an expired version entry when the refresh fails or exceeds its budget,
+  with a freshness warning, instead of failing (pending; today the
+  `CachedVersionResolutionTimeout` path reports an error that names the
+  cached versions);
+- spread expiry with jitter so entries written together do not expire
+  together, and bound the number of stale entries refreshed per invocation
+  (pending); and
+- let a curated package set ship advertised versions so its first use is
+  bound and later use is eventual (pending, consumed by #8271).
+
+A refresh is never a hidden cost that changes the answer's shape: the same
+disclosure and freshness rules apply whether the result was served fresh or
+from a prior resolution.
+
 ## Resource-free request family
 
 `PackageVersionSelectionRequest` is a closed family:
@@ -128,11 +204,17 @@ Browser/Wasm adoption remain separate slices.
 retains:
 
 - the exact `PackageVersionSelectionRequest`;
-- the complete `PackageVersionDiscoveryResult`, including its discovery
-  contract, admitted observations, state, and typed authority failures;
-- whether discovery was current, refreshed for this exact request, or could
-  not establish freshness; and
+- whether discovery was current, refreshed for this exact request, could not
+  establish freshness, or was skipped in favor of a served prior settlement;
+  and
 - one typed terminal outcome.
+
+Discovery evidence is arm-specific. Every discovery-backed arm, the
+`Discovered` intermediate that `Resolved` and the non-success arms derive
+from, retains the complete `PackageVersionDiscoveryResult`, including its
+discovery contract, admitted observations, state, and typed authority
+failures. `Prior` retains none. A consumer that needs discovery evidence
+matches on `Discovered` rather than reading it from the receipt base.
 
 `Resolved` additionally retains the discovery-issued
 `PackageAcquisitionCandidate`; its normalized `PackageSourceCoordinate` is the
@@ -141,6 +223,14 @@ the retained request and discovery. It therefore rejects a same-ID coordinate
 that does not satisfy the wildcard, range address, prerelease policy, or
 semantic maximum, and it cannot attach a candidate issued outside the retained
 discovery.
+
+`Prior` is the settled arm issued by the
+[Package Version Service](package-version-service.md) when a retained prior
+settlement is served instead of discovery. It retains the request, the exact
+coordinate, and the current source generation's pinned candidate for it, and
+its freshness is `Current` when the entry was inside its window or
+`ServedPrior` with the entry's age when a refresh could not complete. Only
+`Prior` may carry `ServedPrior`; discovery-backed arms reject that value.
 
 The non-success arms are:
 
@@ -795,6 +885,8 @@ request deduplication is covered separately in
 A pinned version does not by itself guarantee byte reproducibility across
 feeds: two feeds may publish different payloads for one coordinate. A pinned
 coordinate plus one authorized producer, or another verified content identity,
-is reproducible. The bare-name default optimizes for the interactive CLI use
-case where sub-second response time matters more than always having the
-absolute latest version.
+is reproducible. The bare-name default is an unbound request under the
+[consistency principles](#consistency-principles): it discloses the version it
+resolved today, and will prefer a prior resolution over blocking once #8285
+adopts that rule; until then, migrated CLI resolution discovers fresh on every
+request.

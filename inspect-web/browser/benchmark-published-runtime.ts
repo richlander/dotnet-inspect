@@ -716,7 +716,7 @@ async function measureMethodComparison(
       const comparisonStarted = performance.now();
       const result = await benchmark.source.queryMethodBodyComparison(
         `runtime-benchmark-comparison-${crypto.randomUUID()}`,
-        JSON.stringify(request),
+        request,
       );
       const milliseconds = performance.now() - comparisonStarted;
       if (result.kind !== "Succeeded"

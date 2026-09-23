@@ -13,6 +13,7 @@ import {
   packageAt,
 } from "./composition-root-test-fixture.ts";
 import { sampleInvocationTarget } from "./annotated-source-result-fixture.ts";
+import { callGraphLegendHtml } from "../src/graph-legends.ts";
 
 test("Annotated Source relationship graphs aggregate stable edges without losing occurrences", () => {
   const graph = buildAnnotatedRelationshipGraphMermaid([
@@ -189,6 +190,37 @@ test("Call graph rendering lowers production roles to the legend palette", () =>
   assert.match(definition, /class n1 sameType;/);
   assert.match(definition, /class n2 differentType;/);
   assert.match(definition, /class n3,n4 differentAssembly;/);
+});
+
+test("Supply-chain call graphs preserve connector and boundary roles", () => {
+  const definition = styleCallGraphMermaid(
+    `graph LR
+      n0[Target] --> n1[Microsoft.Extensions]
+      n1 --> n2[OpenTelemetry.Api]
+      n0 --> n3[Unknown]`,
+    [
+      {
+        id: "n0", assembly: "Root", kind: "focus",
+      },
+      {
+        id: "n1", assembly: "Microsoft.Extensions.Options", kind: "connector",
+      },
+      {
+        id: "n2", assembly: "OpenTelemetry.Api", kind: "boundary",
+      },
+      {
+        id: "n3", assembly: "System.Private.CoreLib",
+        kind: "unclassified-boundary",
+      },
+    ]);
+
+  assert.match(definition, /class n1 baselineConnector;/);
+  assert.match(definition, /class n2 supplyChainBoundary;/);
+  assert.match(definition, /class n3 unclassifiedBoundary;/);
+  const legend = callGraphLegendHtml(true);
+  assert.match(legend, /baseline connector/);
+  assert.match(legend, /highlighted dependency/);
+  assert.match(legend, /unclassified boundary/);
 });
 
 test("dependency graph rendering contains artifact labels", async () => {

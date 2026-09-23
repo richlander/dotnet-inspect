@@ -43,10 +43,10 @@ public static class TypeDocumentInspection
                 settled.Outcome,
             AssemblyTypeDocumentEntry.Rejected rejected =>
                 new CSharpTypeDocumentOutcome.Rejected(
-                    $"Structured Type document inspection rejected the assembly candidate: {rejected.Failure.Kind}."),
+                    $"Structured Type document inspection rejected the assembly candidate: {rejected.Failure.Kind}: {rejected.Failure.Detail}"),
             AssemblyTypeDocumentEntry.Unavailable unavailable =>
                 new CSharpTypeDocumentOutcome.Unavailable(
-                    $"Structured Type document inspection is unavailable: {unavailable.Failure.Kind}."),
+                    $"Structured Type document inspection is unavailable: {unavailable.Failure.Kind}: {unavailable.Failure.Detail}"),
             _ => throw new InvalidOperationException(
                 "Unknown structured Type document entry."),
         };

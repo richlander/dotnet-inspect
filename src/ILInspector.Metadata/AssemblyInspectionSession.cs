@@ -104,6 +104,18 @@ public sealed class AssemblyInspectionSession :
         return new MetadataDeclarationSession(this, operationContext);
     }
 
+    /// <summary>
+    /// Reports whether this managed image contains an assembly manifest.
+    /// </summary>
+    public bool IsAssembly
+    {
+        get
+        {
+            _image.EnsureAlive();
+            return _image.GetMetadataReader().IsAssembly;
+        }
+    }
+
     internal void EnsureAliveForDeclarationSession() =>
         _image.EnsureAlive();
 
@@ -111,6 +123,12 @@ public sealed class AssemblyInspectionSession :
     {
         _image.EnsureAlive();
         return _image.GetMetadataReader();
+    }
+
+    internal PEReader GetPEReaderForDeclarationSession()
+    {
+        _image.EnsureAlive();
+        return _image.PEReader;
     }
 
     /// <inheritdoc />
@@ -489,8 +507,15 @@ public sealed class AssemblyInspectionSession :
         MetadataProjectionOptions? options = null)
         => MetadataTableProjector.ReadHeapEntries(_image.PEReader, heap, options);
 
-    internal AssemblyReferenceIdentity AssemblyIdentity() =>
-        AssemblyReferenceIdentity.FromAssemblyDefinition(_image.GetMetadataReader());
+    /// <summary>
+    /// Returns the exact managed assembly identity from this immutable image.
+    /// </summary>
+    public AssemblyReferenceIdentity AssemblyIdentity()
+    {
+        _image.EnsureAlive();
+        return AssemblyReferenceIdentity.FromAssemblyDefinition(
+            _image.GetMetadataReader());
+    }
 
     /// <summary>
     /// This image's module version id, read from the <c>Module</c> table's MVID column.
@@ -523,10 +548,15 @@ public sealed class AssemblyInspectionSession :
     /// Copies structured declaration and visibility evidence from this image
     /// without reopening its source. The result survives session disposal.
     /// </summary>
-    public AssemblyTypeDeclarationInventoryOutcome TypeDeclarations()
+    public AssemblyTypeDeclarationInventoryOutcome TypeDeclarations(
+        int maximumRetainedDeclarations = int.MaxValue,
+        int maximumRetainedTextCharacters = int.MaxValue)
     {
         _image.EnsureAlive();
-        return AssemblyTypeDeclarationInventoryReader.Read(_image.PEReader);
+        return AssemblyTypeDeclarationInventoryReader.Read(
+            _image.PEReader,
+            maximumRetainedDeclarations,
+            maximumRetainedTextCharacters);
     }
 
     /// <summary>

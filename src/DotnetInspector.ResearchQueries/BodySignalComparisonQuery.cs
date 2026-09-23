@@ -8,13 +8,13 @@ namespace DotnetInspector.Queries;
 /// already-acquired assembly versions.
 /// </summary>
 public sealed record BodySignalComparisonInput(
-    IReadOnlyList<LibraryBodyIndex> OldIndexes,
-    IReadOnlyList<LibraryBodyIndex> NewIndexes,
+    IReadOnlyList<BodySignalAnalysisInput> OldAnalyses,
+    IReadOnlyList<BodySignalAnalysisInput> NewAnalyses,
     IReadOnlySet<string>? TypeFilters = null,
     IReadOnlySet<string>? MemberTargetIdentities = null);
 
 /// <summary>
-/// Compares two sets of Analysis body indexes while retaining the
+/// Compares two sets of focused Analysis results while retaining the
 /// Research-owned evidence and Finding correspondence.
 /// </summary>
 public static class BodySignalComparisonQuery
@@ -25,12 +25,18 @@ public static class BodySignalComparisonQuery
     public static ResearchComparison Execute(BodySignalComparisonInput input)
     {
         ArgumentNullException.ThrowIfNull(input);
-        ArgumentNullException.ThrowIfNull(input.OldIndexes);
-        ArgumentNullException.ThrowIfNull(input.NewIndexes);
+        ArgumentNullException.ThrowIfNull(input.OldAnalyses);
+        ArgumentNullException.ThrowIfNull(input.NewAnalyses);
 
         return ResearchDiff.Compare(
-            new ResearchDiffInput([], BodyIndexes: input.OldIndexes),
-            new ResearchDiffInput([], BodyIndexes: input.NewIndexes),
+            new ResearchDiffInput([])
+            {
+                BodySignalAnalyses = input.OldAnalyses,
+            },
+            new ResearchDiffInput([])
+            {
+                BodySignalAnalyses = input.NewAnalyses,
+            },
             new ResearchDiffOptions(
                 ResearchChangeMechanism.BodySignals,
                 TypeFilters: input.TypeFilters,

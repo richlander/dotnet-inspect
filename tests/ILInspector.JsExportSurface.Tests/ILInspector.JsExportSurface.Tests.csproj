@@ -34,6 +34,7 @@
     <ProjectReference Include="../../src/ts-jsexport/ts-jsexport.csproj" />
     <ProjectReference Include="../../src/TsJsExport.Contracts/TsJsExport.Contracts.csproj" />
     <ProjectReference Include="../../fixtures/js-export/ILInspector.JsExportSurface.Fixtures/ILInspector.JsExportSurface.Fixtures.csproj" />
+    <ProjectReference Include="../../fixtures/js-export/ILInspector.JsExportSurface.JsonInputFixtures/ILInspector.JsExportSurface.JsonInputFixtures.csproj" />
     <ProjectReference Include="../../fixtures/js-export/ILInspector.JsExportSurface.MemberConverterFixtures/ILInspector.JsExportSurface.MemberConverterFixtures.csproj" />
     <ProjectReference Include="../../fixtures/js-export/ILInspector.JsExportSurface.NestedContextConstructorFixtures/ILInspector.JsExportSurface.NestedContextConstructorFixtures.csproj" />
     <ProjectReference Include="../../fixtures/js-export/ILInspector.JsExportSurface.NestedContextFixtures/ILInspector.JsExportSurface.NestedContextFixtures.csproj" />

@@ -73,6 +73,30 @@ public sealed class PackagePayloadAcquisitionTests
             Assert.Single(payload.Content.EnumerateEntries()));
     }
 
+    [Fact]
+    public async Task CacheMiss_TransfersThePreparedArchiveToCapableStores()
+    {
+        byte[] nupkg = TestPackageArchive.Create("lib/net10.0/Sample.dll");
+        var store = new PreparedOnlyStore();
+        using var client = new HttpClient(new NuGetOrgPayloadHandler(nupkg));
+
+        PackagePayloadResult result =
+            await PackagePayloadAcquisition.AcquireAsync(
+                client,
+                Coordinate(NuGetOrg),
+                store,
+                cancellationToken: TestContext.Current.CancellationToken);
+
+        AcquiredPackagePayload payload = Acquired(result);
+        Assert.Equal(1, store.PreparedCommits);
+        Assert.Equal(0, store.LegacyCommits);
+        Assert.Same(store.Content, payload.Content);
+        Assert.IsType<PackageArchiveValidation.Valid>(
+            store.Content!.ValidateArchive(
+                PackagePayloadLimits.Default,
+                TestContext.Current.CancellationToken));
+    }
+
     static byte[] ReadArchive(IPackageContent content)
     {
         Assert.True(content.TryOpenArchive(out Stream? archive));
@@ -1869,6 +1893,101 @@ public sealed class PackagePayloadAcquisitionTests
     }
 
     [Fact]
+    public async Task PreparedCommitThatLosesToInadmissibleCachedContent_IsNotServed()
+    {
+        byte[] valid = TestPackageArchive.Create("lib/net10.0/Sample.dll");
+        byte[] inadmissible = TestPackageArchive.Create(
+            "lib/net10.0/One.dll",
+            "lib/net10.0/Two.dll",
+            "lib/net10.0/Three.dll");
+        string producerKey = NuGetCache.GetSourceKey(NuGetOrg.Url);
+        var store = new PreparedCommitWinnerStore(
+            new InMemoryPackageContent(
+                inadmissible,
+                fromCache: true,
+                producerKey));
+        using var client = new HttpClient(new NuGetOrgPayloadHandler(valid));
+
+        PackagePayloadResult result =
+            await PackagePayloadAcquisition.AcquireAsync(
+                client,
+                Coordinate(NuGetOrg),
+                store,
+                limits: new PackagePayloadLimits { MaxEntryCount = 2 },
+                cancellationToken: TestContext.Current.CancellationToken);
+
+        Assert.Equal(1, store.PreparedCommits);
+        Assert.IsType<PackagePayloadResult.Unavailable>(result);
+    }
+
+    [Fact]
+    public async Task PreparedFileSystemCommit_ReportsAnExistingWinnerForAdmission()
+    {
+        string root = TempDirectory();
+        Directory.CreateDirectory(root);
+        try
+        {
+            string target = Path.Combine(root, "committed");
+            const string marker = "prepared-winner";
+            string producerKey = NuGetCache.GetSourceKey(NuGetOrg.Url);
+            PackageArchivePayload earlier = Assert.IsType<
+                PackageArchiveValidation.Valid>(
+                    PackageArchiveValidator.Validate(
+                        TestPackageArchive.Create(
+                            "lib/net10.0/One.dll",
+                            "lib/net10.0/Two.dll",
+                            "Sample.Package.nuspec"),
+                        cancellationToken:
+                            TestContext.Current.CancellationToken)).Archive;
+            PackageArchivePayload later = Assert.IsType<
+                PackageArchiveValidation.Valid>(
+                    PackageArchiveValidator.Validate(
+                        TestPackageArchive.Create(
+                            "lib/net10.0/Only.dll",
+                            "Sample.Package.nuspec"),
+                        cancellationToken:
+                            TestContext.Current.CancellationToken)).Archive;
+
+            PreparedPackageCommit first = await Commit(earlier);
+            PreparedPackageCommit second = await Commit(later);
+
+            Assert.False(first.RequiresAdmission);
+            Assert.True(second.RequiresAdmission);
+            Assert.Equal(
+                PackageContentAdmission.Outcome.LimitsExceeded,
+                await PackageContentAdmission.EvaluateAsync(
+                    second.Content,
+                    new PackagePayloadLimits { MaxEntryCount = 2 },
+                    TestContext.Current.CancellationToken));
+
+            async ValueTask<PreparedPackageCommit> Commit(
+                PackageArchivePayload archive) =>
+                await FileSystemPackageStore.CommitAsync(
+                    PackageId,
+                    Version,
+                    archive,
+                    () => Directory.CreateDirectory(Path.Combine(
+                        root,
+                        $"staging-{Guid.NewGuid():N}")).FullName,
+                    (stagedExtract, stagedNupkg) =>
+                        NuGetCache.CommitPackageToSlotWithDisposition(
+                            stagedExtract,
+                            stagedNupkg,
+                            PackageId,
+                            Version,
+                            producerKey,
+                            target,
+                            marker,
+                            useAppCache: false),
+                    TestContext.Current.CancellationToken);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task SourcesAreTriedInOrderUntilOneServesThePayload()
     {
         byte[] nupkg = TestPackageArchive.Create("lib/net10.0/Sample.dll");
@@ -3209,6 +3328,53 @@ public sealed class PackagePayloadAcquisitionTests
         }
     }
 
+    sealed class PreparedOnlyStore : IPackageStore, IPreparedPackageStore
+    {
+        internal int LegacyCommits { get; private set; }
+
+        internal int PreparedCommits { get; private set; }
+
+        internal InMemoryPackageContent? Content { get; private set; }
+
+        public IPackageContent? TryGetCached(
+            string packageName,
+            string version,
+            IReadOnlyList<string>? allowedSourceKeys,
+            Action<string>? log = null)
+            => null;
+
+        public ValueTask<IPackageContent> CommitAsync(
+            string packageName,
+            string version,
+            string sourceKey,
+            Stream nupkg,
+            CancellationToken cancellationToken = default)
+        {
+            LegacyCommits++;
+            throw new InvalidOperationException(
+                "Prepared stores must not receive the legacy stream commit.");
+        }
+
+        public ValueTask<PreparedPackageCommit> CommitPreparedAsync(
+            string packageName,
+            string version,
+            string sourceKey,
+            PackageArchivePayload archive,
+            CancellationToken cancellationToken = default)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            PreparedCommits++;
+            Content = InMemoryPackageContent.CreateOwned(
+                archive,
+                fromCache: false,
+                sourceKey);
+            return ValueTask.FromResult(
+                new PreparedPackageCommit(
+                    Content,
+                    RequiresAdmission: false));
+        }
+    }
+
     sealed class CommitWinnerStore(IPackageContent winner) : IPackageStore
     {
         public IPackageContent? TryGetCached(
@@ -3225,6 +3391,44 @@ public sealed class PackagePayloadAcquisitionTests
             Stream nupkg,
             CancellationToken cancellationToken = default)
             => ValueTask.FromResult(winner);
+    }
+
+    sealed class PreparedCommitWinnerStore(IPackageContent winner) :
+        IPackageStore,
+        IPreparedPackageStore
+    {
+        internal int PreparedCommits { get; private set; }
+
+        public IPackageContent? TryGetCached(
+            string packageName,
+            string version,
+            IReadOnlyList<string>? allowedSourceKeys,
+            Action<string>? log = null)
+            => null;
+
+        public ValueTask<IPackageContent> CommitAsync(
+            string packageName,
+            string version,
+            string sourceKey,
+            Stream nupkg,
+            CancellationToken cancellationToken = default)
+            => throw new InvalidOperationException(
+                "The prepared commit path was not used.");
+
+        public ValueTask<PreparedPackageCommit> CommitPreparedAsync(
+            string packageName,
+            string version,
+            string sourceKey,
+            PackageArchivePayload archive,
+            CancellationToken cancellationToken = default)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            PreparedCommits++;
+            return ValueTask.FromResult(
+                new PreparedPackageCommit(
+                    winner,
+                    RequiresAdmission: true));
+        }
     }
 
     /// <summary>

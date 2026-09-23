@@ -13,6 +13,13 @@ public enum PackageVersionDiscoveryFreshness
     NotEstablished,
     Current,
     RefreshedForRequest,
+
+    /// <summary>
+    /// A retained prior settlement was served after a refresh could not
+    /// complete. Only <see cref="PackageVersionResolutionReceipt.Prior"/> may
+    /// carry this value; discovery-backed arms reject it.
+    /// </summary>
+    ServedPrior,
 }
 
 /// <summary>
@@ -205,25 +212,101 @@ public abstract class PackageVersionResolutionReceipt
 {
     private PackageVersionResolutionReceipt(
         PackageVersionSelectionRequest request,
-        PackageVersionDiscoveryResult discovery,
         PackageVersionDiscoveryFreshness freshness)
     {
         ArgumentNullException.ThrowIfNull(request);
-        ArgumentNullException.ThrowIfNull(discovery);
         if (!Enum.IsDefined(freshness))
             throw new ArgumentOutOfRangeException(nameof(freshness));
         Request = request;
-        Discovery = discovery;
         Freshness = freshness;
     }
 
     public PackageVersionSelectionRequest Request { get; }
 
-    public PackageVersionDiscoveryResult Discovery { get; }
-
     public PackageVersionDiscoveryFreshness Freshness { get; }
 
-    public sealed class Resolved : PackageVersionResolutionReceipt
+    /// <summary>
+    /// The discovery-backed arms. Every one retains the complete discovery
+    /// result its outcome was computed from; <see cref="Prior"/> is the one
+    /// arm that retains none, so consumers needing discovery evidence match
+    /// on this type rather than on the receipt base.
+    /// </summary>
+    public abstract class Discovered : PackageVersionResolutionReceipt
+    {
+        private protected Discovered(
+            PackageVersionSelectionRequest request,
+            PackageVersionDiscoveryResult discovery,
+            PackageVersionDiscoveryFreshness freshness)
+            : base(request, freshness)
+        {
+            ArgumentNullException.ThrowIfNull(discovery);
+            Discovery = discovery;
+        }
+
+        public PackageVersionDiscoveryResult Discovery { get; }
+    }
+
+    /// <summary>
+    /// A retained prior settlement served as an exact coordinate without
+    /// discovery. The candidate is the current source generation's pinned
+    /// candidate for that coordinate. Freshness is <c>Current</c> when the
+    /// entry was inside its window, or <c>ServedPrior</c> with the entry's
+    /// age when a refresh could not complete.
+    /// </summary>
+    public sealed class Prior : PackageVersionResolutionReceipt
+    {
+        internal Prior(
+            PackageVersionSelectionRequest request,
+            PackageAcquisitionCandidate candidate,
+            PackageVersionDiscoveryFreshness freshness,
+            TimeSpan? age)
+            : base(request, freshness)
+        {
+            ArgumentNullException.ThrowIfNull(candidate);
+            if (freshness is not (PackageVersionDiscoveryFreshness.Current
+                or PackageVersionDiscoveryFreshness.ServedPrior))
+            {
+                throw new ArgumentException(
+                    "A prior settlement is Current or ServedPrior; it is never refreshed for the request.",
+                    nameof(freshness));
+            }
+            if ((freshness == PackageVersionDiscoveryFreshness.ServedPrior)
+                != age.HasValue)
+            {
+                throw new ArgumentException(
+                    "ServedPrior carries the entry's age; Current carries none.",
+                    nameof(age));
+            }
+            if (age is { } value && value < TimeSpan.Zero)
+                throw new ArgumentOutOfRangeException(nameof(age));
+            if (candidate.Kind != PackageAcquisitionCandidateKind.CallerPinned)
+            {
+                throw new ArgumentException(
+                    "A prior settlement is served through the pinned-candidate path.",
+                    nameof(candidate));
+            }
+            if (!candidate.Coordinate.PackageId.Equals(
+                    request.PackageId,
+                    StringComparison.Ordinal))
+            {
+                throw new ArgumentException(
+                    "The prior candidate belongs to another package request.",
+                    nameof(candidate));
+            }
+
+            Candidate = candidate;
+            Age = age;
+        }
+
+        public PackageAcquisitionCandidate Candidate { get; }
+
+        public PackageSourceCoordinate Coordinate => Candidate.Coordinate;
+
+        /// <summary>The entry's age when served as <c>ServedPrior</c>.</summary>
+        public TimeSpan? Age { get; }
+    }
+
+    public sealed class Resolved : Discovered
     {
         internal Resolved(
             PackageVersionSelectionRequest request,
@@ -259,7 +342,7 @@ public abstract class PackageVersionResolutionReceipt
         public PackageSourceCoordinate Coordinate => Candidate.Coordinate;
     }
 
-    public sealed class NotFound : PackageVersionResolutionReceipt
+    public sealed class NotFound : Discovered
     {
         internal NotFound(
             PackageVersionSelectionRequest request,
@@ -286,7 +369,7 @@ public abstract class PackageVersionResolutionReceipt
         public InertString Reason { get; }
     }
 
-    public sealed class NoMatch : PackageVersionResolutionReceipt
+    public sealed class NoMatch : Discovered
     {
         internal NoMatch(
             PackageVersionSelectionRequest request,
@@ -316,7 +399,7 @@ public abstract class PackageVersionResolutionReceipt
         public InertString Reason { get; }
     }
 
-    public sealed class Ambiguous : PackageVersionResolutionReceipt
+    public sealed class Ambiguous : Discovered
     {
         internal Ambiguous(
             PackageVersionSelectionRequest request,
@@ -336,7 +419,7 @@ public abstract class PackageVersionResolutionReceipt
         public InertString Reason { get; }
     }
 
-    public sealed class Incomplete : PackageVersionResolutionReceipt
+    public sealed class Incomplete : Discovered
     {
         internal Incomplete(
             PackageVersionSelectionRequest request,
@@ -359,7 +442,7 @@ public abstract class PackageVersionResolutionReceipt
         public InertString Reason { get; }
     }
 
-    public sealed class Rejected : PackageVersionResolutionReceipt
+    public sealed class Rejected : Discovered
     {
         internal Rejected(
             PackageVersionSelectionRequest request,
@@ -372,7 +455,7 @@ public abstract class PackageVersionResolutionReceipt
         public InertString Reason { get; }
     }
 
-    public sealed class Unavailable : PackageVersionResolutionReceipt
+    public sealed class Unavailable : Discovered
     {
         internal Unavailable(
             PackageVersionSelectionRequest request,
@@ -389,7 +472,7 @@ public abstract class PackageVersionResolutionReceipt
         public InertString Reason { get; }
     }
 
-    public sealed class Failed : PackageVersionResolutionReceipt
+    public sealed class Failed : Discovered
     {
         internal Failed(
             PackageVersionSelectionRequest request,
@@ -646,6 +729,13 @@ internal static class PackageVersionSelectionContract
             return new(
                 TextPolicy.Field,
                 "Version-selection discovery freshness was not established.");
+        }
+        if (freshness
+            == PackageVersionDiscoveryFreshness.ServedPrior)
+        {
+            return new(
+                TextPolicy.Field,
+                "ServedPrior is reserved for prior settlements; discovery-backed outcomes are Current or RefreshedForRequest.");
         }
         if (request.Discovery.Freshness
                 == PackageVersionDiscoveryFreshness.RefreshedForRequest

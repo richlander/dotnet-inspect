@@ -493,7 +493,9 @@ function renderRow(
     .map(item => {
       const summary = item.summary;
       const text = escapeHtml(formatEvidence(item));
-      if (item.id !== "selected-assembly" || summary === null)
+      if ((item.id !== "selected-assembly"
+          && item.id !== "implementation-libraries")
+        || summary === null)
         return `<li>${text}</li>`;
       const preview = summary.preview
         .map(value => `<li>${escapeHtml(value)}</li>`)
@@ -604,6 +606,9 @@ function formatEvidence(
       return `${property("path") ?? ""}: `
         + `${property("literal-use-count") ?? "0"} literal uses; `
         + `${property("unevaluated-sibling-count") ?? "0"} sibling assemblies not evaluated.`;
+    case "implementation-libraries":
+      return `${property("evaluated-library-count") ?? "0"} implementation libraries evaluated; `
+        + `${property("matched-library-count") ?? "0"} matched.`;
     case "literal-use":
       return `Method ${property("method-token") ?? ""}, `
         + `${property("il-offset") ?? ""}: ${property("excerpt") ?? ""}`;
@@ -1059,7 +1064,7 @@ function renderEmptyState(
         <h2>${completion.complete
           ? "No matching package libraries"
           : "No matching package libraries in the completed work"}</h2>
-        <p>Scope: ${scope}. The selected primary implementation libraries produced no package Result.${completion.complete ? "" : " This is not a confirmed empty result for the requested population."} Candidate outcomes remain listed above.</p>
+        <p>Scope: ${scope}. The selector-issued implementation libraries produced no package Result.${completion.complete ? "" : " This is not a confirmed empty result for the requested population."} Candidate outcomes remain listed above.</p>
       </section>`;
   }
   if (state.outcome.failures.length) {
@@ -1110,21 +1115,38 @@ function renderAssessments(
   if (state.outcome.assessments.length === 0) return "";
   return `
     <section class="query-assessments">
-      <strong>Selected assembly outcomes</strong>
-      <p>These outcomes cover only each package's selector-issued primary implementation assembly, not the whole package.</p>
+      <strong>Selected implementation Library outcomes</strong>
+      <p>These outcomes cover each package's selector-issued implementation Libraries for the requested target, not other package asset roles.</p>
       <ul>${state.outcome.assessments.map(assessment => `
         <li>
-          <strong>${escapeHtml(assessment.packageId)}@${escapeHtml(assessment.version)} · ${assessment.disposition === "NoMatch"
-            ? "No match"
-            : assessment.disposition === "NotApplicable"
-              ? "Not applicable"
-              : assessment.disposition === "Failure"
-                ? "Failed"
-                : "Not evaluated"}</strong>
+          <strong>${escapeHtml(assessment.packageId)}@${escapeHtml(assessment.version)} · ${assessment.disposition === "Matched"
+            ? "Matched"
+            : assessment.disposition === "NoMatch"
+              ? "No match"
+              : assessment.disposition === "NotApplicable"
+                ? "Not applicable"
+                : assessment.disposition === "Failure"
+                  ? "Failed"
+                  : "Not evaluated"}</strong>
           <span>${escapeHtml(assessment.message)}</span>
-          ${assessment.assetPath
-            ? `<span>Selected assembly: ${escapeHtml(assessment.assetPath)}</span>`
-            : ""}
+          ${assessment.libraries.length === 0
+            ? assessment.assetPath
+              ? `<span>Selected assembly: ${escapeHtml(assessment.assetPath)}</span>`
+              : ""
+            : `<ul>${assessment.libraries.map(library => `
+              <li>
+                <strong>${escapeHtml(library.path)} · ${library.disposition === "Matched"
+                  ? `Matched (${library.occurrenceCount} occurrence${library.occurrenceCount === 1 ? "" : "s"})`
+                  : library.disposition === "NoMatch"
+                    ? "No match"
+                    : "Failed"}</strong>
+                ${library.failureStage
+                  ? `<span>Stage: ${escapeHtml(library.failureStage)}</span>`
+                  : ""}
+                ${library.message
+                  ? `<span>${escapeHtml(library.message)}</span>`
+                  : ""}
+              </li>`).join("")}</ul>`}
         </li>`).join("")}</ul>
     </section>`;
 }

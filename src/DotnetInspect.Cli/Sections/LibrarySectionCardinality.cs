@@ -13,7 +13,7 @@ internal static class LibrarySectionCardinality
             StringComparer.OrdinalIgnoreCase)
         {
             [SectionNames.LibraryInfo] =
-                LibraryOverviewInspectionOperation.Cardinality,
+                SectionCardinalityDeclaration.Scalar,
         };
 
     public static IReadOnlyDictionary<

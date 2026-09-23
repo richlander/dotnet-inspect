@@ -20,6 +20,7 @@ import {
   packageQueryEditorCompositionActive,
 } from "../src/package-query-editor-lifecycle.ts";
 import {
+  appendAssessment,
   appendFailure,
   appendProgress,
   appendRows,
@@ -236,16 +237,15 @@ test("library-literal renders as a composable multiline term with target selecti
     tier: "assembly",
     rootRequest: "opaque-root",
     evidence: [{
-      id: "selected-assembly",
+      id: "implementation-libraries",
       scope: "package",
       summary: {
         count: 5,
         preview: ["first", "second", "third"],
       },
       properties: [
-        { name: "path", value: "lib/net10.0/Contoso.Package.dll" },
-        { name: "literal-use-count", value: "5" },
-        { name: "unevaluated-sibling-count", value: "0" },
+        { name: "evaluated-library-count", value: "2" },
+        { name: "matched-library-count", value: "1" },
       ],
       number: null,
     }],
@@ -275,6 +275,9 @@ test("library-literal renders as a composable multiline term with target selecti
   assert.match(html, /<h2>Library selection<\/h2>/);
   assert.match(html, /<textarea[\s\S]*shared-literal-use-marker<\/textarea>/);
   assert.match(html, /value="net10\.0"/);
+  assert.match(
+    html,
+    /2 implementation libraries evaluated; 1 matched\./);
   assert.match(html, /Showing 3 of 5 occurrences/);
   assert.match(html, /1 matching package · 5 occurrences/);
   assert.match(html, /exact package population complete/);
@@ -282,6 +285,59 @@ test("library-literal renders as a composable multiline term with target selecti
   assert.match(html, /data-query-preset="readme:eq:true"/);
   assert.match(html, /data-query-term-add="depends"/);
   assert.match(html, /data-query-term-add="library-literal"/);
+});
+
+test("library-literal renders selector-ordered per-Library assessments", () => {
+  const request = withTerm(
+    createQueryRequest("Contoso.Package"),
+    LIBRARY_LITERAL_TERM,
+    "eq",
+    "https://",
+  );
+  const outcome = appendAssessment(emptyOutcome(), {
+    packageId: "Contoso.Package",
+    version: "1.0.0",
+    disposition: "Matched",
+    message: "The selected implementation libraries contain matching literals.",
+    assetPath: "lib/net10.0/Contoso.Package.dll",
+    rootRequest: "opaque-root",
+    libraries: [{
+      path: "lib/net10.0/Contoso.Package.dll",
+      assemblyName: "Contoso.Package",
+      targetFramework: "net10.0",
+      ordinal: 0,
+      disposition: "NoMatch",
+      occurrenceCount: 0,
+      failureStage: null,
+      message: null,
+    }, {
+      path: "lib/net10.0/Contoso.Package.Common.dll",
+      assemblyName: "Contoso.Package.Common",
+      targetFramework: "net10.0",
+      ordinal: 1,
+      disposition: "Matched",
+      occurrenceCount: 2,
+      failureStage: null,
+      message: null,
+    }],
+  });
+  const html = renderPackageQueryView({
+    state: { request, outcome },
+    availablePresets: FACETS,
+    availableTerms: TERMS,
+    escapeHtml,
+  });
+
+  assert.match(html, /Selected implementation Library outcomes/);
+  assert.match(html, /selector-issued implementation Libraries/);
+  assert.ok(
+    html.indexOf("Contoso.Package.dll") <
+      html.indexOf("Contoso.Package.Common.dll"));
+  assert.match(html, /Contoso.Package.dll · No match/);
+  assert.match(
+    html,
+    /Contoso.Package.Common.dll · Matched \(2 occurrences\)/);
+  assert.doesNotMatch(html, /primary implementation/);
 });
 
 test("whitespace-only library literals remain active and unchanged", () => {

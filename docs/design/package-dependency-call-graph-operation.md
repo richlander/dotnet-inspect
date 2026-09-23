@@ -5,7 +5,11 @@ package dependency traversal and projects one dependency-aware member call
 graph before transient Package Source and assembly-context resources close.
 
 Implementation is tracked by
-[#8076](https://github.com/richlander/dotnet-inspect/issues/8076). The broader
+[#8076](https://github.com/richlander/dotnet-inspect/issues/8076) and
+[#8309](https://github.com/richlander/dotnet-inspect/issues/8309).
+[Member call-graph supply-chain focus](member-call-graph-supply-chain-focus.md)
+composes a subtractive Package-interest baseline under
+[#8334](https://github.com/richlander/dotnet-inspect/issues/8334). The broader
 Workspace adoption remains
 [#6638](https://github.com/richlander/dotnet-inspect/issues/6638).
 
@@ -22,8 +26,10 @@ Workspace adoption remains
    once;
 4. build one Workspace-owned package implementation context from the exact
    root and realized dependency bindings;
-5. invoke the existing Queries-owned external-focused member call graph for
-   one exact implementation MethodDef; and
+5. classify the graph's hub and external membership from the exact
+   participant-to-Package associations, then invoke the existing
+   Queries-owned external-focused member call graph for one exact
+   implementation MethodDef; and
 6. return detached route and graph evidence only after source and
    package-role cleanup has completed successfully.
 
@@ -180,6 +186,17 @@ The exact focus must identify one implementation participant belonging to the
 declared root occurrence. Missing, duplicate, cross-root, bodyless, or invalid
 MethodDef identity is a visible failure before call-graph construction.
 
+The same live participant mapping classifies external-focus membership. A graph
+node uniquely owned by the focused root Package is a hub node, including nodes
+from another implementation assembly in that Package. A node uniquely owned by
+another admitted Package is external. Absent or ambiguous Package ownership is
+unknown. Classification prefers the graph node's unambiguous resolved
+definition assembly identity. When definition identity is unavailable, an exact
+call-site assembly reference classifies the node only when the terminal
+type-resolution identity names the same assembly. A conflicting facade and
+terminal identity, simple assembly name, graph label, route order, or detached
+display coordinate does not establish ownership.
+
 ## Call-graph projection
 
 A Queries-owned package-role call-graph query receives the demand-local
@@ -189,13 +206,16 @@ projection and exact focus. It:
    module version id;
 2. validates the MethodDef and managed body;
 3. creates `MemberCallGraphSession` over the existing implementation role;
-4. invokes `CrossLibraryCalleeNeighborhood`; and
-5. returns the existing `InspectionGraphDocument`.
+4. supplies package-scoped hub, external, and unknown membership from the live
+   package-role participants;
+5. invokes the existing seeded outgoing external-focus projection; and
+6. returns the existing `InspectionGraphDocument`.
 
 CallGraph remains the owner of external boundaries and shortest connectors.
-Queries remains the owner of exact assembly-generation classification and
-Inspection Graph adaptation. PackageQueries neither reclassifies graph nodes
-nor infers ownership from labels.
+Queries remains the owner of package-role membership classification and
+Inspection Graph adaptation. The ordinary non-package session path retains its
+assembly-generation focus. PackageQueries neither reclassifies detached graph
+nodes nor infers ownership from labels.
 
 Platform destinations do not fabricate package participants in this slice.
 Calls whose definitions are outside the package implementation role retain the
@@ -284,13 +304,17 @@ Release gates cover:
 8. a reused logical Package occurrence from another generation fails visibly
    rather than being omitted from graph analysis;
 9. the exact root implementation MethodDef remains the graph seed;
-10. a dependency boundary call enters the external-focused graph without
-   retaining dependency-internal continuation;
-11. route and graph evidence remain usable after source-operation and
+10. every uniquely owned focused-root Package node is a hub node while every
+    uniquely owned dependency Package node is external;
+11. a dependency boundary call enters the external-focused graph without
+    retaining dependency-internal continuation, while an unknown endpoint
+    remains visibly unclassified, including a facade reference whose forwarded
+    definition ownership is incomplete;
+12. route and graph evidence remain usable after source-operation and
    package-role cleanup;
-12. cleanup failure cannot return a success-shaped graph and remains
+13. cleanup failure cannot return a success-shaped graph and remains
     authoritative over simultaneous graph-phase cancellation; and
-13. existing edge realization, Workspace route, package-role, and ordinary
+14. existing edge realization, Workspace route, package-role, and ordinary
     call-graph behavior remain unchanged.
 
 ## Non-claims
@@ -304,6 +328,7 @@ This composition does not:
 - redefine PackageHouse realization or Platform pruning;
 - add active Platform assemblies to the call-graph context;
 - change external-focused topology;
+- add a host graph-policy selector;
 - infer Package ownership from graph labels;
 - retain live resource owners in completed results; or
 - return `InspectionEnvelope<TContent>` before a production host consumes the

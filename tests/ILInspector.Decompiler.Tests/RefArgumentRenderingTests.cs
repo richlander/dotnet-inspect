@@ -27,17 +27,34 @@ public class RefArgumentRenderingTests
         // Exchange(<ref slot>, 5)
         var call = new Call(callee, isVirtual: false, [new LoadStackSlot(0, refInt), new Constant(5, Int32)]);
         var block = new Block(0);
+        block.Add(new StoreStackSlot(
+            0,
+            new LoadLocalAddress(0, Int32)));
         block.Add(new Return(call));
         var container = new BlockContainer();
         container.Add(block);
         var signature = new MethodSignature(Int32, [], HasThis: false, GenericParameterCount: 0);
-        return new IrFunction("M", TypeRef.CoreLib("System", "Holder"), signature, [], container);
+        return new IrFunction(
+            "M",
+            TypeRef.CoreLib("System", "Holder"),
+            signature,
+            [Int32],
+            container);
+    }
+
+    static string RenderSlotByRefCall(ArgumentRefKind refKind)
+    {
+        var function = BuildSlotByRefCall(refKind);
+        new SlotMaterializationPass().Run(
+            function,
+            PassContext.None);
+        return CSharpPrinter.Print(function).Output!;
     }
 
     [Fact]
     public void RefArgumentInStackSlot_RendersWithRefKeyword()
     {
-        var output = CSharpPrinter.Print(BuildSlotByRefCall(ArgumentRefKind.Ref)).Output;
+        string output = RenderSlotByRefCall(ArgumentRefKind.Ref);
 
         Assert.Contains("Exchange(ref S_0, 5)", output);
         Assert.DoesNotContain("Exchange(S_0", output);
@@ -46,7 +63,7 @@ public class RefArgumentRenderingTests
     [Fact]
     public void OutArgumentInStackSlot_RendersWithOutKeyword()
     {
-        var output = CSharpPrinter.Print(BuildSlotByRefCall(ArgumentRefKind.Out)).Output;
+        string output = RenderSlotByRefCall(ArgumentRefKind.Out);
 
         Assert.Contains("Exchange(out S_0, 5)", output);
         Assert.DoesNotContain("Exchange(S_0", output);

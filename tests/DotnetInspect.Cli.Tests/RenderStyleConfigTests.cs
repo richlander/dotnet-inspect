@@ -705,9 +705,9 @@ public class RenderStyleConfigTests
         Assert.Matches(@"// IL_[0-9A-Fa-f]{4}: ", annotated);
     }
 
-    // Whole-type decompilation (the `type -S "Decompiled Source"` path) routes
-    // through MemberBodyProducer.Project rather than Collect, so it needs the
-    // resolved options threaded separately.
+    // Whole-type decompilation routes through the structured Type document
+    // producer rather than Collect, so it needs the resolved options threaded
+    // separately.
     [Fact]
     public void WholeType_WithoutRenderOptions_RendersBareThisMemberAccess()
     {

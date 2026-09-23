@@ -51,7 +51,18 @@ internal static partial class WorkflowContract
     internal static WorkflowContractResult Load(
         string repository,
         string workflowText,
-        bool validateProvenancePin = true)
+        bool validateProvenancePin = true) =>
+        Load(
+            repository,
+            workflowText,
+            validateProvenancePin,
+            validateProjectGraph: true);
+
+    private static WorkflowContractResult Load(
+        string repository,
+        string workflowText,
+        bool validateProvenancePin,
+        bool validateProjectGraph)
     {
         using TextReader reader = new StringReader(workflowText);
         YamlStream yaml = [];
@@ -62,7 +73,10 @@ internal static partial class WorkflowContract
                 $"Expected one workflow document, found {yaml.Documents.Count}.");
         }
 
-        DecompilerProjectGraphPolicy.Validate(repository);
+        if (validateProjectGraph)
+        {
+            DecompilerProjectGraphPolicy.Validate(repository);
+        }
 
         YamlMappingNode root = RequireMapping(
             yaml.Documents[0].RootNode,
@@ -75,7 +89,7 @@ internal static partial class WorkflowContract
                 ["DOTNET_CLI_TELEMETRY_OPTOUT"] = "true",
             },
             "workflow.env");
-        RequireAbsent(root, "defaults", "workflow");
+        ValidateWorkflowRunDefaults(root);
         ValidateWorkflowTriggers(root);
         YamlMappingNode jobs = GetRequiredMapping(root, "jobs", "workflow");
         ValidateAggregateStructuralCheck(jobs);
@@ -129,6 +143,37 @@ internal static partial class WorkflowContract
         return new WorkflowContractResult(
             provenanceRunSha256,
             provenancePin);
+    }
+
+    private static void ValidateWorkflowRunDefaults(YamlMappingNode root)
+    {
+        if (!TryGetNode(root, "defaults", out YamlNode defaultsNode))
+        {
+            return;
+        }
+
+        YamlMappingNode defaults = RequireMapping(
+            defaultsNode,
+            "workflow.defaults");
+        RequireExactKeys(defaults, ["run"], "workflow.defaults");
+        YamlMappingNode run = GetRequiredMapping(
+            defaults,
+            "run",
+            "workflow.defaults");
+        RequireExactKeys(
+            run,
+            ["working-directory"],
+            "workflow.defaults.run");
+        string workingDirectory = GetRequiredScalar(
+            run,
+            "working-directory",
+            "workflow.defaults.run");
+        if (!IsStaticRepositoryRootWorkingDirectory(workingDirectory))
+        {
+            throw new InvalidOperationException(
+                "workflow.defaults.run.working-directory must resolve to " +
+                $"the repository root, got {workingDirectory}.");
+        }
     }
 
     private static void ValidateTestShardMatrix(YamlMappingNode jobs)
@@ -409,19 +454,29 @@ internal static partial class WorkflowContract
                 "Expected one jobs.test package-manifest corpus verifier build step.");
         }
 
+        YamlMappingNode verifierBuildStep = verifierBuildSteps[0];
         RequireExactKeys(
-            verifierBuildSteps[0],
-            ["name", "if", "run"],
+            verifierBuildStep,
+            TryGetNode(
+                verifierBuildStep,
+                "working-directory",
+                out _)
+                ? ["name", "if", "run", "working-directory"]
+                : ["name", "if", "run"],
             "jobs.test package-manifest corpus verifier build step");
         RequireScalarValue(
-            verifierBuildSteps[0],
+            verifierBuildStep,
             "if",
             "matrix.shard == 'host-policy'",
             "jobs.test package-manifest corpus verifier build step");
         RequireScalarValue(
-            verifierBuildSteps[0],
+            verifierBuildStep,
             "run",
             "dotnet build eng/verify-package-manifest-corpus.cs -c Release",
+            "jobs.test package-manifest corpus verifier build step");
+        RequireRepositoryRootWorkingDirectory(
+            test,
+            verifierBuildStep,
             "jobs.test package-manifest corpus verifier build step");
     }
 

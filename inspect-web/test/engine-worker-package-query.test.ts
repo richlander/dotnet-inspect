@@ -200,6 +200,21 @@ const assessmentEvent: EngineWorkerPackageQueryDurableEvent = {
     message: "literal absent",
     assetPath: "lib/net10.0/Contoso.Other.dll",
     rootRequest: "root1:Contoso.Other@2.0.0",
+    libraries: [{
+      selectedAsset: {
+        path: "lib/net10.0/Contoso.Other.dll",
+        assemblyName: "Contoso.Other",
+        targetFramework: "net10.0",
+        sequence: "Implementation",
+        ordinal: 0,
+        unevaluatedSiblings: 0,
+        rootRequest: "root1:Contoso.Other@2.0.0",
+      },
+      kind: "NoMatch",
+      occurrences: 0,
+      failureStage: null,
+      message: null,
+    }],
   },
 };
 
@@ -311,6 +326,7 @@ function semanticInspected(): BrowserPackageQueryResult {
     rootRequest: "opaque-semantic-root",
   };
   const occurrence = {
+    libraryPath: "lib/net10.0/Contoso.Library.dll",
     moduleVersionId: "00000000-0000-0000-0000-000000000001",
     methodDefinitionToken: 0x06000001,
     ilOffset: 4,
@@ -342,6 +358,13 @@ function semanticInspected(): BrowserPackageQueryResult {
     timeoutKind: null,
     timeoutSeconds: null,
     message: null,
+    libraries: [{
+      selectedAsset,
+      kind: "Matched" as const,
+      occurrences: 1,
+      failureStage: null,
+      message: null,
+    }],
   };
   return {
     version: 3,
@@ -386,7 +409,7 @@ function semanticInspected(): BrowserPackageQueryResult {
           sourceCandidates: 1,
           semanticMisses: 0,
           notApplicable: 0,
-          scope: "Selected primary implementation libraries only.",
+          scope: "All selected implementation libraries for one compatible target framework.",
           occurrences: 1,
           notEvaluated: 0,
           evaluatedCandidates: 1,

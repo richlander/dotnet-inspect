@@ -5,11 +5,12 @@
 This document is the normative owner for Package Library Scope, tracked by
 [#8302](https://github.com/richlander/dotnet-inspect/issues/8302).
 
-The contract is target-only and unverified. Existing aggregate package
-surfaces provide supporting design evidence, but no implementation gate yet
-proves conformance to this owner. Package Query `library-literal` is the first
-planned adopter under
-[#8297](https://github.com/richlander/dotnet-inspect/issues/8297).
+The contract remains a target policy adopted independently by each operation.
+Existing aggregate package surfaces provide supporting design evidence.
+Package Query `library-literal` is the first gated adopter under
+[#8297](https://github.com/richlander/dotnet-inspect/issues/8297); its owning
+designs and tests prove only that focused implementation-role adoption, not
+repository-wide conformance.
 
 ## Authority and exact claim
 
@@ -216,9 +217,10 @@ structural inspection. Its recommendation behavior is a consumer of this
 policy, not its authority.
 
 [Package Query assembly evaluation](package-query-assembly-evaluation.md)
-records one selected primary asset, its exact role occurrence, and the count of
-unevaluated siblings. That honest selected-asset contract remains in force
-until each Package Query pattern adopts aggregate or exact scope.
+records one selected asset, its exact role occurrence, and the count of
+unevaluated siblings. Aggregate patterns compose that one-asset evaluator over
+their declared role population; patterns that have not adopted this policy
+retain their explicit selected-asset contract.
 
 [SourceLink Exposure](../sourcelink-exposure.md) supplies an existing
 package-aggregate precedent: package SourceLink sections evaluate selected

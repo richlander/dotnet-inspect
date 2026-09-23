@@ -117,7 +117,9 @@ public sealed class PlatformSelectedReferencePopulationExecutorTests
         var catalogBounds = new PlatformTypeCatalogDerivationBounds(
             new LibraryTypeDeclarationInventoryInspectionBounds(
                 maximumAssemblyBytes: 16 * 1024 * 1024,
-                maximumRetainedDeclarations: 100_000),
+                maximumRetainedDeclarations: 100_000,
+                maximumMetadataRows: int.MaxValue,
+                maximumRetainedTextCharacters: int.MaxValue),
             maximumAssemblies: 8,
             maximumAggregateAssemblyBytes: 64 * 1024 * 1024,
             maximumRetainedEntries: 200_000,

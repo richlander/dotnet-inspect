@@ -17,6 +17,8 @@
     <PackageReference Include="xunit.v3" />
     <PackageDownload Include="System.Text.Json"
                      Version="[10.0.0]" />
+    <PackageDownload Include="Microsoft.NETCore.App.Ref"
+                     Version="[10.0.10]" />
   </ItemGroup>
 
   <ItemGroup>
@@ -31,6 +33,8 @@
     <ProjectReference Include="../../src/QuerySpace/QuerySpace.csproj" />
     <ProjectReference Include="../DotnetInspector.FixtureInfrastructure/DotnetInspector.FixtureInfrastructure.csproj" />
     <ProjectReference Include="../../fixtures/analysis/ILInspector.Analysis.AsyncSiblingFriendBaseFixtures/ILInspector.Analysis.AsyncSiblingFriendBaseFixtures.csproj" ReferenceOutputAssembly="false" />
+    <ProjectReference Include="../../fixtures/analysis/ILInspector.Analysis.CallerGraphCaller/ILInspector.Analysis.CallerGraphCaller.csproj" ReferenceOutputAssembly="false" />
+    <ProjectReference Include="../../fixtures/analysis/ILInspector.Analysis.CallerGraphTarget/ILInspector.Analysis.CallerGraphTarget.csproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="../../fixtures/analysis/ILInspector.Analysis.Fixtures/ILInspector.Analysis.Fixtures.csproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="../../fixtures/decompiler/ILInspector.Decompiler.Fixtures.NewUnsafe/ILInspector.Decompiler.Fixtures.NewUnsafe.csproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="../../fixtures/metadata/ILInspector.Metadata.ApiDeclarationCorrespondence.V1/ILInspector.Metadata.ApiDeclarationCorrespondence.V1.csproj" ReferenceOutputAssembly="false" />
@@ -41,6 +45,9 @@
   <ItemGroup>
     <None Include="$(NuGetPackageRoot)system.text.json/10.0.0/lib/net10.0/System.Text.Json.dll"
           Link="RealAssets/LibraryOverview/System.Text.Json.dll"
+          CopyToOutputDirectory="PreserveNewest" />
+    <None Include="$(NuGetPackageRoot)microsoft.netcore.app.ref/10.0.10/ref/net10.0/netstandard.dll"
+          Link="RealAssets/LibraryOverview/netstandard.dll"
           CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 

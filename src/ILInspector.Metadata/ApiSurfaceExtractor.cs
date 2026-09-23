@@ -1236,6 +1236,12 @@ public static partial class ApiSurfaceExtractor
                     observeDecodeWork);
             apiType.JsonSerializableAttributeCount =
                 jsonSerializableAttributeCount;
+            apiType.JsExportJsonInputDeclarations =
+                AttributeReader.ReadJsExportJsonInputDeclarations(
+                    reader,
+                    jsonTypeAttributes,
+                    currentAssemblyIdentity,
+                    observeDecodeWork);
             if (jsonSerializableAttributeCount > 0)
             {
                 apiType.HasSystemTextJsonSourceGenerationMarker =
@@ -1465,6 +1471,7 @@ public static partial class ApiSurfaceExtractor
                     reader,
                     methodCustomAttributes,
                     out var obsoleteMessage,
+                    out var obsoleteIsError,
                     observeDecodeWork);
 
                 var methodAttributes = method.Attributes;
@@ -1564,6 +1571,7 @@ public static partial class ApiSurfaceExtractor
                     Accessibility = isExplicitInterfaceImplementation && !isOperator ? null : GetAccessibility(methodAccess),
                     IsObsolete = isObsolete,
                     ObsoleteMessage = obsoleteMessage,
+                    ObsoleteIsError = obsoleteIsError,
                     HasRuntimeJsExport =
                         jsExportEvidence.HasValidRow,
                     RuntimeJsExportAttributeCount =
@@ -1727,6 +1735,7 @@ public static partial class ApiSurfaceExtractor
                     reader,
                     prop.GetCustomAttributes(),
                     out var obsoleteMessage,
+                    out var obsoleteIsError,
                     observeDecodeWork);
 
                 var propertySignature = GetPropertySignature(
@@ -1794,6 +1803,7 @@ public static partial class ApiSurfaceExtractor
                     Accessibility = GetAccessibility(bestAccess),
                     IsObsolete = isObsolete,
                     ObsoleteMessage = obsoleteMessage,
+                    ObsoleteIsError = obsoleteIsError,
                     IsCompilerGenerated = AttributeReader.HasAttribute(
                         reader,
                         prop.GetCustomAttributes(),
@@ -1949,6 +1959,7 @@ public static partial class ApiSurfaceExtractor
                     reader,
                     field.GetCustomAttributes(),
                     out var obsoleteMessage,
+                    out var obsoleteIsError,
                     observeDecodeWork);
                 List<string?> jsonStringEnumMemberNames =
                     AttributeReader.ReadJsonStringEnumMemberNames(
@@ -2009,6 +2020,7 @@ public static partial class ApiSurfaceExtractor
                     Accessibility = GetFieldAccessibility(fieldAccess),
                     IsObsolete = isObsolete,
                     ObsoleteMessage = obsoleteMessage,
+                    ObsoleteIsError = obsoleteIsError,
                     IsCompilerGenerated = AttributeReader.HasAttribute(
                         reader,
                         field.GetCustomAttributes(),
@@ -2122,6 +2134,7 @@ public static partial class ApiSurfaceExtractor
                     reader,
                     evt.GetCustomAttributes(),
                     out var obsoleteMessage,
+                    out var obsoleteIsError,
                     observeDecodeWork);
                 TypeNode? structuralEventNode = null;
                 var eventType = ResolveRequiredTypeName(
@@ -2266,6 +2279,7 @@ public static partial class ApiSurfaceExtractor
                     Accessibility = GetAccessibility(adderAccess),
                     IsObsolete = isObsolete,
                     ObsoleteMessage = obsoleteMessage,
+                    ObsoleteIsError = obsoleteIsError,
                     AdderToken = accessors.Adder.IsNil
                         ? null
                         : MetadataTokens.GetToken(accessors.Adder),
