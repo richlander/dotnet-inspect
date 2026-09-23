@@ -15,14 +15,17 @@ Tracking:
   Markout serialization;
 - [#7253](https://github.com/richlander/dotnet-inspect/issues/7253) —
   deterministic direct-use clusters over this result;
+- [#8367](https://github.com/richlander/dotnet-inspect/issues/8367) —
+  completed host-neutral inspection and CLI adoption;
 - [#6313](https://github.com/richlander/dotnet-inspect/issues/6313) — broader
   feature-relationship experience.
 
-This document owns the L1 pair result: participant identity, admitted
-occurrence kinds, physical evidence, ordering, and completion. Analysis owns
-IL-body facts and catalog member correspondence. Inspection graph documents
-own graph-wide subjects, relationships, and rendering if a later consumer
-projects these occurrences into that envelope.
+This document owns the L1 pair result and its completed inspection:
+participant identity, admitted occurrence kinds, physical evidence, ordering,
+completion, summary projection, typed request rejection, and supplemental
+diagnostics. Analysis owns IL-body facts and catalog member correspondence.
+Inspection graph documents own graph-wide subjects, relationships, and
+rendering if a later consumer projects these occurrences into that envelope.
 
 ## Consumer
 
@@ -53,9 +56,9 @@ feature-cluster owner. They do not claim that a direct use site is a public
 entry point or feature, or that a provider declaring type is a public API
 boundary or cohesive capability.
 
-The Browser/Wasm host can consume the same host-neutral query after it has a
-two-library selection surface. The query must not depend on CLI paths, console
-formatting, or host-specific acquisition.
+The Browser/Wasm host can consume the same host-neutral inspection after it has
+a two-library selection surface. The inspection must not depend on CLI paths,
+console formatting, or host-specific acquisition.
 
 ## Normative claim
 
@@ -236,6 +239,42 @@ Positive summary rows remain useful when pair evidence is incomplete. The
 projection preserves the pair result and its completion state; it never turns
 partial positive evidence into a complete breadth or absence claim.
 
+## Completed inspection
+
+`AssemblyPairCallUseInspection.Execute` is the host-neutral completed operation
+for one live pair request. It returns
+`InspectionEnvelope<AssemblyPairCallUseInspectionOutcome>`.
+
+An available outcome retains exactly one
+`AssemblyPairCallUseProjection`, including its original pair result and
+physical occurrence receipts. The operation does not reopen either Library,
+reconstruct participant identity, compute clusters, or alter completion.
+
+A request rejected by the pair query becomes a typed rejected outcome with one
+of these reasons:
+
+- the two inputs identify the same participant registration;
+- an input registration is outside the supplied context group;
+- distinct registrations identify the same physical assembly artifact.
+
+Null inputs remain programming errors. Participant acquisition, invalid-image,
+body-analysis, and correspondence gaps remain an available but incomplete
+pair result because retained exact occurrences are still positive evidence.
+The envelope projects those owner-issued gaps as diagnostics:
+
+- participant rejection and invalid-image failures are errors;
+- body-analysis and pair-correspondence gaps are warnings.
+
+The Share outcome is non-projectable until Workspace Share owns a canonical
+pair coordinate. Hosts must not invent one from paths or display names.
+
+The CLI is the first production consumer. It obtains the pair result,
+summaries, and incompleteness diagnostics from this operation, then applies its
+existing section, row-selection, cluster, root-path, and rendering behavior.
+The Browser/Wasm host can call the same operation after it owns an exact
+two-Library selection surface. TypeScript must not reimplement pair analysis or
+summary grouping.
+
 ## CLI projection
 
 `graph libraries` initially lowers the typed occurrence rows as a table-shaped
@@ -339,6 +378,8 @@ Contract tests cover:
 - exclusion of same-library and third-participant calls;
 - unresolved correspondence making absence incomplete;
 - participant acquisition and invalid-image failures;
+- typed inspection rejection for identical, foreign, and same-artifact pairs;
+- completed inspection diagnostics for incomplete positive evidence;
 - summary groups retaining every exact occurrence once;
 - repeated sites affecting site counts without inflating distinct counts;
 - bidirectional and request-order-independent summary ordering.
