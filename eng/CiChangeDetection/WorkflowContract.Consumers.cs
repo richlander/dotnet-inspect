@@ -510,6 +510,7 @@ internal static partial class WorkflowContract
                 $"jobs.{jobName}");
             var identities = new HashSet<string>(StringComparer.Ordinal);
             bool hasRunStepWithoutShell = false;
+            bool hasRunStepWithoutWorkingDirectory = false;
             foreach (YamlNode stepNode in steps.Children)
             {
                 YamlMappingNode step = RequireMapping(
@@ -518,6 +519,9 @@ internal static partial class WorkflowContract
                 hasRunStepWithoutShell |=
                     TryGetNode(step, "run", out _)
                     && !TryGetNode(step, "shell", out _);
+                hasRunStepWithoutWorkingDirectory |=
+                    TryGetNode(step, "run", out _)
+                    && !TryGetNode(step, "working-directory", out _);
                 string? identity = GetOptionalScalar(step, "name") ??
                     GetOptionalScalar(step, "uses");
                 if (identity is null || !identities.Add(identity))
@@ -583,6 +587,12 @@ internal static partial class WorkflowContract
                     "shell",
                     $"jobs.{jobName}");
             }
+            if (hasRunStepWithoutWorkingDirectory)
+            {
+                RequireRootWorkingDirectoryFromRunDefaults(
+                    job,
+                    $"jobs.{jobName}");
+            }
         }
 
         RequireSeenExactly(
@@ -633,6 +643,40 @@ internal static partial class WorkflowContract
             RequireMapping(runNode, $"{context}.defaults.run"),
             property,
             $"{context}.defaults.run");
+    }
+
+    private static void RequireRootWorkingDirectoryFromRunDefaults(
+        YamlMappingNode job,
+        string context)
+    {
+        if (!TryGetNode(job, "defaults", out YamlNode defaultsNode))
+        {
+            return;
+        }
+
+        YamlMappingNode defaults = RequireMapping(
+            defaultsNode,
+            $"{context}.defaults");
+        if (!TryGetNode(defaults, "run", out YamlNode runNode))
+        {
+            return;
+        }
+
+        YamlMappingNode run = RequireMapping(
+            runNode,
+            $"{context}.defaults.run");
+        string? workingDirectory = GetOptionalScalar(
+            run,
+            "working-directory");
+        if (workingDirectory is null
+            || IsStaticRepositoryRootWorkingDirectory(workingDirectory))
+        {
+            return;
+        }
+
+        throw new InvalidOperationException(
+            $"{context}.defaults.run.working-directory must resolve to " +
+            $"the repository root, got {workingDirectory}.");
     }
 
     private static void ValidateTestStepGuard(
