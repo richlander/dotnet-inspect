@@ -9,7 +9,8 @@ internal sealed partial class NuGetV3PackageSourceClient : IPackageArchiveRangeS
     /// <summary>
     /// Opens the archive of one exact coordinate by range through the flat
     /// container the service index names, with the same credential, browser
-    /// options, retry, and per-request deadline as the full fetch.
+    /// options, and per-request deadline as the full fetch, and the retry
+    /// mechanics the gallery full fetch uses.
     /// </summary>
     public Task<PackageArchiveReadResult<PackageArchiveReader>> OpenArchiveAsync(
         string packageId,

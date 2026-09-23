@@ -43,7 +43,11 @@ public sealed class PackageArchiveReader : IAsyncDisposable
 
     /// <summary>
     /// Reads and expands one entry under the caller's expanded bound (the
-    /// limits' per-entry bound when <see langword="null"/>).
+    /// limits' per-entry bound when <see langword="null"/>). The read runs
+    /// under the operation context the open established, so
+    /// <paramref name="cancellationToken"/> must be the open's caller token
+    /// or <see langword="default"/>; a different token is rejected, as every
+    /// operation under a shared context rejects it.
     /// </summary>
     public async Task<PackageArchiveReadResult<PackageArchiveEntryContent>> ReadEntryAsync(
         ZipEntry entry,
@@ -71,6 +75,8 @@ public sealed class PackageArchiveReader : IAsyncDisposable
                 token,
                 out PackageArchiveReadResult<PackageArchiveEntryContent>? mapped))
         {
+            // A failure that raced the caller's cancellation is cancellation.
+            token.ThrowIfCancellationRequested();
             return mapped;
         }
     }
@@ -169,6 +175,8 @@ internal static class PackageArchiveRangeAccess
             if (source is not null)
                 await source.DisposeAsync().ConfigureAwait(false);
             session.Dispose();
+            // A failure that raced the caller's cancellation is cancellation.
+            cancellationToken.ThrowIfCancellationRequested();
             return mapped;
         }
         catch
@@ -257,6 +265,18 @@ internal sealed class PackageArchiveRangeSession : IDisposable
                         requestToken).ConfigureAwait(false);
                     try
                     {
+                        // A transient status is a retryable failure here, as
+                        // the full fetch's EnsureSuccessStatusCode makes it;
+                        // every other status reaches the range source, which
+                        // decides what 200, 206, and the rest mean.
+                        if (IsTransientStatus(sent.StatusCode))
+                        {
+                            throw new HttpRequestException(
+                                $"The package source answered a ranged request with status {(int)sent.StatusCode}.",
+                                inner: null,
+                                sent.StatusCode);
+                        }
+
                         Stream body = await sent.Content
                             .ReadAsStreamAsync(requestToken)
                             .ConfigureAwait(false);
@@ -369,6 +389,14 @@ internal sealed class PackageArchiveRangeSession : IDisposable
     private PackageArchiveReadResult<T> Failed<T>(PackageSourceFailureKind kind)
         where T : class =>
         new(_results.FailedPackage(Coordinate, kind).Failure!);
+
+    /// <summary>The statuses the retry policy treats as transient when carried by an <see cref="HttpRequestException"/>.</summary>
+    private static bool IsTransientStatus(HttpStatusCode status) =>
+        status is HttpStatusCode.RequestTimeout
+            or HttpStatusCode.InternalServerError
+            or HttpStatusCode.BadGateway
+            or HttpStatusCode.ServiceUnavailable
+            or HttpStatusCode.GatewayTimeout;
 
     private static HttpRequestMessage Clone(HttpRequestMessage request)
     {

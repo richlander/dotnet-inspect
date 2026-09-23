@@ -126,6 +126,23 @@ public sealed partial class PackageSourceClientTests
         await payload.Content.DisposeAsync();
     }
 
+    [Fact]
+    public async Task ArchiveRange_TransientStatus_IsRetried_LikeTheFullFetch()
+    {
+        var server = new RangeServer(SmallArchive(("a", [1, 2, 3]))) { TransientFailuresFirst = 1 };
+        var handler = new RecordingHandler { [ServiceIndex] = ServiceIndexWithFlatContainer };
+        handler.SetResponse(Package, server.Respond);
+        using IPackageSourceClient runtime = PackageSourceClientFactory.Create(new PackageSource("feed", ServiceIndex), handler);
+
+        await using PackageArchiveReader reader = await Opened(
+            await Ranged(runtime).OpenArchiveAsync(
+                "contoso", "1.0.0", ZipReadLimits.Default, TestContext.Current.CancellationToken));
+
+        // The first 503 was retried inside the send; the open still succeeded.
+        Assert.Equal(2, server.Requests);
+        Assert.Single(reader.Directory.Entries);
+    }
+
     [Theory]
     [InlineData(HttpStatusCode.NotFound, PackageSourceFailureKind.NotFound)]
     [InlineData(HttpStatusCode.Unauthorized, PackageSourceFailureKind.AuthenticationRequired)]
@@ -201,10 +218,12 @@ public sealed partial class PackageSourceClientTests
         var server = new RangeServer(archive) { StallRanges = true };
         var handler = new RecordingHandler { [ServiceIndex] = ServiceIndexWithFlatContainer };
         handler.SetResponse(Package, server.Respond);
+        // The request deadline is far above the operation ceiling, so the
+        // ceiling is what ends the stalled body read.
         var options = new NuGetFetchOptions
         {
-            RequestTimeout = TimeSpan.FromMilliseconds(50),
-            OperationTimeout = TimeSpan.FromMilliseconds(600),
+            RequestTimeout = TimeSpan.FromSeconds(20),
+            OperationTimeout = TimeSpan.FromMilliseconds(800),
         };
         using IPackageSourceClient runtime = PackageSourceClientFactory.Create(new PackageSource("feed", ServiceIndex), handler, options);
         await using PackageArchiveReader reader = await Opened(
@@ -264,10 +283,21 @@ public sealed partial class PackageSourceClientTests
         public string? ETag { get; set; }
         public HttpStatusCode? Status { get; set; }
 
+        /// <summary>How many leading requests answer 503 before the server serves ranges.</summary>
+        public int TransientFailuresFirst { get; set; }
+
+        public int Requests { get; private set; }
+
         public HttpResponseMessage Respond(HttpRequestMessage request)
         {
+            Requests++;
             if (Status is { } status)
                 return new HttpResponseMessage(status) { Content = new ByteArrayContent([]) };
+            if (TransientFailuresFirst > 0)
+            {
+                TransientFailuresFirst--;
+                return new HttpResponseMessage(HttpStatusCode.ServiceUnavailable) { Content = new ByteArrayContent([]) };
+            }
             RangeItemHeaderValue? range = request.Headers.Range?.Ranges.FirstOrDefault();
             if (IgnoreRange || range is null)
                 return new HttpResponseMessage(HttpStatusCode.OK) { Content = new ByteArrayContent(representation) };
