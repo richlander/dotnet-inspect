@@ -72,9 +72,11 @@
   `package ID@latest --versions` to force a fresh check. JSON consumers now
   read `[0].version` from the one-row array or use `--tsv`; exact
   `package ID --version VERSION` verification and root
-  `dotnet-inspect --version` product-version reporting remain. SourceLink
-  `--raw` and `--blob` are replaced by `--prefer-rendered-urls`; direct
-  fetchable URLs remain the default (#7621, #8204, #8293).
+  `dotnet-inspect --version` product-version reporting remain. The removed
+  spelling receives the ordinary unrecognized-input result rather than
+  compatibility guidance. SourceLink `--raw` and `--blob` are replaced by
+  `--prefer-rendered-urls`; direct fetchable URLs remain the default (#7621,
+  #8204, #8293, #8306).
 
 ### Workspaces and coordinates
 
