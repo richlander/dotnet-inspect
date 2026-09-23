@@ -39,6 +39,8 @@ public class DiffOptionsParserTests
         var maxProbesOption = new Option<int?>("--max-probes");
         var samplePercentOption =
             new Option<int?>("--sample-percent");
+        var majorVersionsOption =
+            new Option<bool>("--major-versions");
         var prereleaseOption = new Option<bool>("--preview");
         var countOption = new Option<bool>("--count");
         var typeFilterOption = new Option<string[]>("-t") { AllowMultipleArgumentsPerToken = false };
@@ -68,6 +70,7 @@ public class DiffOptionsParserTests
         diffCommand.Options.Add(atOption);
         diffCommand.Options.Add(maxProbesOption);
         diffCommand.Options.Add(samplePercentOption);
+        diffCommand.Options.Add(majorVersionsOption);
         diffCommand.Options.Add(prereleaseOption);
         diffCommand.Options.Add(countOption);
         diffCommand.Options.Add(typeFilterOption);
@@ -98,7 +101,7 @@ public class DiffOptionsParserTests
         var root = new RootCommand { diffCommand };
         var args = new DiffOptionsParser.DiffCommandArgs(
             argsArg, packageOption, platformOption, libraryOption, frameworkOption, tfmOption, allOption,
-            historyOption, atOption, maxProbesOption, samplePercentOption, prereleaseOption, countOption,
+            historyOption, atOption, maxProbesOption, samplePercentOption, majorVersionsOption, prereleaseOption, countOption,
             typeFilterOption, memberFilterOption, opts.NoHeaders, nameOnlyOption, breakingOption, additiveOption,
             changedOption, allocRegressionsOption, pdbSourceOption, legacyAuthoredSourceOption, findingOption, legendOption, repoOption, compactOption);
 
@@ -141,6 +144,18 @@ public class DiffOptionsParserTests
 
         Assert.Equal(50, options.SamplePercent);
         Assert.Equal(10, options.MaxProbes);
+    }
+
+    [Fact]
+    public void MajorVersionsOptionPopulatesEvaluationPolicyInput()
+    {
+        DiffOptions options = ParseSuccess(
+            "diff",
+            "--history",
+            "--package", "Example@8.0.0..11.0.0",
+            "--major-versions");
+
+        Assert.True(options.MajorVersions);
     }
 
     [Fact]

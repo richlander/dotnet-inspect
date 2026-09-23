@@ -123,6 +123,12 @@ public static class PackageCommandDefinitions
         });
         var typeFilterOption = new Option<string?>("-t") { Description = "Filter SourceLink: Files rows by type glob/name (e.g., *Json*)" };
         typeFilterOption.Aliases.Add("--type");
+        var detailsOption = new Option<bool>("--details")
+        {
+            Description =
+                "With Library -D: add structurally supported output formats "
+                + "and cardinality (offline)",
+        };
         var versionOption = new Option<string?>("--version")
         {
             Description =
@@ -163,6 +169,7 @@ public static class PackageCommandDefinitions
         packageCommand.Options.Add(tfmOption);
         packageCommand.Options.Add(depthOption);
         packageCommand.Options.Add(typeFilterOption);
+        packageCommand.Options.Add(detailsOption);
         packageCommand.Options.Add(versionOption);
         packageCommand.Options.Add(latestVersionOption);
         packageCommand.Options.Add(opts.PreferRenderedUrls);
@@ -172,7 +179,8 @@ public static class PackageCommandDefinitions
             packageNameArg, dependenciesOption, layoutOption, pathOption, tfmsOption,
             libOption, toolsOption, libraryOption, namesakeLibraryOption, allLibrariesOption, versionsOption, versionsWithFeedOption, prereleaseOption, includeUnlistedOption,
             contentOption, frontmatterOption, bodyOption,
-            tfmOption, depthOption, typeFilterOption, versionOption,
+            tfmOption, depthOption, typeFilterOption, detailsOption,
+            versionOption,
             latestVersionOption,
             opts.Lines, opts.TailLines, outOption, pathMatchOption,
             skipEmptyOption, rootsOption, opts.NoHeaders,
@@ -231,10 +239,19 @@ public static class PackageCommandDefinitions
             skipEmptyOption, tfmsOption, libOption, toolsOption,
             libraryOption, namesakeLibraryOption, allLibrariesOption,
             contentOption, frontmatterOption, bodyOption, outOption,
-            tfmOption, depthOption, typeFilterOption, versionOption,
+            tfmOption, depthOption, typeFilterOption, detailsOption,
+            versionOption,
             latestVersionOption, rootsOption);
         packageCommand.Validators.Add(result =>
         {
+            if (result.GetValue(detailsOption)
+                && result.GetResult(opts.Discover)
+                    is not { Implicit: false })
+            {
+                result.AddError(
+                    "--details requires -D/--discover.");
+            }
+
             bool hasPluralVersionSelector =
                 result.GetValue(versionsOption)
                 || result.GetValue(versionsWithFeedOption);
@@ -784,6 +801,16 @@ public static class PackageCommandDefinitions
                     out OptionError error))
             {
                 CommandError.Write(error);
+                return 1;
+            }
+
+            if (includeSections?.Contains(
+                    PackageQuerySections.LiteralStringsName) == true
+                && !options!.Plan.RequiresLibraryLiteralEvaluation)
+            {
+                CommandError.Write(
+                    $"Section '{PackageQuerySections.LiteralStringsName}' requires "
+                    + "--where \"library-literal=TEXT\" and --tfm TFM.");
                 return 1;
             }
 

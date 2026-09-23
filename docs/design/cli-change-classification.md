@@ -15,7 +15,7 @@ restate or replace it.
 It does not enumerate current commands or define each command's semantics.
 Those responsibilities remain with:
 
-- the root [`README.md`](../../README.md), visible `--help`, and embedded
+- the [CLI reference](../cli-reference.md), visible `--help`, and embedded
   product skills for current supported invocations;
 - [CLI host architecture](../cli-architecture.md) for parsing, routing,
   authorization, request lifetime, presentation, and exit-status mechanics;
@@ -37,7 +37,7 @@ A surface is **published for the current release** when at least one of these
 is true:
 
 - a command, argument, option, or alias appears in visible `--help`;
-- the current root README documents the invocation as supported;
+- the current CLI reference documents the invocation as supported;
 - a current embedded product skill instructs callers to use the invocation; or
 - an owning design explicitly declares a machine-readable or selector
   contract.

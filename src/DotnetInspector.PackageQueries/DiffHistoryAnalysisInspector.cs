@@ -73,7 +73,7 @@ static class DiffHistoryAnalysisEngine
         where T : notnull
     {
         PackageVersionAddress sourceAddress =
-            request.Population.Vector.Addresses[0];
+            request.SourceAddress;
         PackageHouseVersionPopulationCell sourceCell =
             request.Population.SelectCell(sourceAddress);
         var sourceEndpoint = new PackageVersionCellAnalysisEndpoint(

@@ -42,6 +42,7 @@ public static class PackageOptionsParser
         Option<string?> TfmOption,
         Option<string?> DepthOption,
         Option<string?> TypeFilterOption,
+        Option<bool> DetailsOption,
         Option<string?> VersionOption,
         Option<bool> LatestVersionOption,
         Option<bool> LinesOption,
@@ -569,6 +570,8 @@ public static class PackageOptionsParser
             Verbose = parseResult.GetValue(opts.Verbose),
             Verbosity = verbosity,
             Discover = opts.ParseDiscover(parseResult),
+            DiscoverDetails =
+                parseResult.GetValue(args.DetailsOption),
             Tree = parseResult.GetValue(opts.Tree),
             Select = opts.ParseSelect(parseResult),
             SelectDefault = opts.ParseSelectDefault(parseResult),

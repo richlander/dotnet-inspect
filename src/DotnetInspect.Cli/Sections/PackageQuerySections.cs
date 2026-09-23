@@ -8,6 +8,7 @@ namespace DotnetInspect.Cli.Sections;
 
 public static class PackageQuerySections
 {
+    public const string LiteralStringsName = "Literal Strings";
     public const string QuerySummaryName = "Query Summary";
 
     public static string[] BareSelectSectionNames { get; } =
@@ -20,10 +21,12 @@ public static class PackageQuerySections
             .UseCuratedCatalog()
             .WithoutComputedPoles()
             .Add<PackageRows>()
+            .Add<LiteralStrings>()
             .Add<QuerySummary>()
             .AddBaseCategory(
                 SectionCategoryNames.Query,
                 PackageProfileSections.Packages,
+                LiteralStringsName,
                 QuerySummaryName)
             .Compile();
 
@@ -49,6 +52,7 @@ public static class PackageQuerySections
                 .. RowWindow.Apply(rows, results)
                     .Select(match => new PackageQueryRow(match)),
             ],
+            LiteralStrings = [],
             QuerySummary =
             [
                 new(
@@ -68,15 +72,18 @@ public static class PackageQuerySections
     {
         ArgumentNullException.ThrowIfNull(results);
         ArgumentNullException.ThrowIfNull(summary);
+        IReadOnlyList<PackageQueryMatch> selectedResults =
+            RowWindow.Apply(rows, results);
         return new()
         {
             TitleText = new(TextPolicy.Field, $"Package Query: {prefix}"),
             Summary = summary,
             Results =
             [
-                .. RowWindow.Apply(rows, results)
+                .. selectedResults
                     .Select(match => new PackageQuerySemanticRow(match)),
             ],
+            LiteralStrings = CreateLiteralStringRows(selectedResults),
             QuerySummary =
             [
                 new(
@@ -88,9 +95,48 @@ public static class PackageQuerySections
         };
     }
 
+    private static List<PackageQueryLiteralStringRow> CreateLiteralStringRows(
+        IReadOnlyList<PackageQueryMatch> results)
+    {
+        var rows = new List<PackageQueryLiteralStringRow>();
+        foreach (PackageQueryMatch match in results)
+        {
+            PackageQueryLibraryLiteralResult literal =
+                match.LibraryLiteral
+                ?? throw new ArgumentException(
+                    "A semantic Package Query row requires library-literal evidence.",
+                    nameof(results));
+            var packageText =
+                new InertString(
+                    TextPolicy.Field,
+                    match.Package.PackageId);
+            foreach (var occurrence in literal.Occurrences)
+            {
+                rows.Add(
+                    new(
+                        packageText,
+                        literal.SelectedAsset.PathText,
+                        occurrence.Address.MethodDefinitionToken,
+                        occurrence.Address.ILOffset,
+                        occurrence.LiteralText));
+            }
+        }
+        return rows;
+    }
+
     public sealed class PackageRows : ISectionDescriptor<PackageQueryView>
     {
         public static string Name => PackageProfileSections.Packages;
+        public static bool IsExpensive => false;
+        public static bool ExplicitOnly => true;
+        public static SectionSizeClass SizeClass => SectionSizeClass.Verbose;
+        public static SectionCost Cost => SectionCost.Unbounded;
+        public static bool CanRender(PackageQueryView model) => true;
+    }
+
+    public sealed class LiteralStrings : ISectionDescriptor<PackageQueryView>
+    {
+        public static string Name => LiteralStringsName;
         public static bool IsExpensive => false;
         public static bool ExplicitOnly => true;
         public static SectionSizeClass SizeClass => SectionSizeClass.Verbose;
