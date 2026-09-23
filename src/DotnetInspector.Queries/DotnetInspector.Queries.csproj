@@ -4,6 +4,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <LangVersion>preview</LangVersion>
+    <DotnetInspectWebsiteUrl Condition="'$(DotnetInspectWebsiteUrl)' == ''">https://dotnet-inspect.ca</DotnetInspectWebsiteUrl>
   </PropertyGroup>
 
   <PropertyGroup>
@@ -51,5 +52,30 @@
     -->
     <InternalsVisibleTo Include="DotnetInspector.ResearchQueries" />
   </ItemGroup>
+
+  <Target Name="GenerateWorkspaceShareUrl" BeforeTargets="CoreCompile">
+    <PropertyGroup>
+      <_WorkspaceShareUrlSource>$(IntermediateOutputPath)WorkspaceShareUrl.g.cs</_WorkspaceShareUrlSource>
+    </PropertyGroup>
+    <ItemGroup>
+      <_WorkspaceShareUrlSourceLines Include="// &lt;auto-generated /&gt;" />
+      <_WorkspaceShareUrlSourceLines Include="namespace DotnetInspector.Queries.Definitions%3B" />
+      <_WorkspaceShareUrlSourceLines Include="public static class WorkspaceShareUrl" />
+      <_WorkspaceShareUrlSourceLines Include="{" />
+      <_WorkspaceShareUrlSourceLines Include="    public const string WebsiteUrl = &quot;$(DotnetInspectWebsiteUrl)&quot;%3B" />
+      <_WorkspaceShareUrlSourceLines Include="    public const string Prefix = WebsiteUrl + &quot;/%3Fw=&quot;%3B" />
+      <_WorkspaceShareUrlSourceLines Include="    public static string Create(string packet) =&gt; Prefix + packet%3B" />
+      <_WorkspaceShareUrlSourceLines Include="}" />
+    </ItemGroup>
+    <WriteLinesToFile
+        File="$(_WorkspaceShareUrlSource)"
+        Lines="@(_WorkspaceShareUrlSourceLines)"
+        Overwrite="true"
+        WriteOnlyWhenDifferent="true" />
+    <ItemGroup>
+      <Compile Include="$(_WorkspaceShareUrlSource)" />
+      <FileWrites Include="$(_WorkspaceShareUrlSource)" />
+    </ItemGroup>
+  </Target>
 
 </Project>

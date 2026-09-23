@@ -16,6 +16,9 @@ public static class LibraryOverviewInspectionOperation
     private const string ShareReason =
         "A complete portable Workspace scenario was not supplied.";
 
+    public static SectionCardinalityDeclaration Cardinality =>
+        SectionCardinalityDeclaration.Scalar;
+
     public static InspectionEnvelope<LibraryOverviewOutcome> Execute(
         LibraryOverviewRequest request,
         LibraryOperationLease lease,

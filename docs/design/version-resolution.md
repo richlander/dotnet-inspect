@@ -101,6 +101,22 @@ discovery's `SelectCandidate` operation. Thus one discovery can serve multiple
 sparse or dense cells without rediscovery while every cell remains restricted
 to authorities that reported its version.
 
+Major-bound populations are an explicit `PackageVersionPopulationPolicy` opt-in.
+They retain the literal semantic range as the request, but interpret its
+endpoint majors as the required boundary buckets rather than requiring both
+literal endpoint versions. Every boundary major must have at least one
+admitted version in the inclusive range; therefore an unpublished stable upper
+bound can be represented by an admitted prerelease below that bound when
+prereleases are enabled. The default `ExactEndpoints` policy is unchanged.
+
+`PackageVersionMajorRepresentativePolicy.FirstStable` projects the lowest
+admitted stable address in each major, falling back to that major's latest
+admitted prerelease only when no stable address exists. `Latest` projects the
+highest admitted address in each major. Both projections preserve the
+caller-directed order of major buckets and return the original vector
+addresses, so the retained discovery and its source correspondence remain the
+handoff currency. These projections acquire no package payloads.
+
 The initial production bridge is online configured-source composition.
 Top-level `diff --history` and package version Count consume it. API-range
 inspection, offline extraction, operation-backed subject sections, and
@@ -242,17 +258,20 @@ implementation-ready syntax.
 | `Name` | **Latest stable** — resolve the latest stable version, then acquire that exact package | Fresh eligible-source discovery |
 | `Name --preview` | **Latest prerelease** — include prerelease/preview versions in selection | Fresh eligible-source discovery |
 | `Name@latest` | **Always check** — resolve the latest version every time | Fresh eligible-source discovery |
-| `package Name --latest-version` | **Latest scalar** — print the freshly discovered latest version without acquiring the package | Fresh eligible-source discovery |
 | `Name@A..B` | **Addressable vector** — enumerate the inclusive published-version range with `--versions`, without payload acquisition | Fresh eligible-source discovery |
 
 The explicit `package` command owns valued `--version VERSION` as an exact
-Package selector and zero-argument `--latest-version` as the scalar latest
-query. `Package@Version` remains the coordinate spelling. Combining the valued
+Package selector. The latest version is a one-row inventory query,
+`package Name --versions -n 1`, or `Name@latest --versions` when the answer
+must be freshly discovered; there is no scalar latest option, so the answer
+always carries the row shape every other version query uses.
+`Package@Version` remains the coordinate spelling. Combining the valued
 option with a versioned coordinate is ambiguous and invalid. Bare
 `package Name --version` is invalid because the exact selector requires a
 value. Commandless routing accepts plural version inventory queries but rejects
-the singular `Name --version[ VERSION]` and `Name --latest-version` forms; it
-does not establish a generic version lens for routable subjects. Root
+the singular `Name --version[ VERSION]` form; it does not establish a generic
+version lens for routable subjects. The removed `--latest-version` spelling is
+not reserved; it receives the ordinary unrecognized-input result. Root
 `dotnet-inspect --version` reports the product version.
 
 ### Pinned (`Name@version`)
@@ -665,7 +684,7 @@ coordinate fact; its target semantics are owned by
 | Bare package version resolution | Uses the version-resolution cache with a 1-hour TTL, then NuGet. When producer-authorized local payloads exist, an uncached network lookup is bounded to one second and timeout diagnostics offer exact local pins; those diagnostic versions are never selected automatically, and package caches are still used only after a version is resolved. |
 | Bare package `--preview` resolution | Uses a separate prerelease-aware version-resolution cache with a 1-hour TTL, then NuGet. |
 | Single-version listing (`--versions -n 1`) | Combines matching-flavor latest entries with uncached source listings. Without `--preview`, an empty stable listing stays empty rather than falling back to a prerelease. |
-| Latest scalar query (`package Name --latest-version`) | Always checks eligible configured sources and bypasses version/metadata caches. |
+| Always-check listing (`Name@latest --versions`) | Always checks eligible configured sources and bypasses version/metadata caches. |
 | Wildcard version resolution | Uses the same version-list cache as `--versions` with a 1-hour TTL for nuget.org-backed sources. |
 | Addressable package range | Uses the version-list cache to resolve the vector; package caches are consulted only after a caller selects a cell. |
 | `@latest` package resolution | Always checks NuGet and bypasses version/metadata caches. |
@@ -710,7 +729,7 @@ eligible sources.
 
 | Operation | Combination | Order sensitive |
 | --- | --- | --- |
-| `package Name --latest-version` | Highest semantic version carried by any eligible source. | No |
+| `Name@latest --versions` | Highest semantic version carried by any eligible source. | No |
 | `--versions` | Union across all sources, deduplicated. | No |
 | `--versions-with-feed` | Union across all sources, one row per (version, feed). | No |
 

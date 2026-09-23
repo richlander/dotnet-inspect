@@ -172,7 +172,7 @@ public static class ExternalCallGraphCommand
         }
     }
 
-    static WorkspaceContextLoadOptions CreateLoadOptions(
+    internal static WorkspaceContextLoadOptions CreateLoadOptions(
         ExternalCallGraphOptions options) =>
         new()
         {
@@ -188,7 +188,7 @@ public static class ExternalCallGraphCommand
                 : null,
         };
 
-    static async ValueTask<
+    internal static async ValueTask<
         InspectionEnvelope<
             PackageDependencyMemberCallGraphInspectionOutcome>>
         ExecuteInspectionAsync(

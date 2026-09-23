@@ -101,6 +101,118 @@ public class PackageVersionVectorTests
         Assert.Contains("does not contain range endpoint 1.0.1", error.Message);
     }
 
+    [Fact]
+    public void Create_MajorBoundsAdmitAnUnpublishedStableUpperBoundThroughPrerelease()
+    {
+        PackageVersionRange.TryParse(
+            "Example@8.0.0..11.0.0",
+            out var range,
+            out _);
+        string[] versions =
+        [
+            "8.0.0",
+            "8.1.0",
+            "9.0.0",
+            "10.0.0",
+            "11.0.0-rc.1",
+        ];
+
+        var vector = PackageVersionVector.Create(
+            range!,
+            versions,
+            includePrerelease: true,
+            policy: PackageVersionPopulationPolicy.MajorBounds);
+
+        Assert.Equal(
+            versions,
+            vector.Addresses.Select(address => address.NormalizedVersion));
+    }
+
+    [Fact]
+    public void Create_MajorBoundsPreserveCallerMajorDirection()
+    {
+        PackageVersionRange.TryParse(
+            "Example@11.0.0..8.0.0",
+            out var range,
+            out _);
+
+        var vector = PackageVersionVector.Create(
+            range!,
+            [
+                "8.0.0",
+                "8.1.0",
+                "9.0.0",
+                "10.0.0",
+                "11.0.0-rc.1",
+            ],
+            includePrerelease: true,
+            policy: PackageVersionPopulationPolicy.MajorBounds);
+
+        Assert.Equal(
+            ["11.0.0-rc.1", "10.0.0", "9.0.0", "8.1.0", "8.0.0"],
+            vector.Addresses.Select(address => address.NormalizedVersion));
+    }
+
+    [Fact]
+    public void Create_MajorBoundsRequireBothBoundaryMajors()
+    {
+        PackageVersionRange.TryParse(
+            "Example@8.0.0..11.0.0",
+            out var range,
+            out _);
+
+        var error = Assert.Throws<ArgumentException>(
+            () => PackageVersionVector.Create(
+                range!,
+                ["8.0.0", "9.0.0", "10.0.0"],
+                includePrerelease: true,
+                policy: PackageVersionPopulationPolicy.MajorBounds));
+
+        Assert.Contains("upper boundary major 11", error.Message);
+    }
+
+    [Fact]
+    public void ProjectMajorRepresentativesRetainsOriginalAddressesAndUsesPolicyOrder()
+    {
+        PackageVersionRange.TryParse(
+            "Example@8.0.0..11.0.0",
+            out var range,
+            out _);
+        var vector = PackageVersionVector.Create(
+            range!,
+            [
+                "8.0.0",
+                "8.1.0",
+                "9.0.0",
+                "10.0.0",
+                "11.0.0-rc.1",
+            ],
+            includePrerelease: true,
+            policy: PackageVersionPopulationPolicy.MajorBounds);
+
+        var firstStable = vector.ProjectMajorRepresentatives(
+            PackageVersionMajorRepresentativePolicy.FirstStable);
+        var latest = vector.ProjectMajorRepresentatives(
+            PackageVersionMajorRepresentativePolicy.Latest);
+
+        Assert.Equal(
+            ["8.0.0", "9.0.0", "10.0.0", "11.0.0-rc.1"],
+            firstStable.Addresses.Select(address => address.NormalizedVersion));
+        Assert.Equal(
+            ["8.1.0", "9.0.0", "10.0.0", "11.0.0-rc.1"],
+            latest.Addresses.Select(address => address.NormalizedVersion));
+        Assert.All(
+            firstStable.Addresses,
+            address => Assert.Contains(
+                vector.Addresses,
+                candidate => ReferenceEquals(candidate, address)));
+        Assert.All(
+            latest.Addresses,
+            address => Assert.Contains(
+                vector.Addresses,
+                candidate => ReferenceEquals(candidate, address)));
+    }
+
     static readonly PackageVersionInfo[] ListedVersions =
     [
         new("1.0.0", Listed: true),

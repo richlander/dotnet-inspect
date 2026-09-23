@@ -233,6 +233,156 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
                 .GetString());
     }
 
+    [Fact]
+    public async Task
+        DiffHistoryRange_MajorVersionsUsesFirstStableApiRepresentatives()
+    {
+        const string Id = "range.diff-history.major-api";
+        var requests = new ConcurrentQueue<string>();
+        CoreHttpClientFactory.SetPackageSourceHandlerForTesting(_ =>
+            new SelectionFeedHandler(
+                FirstFeed,
+                Id,
+                [
+                    "1.0.0",
+                    "1.0.1",
+                    "2.0.0-preview.1",
+                    "2.0.0",
+                    "2.0.1",
+                    "3.0.0-preview.1",
+                    "3.0.0-preview.2",
+                ],
+                version => CreateApiPackage(Id, version),
+                requests));
+
+        var result = await RunCommandAsync(
+            [
+                "diff",
+                "--history",
+                "--major-versions",
+                "--preview",
+                "--package", $"{Id}@1.0.0..3.0.0",
+                "--type", RangeType,
+                "--finding", "api.type",
+                "--source", FirstFeed,
+                "--json",
+                "--tips", "q",
+            ]);
+
+        Assert.True(result.Exit == 0, result.Error);
+        Assert.Empty(result.Error);
+        Assert.Equal(
+            3,
+            requests.Count(static request =>
+                request.EndsWith(".nupkg", StringComparison.Ordinal)));
+        Assert.Contains(
+            requests,
+            static request => request.Contains(
+                "/1.0.0/",
+                StringComparison.Ordinal));
+        Assert.Contains(
+            requests,
+            static request => request.Contains(
+                "/2.0.0/",
+                StringComparison.Ordinal));
+        Assert.Contains(
+            requests,
+            static request => request.Contains(
+                "/3.0.0-preview.2/",
+                StringComparison.Ordinal));
+
+        using var content = JsonDocument.Parse(result.Output);
+        JsonElement history = content.RootElement
+            .GetProperty("document")
+            .GetProperty("content");
+        JsonElement plan = history.GetProperty("evaluation_plan");
+        Assert.Equal(
+            "majorVersionRepresentatives",
+            plan.GetProperty("plan").GetString());
+        Assert.Equal(
+            "FirstStable",
+            plan.GetProperty("representative_policy").GetString());
+        Assert.Equal(3, history.GetProperty("evaluations").GetArrayLength());
+        Assert.All(
+            history.GetProperty("probes").EnumerateArray(),
+            probe => Assert.Equal(
+                "MajorVersionRepresentative",
+                probe.GetProperty("purpose").GetString()));
+        Assert.Equal(
+            "majorVersionRepresentativesCompleted",
+            history.GetProperty("terminal_outcome")
+                .GetProperty("outcome")
+                .GetString());
+    }
+
+    [Fact]
+    public async Task
+        DiffHistoryRange_MajorVersionsUsesLatestAnalysisRepresentatives()
+    {
+        const string Id = "range.diff-history.major-analysis";
+        var requests = new ConcurrentQueue<string>();
+        CoreHttpClientFactory.SetPackageSourceHandlerForTesting(_ =>
+            new SelectionFeedHandler(
+                FirstFeed,
+                Id,
+                ["1.0.0", "1.0.1", "2.0.0", "2.0.1"],
+                version => CreateApiPackage(Id, version),
+                requests));
+
+        var result = await RunCommandAsync(
+            [
+                "diff",
+                "--history",
+                "--major-versions",
+                "--package", $"{Id}@1.0.0..2.0.1",
+                "--type", RangeType,
+                "--member", "BodyState",
+                "--finding", "analysis.unsafety",
+                "--source", FirstFeed,
+                "--json",
+                "--tips", "q",
+            ]);
+
+        Assert.True(result.Exit == 0, result.Error);
+        Assert.Empty(result.Error);
+        Assert.DoesNotContain(
+            requests,
+            static request => request.Contains(
+                "/1.0.0/",
+                StringComparison.Ordinal));
+        Assert.DoesNotContain(
+            requests,
+            static request => request.Contains(
+                "/2.0.0/",
+                StringComparison.Ordinal));
+        Assert.Contains(
+            requests,
+            static request => request.Contains(
+                "/1.0.1/",
+                StringComparison.Ordinal));
+        Assert.Contains(
+            requests,
+            static request => request.Contains(
+                "/2.0.1/",
+                StringComparison.Ordinal));
+
+        using var content = JsonDocument.Parse(result.Output);
+        JsonElement history = content.RootElement
+            .GetProperty("document")
+            .GetProperty("content");
+        Assert.Equal(
+            "Latest",
+            history.GetProperty("evaluation_plan")
+                .GetProperty("representative_policy")
+                .GetString());
+        Assert.Equal(
+            "1.0.1",
+            history.GetProperty("evaluations")[0]
+                .GetProperty("address")
+                .GetProperty("normalized_version")
+                .GetString());
+    }
+
     [Theory]
     [InlineData("1.0.0..4.0.0", "2.0.0")]
     [InlineData("4.0.0..1.0.0", "3.0.0")]

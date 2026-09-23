@@ -526,10 +526,38 @@ public partial class PackageCommand
             return 1;
         }
 
+        var sections = GetAllLibrariesSections(
+            inspections,
+            libraryOptions,
+            pipeline);
+
+        if (libraryOptions.JsonOutput
+            && !libraryOptions.Count
+            && libraryOptions.Rows is not null
+            && sections.Contains(
+                SectionNames.LibraryInfo,
+                StringComparer.OrdinalIgnoreCase)
+            && sections.Count != 1)
+        {
+            CommandError.Write(
+                "Aggregate JSON row selection with Library Info requires "
+                + "exactly one selected section. Select only Library Info or "
+                + "use Markdown for independent per-section row windows.");
+            return 1;
+        }
+
         if (libraryOptions.JsonOutput && !libraryOptions.Count)
         {
+            IReadOnlyList<LibraryInspection> jsonInspections =
+                sections.Count == 1
+                && IsLibraryInfoSection(sections[0])
+                    ? SelectLibraryInfoRows(
+                        inspections,
+                        libraryOptions,
+                        pipeline)
+                    : inspections;
             string json = JsonSerializer.Serialize(
-                inspections.ToArray(),
+                jsonInspections.ToArray(),
                 JsonContext.Default.LibraryInspectionArray);
             OutputDestination.Write(
                 libraryOptions.OutputPath,
@@ -538,7 +566,6 @@ public partial class PackageCommand
             return completionExitCode;
         }
 
-        var sections = GetAllLibrariesSections(inspections, libraryOptions, pipeline);
         bool tabularOutput =
             libraryOptions.TabularExplicitlySet
             && !libraryOptions.Count;
@@ -1499,20 +1526,28 @@ public partial class PackageCommand
         if (rowSchema is null)
             return null;
 
-        if (section.Equals("Library Info", StringComparison.OrdinalIgnoreCase))
+        if (IsLibraryInfoSection(section))
         {
-            var rowsByLibrary = inspections
+            var availableLibraries = inspections
+                .Where(
+                    inspection =>
+                        new LibraryInspectionView(inspection)
+                            .AssemblyInfoSection is not null)
+                .ToArray();
+            var rowsByLibrary = RowWindow.Apply(
+                    rowWindow,
+                    availableLibraries)
                 .Select(inspection =>
                     BuildLibraryInfoRows(packageName, version, inspection).ToArray())
                 .ToArray();
             var libraryInfoRows = rowsByLibrary
-                .SelectMany(rows => RowWindow.Apply(rowWindow, rows))
+                .SelectMany(static rows => rows)
                 .ToArray();
             return new(
                 rowSchema.Headers,
                 rowSchema.StableHeaders,
                 libraryInfoRows,
-                rowsByLibrary.Any(rows => rows.Length != 0));
+                availableLibraries.Length != 0);
         }
 
         if (section.Equals(IntegrationSectionNames.Opportunities, StringComparison.OrdinalIgnoreCase))
@@ -1887,6 +1922,19 @@ public partial class PackageCommand
 
         foreach (var section in sections)
         {
+            if (IsLibraryInfoSection(section))
+            {
+                IReadOnlyList<LibraryInspection> libraryRows =
+                    SelectLibraryInfoRows(
+                        inspections,
+                        options,
+                        pipeline);
+                projection.RecordRows(
+                    section,
+                    libraryRows.Count);
+                continue;
+            }
+
             if (IsAggregatedAllLibrariesSection(section))
             {
                 if (BuildAggregatedSection(section, inspections) is { } document)
@@ -1934,7 +1982,19 @@ public partial class PackageCommand
         LibraryOptions options,
         SectionPipeline<LibraryInspection> pipeline)
     {
-        foreach (var inspection in inspections)
+        IReadOnlyList<LibraryInspection> sectionInspections =
+            IsLibraryInfoSection(section)
+                ? SelectLibraryInfoRows(
+                    inspections,
+                    options,
+                    pipeline)
+                : inspections;
+        LibraryOptions renderOptions =
+            IsLibraryInfoSection(section)
+                ? options with { Rows = null }
+                : options;
+
+        foreach (var inspection in sectionInspections)
         {
             if (!pipeline.GetEffectiveSections(
                     inspection,
@@ -1947,7 +2007,7 @@ public partial class PackageCommand
             var rendered = RenderLibrarySection(
                 inspection,
                 section,
-                options,
+                renderOptions,
                 pipeline);
             if (rendered.Length == 0)
                 continue;
@@ -1955,6 +2015,32 @@ public partial class PackageCommand
             AppendBlock(sb, rendered);
         }
     }
+
+    private static IReadOnlyList<LibraryInspection> SelectLibraryInfoRows(
+        List<LibraryInspection> inspections,
+        LibraryOptions options,
+        SectionPipeline<LibraryInspection> pipeline)
+    {
+        LibraryInspection[] available =
+        [
+            .. inspections.Where(
+                inspection =>
+                    pipeline.GetEffectiveSections(
+                            inspection,
+                            options.Verbosity,
+                            options.IncludeSections,
+                            options.FixedOverview)
+                        .Contains(
+                            SectionNames.LibraryInfo,
+                            StringComparer.OrdinalIgnoreCase)),
+        ];
+        return RowWindow.Apply(options.Rows, available);
+    }
+
+    private static bool IsLibraryInfoSection(string section) =>
+        section.Equals(
+            SectionNames.LibraryInfo,
+            StringComparison.OrdinalIgnoreCase);
 
     private static string RenderLibrarySection(
         LibraryInspection inspection,

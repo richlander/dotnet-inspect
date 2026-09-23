@@ -2073,7 +2073,7 @@ public class CommandLineTests
     }
 
     [Fact]
-    public async Task Router_LatestVersionFlag_RequiresExplicitPackageCommand()
+    public async Task Router_LatestVersionFlag_IsAnOrdinaryUnrecognizedToken()
     {
         var root = CommandLineBuilder.CreateRootCommand();
         string[] args = CommandLineBuilder.PreprocessArgs(
@@ -2086,7 +2086,7 @@ public class CommandLineTests
         Assert.Equal(1, exit);
         Assert.Empty(output);
         Assert.Contains(
-            "'--latest-version' requires the explicit 'package' command",
+            "Unrecognized command or argument '--latest-version'",
             error,
             StringComparison.Ordinal);
     }

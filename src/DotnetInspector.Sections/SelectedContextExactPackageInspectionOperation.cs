@@ -524,7 +524,7 @@ public static class SelectedContextExactPackageInspectionOperation
                 "A successful Package scenario projection requires a packet.");
         string encoded = WorkspaceSharePacketCodec.Encode(packet);
         return new InspectionShare.Available(
-            "https://dotnet-inspect.net/?w=" + encoded,
+            WorkspaceShareUrl.Create(encoded),
             encoded);
     }
 

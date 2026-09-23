@@ -88,9 +88,14 @@ public sealed class DiffHistoryAnalysisInspectionRequest
                 "A Diff History evaluation address cannot be selected more than once.",
                 nameof(evaluationPlan));
         }
+        PackageVersionAddress sourceAddress =
+            evaluationPlan
+                is DiffHistoryEvaluationPlan.MajorVersionRepresentatives
+                ? selected[0]
+                : population.Vector.Addresses[0];
         if (!selected.Any(address => ReferenceEquals(
                 address,
-                population.Vector.Addresses[0])))
+                sourceAddress)))
         {
             throw new ArgumentException(
                 "Exact-Member Analysis History must evaluate the first population version as its source.",
@@ -110,6 +115,7 @@ public sealed class DiffHistoryAnalysisInspectionRequest
         FindingSubject = findingSubject;
         MatchAcceptanceThreshold = matchAcceptanceThreshold;
         ReplayContext = replayContext;
+        SourceAddress = sourceAddress;
     }
 
     public PackageVersionCellAnalysisProducerKind Finding { get; }
@@ -128,6 +134,8 @@ public sealed class DiffHistoryAnalysisInspectionRequest
     public FindingSubject FindingSubject { get; }
     public int MatchAcceptanceThreshold { get; }
     public DiffHistoryPackageReplayContext? ReplayContext { get; }
+
+    public PackageVersionAddress SourceAddress { get; }
 }
 
 public enum DiffHistoryAnalysisEvaluationState
@@ -386,6 +394,8 @@ public sealed class DiffHistoryAnalysisDocument<T>
             DiffHistoryEvaluationPlan.AdaptiveBisect adaptive =>
                 adaptive.MaximumProbes,
             DiffHistoryEvaluationPlan.RepresentativeSurvey =>
+                EvaluationPlan.ResolveAuthorizedEvaluationCount(Population),
+            DiffHistoryEvaluationPlan.MajorVersionRepresentatives =>
                 EvaluationPlan.ResolveAuthorizedEvaluationCount(Population),
             _ => null,
         };

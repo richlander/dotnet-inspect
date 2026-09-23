@@ -746,7 +746,7 @@ without changing every one of them. Instead
 [`FeedFailureTelemetry`](../../src/NuGetFetch/FeedFailureTelemetry.cs) uses an
 ambient scope opened at each command boundary that turns those nullable
 results into an operator-facing answer. Package acquisition opens one around
-each acquisition hop; explicit `package Package --latest-version` and
+each acquisition hop; explicit `package Package@latest --versions` and
 `--versions` queries open one around the complete query. Nested async work
 records into the same collector, and the "nothing resolved" path consults it
 before choosing a message.

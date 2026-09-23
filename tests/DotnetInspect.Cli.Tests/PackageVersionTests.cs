@@ -1,3 +1,4 @@
+using DotnetInspect.Cli.CommandLine;
 using DotnetInspect.Cli.Output;
 using DotnetInspector.Packages;
 using System.CommandLine;
@@ -34,25 +35,30 @@ public class PackageVersionTests
     }
 
     [Fact]
-    public async Task LatestVersion_PreservesSingularJsonBehavior()
+    public async Task Versions_SingleRowJsonIsOneRowNotAScalar()
     {
         var (exit, output, error) = await RunAppAsync(
             "package",
             "System.CommandLine",
-            "--latest-version",
+            "--versions",
+            "-n",
+            "1",
             "--json");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
-        Assert.Matches(@"^\d+\.\d+\.\d+", output.Trim());
-        Assert.DoesNotContain("{", output, StringComparison.Ordinal);
+        using var document = JsonDocument.Parse(output);
+        var row = Assert.Single(document.RootElement.EnumerateArray());
+        Assert.Matches(
+            @"^\d+\.\d+\.\d+",
+            row.GetProperty("version").GetString());
     }
 
     [Fact]
-    public async Task LatestVersion_AlwaysQueriesNuGet()
+    public async Task LatestCoordinate_AlwaysQueriesNuGet()
     {
         var root = CommandLineBuilder.CreateRootCommand();
-        var args = new[] { "package", "System.CommandLine", "--latest-version" };
+        var args = new[] { "package", "System.CommandLine@latest", "--versions" };
 
         var (exit, output, _) = await ConsoleCapture.RunAsync(
             () => Task.FromResult(root.Parse(args).InvokeAsync().Result));
@@ -83,10 +89,9 @@ public class PackageVersionTests
     }
 
     [Theory]
+    [InlineData("--latest-version")]
     [InlineData("--latest-version=true")]
-    [InlineData("--latest-version:false")]
-    public async Task LatestVersion_RejectsValuesBeforeAcquisition(
-        string option)
+    public async Task LatestVersion_IsAnOrdinaryUnrecognizedOption(string option)
     {
         var (exit, output, error) = await RunAppAsync(
             "package",
@@ -96,9 +101,8 @@ public class PackageVersionTests
         Assert.Equal(1, exit);
         Assert.Empty(output);
         Assert.Equal(
-            $"Error: --latest-version does not accept a value.{Environment.NewLine}",
+            $"Error: Unrecognized option '{option}'.{Environment.NewLine}",
             error);
-        Assert.DoesNotContain("not found", error, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
@@ -108,7 +112,8 @@ public class PackageVersionTests
 
         Assert.Equal(0, exit);
         Assert.Contains("--version", output);
-        Assert.Contains("--latest-version", output);
+        Assert.Contains("--versions", output);
+        Assert.DoesNotContain("--latest-version", output);
         Assert.Empty(error);
     }
 
@@ -572,6 +577,37 @@ public class PackageVersionTests
     }
 
     [Theory]
+    [InlineData("--json")]
+    [InlineData("--jsonl")]
+    [InlineData("--tsv")]
+    [InlineData("--table")]
+    [InlineData("--markdown")]
+    [InlineData("--plaintext")]
+    public async Task Bare_RejectsExplicitFormatsBeforeAcquisition(string format)
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "package", "ThisQueryMustNotReachTheNetwork", "--versions", "-n", "1", "--bare", format);
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains(
+            "--bare cannot be combined with --json, --jsonl, --tsv, --table, --markdown, --plaintext, or --mermaid.",
+            error);
+        Assert.DoesNotContain("not found", error, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task Bare_AloneKeepsTheUndecoratedListing()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "package", "System.Text.Json", "--versions", "-n", "1", "--bare");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Matches(@"^\d+\.\d+\.\d+\S*$", output.Trim());
+    }
+
+    [Theory]
     [InlineData("--head")]
     [InlineData("--tail")]
     [InlineData("--lines")]
@@ -705,8 +741,6 @@ public class PackageVersionTests
     }
 
     [Theory]
-    [InlineData("--versions", "--latest-version")]
-    [InlineData("--versions-with-feed", "--latest-version")]
     [InlineData("--versions", "--versions-with-feed")]
     public async Task Versions_ConflictingSelectorsRejectBeforeAcquisition(
         string pluralSelector,
@@ -748,7 +782,7 @@ public class PackageVersionTests
         Assert.Equal(1, exit);
         Assert.Empty(output);
         Assert.Contains(
-            "cannot be combined with --version or --latest-version",
+            "cannot be combined with --version",
             error,
             StringComparison.Ordinal);
         Assert.DoesNotContain(
@@ -772,31 +806,6 @@ public class PackageVersionTests
         Assert.Empty(output);
         Assert.Contains(
             "--version cannot be combined with a versioned Package coordinate",
-            error,
-            StringComparison.Ordinal);
-        Assert.DoesNotContain(
-            "not found",
-            error,
-            StringComparison.OrdinalIgnoreCase);
-    }
-
-    [Theory]
-    [InlineData("ThisQueryMustNotReachTheNetwork@1.0.0")]
-    [InlineData("ThisQueryMustNotReachTheNetwork@latest")]
-    [InlineData("ThisQueryMustNotReachTheNetwork@1.*")]
-    [InlineData("ThisQueryMustNotReachTheNetwork@1.0.0..2.0.0")]
-    public async Task VersionedCoordinateAndLatestVersionRejectBeforeAcquisition(
-        string package)
-    {
-        var (exit, output, error) = await RunAppAsync(
-            "package",
-            package,
-            "--latest-version");
-
-        Assert.Equal(1, exit);
-        Assert.Empty(output);
-        Assert.Contains(
-            "--latest-version cannot be combined with a versioned Package coordinate",
             error,
             StringComparison.Ordinal);
         Assert.DoesNotContain(

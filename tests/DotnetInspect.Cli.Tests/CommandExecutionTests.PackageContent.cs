@@ -2049,9 +2049,9 @@ public partial class CommandExecutionTests
         try
         {
             var (libraryBaselineExit, libraryBaseline, _) = await RunAppAsync(
-                "package", packagePath, "--library", "Layout.dll", "-S", "Library Info", "--count");
+                "package", packagePath, "--library", "Layout.dll", "-S", "Async Methods", "--count");
             var (libraryExit, libraryOutput, libraryError) = await RunAppAsync(
-                "package", packagePath, "--library", "Layout.dll", "-S", "Library Info", "--count",
+                "package", packagePath, "--library", "Layout.dll", "-S", "Async Methods", "--count",
                 "--out", libraryPath);
 
             Assert.Equal(0, libraryBaselineExit);

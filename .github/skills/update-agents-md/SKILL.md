@@ -20,6 +20,13 @@ rules. Read this before any edit to AGENTS.md, not just during a cleanup pass.
   `docs/README.md` provides immediate acquisition and curates broader routes,
   but does not catalog every focused document. Do not grow a second TOC inside
   AGENTS.md.
+- **Protect the root README boundary.** If an AGENTS edit changes documentation
+  entrypoint guidance, preserve `README.md` as a product landing page of 120
+  lines or fewer. It features only daily-driver and delightful demo
+  capabilities; every featured capability has a runnable CLI command and a
+  `https://dotnet-inspect.net/?w=...` packet URL for the same view. Detailed
+  behavior belongs in `docs/cli-reference.md`, a focused guide, or a product
+  skill.
 - **Protect operator templates.** The theme/status reminder, tmux command and
   state block, round report, and their invocation rules must remain directly
   in `AGENTS.md`. Never remove, shorten to a pointer, or move them to meet the
@@ -53,7 +60,9 @@ agent is deep in a specific task, it belongs in that task's owning doc instead.
    or subsection to its owning doc — see the extraction checklist below.
    Repeat with a full section each time; do not switch to shaving individual
    lines to close a small remaining gap.
-6. Run `npx markdownlint-cli AGENTS.md` (and any doc you edited) before
+6. When documentation entrypoint guidance changed, run `wc -l README.md` and
+   confirm the landing-page boundary above still holds.
+7. Run `npx markdownlint-cli AGENTS.md` (and any doc you edited) before
    committing.
 
 ## Extraction checklist when over budget
@@ -95,5 +104,6 @@ move instead.
 
 ```bash
 wc -l AGENTS.md   # must be <= 600
+wc -l README.md   # must be <= 120
 npx markdownlint-cli AGENTS.md
 ```

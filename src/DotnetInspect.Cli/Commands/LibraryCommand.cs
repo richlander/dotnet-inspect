@@ -127,11 +127,23 @@ public partial class LibraryCommand
         ];
 
     public static Task<int> ExecuteAsync(LibraryOptions options) =>
-        ExecuteAsync(options, workspaceLoadOptions: null);
+        ExecuteAsync(
+            options,
+            workspaceLoadOptions: null,
+            CancellationToken.None);
+
+    public static Task<int> ExecuteAsync(
+        LibraryOptions options,
+        CancellationToken cancellationToken) =>
+        ExecuteAsync(
+            options,
+            workspaceLoadOptions: null,
+            cancellationToken);
 
     internal static async Task<int> ExecuteAsync(
         LibraryOptions options,
-        WorkspaceContextLoadOptions? workspaceLoadOptions)
+        WorkspaceContextLoadOptions? workspaceLoadOptions,
+        CancellationToken cancellationToken = default)
     {
         if (!LibrarySourceAdapter.TryBind(
                 options,
@@ -143,6 +155,14 @@ public partial class LibraryCommand
         }
 
         options = source!.ApplyTo(options);
+        if (DirectLibraryOverviewCommand.ShouldExecute(options))
+        {
+            return await DirectLibraryOverviewCommand.ExecuteAsync(
+                    options,
+                    source,
+                    cancellationToken)
+                .ConfigureAwait(false);
+        }
         if (source.Selector is SourceSelector.PackageSource
             && (options.WorkspacePacket is not null
                 || options.NamesakeLibrary
@@ -596,6 +616,21 @@ public partial class LibraryCommand
                 ? new HashSet<string>(options.IncludeSections, StringComparer.OrdinalIgnoreCase)
                 : [],
         };
+
+        if (!IsAllTfmPackageSelection(options)
+            && LibrarySectionCardinality.ValidateExactTerminals(
+                options.Select,
+                options.SelectDefault,
+                options.IncludeSections,
+                options.FixedOverview,
+                options.Verbosity,
+                options.Count,
+                options.Rows is not null,
+                options.Discover is not null) is { } cardinalityError)
+        {
+            CommandError.Write(cardinalityError);
+            return 1;
+        }
 
         if (options.JsonOutput
             && !options.Count
@@ -3191,9 +3226,7 @@ public partial class LibraryCommand
     }
 
     private static bool IsAllTfmPackageSelection(LibraryOptions options)
-        => string.IsNullOrEmpty(options.PlatformAssembly)
-            && !string.IsNullOrEmpty(options.PackagePath)
-            && string.Equals(options.Tfm, "all", StringComparison.OrdinalIgnoreCase);
+        => LibrarySectionCardinality.IsAllTfmPackageSelection(options);
 
     private static int WriteLibraryShapeProjection(LibraryInspection inspection, LibraryOptions options)
     {
@@ -3817,7 +3850,9 @@ public partial class LibraryCommand
             catalogHiddenSections: EffectiveCatalogHidden(pipeline, effective),
             listedCategoryDoors: pipeline.GetListedCategoryDoors(),
             resourceCatalog: "library",
-            resourceCapabilities: LibraryOutputCapabilities.Catalog);
+            resourceCapabilities: LibraryOutputCapabilities.Catalog,
+            sectionCardinalities:
+                LibrarySectionCardinality.ExactDeclarationsFor(options));
         return Math.Max(
             Math.Max(discoveryExitCode, inspectionFailureExitCode),
             IntegrityExitCode(
@@ -4006,7 +4041,9 @@ public partial class LibraryCommand
             catalogHiddenSections: EffectiveCatalogHidden(pipeline, effective),
             listedCategoryDoors: pipeline.GetListedCategoryDoors(),
             resourceCatalog: "library",
-            resourceCapabilities: LibraryOutputCapabilities.Catalog);
+            resourceCapabilities: LibraryOutputCapabilities.Catalog,
+            sectionCardinalities:
+                LibrarySectionCardinality.ExactDeclarationsFor(options));
     }
 
     /// <summary>

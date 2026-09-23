@@ -10,6 +10,19 @@ ones relevant to the current task. This default workflow is agent-driven and
 does not change the repository. Persist skills only when the user explicitly
 asks for repository installation.
 
+Use this workflow to reach the right package-authored skill efficiently. Start
+by identifying what kind of result the user needs. If the intent or result
+space is unclear, use a bare target and let the router choose. Otherwise, enter
+the matching space directly: `find <pattern>` searches API types/members;
+`package query <exact-id>` or `package query '<prefix>*'` discovers package IDs;
+and `library query <pattern-or-scope>` discovers Libraries. Inspect known
+results with `package <exact-id>` or `library <source>`.
+Unscoped `find` searches installed .NET Runtime, ASP.NET Core, and .NET Standard
+platform populations, including Microsoft.Extensions assemblies shipped in the
+framework populations. Package APIs enter scope through explicit `--package`, a
+restored `--project`, or `--package-prefix` with a type/member pattern; discover
+package IDs with `package query`.
+
 ## Default: use skills without changing the repository
 
 Restore or build first when dependencies changed; `project` only reads the

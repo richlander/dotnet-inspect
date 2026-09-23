@@ -114,6 +114,10 @@ internal static class DiffHistoryCommand
                             range!,
                             PackageHouseOperation.Create(
                                 PackageHouseOperationProfile.Settle),
+                            options.MajorVersions
+                                ? PackageVersionPopulationPolicy.MajorBounds
+                                : PackageVersionPopulationPolicy
+                                    .ExactEndpoints,
                             options.IncludePrerelease),
                         options.SourceOptions,
                         cancellationToken,
@@ -227,10 +231,19 @@ internal static class DiffHistoryCommand
     {
         if (options.At.Length > 0
             && (options.MaxProbes is not null
+                || options.SamplePercent is not null
+                || options.MajorVersions))
+        {
+            error =
+                "--at cannot be combined with --max-probes, --sample-percent, or --major-versions.";
+            return false;
+        }
+        if (options.MajorVersions
+            && (options.MaxProbes is not null
                 || options.SamplePercent is not null))
         {
             error =
-                "--at cannot be combined with --max-probes or --sample-percent.";
+                "--major-versions cannot be combined with --max-probes or --sample-percent.";
             return false;
         }
         if (options.MaxProbes is < 2)
@@ -558,6 +571,17 @@ internal static class DiffHistoryCommand
         out string? error)
     {
         plan = null;
+        if (options.MajorVersions)
+        {
+            plan =
+                new DiffHistoryEvaluationPlan.MajorVersionRepresentatives(
+                    IsAnalysisFinding(finding)
+                        ? PackageVersionMajorRepresentativePolicy.Latest
+                        : PackageVersionMajorRepresentativePolicy
+                            .FirstStable);
+            error = null;
+            return true;
+        }
         if (options.SamplePercent is { } samplePercent)
         {
             plan = new DiffHistoryEvaluationPlan.RepresentativeSurvey(

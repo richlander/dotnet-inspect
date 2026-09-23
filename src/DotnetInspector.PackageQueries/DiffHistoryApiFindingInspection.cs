@@ -328,6 +328,8 @@ public sealed class DiffHistoryApiFindingDocument<T>
                 adaptive.MaximumProbes,
             DiffHistoryEvaluationPlan.RepresentativeSurvey =>
                 EvaluationPlan.ResolveAuthorizedEvaluationCount(Population),
+            DiffHistoryEvaluationPlan.MajorVersionRepresentatives =>
+                EvaluationPlan.ResolveAuthorizedEvaluationCount(Population),
             _ => null,
         };
     public int UsedProbeCount => Probes.Length;

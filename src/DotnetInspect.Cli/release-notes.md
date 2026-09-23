@@ -16,12 +16,23 @@
 - Adds exact decoded-string `library-literal=<text>` qualification to Package
   Query with an exact `--tfm`. Results remain package-grain while retaining the
   selected Library, complete occurrences, typed completion, and an exact Root
-  reopening token (#8054).
+  reopening token. Select `Literal Strings` to itemize each physical matching
+  `ldstr` with Package, Library, Method Token, IL Offset, and the complete
+  decoded Literal; repeated matches within one literal remain one row, while
+  separate instructions retain separate coordinates (#8054, #8277).
 - **Breaking:** Replaces `package search` and patternless
   `find --package-prefix` with host-neutral `package query`. Exact IDs and
   terminal-star prefixes share the Package Query engine; `--take` limits
   candidate work before adaptive `-n` selects final rows. Patterned
   `find PATTERN --package-prefix PREFIX` remains API search (#6768).
+- Clarifies discovery routing: bare targets remain the omni-space when intent
+  is unclear; `find` discovers API symbols, `package query` discovers package
+  IDs, and `library query` discovers Libraries. Unscoped `find` searches the
+  installed .NET Runtime, ASP.NET Core, and .NET Standard populations, while
+  package APIs require explicit `--package`, restored `--project`, or
+  patterned `--package-prefix` scope. Empty human output suggests
+  `package query` for package-like input without changing structured output
+  (#8262).
 - Moves online version listing, exact-pin verification, latest/wildcard
   selection, Package Info, and Browser package inventories onto shared
   PackageHouse settlement. Package Info now reports the selected TFM, ordered
@@ -37,6 +48,12 @@
   distinguish direct relationships from occurrence-addressed
   `Dependency Hierarchy` and `Reference Hierarchy` views (#7720, #7791,
   #7792, #7939, #8040).
+- Declares exact `Library Info` as scalar and aggregate all-Libraries
+  `Library Info` as inventory. Exact Count and Rows fail before acquisition;
+  aggregate Count and Rows select Libraries rather than rendered overview
+  properties across output formats. Mixed aggregate JSON with semantic Rows is
+  rejected when the legacy whole-inspection shape cannot preserve independent
+  section windows (#8283).
 - Renames the `.NET`/`dotnet` ecosystem to `.NET Runtime`/`runtime`, keeps
   ASP.NET Core independent, reports recognized Package and Library ecosystem
   dependencies, and exposes ecosystem-aware Package Query qualification.
@@ -50,12 +67,14 @@
   rejected, while Library's separate `@Integrations` category remains
   available. Computed `@All`, `@Default`, and `@Hidden` remain unsupported
   (#7453, #7506).
-- Uses explicit Package version lenses: `package ID --version VERSION`
-  verifies one exact version, while `package ID --latest-version` returns the
-  newest listed version. Root `dotnet-inspect --version` remains product
-  version reporting. SourceLink `--raw` and `--blob` are replaced by
-  `--prefer-rendered-urls`; direct fetchable URLs remain the default (#7621,
-  #8204).
+- **Breaking:** Removes `package ID --latest-version`. Use
+  `package ID --versions -n 1` for one newest listed version row, or
+  `package ID@latest --versions` to force a fresh check. JSON consumers now
+  read `[0].version` from the one-row array or use `--tsv`; exact
+  `package ID --version VERSION` verification and root
+  `dotnet-inspect --version` product-version reporting remain. SourceLink
+  `--raw` and `--blob` are replaced by `--prefer-rendered-urls`; direct
+  fetchable URLs remain the default (#7621, #8204, #8293).
 
 ### Workspaces and coordinates
 
@@ -68,7 +87,15 @@
   #7509, #7542, #7615, #7756, #7836, #7873, #7909, #7949, #8011).
   Retained-Workspace package-source credentials now keep a typed C#/TypeScript
   contract through the generated facade while preserving the private string
-  ABI and page-session-only credential constraints (#8238).
+  ABI and page-session-only credential constraints. Inspect Web activates
+  credential-free source-bearing Workspace URLs, prompts once per exact
+  authentication-required endpoint, preserves the prior visible Workspace on
+  cancellation or failure before publication, and enters a blocking retry
+  state if post-cutover incumbent recovery fails (#8167, #8238).
+- Generates every Workspace share URL from one build-configured website
+  contract. Development builds target `dotnet-inspect.ca`, while production
+  NuGet packages and their CLI and Sections share producers target
+  `dotnet-inspect.net` (#8269).
 - Adds canonical Workspace component paths and immutable
   `workspace package add|update|remove` editing, plus nested packet
   encode/decode commands. Inspect Web now saves and reopens complete Workspace
@@ -79,7 +106,9 @@
   navigation (#8051).
 - Moves Inspect Web product navigation into the `dotnet-inspect` brand menu,
   keeping Home, Query, Workspace, and Activity durable without competing with
-  inspected-subject navigation (#8047).
+  inspected-subject navigation. The persistent `Open Library…` action follows
+  those routed destinations, while the Application menu remains focused on
+  utilities (#8047, #8253).
 - Adds focus-first `library coordinate <coordinate>` and bounded
   `library coordinate --file <path>` for exact IL and metadata-heap inspection,
   retaining source context and typed malformed-record evidence. File mode
@@ -126,6 +155,10 @@
   #7741, #7773, #7774, #7781, #7793, #7813, #7849, #7856, #7866, #7902,
   #7906, #7911, #7947, #7948, #7973, #7994, #8008, #8032, #8033, #8050,
   #8078, #8087, #8131).
+- Preserves expression-bodied lambdas' own exact Portable PDB local names and
+  resolves fallback-name collisions against enclosing binders. Receiver
+  temporary ownership now settles before presentation without changing the
+  emitted Humanizer witness (#8246).
 
 ### Analysis, graphs, and diffs
 
@@ -145,15 +178,24 @@
   #7878, #7896, #7912, #7936, #7939, #7995, #8144).
 - Makes package-backed `graph calls` automatically follow the root package's
   dependency graph in both the CLI and Inspect Web, preserving exact root
-  selection while applying an independent traversal target (#8215).
+  selection while applying an independent traversal target. Automatically
+  acquired dependency members now retain exact package, version, and framework
+  navigation coordinates; Inspect Web loads that package only when its graph
+  node is selected, while ambiguous ownership remains unlinked (#8215, #8251).
 - Adds an explicit `Library Metrics` section for whole-library structural
   metrics. QuerySpace and metadata-backed count paths reduce allocation and
   startup cost for Graph Libraries and installed-Platform Type inventories,
-  while retaining fallback when compact evidence is unavailable (#8183,
-  #8186, #8207, #8221).
+  while retaining fallback when compact evidence is unavailable. Inspect Web
+  exposes the same Research-owned report through a Metrics lens for exact
+  package and platform libraries (#8183, #8186, #8207, #8221, #8230).
 - Adds complete JSON and `InspectionEnvelope<ImplementationDiffDocument>`
   transport for one exact local Implementation Diff pair while preserving
   ordinary rendered output (#7876).
+- Adds `diff --history --major-versions` for one representative per package
+  major. API findings choose the first stable version, with the latest
+  prerelease fallback for preview-only majors; Analysis findings choose the
+  latest admitted version per major, while skipped servicing versions remain
+  visible as unevaluated gaps (#8295).
 - **Breaking:** Moves Type/Member history under `diff --history`, with full,
   checkpoint, and adaptive policies plus complete JSON/envelope transport and
   section projections. Deterministic `--sample-percent P` surveys can be
@@ -162,12 +204,19 @@
 
 ### Output, discovery, and safety
 
+- Keeps Inspect Web on Mermaid 12 while overriding Chevrotain's vulnerable
+  exact `lodash-es` transitive pin with patched 4.18.1. The production
+  dependency audit reports no known advisories (#8257).
 - Extends schema-versioned envelopes and owner-issued Content to Package Query,
   package-version listing and counts, exact Type/Library API inspection,
   positional `depends`, API Diff, and Package Activity. Typed incomplete or
   failed Content is emitted before a nonzero exit where available.
   Assembly-resolution provenance now serializes its actual typed kind rather
   than `{}` (#6719, #7117, #7126, #7474, #7537, #7575, #7644, #7667).
+- Adds `library <path> --envelope` for one exact direct-file Library overview
+  as a scalar `InspectionEnvelope<LibraryOverviewOutcome>`, with compact or
+  file JSON publication and pre-acquisition rejection of incompatible
+  section, row, and query controls (#8225).
 - **Breaking:** Positional `depends <type> --json` now emits shared camel-case
   `TypeDependencySectionResult` Content rather than the former presentation
   graph. Unprojected single-Library `diff --json` emits complete

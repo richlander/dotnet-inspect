@@ -1166,6 +1166,89 @@ telemetry. Refreshing or reopening the URL therefore requires the credential
 again. The active managed realization may retain it in process memory until it
 is replaced or disposed.
 
+Production URL activation recognizes a source-bearing packet before the legacy
+share-state decoder on initial load, same-origin link navigation, and browser
+history restoration. Anonymous-only declarations activate immediately.
+Authentication-required declarations open one modal form that identifies every
+exact endpoint and collects one username/PAT pair per endpoint. The form owns
+the input elements; submission copies the values only into activation-local
+variables, clears the password elements immediately, and clears those local
+values after activation settles. The page may retain a separate in-memory
+binding keyed by the source-owned retained definition only while that
+definition can restore an incumbent displaced by a failed successor. Removing
+the definition clears that binding. It never enters history or browser storage.
+
+The page keeps the prior visible Workspace while managed preparation runs. It
+admits every retained Package and Platform Type page, projects those surfaces
+into the ordinary application model, and publishes them only through the
+retained navigation posting lifecycle. Cancellation or failure before
+publication leaves the prior Workspace unchanged. A posting, acknowledgement,
+or consumer-completion failure restores the pre-activation snapshot. An
+in-application link enters browser history only after publication and
+acknowledgement; the active source-bearing packet remains the share and refresh
+URL rather than being rewritten through the format-1 encoder.
+Every admitted Package and Platform remains a visible, selectable top-level
+Workspace member even when another member is active.
+URL synchronization remains suspended for the complete source-activation
+lifecycle. History restoration performs source preflight before switching the
+retained host projection. A source-owned retained history identity cannot enter
+the credential-free Saved Workspace activation branch; it returns to source
+preflight and credential collection. Ordinary navigation preserves the
+incumbent source-bearing URL until its replacement commits. Navigation supersession
+alone does not retire the last committed incumbent while a visibly published
+activation still awaits consumer completion; only a committed replacement
+retires that rollback. Dismissing a prompt cannot retire the rollback when its
+posting has already committed. Concurrent source preflight, ordinary
+construction, and retained selection transfer one owned incumbent-recovery
+responsibility from the source coordinator before successor work can yield; the
+coordinator then cannot apply a late rollback to shared application state.
+Successor failure uses that responsibility to reactivate managed authority and
+install its fresh posting before exposing the restored incumbent, while
+successful commit retires the prior source identity. Every later successor,
+including source preflight, claims the same responsibility before cancelling
+an earlier construction or recovery; the revoked owner settles without changing
+presentation, pending state, or the committed successor. A successful source
+commit retires both its coordinator-local rollback and any responsibility
+inherited from ordinary construction.
+URL synchronization remains blocked while the tentative projection owns
+visible state even after another navigation becomes current. An identical active
+definition may reuse its posting only after that posting completed consumer
+delivery; an abandoned posting is deactivated and prepared again.
+Credential retry performs the same recovery while preserving its fresh
+incumbent rollback. Every awaited recovery or source preflight rechecks
+navigation ownership before it can install a prompt or switch a retained
+projection.
+The production coordinator reuses an identical retained definition and removes
+only settled inactive definitions before retaining a distinct URL, so canceled
+prompts and prior URLs do not consume the controller's bounded definition
+capacity.
+Source-bearing and Saved Workspace definitions share one page-local retained
+activation controller and identity sequence because they address the same
+managed activation owner. Source cleanup removes only source-owned definitions;
+it cannot prune a Saved Workspace definition. Switching between either kind
+therefore cannot alias one definition to another or reuse the active posting
+for a different packet.
+If managed cutover occurs before source publication later fails, rollback
+reactivates the incumbent definition and replaces its retired posting with the
+new realization before restoring its presentation. Restored Package and
+Platform rows therefore carry current managed admission authority rather than
+only the appearance of the incumbent. That recovery retains one revocable
+rollback owner across every await. A successor may transfer the incumbent
+snapshot together with its managed-recovery obligation or retire both on
+commit; either action revokes the prior recovery, which rechecks ownership
+before managed cutover, posting, and visible restoration. A source successor
+also inherits unresolved recovery failure state, so its credential prompt
+cannot dismiss the blocking rollback merely by changing navigation identity.
+If incumbent reactivation fails, the credential prompt remains non-dismissible
+and the tentative Workspace remains inert until credential retry or a
+superseding navigation claims the rollback. Dismissing an error therefore
+cannot expose a Workspace that failed consumer completion. Anonymous
+activation has no credential prompt, so the host replaces the tentative
+projection with a blocking recovery error and explicit retry rather than
+leaving failed Package or Platform rows interactive. That response follows the
+live rollback owner even when the activation's original navigation is stale;
+cancelling an intervening prompt cannot suppress a later recovery failure.
+
 Browser/Wasm supports anonymous sources and explicit page-session credentials.
 It cannot launch a NuGet credential-provider plugin, so an
 authentication-required source without an explicit credential is rejected
