@@ -140,6 +140,10 @@ whose coordinate has since disappeared from every authorized source is
 detected only when acquisition fails, inside PackageHouse, after the `Prior`
 receipt has been issued.
 
+Under the Settle profile no acquisition runs, so a prior served there is a
+settlement only and is never checked for existence; the check happens in
+whichever later operation acquires the coordinate.
+
 That failure stays visible, as any acquisition failure does: the request
 fails now with the ordinary not-found result, and the service evicts the
 entry so the next request settles by discovery. The service does not re-enter
