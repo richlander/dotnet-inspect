@@ -8,3 +8,12 @@ gate 14): 40 of its entries carry local file headers with extra fields longer
 than the central directory declares, so an entry request sized from the
 directory alone comes up short and the reader's single follow-up request is
 exercised. The archive is read as a ZIP only; nothing in it is executed.
+
+microsoft.netcore.platforms.1.0.1.nupkg
+Source: https://api.nuget.org/v3-flatcontainer/microsoft.netcore.platforms/1.0.1/microsoft.netcore.platforms.1.0.1.nupkg
+SHA-256: 999a2d94666ab6ba834a806b661b3115ee9fb8ebf9fc1228d30d99db1d335405
+License: MIT (the package's own license); redistributed unmodified as a read-only test input
+
+Real asset for gate 6b: a 17,876-byte archive, shorter than the reader's tail
+request, so a conforming source answers the tail with the whole archive and
+the reader must recognize it by the derived total. Read as a ZIP only.

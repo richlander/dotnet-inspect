@@ -91,15 +91,16 @@ public static class ZipArchiveReader
                 throw Malformed("The archive spans disks or declares inconsistent entry counts.");
 
             // The record sits immediately after the directory, so the archive
-            // length follows from the record alone; the source confirms it.
+            // length follows from the record alone. The source confirms it
+            // first, so a length the source can refute is malformed rather
+            // than over a bound; the bound applies to a confirmed length.
             long archiveLength = (long)directoryOffset + directoryLength
                 + EndOfCentralDirectoryLength + commentLength;
-            long recordOffset = archiveLength - tail.Length + offset;
-            if ((long)directoryOffset + directoryLength != recordOffset)
-                throw Malformed("The archive's central-directory extent is inconsistent.");
+            if (archiveLength < tail.Length)
+                throw Malformed("The archive declares a length shorter than the bytes read from its end.");
+            source.ConfirmLength(archiveLength);
             if (archiveLength > limits.MaxArchiveBytes)
                 throw OverBound("The archive exceeds the caller's archive bound.");
-            source.ConfirmLength(archiveLength);
 
             byte[] directoryBytes;
             long tailStart = archiveLength - tail.Length;
@@ -120,7 +121,8 @@ public static class ZipArchiveReader
                 ParseEntries(directoryBytes, entryCount),
                 archiveLength,
                 directoryOffset,
-                directoryLength);
+                directoryLength,
+                tail);
         }
 
         throw Malformed("The archive has no valid end-of-central-directory record.");
@@ -166,7 +168,7 @@ public static class ZipArchiveReader
             declaredExtent + limits.EntryReadSlack,
             directory.DirectoryOffset) - entry.LocalHeaderOffset;
         var first = new byte[checked((int)firstLength)];
-        await source.ReadRangeAsync(entry.LocalHeaderOffset, first, cancellationToken)
+        await ReadAsync(source, directory, entry.LocalHeaderOffset, first, cancellationToken)
             .ConfigureAwait(false);
 
         LocalHeader header = ParseLocalHeader(first);
@@ -190,7 +192,7 @@ public static class ZipArchiveReader
         if (LocalFileHeaderLength + localNameLength > first.Length)
         {
             // The name did not fit the first read; fetch it with the data.
-            first = await ExtendAsync(source, entry.LocalHeaderOffset, first, dataEnd, cancellationToken)
+            first = await ExtendAsync(source, directory, entry.LocalHeaderOffset, first, dataEnd, cancellationToken)
                 .ConfigureAwait(false);
         }
 
@@ -209,7 +211,7 @@ public static class ZipArchiveReader
         {
             // Exactly one follow-up: the local extra field was longer than the
             // directory declared.
-            first = await ExtendAsync(source, entry.LocalHeaderOffset, first, dataEnd, cancellationToken)
+            first = await ExtendAsync(source, directory, entry.LocalHeaderOffset, first, dataEnd, cancellationToken)
                 .ConfigureAwait(false);
         }
 
@@ -226,6 +228,7 @@ public static class ZipArchiveReader
 
     private static async Task<byte[]> ExtendAsync(
         RandomAccessSource source,
+        ZipDirectory directory,
         long start,
         byte[] fetched,
         long requiredEnd,
@@ -234,11 +237,36 @@ public static class ZipArchiveReader
         long fetchedEnd = start + fetched.Length;
         var extended = new byte[checked((int)(requiredEnd - start))];
         fetched.CopyTo(extended, 0);
-        await source.ReadRangeAsync(
+        await ReadAsync(
+            source,
+            directory,
             fetchedEnd,
             extended.AsMemory(fetched.Length),
             cancellationToken).ConfigureAwait(false);
         return extended;
+    }
+
+    /// <summary>
+    /// Reads archive bytes, from the retained tail when the range lies within
+    /// it (so a small archive never needs a second transfer) and from the
+    /// source otherwise.
+    /// </summary>
+    private static ValueTask ReadAsync(
+        RandomAccessSource source,
+        ZipDirectory directory,
+        long offset,
+        Memory<byte> destination,
+        CancellationToken cancellationToken)
+    {
+        long tailStart = directory.TailStart;
+        if (offset >= tailStart && offset + destination.Length <= directory.ArchiveLength)
+        {
+            directory.Tail.Slice(checked((int)(offset - tailStart)), destination.Length)
+                .CopyTo(destination);
+            return ValueTask.CompletedTask;
+        }
+
+        return source.ReadRangeAsync(offset, destination, cancellationToken);
     }
 
     private static IReadOnlyList<ZipEntry> ParseEntries(byte[] bytes, int entryCount)

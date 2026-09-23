@@ -63,13 +63,24 @@ public sealed class ZipDirectory
         IReadOnlyList<ZipEntry> entries,
         long archiveLength,
         long directoryOffset,
-        long directoryLength)
+        long directoryLength,
+        ReadOnlyMemory<byte> tail)
     {
         Entries = entries;
         ArchiveLength = archiveLength;
         DirectoryOffset = directoryOffset;
         DirectoryLength = directoryLength;
+        Tail = tail;
     }
+
+    /// <summary>
+    /// The bytes the directory read fetched from the archive's end, retained so
+    /// an entry that lies within them (every entry of a small archive) is
+    /// served without another transfer.
+    /// </summary>
+    internal ReadOnlyMemory<byte> Tail { get; }
+
+    internal long TailStart => ArchiveLength - Tail.Length;
 
     public IReadOnlyList<ZipEntry> Entries { get; }
 

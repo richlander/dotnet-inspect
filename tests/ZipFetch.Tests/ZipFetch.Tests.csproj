@@ -27,6 +27,7 @@
 
   <ItemGroup>
     <None Include="..\..\fixtures\nugetfetch\pclstorage.1.0.2.nupkg" Link="fixtures\pclstorage.1.0.2.nupkg" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\fixtures\nugetfetch\microsoft.netcore.platforms.1.0.1.nupkg" Link="fixtures\microsoft.netcore.platforms.1.0.1.nupkg" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
 </Project>

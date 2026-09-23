@@ -36,6 +36,7 @@ public sealed class HttpRangeSource : RandomAccessSource
     private DateTimeOffset? _lastModified;
     private bool _validatorObserved;
     private int? _shortTailLength;
+    private long _observedMinimumLength;
 
     /// <summary>
     /// Creates a source whose every ranged request goes through
@@ -76,17 +77,20 @@ public sealed class HttpRangeSource : RandomAccessSource
             new RangeHeaderValue(null, maxLength));
         using HttpResponseMessage response = await _send(request, cancellationToken)
             .ConfigureAwait(false);
-        RequirePartialContent(response, firstRequest: !_validatorObserved);
+        // A tail request carries no If-Range, so a 200 here always means the
+        // source ignored the range.
+        RequirePartialContent(response, firstRequest: true);
         byte[] body = await ReadBodyAsync(response, maxLength, cancellationToken)
             .ConfigureAwait(false);
         RequireContentLength(response, body.Length);
         CaptureValidator(response);
 
         ContentRangeHeaderValue? contentRange = response.Content.Headers.ContentRange;
+        long? visibleTotal = contentRange?.Length;
         if (contentRange is not null)
         {
             RequireByteUnit(contentRange);
-            if (contentRange.Length is { } total)
+            if (visibleTotal is { } total)
             {
                 ConfirmObservedTotal(total);
                 long expectedFrom = Math.Max(0, total - maxLength);
@@ -103,11 +107,15 @@ public sealed class HttpRangeSource : RandomAccessSource
                     throw Invalid("The tail response does not carry the requested range.");
             }
         }
-        else if (body.Length < maxLength)
+
+        if (visibleTotal is null)
         {
-            // Without a visible Content-Range, a short tail is the whole
-            // representation; the consumer's derived length must agree.
-            _shortTailLength = body.Length;
+            // Without a visible total, the bytes received bound the length
+            // from below, and a short tail is the whole representation only
+            // when the consumer's derived length says so.
+            _observedMinimumLength = Math.Max(_observedMinimumLength, body.Length);
+            if (body.Length < maxLength)
+                _shortTailLength = body.Length;
         }
 
         return body;
@@ -132,7 +140,9 @@ public sealed class HttpRangeSource : RandomAccessSource
         bool conditional = ApplyIfRange(request);
         using HttpResponseMessage response = await _send(request, cancellationToken)
             .ConfigureAwait(false);
-        RequirePartialContent(response, firstRequest: !conditional && !_validatorObserved);
+        // Only a request that carried If-Range can have its 200 mean "the
+        // representation changed"; without one, a 200 is the range ignored.
+        RequirePartialContent(response, firstRequest: !conditional);
         byte[] body = await ReadBodyAsync(response, destination.Length, cancellationToken)
             .ConfigureAwait(false);
         RequireContentLength(response, body.Length);
@@ -158,7 +168,7 @@ public sealed class HttpRangeSource : RandomAccessSource
             }
         }
 
-        RequireSameValidator(response);
+        CaptureValidator(response);
         body.CopyTo(destination);
     }
 
@@ -168,6 +178,12 @@ public sealed class HttpRangeSource : RandomAccessSource
         {
             throw Invalid(
                 "The tail response was shorter than requested but is not the whole representation.");
+        }
+
+        if (length < _observedMinimumLength)
+        {
+            throw Invalid(
+                "The derived length is shorter than the bytes the source already served.");
         }
 
         base.ConfirmLength(length);

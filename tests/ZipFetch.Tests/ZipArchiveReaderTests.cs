@@ -106,7 +106,8 @@ public sealed class ZipArchiveReaderTests
     public async Task Entry_Read_MatchesTheOriginalBytes(CompressionLevel level)
     {
         byte[] payload = Bytes(40_000);
-        byte[] archive = Archive(level, ("lib/net8.0/a.dll", payload), ("z.txt", Text("tail")));
+        // The incompressible filler after the target keeps the target out of the tail.
+        byte[] archive = Archive(level, ("lib/net8.0/a.dll", payload), ("filler", Noise(200_000)));
         var source = new CountingSource(new StreamRandomAccessSource(new MemoryStream(archive)));
         ZipDirectory directory = await ZipArchiveReader.ReadDirectoryAsync(source, ZipReadLimits.Default, Token);
         int before = source.Reads;
@@ -220,7 +221,7 @@ public sealed class ZipArchiveReaderTests
     [Fact]
     public async Task LastEntry_EndingAtTheDirectory_IsNeverRequestedPastIt()
     {
-        byte[] payload = Bytes(2_000);
+        byte[] payload = Noise(100_000); // larger than the tail, so the read goes to the source
         byte[] archive = Archive(CompressionLevel.NoCompression, ("last", payload));
         var source = new CountingSource(new StreamRandomAccessSource(new MemoryStream(archive)));
         var limits = new ZipReadLimits(entryReadSlack: ZipReadLimits.MaxEntryReadSlack);
@@ -260,8 +261,9 @@ public sealed class ZipArchiveReaderTests
             int before = source.Reads;
             byte[] content = await ZipArchiveReader.ReadEntryAsync(source, directory, entry, slackless, cancellationToken: Token);
             int reads = source.Reads - before;
-            Assert.InRange(reads, 1, 2);
-            followUps += reads - 1;
+            // An entry inside the retained tail costs no read; any other costs one, plus one follow-up at most.
+            Assert.InRange(reads, 0, 2);
+            followUps += reads == 2 ? 1 : 0;
             using Stream expected = oracle.GetEntry(entry.Name)!.Open();
             using var expectedBytes = new MemoryStream();
             await expected.CopyToAsync(expectedBytes, Token);
@@ -275,7 +277,7 @@ public sealed class ZipArchiveReaderTests
         {
             int before = source.Reads;
             await ZipArchiveReader.ReadEntryAsync(source, directory, entry, slack, cancellationToken: Token);
-            Assert.Equal(1, source.Reads - before);
+            Assert.InRange(source.Reads - before, 0, 1);
         }
     }
 
@@ -298,7 +300,7 @@ public sealed class ZipArchiveReaderTests
 
         Assert.Equal(archive.Length, source.Length);
         Assert.Equal(payload, content);
-        Assert.Equal(2, handler.Requests.Count);
+        Assert.Single(handler.Requests); // the whole archive came with the tail; the entry is served from it
     }
 
     [Theory]
@@ -307,7 +309,8 @@ public sealed class ZipArchiveReaderTests
     public async Task OverHttp_LargeArchive_ReadsTheTailThenOneEntry(bool hideContentRange)
     {
         byte[] payload = Bytes(20_000);
-        byte[] archive = Archive(("filler", Bytes(200_000)), ("lib/net8.0/a.dll", payload));
+        // The target precedes an incompressible filler, so it lies outside the tail.
+        byte[] archive = Archive(("lib/net8.0/a.dll", payload), ("filler", Noise(200_000)));
         var handler = new RangeHandler(archive) { HideContentRange = hideContentRange, ETag = "\"v1\"" };
         await using var source = new HttpRangeSource(new HttpClient(handler), new Uri("https://feed.example/a.nupkg"));
 
@@ -334,6 +337,59 @@ public sealed class ZipArchiveReaderTests
         Assert.Equal(RangeFetchFailure.InvalidResponse, refused.Failure);
     }
 
+    [Fact]
+    public async Task DirectoryOffsetPastTheKnownLength_IsRefutedByTheSource_NotOverBound()
+    {
+        byte[] archive = Archive(("a", Bytes(100)));
+        int record = FindEndOfCentralDirectory(archive);
+        BinaryPrimitives.WriteUInt32LittleEndian(archive.AsSpan(record + 16), 0x7FFF0000);
+
+        // A source that knows its length refutes the declared total before any
+        // bound is applied, even one the declaration would exceed.
+        RangeFetchException refuted = await Assert.ThrowsAsync<RangeFetchException>(
+            () => ZipArchiveReader.ReadDirectoryAsync(
+                new StreamRandomAccessSource(new MemoryStream(archive)),
+                new ZipReadLimits(maxArchiveBytes: 1_000_000),
+                Token));
+        Assert.Equal(RangeFetchFailure.InvalidResponse, refuted.Failure);
+    }
+
+    [Fact]
+    public async Task OverHttp_HeadersHidden_PrependedBytes_AreRefused()
+    {
+        byte[] archive = [.. Bytes(100_000), .. Archive(("a", Bytes(10)))];
+        var handler = new RangeHandler(archive) { HideContentRange = true };
+        await using var source = new HttpRangeSource(new HttpClient(handler), new Uri("https://feed.example/a.nupkg"));
+
+        // The record's derived total is the real archive's few hundred bytes,
+        // yet the tail already served 65,557: the archive's own declaration
+        // disagrees with the bytes read from its end, which the ZIP reader
+        // refuses as malformed before the source even sees the length.
+        ZipReadException refused = await Assert.ThrowsAsync<ZipReadException>(
+            () => ZipArchiveReader.ReadDirectoryAsync(source, ZipReadLimits.Default, Token));
+        Assert.Equal(ZipReadFailure.Malformed, refused.Failure);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task RealShortAsset_IsReadWholeFromTheTail(bool hideContentRange)
+    {
+        byte[] archive = await File.ReadAllBytesAsync(FixturePath("microsoft.netcore.platforms.1.0.1.nupkg"), Token);
+        Assert.True(archive.Length < 65_557);
+        var handler = new RangeHandler(archive) { HideContentRange = hideContentRange };
+        await using var source = new HttpRangeSource(new HttpClient(handler), new Uri("https://feed.example/a.nupkg"));
+
+        ZipDirectory directory = await ZipArchiveReader.ReadDirectoryAsync(source, ZipReadLimits.Default, Token);
+        ZipEntry nuspec = directory.Entries.Single(entry => entry.Name.EndsWith(".nuspec", StringComparison.Ordinal));
+        byte[] manifest = await ZipArchiveReader.ReadEntryAsync(source, directory, nuspec, ZipReadLimits.Default, cancellationToken: Token);
+
+        Assert.Equal(archive.Length, directory.ArchiveLength);
+        Assert.Contains("Microsoft.NETCore.Platforms", Encoding.UTF8.GetString(manifest));
+        Assert.Single(handler.Requests); // the whole archive came with the tail
+        AssertMatchesOracle(archive, directory);
+    }
+
     // --- Helpers -----------------------------------------------------------
 
     private static string FixturePath(string name) =>
@@ -348,6 +404,14 @@ public sealed class ZipArchiveReaderTests
     }
 
     private static byte[] Text(string text) => Encoding.UTF8.GetBytes(text);
+
+    /// <summary>Incompressible bytes, so an entry's size in the archive is its size.</summary>
+    private static byte[] Noise(int length)
+    {
+        var bytes = new byte[length];
+        new Random(length).NextBytes(bytes);
+        return bytes;
+    }
 
     private static byte[] Archive(params (string Name, byte[] Content)[] entries) =>
         Archive(CompressionLevel.Optimal, entries);

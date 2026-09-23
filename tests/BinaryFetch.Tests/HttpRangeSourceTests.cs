@@ -197,6 +197,63 @@ public sealed class HttpRangeSourceTests
     }
 
     [Fact]
+    public async Task HiddenHeaders_FullTail_RefusesADerivedLengthShorterThanTheBytesServed()
+    {
+        var handler = new RangeHandler(Representation(100_000)) { HideContentRange = true };
+        await using HttpRangeSource source = Source(handler);
+        await source.ReadTailAsync(1_000, TestContext.Current.CancellationToken);
+
+        // Prepended garbage would make the record's derived total smaller
+        // than the tail already served; that is not a shorter representation.
+        RangeFetchException refused = Assert.Throws<RangeFetchException>(() => source.ConfirmLength(117));
+        Assert.Equal(RangeFetchFailure.InvalidResponse, refused.Failure);
+    }
+
+    [Fact]
+    public async Task WithoutAValidator_ALater200_IsRangeIgnored_NotRepresentationChanged()
+    {
+        var handler = new RangeHandler(Representation(50_000)); // no ETag, no Last-Modified
+        await using HttpRangeSource source = Source(handler);
+        await source.ReadTailAsync(100, TestContext.Current.CancellationToken);
+        Assert.False(source.HasValidator);
+
+        handler.IgnoreRange = true;
+        RangeFetchException ignored = await Assert.ThrowsAsync<RangeFetchException>(
+            () => source.ReadRangeAsync(0, new byte[10], TestContext.Current.CancellationToken).AsTask());
+
+        Assert.Equal(RangeFetchFailure.RangeIgnored, ignored.Failure);
+        Assert.Null(handler.Requests[1].Headers.IfRange);
+    }
+
+    [Fact]
+    public async Task ARangeReadAsTheFirstRequest_CapturesTheValidator()
+    {
+        var handler = new RangeHandler(Representation(50_000)) { ETag = "\"v1\"" };
+        await using HttpRangeSource source = Source(handler);
+
+        await source.ReadRangeAsync(0, new byte[10], TestContext.Current.CancellationToken);
+        Assert.True(source.HasValidator);
+        await source.ReadRangeAsync(10, new byte[10], TestContext.Current.CancellationToken);
+
+        Assert.Null(handler.Requests[0].Headers.IfRange);
+        Assert.Equal("\"v1\"", handler.Requests[1].Headers.IfRange!.EntityTag!.ToString());
+    }
+
+    [Fact]
+    public async Task TailWithAnUnknownTotal_ShortBody_IsTheWholeOnlyWhenConfirmed()
+    {
+        var handler = new RangeHandler(Representation(300)) { UnknownTotal = true };
+        await using HttpRangeSource source = Source(handler);
+
+        ReadOnlyMemory<byte> tail = await source.ReadTailAsync(1_000, TestContext.Current.CancellationToken);
+
+        Assert.Equal(300, tail.Length);
+        Assert.Null(source.Length);
+        Assert.Throws<RangeFetchException>(() => source.ConfirmLength(400));
+        source.ConfirmLength(300);
+    }
+
+    [Fact]
     public async Task StreamSource_ServesTailAndRanges_AndRefusesReadsPastTheEnd()
     {
         byte[] representation = Representation(4_000);
@@ -226,6 +283,7 @@ public sealed class HttpRangeSourceTests
         public List<HttpRequestMessage> Requests { get; } = [];
         public bool IgnoreRange { get; set; }
         public bool HideContentRange { get; set; }
+        public bool UnknownTotal { get; set; }
         public string? ETag { get; set; }
         public long? ReportedTotal { get; set; }
         public string? Defect { get; set; }
@@ -273,7 +331,9 @@ public sealed class HttpRangeSourceTests
             {
                 content.Headers.ContentRange = Defect == "range"
                     ? new ContentRangeHeaderValue(from + 1, to + 1, total)
-                    : new ContentRangeHeaderValue(from, to, total);
+                    : UnknownTotal
+                        ? new ContentRangeHeaderValue(from, to)
+                        : new ContentRangeHeaderValue(from, to, total);
             }
 
             var response = new HttpResponseMessage(HttpStatusCode.PartialContent) { Content = content };
