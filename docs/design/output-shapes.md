@@ -1534,9 +1534,13 @@ the selected presentation URL in its `url` field, not the acquisition URL.
 `--raw` still removes document decoration; `--print` still requests content.
 The former SourceLink URL-shape flags, a `--raw` that meant the fetchable shape
 and its `--blob` pair, are removed, not retained as aliases. `--raw` now names
-only the decoration modifier; a legacy URL-shape invocation fails visibly
-rather than silently taking the new meaning, because the modifier demands a
-single selected payload.
+only the decoration modifier. A legacy URL-shape invocation fails visibly
+unless it already selects exactly one payload: with `--print`, with no section,
+or with a section the modifier does not support, the modifier's own diagnostic
+fires. With a single URL section such as `SourceLink: Files`, it takes the new
+meaning and prints undecorated URLs, one per line, with exit 0; the URL values
+are unchanged because the fetchable shape is now the default. That is the one
+accepted reinterpretation, and the release note states it.
 
 Conversion is provider-aware. GitHub raw-content URLs use the existing
 SourceLink browse mapping, and GitHub's `/owner/repo/raw/ref/path` route can

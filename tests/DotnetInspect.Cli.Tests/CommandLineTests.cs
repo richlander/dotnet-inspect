@@ -89,6 +89,29 @@ public class CommandLineTests
         Assert.Contains(expectedError, error, StringComparison.OrdinalIgnoreCase);
     }
 
+    /// <summary>
+    /// The one accepted reinterpretation: a legacy URL-shape <c>--raw</c> that already
+    /// selects a single URL section takes the new meaning and prints undecorated URLs.
+    /// The values are unchanged because the fetchable shape is now the default.
+    /// </summary>
+    [Fact]
+    public async Task LegacyRawUrlShape_OnASingleUrlSection_PrintsUndecoratedFetchableUrls()
+    {
+        var root = CommandLineBuilder.CreateRootCommand();
+        string[] tokens =
+        [
+            "package", "Newtonsoft.Json@13.0.4", "-S", "SourceLink: Files", "-n", "1", "--raw",
+        ];
+        var (exit, output, error) = await ConsoleCapture.RunAsync(
+            () => CommandLineBuilder.InvokeAsync(root.Parse(tokens), tokens));
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        string line = Assert.Single(
+            output.Split(Environment.NewLine, StringSplitOptions.RemoveEmptyEntries));
+        Assert.StartsWith("https://raw.githubusercontent.com/", line, StringComparison.Ordinal);
+    }
+
     [Fact]
     public void RenderedUrlPreference_SourceLocationRetainsUnmappedUrl()
     {
