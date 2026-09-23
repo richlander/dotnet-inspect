@@ -1633,15 +1633,25 @@ public class DiffCommand
                 requireBodyTargets: true).MemberIdentities;
         return new BodySignalComparisonInput(
             fromPaths
-                .Select(path =>
-                    MethodBodyInspectionSession.Open(path).BodyIndex)
+                .Select(OpenAnalysis)
                 .ToArray(),
             toPaths
-                .Select(path =>
-                    MethodBodyInspectionSession.Open(path).BodyIndex)
+                .Select(OpenAnalysis)
                 .ToArray(),
             options.TypeFilter,
             memberTargetIdentities);
+
+        static BodySignalAnalysisInput OpenAnalysis(string path)
+        {
+            ILInspector.Analysis.LibraryBodyAnalysisExecution execution =
+                MethodBodyInspectionSession.Open(path)
+                    .AnalysisExecution;
+            return new(
+                execution.Allocations,
+                execution.Safety,
+                execution.CallGraph,
+                execution.Optimization);
+        }
     }
 
     internal static ImplementationDiffResult BuildImplementationDiff(

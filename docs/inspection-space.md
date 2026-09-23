@@ -1362,11 +1362,11 @@ The assembly-local string-keyed scanner predecessor has been retired.
 typed metadata, direct-reference,
 assembly-context reference, package dependency-group, extension-method,
 custom-attribute, manifest-resource, type-forwarder, union-type, switch,
-SourceLink, API-comparison, and Analysis body-signal comparison plans. The
-Analysis query
-consumes old/new `LibraryBodyIndex` collections and returns
-`ResearchComparison`; the diff CLI still owns lazy path-to-index acquisition as
-a transitional adapter. Mutable CLI models, path-shaped residual inputs, and command-owned acquisition
+SourceLink, API-comparison, and Analysis body-signal comparison plans. The Analysis query consumes old/new `BodySignalAnalysisInput` collections that
+compose allocation, safety, call-graph, and optimization results from one
+`LibraryBodyAnalysisExecution`, and returns `ResearchComparison`. The diff CLI
+still owns lazy path-to-execution acquisition as a transitional adapter.
+Mutable CLI models, path-shaped residual inputs, and command-owned acquisition
 remain migration boundaries rather than workspace contracts.
 
 The registry executes synchronous and asynchronous queries in deterministic

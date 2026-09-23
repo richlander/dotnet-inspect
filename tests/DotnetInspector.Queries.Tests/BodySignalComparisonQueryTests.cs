@@ -7,15 +7,17 @@ namespace DotnetInspector.Queries.Tests;
 public sealed class BodySignalComparisonQueryTests
 {
     [Fact]
-    public void Execute_ReturnsResearchOwnedAnalysisEvidenceFromSuppliedIndexes()
+    public void Execute_ReturnsResearchOwnedEvidenceFromFocusedAnalysis()
     {
-        var oldIndex = LibraryBodyIndex.Open(
+        BodySignalAnalysisInput oldAnalysis = Analyze(
             FixtureCatalog.DiffPair.OldAssemblyPath());
-        var newIndex = LibraryBodyIndex.Open(
+        BodySignalAnalysisInput newAnalysis = Analyze(
             FixtureCatalog.DiffPair.NewAssemblyPath());
 
         ResearchComparison comparison = BodySignalComparisonQuery.Execute(
-            new BodySignalComparisonInput([oldIndex], [newIndex]));
+            new BodySignalComparisonInput(
+                [oldAnalysis],
+                [newAnalysis]));
 
         ResearchChange regression = Assert.Single(
             comparison.Changes,
@@ -34,4 +36,30 @@ public sealed class BodySignalComparisonQueryTests
         => Assert.Equal(
             InspectionCost.Unbounded,
             BodySignalComparisonQuery.Definition.Cost);
+
+    [Fact]
+    public void Execute_EmptyFocusedPopulations_ReturnsEmptyComparison()
+    {
+        ResearchComparison comparison = BodySignalComparisonQuery.Execute(
+            new BodySignalComparisonInput([], []));
+
+        Assert.Empty(comparison.Changes);
+    }
+
+    static BodySignalAnalysisInput Analyze(string path)
+    {
+        const LibraryBodyAnalysisFeatures features =
+            LibraryBodyAnalysisFeatures.MethodEvidence
+            | LibraryBodyAnalysisFeatures.Allocations
+            | LibraryBodyAnalysisFeatures.OptimizationOpportunities;
+        LibraryBodyAnalysisExecution execution =
+            LibraryBodyAnalysisService.ExecutePath(
+                path,
+                LibraryBodyAnalysisRequest.Create(features));
+        return new(
+            execution.Allocations,
+            execution.Safety,
+            execution.CallGraph,
+            execution.Optimization);
+    }
 }
