@@ -34,6 +34,11 @@ Integrations and extension reachability retain compatible participants for
 cross-assembly composition. The components below are the current hosts, shared
 substrates, and inspection producers that will extend that space.
 
+`BinaryFetch` and `ZipFetch` now form independent byte-range and ZIP-reading
+roots below `NuGetFetch`. Their bounded random-access and archive contracts
+are implemented; package-source routing and host adoption remain tracked by
+[Package archive range access](design/package-archive-range-access.md).
+
 - `src/DotnetInspect.Cli/` contains the CLI, command routing, parsers, options,
   output views, section descriptors, and inspectors. Its
   [CLI Workspace Sharing](design/cli-workspace-sharing.md) owns the common
@@ -399,9 +404,10 @@ substrates, and inspection producers that will extend that space.
   and direct-library adapters bind resource-free source evidence to exact
   Library content references; Metadata, CSharpText, SourceHouse, Library
   ownership, and host presentation retain their focused authority. Its
-  contracts and core now implement the bounded compiled-XML attempt and
-  resource-free receipt; adapters, authored settlement, and host adoption
-  remain staged.
+  contracts and core implement bounded compiled-XML and authored-source
+  attempts with resource-free receipts. CLI and Inspect Web package
+  documentation share the same House-backed inspection; further host adoption
+  remains staged.
 - `src/DotnetInspector.LibraryMetadata/` owns
   [Library-Metadata correspondence](design/library-metadata-correspondence.md):
   bounded Metadata extraction inside one exact Library API-content snapshot

@@ -163,6 +163,11 @@
 - Preserves compiled XML alongside typed authored-source availability,
   incompleteness, and failure in Inspect Web package-member documentation
   (#8161).
+- Shares exact package documentation settlement between CLI and Inspect Web
+  through DocumentationHouse. Detailed CLI package-member inspection can now
+  show checksum-verified, PDB-mapped authored documentation alongside compiled
+  XML; ordinary member output remains compiled-only. Malformed XML does not
+  suppress independently available authored fields (#8379).
 - Retrieves authored member documentation through exact assembly/PDB
   association and checksum-verified PDB-mapped source, with bounded declaration
   selection in Inspect Web. Ambiguous or unsupported declarations remain
