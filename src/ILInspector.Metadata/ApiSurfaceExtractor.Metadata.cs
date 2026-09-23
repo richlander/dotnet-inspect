@@ -12,6 +12,138 @@ namespace ILInspector.Metadata;
 
 public static partial class ApiSurfaceExtractor
 {
+    internal static IReadOnlyDictionary<TypeDefinitionToken, int>
+        CountSummaryMembers(
+        MetadataReader reader,
+        ImmutableArray<AssemblyTypeDeclaration> declarations)
+    {
+        try
+        {
+            return CountSummaryMembersCore(reader, declarations);
+        }
+        catch (MetadataRowRejectedException exception)
+        {
+            throw new BadImageFormatException(
+                "A selected Type Member Count contains malformed Metadata.",
+                exception);
+        }
+    }
+
+    private static IReadOnlyDictionary<TypeDefinitionToken, int>
+        CountSummaryMembersCore(
+        MetadataReader reader,
+        ImmutableArray<AssemblyTypeDeclaration> declarations)
+    {
+        var counts = new Dictionary<TypeDefinitionToken, int>();
+        var selected =
+            new Dictionary<
+                MetadataTypeDefinitionName,
+                TypeDefinitionToken>();
+        foreach (AssemblyTypeDeclaration declaration in declarations)
+        {
+            if (declaration.Kind
+                != AssemblyTypeDeclarationKind.Definition)
+            {
+                continue;
+            }
+            TypeDefinitionToken token =
+                declaration.DefinitionToken
+                ?? throw new InvalidOperationException(
+                    "A selected Type definition omitted its locator.");
+            EntityHandle entity =
+                MetadataTokens.EntityHandle(token.Value);
+            if (entity.Kind != HandleKind.TypeDefinition)
+            {
+                throw new BadImageFormatException(
+                    "The declaration locator is not a TypeDef token.");
+            }
+
+            TypeDefinitionHandle handle =
+                (TypeDefinitionHandle)entity;
+            if (MetadataTokens.GetRowNumber(handle) <= 0
+                || MetadataTokens.GetRowNumber(handle)
+                    > reader.GetTableRowCount(TableIndex.TypeDef))
+            {
+                throw new BadImageFormatException(
+                    "The declaration locator does not identify a TypeDef row.");
+            }
+
+            var surface = new ApiSurface();
+            CountSummaryMembers(
+                reader,
+                reader.GetTypeDefinition(handle),
+                apiType: null,
+                surface,
+                isExtensionClass: false,
+                extensionReceiverDefinitions: null);
+            counts.Add(
+                token,
+                checked(
+                    surface.PublicMethodCount
+                        + surface.PublicPropertyCount
+                        + surface.PublicEventCount
+                        + surface.PublicFieldCount));
+            selected.Add(declaration.Name, token);
+        }
+
+        if (selected.Count == 0)
+            return counts;
+
+        foreach (TypeDefinitionHandle handle in reader.TypeDefinitions)
+        {
+            TypeDefinition definition =
+                reader.GetTypeDefinition(handle);
+            if (!definition.IsPublic
+                || TypeFilters.IsCompilerGenerated(
+                    reader.GetString(definition.Name))
+                || AttributeReader.HasHiddenAttribute(
+                    reader,
+                    definition.GetCustomAttributes()))
+            {
+                continue;
+            }
+            TypeAttributes attributes = definition.Attributes;
+            bool isExtensionClass =
+                (attributes
+                    & (TypeAttributes.Sealed
+                        | TypeAttributes.Abstract))
+                == (TypeAttributes.Sealed
+                    | TypeAttributes.Abstract)
+                && AttributeReader.HasExtensionAttribute(
+                    reader,
+                    definition.GetCustomAttributes());
+            if (!isExtensionClass)
+                continue;
+
+            MetadataTypeDefinitionName declaringName =
+                MetadataTypeDefinitionNameReader.Read(reader, handle)
+                    is MetadataTypeDefinitionNameReadResult.Read read
+                        ? read.Name
+                        : throw new BadImageFormatException(
+                            "An extension declaration has no structured Type identity.");
+            var ignored = new ApiSurface();
+            CountSummaryMembers(
+                reader,
+                definition,
+                apiType: null,
+                ignored,
+                isExtensionClass: true,
+                extensionReceiverDefinitions: null,
+                receiver =>
+                {
+                    if (receiver != declaringName
+                        && selected.TryGetValue(
+                            receiver,
+                            out TypeDefinitionToken target))
+                    {
+                        counts[target] =
+                            checked(counts[target] + 1);
+                    }
+                });
+        }
+
+        return counts;
+    }
 
     private static void CountSummaryMembers(
         MetadataReader reader,
@@ -20,7 +152,9 @@ public static partial class ApiSurfaceExtractor
         ApiSurface surface,
         bool isExtensionClass,
         Dictionary<ApiMember, MetadataTypeDefinitionName>?
-            extensionReceiverDefinitions)
+            extensionReceiverDefinitions,
+        Action<MetadataTypeDefinitionName>? observeExtensionReceiver =
+            null)
     {
         var explicitImplementationBodies = GetExplicitImplementationBodies(reader, typeDef);
         var accessorMethods = GetSemanticAccessorMethods(reader, typeDef);
@@ -60,16 +194,18 @@ public static partial class ApiSurfaceExtractor
                     reader,
                     method.GetCustomAttributes()))
             {
-                int token = MetadataTokens.GetToken(methodHandle);
-                string? extendedType =
-                    GetFirstParameterType(reader, typeDef, method);
                 MetadataTypeDefinitionName? receiverDefinition =
                     GetFirstParameterDefinitionName(
                         reader,
                         typeDef,
                         method);
+                if (receiverDefinition is not null)
+                    observeExtensionReceiver?.Invoke(receiverDefinition);
                 if (apiType is not null)
                 {
+                    int token = MetadataTokens.GetToken(methodHandle);
+                    string? extendedType =
+                        GetFirstParameterType(reader, typeDef, method);
                     var member = new ApiMember
                     {
                         Name = methodName,

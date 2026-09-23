@@ -1,3 +1,5 @@
+using System.Collections.Immutable;
+
 using DotnetInspector.Libraries;
 using ILInspector.Metadata;
 
@@ -43,17 +45,106 @@ public sealed class LibraryTypeDeclarationInventoryInspectionRequest
 {
     public LibraryTypeDeclarationInventoryInspectionRequest(
         LibraryReference library,
-        LibraryTypeDeclarationInventoryInspectionBounds bounds)
+        LibraryTypeDeclarationInventoryInspectionBounds bounds,
+        LibraryTypeDeclarationRowsInspectionRequest? rows = null)
     {
         ArgumentNullException.ThrowIfNull(library);
         ArgumentNullException.ThrowIfNull(bounds);
 
         Library = library;
         Bounds = bounds;
+        Rows = rows;
     }
 
     public LibraryReference Library { get; }
     public LibraryTypeDeclarationInventoryInspectionBounds Bounds { get; }
+    public LibraryTypeDeclarationRowsInspectionRequest? Rows { get; }
+}
+
+/// <summary>
+/// One bounded Metadata-order segment requested from a declaration inventory.
+/// </summary>
+public sealed record LibraryTypeDeclarationRowsInspectionRequest
+{
+    public LibraryTypeDeclarationRowsInspectionRequest(
+        int startOrdinal,
+        int maximumRows,
+        bool includeMemberCount,
+        Guid? expectedModuleVersionId)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegative(startOrdinal);
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(maximumRows);
+        if (expectedModuleVersionId == Guid.Empty)
+        {
+            throw new ArgumentException(
+                "A continuation MVID cannot be empty.",
+                nameof(expectedModuleVersionId));
+        }
+
+        StartOrdinal = startOrdinal;
+        MaximumRows = maximumRows;
+        IncludeMemberCount = includeMemberCount;
+        ExpectedModuleVersionId = expectedModuleVersionId;
+    }
+
+    public int StartOrdinal { get; }
+    public int MaximumRows { get; }
+    public bool IncludeMemberCount { get; }
+    public Guid? ExpectedModuleVersionId { get; }
+}
+
+public enum LibraryTypeDeclarationRowsInspectionUnavailableReason
+{
+    UnsupportedModuleExport,
+}
+
+public enum LibraryTypeDeclarationRowsInspectionRejectionKind
+{
+    StaleContinuation,
+    ContinuationOutOfRange,
+}
+
+public enum LibraryTypeDeclarationRowsInspectionBound
+{
+    RetainedTextCharacters,
+}
+
+public enum LibraryTypeDeclarationRowsInspectionFailureKind
+{
+    MalformedMetadata,
+}
+
+/// <summary>
+/// The closed source result for one requested declaration-row segment.
+/// </summary>
+public abstract record LibraryTypeDeclarationRowsInspectionOutcome
+{
+    private protected LibraryTypeDeclarationRowsInspectionOutcome()
+    {
+    }
+
+    public sealed record Read(
+        ImmutableArray<AssemblyTypeDeclarationRow> Rows,
+        int? NextOrdinal,
+        long RetainedTextCharacters)
+        : LibraryTypeDeclarationRowsInspectionOutcome;
+
+    public sealed record Unavailable(
+        LibraryTypeDeclarationRowsInspectionUnavailableReason Reason)
+        : LibraryTypeDeclarationRowsInspectionOutcome;
+
+    public sealed record Rejected(
+        LibraryTypeDeclarationRowsInspectionRejectionKind Kind)
+        : LibraryTypeDeclarationRowsInspectionOutcome;
+
+    public sealed record Incomplete(
+        LibraryTypeDeclarationRowsInspectionBound Bound,
+        long MeasuredRetainedTextCharacters)
+        : LibraryTypeDeclarationRowsInspectionOutcome;
+
+    public sealed record Failed(
+        LibraryTypeDeclarationRowsInspectionFailureKind Kind)
+        : LibraryTypeDeclarationRowsInspectionOutcome;
 }
 
 /// <summary>
@@ -66,12 +157,14 @@ public sealed class LibraryTypeDeclarationInventoryCorrespondence
         LibraryTypeDeclarationInventorySubject subject,
         AssemblyTypeDeclarationInventory inventory,
         long metadataRows,
-        int declarationCount)
+        int declarationCount,
+        LibraryTypeDeclarationRowsInspectionOutcome? rows)
     {
         Subject = subject;
         Inventory = inventory;
         MetadataRows = metadataRows;
         DeclarationCount = declarationCount;
+        Rows = rows;
     }
 
     public LibraryTypeDeclarationInventorySubject Subject { get; }
@@ -84,8 +177,17 @@ public sealed class LibraryTypeDeclarationInventoryCorrespondence
     public int AssemblyBytes => Subject.AssemblyBytes;
     public long MetadataRows { get; }
     public int DeclarationCount { get; }
+    public LibraryTypeDeclarationRowsInspectionOutcome? Rows { get; }
     public long RetainedTextCharacters =>
-        Inventory.RetainedTextCharacters;
+        Rows switch
+        {
+            LibraryTypeDeclarationRowsInspectionOutcome.Read read =>
+                read.RetainedTextCharacters,
+            LibraryTypeDeclarationRowsInspectionOutcome.Incomplete
+                incomplete =>
+                incomplete.MeasuredRetainedTextCharacters,
+            _ => Inventory.RetainedTextCharacters,
+        };
 }
 
 /// <summary>
@@ -358,12 +460,23 @@ public static class LibraryTypeDeclarationInventoryInspection
             }
 
             int declarationCount = inventory.Declarations.Length;
+            LibraryTypeDeclarationRowsInspectionOutcome? rows =
+                request.Rows is null
+                    ? null
+                    : InspectRows(
+                        session,
+                        inventory,
+                        request.Rows,
+                        moduleVersionId,
+                        request.Bounds.MaximumRetainedTextCharacters,
+                        cancellationToken);
             return new LibraryTypeDeclarationInventoryInspectionOutcome.Completed(
                 new LibraryTypeDeclarationInventoryCorrespondence(
                     subject,
                     inventory,
                     metadataRows,
-                    declarationCount));
+                    declarationCount,
+                    rows));
         }
         catch (UnsupportedMetadataFormatException)
         {
@@ -387,4 +500,88 @@ public static class LibraryTypeDeclarationInventoryInspection
         Failed(
             LibraryTypeDeclarationInventoryInspectionFailureKind kind) =>
             new(kind);
+
+    private static LibraryTypeDeclarationRowsInspectionOutcome InspectRows(
+        AssemblyInspectionSession session,
+        AssemblyTypeDeclarationInventory inventory,
+        LibraryTypeDeclarationRowsInspectionRequest request,
+        Guid moduleVersionId,
+        int maximumRetainedTextCharacters,
+        CancellationToken cancellationToken)
+    {
+        if (request.ExpectedModuleVersionId is { } expected
+            && expected != moduleVersionId)
+        {
+            return new LibraryTypeDeclarationRowsInspectionOutcome.Rejected(
+                LibraryTypeDeclarationRowsInspectionRejectionKind
+                    .StaleContinuation);
+        }
+
+        ImmutableArray<AssemblyTypeDeclaration> declarations =
+            [.. inventory.GetDeclarations()];
+        if (declarations.Any(
+                static declaration =>
+                    declaration.Kind
+                        == AssemblyTypeDeclarationKind.ModuleExport))
+        {
+            return new LibraryTypeDeclarationRowsInspectionOutcome.Unavailable(
+                LibraryTypeDeclarationRowsInspectionUnavailableReason
+                    .UnsupportedModuleExport);
+        }
+
+        if (request.StartOrdinal > declarations.Length
+            || (request.StartOrdinal == declarations.Length
+                && declarations.Length != 0))
+        {
+            return new LibraryTypeDeclarationRowsInspectionOutcome.Rejected(
+                LibraryTypeDeclarationRowsInspectionRejectionKind
+                    .ContinuationOutOfRange);
+        }
+
+        int rowCount = Math.Min(
+            request.MaximumRows,
+            declarations.Length - request.StartOrdinal);
+        ImmutableArray<AssemblyTypeDeclaration> selected =
+            declarations
+                .AsSpan(request.StartOrdinal, rowCount)
+                .ToArray()
+                .ToImmutableArray();
+        int nextOrdinal = checked(request.StartOrdinal + rowCount);
+        int remainingText = checked(
+            maximumRetainedTextCharacters
+                - (int)inventory.RetainedTextCharacters);
+        AssemblyTypeDeclarationRowsOutcome outcome =
+            session.TypeDeclarationRows(
+                inventory,
+                selected,
+                request.IncludeMemberCount,
+                remainingText,
+                cancellationToken);
+        return outcome switch
+        {
+            AssemblyTypeDeclarationRowsOutcome.Read read =>
+                new LibraryTypeDeclarationRowsInspectionOutcome.Read(
+                    read.Rows,
+                    nextOrdinal < declarations.Length
+                        ? nextOrdinal
+                        : null,
+                    checked(
+                        inventory.RetainedTextCharacters
+                            + read.RetainedTextCharacters)),
+            AssemblyTypeDeclarationRowsOutcome.Incomplete incomplete =>
+                new LibraryTypeDeclarationRowsInspectionOutcome.Incomplete(
+                    LibraryTypeDeclarationRowsInspectionBound
+                        .RetainedTextCharacters,
+                    checked(
+                        inventory.RetainedTextCharacters
+                            + incomplete
+                                .MeasuredRetainedTextCharacters)),
+            AssemblyTypeDeclarationRowsOutcome.Rejected =>
+                new LibraryTypeDeclarationRowsInspectionOutcome.Failed(
+                    LibraryTypeDeclarationRowsInspectionFailureKind
+                        .MalformedMetadata),
+            _ => throw new InvalidOperationException(
+                "Unknown declaration Rows outcome."),
+        };
+    }
 }
