@@ -110,6 +110,63 @@ This slice is intentionally construction-only. Issue #8244 owns request
 selection, scope, and execution reuse; #8243 owns the overload-family graph
 mode; #6980 owns envelope and transport adoption.
 
+## Overload-family structural plane
+
+`OverloadFamilyCallGraphStructuralQuery` composes the bounded equal-peer graph
+issued by `OverloadFamilyCallGraphQuery` into one
+`OverloadFamilyCallGraphStructuralDocument`. The document retains that graph
+unchanged as authoritative topology and adds deterministic document-local
+components and node facts. It does not select a primary, canonical, core, or
+hot overload.
+
+The family is the ordered peer-seed set already resolved by the overload-family
+query. Direct call edges between family members form the family delegation
+graph. Its strongly connected components are ordered by their earliest family
+seed, and a component with no incoming edge from another family component is a
+family-entry component. Recursive siblings therefore remain one entry
+component rather than acquiring an arbitrary root from traversal order.
+
+Each entry component is one origin. Reachability starts from every member of
+that component and follows retained call topology. Every admitted node records
+the ordered entry-component origins that reach it, and every family component
+records the union of its members' origins. A family node with multiple origins
+is a family-convergence point; a non-family node with multiple origins is an
+implementation-convergence point. Several entries, several convergence
+points, disconnected family members, no convergence point, and a family seed
+that is also a convergence point are all valid.
+
+For an instance-constructor family, a direct same-family edge contributes to
+delegation only when at least one retained physical occurrence has
+`CallKind.Call`. A same-type `CallKind.NewObject` edge remains in the
+authoritative graph and in ordinary downstream topology but does not connect
+family components or carry one constructor entry's origin into another
+constructor. Base constructors have another declaring type, and `.cctor` has
+another metadata name, so neither is a family member.
+
+Structural confidence is complete only when the retained graph has no
+unexplored traversal, unavailable physical occurrence, incomplete
+correspondence, or recoverable Analysis-failure diagnostic. The declared depth
+and node budgets do not by themselves downgrade confidence; the existing
+Call Graph diagnostic does so when a budget, unresolved call, unavailable body,
+or failure leaves an unexplored boundary. An incomplete document still retains
+observed components, origins, and convergence as graph-relative candidates,
+but it cannot support a complete entry or convergence absence claim.
+
+Implementation-profile coverage remains a separate supporting plane. When a
+consumer composes these facts with `CallGraphImplementationDocument`, its raw
+profiles, coverage, and diagnostics remain visible and never determine or
+upgrade structural status.
+
+`Derive_DirectSiblingChainRetainsTransitiveEntryOrigin`,
+`Derive_TwoEntriesConvergeOnFamilyOverload`,
+`Derive_PublicEntriesConvergeOnlyOnPrivateHelper`,
+`Derive_RecursiveFamilyCollapsesIntoOneEntryComponent`, and
+`Derive_ConstructorNewObjectDoesNotCreateDelegation` gate the pathological
+component, reachability, convergence, cycle, and constructor cases.
+`Derive_IncompleteTraversalProducesCandidateFacts` gates the absence boundary.
+`Derive_SystemTextJsonRetainsEntriesAndSharedHelperConvergence` gates the
+pinned 15-overload `System.Text.Json` corpus.
+
 ## Target call catalog
 
 ### Node descriptors

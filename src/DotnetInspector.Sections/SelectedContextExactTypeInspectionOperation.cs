@@ -437,7 +437,7 @@ public static class SelectedContextExactTypeInspectionOperation
     {
         string encoded = WorkspaceSharePacketCodec.Encode(packet);
         return new InspectionShare.Available(
-            "https://dotnet-inspect.net/?w=" + encoded,
+            WorkspaceShareUrl.Create(encoded),
             encoded);
     }
 

@@ -753,6 +753,7 @@ test("ordinary transport preserves sync, async DTO, void, null, and arguments", 
   let classificationArguments: readonly unknown[] = [];
   let matchArguments: readonly unknown[] = [];
   let pruningArguments: readonly unknown[] = [];
+  let cloneArguments: readonly unknown[] = [];
   let libraryDiffArguments: readonly unknown[] = [];
   let libraryDiffCancelArguments: readonly unknown[] = [];
   let platformDocumentationArguments: readonly unknown[] = [];
@@ -853,6 +854,15 @@ test("ordinary transport preserves sync, async DTO, void, null, and arguments", 
         return { kind: "Requested", reason: "superseded" };
       },
     },
+    analysis: {
+      queryCloneCandidates: (...args) => {
+        cloneArguments = args;
+        return contractViolation({
+          schemaVersion: 1,
+          kind: "Rejected",
+        });
+      },
+    },
   });
 
   const sync = state.client.package.searchTypes("String", []);
@@ -909,9 +919,35 @@ test("ordinary transport preserves sync, async DTO, void, null, and arguments", 
       supplies: [],
     },
   );
+  const cloneRequest = {
+    schemaVersion: 1,
+    packages: [{
+      packageId: "Example.Package",
+      version: "2.0.0",
+      targetFramework: "net11.0",
+    }],
+    selectedPackageIndex: 0,
+    assembly: "lib/net11.0/Example.dll",
+    seed: {
+      kind: "Library" as const,
+      typeDefinitionId: null,
+      member: null,
+      body: null,
+    },
+    breadth: "Everything" as const,
+    discovery: "SimilarNames" as const,
+  };
+  const clone = state.client.analysis.queryCloneCandidates(cloneRequest);
   const libraryDiff = state.client.metadata.queryLibraryApiDiff(
     "operation-1",
-    "{\"schemaVersion\":1}",
+    {
+      schemaVersion: 1,
+      packageId: "Example.Package",
+      currentVersion: "2.0.0",
+      targetVersion: "1.0.0",
+      targetFramework: "net11.0",
+      compileAssetId: "lib/net11.0/Example.dll",
+    },
   );
   const libraryDiffCancellation =
     state.client.metadata.cancelLibraryApiDiff(
@@ -982,6 +1018,11 @@ test("ordinary transport preserves sync, async DTO, void, null, and arguments", 
       supplies: [],
     },
   ]);
+  assert.deepEqual(await clone, {
+    schemaVersion: 1,
+    kind: "Rejected",
+  });
+  assert.deepEqual(cloneArguments, [cloneRequest]);
   assert.deepEqual(await libraryDiff, {
     schemaVersion: 1,
     kind: "Canceled",
@@ -993,7 +1034,14 @@ test("ordinary transport preserves sync, async DTO, void, null, and arguments", 
   });
   assert.deepEqual(libraryDiffArguments, [
     "operation-1",
-    "{\"schemaVersion\":1}",
+    {
+      schemaVersion: 1,
+      packageId: "Example.Package",
+      currentVersion: "2.0.0",
+      targetVersion: "1.0.0",
+      targetFramework: "net11.0",
+      compileAssetId: "lib/net11.0/Example.dll",
+    },
   ]);
   assert.deepEqual(libraryDiffCancelArguments, [
     "operation-1",

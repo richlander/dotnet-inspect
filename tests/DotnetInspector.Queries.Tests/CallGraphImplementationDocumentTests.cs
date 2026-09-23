@@ -234,6 +234,68 @@ public sealed class CallGraphImplementationDocumentTests
     }
 
     [Fact]
+    public void
+        MultiRootProjection_SystemTextJsonRetainsEverySerializeRootAndSharedHelper()
+    {
+        string path = Path.Combine(
+            AppContext.BaseDirectory,
+            "RealAssets",
+            "DocumentationQuery",
+            "System.Text.Json.dll");
+        int[] tokens =
+        [
+            .. JsonSerializerSerializeTokens(path)
+                .Order(),
+        ];
+        Assert.Equal(15, tokens.Length);
+        LibraryBodyAnalysisExecution analysis =
+            LibraryBodyAnalysisService.ExecutePath(
+                path,
+                LibraryBodyAnalysisRequest.Create(
+                    LibraryBodyAnalysisFeatures
+                        .ImplementationProfiles,
+                    bodyScope: tokens.ToHashSet()));
+        CallTreeNode[] roots =
+        [
+            .. tokens.Select(token =>
+                analysis.CallGraph.BuildCallTree(
+                    token,
+                    maxDepth: 2,
+                    maxNodes: 50)),
+        ];
+
+        CallGraphProjection projection =
+            CallGraphProjection.FromCallees(
+                roots,
+                maxNodes: 500);
+
+        Assert.Equal(15, projection.RootNodeIds.Length);
+        Assert.Equal(
+            projection.RootNodeIds,
+            projection.RootNodeIds.Order());
+        for (var index = 0; index < tokens.Length; index++)
+        {
+            MethodIdentity method = Assert.Single(
+                analysis.CallGraph.DeclaredMethods,
+                candidate =>
+                    candidate.MetadataToken == tokens[index]);
+            Assert.Equal(
+                CallGraphNodeMatch.Found,
+                projection.FindNode(
+                    method,
+                    out CallGraphNode node));
+            Assert.Equal(
+                projection.RootNodeIds[index],
+                node.Id);
+        }
+        Assert.Contains(
+            Enumerable.Range(0, projection.Nodes.Length)
+                .Except(projection.RootNodeIds),
+            nodeId => projection.RootNodeIds.Count(rootId =>
+                IsReachable(projection, rootId, nodeId)) > 1);
+    }
+
+    [Fact]
     public void Create_RejectsUnrequestedImplementationProfiles()
     {
         LibraryBodyAnalysisExecution analysis = AnalyzeFixture(
@@ -305,6 +367,27 @@ public sealed class CallGraphImplementationDocumentTests
             occurrence.SourceSubject,
             occurrence.TargetSubject,
             occurrence.Evidence);
+
+    static bool IsReachable(
+        CallGraphProjection projection,
+        int rootNodeId,
+        int targetNodeId)
+    {
+        var seen = new HashSet<int> { rootNodeId };
+        var queue = new Queue<int>();
+        queue.Enqueue(rootNodeId);
+        while (queue.TryDequeue(out int nodeId))
+        {
+            if (nodeId == targetNodeId)
+                return true;
+            foreach (CallGraphEdge edge in projection.Edges)
+            {
+                if (edge.From == nodeId && seen.Add(edge.To))
+                    queue.Enqueue(edge.To);
+            }
+        }
+        return false;
+    }
 
     static HashSet<int> JsonSerializerSerializeTokens(string path)
     {

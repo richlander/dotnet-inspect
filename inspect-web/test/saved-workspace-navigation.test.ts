@@ -34,6 +34,11 @@ import {
   createPackageAcquisition,
   type PackageAcquisitionDependencies,
 } from "../src/package-acquisition.ts";
+import {
+  activateRetainedWorkspace as activateRetainedWorkspaceState,
+  createRetainedWorkspaceCollection,
+  publishRetainedWorkspace,
+} from "../src/retained-workspaces.ts";
 import { retainDiagnosticDetail } from "../src/failure-detail.ts";
 import { workspaceDependencyKey } from "../src/package-inspection.ts";
 import {
@@ -42,6 +47,9 @@ import {
 import type { SavedWorkspace } from "../src/saved-workspaces.ts";
 import type { SpotlightPackageResult } from "../src/spotlight.ts";
 import type { WorkspaceFocusTarget } from "../src/workspace-subject.ts";
+import {
+  renderWorkspaceView as renderWorkspaceViewPure,
+} from "../src/workspace-subject.ts";
 import {
   browserCreatedCallGraphTabIds,
   createNavigationHistory,
@@ -110,11 +118,17 @@ const hostNames = new Set([
   "workspaceCoordinateCount",
   "selectedLibraryShareKey", "scope", "syncUrl", "buildStateUrl",
   "buildShareUrl", "share",
+  "navigateInAppUrl", "navigateWithinCurrentWorkspace",
+  "clearWorkspaceFeedIdentity", "failCanonicalWorkspaceRestore",
+  "workspaceUrlProjection",
   "openSavedWorkspace", "openSavedWorkspaceEntry", "openSavedWorkspaceCore",
   "restoreWorkspaceCatalogEntry", "restoreWorkspaceFromLocation",
   "parseWorkspaceHref", "beginDemoNavigation", "stageDemoNavigation",
   "commitDemoNavigation", "cancelDemoNavigation", "commitRestoredWorkspaceNavigation",
   "captureCanonicalWorkspaceRestoreSnapshot", "restoreCanonicalWorkspaceRestoreSnapshot",
+  "captureWorkspaceNavigationRollback", "restoreWorkspaceNavigationRollback",
+  "recoverWorkspaceNavigationRollback",
+  "openFreshWorkspaceLink",
   "captureCanonicalWorkspaceUrl", "projectCurrentWorkspaceUrl",
   "normalizeWorkspaceAsyncSnapshotState", "settleInterruptedPlatformStatus",
   "cloneCanonicalWorkspaceSnapshotForRetention",
@@ -152,6 +166,21 @@ const loadPackageSource = appSource.slice(
   loadPackageDeclaration.start,
   loadPackageDeclaration.end,
 );
+const retainedSelectorNames = new Set([
+  "selectRetainedWorkspace",
+  "activateRetainedWorkspaceProjection",
+]);
+const retainedSelectorSource = app.program.body
+  .filter(node =>
+    node.type === "FunctionDeclaration"
+    && retainedSelectorNames.has(node.id?.name ?? ""))
+  .map(node => appSource.slice(node.start, node.end))
+  .join("\n");
+assert.equal(
+  app.program.body.filter(node =>
+    node.type === "FunctionDeclaration"
+    && retainedSelectorNames.has(node.id?.name ?? "")).length,
+  retainedSelectorNames.size);
 
 interface Package extends ComparisonPackage {
   isRuntimePack?: boolean;
@@ -313,6 +342,7 @@ function harness() {
     workspaceDependencies: {} as Record<string, unknown>,
     workspaceDependencyErrors: {} as Record<string, string>,
     workspaceDependencyLoads: new Set<string>(),
+    workspaceFeedUrl: null as string | null,
     packageDependencies: null as {
       dependencyGroups: {
         index: number;
@@ -508,8 +538,14 @@ function harness() {
     pendingWorkspaceConstruction: null,
     retainedWorkspaceActivation: null,
     activeRetainedWorkspacePosting: null,
+    retainedWorkspacePresentation: null,
+    retainedWorkspaceInitialDetailAuthority: null,
+    installedRetainedLocation: null,
     packageContentLoadingSequence: null as number | null,
     activeWorkspaceUrl: null as string | null,
+    workspaceFeedActivation: null,
+    workspaceFeedRollbackTransfers: new WeakMap(),
+    workspaceFeedRollbackTransfer: null,
     failedWorkspaceUrlState: null, spotlightCache: null as object | null,
     platformLibraryRetry: null, platformCatalogRetry: null,
     spotlightMemberCache: null as object | null,
@@ -1340,6 +1376,583 @@ for (const failure of [
   });
 }
 
+test("failed same-coordinate navigation preserves the source Workspace URL", async () => {
+  const h = harness();
+  const sourceUrl = "https://inspect.test/?w=private-source-workspace";
+  h.state.workspaceFeedUrl = sourceUrl;
+  h.context.activeWorkspaceUrl = sourceUrl;
+  h.location.href = sourceUrl;
+  let sourceCleared = false;
+  const loc = {
+    package: h.state.package?.id,
+    version: h.state.package?.version,
+    framework: h.state.package?.activeFramework,
+    tabs: [{ source: h.state.package?.id }],
+    hasWorkspaceState: true,
+    shareState: { format: 1 },
+    rootKind: "package",
+    atPackageRoot: true,
+    library: "missing.dll",
+    packageLens: "overview",
+  };
+  Object.assign(h.context, {
+    isDiagnosticsPath: () => false,
+    isCreditsPath: () => false,
+    isPackageQueryPath: () => false,
+    isPackageActivityPath: () => false,
+    cancelWorkspaceCredentialPrompt: () => {},
+    tryOpenSourceBearingWorkspace: async () => false,
+    workspaceFeedActivation: {
+      captureCommittedRollback: () => null,
+      transferCommittedRollback: () => null,
+      clearActiveUrl() {
+        sourceCleared = true;
+      },
+    },
+    workspaceCoordinatesMatch: () => true,
+    packageCoordinateMatchesLocation: () => true,
+    applyLoadedPackageLibraryScope: () =>
+      "The shared library is unavailable.",
+    parseWorkspaceHref: async () => loc,
+    bindWorkspaceRetryToUrl: (
+      _url: string,
+      _current: () => string,
+      _restore: (url: string) => void,
+      retry: () => void,
+    ) => retry,
+    captureView: () => ({}),
+  });
+
+  await runInNewContext(
+    `navigateInAppUrl(
+      new URL("https://inspect.test/?w=ordinary-same-coordinate"))`,
+    h.context);
+  await h.settle();
+  const share: unknown =
+    await runInNewContext("buildShareUrl()", h.context);
+
+  assert.equal(sourceCleared, false);
+  assert.equal(h.state.workspaceFeedUrl, sourceUrl);
+  assert.ok(share instanceof URL);
+  assert.equal(share.href, sourceUrl);
+  assert.match(h.state.queryNotice, /shared library is unavailable/);
+});
+
+test("failed ordinary navigation restores the committed source incumbent", async () => {
+  const h = harness();
+  const committed: unknown = runInNewContext(
+    "captureCanonicalWorkspaceRestoreSnapshot()",
+    h.context);
+  const tentative = {
+    ...structuredClone(sourcePackage),
+    id: "Example.Package",
+  };
+  h.state.packages = [tentative];
+  h.state.package = tentative;
+  h.state.workspaceFeedUrl = "https://inspect.test/?w=source-A";
+  h.context.activeWorkspaceUrl = h.state.workspaceFeedUrl;
+  let managedDefinition = "source-B";
+  let recoveryCompleted = false;
+  Object.assign(h.context, {
+    workspaceFeedActivation: {
+      captureCommittedRollback: () => committed,
+      transferCommittedRollback: () => ({
+        snapshot: committed,
+        transfer() {
+          return this;
+        },
+        async restore() {
+          managedDefinition = "source-A";
+          runInNewContext(
+            "restoreCanonicalWorkspaceRestoreSnapshot(snapshot)",
+            { ...h.context, snapshot: committed });
+          recoveryCompleted = true;
+          return true;
+        },
+        release() {},
+      }),
+    },
+    loadPackage: async () => null,
+    focusWorkbenchSearchOrHeading: () => true,
+  });
+  const loc = parseWorkspaceLocation(
+    new URL(
+      "https://inspect.test/?package=Missing.Package"
+      + "&version=1.0.0&framework=net10.0#pkg"),
+    () => assert.fail("An ordinary URL must not decode a Workspace packet."));
+  const navigationSeq = h.navigationSequence.begin();
+
+  await runInNewContext(
+    "openFreshWorkspaceLink(loc, navigationSeq)",
+    { ...h.context, loc, navigationSeq });
+  await h.settle();
+
+  assert.equal(h.state.package?.id, sourcePackage.id);
+  assert.equal(h.state.workspaceFeedUrl, null);
+  assert.match(h.state.queryNotice, /Couldn’t load Missing.Package/);
+  assert.equal(recoveryCompleted, true);
+  assert.equal(managedDefinition, "source-A");
+});
+
+test("a committed ordinary successor revokes inherited recovery without mutation", async () => {
+  const h = harness();
+  const committed: unknown = runInNewContext(
+    "captureCanonicalWorkspaceRestoreSnapshot()",
+    h.context);
+  const recoveryEntered = deferred<void>();
+  const releaseRecovery = deferred<void>();
+  let owner = 0;
+  let retired = false;
+  let latest: {
+    readonly snapshot: unknown;
+    transfer(): typeof latest | null;
+    restore(): Promise<boolean>;
+    release(): void;
+  };
+
+  function issue() {
+    const issuedOwner = ++owner;
+    latest = {
+      snapshot: committed,
+      transfer() {
+        if (retired || owner !== issuedOwner) return null;
+        return issue();
+      },
+      async restore() {
+        recoveryEntered.resolve();
+        await releaseRecovery.promise;
+        if (retired || owner !== issuedOwner) return false;
+        runInNewContext(
+          "restoreCanonicalWorkspaceRestoreSnapshot(snapshot)",
+          { ...h.context, snapshot: committed });
+        return true;
+      },
+      release() {
+        if (owner !== issuedOwner) return;
+        retired = true;
+      },
+    };
+    return latest;
+  }
+
+  let initial = true;
+  const loadPackage = h.context.loadPackage;
+  Object.assign(h.context, {
+    workspaceFeedActivation: {
+      transferCommittedRollback() {
+        if (!initial) return null;
+        initial = false;
+        return issue();
+      },
+      clearActiveUrl() {
+        latest.release();
+      },
+    },
+    focusWorkbenchSearchOrHeading: () => true,
+  });
+  h.context.loadPackage = async () => null;
+  const failedLoc = parseWorkspaceLocation(
+    new URL(
+      "https://inspect.test/?package=Missing.C"
+      + "&version=1.0.0&framework=net10.0#pkg"),
+    () => assert.fail("An ordinary URL must not decode a Workspace packet."));
+  const failedSeq = h.navigationSequence.begin();
+  Object.assign(h.context, {
+    loc: failedLoc,
+    navigationSeq: failedSeq,
+  });
+  await runInNewContext(
+    "openFreshWorkspaceLink(loc, navigationSeq)",
+    h.context);
+  await recoveryEntered.promise;
+
+  h.controls.acquisition = async () => true;
+  h.context.loadPackage = loadPackage;
+  const committedLoc = parseWorkspaceLocation(
+    new URL(
+      "https://inspect.test/?package=Committed.D"
+      + "&version=1.0.0&framework=net10.0#pkg"),
+    () => assert.fail("An ordinary URL must not decode a Workspace packet."));
+  const committedSeq = h.navigationSequence.begin();
+  Object.assign(h.context, {
+    loc: committedLoc,
+    navigationSeq: committedSeq,
+  });
+  await runInNewContext(
+    "openFreshWorkspaceLink(loc, navigationSeq)",
+    h.context);
+  assert.equal(h.state.package?.id, "Committed.D");
+
+  releaseRecovery.resolve();
+  await h.settle();
+  assert.equal(h.state.package?.id, "Committed.D");
+  assert.equal(h.state.error, "");
+  assert.notEqual(h.state.errorTitle, "Workspace recovery failed");
+});
+
+test("ordinary successors inherit pending managed recovery until one restores it", async () => {
+  const h = harness();
+  const committed: unknown = runInNewContext(
+    "captureCanonicalWorkspaceRestoreSnapshot()",
+    h.context);
+  const entered = [deferred<void>(), deferred<void>()];
+  const releases = [deferred<void>(), deferred<void>()];
+  let restoreAttempt = 0;
+  let owner = 0;
+
+  function issue(): {
+    readonly snapshot: unknown;
+    transfer(): ReturnType<typeof issue> | null;
+    restore(): Promise<boolean>;
+    release(): void;
+  } {
+    const issuedOwner = ++owner;
+    return {
+      snapshot: committed,
+      transfer() {
+        if (owner !== issuedOwner) return null;
+        return issue();
+      },
+      async restore() {
+        const attempt = restoreAttempt++;
+        entered[attempt]!.resolve();
+        await releases[attempt]!.promise;
+        if (owner !== issuedOwner) return false;
+        runInNewContext(
+          "restoreCanonicalWorkspaceRestoreSnapshot(snapshot)",
+          { ...h.context, snapshot: committed });
+        return true;
+      },
+      release() {},
+    };
+  }
+
+  let initial = true;
+  Object.assign(h.context, {
+    workspaceFeedActivation: {
+      transferCommittedRollback() {
+        if (!initial) return null;
+        initial = false;
+        return issue();
+      },
+      clearActiveUrl() {},
+    },
+    focusWorkbenchSearchOrHeading: () => true,
+    loadPackage: async () => null,
+  });
+  const loc = (id: string) => parseWorkspaceLocation(
+    new URL(
+      `https://inspect.test/?package=${id}`
+      + "&version=1.0.0&framework=net10.0#pkg"),
+    () => assert.fail("An ordinary URL must not decode a Workspace packet."));
+
+  const firstSeq = h.navigationSequence.begin();
+  Object.assign(h.context, {
+    loc: loc("Missing.C"),
+    navigationSeq: firstSeq,
+  });
+  await runInNewContext(
+    "openFreshWorkspaceLink(loc, navigationSeq)",
+    h.context);
+  await entered[0]!.promise;
+
+  const secondSeq = h.navigationSequence.begin();
+  Object.assign(h.context, {
+    loc: loc("Missing.D"),
+    navigationSeq: secondSeq,
+  });
+  await runInNewContext(
+    "openFreshWorkspaceLink(loc, navigationSeq)",
+    h.context);
+  await entered[1]!.promise;
+  assert.equal(h.context.app.inert, true);
+  assert.equal(restoreAttempt, 2);
+
+  releases[1]!.resolve();
+  for (let index = 0; index < 5; index++) {
+    await new Promise<void>(resolve => setImmediate(resolve));
+  }
+  assert.equal(h.state.package?.id, sourcePackage.id);
+  assert.equal(h.context.app.inert, false);
+  assert.match(h.state.queryNotice, /Couldn’t load Missing.D/);
+
+  releases[0]!.resolve();
+  await h.settle();
+  assert.equal(h.state.package?.id, sourcePackage.id);
+  assert.notEqual(h.state.errorTitle, "Workspace recovery failed");
+});
+
+test("retained selection commits over a tentative source publication", () => {
+  let collection = publishRetainedWorkspace(
+    createRetainedWorkspaceCollection<string>(),
+    null);
+  collection = publishRetainedWorkspace(collection, "C");
+  collection = activateRetainedWorkspaceState(
+    collection,
+    "workspace-1",
+    "D").collection;
+  let visible = "A";
+  let transferred = false;
+  let sourceCleared = false;
+  const context = {
+    retainedWorkspaces: collection,
+    retainedWorkspaceActivation: {
+      state: {
+        definitions: [],
+        activeDefinitionId: "source-definition",
+      },
+    },
+    activeWorkspaceUrl: "https://inspect.test/C",
+    navigationSequence: { begin() {} },
+    workspaceFeedActivation: {
+      ownsRetainedDefinition(id: string) {
+        return id === "source-definition";
+      },
+      transferCommittedRollback() {
+        transferred = true;
+        return {
+          snapshot: "C",
+          transfer() {
+            return this;
+          },
+          async restore() {
+            visible = "C";
+            return true;
+          },
+          release() {},
+        };
+      },
+      clearActiveUrl() {
+        sourceCleared = true;
+      },
+    },
+    captureRetainedWorkspaceSnapshot: () => "A",
+    cloneCanonicalWorkspaceSnapshotForRetention: (snapshot: string) => snapshot,
+    workspaceFeedRollbackTransfers: new Map(),
+    releaseRetainedWorkspaceSnapshot() {},
+    setWorkspaceConstructionPending() {},
+    restoreWorkspaceNavigationRollback: async () => {},
+    observeAsync(promise: Promise<unknown>) {
+      void promise;
+    },
+    invalidateWorkspaceAsyncOwners() {},
+    activateRetainedWorkspaceState,
+    restoreRetainedWorkspaceSnapshot(snapshot: string) {
+      visible = snapshot;
+      context.activeWorkspaceUrl = `https://inspect.test/${snapshot}`;
+    },
+    openDefaultWorkspace() {
+      assert.fail("The target Workspace must be inactive.");
+    },
+    workspaceLocation: { push() {} },
+    history: { state: null },
+    withPlatformRootParentHistory: (value: unknown) => value,
+    navigationSnapshotHasPlatformRootParent: () => false,
+    navigationHistory: { snapshot: () => ({}) },
+    render() {},
+    restartRestoredWorkspaceSelectionData() {},
+    showToast(message: string) {
+      assert.fail(message);
+    },
+    errorMessage: String,
+  };
+  runInNewContext(stripTypeScriptTypes(retainedSelectorSource), context);
+
+  runInNewContext('selectRetainedWorkspace("workspace-2")', context);
+  if (!transferred) visible = "C";
+
+  assert.equal(visible, "D");
+  assert.equal(context.retainedWorkspaces.activeWorkspaceId, "workspace-2");
+  assert.equal(
+    context.retainedWorkspaces.workspaces[0]?.snapshot,
+    "C");
+  assert.equal(transferred, true);
+  assert.equal(sourceCleared, true);
+});
+
+test("successful ordinary navigation excludes a late source rollback", async () => {
+  const h = harness();
+  const committed: unknown = runInNewContext(
+    "captureCanonicalWorkspaceRestoreSnapshot()",
+    h.context);
+  const tentative = {
+    ...structuredClone(sourcePackage),
+    id: "Tentative.Source",
+  };
+  h.state.packages = [tentative];
+  h.state.package = tentative;
+  const acquisition = deferred<void>();
+  const acquiring = deferred<void>();
+  let transferred = false;
+  h.controls.acquisition = async () => {
+    acquiring.resolve();
+    await acquisition.promise;
+    return true;
+  };
+  Object.assign(h.context, {
+    workspaceFeedActivation: {
+      captureCommittedRollback: () => committed,
+      transferCommittedRollback() {
+        transferred = true;
+        return {
+          snapshot: committed,
+          transfer() {
+            return this;
+          },
+          async restore() {
+            return true;
+          },
+          release() {},
+        };
+      },
+      clearActiveUrl() {},
+    },
+    focusWorkbenchSearchOrHeading: () => true,
+  });
+  const loc = parseWorkspaceLocation(
+    new URL(
+      "https://inspect.test/?package=Replacement.B"
+      + "&version=1.0.0&framework=net10.0#pkg"),
+    () => assert.fail("An ordinary URL must not decode a Workspace packet."));
+  const navigationSeq = h.navigationSequence.begin();
+  const ordinaryResult: unknown = runInNewContext(
+    "openFreshWorkspaceLink(loc, navigationSeq)",
+    { ...h.context, loc, navigationSeq });
+  const ordinary = Promise.resolve(ordinaryResult);
+  await Promise.race([
+    acquiring.promise,
+    ordinary.then(
+      () => assert.fail("Ordinary navigation settled before acquisition.")),
+  ]);
+  if (!transferred) {
+    runInNewContext(
+      "restoreCanonicalWorkspaceRestoreSnapshot(committed)",
+      { ...h.context, committed });
+  }
+  acquisition.resolve();
+  await ordinary;
+  await h.settle();
+
+  assert.equal(transferred, true);
+  assert.deepEqual(
+    Array.from(h.state.packages, pkg => pkg.id),
+    ["Replacement.B"]);
+  assert.equal(h.state.package?.id, "Replacement.B");
+});
+
+test("mixed source publication keeps its inactive Platform visible", () => {
+  const h = harness();
+  const declaration = app.program.body.find(node =>
+    node.type === "FunctionDeclaration"
+    && node.id?.name === "publishSourceBearingWorkspace");
+  assert.ok(declaration);
+  Object.assign(h.context, {
+    createNavigationDescriptorPresentation: () => ({
+      packages: [],
+      platforms: [{
+        order: 0,
+        navigationId: "platform-tab",
+        family: "netcore.app",
+        version: "10.0.10",
+        framework: "net10.0",
+        runtimeIdentifier: null,
+        current: false,
+        detailFailure: null,
+        summary: {},
+      }],
+    }),
+    platformPackages: new Map(),
+    platformTargetKey: (target: {
+      tfm: string;
+      version: string;
+    }) => `${target.tfm}/${target.version}`,
+    defaultVisibleTypeId: () => "",
+    resetMemberSectionState() {},
+    renderWorkspaceViewPure,
+    render() {},
+  });
+  runInNewContext(
+    stripTypeScriptTypes(
+      appSource.slice(declaration.start, declaration.end)),
+    h.context);
+
+  const packageModel = structuredClone(h.state.package!);
+  const platformModel = {
+    ...structuredClone(packageModel),
+    id: "Microsoft.NETCore.App",
+    version: "10.0.10",
+    activeFramework: "net10.0",
+    source: { kind: "platform" as const },
+    producerLabel: "Platform",
+    isRuntimePack: true,
+  };
+  const posting = {
+    retainedDefinitionId: "workspace-definition-1",
+    realizationId: "realization-1",
+    canonicalLocation: "https://inspect.test/?w=source-mixed",
+    definition: {
+      activeTabId: "package-tab",
+      tabs: [
+        { id: "platform-tab", kind: "group", source: ":Platform" },
+        {
+          id: "package-tab",
+          kind: "package",
+          source: packageModel.id,
+          version: packageModel.version,
+          framework: packageModel.activeFramework,
+        },
+      ],
+    },
+    navigation: {
+      snapshot: { activePackage: "package-subject" },
+    },
+  };
+  const models = {
+    packages: [{
+      navigationId: "package-tab",
+      contextIndex: 0,
+      consumerPackageSubjectId: "package-subject",
+      packageModel,
+    }],
+    platforms: [{
+      navigationId: "platform-tab",
+      contextIndex: 0,
+      family: "netcore.app",
+      runtimeIdentifier: null,
+      packageModel: platformModel,
+    }],
+  };
+  Object.assign(h.context, { posting, models });
+
+  runInNewContext(
+    "publishSourceBearingWorkspace(posting, models)",
+    h.context);
+
+  const presentation: unknown = runInNewContext(
+    "retainedWorkspacePresentation",
+    h.context);
+  assert.ok(presentation);
+  const html: unknown = runInNewContext(
+    `renderWorkspaceViewPure({
+      occurrences: [],
+      navigationPackages: retainedWorkspacePresentation.packages,
+      navigationPlatforms: retainedWorkspacePresentation.platforms,
+      packages: [],
+      platform: null,
+      loading: false,
+      error: "",
+      escapeHtml: String,
+    })`,
+    h.context);
+  if (typeof html !== "string") {
+    assert.fail("The Workspace renderer must return HTML.");
+  }
+  assert.equal(h.state.package?.id, packageModel.id);
+  assert.equal(h.state.platformSelection, null);
+  assert.match(html, /<h2>Platform<\/h2>/);
+  assert.match(html, /data-product-platform-action="platform-tab"/);
+});
+
 for (const failure of ["acquisition", "selection"] as const) {
   test(`failed ${failure} Open restores comparison choices and their Package associations`, async () => {
     const h = harness();
@@ -1759,9 +2372,9 @@ for (const atCap of [false, true]) {
   });
 }
 
-test("Add at the 12-coordinate cap refuses visibly before querying or evicting", async () => {
+test("Add at the 64-coordinate cap refuses visibly before querying or evicting", async () => {
   const h = harness();
-  assert.equal(MAX_WORKSPACE_PACKAGES, 12);
+  assert.equal(MAX_WORKSPACE_PACKAGES, 64);
   fillWorkspace(h);
   seedInspectionSelection(h);
   const previous = [...h.state.packages];
@@ -1779,13 +2392,13 @@ test("Add at the 12-coordinate cap refuses visibly before querying or evicting",
   assert.deepEqual(h.state.workspaceDependencies, dependencies);
   assert.deepEqual(inspectionSelection(h), selection);
   assertSourceHistory(h, href, entryState);
-  assert.match(h.state.queryNotice, /at most 12 coordinates.*Remove a package/);
+  assert.match(h.state.queryNotice, /at most 64 coordinates.*Remove a package/);
   assert.equal(h.state.queryNoticeRetryAction, null);
   h.flushFocus();
   assert.deepEqual(h.focus, [{ kind: "add-package" }]);
 });
 
-test("catalog-only Platform consumes one of the 12 Workspace coordinates", async () => {
+test("catalog-only Platform consumes one of the 64 Workspace coordinates", async () => {
   const h = harness();
   fillWorkspace(h, MAX_WORKSPACE_PACKAGES - 1);
   h.state.platformSelection = {
@@ -1799,7 +2412,7 @@ test("catalog-only Platform consumes one of the 12 Workspace coordinates", async
 
   assert.deepEqual(h.queries, []);
   assert.deepEqual(h.state.packages, previous);
-  assert.match(h.state.queryNotice, /at most 12 coordinates.*Remove a package/);
+  assert.match(h.state.queryNotice, /at most 64 coordinates.*Remove a package/);
   assert.equal(h.state.queryNoticeRetryAction, null);
 });
 
@@ -1887,7 +2500,7 @@ test("opening Platform at the coordinate cap refuses before changing subject or 
   assert.equal(h.state.rootKind, "package");
   assert.equal(h.state.platformSelection, null);
   assert.deepEqual(h.toasts, [
-    "Workspace holds at most 12 coordinates. Remove a package before opening Platform.",
+    "Workspace holds at most 64 coordinates. Remove a package before opening Platform.",
   ]);
 });
 
@@ -1906,7 +2519,7 @@ test("opening a Platform Library in place at the coordinate cap preserves the pr
   assert.equal(h.state.platformSelection, null);
   assert.equal(h.picker.resets, 0);
   assert.deepEqual(h.toasts, [
-    "Workspace holds at most 12 coordinates. Remove a package before opening Platform.",
+    "Workspace holds at most 64 coordinates. Remove a package before opening Platform.",
   ]);
 });
 
@@ -1927,8 +2540,8 @@ test("Add whose last slot fills during query refuses before retention and preser
     h.context);
   const arrived = await independent;
   const admitted = [...h.state.packages];
-  assert.equal(admitted.length, 12);
-  assert.equal(admitted[11], arrived);
+  assert.equal(admitted.length, MAX_WORKSPACE_PACKAGES);
+  assert.equal(admitted.at(-1), arrived);
   const dependencies = structuredClone(h.state.workspaceDependencies);
   query.resolve(packageLoadResult());
   await operation;
@@ -1944,7 +2557,7 @@ test("Add whose last slot fills during query refuses before retention and preser
   assert.deepEqual(inspectionSelection(h), selection);
   assert.deepEqual(h.invalidations, []);
   assertSourceHistory(h, href, entryState);
-  assert.match(h.state.queryNotice, /Adding Added\.Package failed:.*at most 12 coordinates/);
+  assert.match(h.state.queryNotice, /Adding Added\.Package failed:.*at most 64 coordinates/);
   assert.ok(h.state.queryNoticeRetryAction);
   assert.equal(h.state.loading, false);
   assert.equal(h.context.pendingDemoNavigation, null);

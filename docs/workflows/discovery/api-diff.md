@@ -167,13 +167,14 @@ dotnet-inspect diff \
 
 > Goal: See body-level C# and IL changes without replacing the default API compatibility lens.
 
-Select the explicit `Implementation Diff` section. Rows are grouped by member
-identity and identify the producer in the `Mechanism` column:
+Use `--implementation` to select the explicit `Implementation Diff` section.
+Rows are grouped by member identity and identify the producer in the
+`Mechanism` column:
 
 ```bash
 dotnet-inspect diff \
   --library artifacts/bin/DiffFixtures.V1/release/DiffFixtureSample.dll..artifacts/bin/DiffFixtures.V2/release/DiffFixtureSample.dll \
-  -S "Implementation Diff" \
+  --implementation \
   -t DiffFixtureSample.DiffSample -m RegressesAllocInLoop -n 30 --lines
 ```
 
@@ -213,8 +214,10 @@ endpoints, PDB Source, row windows, fields, columns, and alternate formats are
 not part of this complete transport.
 
 This is implementation evidence, not an API compatibility classification or a
-semantic-equivalence proof. Omit `-S "Implementation Diff"` to retain the
-default API diff.
+semantic-equivalence proof. `--implementation` is exactly equivalent to
+`-S "Implementation Diff"` and composes with explicit peer sections through
+the ordinary section-selection path. Omit either spelling to retain the default
+API diff.
 
 ## 7. Confirm an API introduction boundary
 

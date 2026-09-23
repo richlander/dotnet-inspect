@@ -1,7 +1,9 @@
 using System.Collections.Immutable;
 
 using DotnetInspector.Packages;
+using ILInspector.CallGraph;
 using ILInspector.Metadata;
+using Analysis = ILInspector.Analysis;
 
 namespace DotnetInspector.Queries;
 
@@ -60,13 +62,22 @@ public abstract record PackageRoleMemberCallGraphOutcome
     {
     }
 
-    public sealed record Available(InspectionGraphDocument Document)
+    public sealed record Available(
+        InspectionGraphDocument Document,
+        ImmutableArray<PackageRoleMemberCallGraphNodePackage> NodePackages)
         : PackageRoleMemberCallGraphOutcome;
 
     public sealed record Unavailable(
         PackageRoleMemberCallGraphFailure Failure)
         : PackageRoleMemberCallGraphOutcome;
 }
+
+/// <summary>
+/// Exact package Root that uniquely contributed one graph node.
+/// </summary>
+public sealed record PackageRoleMemberCallGraphNodePackage(
+    int NodeId,
+    PackageRootIdentity Package);
 
 /// <summary>
 /// Projects one exact implementation MethodDef through an existing
@@ -117,6 +128,8 @@ public static class PackageRoleMemberCallGraphQuery
         PackageAssemblyContextRoleProjection role =
             projection.ImplementationRole
             ?? projection.SurfaceRole;
+        ImmutableArray<PackageAssemblyRoleParticipant> participants =
+            role.Participants;
 
         return role.Use<PackageRoleMemberCallGraphOutcome>(group =>
         {
@@ -198,11 +211,157 @@ public static class PackageRoleMemberCallGraphQuery
                 group,
                 selected.Participant.Assembly,
                 focus.MethodToken);
-            return new PackageRoleMemberCallGraphOutcome.Available(
+            var nodePackages =
+                new Dictionary<
+                    Analysis.GraphNodeIdentity,
+                    PackageRootIdentity>();
+            InspectionGraphDocument document =
                 session.CrossLibraryCalleeNeighborhoodWithCancellation(
                     request,
-                    cancellationToken));
+                    node =>
+                    {
+                        MemberCallGraphExternalFocusMembership membership =
+                            ClassifyPackageMembership(
+                                participants,
+                                focus.Package,
+                                node,
+                                out PackageRootIdentity? package);
+                        if (package is not null)
+                            nodePackages.Add(node.Identity, package);
+                        return membership;
+                    },
+                    cancellationToken);
+            return new PackageRoleMemberCallGraphOutcome.Available(
+                document,
+                NodePackages(document, nodePackages));
         });
+    }
+
+    static ImmutableArray<PackageRoleMemberCallGraphNodePackage>
+        NodePackages(
+            InspectionGraphDocument document,
+            IReadOnlyDictionary<
+                Analysis.GraphNodeIdentity,
+                PackageRootIdentity> packages)
+    {
+        var result =
+            ImmutableArray.CreateBuilder<
+                PackageRoleMemberCallGraphNodePackage>();
+        foreach (InspectionGraphNode node in document.Nodes)
+        {
+            Analysis.GraphNodeIdentity identity = node.Subject
+                is InspectionGraphSubject.MemberSubject
+                {
+                    Identity:
+                        InspectionGraphMemberIdentity.CallGraph callGraph,
+                }
+                    ? callGraph.Identity
+                    : throw new InvalidOperationException(
+                        "A package-role member call graph contained a non-member node.");
+            if (packages.TryGetValue(
+                    identity,
+                    out PackageRootIdentity? package))
+            {
+                result.Add(
+                    new PackageRoleMemberCallGraphNodePackage(
+                        node.Id,
+                        package));
+            }
+        }
+
+        return result.ToImmutable();
+    }
+
+    internal static MemberCallGraphExternalFocusMembership
+        ClassifyPackageMembership(
+        ImmutableArray<PackageAssemblyRoleParticipant> participants,
+        PackageRootIdentity root,
+        CallGraphNode node,
+        out PackageRootIdentity? package)
+    {
+        AssemblyReferenceIdentity? identity =
+            node.DefinitionAssemblyIdentity;
+        if (identity is null)
+        {
+            AssemblyReferenceIdentity? reference =
+                ReferencedAssemblyIdentity(node.Member);
+            AssemblyReferenceIdentity? resolution =
+                node.ResolutionAssemblyIdentity;
+            if (reference is null
+                || resolution is null
+                || !reference.IsEquivalentTo(resolution))
+            {
+                package = null;
+                return MemberCallGraphExternalFocusMembership.Unknown;
+            }
+            identity = reference;
+        }
+
+        (package, bool ambiguous) =
+            MatchPackage(
+                participants,
+                identity);
+        if (package is null || ambiguous)
+        {
+            package = null;
+            return MemberCallGraphExternalFocusMembership.Unknown;
+        }
+
+        return ReferenceEquals(package, root)
+            ? MemberCallGraphExternalFocusMembership.Hub
+            : MemberCallGraphExternalFocusMembership.External;
+    }
+
+    internal static (PackageRootIdentity? Package, bool Ambiguous)
+        MatchPackage(
+        ImmutableArray<PackageAssemblyRoleParticipant> participants,
+        AssemblyReferenceIdentity? definitionIdentity)
+    {
+        if (definitionIdentity is null)
+            return (null, false);
+
+        PackageRootIdentity? package = null;
+        foreach (PackageAssemblyRoleParticipant participant
+            in participants)
+        {
+            if (!participant.Participant.Assembly.Identity
+                    .IsEquivalentTo(definitionIdentity))
+            {
+                continue;
+            }
+            if (package is null)
+            {
+                package = participant.Package;
+            }
+            else if (!ReferenceEquals(package, participant.Package))
+            {
+                return (null, true);
+            }
+        }
+
+        return (package, false);
+    }
+
+    static AssemblyReferenceIdentity? ReferencedAssemblyIdentity(
+        Analysis.MemberRef member)
+    {
+        Analysis.TypeRef type = member.DeclaringType;
+        while (type.Kind == Analysis.TypeRefKind.GenericInstance
+            && type.ElementType is not null)
+        {
+            type = type.ElementType;
+        }
+        if (type.Kind != Analysis.TypeRefKind.Definition)
+            return null;
+
+        return type.Resolution?.Origin switch
+        {
+            Analysis.TypeReferenceOrigin.AssemblyReference reference =>
+                reference.Assembly,
+            Analysis.TypeReferenceOrigin.CurrentAssembly current =>
+                current.Assembly,
+            _ => null,
+        };
     }
 
     private static PackageRoleMemberCallGraphOutcome.Unavailable Unavailable(

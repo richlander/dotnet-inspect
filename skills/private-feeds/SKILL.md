@@ -43,6 +43,31 @@ Version discovery combines all eligible sources and chooses the highest
 semantic version; source order is not precedence. Pin `Package@Version` when
 the exact coordinate matters.
 
+## Share a private-feed Workspace with Inspect Web
+
+Author a credential-free format-5 URL that declares an
+authentication-required source:
+
+```bash
+dnx dotnet-inspect -y -- workspace \
+  --package Private.Package@1.2.3 \
+  --tfm net10.0 \
+  --nuget-source-auth-required \
+    https://nuget.pkg.github.com/example/index.json \
+  --share url
+```
+
+Inspect Web prompts once per exact endpoint for a username and personal access
+token. Credentials remain in page-session memory only: activation-local copies
+are cleared after settlement, while the active realization or
+incumbent-recovery binding may retain them until replacement or disposal. They
+are not placed in the packet or URL, retained Workspace definition, browser
+storage, logs, diagnostics, or telemetry. Reloading prompts again. Cancellation
+or failure before publication preserves the prior visible Workspace; if
+recovery after cutover also fails, Inspect Web enters a blocking retry state
+rather than exposing the failed tentative Workspace. Declared anonymous
+sources activate without a prompt.
+
 ### Query versions from a folder feed
 
 Online version queries support NuGet V2/V3 folder feeds, specified as a
@@ -52,7 +77,8 @@ path, a `file://` URI, or a mapped source in `NuGet.Config`:
 dnx dotnet-inspect -y -- package MyCompany.Widget --versions --source ./feed
 dnx dotnet-inspect -y -- package MyCompany.Widget --versions -n 5 --preview \
   --source ./feed --jsonl
-dnx dotnet-inspect -y -- package MyCompany.Widget --latest-version --source ./feed
+dnx dotnet-inspect -y -- package MyCompany.Widget --versions -n 1 --source ./feed
+dnx dotnet-inspect -y -- package MyCompany.Widget@latest --versions --source ./feed
 dnx dotnet-inspect -y -- package MyCompany.Widget --version 1.2.3 --source ./feed
 dnx dotnet-inspect -y -- package MyCompany.Widget@1.0.0..2.0.0 --versions \
   --source ./feed --include-unlisted
@@ -61,6 +87,8 @@ dnx dotnet-inspect -y -- package MyCompany.Widget --versions-with-feed \
 ```
 
 Local and HTTP versions are combined and sorted before the result limit.
+Use `--versions -n 1` for one newest listed version row, or
+`Package@latest --versions` to force a fresh latest-version check.
 Missing folders or invalid archives are source failures, not package absence;
 usable peer results carry an explicit partial warning on stderr. Local reads
 use bounded enumeration rather than treating filenames as version evidence.
@@ -80,10 +108,10 @@ Pin one coordinate to inspect its payload through the configured folder source:
 ```bash
 dnx dotnet-inspect -y -- package MyCompany.Widget@1.2.3 --source ./feed
 dnx dotnet-inspect -y -- package MyCompany.Widget@1.2.3 --source ./feed \
-  --path @readme --content --bare
+  --path @readme --content --raw
 dnx dotnet-inspect -y -- package MyCompany.Widget --source ./feed
 dnx dotnet-inspect -y -- package 'MyCompany.Widget@1.*' --source ./feed \
-  --path @readme --content --bare
+  --path @readme --content --raw
 ```
 
 Online single-package inspection also supports latest, `--preview`, and
@@ -130,8 +158,11 @@ semantics and may select a prerelease.
 Ranges require complete fresh discovery and acquire only from sources that
 reported each selected coordinate. Diff History retains one vector for all its
 probes. Omit `--at` for full-population evaluation, repeat it for explicit
-checkpoints, or use `--max-probes` for adaptive bisection. An unreadable peer
-prevents selection.
+checkpoints, use `--max-probes` for adaptive bisection, or use
+`--major-versions` for one representative per major. API findings use the
+first stable version, with the latest prerelease fallback for preview-only
+majors; Analysis findings use the latest admitted version per major. An
+unreadable peer prevents selection.
 
 API/history vectors exclude unlisted observations, including endpoints.
 An exact pin can still inspect an unlisted coordinate. Do not copy ordinals

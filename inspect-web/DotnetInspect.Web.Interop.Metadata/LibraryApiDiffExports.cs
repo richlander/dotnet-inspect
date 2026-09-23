@@ -39,6 +39,27 @@ public static partial class MetadataExports
         string operationId,
         string requestJson)
     {
+        BrowserLibraryApiDiffRequest? parsedRequest = null;
+        Exception? requestError = null;
+        try
+        {
+            parsedRequest =
+                JsonSerializer.Deserialize(
+                    requestJson,
+                    BrowserMetadataJsonContext.Default
+                        .BrowserLibraryApiDiffRequest)
+                ?? throw new ArgumentException(
+                    "A Library API diff request is required.");
+            ValidateLibraryApiDiffRequest(parsedRequest);
+        }
+        catch (Exception error) when (
+            error is ArgumentException
+                or JsonException
+                or BrowserLibraryApiDiffRequestException)
+        {
+            requestError = error;
+        }
+
         BrowserLibraryApiDiffRequest? request = null;
         BrowserLibraryApiDiffResult result =
             await RunLibraryApiDiffOperationAsync(
@@ -48,15 +69,14 @@ public static partial class MetadataExports
                 {
                     try
                     {
-                        BrowserLibraryApiDiffRequest parsedRequest =
-                            JsonSerializer.Deserialize(
-                                    requestJson,
-                                    BrowserMetadataJsonContext.Default
-                                        .BrowserLibraryApiDiffRequest)
-                            ?? throw new ArgumentException(
-                                "A Library API diff request is required.");
-                        ValidateLibraryApiDiffRequest(parsedRequest);
-                        request = parsedRequest;
+                        if (requestError is not null)
+                        {
+                            throw requestError;
+                        }
+
+                        request = parsedRequest
+                            ?? throw new InvalidOperationException(
+                                "The validated Library API diff request is unavailable.");
                         return new BrowserManagedOperationBodyResult<
                             BrowserLibraryApiDiffResult,
                             string,

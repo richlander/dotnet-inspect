@@ -44,7 +44,7 @@ public sealed partial class WorkspacePortableCoordinateReplacementTests
             result.Content.Inspector!.RequestedFacet);
         Assert.Equal(NavigationLensBasisKind.ExactRequest, result.Content.Inspector.Basis);
         var share = Assert.IsType<InspectionShare.Available>(result.Share);
-        Assert.Equal("https://dotnet-inspect.net/?w=" + share.Packet, share.FullUrl);
+        Assert.Equal("https://dotnet-inspect.ca/?w=" + share.Packet, share.FullUrl);
         Assert.NotEqual(Encode(input), share.Packet);
         Assert.Equal(4, WorkspaceSharePacketCodec.Decode(
             share.Packet, TestContext.Current.CancellationToken).FormatVersion);

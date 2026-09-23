@@ -31,6 +31,7 @@ public class DiffOptionsParserTests
         var frameworkOption = new Option<string?>("--framework");
         var tfmOption = new Option<string?>("--tfm");
         var allOption = new Option<bool>("--all");
+        var implementationOption = new Option<bool>("--implementation");
         var historyOption = new Option<bool>("--history");
         var atOption = new Option<string[]>("--at")
         {
@@ -39,6 +40,8 @@ public class DiffOptionsParserTests
         var maxProbesOption = new Option<int?>("--max-probes");
         var samplePercentOption =
             new Option<int?>("--sample-percent");
+        var majorVersionsOption =
+            new Option<bool>("--major-versions");
         var prereleaseOption = new Option<bool>("--preview");
         var countOption = new Option<bool>("--count");
         var typeFilterOption = new Option<string[]>("-t") { AllowMultipleArgumentsPerToken = false };
@@ -64,10 +67,12 @@ public class DiffOptionsParserTests
         diffCommand.Options.Add(frameworkOption);
         diffCommand.Options.Add(tfmOption);
         diffCommand.Options.Add(allOption);
+        diffCommand.Options.Add(implementationOption);
         diffCommand.Options.Add(historyOption);
         diffCommand.Options.Add(atOption);
         diffCommand.Options.Add(maxProbesOption);
         diffCommand.Options.Add(samplePercentOption);
+        diffCommand.Options.Add(majorVersionsOption);
         diffCommand.Options.Add(prereleaseOption);
         diffCommand.Options.Add(countOption);
         diffCommand.Options.Add(typeFilterOption);
@@ -98,7 +103,8 @@ public class DiffOptionsParserTests
         var root = new RootCommand { diffCommand };
         var args = new DiffOptionsParser.DiffCommandArgs(
             argsArg, packageOption, platformOption, libraryOption, frameworkOption, tfmOption, allOption,
-            historyOption, atOption, maxProbesOption, samplePercentOption, prereleaseOption, countOption,
+            implementationOption,
+            historyOption, atOption, maxProbesOption, samplePercentOption, majorVersionsOption, prereleaseOption, countOption,
             typeFilterOption, memberFilterOption, opts.NoHeaders, nameOnlyOption, breakingOption, additiveOption,
             changedOption, allocRegressionsOption, pdbSourceOption, legacyAuthoredSourceOption, findingOption, legendOption, repoOption, compactOption);
 
@@ -141,6 +147,46 @@ public class DiffOptionsParserTests
 
         Assert.Equal(50, options.SamplePercent);
         Assert.Equal(10, options.MaxProbes);
+    }
+
+    [Fact]
+    public void MajorVersionsOptionPopulatesEvaluationPolicyInput()
+    {
+        DiffOptions options = ParseSuccess(
+            "diff",
+            "--history",
+            "--package", "Example@8.0.0..11.0.0",
+            "--major-versions");
+
+        Assert.True(options.MajorVersions);
+    }
+
+    [Fact]
+    public void ImplementationOptionLowersToExactSectionSelection()
+    {
+        DiffOptions options = ParseSuccess(
+            "diff",
+            "--library", "old/Foo.dll..new/Foo.dll",
+            "--implementation");
+
+        Assert.Equal(
+            ["Implementation Diff"],
+            Assert.IsType<string[]>(options.Select));
+        Assert.False(options.SelectDefault);
+    }
+
+    [Fact]
+    public void ImplementationOptionComposesThroughSectionSelection()
+    {
+        DiffOptions options = ParseSuccess(
+            "diff",
+            "--library", "old/Foo.dll..new/Foo.dll",
+            "-S", "Analysis Diff",
+            "--implementation");
+
+        Assert.Equal(
+            ["Analysis Diff", "Implementation Diff"],
+            Assert.IsType<string[]>(options.Select));
     }
 
     [Fact]

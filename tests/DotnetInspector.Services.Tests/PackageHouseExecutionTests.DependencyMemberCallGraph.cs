@@ -114,12 +114,35 @@ public sealed partial class PackageHouseExecutionTests
                     available.Document.Graph.Nodes[edge.FromNodeId]).Name,
                 GraphMember(
                     available.Document.Graph.Nodes[edge.ToNodeId]).Name));
+        Assert.Equal(
+            "boundary",
+            ExternalFocusRole(available.Document.Graph, edge));
+        Assert.Equal(
+            [
+                (
+                    edge.FromNodeId,
+                    CallGraphRootPackage,
+                    RouteVersion,
+                    "netstandard2.0"),
+                (
+                    edge.ToNodeId,
+                    CallGraphTargetPackage,
+                    RouteVersion,
+                    "net11.0"),
+            ],
+            available.Document.PackageSubjects
+                .OrderBy(subject => subject.NodeId)
+                .Select(subject =>
+                    (
+                        subject.NodeId,
+                        subject.PackageId,
+                        subject.PackageVersion,
+                        subject.TargetFramework)));
         Assert.IsType<InspectionShare.NonProjectable>(envelope.Share);
         Assert.Equal(
             [
                 "call.traversal-incomplete",
                 "call.correspondence-incomplete",
-                "queries.call.external-boundary-classification-incomplete",
             ],
             envelope.Diagnostics.Select(
                 diagnostic => diagnostic.Correspondence!.ToString()));
@@ -1146,4 +1169,19 @@ public sealed partial class PackageHouseExecutionTests
                 node.Subject)
                 .Identity)
             .Member;
+
+    private static string ExternalFocusRole(
+        InspectionGraphDocument document,
+        InspectionGraphEdge edge) =>
+        Assert.IsType<InspectionGraphValue.Token>(
+            Assert.Single(
+                document.Characteristics,
+                characteristic =>
+                    ReferenceEquals(
+                        characteristic.Descriptor,
+                        ExternalFocusedCallGraphInspectionCatalog.EdgeRole)
+                    && characteristic.Target
+                        == InspectionGraphTarget.Edge(edge.Id))
+                .Value)
+            .Value;
 }

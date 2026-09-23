@@ -23,6 +23,8 @@ public sealed class LibraryCallGraphAnalysisResult
     private Dictionary<int, MethodSignals>? _signals;
     private IReadOnlyDictionary<int, ImmutableArray<DirectCall>>?
         _directCallsByCaller;
+    private IReadOnlyDictionary<int, ImmutableArray<DirectCall>>?
+        _directCallsByEvidenceMethod;
     private MethodDefinitionMap? _methodMap;
     private MethodDefinitionMap? _declaredMethodMap;
     private IReadOnlyDictionary<int, int>? _distinctCallersByCallee;
@@ -123,10 +125,23 @@ public sealed class LibraryCallGraphAnalysisResult
     internal IReadOnlyDictionary<int, MethodSignals>
         GetMethodSignals() => MethodSignals;
 
-    internal IReadOnlyDictionary<int, ImmutableArray<DirectCall>>
+    /// <summary>Direct call sites grouped by their declared caller token.</summary>
+    public IReadOnlyDictionary<int, ImmutableArray<DirectCall>>
         DirectCallsByCaller =>
         _directCallsByCaller ??= DirectCalls
             .GroupBy(call => call.Caller.MetadataToken)
+            .ToDictionary(
+                group => group.Key,
+                group => group.ToImmutableArray());
+
+    /// <summary>
+    /// Direct call sites grouped by the physical method body that owns their
+    /// IL coordinates. Calls retain their declared <see cref="DirectCall.Caller"/>.
+    /// </summary>
+    public IReadOnlyDictionary<int, ImmutableArray<DirectCall>>
+        DirectCallsByEvidenceMethod =>
+        _directCallsByEvidenceMethod ??= DirectCalls
+            .GroupBy(call => call.EvidenceMethod.MetadataToken)
             .ToDictionary(
                 group => group.Key,
                 group => group.ToImmutableArray());
@@ -162,6 +177,7 @@ public sealed class LibraryCallGraphAnalysisResult
         _distinctCallerEdgesByCallee = null;
         _rootPathGraph = null;
         _directCallsByCaller = null;
+        _directCallsByEvidenceMethod = null;
     }
 
     /// <summary>

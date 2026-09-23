@@ -241,6 +241,15 @@ public static class MetadataDeclarationQuery
     public static List<int> GetIntroducedTypeParameterCounts(
         MetadataReader reader,
         TypeDefinitionHandle typeHandle)
+        => GetIntroducedTypeParameterCounts(
+            reader,
+            typeHandle,
+            beforeRelationshipFollow: null);
+
+    internal static List<int> GetIntroducedTypeParameterCounts(
+        MetadataReader reader,
+        TypeDefinitionHandle typeHandle,
+        Action<EntityHandle>? beforeRelationshipFollow)
     {
         Span<TypeDefinitionHandle> chain =
             stackalloc TypeDefinitionHandle[
@@ -251,7 +260,8 @@ public static class MetadataDeclarationQuery
                 chain,
                 out int consumed,
                 out EntityHandle terminal,
-                out RelationshipTraversalRejection? rejection)
+                out RelationshipTraversalRejection? rejection,
+                beforeRelationshipFollow)
             || consumed == 0
             || !terminal.IsNil)
         {

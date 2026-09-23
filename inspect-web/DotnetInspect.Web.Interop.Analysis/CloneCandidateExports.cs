@@ -24,17 +24,6 @@ public static partial class AnalysisExports
     public static async Task<string> QueryCloneCandidates(
         string requestJson)
     {
-        BrowserCloneCandidateResult result =
-            await CloneCandidatesAsync(requestJson);
-        return JsonSerializer.Serialize(
-            result,
-            BrowserAnalysisJsonContext.Default
-                .BrowserCloneCandidateResult);
-    }
-
-    static async Task<BrowserCloneCandidateResult> CloneCandidatesAsync(
-        string requestJson)
-    {
         BrowserCloneCandidateRequest request =
             JsonSerializer.Deserialize(
                 requestJson,
@@ -43,7 +32,17 @@ public static partial class AnalysisExports
             ?? throw new ArgumentException(
                 "A Clone Candidates request is required.");
         ValidateCloneCandidateRequest(request);
+        BrowserCloneCandidateResult result =
+            await CloneCandidatesAsync(request);
+        return JsonSerializer.Serialize(
+            result,
+            BrowserAnalysisJsonContext.Default
+                .BrowserCloneCandidateResult);
+    }
 
+    static async Task<BrowserCloneCandidateResult> CloneCandidatesAsync(
+        BrowserCloneCandidateRequest request)
+    {
         BrowserPackageRequest[] packages =
         [
             .. request.Packages.Select(package =>

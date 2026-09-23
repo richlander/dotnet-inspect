@@ -343,7 +343,10 @@ public static class DiscoverOutput
         string semanticSelectionName = "Discovery",
         IReadOnlySet<string>? exactOnlySections = null,
         string? resourceCatalog = null,
-        OutputCapabilityCatalog? resourceCapabilities = null)
+        OutputCapabilityCatalog? resourceCapabilities = null,
+        IReadOnlyDictionary<
+            string,
+            SectionCardinalityDeclaration>? sectionCardinalities = null)
     {
         if ((resourceCatalog is null) != (resourceCapabilities is null))
         {
@@ -364,6 +367,19 @@ public static class DiscoverOutput
         var effectiveSectionCategories = FilterCategories(
             sectionCategories,
             filtered.SectionNames);
+        IReadOnlyDictionary<
+            string,
+            SectionCardinalityDeclaration>? effectiveCardinalities =
+                sectionCardinalities is null
+                    ? null
+                    : sectionCardinalities
+                        .Where(pair => filtered.SectionNames.Contains(
+                            pair.Key,
+                            StringComparer.OrdinalIgnoreCase))
+                        .ToDictionary(
+                            static pair => pair.Key,
+                            static pair => pair.Value,
+                            StringComparer.OrdinalIgnoreCase);
         string[] columns = resourceCatalog is null
             ? ["Name", "Kind"]
             : ["Name", "Kind", "Path"];
@@ -441,7 +457,8 @@ public static class DiscoverOutput
                     listedCategoryDoors,
                     sectionCostAnnotations,
                     exactOnlySections,
-                    resourceCapabilities!);
+                    resourceCapabilities!,
+                    sectionCardinalities: effectiveCardinalities);
         if (resourceCatalog is not null
             && resourceProjection is null)
         {

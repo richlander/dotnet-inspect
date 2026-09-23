@@ -461,11 +461,16 @@ public static class IrPasses
         // Decline any surviving unsafe-await statement rather than emit await
         // inside unsafe.
         new UnsafeAwaitBoundaryPass(),
+        // Retire the final renderer-owned materialized-local elimination:
+        // V = value; array[index] = V.ToString() becomes the equivalent direct
+        // receiver before PDB scope and declaration/binding planning.
+        new StoreElementReceiverInliningPass(),
         new PdbScopeEntryLocalPass(),
         new PdbLocalScopePass(),
         new CheckedIntegerOperandPass(),
         new ReferenceCoalesceBindingPass(),
         new ReferenceConditionalBindingPass(),
+        new PrimitiveJoinBindingPass(),
         new CoercionInsertionPass(),
         new ScalarSelfUpdatePass(),
         // Parameter metadata is imported before nested bodies are known. Allocate
@@ -513,7 +518,7 @@ public static class IrPasses
     /// <see cref="Default"/> before embedding: its body IS final output.
     /// </summary>
     public static ImmutableArray<IIrPass> ForReconstruction<TPass>() where TPass : IIrPass =>
-        [.. Default.Where(p => p is not (TPass or ReferenceCoalesceBindingPass or ReferenceConditionalBindingPass or SlotMaterializationPass or PdbScopeEntryLocalPass or PdbLocalScopePass or CheckedIntegerOperandPass or ScalarSelfUpdatePass))];
+        [.. Default.Where(p => p is not (TPass or ReferenceCoalesceBindingPass or ReferenceConditionalBindingPass or PrimitiveJoinBindingPass or SlotMaterializationPass or PdbScopeEntryLocalPass or PdbLocalScopePass or CheckedIntegerOperandPass or ScalarSelfUpdatePass))];
 
     public static void Run(IrFunction function) => Run(function, Default);
 

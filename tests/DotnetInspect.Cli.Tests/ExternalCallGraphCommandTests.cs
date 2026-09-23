@@ -567,11 +567,31 @@ public sealed class ExternalCallGraphCommandTests
             MaxNodes = 50,
             Format = OutputFormat.Jsonl,
         };
+        WorkspaceContextLoadOptions loadOptions =
+            ExternalCallGraphCommand.CreateLoadOptions(options);
+        NuGetFetchOptions fetchOptions =
+            NuGetFetchOptions.FromRequestTimeout(
+                loadOptions.HttpClient.Timeout);
+        InspectionEnvelope<
+            PackageDependencyMemberCallGraphInspectionOutcome>? envelope =
+            null;
 
         var captured = await ConsoleCapture.RunAsync(
             () => ExternalCallGraphCommand.ExecuteAsync(
                 options,
-                TestContext.Current.CancellationToken));
+                loadOptions,
+                TestContext.Current.CancellationToken,
+                async (request, cancellationToken) =>
+                {
+                    envelope =
+                        await ExternalCallGraphCommand
+                            .ExecuteInspectionAsync(
+                                request,
+                                options,
+                                fetchOptions,
+                                cancellationToken);
+                    return envelope;
+                }));
 
         Assert.True(
             captured.ExitCode == 0,
@@ -579,9 +599,39 @@ public sealed class ExternalCallGraphCommandTests
         Assert.Contains(
             "\"target_assembly\":\"Polly.Extensions.Http\"",
             captured.Output);
+        Assert.Contains(
+            "\"role\":\"boundary\",\"target\":\"Polly.Extensions.Http.HttpPolicyExtensions::HandleTransientHttpError\"",
+            captured.Output);
         Assert.DoesNotContain(
             "same assembly identity",
             captured.Error);
+        var available =
+            Assert.IsType<
+                PackageDependencyMemberCallGraphInspectionOutcome.Available>(
+                envelope?.Content);
+        InspectionGraphNode target = Assert.Single(
+            available.Document.Graph.Nodes,
+            node =>
+                node.Subject
+                    is InspectionGraphSubject.MemberSubject
+                    {
+                        Identity:
+                            InspectionGraphMemberIdentity.CallGraph
+                            {
+                                Member.Name:
+                                    "HandleTransientHttpError",
+                            },
+                    });
+        PackageDependencyMemberCallGraphPackageSubject package =
+            Assert.Single(
+                available.Document.PackageSubjects,
+                subject => subject.NodeId == target.Id);
+        Assert.Equal(
+            "Polly.Extensions.Http",
+            package.PackageId,
+            ignoreCase: true);
+        Assert.Equal("3.0.0", package.PackageVersion);
+        Assert.Equal("netstandard2.0", package.TargetFramework);
     }
 
     [Fact]
@@ -759,6 +809,7 @@ public sealed class ExternalCallGraphCommandTests
                         DepthBoundedRoots: 0,
                         SourceBoundedRoots: 0,
                         PartialRoots: 0),
+                    [],
                     [],
                     graph));
         return new InspectionEnvelope<

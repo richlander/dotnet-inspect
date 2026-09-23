@@ -161,7 +161,7 @@ public static class WorkspacePortableCoordinateReplacementOperation
         {
             string packet = WorkspaceSharePacketCodec.Encode(projection.Packet!);
             return new InspectionShare.Available(
-                $"https://dotnet-inspect.net/?w={packet}", packet);
+                WorkspaceShareUrl.Create(packet), packet);
         }
         catch (WorkspaceSharePacketException failure)
         {

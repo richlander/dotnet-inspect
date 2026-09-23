@@ -364,7 +364,7 @@ public static class WorkspaceTopLevelInventoryOperation
         {
             WorkspaceTopLevelInventoryShareProjection.Projectable projected =>
                 new InspectionShare.Available(
-                    $"https://dotnet-inspect.net/?w={projected.CanonicalPacket}",
+                    WorkspaceShareUrl.Create(projected.CanonicalPacket),
                     projected.CanonicalPacket),
             WorkspaceTopLevelInventoryShareProjection.NonProjectable
                 nonProjectable =>

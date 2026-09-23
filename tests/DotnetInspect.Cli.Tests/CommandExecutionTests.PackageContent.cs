@@ -547,7 +547,7 @@ public partial class CommandExecutionTests
     [InlineData("--jsonl")]
     [InlineData("--markdown")]
     [InlineData("--plaintext")]
-    [InlineData("--bare")]
+    [InlineData("--raw")]
     public async Task Layout_ExplicitNonTabularFormatOverridesEnvironmentTable(
         string formatOption)
     {
@@ -829,7 +829,7 @@ public partial class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "package", "Newtonsoft.Json@13.0.3",
-            "-S", "Source Files", "-t", "JsonReader", "--bare", "--tips", "q");
+            "-S", "Source Files", "-t", "JsonReader", "--raw", "--tips", "q");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -872,7 +872,7 @@ public partial class CommandExecutionTests
         var value = await RunAppAsync(
             [.. selectedArgs, "--fields", "Url", "--value"]);
         var urls = await RunAppAsync([.. selectedArgs, "--urls"]);
-        var bare = await RunAppAsync([.. selectedArgs, "--bare"]);
+        var bare = await RunAppAsync([.. selectedArgs, "--raw"]);
 
         foreach (var result in new[]
         {
@@ -996,7 +996,7 @@ public partial class CommandExecutionTests
             [
                 "package", "Newtonsoft.Json@13.0.3",
                 "-S", "Source Files", "-t", "JsonReader",
-                "--bare",
+                "--raw",
             ];
 
             var stdout = await RunAppInDirectoryAsync(
@@ -1909,7 +1909,7 @@ public partial class CommandExecutionTests
                 "--print",
                 "--row",
                 "2",
-                "--bare");
+                "--raw");
             Assert.Equal(0, printExit);
             Assert.Equal("declared license", printOutput);
             Assert.Empty(printError);
@@ -2049,9 +2049,9 @@ public partial class CommandExecutionTests
         try
         {
             var (libraryBaselineExit, libraryBaseline, _) = await RunAppAsync(
-                "package", packagePath, "--library", "Layout.dll", "-S", "Library Info", "--count");
+                "package", packagePath, "--library", "Layout.dll", "-S", "Async Methods", "--count");
             var (libraryExit, libraryOutput, libraryError) = await RunAppAsync(
-                "package", packagePath, "--library", "Layout.dll", "-S", "Library Info", "--count",
+                "package", packagePath, "--library", "Layout.dll", "-S", "Async Methods", "--count",
                 "--out", libraryPath);
 
             Assert.Equal(0, libraryBaselineExit);
@@ -2161,7 +2161,7 @@ public partial class CommandExecutionTests
             ("00-FIRST.txt", "wrong file"));
         try
         {
-            var (exit, output, error) = await RunAppAsync("package", packagePath, "-S", "Package README file", "--print", "--bare");
+            var (exit, output, error) = await RunAppAsync("package", packagePath, "-S", "Package README file", "--print", "--raw");
 
             Assert.Equal(0, exit);
             Assert.Empty(error);
@@ -2189,7 +2189,7 @@ public partial class CommandExecutionTests
             (string Name, string[] Arguments, bool TerminatesWithLf)[] projections =
             [
                 ("print", ["-S", "Package README file", "--print"], false),
-                ("bare", ["-S", "Package README file", "--print", "--bare"], false),
+                ("bare", ["-S", "Package README file", "--print", "--raw"], false),
                 ("value", ["-S", "Package Info", "--fields", "Version", "--value"], true),
                 ("paths", ["-S", "Package skill files", "--paths"], true),
                 ("json", ["-S", "Package Info", "--fields", "Version", "--value", "--json"], false),
@@ -2327,19 +2327,19 @@ public partial class CommandExecutionTests
             [
                 (
                     "print-separated",
-                    ["-S", "Package README file", "--print", "--bare", "--lines", "-n", "1"]),
+                    ["-S", "Package README file", "--print", "--raw", "--lines", "-n", "1"]),
                 (
                     "print-inline",
-                    ["-S", "Package README file", "--print", "--bare", "--lines", "-n=1"]),
+                    ["-S", "Package README file", "--print", "--raw", "--lines", "-n=1"]),
                 (
                     "print-attached",
-                    ["-S", "Package README file", "--print", "--bare", "--lines", "-n1"]),
+                    ["-S", "Package README file", "--print", "--raw", "--lines", "-n1"]),
                 (
                     "print-colon",
-                    ["-S", "Package README file", "--print", "--bare", "--lines", "-n:1"]),
+                    ["-S", "Package README file", "--print", "--raw", "--lines", "-n:1"]),
                 (
                     "bare",
-                    ["-S", "Package README file", "--bare", "--lines", "-n", "1"]),
+                    ["-S", "Package README file", "--raw", "--lines", "-n", "1"]),
                 (
                     "content",
                     ["--content", "--path", "README.md", "--lines", "-n", "1"]),
@@ -2513,7 +2513,7 @@ public partial class CommandExecutionTests
                 "--content",
                 "--path",
                 "README.md",
-                "--bare",
+                "--raw",
                 "--out",
                 " ",
                 "--lines",
@@ -2550,7 +2550,7 @@ public partial class CommandExecutionTests
             var result = await RunAppAsync(
                 "package", packagePath,
                 "-S", "Package README file",
-                "--bare", "--rows", "2..2",
+                "--raw", "--rows", "2..2",
                 "--out", outputPath,
                 "--tips", "q");
 
@@ -2642,7 +2642,7 @@ public partial class CommandExecutionTests
         var (packagePath, tempDir) = CreateLocalReadmePackage("Test.BestReadme.Bare", "README.md", "readme", "agents");
         try
         {
-            var (exit, output, error) = await RunAppAsync("package", packagePath, "-S", "Package README file", "--print", "--bare");
+            var (exit, output, error) = await RunAppAsync("package", packagePath, "-S", "Package README file", "--print", "--raw");
 
             Assert.Equal(0, exit);
             Assert.Empty(error);
@@ -2664,7 +2664,7 @@ public partial class CommandExecutionTests
         var (packagePath, tempDir) = CreateLocalReadmePackage("Test.PackageReadme.Bare", "PACKAGE.md", "package docs");
         try
         {
-            var (exit, output, error) = await RunAppAsync("package", packagePath, "-S", "Package README file", "--bare", "--tips", "q");
+            var (exit, output, error) = await RunAppAsync("package", packagePath, "-S", "Package README file", "--raw", "--tips", "q");
 
             Assert.Equal(0, exit);
             Assert.Empty(error);
@@ -2682,7 +2682,7 @@ public partial class CommandExecutionTests
         var (packagePath, tempDir) = CreateLocalReadmePackage("Test.Content.Bare", "README.md", "readme", "agents body");
         try
         {
-            var (exit, output, error) = await RunAppAsync("package", packagePath, "--path", "@readme", "--content", "--bare");
+            var (exit, output, error) = await RunAppAsync("package", packagePath, "--path", "@readme", "--content", "--raw");
 
             Assert.Equal(0, exit);
             Assert.Empty(error);
@@ -2702,7 +2702,7 @@ public partial class CommandExecutionTests
         try
         {
             Environment.SetEnvironmentVariable("DOTNET_INSPECT_FORMAT", "table");
-            var (exit, output, error) = await RunAppAsync("package", packagePath, "--path", "@readme", "--content", "--bare");
+            var (exit, output, error) = await RunAppAsync("package", packagePath, "--path", "@readme", "--content", "--raw");
 
             Assert.Equal(0, exit);
             Assert.Empty(error);
@@ -2801,7 +2801,7 @@ public partial class CommandExecutionTests
         try
         {
             var (exit, output, error) = await RunAppAsync(
-                "package", packagePath, "-S", "Package nuspec file", "--print", "--bare");
+                "package", packagePath, "-S", "Package nuspec file", "--print", "--raw");
 
             Assert.Equal(0, exit);
             Assert.Empty(error);
@@ -2866,7 +2866,7 @@ public partial class CommandExecutionTests
                 new byte[] { 0x0D, 0x00, 0x0A, 0x00 }));
 
             var (exit, output, error) = await RunAppAsync(
-                "package", packagePath, "-S", "Package nuspec file", "--print", "--bare");
+                "package", packagePath, "-S", "Package nuspec file", "--print", "--raw");
 
             Assert.Equal(0, exit);
             Assert.Empty(error);
@@ -2880,7 +2880,7 @@ public partial class CommandExecutionTests
                 "-S",
                 "Package nuspec file",
                 "--print",
-                "--bare",
+                "--raw",
                 "--out",
                 outputPath);
 
@@ -2934,7 +2934,7 @@ public partial class CommandExecutionTests
         try
         {
             var (exit, output, _) = await RunAppAsync(
-                "package", packagePath, "--content", "--path", "build/Test.props", "--bare");
+                "package", packagePath, "--content", "--path", "build/Test.props", "--raw");
 
             Assert.Equal(0, exit);
             Assert.Contains(Link, output, StringComparison.Ordinal);
@@ -2943,7 +2943,7 @@ public partial class CommandExecutionTests
             // The README in the same package still gets the Markdown treatment, so this is a
             // rule about the document's kind rather than the rewriter being switched off.
             var (readmeExit, readmeOutput, _) = await RunAppAsync(
-                "package", packagePath, "-S", "Package README file", "--print", "--bare");
+                "package", packagePath, "-S", "Package README file", "--print", "--raw");
 
             Assert.Equal(0, readmeExit);
             Assert.Contains("raw.githubusercontent.com", readmeOutput, StringComparison.Ordinal);
@@ -2978,7 +2978,7 @@ public partial class CommandExecutionTests
             Assert.Contains("2 printable rows", ambiguousError, StringComparison.Ordinal);
 
             var (exit, output, _) = await RunAppAsync(
-                "package", packagePath, "-S", "Package skill files", "--print", "--row", "2", "--bare");
+                "package", packagePath, "-S", "Package skill files", "--print", "--row", "2", "--raw");
 
             Assert.Equal(0, exit);
             Assert.Equal("# Beta skill", output);
@@ -3010,7 +3010,7 @@ public partial class CommandExecutionTests
         try
         {
             var (exit, output, error) = await RunAppAsync(
-                "package", packagePath, "-S", "Package README file", "--print", "--bare");
+                "package", packagePath, "-S", "Package README file", "--print", "--raw");
 
             Assert.Equal(0, exit);
             AssertContainmentWarning(error, SkillPath);
@@ -3044,7 +3044,7 @@ public partial class CommandExecutionTests
             // The nuspec is always present, so the empty refusal must be about the selected
             // section rather than about printing being unavailable on this package.
             var (nuspecExit, nuspecOutput, _) = await RunAppAsync(
-                "package", packagePath, "-S", "Package nuspec file", "--print", "--bare");
+                "package", packagePath, "-S", "Package nuspec file", "--print", "--raw");
 
             Assert.Equal(0, nuspecExit);
             Assert.Contains("Test.NoReadme.Print", nuspecOutput, StringComparison.Ordinal);
@@ -3118,7 +3118,7 @@ public partial class CommandExecutionTests
         try
         {
             var (scopeExit, scopeOutput, scopeError) = await RunAppAsync(
-                "package", packagePath, "-S", "Package README file", "--print", "--frontmatter", "--bare");
+                "package", packagePath, "-S", "Package README file", "--print", "--frontmatter", "--raw");
 
             Assert.Equal(0, scopeExit);
             Assert.Empty(scopeError);
@@ -3126,7 +3126,7 @@ public partial class CommandExecutionTests
             Assert.DoesNotContain("See https://", scopeOutput, StringComparison.Ordinal);
 
             var (exit, output, _) = await RunAppAsync(
-                "package", packagePath, "-S", "Package README file", "--print", "--bare");
+                "package", packagePath, "-S", "Package README file", "--print", "--raw");
 
             Assert.Equal(0, exit);
             Assert.Contains("raw.githubusercontent.com", output, StringComparison.Ordinal);
@@ -3134,7 +3134,7 @@ public partial class CommandExecutionTests
             // The nuspec in the same package is not the readme, so it stays verbatim. Role, not
             // a blanket relaxation of the rule, is what makes the readme Markdown.
             var (nuspecExit, nuspecOutput, _) = await RunAppAsync(
-                "package", packagePath, "-S", "Package nuspec file", "--print", "--bare");
+                "package", packagePath, "-S", "Package nuspec file", "--print", "--raw");
 
             Assert.Equal(0, nuspecExit);
             Assert.Contains($"<readme>{readmePath}</readme>", nuspecOutput, StringComparison.Ordinal);
@@ -3177,7 +3177,7 @@ public partial class CommandExecutionTests
         try
         {
             var (scopeExit, scopeOutput, scopeError) = await RunAppAsync(
-                "package", packagePath, "--content", "--path", "docs/GUIDE", "--frontmatter", "--bare");
+                "package", packagePath, "--content", "--path", "docs/GUIDE", "--frontmatter", "--raw");
 
             Assert.Equal(0, scopeExit);
             Assert.Empty(scopeError);
@@ -3187,7 +3187,7 @@ public partial class CommandExecutionTests
             // The role is carried by the declaration alone, so a sibling that the manifest does
             // not name stays verbatim and keeps its blob link.
             var (plainExit, plainOutput, _) = await RunAppAsync(
-                "package", packagePath, "--content", "--path", "docs/GUIDE", "--bare");
+                "package", packagePath, "--content", "--path", "docs/GUIDE", "--raw");
 
             Assert.Equal(0, plainExit);
             Assert.Contains("raw.githubusercontent.com", plainOutput, StringComparison.Ordinal);
@@ -3247,7 +3247,7 @@ public partial class CommandExecutionTests
         try
         {
             var (exit, output, _) = await RunAppAsync(
-                "package", packagePath, "--content", "--path", readmePath, "--bare");
+                "package", packagePath, "--content", "--path", readmePath, "--raw");
 
             Assert.Equal(0, exit);
             Assert.Equal(File.ReadAllText(declared), output);
@@ -3255,7 +3255,7 @@ public partial class CommandExecutionTests
 
             // And a Markdown scope over it is refused rather than answered from the whole file.
             var (scopeExit, scopeOutput, scopeError) = await RunAppAsync(
-                "package", packagePath, "--content", "--path", readmePath, "--frontmatter", "--bare");
+                "package", packagePath, "--content", "--path", readmePath, "--frontmatter", "--raw");
 
             Assert.Equal(1, scopeExit);
             Assert.Empty(scopeOutput);
@@ -3278,7 +3278,7 @@ public partial class CommandExecutionTests
         try
         {
             var (exit, _, error) = await RunAppAsync(
-                "package", packagePath, "-S", "Package README file", "--print", "--bare", "--out", outputPath);
+                "package", packagePath, "-S", "Package README file", "--print", "--raw", "--out", outputPath);
 
             Assert.Equal(0, exit);
             Assert.DoesNotContain("no longer valid", error, StringComparison.Ordinal);
@@ -4065,7 +4065,7 @@ public partial class CommandExecutionTests
                 "--path",
                 "content/INSTRUCTIONS.md",
                 "--content",
-                "--bare",
+                "--raw",
                 "--tips",
                 "q");
 
@@ -4082,7 +4082,7 @@ public partial class CommandExecutionTests
                 "--path",
                 "content/INSTRUCTIONS.md",
                 "--content",
-                "--bare",
+                "--raw",
                 "--out",
                 bareOutputPath,
                 "--tips",
@@ -4178,7 +4178,7 @@ public partial class CommandExecutionTests
                 "--content",
                 "--rows",
                 "1",
-                "--bare",
+                "--raw",
                 "--tips",
                 "q");
             var bareExport = await RunAppAsync(
@@ -4189,7 +4189,7 @@ public partial class CommandExecutionTests
                 "--content",
                 "--rows",
                 "1",
-                "--bare",
+                "--raw",
                 "--out",
                 bareOutputPath,
                 "--tips",
@@ -4248,37 +4248,37 @@ public partial class CommandExecutionTests
             [
                 (
                     "print-safe",
-                    ["-S", "Package skill files", "--print", "--row", "2", "--bare", "--lines", "-n1"],
+                    ["-S", "Package skill files", "--print", "--row", "2", "--raw", "--lines", "-n1"],
                     "safe-first\n",
                     "safe-first\n",
                     null),
                 (
                     "content-safe",
-                    ["--content", "--path", "skills/safe/SKILL.md", "--bare", "--lines", "-n1"],
+                    ["--content", "--path", "skills/safe/SKILL.md", "--raw", "--lines", "-n1"],
                     "safe-first\n",
                     "safe-first\n",
                     null),
                 (
                     "print-readme-skill",
-                    ["-S", "Package README file", "--print", "--bare", "--lines", "-n1"],
+                    ["-S", "Package README file", "--print", "--raw", "--lines", "-n1"],
                     "safe-first\n",
                     "safe-first\n",
                     null),
                 (
                     "content-readme-skill",
-                    ["--content", "--path", "@readme", "--bare", "--lines", "-n1"],
+                    ["--content", "--path", "@readme", "--raw", "--lines", "-n1"],
                     "safe-first\n",
                     "safe-first\n",
                     null),
                 (
                     "print-contained",
-                    ["-S", "Package skill files", "--print", "--row", "1", "--bare", "--lines", "-n1"],
+                    ["-S", "Package skill files", "--print", "--row", "1", "--raw", "--lines", "-n1"],
                     placeholder,
                     placeholder,
                     "skills/contained/SKILL.md"),
                 (
                     "content-contained",
-                    ["--content", "--path", "skills/contained/SKILL.md", "--bare", "--lines", "-n1"],
+                    ["--content", "--path", "skills/contained/SKILL.md", "--raw", "--lines", "-n1"],
                     placeholder + "\n",
                     placeholder,
                     "skills/contained/SKILL.md"),
@@ -4319,7 +4319,7 @@ public partial class CommandExecutionTests
             var wildcardPath = Path.Combine(tempDir, "wildcard.md");
             var wildcard = await RunAppAsync(
                 "package", packagePath,
-                "--content", "--path", "skills/safe/*.md", "--bare", "--lines", "-n1",
+                "--content", "--path", "skills/safe/*.md", "--raw", "--lines", "-n1",
                 "--out", wildcardPath, "--tips", "q");
 
             Assert.Equal(1, wildcard.Exit);
@@ -4334,7 +4334,7 @@ public partial class CommandExecutionTests
             File.WriteAllText(directoryPath, "sentinel");
             var directory = await RunAppAsync(
                 "package", packagePath,
-                "--content", "--path", "skills/example/SKILL.md", "--bare", "--lines", "-n1",
+                "--content", "--path", "skills/example/SKILL.md", "--raw", "--lines", "-n1",
                 "--out", directoryPath, "--tips", "q");
 
             Assert.Equal(1, directory.Exit);
@@ -4371,7 +4371,7 @@ public partial class CommandExecutionTests
                     var result = await RunAppAsync(
                         [
                             .. prefix,
-                            "-S", "Package README file", "--print", "--bare",
+                            "-S", "Package README file", "--print", "--raw",
                             option, "",
                         ]);
 

@@ -513,11 +513,11 @@ public partial class CommandExecutionTests
     public async Task Type_Bare_IsRetired()
     {
         var (exit, output, error) = await RunAppAsync(
-            "type", "String", "--platform", "System.Private.CoreLib", "--bare", "--tips", "q");
+            "type", "String", "--platform", "System.Private.CoreLib", "--raw", "--tips", "q");
 
         Assert.Equal(1, exit);
         Assert.Empty(output);
-        Assert.Contains("Unrecognized option '--bare'", error);
+        Assert.Contains("Unrecognized option '--raw'", error);
     }
 
     [Fact]
@@ -527,7 +527,7 @@ public partial class CommandExecutionTests
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
-        Assert.DoesNotContain("--bare", output);
+        Assert.DoesNotContain("--raw", output);
     }
 
     [Fact]

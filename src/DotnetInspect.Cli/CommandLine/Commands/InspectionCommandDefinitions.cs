@@ -47,6 +47,10 @@ public static class InspectionCommandDefinitions
         };
         var tfmOption = new Option<string?>("--tfm") { Description = "Target framework (e.g., net8.0)" };
         var allOption = new Option<bool>("--all") { Description = "Include non-public, hidden, and obsolete members" };
+        var implementationOption = new Option<bool>("--implementation")
+        {
+            Description = "Select body-level C# and IL comparison (equivalent to -S \"Implementation Diff\")",
+        };
         var historyOption = new Option<bool>("--history")
         {
             Description = "Inspect one Finding across a package version population; requires one full Type name",
@@ -63,6 +67,10 @@ public static class InspectionCommandDefinitions
         var samplePercentOption = new Option<int?>("--sample-percent")
         {
             Description = "History representative positional sample (1-100 percent), optionally capped by --max-probes",
+        };
+        var majorVersionsOption = new Option<bool>("--major-versions")
+        {
+            Description = "History: evaluate one representative per package major; API uses first stable, Analysis uses latest",
         };
         var prereleaseOption = new Option<bool>("--preview")
         {
@@ -105,10 +113,12 @@ public static class InspectionCommandDefinitions
         diffCommand.Options.Add(frameworkOption);
         diffCommand.Options.Add(tfmOption);
         diffCommand.Options.Add(allOption);
+        diffCommand.Options.Add(implementationOption);
         diffCommand.Options.Add(historyOption);
         diffCommand.Options.Add(atOption);
         diffCommand.Options.Add(maxProbesOption);
         diffCommand.Options.Add(samplePercentOption);
+        diffCommand.Options.Add(majorVersionsOption);
         diffCommand.Options.Add(prereleaseOption);
         diffCommand.Options.Add(configDirectoryOption);
         diffCommand.Options.Add(typeFilterOption);
@@ -177,7 +187,10 @@ public static class InspectionCommandDefinitions
                 string.Equals(
                     selector,
                     DiffSections.ImplementationDiff.Name,
-                    StringComparison.OrdinalIgnoreCase);
+                    StringComparison.OrdinalIgnoreCase)
+                || result.GetValue(implementationOption)
+                    && result.GetResult(opts.Select)
+                        is not { Implicit: false };
             if (!implementationTransport)
             {
                 if (result.GetResult(opts.Select) is { Implicit: false })
@@ -207,7 +220,8 @@ public static class InspectionCommandDefinitions
 
         var commandArgs = new DiffOptionsParser.DiffCommandArgs(
             argsArg, packageOption, platformOption, libraryOption, frameworkOption, tfmOption, allOption,
-            historyOption, atOption, maxProbesOption, samplePercentOption, prereleaseOption, opts.Count,
+            implementationOption,
+            historyOption, atOption, maxProbesOption, samplePercentOption, majorVersionsOption, prereleaseOption, opts.Count,
             typeFilterOption, memberFilterOption, opts.NoHeaders, nameOnlyOption, breakingOption, additiveOption, changedOption, allocRegressionsOption, pdbSourceOption, legacyAuthoredSourceOption, findingOption, legendOption, repoOption, compactOption);
 
         diffCommand.SetAction(async (parseResult, ct) =>

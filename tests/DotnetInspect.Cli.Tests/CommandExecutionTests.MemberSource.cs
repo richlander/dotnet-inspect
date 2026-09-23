@@ -3370,15 +3370,15 @@ public partial class CommandExecutionTests
         var rejected = await RunAppAsync(
             "member", typeof(MemberCallsFixture).FullName!,
             "CallsInterfaceItem", "--library", TestAssemblyPath,
-            "--bare", "--tips", "q");
+            "--raw", "--tips", "q");
         var help = await RunAppAsync("member", "--help");
 
         Assert.Equal(1, rejected.Exit);
         Assert.Empty(rejected.Output);
-        Assert.Contains("Unrecognized option '--bare'", rejected.Error);
+        Assert.Contains("Unrecognized option '--raw'", rejected.Error);
         Assert.Equal(0, help.Exit);
         Assert.Empty(help.Error);
-        Assert.DoesNotContain("--bare", help.Output);
+        Assert.DoesNotContain("--raw", help.Output);
     }
 
     [Fact]

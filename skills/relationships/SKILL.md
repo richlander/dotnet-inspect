@@ -229,7 +229,11 @@ automatically follows that root's authorized dependency graph, and retains
 only external boundary calls plus their shortest local connectors. Root asset
 selection stays exact; dependency traversal independently uses `--tfm` or the
 product default. This is always external-focused; it does not change the
-general bidirectional `member -S "Call Graph"` view.
+general bidirectional `member -S "Call Graph"` view. Dependency members with
+unique ownership retain their exact package id, version, and selected
+framework. In Inspect Web, selecting such a node loads that exact package
+through the ordinary package path before opening the member; ambiguous
+ownership publishes no package coordinate.
 
 ```bash
 dnx dotnet-inspect -y -- graph calls \

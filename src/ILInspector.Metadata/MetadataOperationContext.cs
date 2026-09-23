@@ -14,7 +14,8 @@ public sealed record MetadataOperationPolicy
         long maxSignatureBytes = long.MaxValue,
         long maxGenericSubstitutionNodes = long.MaxValue,
         long maxStructuredNodes = long.MaxValue,
-        long maxRetainedText = long.MaxValue)
+        long maxRetainedText = long.MaxValue,
+        long maxInterfaceImplementationRows = long.MaxValue)
     {
         ArgumentOutOfRangeException.ThrowIfNegative(maxMetadataRows);
         ArgumentOutOfRangeException.ThrowIfNegative(
@@ -27,6 +28,8 @@ public sealed record MetadataOperationPolicy
             maxGenericSubstitutionNodes);
         ArgumentOutOfRangeException.ThrowIfNegative(maxStructuredNodes);
         ArgumentOutOfRangeException.ThrowIfNegative(maxRetainedText);
+        ArgumentOutOfRangeException.ThrowIfNegative(
+            maxInterfaceImplementationRows);
 
         MaxMetadataRows = maxMetadataRows;
         MaxMethodImplementationRows = maxMethodImplementationRows;
@@ -36,6 +39,7 @@ public sealed record MetadataOperationPolicy
         MaxGenericSubstitutionNodes = maxGenericSubstitutionNodes;
         MaxStructuredNodes = maxStructuredNodes;
         MaxRetainedText = maxRetainedText;
+        MaxInterfaceImplementationRows = maxInterfaceImplementationRows;
     }
 
     public static MetadataOperationPolicy Unbounded { get; } =
@@ -49,6 +53,7 @@ public sealed record MetadataOperationPolicy
     public long MaxGenericSubstitutionNodes { get; }
     public long MaxStructuredNodes { get; }
     public long MaxRetainedText { get; }
+    public long MaxInterfaceImplementationRows { get; }
 }
 
 public sealed record MetadataOperationCounters(
@@ -59,7 +64,8 @@ public sealed record MetadataOperationCounters(
     long SignatureBytes = 0,
     long GenericSubstitutionNodes = 0,
     long StructuredNodes = 0,
-    long RetainedText = 0);
+    long RetainedText = 0,
+    long InterfaceImplementationRows = 0);
 
 public enum MetadataOperationDimension
 {
@@ -71,6 +77,7 @@ public enum MetadataOperationDimension
     GenericSubstitutionNodes,
     StructuredNodes,
     RetainedText,
+    InterfaceImplementationRows,
 }
 
 public enum MetadataOperationFailureKind
@@ -113,6 +120,7 @@ public sealed class MetadataOperationContext : IDisposable
     long _genericSubstitutionNodes;
     long _structuredNodes;
     long _retainedText;
+    long _interfaceImplementationRows;
     bool _disposed;
 
     public MetadataOperationContext(MetadataOperationPolicy policy)
@@ -246,6 +254,8 @@ public sealed class MetadataOperationContext : IDisposable
                 return ref _structuredNodes;
             case MetadataOperationDimension.RetainedText:
                 return ref _retainedText;
+            case MetadataOperationDimension.InterfaceImplementationRows:
+                return ref _interfaceImplementationRows;
             default:
                 throw new ArgumentOutOfRangeException(
                     nameof(dimension),
@@ -273,6 +283,8 @@ public sealed class MetadataOperationContext : IDisposable
                 _policy.MaxStructuredNodes,
             MetadataOperationDimension.RetainedText =>
                 _policy.MaxRetainedText,
+            MetadataOperationDimension.InterfaceImplementationRows =>
+                _policy.MaxInterfaceImplementationRows,
             _ => throw new ArgumentOutOfRangeException(
                 nameof(dimension),
                 dimension,
@@ -288,7 +300,8 @@ public sealed class MetadataOperationContext : IDisposable
             _signatureBytes,
             _genericSubstitutionNodes,
             _structuredNodes,
-            _retainedText);
+            _retainedText,
+            _interfaceImplementationRows);
 
     internal void EnsureAlive() =>
         ObjectDisposedException.ThrowIf(_disposed, this);
@@ -315,6 +328,8 @@ internal enum MetadataOperationWorkKind
     CandidateNameMaterialization,
     TypeDefinitionIndexMaterialization,
     TypeDefinitionIndexTextRetention,
+    InterfaceImplementationRowRead,
+    MethodDeclarationPublication,
 }
 
 internal sealed class MetadataOperationBudgetExceededException(

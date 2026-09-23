@@ -233,7 +233,7 @@ public static class ExactTypeInspectionOperation
         string encoded =
             WorkspaceSharePacketCodec.Encode(projection.Packet!);
         return new InspectionShare.Available(
-            "https://dotnet-inspect.net/?w=" + encoded,
+            WorkspaceShareUrl.Create(encoded),
             encoded);
     }
 
