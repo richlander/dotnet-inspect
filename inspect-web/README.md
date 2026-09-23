@@ -417,12 +417,16 @@ retires every idle scope that retains it, awaiting each retirement, so cache
 eviction actually releases the archive bytes instead of removing only the
 cache's reference; a workspace with a protected use keeps its archive, and the
 reservation that cannot be satisfied without it visibly rejects. The client
-retains at most 12 package models, and rejects a shared workspace with more
-than 12 tuples or 65,536 encoded characters before it starts package
-acquisition.
-The JavaScript `shared workspaces are bounded before package loading` and
+retains at most 64 Package and Platform coordinate models in aggregate.
+Current Workspace share formats 3 through 5 reject more than 64 coordinates,
+32 KiB of encoded state, or 24 KiB of decoded JSON before package acquisition.
+Legacy formats 1 and 2 remain capped at 12 coordinates, and format 1 retains
+its stricter 16 KiB encoded and 12 KiB decoded limits.
+The JavaScript `Add at the 64-coordinate cap refuses visibly before querying
+or evicting` and
 `workspace package models retain the active and newest coordinates within the
-limit` cases gate those client boundaries. A nupkg response must
+limit` cases gate the live client boundary; the packet-codec suite gates each
+format's coordinate and payload limits. A nupkg response must
 declare its content length. The cache reserves that length and evicts enough
 unleased content before allocating the response array; reservations participate
 in the same 256-entry/128 MB aggregate while the download is in flight.
