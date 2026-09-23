@@ -46,6 +46,9 @@ public sealed class LibraryInspectionOperationTests
         Assert.Equal(
             LibraryTypeAccessibility.Public,
             document.Types.Binding.Accessibility);
+        Assert.Equal(
+            LibraryTypeDeclarationSelection.DefinitionsAndForwarders,
+            document.Types.Binding.DeclarationSelection);
         LibraryTypePopulationCountOutcome.Counted count =
             Assert.IsType<LibraryTypePopulationCountOutcome.Counted>(
                     document.Types.Count);
@@ -243,6 +246,172 @@ public sealed class LibraryInspectionOperationTests
 
     [Fact]
     public async Task
+        DeclarationSelectionFiltersCountAndRowsWithoutLosingFirstClassKinds()
+    {
+        byte[] content =
+            await LibraryInspectionTestLibrary.RealSystemTextJsonAsync();
+        await using LibraryInspectionTestLibrary library =
+            await LibraryInspectionTestLibrary.CreateAsync(
+                content,
+                LibraryInspectionTestLibrary.Identity(content));
+
+        foreach (
+            LibraryTypeDeclarationSelection selection
+            in new[]
+            {
+                LibraryTypeDeclarationSelection.Definitions,
+                LibraryTypeDeclarationSelection.Forwarders,
+            })
+        {
+            LibraryDocument document = Document(
+                Execute(
+                    library,
+                    count: true,
+                    new(
+                        maximumRows: 5_000,
+                        memberCount: new()),
+                    declarationSelection: selection));
+            LibraryTypePopulationCountOutcome.Counted count =
+                Assert.IsType<LibraryTypePopulationCountOutcome.Counted>(
+                    document.Types.Count);
+            LibraryTypePopulationRowsOutcome.Read rows =
+                Assert.IsType<LibraryTypePopulationRowsOutcome.Read>(
+                    document.Types.Rows);
+
+            Assert.True(rows.IsComplete);
+            Assert.Equal(selection, document.Types.Binding.DeclarationSelection);
+            Assert.Equal(count.Total, rows.Items.Length);
+            Assert.NotEmpty(rows.Items);
+            if (selection == LibraryTypeDeclarationSelection.Definitions)
+            {
+                Assert.Equal(0, count.Forwarders);
+                Assert.All(
+                    rows.Items,
+                    static row =>
+                        Assert.Equal(
+                            LibraryTypeDeclarationKind.Definition,
+                            row.DeclarationKind));
+            }
+            else
+            {
+                Assert.Equal(0, count.Definitions);
+                Assert.Equal(count.Total, count.Forwarders);
+                Assert.All(
+                    rows.Items,
+                    static row =>
+                        Assert.Equal(
+                            LibraryTypeDeclarationKind.Forwarder,
+                            row.DeclarationKind));
+            }
+        }
+
+        await library.RetireAsync();
+    }
+
+    [Fact]
+    public async Task
+        RealSystemXml_DeclarationSelectionPreservesFacadeForwarders()
+    {
+        byte[] content =
+            await LibraryInspectionTestLibrary.RealSystemXmlAsync();
+        await using LibraryInspectionTestLibrary library =
+            await LibraryInspectionTestLibrary.CreateAsync(
+                content,
+                LibraryInspectionTestLibrary.Identity(content));
+
+        LibraryDocument combined = Document(
+            Execute(
+                library,
+                count: true,
+                new(maximumRows: 5_000)));
+        LibraryTypePopulationCountOutcome.Counted combinedCount =
+            Assert.IsType<LibraryTypePopulationCountOutcome.Counted>(
+                combined.Types.Count);
+        LibraryTypePopulationRowsOutcome.Read combinedRows =
+            Assert.IsType<LibraryTypePopulationRowsOutcome.Read>(
+                combined.Types.Rows);
+
+        Assert.True(combinedRows.IsComplete);
+        Assert.Equal(combinedCount.Total, combinedRows.Items.Length);
+        Assert.Equal(
+            combinedCount.Total,
+            combinedCount.Definitions + combinedCount.Forwarders);
+        LibraryTypeShape xmlReader =
+            Assert.Single(
+                combinedRows.Items,
+                row =>
+                    row.Identity
+                        == Name("System.Xml", "XmlReader"));
+        Assert.Equal(
+            LibraryTypeDeclarationKind.Forwarder,
+            xmlReader.DeclarationKind);
+        Assert.Equal(
+            "System.Xml.ReaderWriter",
+            Assert.IsType<LibraryTypeForwardingEvidence>(
+                    xmlReader.Forwarding)
+                .TargetAssembly.Name.ToString());
+
+        LibraryDocument forwarders = Document(
+            Execute(
+                library,
+                count: true,
+                new(maximumRows: 5_000),
+                declarationSelection:
+                    LibraryTypeDeclarationSelection.Forwarders));
+        LibraryTypePopulationCountOutcome.Counted forwarderCount =
+            Assert.IsType<LibraryTypePopulationCountOutcome.Counted>(
+                forwarders.Types.Count);
+        LibraryTypePopulationRowsOutcome.Read forwarderRows =
+            Assert.IsType<LibraryTypePopulationRowsOutcome.Read>(
+                forwarders.Types.Rows);
+
+        Assert.True(forwarderRows.IsComplete);
+        Assert.Equal(0, forwarderCount.Definitions);
+        Assert.Equal(combinedCount.Forwarders, forwarderCount.Total);
+        Assert.Equal(forwarderCount.Total, forwarderRows.Items.Length);
+        Assert.Contains(
+            forwarderRows.Items,
+            row => row.Identity == Name("System.Xml", "XmlReader"));
+        Assert.All(
+            forwarderRows.Items,
+            static row =>
+                Assert.Equal(
+                    LibraryTypeDeclarationKind.Forwarder,
+                    row.DeclarationKind));
+
+        LibraryDocument definitions = Document(
+            Execute(
+                library,
+                count: true,
+                new(maximumRows: 5_000),
+                declarationSelection:
+                    LibraryTypeDeclarationSelection.Definitions));
+        LibraryTypePopulationCountOutcome.Counted definitionCount =
+            Assert.IsType<LibraryTypePopulationCountOutcome.Counted>(
+                definitions.Types.Count);
+        LibraryTypePopulationRowsOutcome.Read definitionRows =
+            Assert.IsType<LibraryTypePopulationRowsOutcome.Read>(
+                definitions.Types.Rows);
+
+        Assert.True(definitionRows.IsComplete);
+        Assert.Equal(0, definitionCount.Forwarders);
+        Assert.Equal(combinedCount.Definitions, definitionCount.Total);
+        Assert.Equal(definitionCount.Total, definitionRows.Items.Length);
+        Assert.DoesNotContain(
+            definitionRows.Items,
+            row => row.Identity == Name("System.Xml", "XmlReader"));
+        Assert.All(
+            definitionRows.Items,
+            static row =>
+                Assert.Equal(
+                    LibraryTypeDeclarationKind.Definition,
+                    row.DeclarationKind));
+
+        await library.RetireAsync();
+    }
+
+    [Fact]
+    public async Task
         ContinuationsRejectMalformedIncompatibleStaleAndOutOfRangeUse()
     {
         byte[] jsonContent =
@@ -291,6 +460,17 @@ public sealed class LibraryInspectionOperationTests
                 .IncompatibleContinuation);
         AssertRowsRejection(
             Execute(
+                json,
+                count: false,
+                new(
+                    maximumRows: 1,
+                    continuation: continuation),
+                declarationSelection:
+                    LibraryTypeDeclarationSelection.Definitions),
+            LibraryTypePopulationRowsRejection
+                .IncompatibleContinuation);
+        AssertRowsRejection(
+            Execute(
                 facade,
                 count: false,
                 new(
@@ -301,10 +481,10 @@ public sealed class LibraryInspectionOperationTests
         byte[] payload =
             Convert.FromBase64String(
                 continuation.Value.ToString());
-        payload[20] = 0xFF;
         payload[21] = 0xFF;
         payload[22] = 0xFF;
-        payload[23] = 0x7F;
+        payload[23] = 0xFF;
+        payload[24] = 0x7F;
         AssertRowsRejection(
             Execute(
                 json,
@@ -726,6 +906,51 @@ public sealed class LibraryInspectionOperationTests
     }
 
     [Fact]
+    public async Task
+        DeclarationKindSelectionExcludesUnsupportedModuleExports()
+    {
+        byte[] content =
+            LibraryInspectionTestLibrary.BuildMetadataImage(
+                includeModuleExport: true);
+        await using LibraryInspectionTestLibrary library =
+            await LibraryInspectionTestLibrary.CreateAsync(
+                content,
+                LibraryInspectionTestLibrary.ProbeIdentity());
+
+        foreach (
+            LibraryTypeDeclarationSelection selection
+            in new[]
+            {
+                LibraryTypeDeclarationSelection.Definitions,
+                LibraryTypeDeclarationSelection.Forwarders,
+            })
+        {
+            InspectionEnvelope<LibraryInspectionOutcome> envelope =
+                Execute(
+                    library,
+                    count: true,
+                    new(maximumRows: 1),
+                    declarationSelection: selection);
+            LibraryDocument document = Document(envelope);
+            LibraryTypePopulationCountOutcome.Counted count =
+                Assert.IsType<
+                    LibraryTypePopulationCountOutcome.Counted>(
+                    document.Types.Count);
+            LibraryTypePopulationRowsOutcome.Read rows =
+                Assert.IsType<
+                    LibraryTypePopulationRowsOutcome.Read>(
+                    document.Types.Rows);
+
+            Assert.Equal(0, count.Total);
+            Assert.Empty(rows.Items);
+            Assert.True(rows.IsComplete);
+            Assert.Empty(envelope.Diagnostics);
+        }
+
+        await library.RetireAsync();
+    }
+
+    [Fact]
     public async Task AssemblyIdentityMismatchReturnsTypedRejection()
     {
         byte[] content =
@@ -852,6 +1077,17 @@ public sealed class LibraryInspectionOperationTests
     }
 
     [Fact]
+    public void PopulationRequestRejectsUnknownDeclarationSelection()
+    {
+        Assert.Throws<ArgumentOutOfRangeException>(
+            () => new LibraryTypePopulationRequest(
+                LibraryTypeAccessibility.Public,
+                new(),
+                declarationSelection:
+                    (LibraryTypeDeclarationSelection)int.MaxValue));
+    }
+
+    [Fact]
     public void PlanAndClosedOutcomeSerializeWithSourceGeneration()
     {
         Guid moduleVersionId = Guid.NewGuid();
@@ -866,7 +1102,8 @@ public sealed class LibraryInspectionOperationTests
                         new(
                             new InertString(
                                 TextPolicy.Field,
-                                "opaque-receipt")))),
+                                "opaque-receipt"))),
+                LibraryTypeDeclarationSelection.Forwarders),
             s_bounds);
         var document = new LibraryDocument(
             new(
@@ -876,7 +1113,11 @@ public sealed class LibraryInspectionOperationTests
                 null),
             moduleVersionId,
             new(
-                new(moduleVersionId, LibraryTypeAccessibility.Public),
+                new(
+                    moduleVersionId,
+                    LibraryTypeAccessibility.Public,
+                    LibraryTypeDeclarationSelection
+                        .DefinitionsAndForwarders),
                 new LibraryTypePopulationCountOutcome.Counted(
                     forwarders: 6,
                     classes: 1,
@@ -957,6 +1198,10 @@ public sealed class LibraryInspectionOperationTests
         Assert.Contains("\"count\"", planJson, StringComparison.Ordinal);
         Assert.Contains("\"rows\"", planJson, StringComparison.Ordinal);
         Assert.Contains(
+            "\"declarationSelection\": \"Forwarders\"",
+            planJson,
+            StringComparison.Ordinal);
+        Assert.Contains(
             "\"memberCount\"",
             planJson,
             StringComparison.Ordinal);
@@ -969,6 +1214,9 @@ public sealed class LibraryInspectionOperationTests
                 "The Library inspection plan did not deserialize.");
         Assert.NotNull(roundTrippedPlan.Types.Count);
         Assert.NotNull(roundTrippedPlan.Types.Rows);
+        Assert.Equal(
+            LibraryTypeDeclarationSelection.Forwarders,
+            roundTrippedPlan.Types.DeclarationSelection);
         Assert.NotNull(
             roundTrippedPlan.Types.Rows.MemberCount);
         Assert.Equal(
@@ -1026,7 +1274,9 @@ public sealed class LibraryInspectionOperationTests
         LibraryInspectionTestLibrary library,
         bool count,
         LibraryTypePopulationRowsRequest rows,
-        ApiSurfaceExtractionBounds? bounds = null) =>
+        ApiSurfaceExtractionBounds? bounds = null,
+        LibraryTypeDeclarationSelection declarationSelection =
+            LibraryTypeDeclarationSelection.DefinitionsAndForwarders) =>
         LibraryInspectionOperation.Execute(
             new(
                 library.Reference,
@@ -1036,7 +1286,8 @@ public sealed class LibraryInspectionOperationTests
                         count
                             ? new LibraryTypePopulationCountRequest()
                             : null,
-                        rows),
+                        rows,
+                        declarationSelection),
                     bounds ?? s_bounds)),
             library.IssueOperation(),
             TestContext.Current.CancellationToken);
