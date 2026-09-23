@@ -603,7 +603,11 @@ The export type declares one association with a repeatable class attribute:
 
 ```csharp
 using System.Runtime.InteropServices.JavaScript;
+using System.Text.Json;
+using DotnetInspect.Web.Interop.Source.Operations;
 using TsJsExport;
+
+namespace DotnetInspect.Web.Interop.Source;
 
 [JsExportJsonInput(
     nameof(SourceExports.QueryMethodBodyComparison),
@@ -612,12 +616,56 @@ using TsJsExport;
 public static partial class SourceExports
 {
     [JSExport]
-    public static Task<string> QueryMethodBodyComparison(
+    public static async Task<string> QueryMethodBodyComparison(
         string operationId,
-        string requestJson) =>
-        RunMethodBodyComparison(operationId, requestJson);
+        string requestJson)
+    {
+        BrowserMethodBodyComparisonResult result =
+            await MethodBodyComparisonOperations.RunMethodBodyComparison(
+                operationId,
+                requestJson);
+        return JsonSerializer.Serialize(
+            result,
+            BrowserSourceJsonContext.Default.BrowserMethodBodyComparisonResult);
+    }
 }
 ```
+
+The export remains a thin interop boundary. Request parsing and operation
+coordination belong to the functionality namespace:
+
+```csharp
+using System.Text.Json;
+
+namespace DotnetInspect.Web.Interop.Source.Operations;
+
+internal static class MethodBodyComparisonOperations
+{
+    internal static Task<BrowserMethodBodyComparisonResult>
+        RunMethodBodyComparison(
+            string operationId,
+            string requestJson)
+    {
+        BrowserMethodBodyComparisonRequest request =
+            JsonSerializer.Deserialize(
+                requestJson,
+                BrowserSourceJsonContext.Default
+                    .BrowserMethodBodyComparisonRequest)
+            ?? throw new ArgumentException(
+                "A method-body comparison request is required.");
+
+        return MethodBodyComparisonWorkflow.RunAsync(
+            operationId,
+            request);
+    }
+}
+```
+
+`RunMethodBodyComparison` returns the typed result to
+`SourceExports.QueryMethodBodyComparison`; the export then serializes and
+returns it. Keeping the outgoing serializer call at the export boundary
+preserves existing result-flow authentication, while the input declaration
+allows deserialization to remain in the functionality layer.
 
 `JsExportJsonInputAttribute` is sealed, non-inherited, valid only on classes,
 repeatable, and has one constructor taking, in order:
