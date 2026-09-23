@@ -1031,8 +1031,9 @@ assembly and XML companion in the .NET 11 reference pack.
     [#8342](https://github.com/richlander/dotnet-inspect/issues/8342).** The
     build-attestation contract under #6584 was not satisfiable for ordinary
     nuget.org packages;
-14. **In progress under
-    [#8342](https://github.com/richlander/dotnet-inspect/issues/8342).**
+14. **Completed under
+    [#8342](https://github.com/richlander/dotnet-inspect/issues/8342) and
+    [#8357](https://github.com/richlander/dotnet-inspect/pull/8357).**
     Adopt exact PDB-mapped, checksum-verified member declarations and remove
     the cooperating-build attestation substrate;
 15. **Completed.** Lock the focused CSharpText authored-documentation contract
@@ -1047,10 +1048,13 @@ assembly and XML companion in the .NET 11 reference pack.
     [#8130](https://github.com/richlander/dotnet-inspect/issues/8130).**
     Extend Queries with authored-source documentation evidence through a
     QuerySpace-backed operation;
-20. **In progress under
-    [#8155](https://github.com/richlander/dotnet-inspect/issues/8155).**
+20. **Completed under
+    [#8155](https://github.com/richlander/dotnet-inspect/issues/8155) and
+    [#8357](https://github.com/richlander/dotnet-inspect/pull/8357).**
     Adopt authored-source documentation in Inspect Web;
-21. adopt authored-source documentation in the CLI and remove the remaining
+21. **In progress under
+    [#8366](https://github.com/richlander/dotnet-inspect/issues/8366).**
+    Adopt authored-source documentation in the CLI and remove the remaining
     `SourceEnricher` composition; and
 22. delete `DocCommentParser` from CSharpText after all consumers are gone and
     close the documentation portion of #6335.
@@ -1116,6 +1120,36 @@ Its reference-pack Library has no authorized implementation-source operation,
 so requesting authored source would advertise work the host cannot perform.
 Adding that source path is separately scoped work, not a name- or path-based
 inference in this consumer adoption.
+
+### Shared package adoption boundary
+
+PackageQueries owns package materialization, exact API and implementation
+subject resolution, and combined DocumentationHouse execution.
+`PackageDocumentationInspection` wraps that portable
+`DocumentationQueryOutcome` in `InspectionEnvelope<TContent>`. Inspect Web and
+the CLI both call this Sections-owned inspection and provide only their
+host-authorized `AssemblyContextSourceQueryContext`; neither host composes
+DocumentationHouse or merges compiled and authored fields independently.
+
+The CLI requests the shared combined demand only for an exact selected package
+compile asset when the user explicitly selects detailed verbosity, or when an
+existing host call explicitly requests documentation or samples. Ordinary
+member output, implicit declaration documentation, and `Description` columns
+remain compiled-only and cannot discover or acquire PDBs or source.
+Direct-library and platform routes also remain compiled-only because those
+routes do not yet provide the same package implementation-source operation.
+
+For multi-subject package requests, the shared API issues one Library operation
+lease per subject and DocumentationHouse scans each selected compiled XML
+companion once before transferring the corresponding leases to independently
+authorized authored operations. An optional implementation PDB that exceeds
+its materialization budget or cannot be read is omitted with distinct typed
+authored incompleteness; valid compiled XML remains independently available.
+
+The CLI selects the first field contribution in the House-established
+requested-channel order, retains typed non-success for diagnostics, and leaves
+source-location projection to `SourceEnricher`. `SourceEnricher` no longer
+fetches source text or parses documentation comments.
 
 ## Evidence and required gates
 

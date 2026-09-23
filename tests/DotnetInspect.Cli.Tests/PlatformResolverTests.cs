@@ -1028,13 +1028,13 @@ public class PlatformResolverTests
                 Path.GetDirectoryName(assemblyPath)!);
 
             Assert.True(
-                CompiledDocumentationEnricher
+                DocumentationEnricher
                     .TryGetPlatformReferenceLocation(
                         assemblyPath,
                         "runtime",
                         SyntheticVersion,
                         SyntheticTfm,
-                        out CompiledDocumentationEnricher
+                        out DocumentationEnricher
                             .PlatformReferenceLocation location));
             Assert.True(location.IsPackageBacked);
             Assert.Null(location.DotnetRoot);
