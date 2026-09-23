@@ -1050,6 +1050,59 @@ measurable, unlike the control-flow rewrite's all-or-nothing invariant relaxatio
    raising pipeline used by CLI and Browser/Wasm consumers; no host-specific
    conversion or naming path is introduced.
 
+### Exact managed-reference slot storage
+
+A function-scope stack-slot web whose decided type is one complete managed
+reference materializes as a typed ref local before printing. Admission requires
+every load to testify to that exact managed-reference type, every store producer
+to have that same result type, and the complete referenced type to pass the
+existing explicit-type spelling rules in the owning method. Direct slot-copy
+components remain atomic: every member must independently satisfy its storage
+contract before any member materializes. This is exact storage, not a
+conversion, ref-safety inference, lifetime extension, or live-range split.
+
+The rewrite preserves every producer and consumer occurrence in its existing
+order. A managed-reference store rebinds the ref local; it never becomes a
+write through the referenced place. Existing local planning owns declaration
+placement: a safely block-contained first store may declare the ref local,
+while a cross-block/read-before-store shape retains the existing explicit null
+reference initialization. No address, dereference, side effect, control-flow
+edge, `readonly`, `scoped`, pinned, or unsafe-context decision moves.
+Unspellable managed-reference types, missing or conflicting testimony,
+store-only/load-only webs, nested bodies awaiting their own finalization, and
+components with any independently deferred member remain outside admission.
+
+No admitted managed-reference stack slot may reach `CSharpPrinter`. The
+materialization boundary fails visibly if such a decided exact web survives;
+the printer's residual-stack-slot ref declaration and `= ref` rebinding
+branches are deleted. Its ordinary typed-local ref spelling remains because
+materialized managed references consume that existing path. Other residual
+slot families retain their current unifier, naming, declaration, and explicit
+failure boundaries; this slice does not claim the C2 terminus.
+
+The motivating published witness is Microsoft.CodeAnalysis.Common 5.0.0
+`Microsoft.CodeAnalysis.Operation.GetDebuggerDisplay` (`0x0600140E`). Its
+address of a `DefaultInterpolatedStringHandler` local currently reaches the
+printer as `ref DefaultInterpolatedStringHandler S_0 = ref V_0;`; exact
+materialization must preserve that text, aliasing, and call receiver. The fixed
+14-assembly, 89,065-method census contains 451 managed-reference residual webs:
+341 standalone and 110 members of direct-copy components. Every store producer
+already has the testified managed-reference type, and replaying component
+atomicity with this one admission accepts all 451 with zero measurement
+failures. The contract does not transfer that population result to unseen
+inputs.
+
+Focused Release gates cover direct and cross-block ref storage, repeated
+rebinding, atomic copies, declaration placement, visible declines, raised and
+lowered pipelines, and the pinned Roslyn witness. The fixed-input residual and
+printer-unifier censuses gate the measured population change; product Render
+A/B gates output neutrality. The existing storage-rewrite invariant gates node
+and occurrence preservation. Roslyn's bound ref-local model and ILSpy's typed
+expression/local model provide the same decision-before-emission baseline
+already surveyed above; this slice transfers only that ownership principle,
+not either implementation. The shared host-neutral pipeline adopts the change
+for CLI and Browser/Wasm in this one slice.
+
 ### Storage-rewrite validation
 
 Materialization preserves the ordered IR tree while replacing each converted
