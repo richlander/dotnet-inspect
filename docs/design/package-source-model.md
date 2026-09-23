@@ -1032,8 +1032,9 @@ unselected entries refuse visibly
 complete fetch on the same authority, an authorized cache still answers first,
 an `Acquire` with ranged access is refused, and the limits mapping. The CLI
 consumer's gates are in `ConfiguredPayloadAcquisitionTests`: the real
-`Avalonia` 12.1.2 archive searched for `net10.0` transfers under a quarter of
-its bytes (`SearchCommand_RangedRead_RealAvaloniaArchive`), a
+`Avalonia` 12.1.2 archive searched for `net10.0` transfers its directory and
+the 22 `net10.0` reference and implementation assemblies, 3.6 MB of 10.1 MB
+(`SearchCommand_RangedRead_RealAvaloniaArchive`), a
 `netstandard2.0`-only package realized for `net11.0` needs no complete
 download, a large unselected entry is never transferred, and a source that
 ignores `Range` completes through the complete download.

@@ -59,9 +59,10 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
     }
 
     /// <summary>
-    /// The real Avalonia 12.1.2 archive (10 MB: net8.0 and net10.0 libraries,
-    /// XML docs, analyzers, designer tools) searched for net10.0 transfers
-    /// the directory and the net10.0 assemblies only, about a fifth of it.
+    /// The real Avalonia 12.1.2 archive (10.1 MB: net8.0 and net10.0 reference
+    /// and implementation assemblies, XML docs, analyzers, designer tools)
+    /// searched for net10.0 transfers the directory and the 22 net10.0
+    /// reference and implementation assemblies only: 3.6 MB compressed.
     /// </summary>
     [Fact]
     public async Task SearchCommand_RangedRead_RealAvaloniaArchive()
@@ -96,8 +97,9 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
         Assert.Contains("InvalidateMeasure", result.Output, StringComparison.Ordinal);
         Assert.Contains("payload Ranged", result.Error, StringComparison.Ordinal);
         Assert.Equal(0, feed.FullPackageResponses);
+        Assert.Contains("22 of 121 entries", result.Error, StringComparison.Ordinal);
         Assert.True(
-            feed.PackageBytesServed < package.Length / 4,
+            feed.PackageBytesServed < package.Length * 2 / 5,
             $"served {feed.PackageBytesServed} of {package.Length} package bytes");
     }
 
