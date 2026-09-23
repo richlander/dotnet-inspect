@@ -80,13 +80,17 @@ described below (at most 64 KiB). NuGetFetch cannot reference
 `PackagePayloadLimits`, which lives in `DotnetInspector.Packages`, and unlike
 the full fetch, whose limits that layer applies after the stream returns, a
 ranged read must know its bounds before each transfer; so the Packages layer
-maps its limits into this record at the lease step. Every refusal of a bound
-settles as `ResponseRejected`, the kind every existing NuGetFetch bound uses;
-`InvalidResponse` is reserved for malformed structure.
+maps its limits into this record at the lease step and chooses the slack,
+which `PackagePayloadLimits` has no concept of (its default is that layer's
+to set; the contract suite fixes the slack explicitly per case). Every
+refusal of a bound settles as `ResponseRejected`, the kind every existing
+NuGetFetch bound uses; `InvalidResponse` is reserved for malformed structure.
 
 The memory that a source ignored `Range` lives on the source client
-instance, which the package source model keeps for the invocation; a later
-invocation probes again.
+instance. The client's lifetime belongs to the host's composition, which the
+package source model does not own: a CLI invocation may build several
+compositions and so may probe a non-ranged source once per client, and the
+browser keeps its clients for the page.
 
 ### Reading the directory
 
@@ -101,12 +105,14 @@ the source supplied (`ETag`, `Last-Modified`, or none).
 
 The archive's total length is derived from the end-of-central-directory
 record itself (directory offset plus directory size plus the record and its
-comment), so it is known wherever the record is, and it is cross-checked
-against `Content-Range` and `Content-Length` wherever those are visible. The
-record and its comment must end exactly at the end of the tail; trailing
-bytes after them, a disagreement between the derived total and a visible
-header, or a directory offset that does not lie before the record are
-`InvalidResponse`. An archive shorter than the tail request arrives whole;
+comment), so it is known wherever the record is. Where `Content-Range` is
+visible, its total is cross-checked against the derived total; `Content-Length`
+on a `206` is the slice's length, never the archive's, and is cross-checked
+only against the body length and the requested length. The record and its
+comment must end exactly at the end of the tail; trailing bytes after them, a
+`Content-Range` total that differs from the derived total, a `Content-Length`
+that differs from the body, or a directory offset that does not lie before
+the record are `InvalidResponse`. An archive shorter than the tail request arrives whole;
 the reader recognizes that by the derived total and needs no second request.
 
 The directory is bounded before it is parsed with the same caps the
@@ -149,11 +155,13 @@ with the directory entry (name, method, and CRC when the header carries it),
 then expands the data (stored or deflate; other methods are
 `ArchiveUnsupported`). Expansion stops at the caller's expanded bound: an
 entry whose expanded size the directory declares above the bound is refused
-as `ResponseRejected` before any transfer, and an entry whose actual
-expansion exceeds the bound or the declared size is refused mid-stream as
-`ResponseRejected` without retaining partial bytes. The CRC is checked on
-completion; a mismatch is `InvalidResponse`. The expanded bytes are returned
-as caller-owned content, never the response stream.
+as `ResponseRejected` before any transfer, so the bound is settled before the
+declared size can be tested. An entry whose actual expansion does not match
+its declared size is malformed and is refused mid-stream as `InvalidResponse`
+without retaining partial bytes, the outcome the local source gives that case
+today. The CRC is checked on completion; a mismatch is `InvalidResponse`. The
+expanded bytes are returned as caller-owned content, never the response
+stream.
 
 ### Transport rules
 
@@ -164,8 +172,8 @@ as caller-owned content, never the response stream.
 - A `200` answer to a ranged request means the source ignored the range. The
   reader does not consume the body as a full download; it closes the response
   and reports `RangeIgnored` for that source, so the caller takes the full
-  fetch path. The source is remembered as non-ranged for the rest of the
-  invocation.
+  fetch path. The client instance remembers the source as non-ranged for its
+  own lifetime and does not probe it again.
 - Every request after the first carries `If-Range` with the validator (`ETag`
   or `Last-Modified`) the first response supplied. A `200` answer to such a
   request, or a `206` whose total or validator differs, means the archive
@@ -191,9 +199,12 @@ and `Last-Modified`, not `Content-Range`) leaves the reader with the status
 and the body. The rules above already make that sufficient: the archive total
 comes from the end-of-central-directory record, not from `Content-Range`; a
 tail body shorter than the request is the whole archive when the derived
-total equals the body length (this match applies to the tail request only);
-and every other `206` matches only when its body length equals the requested
-length. Where a header is visible it is cross-checked as on other hosts. Both a suffix
+total equals the body length (this match applies to the tail request only,
+and a short tail whose derived total differs from its body length is
+`InvalidResponse`); and every other `206` matches only when its body length
+equals the requested length. `Content-Length`, which nuget.org does expose,
+is the slice's length and is checked against the body as on other hosts;
+where any other header is visible it is cross-checked the same way. Both a suffix
 `Range` and `If-Range` trigger a CORS preflight, which nuget.org allows
 (`access-control-allow-headers: range,if-range`, probed 2026-09-23). The
 contract suite runs the reader in a headers-hidden mode to gate these rules;
@@ -255,19 +266,21 @@ All gates run in Release.
 | 1. Directory within the tail | one ranged request; directory equals `ZipArchive`'s view of the same file (oracle) | contract suite |
 | 2. Directory larger than the tail | exactly two ranged requests; same equality | contract suite |
 | 3. Entry read | one ranged request; expanded bytes equal the original file; CRC checked | contract suite |
-| 4. `200` to a ranged request | `RangeIgnored`; no bytes retained; the source is not ranged again in the invocation | contract suite |
+| 4. `200` to a ranged request | `RangeIgnored`; no bytes retained; the same client instance does not range that source again | contract suite |
 | 5. Archive replaced between requests (validator differs, or `200` to `If-Range`) | `ArchiveChanged`; nothing retained | contract suite |
-| 6. `Content-Range` or `Content-Length` disagrees with the derived total | `InvalidResponse` | contract suite |
+| 6. `Content-Range` total disagrees with the derived total | `InvalidResponse` | contract suite |
+| 6a. `Content-Length` disagrees with the body or the requested length; a correct `206` whose `Content-Length` is the slice's length is accepted | `InvalidResponse`; accepted | contract suite |
 | 7. Entry declared above the expanded bound (`ResponseRejected`); entry extent past the central-directory offset (`InvalidResponse`) | refused before any transfer | contract suite |
-| 8. Entry expands past its declared size (crafted deflate) | `ResponseRejected` mid-stream; no partial content | contract suite |
-| 9. No end-of-central-directory record; trailing bytes after the record | `InvalidResponse` | contract suite |
-| 9a. Directory over the entry or byte caps; derived total over the archive-total limit | `ResponseRejected` before any further transfer | contract suite |
+| 8. Entry expands to other than its declared size (crafted deflate) | `InvalidResponse` mid-stream; no partial content | contract suite |
+| 9. No end-of-central-directory record; trailing bytes after the record; directory offset not before the record | `InvalidResponse` | contract suite |
+| 9a. Directory over the entry or byte caps; derived total over the archive-total limit; a limits record with slack above 64 KiB | `ResponseRejected` before any further transfer; the limits record refuses construction | contract suite |
 | 10. Zip64 archive; unsupported method | `ArchiveUnsupported`, visible | contract suite |
 | 11. Local-folder archive through the shared reader | directory and entries equal the `ZipArchive` oracle; the local source's manifest outcomes are unchanged as its owner specifies them (caps as `ResponseRejected`, malformed structure as invalid data) | contract suite (local) |
 | 11a. Last entry whose data ends at the central directory | the clamped first request never runs past the directory offset; entry read completes with the CRC | contract suite |
 | 12. Operation ceiling during an entry read | terminal typed timeout, no partial content | contract suite |
 | 13. Motivating asset | `Microsoft.NETCore.App.Ref` 9.0.18 from nuget.org: directory in under 100 KB of transfer, `ref/net9.0/System.Runtime.dll` expanded and parseable by the metadata reader | Slow network gate, plus a preserved probe as design evidence |
-| 14. Local extra field longer than the directory declares | `Grpc.Net.Client` 2.80.0 (real asset, preserved as a fixture): first request short by the extra bytes, exactly one follow-up, CRC passes | contract suite |
+| 14. Local extra field longer than the directory declares, slack fixed at 0 | `Grpc.Net.Client` 2.80.0 (real asset, preserved as a fixture): first request short by the extra bytes, exactly one follow-up rechecked against the directory offset, CRC passes | contract suite |
+| 14a. Same asset with the Packages layer's default slack | no follow-up; CRC passes | contract suite |
 | 15. Headers hidden (browser mode) | archive smaller than the tail read whole from the derived total; `206` matched by body length; validator rules where visible | contract suite (headers-hidden mode); end-to-end browser read `unverified` until the Inspect Web slice |
 
 ## Adoption
