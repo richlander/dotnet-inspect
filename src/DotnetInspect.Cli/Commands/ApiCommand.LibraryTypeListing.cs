@@ -21,10 +21,15 @@ public static partial class ApiCommand
             ApiOutputFormatter.BuildLibraryTypeView(
                 result.Document,
                 result.Rows);
+        HashSet<string> includeSections =
+            ApiTypeSectionDescriptors.CreatePipeline()
+                .GetCandidateSections(
+                    options.UserVerbosity,
+                    options.IncludeSections);
         var writerOptions =
             new MarkoutWriterOptions
             {
-                IncludeSections = options.IncludeSections,
+                IncludeSections = includeSections,
                 IncludeDescription =
                     options.Verbosity != Verbosity.Quiet,
             };

@@ -1901,11 +1901,9 @@ public sealed class InspectionPlanningTests
                     StructuralViewIdentity.Type,
                     InspectionCatalogIdentity.ApiType));
 
-        SectionCardinalityDeclaration apiInfo =
-            Assert.IsType<SectionCardinalityDeclaration>(
-                projection.SectionCardinalities?[SectionNames.ApiInfo]);
-        Assert.Equal(SectionSemanticShape.Scalar, apiInfo.Shape);
-        Assert.Empty(apiInfo.Terminals);
+        Assert.False(
+            projection.SectionCardinalities?.ContainsKey(
+                SectionNames.ApiInfo));
 
         foreach (string section in new[]
                  {

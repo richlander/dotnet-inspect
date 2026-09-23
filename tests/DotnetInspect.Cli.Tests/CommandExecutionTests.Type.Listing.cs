@@ -84,6 +84,53 @@ public partial class CommandExecutionTests
                             StringComparison.Ordinal)));
     }
 
+    [Fact]
+    public async Task Type_Listing_NormalOmitsVerboseSurfaceInventories()
+    {
+        var normal = await RunAppAsync(
+            "type",
+            "--platform",
+            "System.Text.Json",
+            "-v:n",
+            "--tips",
+            "q");
+        var selected = await RunAppAsync(
+            "type",
+            "--platform",
+            "System.Text.Json",
+            "-v:n",
+            "-S",
+            SectionNames.Classes,
+            "--tips",
+            "q");
+
+        Assert.Equal(0, normal.Exit);
+        Assert.Empty(normal.Error);
+        Assert.Contains(
+            "# System.Text.Json",
+            normal.Output,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "## Classes",
+            normal.Output,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "| `",
+            normal.Output,
+            StringComparison.Ordinal);
+
+        Assert.Equal(0, selected.Exit);
+        Assert.Empty(selected.Error);
+        Assert.Contains(
+            "## Classes",
+            selected.Output,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "| `",
+            selected.Output,
+            StringComparison.Ordinal);
+    }
+
     /// <summary>
     /// The compact fields list is the whole of the <c>-v:q</c> view and appears nowhere else. Every
     /// other view can reach the same facts through the bounded API Info section, so carrying them

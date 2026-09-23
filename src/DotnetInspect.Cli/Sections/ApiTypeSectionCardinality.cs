@@ -10,8 +10,6 @@ internal static class ApiTypeSectionCardinality
         new Dictionary<string, SectionCardinalityDeclaration>(
             StringComparer.OrdinalIgnoreCase)
         {
-            [SectionNames.ApiInfo] =
-                SectionCardinalityDeclaration.Scalar,
             [SectionNames.Classes] =
                 SectionCardinalityDeclaration.Inventory,
             [SectionNames.Structs] =

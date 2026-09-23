@@ -1,4 +1,5 @@
 using System.Reflection;
+using System.Text;
 using System.Text.Json;
 
 using DotnetInspector.Libraries;
@@ -71,6 +72,47 @@ public sealed class LibraryInspectionOperationTests
         Assert.Equal(
             "A complete portable Workspace scenario was not supplied.",
             share.Reason.ToString());
+        await library.RetireAsync();
+        AssertDetachedContract();
+    }
+
+    [Fact]
+    public async Task
+        GenericDefinitionWithoutArityMarkerRetainsTypeParameterDisplay()
+    {
+        byte[] content =
+            await LibraryInspectionTestLibrary.RealSystemTextJsonAsync();
+        byte[] original = Encoding.UTF8.GetBytes("JsonConverter`1");
+        byte[] replacement = Encoding.UTF8.GetBytes("JsonConverterXX");
+        Assert.Equal(original.Length, replacement.Length);
+        int offset = content.AsSpan().IndexOf(original);
+        Assert.True(offset >= 0);
+        Assert.Equal(
+            -1,
+            content.AsSpan(offset + original.Length).IndexOf(original));
+        replacement.CopyTo(content, offset);
+
+        await using LibraryInspectionTestLibrary library =
+            await LibraryInspectionTestLibrary.CreateAsync(
+                content,
+                LibraryInspectionTestLibrary.Identity(content));
+        LibraryDocument document = Document(
+            Execute(
+                library,
+                count: false,
+                new(
+                    maximumRows: 5_000,
+                    memberCount: new())));
+        LibraryTypePopulationRowsOutcome.Read rows =
+            Assert.IsType<LibraryTypePopulationRowsOutcome.Read>(
+                document.Types.Rows);
+
+        Assert.Contains(
+            rows.Items,
+            row =>
+                row.DisplayName.ToString()
+                    == "System.Text.Json.Serialization.JsonConverterXX<T>");
+
         await library.RetireAsync();
         AssertDetachedContract();
     }

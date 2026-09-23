@@ -217,15 +217,16 @@ internal static class AssemblyTypeDeclarationRowsReader
         MetadataReader reader,
         AssemblyTypeDeclaration declaration)
     {
-        if (!declaration.Name.Segments.Any(
+        bool hasArityMarker =
+            declaration.Name.Segments.Any(
                 static segment =>
-                    segment.Contains('`', StringComparison.Ordinal)))
-        {
-            return declaration.Name.ToMetadataFullName();
-        }
-
+                    segment.Contains('`', StringComparison.Ordinal));
         if (declaration.Kind != AssemblyTypeDeclarationKind.Definition)
-            return MetadataTypeNameFormatter.FormatFullName(declaration.Name);
+        {
+            return hasArityMarker
+                ? MetadataTypeNameFormatter.FormatFullName(declaration.Name)
+                : declaration.Name.ToMetadataFullName();
+        }
 
         TypeDefinitionToken token =
             declaration.DefinitionToken
@@ -242,6 +243,9 @@ internal static class AssemblyTypeDeclarationRowsReader
         TypeDefinition definition = reader.GetTypeDefinition(handle);
         GenericParameterHandleCollection parameters =
             definition.GetGenericParameters();
+        if (parameters.Count == 0 && !hasArityMarker)
+            return declaration.Name.ToMetadataFullName();
+
         GenericContext.ValidateParameterIndices(reader, parameters);
         string[] parameterNames =
         [
