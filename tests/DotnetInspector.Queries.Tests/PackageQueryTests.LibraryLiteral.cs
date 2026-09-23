@@ -71,6 +71,7 @@ public sealed partial class PackageQueryTests
             envelope.Content.Summary.Occurrences);
         PackageQueryLibraryLiteralAssessment publishedAssessment =
             Assert.Single(assessmentSink.Assessments);
+        Assert.Same(assessment, publishedAssessment);
         Assert.Equal(assessment, publishedAssessment);
         PackageQueryEvent.Match published = Assert.Single(
             sink.Events.OfType<PackageQueryEvent.Match>());

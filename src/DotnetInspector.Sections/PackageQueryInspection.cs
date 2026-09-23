@@ -249,6 +249,12 @@ public static class PackageQueryInspection
 
         PackageSourceOperationLease? sourceOperation =
             execution.CreateSourceOperation(cancellationToken);
+        var semanticSink = new SemanticSink(
+            plan,
+            prequalified,
+            source.Source,
+            execution.AssessmentSink,
+            nonterminalSink);
         PackageAssemblySemanticQueryDocument semantic;
         try
         {
@@ -269,12 +275,6 @@ public static class PackageQueryInspection
                     literal),
                 execution.Budget,
                 maximumMatches: plan.MaximumMatches);
-            var sink = new SemanticSink(
-                plan,
-                prequalified,
-                source.Source,
-                execution.AssessmentSink,
-                nonterminalSink);
             PackageSourceOperationLease transferredOperation = sourceOperation;
             sourceOperation = null;
             InspectionEnvelope<PackageAssemblySemanticQueryDocument> envelope =
@@ -282,7 +282,7 @@ public static class PackageQueryInspection
                     request,
                     transferredOperation,
                     execution.PayloadAcquisition,
-                    sink,
+                    semanticSink,
                     cancellationToken).ConfigureAwait(false);
             semantic = envelope.Content;
         }
@@ -340,11 +340,7 @@ public static class PackageQueryInspection
                 semantic.NotApplicableCount,
                 semantic.Completion.IsMatchLimitReached))
         {
-            LibraryLiteralAssessments =
-            [
-                .. semantic.CandidateOutcomes.Select(outcome =>
-                    ProjectAssessment(source.Source, outcome)),
-            ],
+            LibraryLiteralAssessments = [.. semanticSink.Assessments],
         };
 
         foreach (PackageQueryFailure failure in populationFailures)
@@ -867,16 +863,22 @@ public static class PackageQueryInspection
     {
         private int _publishedMatches;
 
+        internal List<PackageQueryLibraryLiteralAssessment> Assessments
+            { get; } = [];
+
         public async ValueTask ReportAsync(
             PackageAssemblySemanticQueryCandidateOutcome outcome,
             CancellationToken cancellationToken)
         {
+            PackageQueryLibraryLiteralAssessment assessment =
+                ProjectAssessment(source, outcome);
             if (assessmentSink is not null)
             {
                 await assessmentSink.ReportAsync(
-                    ProjectAssessment(source, outcome),
+                    assessment,
                     cancellationToken).ConfigureAwait(false);
             }
+            Assessments.Add(assessment);
             if (querySink is null)
                 return;
 
