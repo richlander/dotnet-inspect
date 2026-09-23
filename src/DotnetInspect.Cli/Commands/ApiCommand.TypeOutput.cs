@@ -813,6 +813,18 @@ public partial class ApiCommand
             return 0;
         }
 
+        if (fullSerializer
+            && (view.EnumValues is not null
+                || view.EnumValuesWithDocs is not null)
+            && ShouldRenderMemberIndex(options))
+        {
+            memberIndexView ??= new MemberIndexView();
+            ApiOutputFormatter.PopulateMemberIndex(
+                memberIndexView,
+                type,
+                options);
+        }
+
         // Whole-type decompilation (type command; member flows populate per
         // member above). Explicit-only: requires -S "Decompiled Source".
         // Sits OUTSIDE the member-sections region so enum types (which

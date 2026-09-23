@@ -489,6 +489,15 @@ public partial class ApiCommand
             : typePipeline.SelectableSectionNames;
         if (options is TypeOptions
             {
+                CountDefaultPopulation: true,
+            } carriedCountOptions)
+        {
+            options = LowerDefaultCountPopulation(
+                carriedCountOptions,
+                singleTypeMode);
+        }
+        else if (options is TypeOptions
+            {
                 Count: true,
                 Discover: null,
                 Select: null,

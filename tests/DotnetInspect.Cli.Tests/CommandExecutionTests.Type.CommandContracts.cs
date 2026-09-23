@@ -215,6 +215,38 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Type_DefaultCount_EnumMatchesMemberIndex()
+    {
+        var options = new TypeOptions
+        {
+            PlatformAssembly = "System.Private.CoreLib",
+            TypeName = "System.DayOfWeek",
+            Count = true,
+        };
+
+        var (defaultExit, defaultOutput, defaultError) =
+            await ConsoleCapture.RunAsync(
+                () => TypeCommand.ExecuteAsync(options));
+        var (explicitExit, explicitOutput, explicitError) =
+            await ConsoleCapture.RunAsync(
+                () => TypeCommand.ExecuteAsync(
+                    options with
+                    {
+                        Select = [SectionNames.MemberIndex],
+                    }));
+
+        Assert.Equal(0, defaultExit);
+        Assert.Equal(0, explicitExit);
+        Assert.Empty(defaultError);
+        Assert.Empty(explicitError);
+        Assert.Equal(explicitOutput, defaultOutput);
+        Assert.True(
+            int.Parse(
+                defaultOutput.Trim(),
+                CultureInfo.InvariantCulture) > 0);
+    }
+
+    [Fact]
     public async Task Type_SingleSectionCount_WithPlainText_WritesInteger()
     {
         var options = new TypeOptions
