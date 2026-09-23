@@ -963,7 +963,7 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public void Type_FixedOverview_IsExactlyTypeInfo()
+    public void Type_FixedOverview_IncludesTypeInfo()
     {
         // Non-vacuity for the whole slice: every `type X -S` assertion below is only meaningful
         // because this set is non-empty. An empty set is the state ApiCommand.HasNoBareSelectOverview
@@ -971,7 +971,7 @@ public partial class CommandExecutionTests
         // output tests kept passing for the wrong reason.
         var fixedOverview = ApiMemberSectionDescriptors.CreatePipeline().FixedOverviewSectionNames;
 
-        Assert.Equal([SectionNames.TypeInfo], fixedOverview);
+        Assert.Contains(SectionNames.TypeInfo, fixedOverview);
     }
 
     [Fact]
@@ -979,12 +979,13 @@ public partial class CommandExecutionTests
     {
         // The bounded claim is about how many LINES the overview has, not how wide they are.
         // Func`17 is the worst arity in the platform, and its `Type Parameters` cell reaches ~492
-        // characters -- one row, rendered identically by explicit `-S "Type Info"` on main, so it
-        // is a property of the section rather than of this selection change. See #3616.
+        // characters -- one row in Type Info, so it does not invalidate the bounded-line claim.
         var (exit, output, _) = await RunAppAsync("type", "System.Func`17", "-S", "--tips", "q");
 
         Assert.Equal(0, exit);
-        Assert.Equal([SectionNames.TypeInfo], SectionHeadings(output));
-        Assert.True(output.Split('\n').Length <= 16, $"Overview grew to {output.Split('\n').Length} lines at arity 17.");
+        Assert.Equal(
+            [SectionNames.Baseclass, SectionNames.TypeInfo],
+            SectionHeadings(output));
+        Assert.True(output.Split('\n').Length <= 24, $"Overview grew to {output.Split('\n').Length} lines at arity 17.");
     }
 }

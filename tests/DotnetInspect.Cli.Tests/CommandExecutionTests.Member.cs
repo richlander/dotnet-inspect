@@ -1618,20 +1618,21 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Member_SingleOverloadFilter_MixedInfoAndDetailSelect_RendersDetail()
+    public async Task Member_SingleOverloadFilter_MultipleDetailSections_RenderBoth()
     {
         var options = new MemberOptions
         {
             PlatformAssembly = "System.Text.Json",
             TypeName = "JsonSerializerOptions",
             MemberFilter = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "GetConverter" },
-            Select = ["Info", "IL"]
+            Select = ["Signature", "IL"]
         };
 
         var (exit, output, _) = await ConsoleCapture.RunAsync(
             () => MemberCommand.ExecuteAsync(options));
 
         Assert.Equal(0, exit);
+        Assert.Contains("## Signature", output);
         Assert.Contains("## IL", output);
         Assert.Contains("IL_0000:", output);
     }
