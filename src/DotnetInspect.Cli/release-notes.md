@@ -77,6 +77,15 @@
   compatibility guidance. SourceLink URL shape now uses
   `--prefer-rendered-urls`; direct fetchable URLs remain the default (#7621,
   #8204, #8293, #8306).
+- **Breaking:** Renames undecorated single-payload Package and Project output
+  from `--bare` to `--raw`; `--bare` is no longer recognized or reserved.
+  Explicit `--raw` overrides `DOTNET_INSPECT_FORMAT` but is rejected when
+  combined with an explicit format flag instead of silently winning. The old
+  SourceLink URL-shape meaning does not return: fetchable URLs are now the
+  default, browser views use `--prefer-rendered-urls`, and `--blob` remains
+  reserved. A legacy `--raw` invocation fails unless it selects one payload; a
+  single URL section emits the unchanged fetchable values without decoration
+  (#8307, #8322).
 
 ### Workspaces and coordinates
 
@@ -228,15 +237,6 @@
   as a scalar `InspectionEnvelope<LibraryOverviewOutcome>`, with compact or
   file JSON publication and pre-acquisition rejection of incompatible
   section, row, and query controls (#8225).
-- **Breaking:** Renames the undecorated `package` and `project` formatter from
-  `--bare` to `--raw`; `--bare` is now ordinary unrecognized input. Explicit
-  `--raw` outranks `DOTNET_INSPECT_FORMAT` and rejects combination with
-  `--json`, `--jsonl`, `--tsv`, `--table`, `--markdown`, `--plaintext`, or
-  `--mermaid` before acquisition. This reuses the former SourceLink
-  fetchable-URL spelling: fetchable URLs are now the default, browser views use
-  `--prefer-rendered-urls`, and `--blob` remains reserved. A legacy `--raw`
-  invocation fails unless it selects one payload; a single URL section emits
-  the unchanged fetchable values without decoration (#8307, #8322).
 - **Breaking:** Positional `depends <type> --json` now emits shared camel-case
   `TypeDependencySectionResult` Content rather than the former presentation
   graph. Unprojected single-Library `diff --json` emits complete
