@@ -33,6 +33,65 @@ dependency graph traversal.
 `PackageCoordinate` and `PackageSourceCoordinate` remain exact-coordinate
 types. They are not wildcard, range, or latest-selector grammars.
 
+## Consistency principles
+
+Three principles govern every version-resolving path this owner defines. They
+are the rule; the request family, receipt, and host spellings below implement
+them. [#8285](https://github.com/richlander/dotnet-inspect/issues/8285) tracks
+the adoption of the parts marked pending.
+
+### A bound request is exact and never re-resolved
+
+A request is **bound** when the caller supplied one exact version, or when the
+product advertised one exact version and the caller accepted it. A bound
+request acquires that coordinate with no version lookup and no substitution;
+nuget.org immutability makes it trivially consistent. Advertisement is the act
+of binding: whatever the product shows and lets the user pick is acquired as
+shown. A bound request never degrades to an unbound one. An advertised version
+that is unlisted or absent fails visibly rather than sliding to latest.
+
+Implemented: exact `Name@Version` and the pinned-candidate path in
+[PackageHouse](package-house.md), and Inspect Web Spotlight, whose hits carry a
+version and whose selection acquires exactly that coordinate.
+
+### An unbound request is served under eventual consistency
+
+`latest`, wildcards, range endpoints, and major-bound populations discover
+their answer, so they are **unbound** and eventual by nature. A time-to-live is
+one eventual-consistency schedule, not a correctness guarantee. Three rules
+keep eventual results honest:
+
+- the resolved version is always disclosed in the result;
+- the freshness of that resolution is available on request, from the
+  `PackageVersionResolutionReceipt` freshness arm; and
+- a caller who needs consistency now has an explicit switch: `Name@latest`
+  for one coordinate, and a request-level always-check modifier for a whole
+  invocation (pending, #8285).
+
+Eventual consistency is per coordinate. A set can transiently mix versions;
+type discovery tolerates that, and set-level coherence is a separate opt-in
+property that this owner does not promise.
+
+### Prefer a prior resolution over blocking
+
+When a prior resolution exists, an unbound request serves it and refreshes
+rather than blocking on discovery. A request blocks on discovery only when
+there is no prior resolution at all. The mechanisms that follow are:
+
+- serve an expired version entry when the refresh fails or exceeds its budget,
+  with a freshness warning, instead of failing (pending; today the
+  `CachedVersionResolutionTimeout` path reports an error that names the
+  cached versions);
+- spread expiry with jitter so entries written together do not expire
+  together, and bound the number of stale entries refreshed per invocation
+  (pending); and
+- let a curated package set ship advertised versions so its first use is
+  bound and later use is eventual (pending, consumed by #8271).
+
+A refresh is never a hidden cost that changes the answer's shape: the same
+disclosure and freshness rules apply whether the result was served fresh or
+from a prior resolution.
+
 ## Resource-free request family
 
 `PackageVersionSelectionRequest` is a closed family:
@@ -795,6 +854,7 @@ request deduplication is covered separately in
 A pinned version does not by itself guarantee byte reproducibility across
 feeds: two feeds may publish different payloads for one coordinate. A pinned
 coordinate plus one authorized producer, or another verified content identity,
-is reproducible. The bare-name default optimizes for the interactive CLI use
-case where sub-second response time matters more than always having the
-absolute latest version.
+is reproducible. The bare-name default follows the
+[consistency principles](#consistency-principles): it is an unbound request
+served under eventual consistency, so it prefers a prior resolution over
+blocking and discloses the version it resolved.
