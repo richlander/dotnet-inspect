@@ -1536,8 +1536,8 @@ The former SourceLink URL-shape flags, a `--raw` that meant the fetchable shape
 and its `--blob` pair, are removed, not retained as aliases. `--raw` now names
 only the decoration modifier. A legacy URL-shape invocation fails visibly
 unless it already selects exactly one payload: with `--print`, with no section,
-or with a section the modifier does not support, the modifier's own diagnostic
-fires. With a single URL section such as `SourceLink: Files`, it takes the new
+or with a section the modifier does not support, the `--print` or modifier
+diagnostic fires. With a single URL section such as `SourceLink: Files`, it takes the new
 meaning and prints undecorated URLs, one per line, with exit 0; the URL values
 are unchanged because the fetchable shape is now the default. That is the one
 accepted reinterpretation, and the release note states it.

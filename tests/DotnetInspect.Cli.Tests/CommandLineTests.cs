@@ -97,6 +97,9 @@ public class CommandLineTests
     [Fact]
     public async Task LegacyRawUrlShape_OnASingleUrlSection_PrintsUndecoratedFetchableUrls()
     {
+        // In-process invocation skips Program's cache setup; the SourceLink path
+        // needs the persistent cache, so set it up here as the other command tests do.
+        DotnetInspector.Cache.PersistentCache.Initialize("dotnet-inspect-test");
         var root = CommandLineBuilder.CreateRootCommand();
         string[] tokens =
         [
