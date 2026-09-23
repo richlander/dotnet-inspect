@@ -485,6 +485,23 @@ than add one flag per column. See
 
 ## Counts and limits
 
+### Subject-default API count
+
+For the `type` command, bare `--count` selects the ordinary finding population
+from the resolved subject. A Library subject counts public Types across the
+disjoint Classes, Structs, Interfaces, Enums, and Delegates row sets. A Type
+subject counts its non-compiler-generated Members through the canonical
+`Member Index` row set. Filters and semantic row selection apply before the
+terminal Count.
+
+This convenience compiles to the same section-backed population used by an
+explicit query, but returns one scalar for the whole inferred population.
+Explicit `-S` remains authoritative and retains its existing result shape:
+one selected row set produces a scalar, while several selected row sets
+produce an ordered count table.
+
+### General count and limit target
+
 The examples and semantics in this section describe historical
 [#4677](https://github.com/richlander/dotnet-inspect/issues/4677) target
 behavior, not a released or implementation-ready contract. [Item and line

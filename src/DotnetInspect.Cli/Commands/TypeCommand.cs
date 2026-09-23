@@ -686,7 +686,8 @@ public static class TypeCommand
                     // JSON and markdown both honor -S; tabular output falls back to showing all
                     // members and shape replaces selection, so skip those.
                     if (!effectiveOptions.Tabular
-                        && effectiveOptions is not TypeOptions { ShapeOutput: true })
+                        && effectiveOptions is not TypeOptions { ShapeOutput: true }
+                        && !effectiveOptions.CountDefaultPopulation)
                     {
                         ApiCommand.WarnEmptySelectedSections(apiType, effectiveOptions, memberPipeline);
                     }
@@ -1813,10 +1814,27 @@ public static class TypeCommand
             || options.BodyKindQuery.HasFilter
             || options.CloneCandidateQuery.HasPredicates
             || options.IncludeSections
-                is not { Count: 1 } sections)
+                is not { Count: > 0 } sections)
         {
             return null;
         }
+
+        if (options.CountDefaultPopulation
+            && sections.SetEquals(
+                ApiTypeSectionDescriptors.FindingSectionNames))
+        {
+            if (ApiServices.CountTypeListing(source)
+                is not ApiTypeInventoryCountResult.Counted total)
+            {
+                return null;
+            }
+
+            CountOutput.WriteCount(total.Count.Total);
+            return 0;
+        }
+
+        if (sections.Count != 1)
+            return null;
 
         ApiTypeInventoryKind? kind = sections.Single() switch
         {

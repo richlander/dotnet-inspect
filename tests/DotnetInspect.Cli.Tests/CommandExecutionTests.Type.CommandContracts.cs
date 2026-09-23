@@ -165,6 +165,56 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Type_DefaultCount_MatchesMemberIndex()
+    {
+        var options = new TypeOptions
+        {
+            AssemblyPath = TestAssemblyPath,
+            TypeName = typeof(CommandExecutionTests).FullName,
+            Count = true,
+        };
+
+        var (defaultExit, defaultOutput, defaultError) =
+            await ConsoleCapture.RunAsync(
+                () => TypeCommand.ExecuteAsync(options));
+        var (explicitExit, explicitOutput, explicitError) =
+            await ConsoleCapture.RunAsync(
+                () => TypeCommand.ExecuteAsync(
+                    options with
+                    {
+                        Select = [SectionNames.MemberIndex],
+                    }));
+
+        Assert.Equal(0, defaultExit);
+        Assert.Equal(0, explicitExit);
+        Assert.Empty(defaultError);
+        Assert.Empty(explicitError);
+        Assert.Equal(explicitOutput, defaultOutput);
+        Assert.True(
+            int.Parse(
+                defaultOutput.Trim(),
+                CultureInfo.InvariantCulture) > 0);
+    }
+
+    [Fact]
+    public async Task Type_DefaultCount_EmptyMemberPopulation_WritesZero()
+    {
+        var options = new TypeOptions
+        {
+            AssemblyPath = TestAssemblyPath,
+            TypeName = typeof(EmptyDiscoveryFixture).FullName,
+            Count = true,
+        };
+
+        var (exit, output, error) = await ConsoleCapture.RunAsync(
+            () => TypeCommand.ExecuteAsync(options));
+
+        Assert.Equal(0, exit);
+        Assert.Equal("0", output.Trim());
+        Assert.Empty(error);
+    }
+
+    [Fact]
     public async Task Type_SingleSectionCount_WithPlainText_WritesInteger()
     {
         var options = new TypeOptions

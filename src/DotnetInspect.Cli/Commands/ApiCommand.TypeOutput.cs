@@ -968,10 +968,13 @@ public partial class ApiCommand
                     options,
                     schema))
                 return 1;
-            var ordered = OutputFormatter.ResolveCountMapSections(
-                ApiMemberSectionPipelines.Create(options),
-                options.IncludeSections,
-                fixedOverview: false);
+            var ordered =
+                options is TypeOptions { CountDefaultPopulation: true }
+                    ? null
+                    : OutputFormatter.ResolveCountMapSections(
+                        ApiMemberSectionPipelines.Create(options),
+                        options.IncludeSections,
+                        fixedOverview: false);
             CountOutput.Write(
                 projection, ordered, options.Format, options.NoHeader);
             ApiOutputFormatter.WriteCallGraphWarning(view);
