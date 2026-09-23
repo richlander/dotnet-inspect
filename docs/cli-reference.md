@@ -1238,6 +1238,12 @@ quality judgment; an all-equal population gives every row 100. Use column
 projection with JSON Lines to emit dedicated cells instead of parsing
 `Evidence`:
 
+`--implementation` is the conventional shortcut for exact
+`-S "Implementation Diff"` selection. It contributes that canonical section
+before ordinary section resolution, so explicit peer sections compose
+normally and all validation, output formats, and complete transport behavior
+remain identical.
+
 ```bash
 dotnet-inspect diff --package Markout@0.33.0..0.35.2 \
   --type Markout.MarkoutWriter \

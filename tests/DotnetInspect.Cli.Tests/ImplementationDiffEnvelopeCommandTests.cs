@@ -128,6 +128,51 @@ public sealed class ImplementationDiffEnvelopeCommandTests
         Assert.Contains("| Member | Mechanism |", result.Output);
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ImplementationShortcutMatchesExactSectionSelection(
+        bool completeJson)
+    {
+        string[] output = completeJson ? ["--json"] : [];
+        var section = await Run([
+            .. output,
+            "-S",
+            "Implementation Diff",
+            "--type",
+            "DiffSample"]);
+        var shortcut = await Run([
+            .. output,
+            "--implementation",
+            "--type",
+            "DiffSample"]);
+
+        Assert.Equal(section.Exit, shortcut.Exit);
+        Assert.Equal(section.Output, shortcut.Output);
+        Assert.Equal(section.Error, shortcut.Error);
+    }
+
+    [Fact]
+    public async Task
+        ImplementationShortcutMatchesExactSectionSelectionForEnvelope()
+    {
+        var section = await Run(
+            "--envelope",
+            "-S",
+            "Implementation Diff",
+            "--type",
+            "DiffSample");
+        var shortcut = await Run(
+            "--envelope",
+            "--implementation",
+            "--type",
+            "DiffSample");
+
+        Assert.Equal(section.Exit, shortcut.Exit);
+        Assert.Equal(section.Output, shortcut.Output);
+        Assert.Equal(section.Error, shortcut.Error);
+    }
+
     [Fact]
     public async Task WildcardSelection_DoesNotActivateCompleteTransport()
     {
@@ -455,6 +500,33 @@ public sealed class ImplementationDiffEnvelopeCommandTests
         Assert.DoesNotContain(
             "Error resolving",
             result.Error,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task ImplementationShortcutUsesExactSectionValidation()
+    {
+        string[] common =
+        [
+            "--library",
+            "missing-before.dll..missing-after.dll",
+            "--envelope",
+            "--changed",
+        ];
+        var section = await Invoke([
+            .. common,
+            "-S",
+            "Implementation Diff"]);
+        var shortcut = await Invoke([
+            .. common,
+            "--implementation"]);
+
+        Assert.Equal(section.Exit, shortcut.Exit);
+        Assert.Equal(section.Output, shortcut.Output);
+        Assert.Equal(section.Error, shortcut.Error);
+        Assert.DoesNotContain(
+            "Error resolving",
+            shortcut.Error,
             StringComparison.Ordinal);
     }
 

@@ -210,6 +210,20 @@ dotnet-inspect package query Newtonsoft.Json -S @Query
 dotnet-inspect member JsonSerializer Serialize:1 --platform System.Text.Json -S @Calls
 ```
 
+### Command-specific section shortcuts
+
+A command-specific convenience option may contribute one canonical exact
+section selector before ordinary section resolution. The resulting request
+retains the section's exact-selection provenance and follows the same
+composition, validation, producer planning, output, and transport path as the
+equivalent `-S` spelling. An accompanying explicit section selection composes
+normally; the shortcut does not create a second operation or hide the canonical
+section from discovery.
+
+The first focused adoption is `diff --implementation`, equivalent to
+`diff -S "Implementation Diff"`. This does not establish a generic alias
+framework or authorize shortcuts for other sections without focused design.
+
 Selection controls both rendering and data collection. Only producers needed
 by the requested sections should run.
 
