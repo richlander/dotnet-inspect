@@ -1,0 +1,533 @@
+# Library inspection documents and populations
+
+## Status
+
+Focused design for one subject-shaped Library inspection document and its
+request-selected nested populations. This design replaces the narrower Library
+overview contract. CLI defaults and rendering remain separate decisions.
+
+## Authority and exact claim
+
+`DotnetInspector.Sections` owns this claim:
+
+> Given one exact realized Library, a transferred operation lease, and one
+> complete inspection request, acquire only the requested Library facts and
+> population terminals, then return one resource-free
+> `InspectionEnvelope<LibraryInspectionOutcome>` after settling the lease on
+> every terminal path.
+
+The successful content is one `LibraryDocument`. The document is singular
+because it describes one exact Library. Requested Type populations remain
+nested results inside that document; they do not create a `TypesDocument`.
+
+This owner composes existing contracts without redefining them:
+
+- [Library ownership and borrowing](library-ownership-and-borrowing.md) owns
+  the exact `LibraryReference`, transferred `LibraryOperationLease`, content
+  snapshots, and retirement.
+- [Library-Metadata correspondence](library-metadata-correspondence.md) owns
+  owner-attested Library content and bounded Metadata evidence.
+- [Assembly inspection query](assembly-inspection-query.md) owns compact public
+  Type inventory membership, exact Count, Type rows, facets, and extraction
+  bounds.
+- [Section cardinality](section-cardinality.md) owns scalar and inventory
+  terminal semantics.
+- [Query-space composition](query-space-composition.md) owns population
+  generation, continuation, and terminal composition.
+- [Inspection envelope](inspection-envelope.md) owns Content, Share, and
+  diagnostics.
+- [`ts-jsexport` facade generation](ts-jsexport.md) owns the future generated
+  TypeScript facade for an authenticated JSON request parameter. It does not
+  own Library request semantics.
+
+## Product question
+
+The operation answers:
+
+> What requested facts and nested populations describe this exact realized
+> Library at the requested inspection depth?
+
+Package, Platform, direct-file, Workspace, CLI, and Browser routes first
+resolve their source-specific gestures to one exact Library. They then supply
+the same normalized inspection plan. Source kind does not select another
+document schema or inspection algorithm.
+
+The initial real scenario is the `System.Text.Json` Library. It supports three
+materially different requests without changing document identity:
+
+```text
+count-only census
+  -> LibraryDocument with requested Type Counts
+
+bounded Type browsing
+  -> LibraryDocument with requested Type Rows
+     and requested nested Member Counts
+
+Library facts only
+  -> LibraryDocument with no Type Rows
+```
+
+An exact Type request is owned by a `TypeDocument`; an exact Member request is
+owned by a `MemberDocument`. Analysis such as unsafe, async, performance, or
+call-graph inspection remains a separately owned `AnalysisResults` family that
+may carry Type- or Member-shaped results.
+
+## Subject documents
+
+The domain document family is subject-shaped:
+
+```text
+PackageDocument
+LibraryDocument
+TypeDocument
+MemberDocument
+```
+
+Document type follows the resolved subject, not the command name, visible
+heading, row count, or output format.
+
+For example:
+
+```console
+dotnet-inspect type System.Text.Json -n 10
+```
+
+resolves `System.Text.Json` as a Library and requests Type rows. Its semantic
+result is a `LibraryDocument` containing a bounded Type population, even
+though the convenience command is named `type`.
+
+Likewise, a request for several members of one exact Type returns a
+`TypeDocument` containing the selected Member population. A request for one
+exact overload may return a `MemberDocument`.
+
+Child inventory rows are lightweight shapes, not eagerly embedded child
+documents. Drill-down constructs the child document only when requested.
+
+## Boundary
+
+```text
+source-specific realization
+  -> exact LibraryReference + LibraryContentOwner
+  -> portable LibraryInspectionPlan
+  -> LibraryInspectionRequest(reference, plan)
+  -> transferred LibraryOperationLease
+  -> Library inspection
+       |-- requested scalar Library facts
+       |-- requested Type population terminals
+       |-- requested nested row measurements
+       `-- required Share projection
+  -> InspectionEnvelope<LibraryInspectionOutcome>
+  -> CLI, Browser, LINQ, or JSON projection
+```
+
+The operation accepts no path, package archive, Platform label, CLI options,
+Browser DTO, stream, reader, opener, or ambient resolver. Hosts lower their
+gestures before this boundary.
+
+The operation is the final host-neutral owner for the Library document. Hosts
+do not reconstruct population Count from rendered rows, recover facts from
+display text, or append independently acquired data to document Content.
+
+## Request model
+
+Request shape is a first-class contract because it determines source work,
+result shape, Share association, Browser transport, and query reproducibility.
+
+The in-process request has two parts:
+
+```text
+LibraryInspectionRequest
+  LibraryReference
+  LibraryInspectionPlan
+```
+
+`LibraryReference` is process-local owner authority and never crosses a
+portable boundary. `LibraryInspectionPlan` is detached and serialization-ready.
+It describes only requested semantic work:
+
+```text
+LibraryInspectionPlan
+  requested Library facts
+  zero or more Library population requests
+  finite aggregate work bounds
+```
+
+The plan uses closed typed requests rather than section names, verbosity,
+fields, columns, or renderer settings. Its first population request is:
+
+```text
+LibraryTypePopulationRequest
+  facet selection
+  requested terminal projections
+  ordering
+  finite extraction and row bounds
+  optional nested measurements for returned Type rows
+  optional prior population binding or continuation
+```
+
+The first nested measurement is exact Member Count for each returned Type
+shape. It does not materialize Member rows.
+
+Count and Rows are independent requested projections. An overview-style census
+may request Count without Rows. A browsing request may request Rows without
+whole-population Count. A consumer that needs both names both and receives
+results bound to the same population identity.
+
+The plan contains no coarse `Overview`, `Summary`, `Detailed`, or verbosity
+enum. Different zoom levels are structural consequences of the requested
+facts, populations, terminals, and nested measurements.
+
+## Browser request lowering
+
+Browser/Wasm must expose the same plan as a typed public request rather than a
+flattened list of export parameters.
+
+The Browser adapter owns source selection separately:
+
+```text
+BrowserLibraryInspectionRequest
+  exact package/Platform/Workspace Library selector
+  LibraryInspectionPlan
+```
+
+The adapter resolves the selector to one exact `LibraryReference`, constructs
+the in-process request, and invokes the same operation.
+
+The merged #8328 design allows the producer to associate this request DTO with
+one raw exported JSON string parameter. Its implementation is landing in
+parallel. After that implementation is available, the generated TypeScript
+facade owns `JSON.stringify()` and presents
+`BrowserLibraryInspectionRequest` directly while the private JS/.NET ABI
+remains string-valued.
+
+This design does not depend on #8328 implementation for the core request or
+CLI operation. Browser adoption waits for the generated input binding rather
+than adding a handwritten TypeScript request shape, flattened interim export,
+or duplicate JSON wrapper.
+
+## Library document
+
+`LibraryInspectionOutcome` is a closed source-neutral sum:
+
+```text
+LibraryInspectionOutcome
+  Document(LibraryDocument)
+  Rejected(LibraryInspectionRejection)
+  Failed(LibraryInspectionFailure)
+```
+
+`LibraryDocument` contains:
+
+```text
+LibraryDocument
+  Library identity
+  module-version identity
+  requested scalar facts
+  requested population results
+  aggregate measured work
+  governing bounds
+```
+
+The initial identity is the portable managed assembly identity plus non-empty
+MVID already defined by the overview implementation. The document may later
+adopt additional scalar facts only when their owner and shared consumer value
+are established. Source-specific path, package, Platform, filesystem, CLI, or
+Browser state does not enter the document merely because one host displays it.
+
+The document is sparse by construction. An omitted population means it was
+not requested, not that it was requested and empty. Every requested
+population has one explicit terminal outcome.
+
+## Population identity
+
+One nested population is identified by owner-issued semantic currency:
+
+```text
+exact Library snapshot or generation
++ population path
++ canonical facet selection
++ membership projection
++ ordering
++ applicable continuation generation
+```
+
+The initial path is:
+
+```text
+LibraryDocument / Types
+```
+
+Type kind and accessibility are initial facets. Namespace and other facets may
+be adopted only after their query semantics, cost, and producer evidence are
+owned.
+
+A facet selects a population before terminal execution. A homogeneous
+`Accessibility = Private` population does not require every rendered row to
+repeat `Private`. Multiple selected facet values remain a request-level set or
+owner-issued result groups; the product never fabricates a row accessibility
+such as `Private+Internal`.
+
+Actual compound declaration accessibilities, such as protected-internal or
+private-protected, remain canonical facet values rather than combinations of
+query labels.
+
+## Population terminals
+
+Each requested Type population exposes independently typed terminal outcomes:
+
+```text
+LibraryTypePopulationResult
+  population binding
+  canonical facets
+  Count outcome, when requested
+  Rows outcome, when requested
+```
+
+Count and Rows execute the same membership predicate. They cannot disagree
+about accessibility, kind, hidden/compiler-generated admission, Library
+snapshot, or completion.
+
+Count is exact or visibly non-successful. It never reports retained Rows,
+current page length, a prefix, or zero after failure.
+
+Rows contains one bounded ordered segment and either terminal completion or
+source continuation. Continuation is bound to the complete population
+identity. Changing a facet, ordering, Library generation, or row projection
+invalidates it.
+
+One result may contain Count without Rows, Rows without Count, or both. Missing
+terminal results are distinguishable from requested empty success.
+
+## Type row shape
+
+The first `LibraryTypeShape` contains only the facts needed to identify and
+present one row plus explicitly requested nested measurements:
+
+```text
+LibraryTypeShape
+  stable Type identity
+  display name
+  namespace
+  kind
+  accessibility
+  requested Member Count, when requested
+```
+
+Intrinsic facet values remain available to structured consumers even when a
+renderer suppresses redundant columns for a homogeneous result group.
+
+The Type row is not a `TypeDocument`. It does not contain complete member,
+source, documentation, analysis, or decompilation results. Those require a
+separate exact Type request.
+
+## Source execution
+
+The request model is source-feasible only if producers avoid eager object
+graphs.
+
+The Metadata path may:
+
+- read assembly identity and MVID once;
+- answer raw table Counts from table headers where that population owns those
+  semantics;
+- scan lightweight Metadata flags for requested type-kind and accessibility
+  censuses;
+- share one membership predicate between Count and Rows;
+- retain stable Type row locators for requested ordering and continuation;
+- decode names and row facts only for the requested Rows segment; and
+- compute requested nested Member Counts without materializing Member rows.
+
+Metadata-token ordering is naturally resumable. Alphabetical or other semantic
+ordering may require a bounded index or complete lightweight census before the
+first row page. The request and result disclose the chosen ordering and
+applicable work bounds.
+
+Signature, attribute, source, body, graph, unsafe, async, and performance
+predicates do not become ordinary cheap facets solely because a host wants to
+filter on them. Their owning Analysis or query contract must define cost,
+completeness, and result shape.
+
+## Completion and failure
+
+Top-level rejection or failure means no truthful Library subject document can
+be constructed. Examples include foreign lease/reference association,
+assembly-identity mismatch, malformed or unsupported managed content, managed
+module input, Windows Metadata, or empty MVID.
+
+Population terminal outcomes retain narrower non-success inside an otherwise
+valid document:
+
+- extraction-bound incompleteness;
+- retained declaration-inspection failures;
+- unsupported ordering or facet capability;
+- stale or incompatible population binding;
+- stale or incompatible continuation; and
+- cancellation before terminal completion.
+
+A failed or incomplete requested population never appears as an empty
+successful population. Another population's success does not mask it.
+
+Unexpected implementation failure propagates only after the transferred lease
+has settled.
+
+## Work and bounds
+
+The plan supplies finite aggregate and population-specific limits. Measured
+work is retained by the result at the owner that consumed it.
+
+Count-only execution may be cheaper than Rows but does not receive weaker
+completion semantics. A specialized Count kernel is an optimization over the
+same selected population.
+
+When several requested Counts share one Metadata scan, the producer may
+coalesce physical work. The document still reports independently typed
+population results and does not make scan layout part of semantic identity.
+
+## Share
+
+Every envelope carries one `InspectionShare` for the normalized plan and exact
+subject.
+
+The initial operation may continue returning truthful
+`InspectionShare.NonProjectable` until a complete portable Workspace scenario
+is associated with the exact Library request. Available Share remains separate
+work under #8088.
+
+Hosts cannot inject an arbitrary Share, infer one from a partial source
+coordinate, or let Count and Rows for different plans share a packet.
+
+## Rendering and direct data access
+
+Markout remains the intended ordinary CLI rendering substrate. Browser
+interaction remains a TypeScript host projection.
+
+Neither rendering system owns the document schema. Convenience commands,
+explicit sections/queries, and direct structured access all lower to one
+inspection plan:
+
+```text
+task-oriented convenience
+explicit section/population query
+direct JSON or typed LINQ processing
+  -> one LibraryInspectionPlan
+  -> one LibraryDocument
+```
+
+Lossless JSON preserves population paths, canonical facets, terminal outcomes,
+bindings, continuation, completeness, Share, and diagnostics. `jq` or typed
+LINQ consumers process that structure rather than rendered field/value rows.
+Issue #8329 owns the broader CLI/query layering and schema battle-testing.
+
+## Production adoption
+
+Adoption is staged through focused slices:
+
+1. Lock this request, document, population, and terminal design.
+2. Replace the narrow `LibraryOverviewRequest`,
+   `LibraryOverviewDocument`, outcome, JSON context, and operation with the
+   Library inspection family. Preserve direct-envelope behavior through the
+   new count-only plan; do not retain compatibility aliases solely for old
+   names.
+3. Implement the first faceted Type Count and bounded Rows population over one
+   exact Library, including requested nested Member Count.
+4. Lower direct, PackageHouse, and PlatformHouse CLI gestures to explicit
+   plans while preserving not-yet-adopted legacy sections on their existing
+   paths.
+5. After the #8328 JSON-input implementation lands, expose one typed
+   `BrowserLibraryInspectionRequest` through the generated facade and consume
+   the same envelope in Inspect Web.
+6. Adopt additional Library facts and populations owner by owner, then retire
+   covered portions of the mutable CLI `LibraryInspection`, exact-API summary,
+   and package-surface reconstruction only when positive production gates prove
+   their replacement.
+
+The exact-Library API and package-wide Browser surface remain independent
+operations until a focused adoption proves which facts or populations the new
+document replaces. Type/member navigation is never retired merely because
+headline counts moved.
+
+## Evidence
+
+The design and implementation slices require Release gates for:
+
+- equivalent independently realized Libraries produce equal portable facts and
+  population results for equivalent plans;
+- count-only Type census returns no retained Type rows;
+- bounded Type Rows decode only requested row content and retain exact
+  continuation;
+- Count equals the complete joined Rows population for the same binding;
+- accessibility and kind facet Counts agree with their Rows populations;
+- one request can return several requested Counts without executing
+  unrequested Rows;
+- Type rows carry requested Member Count without retaining Member rows;
+- omitted, empty, incomplete, failed, and unrequested populations remain
+  distinguishable;
+- stale bindings and continuations fail visibly;
+- direct, package, Platform, CLI, and Browser routes preserve equal Content for
+  equivalent requests;
+- source-generated JSON serialization preserves every closed request, outcome,
+  population, and terminal shape;
+- generated TypeScript input binding stringifies the typed Browser request
+  exactly once and the managed adapter deserializes with one source-generated
+  contract; and
+- representative `jq` and typed LINQ queries remain straightforward over the
+  lossless document.
+
+Production evidence remains **unverified** until the corresponding adoption
+slice lands.
+
+## Pathological demonstration
+
+Use a real large Library such as installed `System.Private.CoreLib`:
+
+1. request exact public Type Count;
+2. request bounded public Type Rows with a limit that requires at least two
+   continuations;
+3. join all row segments and prove equality with Count under one population
+   binding;
+4. request public Class and internal Class Counts without Rows;
+5. request ten public Class Rows with nested Member Count;
+6. prove no Member rows, unrequested Type populations, or Analysis work were
+   retained; and
+7. repeat through CLI and Browser once both hosts adopt the request.
+
+The neighboring `System.Text.Json` scenario preserves the current useful
+shape:
+
+```text
+Classes
+  Type                                     Members
+  System.Text.Json.JsonDocument            16
+  System.Text.Json.JsonException           9
+```
+
+The Library document owns the Type rows and requested nested Member Counts;
+drill-down owns the corresponding Type documents.
+
+## Security and compatibility
+
+Assembly bytes may originate from untrusted internet content. The operation
+inherits SRM-only admission, inert text containment, and bounded extraction
+from its Metadata and Library owners. It never loads or executes inspected
+code.
+
+The request and completed envelope remain Roslyn-free, NativeAOT-compatible,
+and compatible with single-threaded Browser/Wasm. No live owner, lease, stream,
+reader, callback, or lazy deferred failure enters a completed document.
+
+Windows Metadata remains unsupported.
+
+## Non-claims
+
+This owner does not define:
+
+- Package, Platform, direct-file, or Workspace realization;
+- CLI defaults, command names, verbosity, section spelling, or rendering;
+- TypeDocument, MemberDocument, or AnalysisResults internals;
+- every future Library fact, population, facet, or ordering;
+- a generic document or population framework for every subject family;
+- Browser callback credit or transport batching;
+- available Share before a complete Workspace/request association exists;
+- exact-API or package-surface retirement without focused positive adoption;
+  or
+- streams or lazy deferred execution inside completed envelopes.
