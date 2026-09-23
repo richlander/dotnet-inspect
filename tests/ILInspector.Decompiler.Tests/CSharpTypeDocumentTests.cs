@@ -715,6 +715,7 @@ public class CSharpTypeDocumentTests
                 Assert.Equal(declaration.Accessibility, row.Accessibility);
                 Assert.Equal(declaration.Placement, row.Placement);
                 Assert.Equal(declaration.Origin, row.Origin);
+                Assert.True(row.SupportsSelectedBody);
             }
         }
     }
@@ -755,6 +756,10 @@ public class CSharpTypeDocumentTests
         Assert.Equal(2, bodies.Diagnostics[0].DeclarationId);
         Assert.Equal(2, skeleton.Diagnostics[0].DeclarationId);
         Assert.Equal(2, filtered.Diagnostics[0].DeclarationId);
+        Assert.False(bodies.Declarations[0].SupportsSelectedBody);
+        Assert.False(bodies.Declarations[1].SupportsSelectedBody);
+        Assert.False(bodies.Declarations[2].SupportsSelectedBody);
+        Assert.True(bodies.Declarations[3].SupportsSelectedBody);
     }
 
     [Fact]

@@ -113,6 +113,7 @@ public sealed record CSharpTypeProjectedDeclaration(
     CSharpTypeAccessibility Accessibility,
     CSharpTypeDeclarationPlacement Placement,
     CSharpTypeOrigin Origin,
+    bool SupportsSelectedBody,
     CSharpSourceRange Range,
     ImmutableArray<CSharpTypeProjectedRegion> Regions,
     ImmutableArray<CSharpTypeProjectedBody> Bodies,
@@ -259,6 +260,11 @@ public static class CSharpTypeDocumentProjector
             }
 
             int declarationLength = text.Length - declarationStart;
+            ImmutableHashSet<int> declarationOwnedBodies =
+                declaration.Parts
+                    .SelectMany(static part => part.OwnedBodies)
+                    .Select(static body => body.BodyId)
+                    .ToImmutableHashSet();
             projectedDeclarations.Add(new(
                 declaration.Id,
                 declaration.Anchor,
@@ -267,6 +273,11 @@ public static class CSharpTypeDocumentProjector
                 declaration.Accessibility,
                 declaration.Placement,
                 declaration.Origin,
+                HasSelectedImplementationDifference(
+                    document,
+                    declaration,
+                    declarationOwnedBodies,
+                    request),
                 new CSharpSourceRange(declarationStart, declarationLength),
                 regions.ToImmutable(),
                 bodies.ToImmutable(),

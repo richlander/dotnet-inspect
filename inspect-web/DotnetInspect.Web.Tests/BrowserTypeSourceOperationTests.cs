@@ -327,6 +327,146 @@ public sealed class BrowserTypeSourceOperationTests(ITestOutputHelper output)
         await AssertReleased(id, packageId);
     }
 
+    // PR-fast: the Browser production boundary consumes the shared document and projector.
+    [Fact]
+    public async Task TypeExplorer_ProjectsRealTypeWithStableIdentityAndStructuralControls()
+    {
+        const string packageId = "Type.Explorer.Shared.Projector";
+        await RegisterTypeExplorerPackageAsync(packageId);
+
+        BrowserTypeExplorerResult bodies = await QueryTypeExplorer(
+            packageId,
+            new(
+                BrowserTypeExplorerBodyMode.Bodies,
+                SelectedMember: null,
+                BrowserTypeExplorerPlacement.All,
+                Enum.GetValues<BrowserTypeExplorerAccessibility>(),
+                IncludeGenerated: false,
+                IncludeDocumentation: true,
+                IncludeAttributes: true));
+        BrowserTypeExplorerInspection inspection =
+            AssertTypeExplorerDocument(bodies);
+        BrowserTypeExplorerDocument document =
+            Assert.IsType<BrowserTypeExplorerDocument>(inspection.Document);
+        BrowserTypeExplorerProjection projection =
+            Assert.IsType<BrowserTypeExplorerProjection>(
+                document.Projection);
+        Assert.Null(document.ProjectionFailure);
+        Assert.Equal(64, projection.Revision.Length);
+        Assert.Contains(
+            "JsonNamingPolicy",
+            projection.Text,
+            StringComparison.Ordinal);
+        Assert.NotEmpty(projection.Declarations);
+        Assert.All(
+            projection.Declarations,
+            declaration =>
+            {
+                Assert.Equal(
+                    "System.Text.Json.JsonNamingPolicy",
+                    declaration.Identity.TypeFullName);
+                Assert.NotEmpty(declaration.Identity.StableSelector);
+                Assert.NotEmpty(declaration.Identity.CanonicalSignature);
+                Assert.Equal(10, declaration.Identity.Fingerprint.Length);
+                Assert.InRange(
+                    declaration.Range.Start + declaration.Range.Length,
+                    0,
+                    projection.Text.Length);
+            });
+
+        BrowserTypeExplorerResult skeleton = await QueryTypeExplorer(
+            packageId,
+            new(
+                BrowserTypeExplorerBodyMode.Skeleton,
+                SelectedMember: null,
+                BrowserTypeExplorerPlacement.All,
+                Enum.GetValues<BrowserTypeExplorerAccessibility>(),
+                IncludeGenerated: false,
+                IncludeDocumentation: true,
+                IncludeAttributes: true));
+        BrowserTypeExplorerProjection skeletonProjection =
+            Assert.IsType<BrowserTypeExplorerProjection>(
+                AssertTypeExplorerDocument(skeleton).Document!.Projection);
+        Assert.Equal(projection.Revision, skeletonProjection.Revision);
+        Assert.NotEqual(projection.Text, skeletonProjection.Text);
+
+        BrowserTypeExplorerDeclaration selected =
+            projection.Declarations.First(
+                static declaration =>
+                    declaration.SupportsSelectedBody);
+        BrowserTypeExplorerResult selectedBody =
+            await QueryTypeExplorer(
+                packageId,
+                new(
+                    BrowserTypeExplorerBodyMode.SelectedBody,
+                    selected.Identity,
+                    BrowserTypeExplorerPlacement.All,
+                    Enum.GetValues<BrowserTypeExplorerAccessibility>(),
+                    IncludeGenerated: false,
+                    IncludeDocumentation: true,
+                    IncludeAttributes: true));
+        BrowserTypeExplorerProjection selectedProjection =
+            Assert.IsType<BrowserTypeExplorerProjection>(
+                AssertTypeExplorerDocument(selectedBody)
+                    .Document!.Projection);
+        Assert.Equal(projection.Revision, selectedProjection.Revision);
+        Assert.NotEqual(skeletonProjection.Text, selectedProjection.Text);
+    }
+
+    // PR-fast: exact selected identity is never replaced by a visible approximation.
+    [Fact]
+    public async Task TypeExplorer_HiddenSelectedMemberIsExplicitlyRejected()
+    {
+        const string packageId = "Type.Explorer.Hidden.Selection";
+        await RegisterTypeExplorerPackageAsync(packageId);
+        BrowserTypeExplorerInspection initial = AssertTypeExplorerDocument(
+            await QueryTypeExplorer(
+                packageId,
+                new(
+                    BrowserTypeExplorerBodyMode.Bodies,
+                    SelectedMember: null,
+                    BrowserTypeExplorerPlacement.All,
+                    Enum.GetValues<BrowserTypeExplorerAccessibility>(),
+                    IncludeGenerated: true,
+                    IncludeDocumentation: true,
+                    IncludeAttributes: true)));
+        BrowserTypeExplorerDeclaration selected =
+            Assert.IsType<BrowserTypeExplorerProjection>(
+                    initial.Document!.Projection)
+                .Declarations.First(
+                    static declaration =>
+                        declaration.SupportsSelectedBody);
+        BrowserTypeExplorerAccessibility hiddenBy =
+            Enum.GetValues<BrowserTypeExplorerAccessibility>()
+                .First(accessibility =>
+                    !string.Equals(
+                        accessibility.ToString(),
+                        selected.Accessibility,
+                        StringComparison.Ordinal));
+
+        BrowserTypeExplorerInspection rejected = AssertTypeExplorerDocument(
+            await QueryTypeExplorer(
+                packageId,
+                new(
+                    BrowserTypeExplorerBodyMode.SelectedBody,
+                    selected.Identity,
+                    BrowserTypeExplorerPlacement.All,
+                    [hiddenBy],
+                    IncludeGenerated: true,
+                    IncludeDocumentation: true,
+                    IncludeAttributes: true)));
+
+        Assert.Null(rejected.Document!.Projection);
+        BrowserTypeExplorerProjectionFailure failure =
+            Assert.IsType<BrowserTypeExplorerProjectionFailure>(
+                rejected.Document.ProjectionFailure);
+        Assert.Equal("SelectedMemberHidden", failure.Kind);
+        Assert.Contains(
+            "excluded by the structural filters",
+            failure.Message,
+            StringComparison.Ordinal);
+    }
+
     static async Task AssertReleased(string id, string packageId)
     {
         Assert.Equal(BrowserTypeSourceCancellationKind.NotActive, Cancel(id).Kind);
@@ -454,6 +594,46 @@ public sealed class BrowserTypeSourceOperationTests(ITestOutputHelper output)
         JsonSerializer.Deserialize(
             json, BrowserSourceJsonContext.Default.BrowserTypeSourceResult)!;
 
+    static async Task<BrowserTypeExplorerResult> QueryTypeExplorer(
+        string packageId,
+        BrowserTypeExplorerRequest request)
+    {
+        string requestJson = JsonSerializer.Serialize(
+            request,
+            BrowserSourceJsonContext.Default.BrowserTypeExplorerRequest);
+        string resultJson = await SourceExports.QueryTypeExplorer(
+            Guid.NewGuid().ToString(),
+            packageId,
+            "1.0.0",
+            "net11.0",
+            "System.Text.Json.dll",
+            "System.Text.Json.JsonNamingPolicy",
+            "[]",
+            requestJson);
+        return JsonSerializer.Deserialize(
+            resultJson,
+            BrowserSourceJsonContext.Default.BrowserTypeExplorerResult)!;
+    }
+
+    static BrowserTypeExplorerInspection AssertTypeExplorerDocument(
+        BrowserTypeExplorerResult result)
+    {
+        Assert.Equal(1, result.Version);
+        Assert.Equal(
+            BrowserTypeSourceResultKind.Succeeded,
+            result.Kind);
+        BrowserTypeExplorerInspection inspection =
+            Assert.IsType<BrowserTypeExplorerInspection>(result.Value);
+        Assert.True(
+            inspection.Outcome is
+                BrowserTypeExplorerOutcomeKind.Available
+                    or BrowserTypeExplorerOutcomeKind.Incomplete);
+        Assert.IsType<InspectionShare.NonProjectable>(
+            inspection.Share);
+        Assert.NotNull(inspection.Document);
+        return inspection;
+    }
+
     static async Task RegisterSourcePackageAsync(string packageId)
     {
         using var bytes = new MemoryStream();
@@ -464,5 +644,25 @@ public sealed class BrowserTypeSourceOperationTests(ITestOutputHelper output)
         }
         await BrowserPackageWorkspace.RegisterAcquiredPackageAsync(
             new BrowserPackage(packageId, "1.0.0", bytes.ToArray(), fromCache: false));
+    }
+
+    static async Task RegisterTypeExplorerPackageAsync(string packageId)
+    {
+        using var bytes = new MemoryStream();
+        using (var archive =
+            new ZipArchive(bytes, ZipArchiveMode.Create, leaveOpen: true))
+        {
+            using Stream entry = archive
+                .CreateEntry("lib/net11.0/System.Text.Json.dll")
+                .Open();
+            entry.Write(
+                File.ReadAllBytes(typeof(JsonNamingPolicy).Assembly.Location));
+        }
+        await BrowserPackageWorkspace.RegisterAcquiredPackageAsync(
+            new BrowserPackage(
+                packageId,
+                "1.0.0",
+                bytes.ToArray(),
+                fromCache: false));
     }
 }

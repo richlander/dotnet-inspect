@@ -490,6 +490,27 @@ test.describe("published authored Source comparison transport", () => {
       await applicationPage.locator('[data-lens="source"]:visible').click();
       const typeView = applicationPage.getByLabel("Select type code view");
       await expect(typeView).toHaveValue("source");
+      const typeSourceUrl = applicationPage.url();
+      await applicationPage.locator("#explore-source").click();
+      await expect(applicationPage).toHaveURL(/\/type-explorer\?/u);
+      await expect(
+        applicationPage.getByRole("heading", {
+          level: 1,
+          name: /Type Explorer: .*Counter/u,
+        }),
+      ).toBeFocused();
+      await expect(
+        applicationPage.getByRole("region", { name: "Whole-Type C#" }),
+      ).toContainText("Counter", { timeout: 60_000 });
+      await applicationPage.getByLabel("Skeleton").check();
+      await expect(
+        applicationPage.getByRole("region", { name: "Whole-Type C#" }),
+      ).toContainText("Counter", { timeout: 60_000 });
+      await applicationPage.getByRole("button", {
+        name: "Back to Type Source",
+      }).click();
+      await expect(applicationPage).toHaveURL(typeSourceUrl);
+      await expect(applicationPage.locator("#explore-source")).toBeFocused();
       await typeView.selectOption("api-declarations");
       await expect.poll(() => sourceCode.textContent())
         .toBe(apiDeclarations.content.text);
