@@ -19,7 +19,9 @@
   reopening token. Select `Literal Strings` to itemize each physical matching
   `ldstr` with Package, Library, Method Token, IL Offset, and the complete
   decoded Literal; repeated matches within one literal remain one row, while
-  separate instructions retain separate coordinates (#8054, #8277).
+  separate instructions retain separate coordinates. Qualification now searches
+  every selected implementation Library for the target framework and keeps the
+  producing Library attached to each match (#8054, #8277, #8320).
 - **Breaking:** Replaces `package search` and patternless
   `find --package-prefix` with host-neutral `package query`. Exact IDs and
   terminal-star prefixes share the Package Query engine; `--take` limits
@@ -41,6 +43,12 @@
   Configured local and HTTP authorities retain authoritative source
   correspondence through selection and acquisition (#5400, #7537, #7587,
   #7599, #7612, #7663, #7684, #7694, #7695, #7734, #7864).
+- **Breaking:** Online single-package requests can reuse a prior version
+  settlement during a jittered one-hour window instead of rediscovering on
+  every unpinned request. A failed refresh serves the prior with an age warning;
+  `Package@latest` forces a fresh check. A vanished prior fails once with an
+  eviction diagnostic before the next request rediscovers. Version-listing,
+  range, wildcard, and API search scopes retain their existing paths (#8364).
 - Adds aggregate Library selection to Workspace-backed inspection and Inspect
   Web, including **All libraries** and useful exact-Library auto-selection.
   Ordinary CLI package-backed Library inspection retains its exact/default
@@ -155,6 +163,10 @@
 - Preserves compiled XML alongside typed authored-source availability,
   incompleteness, and failure in Inspect Web package-member documentation
   (#8161).
+- Retrieves authored member documentation through exact assembly/PDB
+  association and checksum-verified PDB-mapped source, with bounded declaration
+  selection in Inspect Web. Ambiguous or unsupported declarations remain
+  visibly unavailable (#8357).
 - **Breaking:** A single selected Type or Member source/code payload now prints
   native content by default. Use `--markdown` to request the framed document
   presentation. Full-Type source no longer requires `--all` to include
@@ -198,13 +210,26 @@
   selection while applying an independent traversal target. Automatically
   acquired dependency members now retain exact package, version, and framework
   navigation coordinates; Inspect Web loads that package only when its graph
-  node is selected, while ambiguous ownership remains unlinked (#8215, #8251).
+  node is selected, while ambiguous ownership remains unlinked. Exact Package
+  dependency edges now classify by Package boundary, and the default view
+  highlights third-party supply-chain exits while keeping the root and
+  registered .NET ecosystems as connectors. `--baseline` and
+  `--first-party-prefix` provide explicit highlighting control without changing
+  traversal (#8215, #8251, #8321, #8360).
+- Adds pairwise `graph libraries` direct-use clusters and exact cluster
+  reopening. `-S "Direct Use Clusters"` groups physical cross-Library calls;
+  `--where "Cluster=N"` selects one group, and `-S "Public Root Paths"` traces
+  bounded paths from public consumer entrypoints (#8372).
 - Adds an explicit `Library Metrics` section for whole-library structural
   metrics. QuerySpace and metadata-backed count paths reduce allocation and
   startup cost for Graph Libraries and installed-Platform Type inventories,
   while retaining fallback when compact evidence is unavailable. Inspect Web
   exposes the same Research-owned report through a Metrics lens for exact
   package and platform libraries (#8183, #8186, #8207, #8221, #8230).
+- Makes bare `type ... --count` follow the resolved subject: a Library counts
+  public Type declarations while a Type counts Members. Exact direct-Library
+  inspection now obtains its public Type count from the request-driven Library
+  document (#8333, #8335).
 - Adds complete JSON and `InspectionEnvelope<ImplementationDiffDocument>`
   transport for one exact local Implementation Diff pair while preserving
   ordinary rendered output (#7876).
