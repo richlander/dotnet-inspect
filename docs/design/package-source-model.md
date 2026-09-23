@@ -986,8 +986,12 @@ and returns them as ranged content.
 - **Limits.** The payload limits map onto the archive reader's bounds: the
   archive total, the entry count, and the expanded-byte bound, which applies
   to the selected entries together. The directory cap is the reader's
-  default, and the entry-read slack is the reader's maximum, so a local
-  header longer than its central record does not cost a second request.
+  default. The entry-read slack is one KiB: real packages carry local extra
+  fields at most a few dozen bytes longer than their central records
+  (`PCLStorage` 1.0.2: 28 bytes; `Avalonia` 12.1.2 and `Newtonsoft.Json`
+  13.0.3: none), so each entry still costs one request, while the reader's
+  64 KiB maximum would add over a megabyte across the 22 entries of the
+  `Avalonia` read below.
 - **Refusals fall back on the same authority.** `RangeIgnored`,
   `ArchiveChanged`, and `ArchiveUnsupported` make the step acquire the
   complete archive from that authority, exactly as without a selection. A

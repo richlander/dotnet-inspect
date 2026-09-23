@@ -407,11 +407,19 @@ internal sealed class PackageAcquisitionCandidatePayloadAcquirer
         PackageAuthorityFailure? Failure = null);
 
     /// <summary>
+    /// The entry-read slack a ranged read adds to each entry request. Real
+    /// packages carry local extra fields at most a few dozen bytes longer
+    /// than their central records (PCLStorage 1.0.2: 28), so one KiB keeps
+    /// each entry to one request while costing each entry one KiB, not the
+    /// reader's 64 KiB maximum.
+    /// </summary>
+    internal const int RangedEntryReadSlack = 1024;
+
+    /// <summary>
     /// The archive library's bounds for a ranged read, mapped from the
     /// payload limits: the archive total, the entry count, the aggregate
-    /// expanded bound, the library's default directory cap, and the largest
-    /// entry-read slack so an entry whose local header is longer than its
-    /// central record still costs one request.
+    /// expanded bound, the library's default directory cap, and
+    /// <see cref="RangedEntryReadSlack"/>.
     /// </summary>
     internal static ZipReadLimits RangedLimits(PackagePayloadLimits limits) =>
         new(
@@ -419,7 +427,7 @@ internal sealed class PackageAcquisitionCandidatePayloadAcquirer
             maxEntryCount: limits.MaxEntryCount,
             maxDirectoryBytes: ZipReadLimits.Default.MaxDirectoryBytes,
             maxExpandedBytes: limits.MaxExpandedBytes,
-            entryReadSlack: ZipReadLimits.MaxEntryReadSlack);
+            entryReadSlack: RangedEntryReadSlack);
 
     private static async Task<RangedAttempt> TryAcquireRangedAsync(
         IPackageArchiveRangeSource rangedSource,

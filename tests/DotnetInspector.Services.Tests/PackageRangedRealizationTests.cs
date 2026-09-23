@@ -208,7 +208,7 @@ public sealed class PackageRangedRealizationTests
 
     /// <summary>
     /// The Packages layer maps its payload limits into the archive reader's
-    /// bounds and chooses the largest entry-read slack.
+    /// bounds and chooses a one-KiB entry-read slack.
     /// </summary>
     [Fact]
     public void RangedLimits_MapThePayloadLimits()
@@ -226,7 +226,7 @@ public sealed class PackageRangedRealizationTests
         Assert.Equal(1_000_000, mapped.MaxArchiveBytes);
         Assert.Equal(321, mapped.MaxEntryCount);
         Assert.Equal(7_000_000, mapped.MaxExpandedBytes);
-        Assert.Equal(ZipFetch.ZipReadLimits.MaxEntryReadSlack, mapped.EntryReadSlack);
+        Assert.Equal(1024, mapped.EntryReadSlack);
         Assert.Equal(
             ZipFetch.ZipReadLimits.Default.MaxDirectoryBytes,
             mapped.MaxDirectoryBytes);
