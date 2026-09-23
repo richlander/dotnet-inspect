@@ -599,6 +599,9 @@ public sealed class ExternalCallGraphCommandTests
         Assert.Contains(
             "\"target_assembly\":\"Polly.Extensions.Http\"",
             captured.Output);
+        Assert.Contains(
+            "\"role\":\"boundary\",\"target\":\"Polly.Extensions.Http.HttpPolicyExtensions::HandleTransientHttpError\"",
+            captured.Output);
         Assert.DoesNotContain(
             "same assembly identity",
             captured.Error);
