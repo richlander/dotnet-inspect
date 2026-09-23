@@ -1236,6 +1236,12 @@ public static partial class ApiSurfaceExtractor
                     observeDecodeWork);
             apiType.JsonSerializableAttributeCount =
                 jsonSerializableAttributeCount;
+            apiType.JsExportJsonInputDeclarations =
+                AttributeReader.ReadJsExportJsonInputDeclarations(
+                    reader,
+                    jsonTypeAttributes,
+                    currentAssemblyIdentity,
+                    observeDecodeWork);
             if (jsonSerializableAttributeCount > 0)
             {
                 apiType.HasSystemTextJsonSourceGenerationMarker =

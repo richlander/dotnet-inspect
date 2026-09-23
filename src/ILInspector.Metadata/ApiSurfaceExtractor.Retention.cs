@@ -60,6 +60,15 @@ public static partial class ApiSurfaceExtractor
             AddText(ref count, root.UnsupportedReason);
             AddText(ref count, root.TypeInfoPropertyName);
         }
+        foreach (ApiJsExportJsonInputDeclaration declaration
+            in type.JsExportJsonInputDeclarations)
+        {
+            AddText(ref count, declaration.AttributeAssembly);
+            AddText(ref count, declaration.MethodName);
+            AddText(ref count, declaration.ParameterName);
+            AddText(ref count, declaration.WireType);
+            AddText(ref count, declaration.UnsupportedReason);
+        }
         AddText(ref count, type.Interfaces);
         foreach (ApiTypeReferenceIdentity reference
             in type.InterfaceReferences)

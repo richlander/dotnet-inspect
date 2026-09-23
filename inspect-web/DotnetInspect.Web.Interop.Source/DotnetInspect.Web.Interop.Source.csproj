@@ -21,5 +21,6 @@
     <ProjectReference Include="..\..\src\ILInspector.Decompiler\ILInspector.Decompiler.csproj" />
     <ProjectReference Include="..\..\src\ILInspector.Metadata\ILInspector.Metadata.csproj" />
     <ProjectReference Include="..\..\src\ILInspector.SourceLink\ILInspector.SourceLink.csproj" />
+    <ProjectReference Include="..\..\src\TsJsExport.Contracts\TsJsExport.Contracts.csproj" />
   </ItemGroup>
 </Project>
