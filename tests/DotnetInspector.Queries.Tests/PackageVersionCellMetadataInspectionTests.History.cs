@@ -738,6 +738,107 @@ public sealed partial class PackageVersionCellMetadataInspectionTests
     }
 
     [Fact]
+    public async Task
+        MajorVersionApiHistoryUsesFirstStableRepresentatives()
+    {
+        ImmutableArray<CellFixture> population =
+            CellFixture.CreatePopulation(
+                "Contoso.History",
+                "1.0.0",
+                "1.0.1",
+                "2.0.0",
+                "2.0.1");
+        SettlementExecutor executor = Executor(
+            (population[0], FixtureCatalog.DiffV1.AssemblyPath()),
+            (population[2], FixtureCatalog.DiffV1.AssemblyPath()));
+        var plan =
+            new DiffHistoryEvaluationPlan.MajorVersionRepresentatives(
+                PackageVersionMajorRepresentativePolicy.FirstStable);
+
+        DiffHistoryApiMemberDocument document =
+            await InspectHistoryAsync(
+                HistoryRequest(
+                    population,
+                    HistoryType,
+                    maximumEvaluations: 2,
+                    evaluationPlan: plan),
+                executor);
+
+        Assert.Equal([0, 2], executor.Positions);
+        Assert.Equal(
+            PackageVersionMajorRepresentativePolicy.FirstStable,
+            plan.RepresentativePolicy);
+        Assert.Equal(2, document.AuthorizedProbeCount);
+        Assert.Equal(
+            [0, 2],
+            document.Evaluations.Select(
+                static evaluation => evaluation.Address.Position));
+        Assert.All(
+            document.Probes,
+            static probe => Assert.Equal(
+                DiffHistoryProbePurpose.MajorVersionRepresentative,
+                probe.Purpose));
+        Assert.IsType<
+            DiffHistoryTerminalOutcome
+                .MajorVersionRepresentativesCompleted>(
+                    document.TerminalOutcome);
+        Assert.Equal(2, document.UnevaluatedAddresses.Length);
+    }
+
+    [Fact]
+    public async Task
+        MajorVersionAnalysisUsesLatestRepresentativeAsSource()
+    {
+        ImmutableArray<CellFixture> population =
+            CellFixture.CreatePopulation(
+                "Contoso.History",
+                "1.0.0",
+                "1.0.1",
+                "2.0.0",
+                "2.0.1");
+        SettlementExecutor executor = Executor(
+            (population[1], FixtureCatalog.MetadataApiCorrespondencePair
+                .OldAssemblyPath()),
+            (population[3], FixtureCatalog.MetadataApiCorrespondencePair
+                .OldAssemblyPath()));
+        var plan =
+            new DiffHistoryEvaluationPlan.MajorVersionRepresentatives(
+                PackageVersionMajorRepresentativePolicy.Latest);
+        DiffHistoryAnalysisInspectionRequest request =
+            AnalysisHistoryRequest(
+                PackageVersionCellAnalysisProducerKind.Allocation,
+                population,
+                evaluationPlan: plan,
+                maximumEvaluations: 2);
+
+        var available = Assert.IsType<DiffHistoryOutcome.Available>(
+            await DiffHistoryInspector.InspectAnalysisAsync(
+                request,
+                executor,
+                TestContext.Current.CancellationToken));
+        DiffHistoryAnalysisDocument<AllocationOccurrence> document =
+            Assert.IsType<DiffHistoryDocument.Allocations>(
+                available.Document).Content;
+
+        Assert.Same(population[1].Cell.Address, request.SourceAddress);
+        Assert.DoesNotContain(0, executor.Positions);
+        Assert.DoesNotContain(2, executor.Positions);
+        Assert.Equal(
+            [1, 3],
+            document.Evaluations.Select(
+                static evaluation => evaluation.Address.Position));
+        Assert.All(
+            document.Probes,
+            static probe => Assert.Equal(
+                DiffHistoryProbePurpose.MajorVersionRepresentative,
+                probe.Purpose));
+        Assert.IsType<
+            DiffHistoryTerminalOutcome
+                .MajorVersionRepresentativesCompleted>(
+                    document.TerminalOutcome);
+    }
+
+    [Fact]
     public void AdaptiveBudgetSeparatesAuthorizationFromRealizableWork()
     {
         ImmutableArray<CellFixture> population =

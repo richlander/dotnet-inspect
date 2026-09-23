@@ -1,7 +1,7 @@
 ---
 id: version-queries
 description: Query package versions, wildcard patterns, and custom NuGet sources
-commands: [--version, --latest-version, --versions, @latest, --add-source, --nugetconfig]
+commands: [--version, --versions, @latest, --add-source, --nugetconfig]
 areas: [versioning, cache, nuget, wildcards, sources]
 ---
 
@@ -75,14 +75,14 @@ exact-version
 
 > Goal: Check the latest version available on NuGet.
 
-### 2a. Using `--latest-version`
+### 2a. Using `--versions -n 1`
 
 ```prompt
 What is the latest version of System.CommandLine on NuGet?
 ```
 
 ```bash
-dotnet-inspect package System.CommandLine --latest-version
+dotnet-inspect package System.CommandLine --versions -n 1
 ```
 
 ```query
@@ -117,7 +117,7 @@ By default, unpinned package resolution chooses the latest stable version. Add `
 or `--prerelease` to include prerelease versions when resolving latest.
 
 ```bash
-dotnet-inspect package System.Text.Json --latest-version --preview
+dotnet-inspect package System.Text.Json --versions -n 1 --preview
 ```
 
 ```query

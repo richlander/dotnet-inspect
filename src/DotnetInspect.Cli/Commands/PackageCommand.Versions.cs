@@ -561,9 +561,7 @@ public partial class PackageCommand
     }
 
     private static string GetVersionQueryLens(InspectionOptions options) =>
-        options.ForceLatest
-            ? "--latest-version"
-            : options.SingleVersionQuery
+        options.SingleVersionQuery
             ? "--version"
             : options.ListVersionsWithFeed
                 ? "--versions-with-feed"
@@ -611,8 +609,7 @@ public partial class PackageCommand
         IEnumerable<string> versions,
         InspectionOptions options)
     {
-        if (options.JsonOutput
-            && options.Limit is null)
+        if (options.JsonOutput)
         {
             Console.Out.WriteLine(
                 JsonSerializer.Serialize(

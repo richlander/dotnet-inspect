@@ -13,6 +13,7 @@ public enum DiffHistoryEvaluationPolicy
     ExplicitCheckpoints,
     AdaptiveBisect,
     RepresentativeSurvey,
+    MajorVersionRepresentatives,
 }
 
 /// <summary>One evaluation policy over a settled Diff History population.</summary>
@@ -29,6 +30,9 @@ public enum DiffHistoryEvaluationPolicy
 [JsonDerivedType(
     typeof(DiffHistoryEvaluationPlan.RepresentativeSurvey),
     "representativeSurvey")]
+[JsonDerivedType(
+    typeof(DiffHistoryEvaluationPlan.MajorVersionRepresentatives),
+    "majorVersionRepresentatives")]
 public abstract record DiffHistoryEvaluationPlan
 {
     private protected DiffHistoryEvaluationPlan()
@@ -59,6 +63,9 @@ public abstract record DiffHistoryEvaluationPlan
                 nameof(population)),
             RepresentativeSurvey survey =>
                 survey.ResolveSelection(population),
+            MajorVersionRepresentatives majorVersions =>
+                population.ProjectMajorRepresentatives(
+                    majorVersions.RepresentativePolicy).Addresses,
             _ => throw new InvalidOperationException(
                 "Unknown Diff History evaluation plan."),
         };
@@ -217,6 +224,28 @@ public abstract record DiffHistoryEvaluationPlan
             ];
         }
     }
+
+    public sealed record MajorVersionRepresentatives :
+        DiffHistoryEvaluationPlan
+    {
+        public MajorVersionRepresentatives(
+            PackageVersionMajorRepresentativePolicy representativePolicy)
+        {
+            if (!Enum.IsDefined(representativePolicy))
+            {
+                throw new ArgumentOutOfRangeException(
+                    nameof(representativePolicy));
+            }
+
+            RepresentativePolicy = representativePolicy;
+        }
+
+        public override DiffHistoryEvaluationPolicy Policy =>
+            DiffHistoryEvaluationPolicy.MajorVersionRepresentatives;
+
+        public PackageVersionMajorRepresentativePolicy
+            RepresentativePolicy { get; }
+    }
 }
 
 /// <summary>Replayable package-source context retained for typed actions.</summary>
@@ -314,6 +343,7 @@ public enum DiffHistoryProbePurpose
     ExplicitCheckpoint,
     DenseCensus,
     RepresentativeSample,
+    MajorVersionRepresentative,
 }
 
 public enum DiffHistoryProbeLearningKind
@@ -422,6 +452,10 @@ public sealed record DiffHistoryApiMemberProbe
     typeof(DiffHistoryTerminalOutcome.RepresentativeSurveyCompleted),
     "representativeSurveyCompleted")]
 [JsonDerivedType(
+    typeof(DiffHistoryTerminalOutcome
+        .MajorVersionRepresentativesCompleted),
+    "majorVersionRepresentativesCompleted")]
+[JsonDerivedType(
     typeof(DiffHistoryTerminalOutcome.BoundariesResolved),
     "boundariesResolved")]
 [JsonDerivedType(
@@ -446,6 +480,9 @@ public abstract record DiffHistoryTerminalOutcome
         DiffHistoryTerminalOutcome;
 
     public sealed record RepresentativeSurveyCompleted :
+        DiffHistoryTerminalOutcome;
+
+    public sealed record MajorVersionRepresentativesCompleted :
         DiffHistoryTerminalOutcome;
 
     public sealed record BoundariesResolved : DiffHistoryTerminalOutcome
