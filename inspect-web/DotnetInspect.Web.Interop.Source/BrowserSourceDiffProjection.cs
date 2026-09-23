@@ -32,15 +32,18 @@ internal static class BrowserSourceDiffProjection
             MaximumRequestBytes);
     }
 
-    internal static void AdmitPair(AssemblyMemberSourcePairResult pair)
+    internal static void AdmitEndpoints(
+        AssemblyMemberSourcePairEndpoint before,
+        AssemblyMemberSourcePairEndpoint after)
     {
-        ArgumentNullException.ThrowIfNull(pair);
+        ArgumentNullException.ThrowIfNull(before);
+        ArgumentNullException.ThrowIfNull(after);
         AdmitEndpoint(
-            pair.Before,
+            before,
             BrowserSourceDiffCapacityDimension.RawBeforeBytes,
             BrowserSourceDiffCapacityDimension.RawBeforeLines);
         AdmitEndpoint(
-            pair.After,
+            after,
             BrowserSourceDiffCapacityDimension.RawAfterBytes,
             BrowserSourceDiffCapacityDimension.RawAfterLines);
     }

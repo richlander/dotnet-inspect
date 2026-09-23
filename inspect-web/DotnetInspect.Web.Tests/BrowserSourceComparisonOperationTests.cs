@@ -709,6 +709,30 @@ public sealed class BrowserSourceComparisonOperationTests(ITestOutputHelper outp
         Assert.Single(diff.Changes);
     }
 
+    [Fact]
+    public async Task PairAdmissionRunsBeforeBrowserProjection()
+    {
+        await using Pair pair = await Pair.OpenAsync();
+        using var host = Host();
+        bool admitted = false;
+
+        var error = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            pair.CompareThrough(
+                host,
+                "Counter",
+                "Value",
+                admitEndpoints: (before, after) =>
+                {
+                    admitted = true;
+                    Assert.IsType<AssemblyMemberSourcePairEndpoint.Resolved>(before);
+                    Assert.IsType<AssemblyMemberSourcePairEndpoint.Resolved>(after);
+                    throw new InvalidOperationException("Admission stopped comparison.");
+                }));
+
+        Assert.True(admitted);
+        Assert.Equal("Admission stopped comparison.", error.Message);
+    }
+
     // PR-fast: bounded public projection over the existing embedded-PDB pair.
     [Theory]
     [InlineData(true, "SourceDeadlineExceeded")]
@@ -846,11 +870,33 @@ public sealed class BrowserSourceComparisonOperationTests(ITestOutputHelper outp
         Assert.NotNull(value.After.MetadataToken);
     }
 
+    [Fact]
+    public async Task ChecksumMismatchDoesNotAuthorizeBrowseDestination()
+    {
+        await using Pair pair = await Pair.OpenAsync();
+        byte[] mismatched = FixtureSource(
+            FixtureCatalog.InspectWebSourceComparisonPair.New);
+        mismatched[^1] ^= 1;
+        using var host = new SourcePairHost(
+            FixtureSource(FixtureCatalog.InspectWebSourceComparisonPair.Old),
+            mismatched);
+
+        BrowserSourceComparison value =
+            await pair.CompareThrough(host, "Counter", "Value");
+
+        Assert.Equal("Unavailable", value.Status);
+        Assert.Equal("Failed", value.After.State);
+        Assert.Contains("ChecksumMismatch", value.After.Detail);
+        Assert.Null(value.After.Text);
+        Assert.Null(value.After.BrowseUrl);
+    }
+
     static void AssertUnresolvedSource(BrowserSourceComparisonEndpoint endpoint)
     {
         Assert.Contains(endpoint.State, (string[])["Unavailable", "Failed"]);
         Assert.NotEmpty(endpoint.Detail!);
         Assert.Null(endpoint.Text);
+        Assert.Null(endpoint.BrowseUrl);
     }
 
     [Theory]
@@ -966,7 +1012,9 @@ public sealed class BrowserSourceComparisonOperationTests(ITestOutputHelper outp
             SourcePairHost host,
             string typeName,
             string memberName,
-            AssemblyContextSourceQueryContext? sourceContext = null)
+            AssemblyContextSourceQueryContext? sourceContext = null,
+            Action<AssemblyMemberSourcePairEndpoint, AssemblyMemberSourcePairEndpoint>?
+                admitEndpoints = null)
         {
             BrowserSourceComparisonRequest request = await Request(typeName, memberName);
             await using BrowserMemberResolution.ScopedResolution before =
@@ -994,7 +1042,8 @@ public sealed class BrowserSourceComparisonOperationTests(ITestOutputHelper outp
                         MemberSourcePairInspection.ExecuteAsync(
                             beforeGroup, beforeParticipant, afterGroup, afterParticipant,
                             new(selected.Type, selected.Member), sourceContext ?? host.Context,
-                            TestContext.Current.CancellationToken)));
+                            TestContext.Current.CancellationToken,
+                            admitEndpoints)));
             AssemblyMemberSourcePairResult pair = inspection.Content;
             foreach (var endpoint in new[] { pair.Before, pair.After })
             {

@@ -5,6 +5,9 @@ import {
   sourceDiffPayloadDecoder,
   type BrowserSourceComparisonResult,
 } from "../src/source-diff-transport.ts";
+import type {
+  PublishedSourceComparisonBridge,
+} from "../src/published-source-comparison-bridge.ts";
 import {
   chooseSubject,
   selectFirstExactLibrary,
@@ -16,6 +19,11 @@ const beforePackage = process.env.INSPECT_WEB_SOURCE_DIFF_BEFORE_PACKAGE;
 const afterPackage = process.env.INSPECT_WEB_SOURCE_DIFF_AFTER_PACKAGE;
 const beforeSource = process.env.INSPECT_WEB_SOURCE_DIFF_BEFORE_SOURCE;
 const afterSource = process.env.INSPECT_WEB_SOURCE_DIFF_AFTER_SOURCE;
+
+type SourceComparisonGateWindow = Window & {
+  __inspectWebSourceComparison?: PublishedSourceComparisonBridge;
+  __sourceComparisonPending?: Promise<BrowserSourceComparisonResult>;
+};
 
 function decodeSourceComparison(
   value: unknown,
@@ -599,5 +607,140 @@ test.describe("published authored Source comparison transport", () => {
       expect(unavailable.value?.after.state).not.toBe("Available");
       expect(unavailable.value?.isExact).toBe(false);
       expect(unavailable.value?.diff).toBeNull();
+    });
+
+  test("production Worker decodes cancellation and successor comparison",
+    async ({ page }) => {
+      test.skip(!beforePackage || !afterPackage || !beforeSource || !afterSource,
+        "Set the four catalog-resolved Source comparison fixture assets.");
+      await page.context().route(
+        "**/inspectweb.sourcecomparisonfixture*.nupkg",
+        async route => {
+          const version =
+            route.request().url().includes(".2.0.0.nupkg") ? 2 : 1;
+          await route.fulfill({
+            path: version === 1 ? beforePackage! : afterPackage!,
+            contentType: "application/octet-stream",
+            headers: { "access-control-allow-origin": "*" },
+          });
+        });
+      let releaseSource!: () => void;
+      const sourceGate = new Promise<void>(resolve => {
+        releaseSource = resolve;
+      });
+      let sourceStarted!: () => void;
+      const sourceStart = new Promise<void>(resolve => {
+        sourceStarted = resolve;
+      });
+      let holdSource = true;
+      await page.context().route(
+        "https://raw.githubusercontent.com/dotnet-inspect-fixtures/source-comparison/**",
+        async route => {
+          if (holdSource) {
+            sourceStarted();
+            await sourceGate;
+          }
+          const after =
+            route.request().url().includes("/source-comparison/v2/");
+          await route.fulfill({
+            path: after ? afterSource! : beforeSource!,
+            contentType: "text/plain",
+            headers: { "access-control-allow-origin": "*" },
+          }).catch(() => undefined);
+        });
+
+      const applicationUrl = new URL(site!);
+      applicationUrl.searchParams.set("source-comparison-gate", "1");
+      await page.goto(applicationUrl.href);
+      await expect.poll(() => page.evaluate(() =>
+        (window as SourceComparisonGateWindow)
+          .__inspectWebSourceComparison !== undefined), {
+        timeout: 180_000,
+      }).toBe(true);
+      const request = await page.evaluate(async () => {
+        const bridge = (window as SourceComparisonGateWindow)
+          .__inspectWebSourceComparison;
+        if (!bridge) throw new Error("Source comparison bridge is unavailable.");
+        const loadResult = await bridge.package.queryPackage(
+          "InspectWeb.SourceComparisonFixture", "1.0.0", "net11.0",
+        );
+        const surface = loadResult.surface;
+        if (surface === null) {
+          throw new Error(
+            loadResult.versionSettlement.content.failure?.reason
+              ?? "Package version settlement did not produce a surface.",
+          );
+        }
+        const type = surface.types.find(candidate =>
+          candidate.definitionId === "SourceDiffFixture.Counter");
+        const member = type?.api.find(candidate => candidate.name === "Value");
+        const body = member?.bodySelectors.find(candidate =>
+          candidate.token === member.metadataToken);
+        if (!type || !body) {
+          throw new Error("The fixture does not expose Counter.Value.");
+        }
+        return {
+          packageId: surface.package,
+          beforeVersion: surface.version,
+          afterVersion: "2.0.0",
+          framework: surface.activeFramework,
+          assembly: type.assemblyId,
+          typeIdentity: type.definitionId,
+          memberName: body.memberName,
+          selectorKey: body.selectorKey,
+          metadataToken: body.token,
+        };
+      });
+      const canceledId = "source-comparison-worker-canceled";
+      await page.evaluate(({ operationId, requestJson }) => {
+        const target = window as SourceComparisonGateWindow;
+        const bridge = target.__inspectWebSourceComparison;
+        if (!bridge) throw new Error("Source comparison bridge is unavailable.");
+        target.__sourceComparisonPending =
+          bridge.source.queryMemberSourceComparison(operationId, requestJson);
+      }, { operationId: canceledId, requestJson: JSON.stringify(request) });
+      await sourceStart;
+      await page.evaluate(async operationId => {
+        const bridge = (window as SourceComparisonGateWindow)
+          .__inspectWebSourceComparison;
+        if (!bridge) throw new Error("Source comparison bridge is unavailable.");
+        await bridge.source.cancelMemberSourceComparison(
+          operationId,
+          "superseded",
+        );
+      }, canceledId);
+      holdSource = false;
+      releaseSource();
+      const canceled = await page.evaluate(async () => {
+        const target = window as SourceComparisonGateWindow;
+        if (!target.__sourceComparisonPending) {
+          throw new Error("Canceled Source comparison is unavailable.");
+        }
+        return await target.__sourceComparisonPending;
+      });
+      expect(canceled.kind).toBe("Canceled");
+      expect(canceled.reason).toBe("superseded");
+
+      const successor = await page.evaluate(
+        async ({ operationId, requestJson }) => {
+          const bridge = (window as SourceComparisonGateWindow)
+            .__inspectWebSourceComparison;
+          if (!bridge) throw new Error("Source comparison bridge is unavailable.");
+          return await bridge.source.queryMemberSourceComparison(
+            operationId,
+            requestJson,
+          );
+        },
+        {
+          operationId: "source-comparison-worker-successor",
+          requestJson: JSON.stringify(request),
+        },
+      );
+      expect(successor.kind).toBe("Succeeded");
+      expect(successor.value?.status).toBe("Compared");
+      expect(successor.value?.diff?.before.lines.some(line =>
+        line.includes("1 + 2"))).toBe(true);
+      expect(successor.value?.diff?.after.lines.some(line =>
+        line.includes("=> 3"))).toBe(true);
     });
 });

@@ -69,6 +69,10 @@ import {
   createPublishedRuntimeBenchmarkBridge,
   installPublishedRuntimeBenchmarkBridge,
 } from "./published-runtime-benchmark-bridge.ts";
+import {
+  createPublishedSourceComparisonBridge,
+  installPublishedSourceComparisonBridge,
+} from "./published-source-comparison-bridge.ts";
 import type {
   LibraryLens,
   MemberSection,
@@ -839,6 +843,11 @@ async function loadEngineModule() {
       window,
       window.location.search,
       createPublishedRuntimeBenchmarkBridge(engineClient),
+    );
+    installPublishedSourceComparisonBridge(
+      window,
+      window.location.search,
+      createPublishedSourceComparisonBridge(engineClient),
     );
     cancelPackageQuery = (...args) =>
       engineClient.package.cancelPackageQuery(...args);

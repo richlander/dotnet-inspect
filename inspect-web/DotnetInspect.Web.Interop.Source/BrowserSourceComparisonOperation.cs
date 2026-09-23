@@ -193,7 +193,8 @@ public static partial class SourceExports
                                 afterParticipant,
                                 pairRequest,
                                 BrowserSourceQueryContext.Create(),
-                                cancellationToken)));
+                                cancellationToken,
+                                BrowserSourceDiffProjection.AdmitEndpoints)));
         cancellationToken.ThrowIfCancellationRequested();
         return BrowserSourceComparisonProjection.Project(
             request,

@@ -3,6 +3,7 @@ using DotnetInspector.Presentation;
 using DotnetInspector.Queries;
 using DotnetInspector.Services;
 using Inspector.Findings;
+using ILInspector.SourceLink;
 
 namespace DotnetInspect.Web.Interop.Source;
 
@@ -15,7 +16,6 @@ internal static class BrowserSourceComparisonProjection
         BrowserWorkspaceParticipant before,
         BrowserWorkspaceParticipant after)
     {
-        BrowserSourceDiffProjection.AdmitPair(pair);
         MemberSourcePairDiffPresentationResult projected =
             MemberSourcePairDiffPresentationAdapter.Create(pair);
         BrowserSourceDiff? diff = projected switch
@@ -68,8 +68,13 @@ internal static class BrowserSourceComparisonProjection
                     case AssemblyMemberPdbSourceAttempt.Available available:
                         state = "Available";
                         text = retainText ? available.Inspection.Text : null;
-                        browseUrl = BrowserSourceDiffProjection.BrowseUrl(
-                            available.Inspection.Document?.ResolvedUrl);
+                        if (available.Inspection.ChecksumVerification is
+                            SourceChecksumVerification.Exact
+                                or SourceChecksumVerification.LineEndingNormalized)
+                        {
+                            browseUrl = BrowserSourceDiffProjection.BrowseUrl(
+                                available.Inspection.Document?.ResolvedUrl);
+                        }
                         provenance = available.Provenance;
                         break;
                     case AssemblyMemberPdbSourceAttempt.Unavailable unavailable:
@@ -82,8 +87,6 @@ internal static class BrowserSourceComparisonProjection
                             _ => throw new InvalidOperationException(
                                 "Unavailable Source carried complete evidence."),
                         };
-                        browseUrl = BrowserSourceDiffProjection.BrowseUrl(
-                            unavailable.Inspection.Document?.ResolvedUrl);
                         break;
                     default:
                         throw new InvalidOperationException("Unknown PDB Source attempt.");
