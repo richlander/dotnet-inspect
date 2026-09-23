@@ -457,6 +457,12 @@ internal static class BrowserCallGraphProjection
             }
             kinds[edge.ToNodeId] = token.Value;
         }
+        foreach (InspectionGraphNode node in graph.Nodes)
+        {
+            // Outbound evidence can retain a disconnected hub source whose
+            // only projected edge is an unclassified boundary.
+            kinds.TryAdd(node.Id, "connector");
+        }
         return kinds;
     }
 
