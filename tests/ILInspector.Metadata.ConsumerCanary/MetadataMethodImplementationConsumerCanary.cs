@@ -84,12 +84,27 @@ public static class MetadataMethodImplementationConsumerCanary
                     relationship =>
                         relationship.DeclarationName.Length >= 0
                         && relationship.DeclarationSignature
-                            .ParameterTypes.Length >= 0),
+                            .ParameterTypes.Length >= 0
+                        && Consume(relationship.Definition)),
             MetadataMethodImplementationResult.Absent absent =>
                 absent.Counters.MethodImplementationRows >= 0,
             MetadataMethodImplementationResult.Rejected rejected =>
                 rejected.Failure.Detail.Length > 0
                 && rejected.Counters.MetadataRows >= 0,
+            _ => false,
+        };
+
+    static bool Consume(
+        MetadataDeclarationDefinitionDisposition disposition) =>
+        disposition switch
+        {
+            MetadataDeclarationDefinitionDisposition.LocalResolved local =>
+                local.Owner.Definition.Value != 0
+                && local.Definition.Handle.IsNil is false,
+            MetadataDeclarationDefinitionDisposition.ExternalUnresolved
+                external =>
+                external.Scope.Kind is not default(
+                    MetadataTypeScopeKind),
             _ => false,
         };
 
