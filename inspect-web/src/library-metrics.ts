@@ -94,7 +94,7 @@ function layoutTreemap(
     (sum, item) => sum + Math.max(1, item.instructionCount),
     0,
   );
-  const ratio = Math.min(.9, Math.max(.1, firstTotal / total));
+  const ratio = firstTotal / total;
   if (width >= height) {
     const firstWidth = width * ratio;
     return [
@@ -165,7 +165,7 @@ function renderTreemap(
     const labelHtml = rectangle.width > 86 && rectangle.height > 28
       ? `<text class="metrics-treemap-label" x="${rectangle.x + 7}" y="${rectangle.y + 17}">${escapeHtml(label)}</text>`
       : "";
-    return `<g class="metrics-treemap-cell"><title>${escapeHtml(tooltip)}</title><rect x="${rectangle.x.toFixed(2)}" y="${rectangle.y.toFixed(2)}" width="${Math.max(0, rectangle.width - 2).toFixed(2)}" height="${Math.max(0, rectangle.height - 2).toFixed(2)}" fill="hsl(265 65% ${lightness}%)"></rect>${labelHtml}</g>`;
+    return `<g class="metrics-treemap-cell"><title>${escapeHtml(tooltip)}</title><rect x="${rectangle.x.toFixed(2)}" y="${rectangle.y.toFixed(2)}" width="${rectangle.width.toFixed(2)}" height="${rectangle.height.toFixed(2)}" fill="hsl(265 65% ${lightness}%)"></rect>${labelHtml}</g>`;
   }).join("");
   const omittedNote = omitted.length
     ? ` Top ${TREEMAP_LIMIT} types are shown individually; ${formatNumber(omitted.length)} smaller types are grouped as Other types.`

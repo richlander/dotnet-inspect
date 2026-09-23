@@ -99,3 +99,33 @@ test("renders the complexity and relationship visual evidence", () => {
   assert.match(html, /Relationship Crossing/);
   assert.match(html, /Example\.Core\.Store/);
 });
+
+test("treemap rectangle area remains proportional to instruction volume", () => {
+  const html = render({
+    data: {
+      ...data,
+      typeSummaries: [
+        {
+          ...data.typeSummaries[0]!,
+          typeId: "Example.Core.Large",
+          name: "Large",
+          instructionCount: 1_000,
+        },
+        {
+          ...data.typeSummaries[0]!,
+          typeId: "Example.Core.Small",
+          name: "Small",
+          instructionCount: 1,
+        },
+      ],
+    },
+  });
+  const rectangles = [...html.matchAll(
+    /<rect x="[^"]+" y="[^"]+" width="([^"]+)" height="([^"]+)"/g,
+  )].map(match => Number(match[1]) * Number(match[2]));
+
+  assert.equal(rectangles.length, 2);
+  const totalArea = rectangles.reduce((sum, area) => sum + area, 0);
+  assert.ok(Math.abs(rectangles[0]! / totalArea - 1_000 / 1_001) < .0001);
+  assert.ok(Math.abs(rectangles[1]! / totalArea - 1 / 1_001) < .0001);
+});

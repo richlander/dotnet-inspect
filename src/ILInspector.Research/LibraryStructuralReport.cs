@@ -234,8 +234,8 @@ public static class LibraryStructuralReport
                 completeBodies.Contains(call.EvidenceMethod.MetadataToken)
                 && call.CalleeDefinitionToken != 0
                 && methods.ContainsKey(call.CalleeDefinitionToken)
-                && call.Caller.DeclaringType != methods[
-                    call.CalleeDefinitionToken].DeclaringType)
+                && !call.Caller.DeclaringType.Equals(methods[
+                    call.CalleeDefinitionToken].DeclaringType))
             .GroupBy(call => (
                 Source: call.Caller.DeclaringType,
                 Target: methods[call.CalleeDefinitionToken].DeclaringType))

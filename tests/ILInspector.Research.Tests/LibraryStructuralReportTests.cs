@@ -181,6 +181,11 @@ public sealed class LibraryStructuralReportTests
                 && summary.BodyCount > 0
                 && summary.InstructionCount > 0);
         Assert.NotEmpty(available.Document.EntangledRelationships);
+        Assert.All(
+            available.Document.EntangledRelationships,
+            static relationship => Assert.NotEqual(
+                relationship.Source,
+                relationship.Target));
         Assert.True(
             available.Document.EntangledRelationships.Length
                 <= LibraryStructuralReport.MaximumEntangledTypeCount
