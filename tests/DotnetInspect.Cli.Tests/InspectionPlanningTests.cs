@@ -1858,6 +1858,41 @@ public sealed class InspectionPlanningTests
     }
 
     [Fact]
+    public void LibraryStructuralRoutesDeclareSubjectScopedCardinality()
+    {
+        StructuralSchemaProjection exact =
+            StructuralViewRegistry.Project(
+                StructuralViewRegistry.Route(
+                    StructuralViewIdentity.DirectLibrary,
+                    InspectionCatalogIdentity.Library));
+        StructuralSchemaProjection aggregate =
+            StructuralViewRegistry.Project(
+                StructuralViewRegistry.Route(
+                    StructuralViewIdentity.PackageAllLibraries,
+                    InspectionCatalogIdentity.LibraryAggregate));
+
+        SectionCardinalityDeclaration exactDeclaration =
+            Assert.IsType<SectionCardinalityDeclaration>(
+                exact.SectionCardinalities?[SectionNames.LibraryInfo]);
+        SectionCardinalityDeclaration aggregateDeclaration =
+            Assert.IsType<SectionCardinalityDeclaration>(
+                aggregate.SectionCardinalities?[SectionNames.LibraryInfo]);
+        Assert.Equal(
+            SectionSemanticShape.Scalar,
+            exactDeclaration.Shape);
+        Assert.Empty(exactDeclaration.Terminals);
+        Assert.Equal(
+            SectionSemanticShape.Inventory,
+            aggregateDeclaration.Shape);
+        Assert.Equal(
+            [
+                SectionTerminalCapability.Rows,
+                SectionTerminalCapability.Count,
+            ],
+            aggregateDeclaration.Terminals);
+    }
+
+    [Fact]
     public async Task CommandlessStructuralMode_UsesParsedAttachedValues()
     {
         string[] common =
