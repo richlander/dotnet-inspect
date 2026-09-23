@@ -132,9 +132,14 @@ slots.
 
 Primitive integer-family join compatibility is decided before printing
 (#2095). One bounded relation serves `Conditional`, `SwitchExpression`, and
-`Coalesce`: for each accepted target, the join carries the effective source
-type that licenses target-aware arm rendering. This is neither a replacement
-for the join's result type nor a general C# conversion classifier.
+`Coalesce`. It records whole-join compatibility and, for each target whose
+rendered arms are accepted, the effective source type that licenses
+target-aware arm rendering. The two domains coincide for conditional and
+switch expressions. A coalesce's whole-join check observes both operands,
+while its rendered-arm testimony observes only the right operand; keeping both
+facts preserves that existing asymmetry instead of broadening coalesce
+targetability. This relation is neither a replacement for the join's result
+type nor a general C# conversion classifier.
 
 The relation admits an integer-like source and target only when the existing
 slot-coercion contract can spell that source at the target and every arm is one
@@ -161,7 +166,8 @@ materialization. Raised, lowered, and nested bodies share that path; detached
 reconstruction bodies wait for their host's final binding. Cloning retains
 issued testimony, and final binding refreshes it after operand rewrites.
 Printing queries the issued target/source pair rather than walking the join
-arms to recover compatibility. The printer-owned
+arms to recover compatibility, including the separately issued coalesce
+right-arm fact. The printer-owned
 `CanRenderPrimitiveJoinForTarget` and its arm-list capability checks are deleted;
 actual arm and literal spelling stays in `CSharpPrinter`.
 
