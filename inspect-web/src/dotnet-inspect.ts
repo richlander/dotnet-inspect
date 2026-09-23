@@ -4152,7 +4152,7 @@ const libraryApiDiff = createLibraryApiDiffCoordinator({
 const compareClone = createCompareCloneCoordinator({
   state,
   operationAuthority,
-  query: requestJson => inspectCloneCandidates(requestJson),
+  query: request => inspectCloneCandidates(request),
   describeError: errorMessage,
   reportOperationDiagnostic: diagnostic => {
     console.error("Compare Clone operation authority failure.", diagnostic);

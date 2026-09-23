@@ -17,10 +17,11 @@ the matching space directly: `find <pattern>` searches API types/members;
 `package query <exact-id>` or `package query '<prefix>*'` discovers package IDs;
 and `library query <pattern-or-scope>` discovers Libraries. Inspect known
 results with `package <exact-id>` or `library <source>`.
-Unscoped `find` searches installed .NET Runtime and ASP.NET Core platform
-populations, including Microsoft.Extensions assemblies shipped in those
-frameworks. Package APIs enter scope through explicit `--package` or a restored
-`--project`; discover package IDs with `package query`.
+Unscoped `find` searches installed .NET Runtime, ASP.NET Core, and .NET Standard
+platform populations, including Microsoft.Extensions assemblies shipped in the
+framework populations. Package APIs enter scope through explicit `--package`, a
+restored `--project`, or `--package-prefix` with a type/member pattern; discover
+package IDs with `package query`.
 
 ## Default: use skills without changing the repository
 
