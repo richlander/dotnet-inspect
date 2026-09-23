@@ -15,6 +15,38 @@ public static partial class JsonInputExports
             JsonInputJsonContext.Default.JsonInputWidget);
 
     [JSExport]
+    public static string? CreateNullableWidgetParsed(string name) =>
+        JsonSerializer.Serialize(
+            new JsonInputWidget(name),
+            JsonInputJsonContext.Default.JsonInputWidget);
+
+    [JSExport]
+    public static async Task<string?> CreateNullableWidgetParsedAsync(
+        string name)
+    {
+        await Task.Yield();
+        return JsonSerializer.Serialize(
+            new JsonInputWidget(name),
+            JsonInputJsonContext.Default.JsonInputWidget);
+    }
+
+    [JSExport]
+    public static string? CreateNullableWidgetDeferred(string name) =>
+        JsonSerializer.Serialize(
+            new JsonInputWidget(name),
+            JsonInputJsonContext.Default.JsonInputWidget);
+
+    [JSExport]
+    public static async Task<string?> CreateNullableWidgetDeferredAsync(
+        string name)
+    {
+        await Task.Yield();
+        return JsonSerializer.Serialize(
+            new JsonInputWidget(name),
+            JsonInputJsonContext.Default.JsonInputWidget);
+    }
+
+    [JSExport]
     public static string RenameWidget(
         string widgetJson,
         string newName)

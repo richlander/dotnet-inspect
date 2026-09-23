@@ -1337,6 +1337,90 @@ public sealed class JsonWireContractResolverTests
         Assert.Empty(function.CertificationDiagnostics);
     }
 
+    [Theory]
+    [InlineData(
+        nameof(JsonInputExports.CreateNullableWidgetParsed),
+        "createNullableWidgetParsed",
+        JsExportJsonOutputMode.Parsed,
+        false)]
+    [InlineData(
+        nameof(JsonInputExports.CreateNullableWidgetParsedAsync),
+        "createNullableWidgetParsedAsync",
+        JsExportJsonOutputMode.Parsed,
+        true)]
+    [InlineData(
+        nameof(JsonInputExports.CreateNullableWidgetDeferred),
+        "createNullableWidgetDeferred",
+        JsExportJsonOutputMode.JsonText,
+        false)]
+    [InlineData(
+        nameof(JsonInputExports.CreateNullableWidgetDeferredAsync),
+        "createNullableWidgetDeferredAsync",
+        JsExportJsonOutputMode.JsonText,
+        true)]
+    public void Build_AllowsNullableDeclaredJsonOutputEnvelopes(
+        string methodName,
+        string generatedName,
+        JsExportJsonOutputMode mode,
+        bool isAsync)
+    {
+        ILInspector.JsExportSurface.JsExportSurface surface =
+            BuildJsonInputFixtureSurfaceWithWireContracts();
+
+        JsExportFunction function = Assert.Single(
+            surface.Functions,
+            candidate => candidate.Name == methodName);
+
+        Assert.Equal(
+            isAsync
+                ? "System.Threading.Tasks.Task<string?>"
+                : "string?",
+            function.ReturnType);
+        Assert.Equal(
+            typeof(JsonInputWidget).FullName,
+            function.ReturnWireType);
+        Assert.Equal(mode, function.ReturnWireMode);
+        Assert.Equal(
+            JsExportJsonContractCertification.Declared,
+            function.JsonContractCertification);
+        Assert.Empty(function.CertificationDiagnostics);
+
+        string source = TypeScriptFacadeEmitter.Emit(
+            SelectFunction(surface, methodName),
+            "./dotnet.js");
+        Assert.Contains(
+            "returned null for an authenticated JSON envelope.",
+            source,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            (isAsync ? "export async function " : "export function ")
+                + generatedName,
+            source,
+            StringComparison.Ordinal);
+        if (mode == JsExportJsonOutputMode.Parsed)
+        {
+            Assert.Contains(
+                "const $parsed: unknown = JSON.parse($result);",
+                source,
+                StringComparison.Ordinal);
+            Assert.DoesNotContain(
+                "export type JsonText<",
+                source,
+                StringComparison.Ordinal);
+        }
+        else
+        {
+            Assert.Contains(
+                "export type JsonText<T>",
+                source,
+                StringComparison.Ordinal);
+            Assert.DoesNotContain(
+                "JSON.parse($result)",
+                source,
+                StringComparison.Ordinal);
+        }
+    }
+
     [Fact]
     public void Build_EqualCompletelyDeclaredAndInferredMemberEmitsIdenticalTypeScript()
     {
@@ -1436,7 +1520,7 @@ public sealed class JsonWireContractResolverTests
             "rightJson",
             nameof(JsonInputWidget));
 
-        Assert.Equal(3, exports.JsExportJsonOutputDeclarations.Count);
+        Assert.Equal(7, exports.JsExportJsonOutputDeclarations.Count);
         AssertJsonOutputDeclaration(
             Assert.Single(
                 exports.JsExportJsonOutputDeclarations,
@@ -1459,6 +1543,36 @@ public sealed class JsonWireContractResolverTests
                     == nameof(JsonInputExports.RenameWidget)),
             nameof(JsonInputExports.RenameWidget),
             nameof(JsonInputWidget));
+        AssertJsonOutputDeclaration(
+            Assert.Single(
+                exports.JsExportJsonOutputDeclarations,
+                declaration => declaration.MethodName
+                    == nameof(JsonInputExports.CreateNullableWidgetParsed)),
+            nameof(JsonInputExports.CreateNullableWidgetParsed),
+            nameof(JsonInputWidget));
+        AssertJsonOutputDeclaration(
+            Assert.Single(
+                exports.JsExportJsonOutputDeclarations,
+                declaration => declaration.MethodName
+                    == nameof(JsonInputExports.CreateNullableWidgetParsedAsync)),
+            nameof(JsonInputExports.CreateNullableWidgetParsedAsync),
+            nameof(JsonInputWidget));
+        AssertJsonOutputDeclaration(
+            Assert.Single(
+                exports.JsExportJsonOutputDeclarations,
+                declaration => declaration.MethodName
+                    == nameof(JsonInputExports.CreateNullableWidgetDeferred)),
+            nameof(JsonInputExports.CreateNullableWidgetDeferred),
+            nameof(JsonInputWidget),
+            deferParsing: true);
+        AssertJsonOutputDeclaration(
+            Assert.Single(
+                exports.JsExportJsonOutputDeclarations,
+                declaration => declaration.MethodName
+                    == nameof(JsonInputExports.CreateNullableWidgetDeferredAsync)),
+            nameof(JsonInputExports.CreateNullableWidgetDeferredAsync),
+            nameof(JsonInputWidget),
+            deferParsing: true);
     }
 
     [Fact]

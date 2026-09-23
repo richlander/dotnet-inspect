@@ -1028,7 +1028,7 @@ public static class JsExportSurfaceBuilder
     }
 
     static bool HasRawJsonStringReturn(string returnType) =>
-        returnType is "string"
+        returnType.Replace("?", "", StringComparison.Ordinal) is "string"
             or "System.String"
             or "Task<string>"
             or "System.Threading.Tasks.Task<string>"

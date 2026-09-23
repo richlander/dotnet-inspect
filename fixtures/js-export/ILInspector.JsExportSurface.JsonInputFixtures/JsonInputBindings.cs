@@ -20,6 +20,20 @@ namespace ILInspector.JsExportSurface.JsonInputFixtures;
     nameof(JsonInputExports.CreateWidget),
     typeof(JsonInputWidget),
     deferParsing: true)]
+[JsExportJsonOutput(
+    nameof(JsonInputExports.CreateNullableWidgetParsed),
+    typeof(JsonInputWidget))]
+[JsExportJsonOutput(
+    nameof(JsonInputExports.CreateNullableWidgetParsedAsync),
+    typeof(JsonInputWidget))]
+[JsExportJsonOutput(
+    nameof(JsonInputExports.CreateNullableWidgetDeferred),
+    typeof(JsonInputWidget),
+    deferParsing: true)]
+[JsExportJsonOutput(
+    nameof(JsonInputExports.CreateNullableWidgetDeferredAsync),
+    typeof(JsonInputWidget),
+    deferParsing: true)]
 [JsExportJsonInput(
     nameof(JsonInputExports.WidgetMatchesAudit),
     "widgetJson",
