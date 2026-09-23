@@ -264,8 +264,8 @@ acquisition, Query Space, or the viewer.
 
 | Gate | Property | Status |
 | --- | --- | --- |
-| `SourceDocumentLinesReconstructExactDecodedText` | Every supported terminator, empty/final-empty line, line number, and UTF-16 start offset reconstruct the exact decoded text. | Unverified until slice 2. |
-| `SourceDocumentProjectionPreservesProviderAndFailureEvidence` | PDB and decompiled success preserve facts, Share, diagnostics, and successful partial-type mapping evidence; unavailable, checksum, incomplete-content, cancellation, and cleanup outcomes do not become successful line results. | Unverified until slice 2. |
+| `SourceDocumentLinesReconstructExactDecodedText` | Every supported terminator, empty/final-empty line, line number, and UTF-16 start offset reconstruct the exact decoded text. | Verified in Release by `SourceDocumentInspectionTests`. |
+| `SourceDocumentProjectionPreservesProviderAndFailureEvidence` | PDB and decompiled success preserve facts, Share, diagnostics, and successful partial-type mapping evidence; unavailable, checksum, incomplete-content, cancellation, and cleanup outcomes do not become successful line results. | Verified in Release by `SourceDocumentInspectionTests`. |
 | `SourceLineCountMatchesCompletelyDrainedRows` | Exact Count equals the completely drained ordered line population under one content binding. | Unverified until slice 3. |
 | `SourceLineSegmentSizeDoesNotChangeMeaning` | Different execution bounds preserve lines, order, Count, completion, reconstruction, and continuation meaning. | Unverified until slice 3. |
 | `SourceLineContinuationRejectsIncompatibleBinding` | Stale, expired, different-document, different-request, and different-selection receipts fail without restarting. | Unverified until slice 3. |
