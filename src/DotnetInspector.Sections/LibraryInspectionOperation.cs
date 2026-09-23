@@ -34,7 +34,7 @@ public static class LibraryInspectionOperation
                     new(
                         request.Library,
                         InventoryBounds(request.Plan.Bounds),
-                        SourceRows(request.Plan.Types.Rows, rows)),
+                        SourceRows(request.Plan.Types, rows)),
                     lease,
                     cancellationToken);
             return Project(
@@ -91,6 +91,7 @@ public static class LibraryInspectionOperation
                 ImmutableArray<InspectionDiagnostic> countDiagnostics) =
                 Count(
                     correspondence.Inventory,
+                    request.Plan.Types.DeclarationSelection,
                     request.Plan.Bounds,
                     cancellationToken);
             diagnostics.AddRange(countDiagnostics);
@@ -241,7 +242,8 @@ public static class LibraryInspectionOperation
             PortableIdentity(subject.AssemblyIdentity);
         var binding = new LibraryTypePopulationBinding(
             subject.ModuleVersionId,
-            request.Plan.Types.Accessibility);
+            request.Plan.Types.Accessibility,
+            request.Plan.Types.DeclarationSelection);
         var document = new LibraryDocument(
             portableIdentity,
             subject.ModuleVersionId,
@@ -304,6 +306,7 @@ public static class LibraryInspectionOperation
                             ? EncodeContinuation(
                                 correspondence.ModuleVersionId,
                                 population.Accessibility,
+                                population.DeclarationSelection,
                                 request.Ordering,
                                 request.MemberCount is not null,
                                 next)
@@ -516,6 +519,7 @@ public static class LibraryInspectionOperation
         ImmutableArray<InspectionDiagnostic> Diagnostics)
         Count(
             AssemblyTypeDeclarationInventory inventory,
+            LibraryTypeDeclarationSelection selection,
             ApiSurfaceExtractionBounds bounds,
             CancellationToken cancellationToken)
     {
@@ -533,6 +537,8 @@ public static class LibraryInspectionOperation
             switch (declaration.Kind)
             {
                 case AssemblyTypeDeclarationKind.Definition:
+                    if (!IncludesDefinitions(selection))
+                        break;
                     switch (
                         declaration.DefinitionKind
                         ?? throw new InvalidOperationException(
@@ -559,7 +565,8 @@ public static class LibraryInspectionOperation
                     }
                     break;
                 case AssemblyTypeDeclarationKind.Forwarder:
-                    forwarders++;
+                    if (IncludesForwarders(selection))
+                        forwarders++;
                     break;
                 case AssemblyTypeDeclarationKind.ModuleExport:
                     {
@@ -645,6 +652,8 @@ public static class LibraryInspectionOperation
                 LibraryTypePopulationRowsRejection.InvalidContinuation);
         }
         if (payload.Accessibility != population.Accessibility
+            || payload.DeclarationSelection
+                != population.DeclarationSelection
             || payload.Ordering != rows.Ordering
             || payload.IncludeMemberCount
                 != (rows.MemberCount is not null))
@@ -660,15 +669,24 @@ public static class LibraryInspectionOperation
     }
 
     private static LibraryTypeDeclarationRowsInspectionRequest? SourceRows(
-        LibraryTypePopulationRowsRequest? request,
-        RowsPreparation preparation) =>
-        request is null || preparation.Rejection is not null
+        LibraryTypePopulationRequest population,
+        RowsPreparation preparation)
+    {
+        LibraryTypePopulationRowsRequest? request = population.Rows;
+        return request is null || preparation.Rejection is not null
             ? null
             : new(
                 preparation.StartOrdinal,
                 request.MaximumRows,
                 request.MemberCount is not null,
-                preparation.ExpectedModuleVersionId);
+                preparation.ExpectedModuleVersionId,
+                includeDefinitions:
+                    IncludesDefinitions(
+                        population.DeclarationSelection),
+                includeForwarders:
+                    IncludesForwarders(
+                        population.DeclarationSelection));
+    }
 
     private static LibraryTypePopulationRowsRejection?
         ContinuationRejection(
@@ -686,23 +704,25 @@ public static class LibraryInspectionOperation
     private static LibraryTypePopulationContinuation EncodeContinuation(
         Guid moduleVersionId,
         LibraryTypeAccessibility accessibility,
+        LibraryTypeDeclarationSelection declarationSelection,
         LibraryTypePopulationOrdering ordering,
         bool includeMemberCount,
         int nextOrdinal)
     {
         ArgumentOutOfRangeException.ThrowIfNegative(nextOrdinal);
-        Span<byte> payload = stackalloc byte[24];
-        payload[0] = 1;
+        Span<byte> payload = stackalloc byte[25];
+        payload[0] = 2;
         if (!moduleVersionId.TryWriteBytes(payload[1..17]))
         {
             throw new InvalidOperationException(
                 "The Library MVID could not be encoded.");
         }
         payload[17] = checked((byte)accessibility);
-        payload[18] = checked((byte)ordering);
-        payload[19] = includeMemberCount ? (byte)1 : (byte)0;
+        payload[18] = checked((byte)declarationSelection);
+        payload[19] = checked((byte)ordering);
+        payload[20] = includeMemberCount ? (byte)1 : (byte)0;
         BinaryPrimitives.WriteInt32LittleEndian(
-            payload[20..24],
+            payload[21..25],
             nextOrdinal);
         return new(
             new InertString(
@@ -715,25 +735,28 @@ public static class LibraryInspectionOperation
         out ContinuationPayload payload)
     {
         payload = default;
-        Span<byte> bytes = stackalloc byte[24];
+        Span<byte> bytes = stackalloc byte[25];
         if (!Convert.TryFromBase64String(
                 continuation.Value.ToString(),
                 bytes,
                 out int written)
             || written != bytes.Length
-            || bytes[0] != 1
-            || bytes[19] > 1)
+            || bytes[0] != 2
+            || bytes[20] > 1)
         {
             return false;
         }
 
         var accessibility =
             (LibraryTypeAccessibility)bytes[17];
+        var declarationSelection =
+            (LibraryTypeDeclarationSelection)bytes[18];
         var ordering =
-            (LibraryTypePopulationOrdering)bytes[18];
+            (LibraryTypePopulationOrdering)bytes[19];
         int nextOrdinal =
-            BinaryPrimitives.ReadInt32LittleEndian(bytes[20..24]);
+            BinaryPrimitives.ReadInt32LittleEndian(bytes[21..25]);
         if (!Enum.IsDefined(accessibility)
+            || !Enum.IsDefined(declarationSelection)
             || !Enum.IsDefined(ordering)
             || nextOrdinal < 0)
         {
@@ -743,8 +766,9 @@ public static class LibraryInspectionOperation
         payload = new(
             new Guid(bytes[1..17]),
             accessibility,
+            declarationSelection,
             ordering,
-            bytes[19] == 1,
+            bytes[20] == 1,
             nextOrdinal);
         return payload.ModuleVersionId != Guid.Empty;
     }
@@ -795,9 +819,20 @@ public static class LibraryInspectionOperation
     private readonly record struct ContinuationPayload(
         Guid ModuleVersionId,
         LibraryTypeAccessibility Accessibility,
+        LibraryTypeDeclarationSelection DeclarationSelection,
         LibraryTypePopulationOrdering Ordering,
         bool IncludeMemberCount,
         int NextOrdinal);
+
+    private static bool IncludesDefinitions(
+        LibraryTypeDeclarationSelection selection) =>
+        selection is LibraryTypeDeclarationSelection.Definitions
+            or LibraryTypeDeclarationSelection.DefinitionsAndForwarders;
+
+    private static bool IncludesForwarders(
+        LibraryTypeDeclarationSelection selection) =>
+        selection is LibraryTypeDeclarationSelection.Forwarders
+            or LibraryTypeDeclarationSelection.DefinitionsAndForwarders;
 
     private static InspectionEnvelope<LibraryInspectionOutcome> Rejected(
         LibraryTypeDeclarationInventoryInspectionRejectionKind rejection)

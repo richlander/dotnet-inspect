@@ -26,6 +26,20 @@ declarations advertised by the Library image. A forwarded declaration remains
 a forwarder row; Library inspection does not replace it with a target
 definition from another Library.
 
+Definitions and forwarders are both first-class Type declarations, but they
+are not interchangeable. Every admitted definition or forwarder contributes
+exactly one row to the same Type population, and each row carries its intrinsic
+declaration kind. An unqualified request for Types includes both kinds. A
+declaration-kind facet may include only definitions or only forwarders without
+changing either kind's identity or treating forwarders as a side channel.
+
+This distinction is observable for facade assemblies. If a facade advertises
+100 admitted forwarders and no local definitions, its Type population contains
+100 Types: exact Count is 100 and completely drained Rows contains 100
+forwarder rows. A renderer may group or summarize those rows only as an
+additional projection; it cannot substitute the number of groups for Type
+Count or omit the declarations from an unqualified Type list.
+
 This owner composes existing contracts without redefining them:
 
 - [Library ownership and borrowing](library-ownership-and-borrowing.md) owns
@@ -177,6 +191,8 @@ fields, columns, or renderer settings. Its first population request is:
 ```text
 LibraryTypePopulationRequest
   facet selection
+    declaration kinds: definitions, forwarders, or both
+    accessibility/public-surface selection
   optional Count request
   optional Rows request
 
@@ -282,10 +298,11 @@ Type kind and accessibility are initial facets. Namespace and other facets may
 be adopted only after their query semantics, cost, and producer evidence are
 owned.
 
-A declaration-kind facet distinguishes local definitions from forwarders.
-Type kind and definition-local accessibility apply only to definitions; a
-forwarder does not acquire either fact from its unresolved target. A Type-kind
-facet therefore selects definitions of that kind rather than silently binding
+A declaration-kind facet distinguishes local definitions from forwarders and
+supports definitions-only, forwarders-only, or combined membership. Type kind
+and definition-local accessibility apply only to definitions; a forwarder
+does not acquire either fact from its unresolved target. A Type-kind facet
+therefore selects definitions of that kind rather than silently binding
 forwarders or guessing their target kind. The public-surface facet can select
 both definitions and forwarders from the owner-issued declaration inventory.
 
@@ -338,6 +355,12 @@ to `definitions`; they do not classify forwarders by opening or inferring from
 their targets. A definition-only Count kernel may be used only when the same
 single-image declaration evidence proves that no admitted forwarder changes
 the requested population.
+
+For a declaration-kind-filtered population, Count reports the selected
+membership: definitions-only excludes forwarders, forwarders-only excludes
+definitions, and combined membership preserves the total above. Count is not
+the number of rendered groups, forwarding targets, or resolved target
+definitions.
 
 Rows contains one bounded ordered segment and either terminal completion or
 source continuation. Continuation is bound to the complete population
@@ -519,6 +542,13 @@ direct JSON or typed LINQ processing
   -> one LibraryDocument
 ```
 
+An ordinary unqualified Type inventory renders definitions and forwarders as
+the first-class declarations returned by that plan. A definition-kind section
+may project definitions and a forwarder section may project forwarders, but
+their union retains the complete Type population. A target-grouped forwarder
+summary may supplement this inventory; it is not the Type Rows result and
+cannot define Count.
+
 Lossless JSON preserves population paths, canonical facets, terminal outcomes,
 bindings, continuation, completeness, Share, and diagnostics. `jq` or typed
 LINQ consumers process that structure rather than rendered field/value rows.
@@ -541,6 +571,9 @@ Adoption is staged through focused slices:
 4. Define the focused section/document composition, then lower direct,
    PackageHouse, and PlatformHouse CLI gestures to explicit plans while
    preserving not-yet-adopted legacy sections on their existing paths.
+   Unqualified Type inventory and Count include first-class definition and
+   forwarder declarations; declaration-kind selections include or exclude
+   them through the request facet rather than presentation-only filtering.
 5. Expose one typed `BrowserLibraryInspectionRequest` through the #8347
    generated JSON-input facade and consume the same envelope in Inspect Web.
 6. Adopt additional Library facts and populations owner by owner, then retire
@@ -562,6 +595,9 @@ The design and implementation slices require Release gates for:
 - count-only Type census returns no retained Type rows;
 - a real forwarding facade Counts definitions and forwarders without opening a
   target Library, and its declaration-kind Counts sum to total;
+- a facade containing 100 admitted forwarders and no definitions reports 100
+  Types, yields 100 completely drained forwarder Rows, and can select those
+  rows through the declaration-kind facet;
 - bounded Type Rows decode only requested row content and retain exact
   continuation;
 - Count equals the complete joined Rows population for the same binding;
@@ -609,11 +645,13 @@ Use installed `System.Runtime` as the forwarding-facade boundary:
 
 1. request the complete public Type declaration Count;
 2. prove local definition and forwarder Counts sum to total;
-3. request bounded forwarder Rows and retain exact structured names,
+3. prove unqualified Count and completely drained Rows include every admitted
+   forwarder as one first-class Type declaration;
+4. request bounded forwarder-only Rows and retain exact structured names,
    `ExportedType` occurrence chains, and target assembly-reference identities;
-4. prove no target Library, target definition, opener, stream, or resolver
+5. prove no target Library, target definition, opener, stream, or resolver
    escapes or is required; and
-5. show that a requested Member Count on a forwarder is not reported as zero.
+6. show that a requested Member Count on a forwarder is not reported as zero.
 
 The neighboring `System.Text.Json` scenario preserves the current useful
 shape:

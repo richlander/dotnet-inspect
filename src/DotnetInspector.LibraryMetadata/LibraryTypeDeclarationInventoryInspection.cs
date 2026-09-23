@@ -70,10 +70,17 @@ public sealed record LibraryTypeDeclarationRowsInspectionRequest
         int startOrdinal,
         int maximumRows,
         bool includeMemberCount,
-        Guid? expectedModuleVersionId)
+        Guid? expectedModuleVersionId,
+        bool includeDefinitions = true,
+        bool includeForwarders = true)
     {
         ArgumentOutOfRangeException.ThrowIfNegative(startOrdinal);
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(maximumRows);
+        if (!includeDefinitions && !includeForwarders)
+        {
+            throw new ArgumentException(
+                "A declaration Rows request must include definitions, forwarders, or both.");
+        }
         if (expectedModuleVersionId == Guid.Empty)
         {
             throw new ArgumentException(
@@ -84,12 +91,16 @@ public sealed record LibraryTypeDeclarationRowsInspectionRequest
         StartOrdinal = startOrdinal;
         MaximumRows = maximumRows;
         IncludeMemberCount = includeMemberCount;
+        IncludeDefinitions = includeDefinitions;
+        IncludeForwarders = includeForwarders;
         ExpectedModuleVersionId = expectedModuleVersionId;
     }
 
     public int StartOrdinal { get; }
     public int MaximumRows { get; }
     public bool IncludeMemberCount { get; }
+    public bool IncludeDefinitions { get; }
+    public bool IncludeForwarders { get; }
     public Guid? ExpectedModuleVersionId { get; }
 }
 
@@ -517,9 +528,9 @@ public static class LibraryTypeDeclarationInventoryInspection
                     .StaleContinuation);
         }
 
-        ImmutableArray<AssemblyTypeDeclaration> declarations =
+        ImmutableArray<AssemblyTypeDeclaration> allDeclarations =
             [.. inventory.GetDeclarations()];
-        if (declarations.Any(
+        if (allDeclarations.Any(
                 static declaration =>
                     declaration.Kind
                         == AssemblyTypeDeclarationKind.ModuleExport))
@@ -528,6 +539,19 @@ public static class LibraryTypeDeclarationInventoryInspection
                 LibraryTypeDeclarationRowsInspectionUnavailableReason
                     .UnsupportedModuleExport);
         }
+        ImmutableArray<AssemblyTypeDeclaration> declarations =
+            [
+                .. allDeclarations.Where(
+                    declaration =>
+                        declaration.Kind switch
+                        {
+                            AssemblyTypeDeclarationKind.Definition =>
+                                request.IncludeDefinitions,
+                            AssemblyTypeDeclarationKind.Forwarder =>
+                                request.IncludeForwarders,
+                            _ => false,
+                        })
+            ];
 
         if (request.StartOrdinal > declarations.Length
             || (request.StartOrdinal == declarations.Length
