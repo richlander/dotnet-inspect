@@ -44,7 +44,6 @@ public static class PackageOptionsParser
         Option<string?> TypeFilterOption,
         Option<bool> DetailsOption,
         Option<string?> VersionOption,
-        Option<bool> LatestVersionOption,
         Option<bool> LinesOption,
         Option<bool> TailLinesOption,
         Option<string?> OutOption,
@@ -178,13 +177,6 @@ public static class PackageOptionsParser
         PackageCommandArgs args)
     {
         var packageArgs = parseResult.GetValue(args.PackageNameArg) ?? [];
-
-        if (parseResult.GetResult(args.LatestVersionOption)
-            is { Implicit: false })
-        {
-            return new InvalidArguments(
-                ArgumentPreprocessor.RemovedLatestVersionError);
-        }
 
         if (parseResult.GetResult(args.AllLibrariesOption)
             is { Implicit: false })

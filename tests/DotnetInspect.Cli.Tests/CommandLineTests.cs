@@ -2073,7 +2073,7 @@ public class CommandLineTests
     }
 
     [Fact]
-    public async Task Router_LatestVersionFlag_ReportsRemovalBeforeRouting()
+    public async Task Router_LatestVersionFlag_IsAnOrdinaryUnrecognizedToken()
     {
         var root = CommandLineBuilder.CreateRootCommand();
         string[] args = CommandLineBuilder.PreprocessArgs(
@@ -2085,9 +2085,10 @@ public class CommandLineTests
 
         Assert.Equal(1, exit);
         Assert.Empty(output);
-        Assert.Equal(
-            $"Error: {ArgumentPreprocessor.RemovedLatestVersionError}{Environment.NewLine}",
-            error);
+        Assert.Contains(
+            "Unrecognized command or argument '--latest-version'",
+            error,
+            StringComparison.Ordinal);
     }
 
     [Theory]
