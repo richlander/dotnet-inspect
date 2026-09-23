@@ -2,6 +2,7 @@ using System.Reflection;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
+using System.Runtime.InteropServices;
 
 using DotnetInspector.Libraries;
 using ILInspector.Metadata;
@@ -131,6 +132,13 @@ internal sealed class LibraryInspectionTestLibrary : IAsyncDisposable
                 "RealAssets",
                 "LibraryOverview",
                 "netstandard.dll"),
+            TestContext.Current.CancellationToken);
+
+    public static async Task<byte[]> RealSystemXmlAsync() =>
+        await File.ReadAllBytesAsync(
+            Path.Combine(
+                RuntimeEnvironment.GetRuntimeDirectory(),
+                "System.Xml.dll"),
             TestContext.Current.CancellationToken);
 
     public static ManagedMetadataIdentity.Assembly Identity(
