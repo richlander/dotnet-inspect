@@ -11,7 +11,7 @@ This design defines one `ILInspector.Metadata` claim:
 The first production consumer is
 [CSharp declaration representability](csharp-declaration-representability.md)
 under [#4852][issue-4852]. ReturnToSender is the first production host through
-the seventeen-step adoption and compile-back retirement tracker
+the eighteen-step adoption and compile-back retirement tracker
 [#6199][issue-6199].
 
 This proposal does not describe current product support. It defines the
@@ -112,6 +112,7 @@ owned by its own Metadata post. The exact
 `MetadataTypeDefinitionAddress` joins that post to this method post. The first
 CSharp slice must return `Unavailable` when the required containing-type post
 is absent; this method operation does not duplicate type-shell facts.
+That prerequisite is tracked by [#8348][issue-8348].
 
 ### Generic context
 
@@ -355,4 +356,5 @@ This contract does not:
 [issue-6199]: https://github.com/richlander/dotnet-inspect/issues/6199
 [issue-7465]: https://github.com/richlander/dotnet-inspect/pull/7465
 [issue-7886]: https://github.com/richlander/dotnet-inspect/issues/7886
+[issue-8348]: https://github.com/richlander/dotnet-inspect/issues/8348
 [metadata-declaration-sessions]: member-inspection-planning-and-metadata-projection.md
