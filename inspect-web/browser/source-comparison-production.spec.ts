@@ -550,6 +550,30 @@ test.describe("published authored Source comparison transport", () => {
       ).toBeHidden();
       await expect(sourceDeclaration).toBeVisible();
       await expect(sourceDeclaration).toHaveAttribute("aria-current", "true");
+      await applicationPage.setViewportSize({ width: 320, height: 480 });
+      await expect(
+        applicationPage.locator("#type-explorer-outline-toggle"),
+      ).toBeVisible();
+      const shortTypeExplorerLayout = await applicationPage.evaluate(() => {
+        const route = document.querySelector<HTMLElement>(
+          ".type-explorer-route");
+        const documentSurface = document.querySelector<HTMLElement>(
+          ".type-explorer-document");
+        const source = document.querySelector<HTMLElement>(
+          ".type-explorer-source");
+        if (route === null || documentSurface === null || source === null)
+          throw new Error("Short Type Explorer layout was not rendered.");
+        return {
+          routeClientHeight: route.clientHeight,
+          routeScrollHeight: route.scrollHeight,
+          documentHeight: documentSurface.getBoundingClientRect().height,
+          sourceHeight: source.getBoundingClientRect().height,
+        };
+      });
+      expect(shortTypeExplorerLayout.routeScrollHeight)
+        .toBeGreaterThan(shortTypeExplorerLayout.routeClientHeight);
+      expect(shortTypeExplorerLayout.documentHeight).toBeGreaterThan(0);
+      expect(shortTypeExplorerLayout.sourceHeight).toBeGreaterThan(0);
       const skeleton = applicationPage.getByLabel("Skeleton");
       await skeleton.check();
       await expect(skeleton).toBeFocused();

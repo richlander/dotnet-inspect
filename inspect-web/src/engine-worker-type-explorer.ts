@@ -2,7 +2,6 @@ import type {
   BrowserTypeExplorerAccessibility,
   BrowserTypeExplorerBodyMode,
   BrowserTypeExplorerInspection,
-  BrowserTypeExplorerMemberIdentity,
   BrowserTypeExplorerPlacement,
   BrowserTypeExplorerRequest,
   BrowserTypeExplorerResult,
@@ -118,59 +117,6 @@ function boundedString(
   return { kind: "decoded", value };
 }
 
-function memberIdentity(
-  value: unknown,
-): BoundedPayloadDecodeResult<BrowserTypeExplorerMemberIdentity | null> {
-  if (value === null) return { kind: "decoded", value: null };
-  const candidate = dataRecord(value);
-  if (candidate === null || !hasExactData(candidate, [
-    "stableSelector",
-    "canonicalSignature",
-    "fingerprint",
-    "typeFullName",
-    "memberName",
-  ])) {
-    return rejected("Expected a complete Type Explorer member identity.");
-  }
-  const stableSelector = boundedString(
-    ownData(candidate, "stableSelector"),
-    "member stable selector",
-    16 * 1024);
-  if (stableSelector.kind === "rejected") return stableSelector;
-  const canonicalSignature = boundedString(
-    ownData(candidate, "canonicalSignature"),
-    "member canonical signature",
-    16 * 1024);
-  if (canonicalSignature.kind === "rejected") return canonicalSignature;
-  const fingerprint = boundedString(
-    ownData(candidate, "fingerprint"),
-    "member fingerprint",
-    10);
-  if (fingerprint.kind === "rejected") return fingerprint;
-  const typeFullName = boundedString(
-    ownData(candidate, "typeFullName"),
-    "member Type name",
-    16 * 1024);
-  if (typeFullName.kind === "rejected") return typeFullName;
-  const memberName = boundedString(
-    ownData(candidate, "memberName"),
-    "member name",
-    16 * 1024);
-  if (memberName.kind === "rejected") return memberName;
-  if (!/^[0-9a-f]{10}$/iu.test(fingerprint.value))
-    return rejected("Type Explorer member fingerprint is invalid.");
-  return {
-    kind: "decoded",
-    value: {
-      stableSelector: stableSelector.value,
-      canonicalSignature: canonicalSignature.value,
-      fingerprint: fingerprint.value,
-      typeFullName: typeFullName.value,
-      memberName: memberName.value,
-    },
-  };
-}
-
 function bodyMode(value: unknown): BrowserTypeExplorerBodyMode | null {
   return value === "Bodies"
     || value === "Skeleton"
@@ -205,7 +151,8 @@ BoundedPayloadDecoder<BrowserTypeExplorerRequest> = {
     const candidate = dataRecord(value);
     if (candidate === null || !hasExactData(candidate, [
       "bodyMode",
-      "selectedMember",
+      "selectedDeclarationId",
+      "documentRevision",
       "placement",
       "accessibilities",
       "includeGenerated",
@@ -216,13 +163,29 @@ BoundedPayloadDecoder<BrowserTypeExplorerRequest> = {
     }
     const selectedBodyMode = bodyMode(ownData(candidate, "bodyMode"));
     const selectedPlacement = placement(ownData(candidate, "placement"));
-    const selectedMember = memberIdentity(
-      ownData(candidate, "selectedMember"));
+    const selectedDeclarationId =
+      ownData(candidate, "selectedDeclarationId");
+    const documentRevision = ownData(candidate, "documentRevision");
     if (selectedBodyMode === null)
       return rejected("Type Explorer body mode is invalid.");
     if (selectedPlacement === null)
       return rejected("Type Explorer placement is invalid.");
-    if (selectedMember.kind === "rejected") return selectedMember;
+    if (selectedDeclarationId !== null
+      && (typeof selectedDeclarationId !== "number"
+        || !Number.isInteger(selectedDeclarationId)
+        || selectedDeclarationId < 0
+        || selectedDeclarationId > 0x7fffffff)) {
+      return rejected("Type Explorer selected declaration is invalid.");
+    }
+    if (documentRevision !== null
+      && (typeof documentRevision !== "string"
+        || !/^[0-9a-f]{64}$/iu.test(documentRevision))) {
+      return rejected("Type Explorer document revision is invalid.");
+    }
+    if (selectedDeclarationId !== null && documentRevision === null) {
+      return rejected(
+        "Type Explorer selected declaration requires a document revision.");
+    }
     const rawAccessibilities = ownData(candidate, "accessibilities");
     if (!Array.isArray(rawAccessibilities) || rawAccessibilities.length > 7)
       return rejected("Type Explorer accessibilities are invalid.");
@@ -248,7 +211,8 @@ BoundedPayloadDecoder<BrowserTypeExplorerRequest> = {
       kind: "decoded",
       value: {
         bodyMode: selectedBodyMode,
-        selectedMember: selectedMember.value,
+        selectedDeclarationId,
+        documentRevision,
         placement: selectedPlacement,
         accessibilities,
         includeGenerated,

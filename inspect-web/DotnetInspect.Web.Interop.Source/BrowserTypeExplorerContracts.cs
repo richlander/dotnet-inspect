@@ -50,14 +50,6 @@ public sealed record BrowserTypeExplorerMemberIdentity(
     string TypeFullName,
     string MemberName)
 {
-    internal MemberAnchor ToMemberAnchor() =>
-        new(
-            StableSelector,
-            CanonicalSignature,
-            Fingerprint,
-            TypeFullName,
-            MemberName);
-
     internal static BrowserTypeExplorerMemberIdentity From(
         MemberAnchor anchor) =>
         new(
@@ -70,17 +62,49 @@ public sealed record BrowserTypeExplorerMemberIdentity(
 
 public sealed record BrowserTypeExplorerRequest(
     BrowserTypeExplorerBodyMode BodyMode,
-    BrowserTypeExplorerMemberIdentity? SelectedMember,
+    int? SelectedDeclarationId,
+    string? DocumentRevision,
     BrowserTypeExplorerPlacement Placement,
     BrowserTypeExplorerAccessibility[] Accessibilities,
     bool IncludeGenerated,
     bool IncludeDocumentation,
     bool IncludeAttributes)
 {
-    internal CSharpTypeProjectionRequest ToProjectionRequest()
+    internal bool TryToProjectionRequest(
+        CSharpTypeDocument document,
+        out CSharpTypeProjectionRequest projectionRequest,
+        out BrowserTypeExplorerProjectionFailure? failure)
     {
+        ArgumentNullException.ThrowIfNull(document);
         ArgumentNullException.ThrowIfNull(Accessibilities);
-        return new(
+        MemberAnchor? selectedMember = null;
+        if (SelectedDeclarationId is int declarationId)
+        {
+            if (!string.Equals(
+                DocumentRevision,
+                document.Revision.Sha256,
+                StringComparison.OrdinalIgnoreCase))
+            {
+                projectionRequest = null!;
+                failure = new(
+                    "SelectedDocumentRevisionMismatch",
+                    "The selected declaration belongs to a different Type document revision.");
+                return false;
+            }
+            CSharpTypeDeclaration? declaration =
+                document.Declarations.FirstOrDefault(
+                    candidate => candidate.Id == declarationId);
+            if (declaration is null)
+            {
+                projectionRequest = null!;
+                failure = new(
+                    "SelectedDeclarationNotFound",
+                    "The selected declaration is not present in this Type document.");
+                return false;
+            }
+            selectedMember = declaration.Anchor;
+        }
+        projectionRequest = new(
             BodyMode switch
             {
                 BrowserTypeExplorerBodyMode.Bodies =>
@@ -92,7 +116,7 @@ public sealed record BrowserTypeExplorerRequest(
                 _ => throw new ArgumentOutOfRangeException(
                     nameof(BodyMode)),
             },
-            SelectedMember?.ToMemberAnchor(),
+            selectedMember,
             Placement switch
             {
                 BrowserTypeExplorerPlacement.All =>
@@ -108,6 +132,8 @@ public sealed record BrowserTypeExplorerRequest(
             IncludeGenerated,
             IncludeDocumentation,
             IncludeAttributes);
+        failure = null;
+        return true;
     }
 
     private static CSharpTypeAccessibility MapAccessibility(
@@ -218,7 +244,7 @@ internal static class BrowserTypeExplorerAdapter
 {
     internal static BrowserTypeExplorerInspection From(
         InspectionEnvelope<CSharpTypeDocumentOutcome> inspection,
-        CSharpTypeProjectionRequest request)
+        BrowserTypeExplorerRequest request)
     {
         (
             BrowserTypeExplorerOutcomeKind outcome,
@@ -259,10 +285,27 @@ internal static class BrowserTypeExplorerAdapter
 
     private static BrowserTypeExplorerDocument AdaptDocument(
         CSharpTypeDocument document,
-        CSharpTypeProjectionRequest request)
+        BrowserTypeExplorerRequest request)
     {
+        if (!request.TryToProjectionRequest(
+            document,
+            out CSharpTypeProjectionRequest projectionRequest,
+            out BrowserTypeExplorerProjectionFailure? requestFailure))
+        {
+            return new(
+                document.TypeName.Namespace,
+                [.. document.TypeName.Segments],
+                document.Source.AssemblyName,
+                document.Source.PdbSupplied,
+                document.Source.Symbols.ToString(),
+                document.Source.RenderingPolicy,
+                document.Documentation.ToString(),
+                document.ContractRelationships.ToString(),
+                Projection: null,
+                ProjectionFailure: requestFailure);
+        }
         CSharpTypeProjectionOutcome outcome =
-            CSharpTypeDocumentProjector.Project(document, request);
+            CSharpTypeDocumentProjector.Project(document, projectionRequest);
         BrowserTypeExplorerProjection? projection = outcome switch
         {
             CSharpTypeProjectionOutcome.Projected projected =>

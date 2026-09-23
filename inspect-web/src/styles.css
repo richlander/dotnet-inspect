@@ -5475,6 +5475,11 @@ button.library-api-diff-row[aria-current="true"] { background: var(--panel-raise
   background: var(--accent-soft);
 }
 .type-explorer-outline-list span { color: var(--muted); font-size: 11px; }
+.type-explorer-outline-list .type-explorer-outline-signature {
+  overflow-wrap: anywhere;
+  font-family: var(--mono);
+  font-size: 10px;
+}
 .type-explorer-source { min-width: 0; min-height: 0; overflow: hidden; }
 .type-explorer-source pre {
   height: 100%;
@@ -5534,5 +5539,16 @@ button.library-api-diff-row[aria-current="true"] { background: var(--panel-raise
   }
   .type-explorer-document.outline-open .type-explorer-source {
     display: none;
+  }
+}
+@media (max-width: 760px), (max-height: 420px) {
+  .type-explorer-route {
+    overflow-x: hidden;
+    overflow-y: auto;
+  }
+  .type-explorer-document,
+  .type-explorer-status {
+    flex: 1 0 240px;
+    min-height: 240px;
   }
 }

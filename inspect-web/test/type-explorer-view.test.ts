@@ -71,7 +71,8 @@ test("Type Explorer renders owner-issued declarations and selection", () => {
     packageDisplay: "System.Text.Json 11.0.0 · net11.0",
     intent: {
       ...defaultTypeExplorerIntent(),
-      selectedMember: identity,
+      selectedDeclarationId: 7,
+      documentRevision: "a".repeat(64),
     },
     state: {
       status: "ready",
@@ -93,13 +94,74 @@ test("Type Explorer renders owner-issued declarations and selection", () => {
   assert.match(html, /aria-expanded="false"/u);
 });
 
+test("Type Explorer visibly disambiguates overloads with owner-issued selectors", () => {
+  const text = [
+    "public string ConvertName(string name);",
+    "public string ConvertName(char[] name);",
+  ].join("\n");
+  const overloadedInspection: TypeExplorerInspection = {
+    ...inspection,
+    document: {
+      ...inspection.document!,
+      projection: {
+        ...inspection.document!.projection!,
+        text,
+        declarations: [
+          {
+            ...inspection.document!.projection!.declarations[0]!,
+            range: { start: 0, length: 39 },
+          },
+          {
+            ...inspection.document!.projection!.declarations[0]!,
+            declarationId: 8,
+            identity: {
+              ...identity,
+              stableSelector: "M:ConvertName(System.Char[])",
+              canonicalSignature:
+                "System.String System.Text.Json.JsonNamingPolicy::ConvertName(System.Char[])",
+              fingerprint: "9876543210",
+            },
+            range: { start: 40, length: 39 },
+          },
+        ],
+      },
+    },
+  };
+  const html = renderTypeExplorerView({
+    typeDisplay: "JsonNamingPolicy",
+    packageDisplay: "System.Text.Json 11.0.0 · net11.0",
+    intent: {
+      ...defaultTypeExplorerIntent(),
+      selectedDeclarationId: 8,
+      documentRevision: "a".repeat(64),
+    },
+    state: {
+      status: "ready",
+      inspection: overloadedInspection,
+    },
+    escapeHtml,
+    highlightCSharp: escapeHtml,
+  });
+
+  assert.match(
+    html,
+    /<button[^>]*data-type-explorer-declaration="7"[\s\S]*M:ConvertName\(System\.String\)[\s\S]*<\/button>/u);
+  assert.match(
+    html,
+    /<button[^>]*data-type-explorer-declaration="8"[\s\S]*M:ConvertName\(System\.Char\[\]\)[\s\S]*<\/button>/u);
+  assert.match(
+    html,
+    /data-type-explorer-declaration="8"[^>]*aria-current="true"/u);
+});
+
 test("Type Explorer disables Selected body without owner-issued support", () => {
   const html = renderTypeExplorerView({
     typeDisplay: "JsonNamingPolicy",
     packageDisplay: "System.Text.Json 11.0.0 · net11.0",
     intent: {
       ...defaultTypeExplorerIntent(),
-      selectedMember: identity,
+      selectedDeclarationId: 7,
+      documentRevision: "a".repeat(64),
     },
     state: {
       status: "ready",

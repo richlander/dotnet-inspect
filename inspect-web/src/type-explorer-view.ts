@@ -298,7 +298,7 @@ function inspectionHtml(
   const document = inspection.document;
   const projection = document.projection;
   const selectedDeclaration = projection?.declarations.find(declaration =>
-    sameIdentity(declaration.identity, intent.selectedMember)) ?? null;
+    declaration.declarationId === intent.selectedDeclarationId) ?? null;
   const selectedBodyAvailable =
     selectedDeclaration?.supportsSelectedBody === true;
   const incomplete = inspection.outcome === "Incomplete";
@@ -314,7 +314,7 @@ function inspectionHtml(
           [
             "SelectedBody",
             "Selected body",
-            intent.selectedMember === null
+            intent.selectedDeclarationId === null
               || (!selectedBodyAvailable && projectionFailure === null),
           ],
         ],
@@ -384,7 +384,7 @@ function inspectionHtml(
       ? ""
       : projectionHtml(
           projection,
-          intent.selectedMember,
+          intent.selectedDeclarationId,
           outlineOpen,
           escapeHtml,
           highlightCSharp)}
@@ -393,7 +393,7 @@ function inspectionHtml(
 
 function projectionHtml(
   projection: TypeExplorerProjection,
-  selectedMember: TypeExplorerMemberIdentity | null,
+  selectedDeclarationId: number | null,
   outlineOpen: boolean,
   escapeHtml: TypeExplorerViewOptions["escapeHtml"],
   highlightCSharp: TypeExplorerViewOptions["highlightCSharp"],
@@ -403,9 +403,8 @@ function projectionHtml(
     ? `<p class="type-explorer-empty">This Type has no declarations under the current structural filters.</p>`
     : `<ol class="type-explorer-outline-list">
         ${declarations.map(declaration => {
-          const selected = sameIdentity(
-            declaration.identity,
-            selectedMember);
+          const selected =
+            declaration.declarationId === selectedDeclarationId;
           return `<li>
             <button type="button"
               data-type-explorer-declaration="${declaration.declarationId}"
@@ -414,6 +413,9 @@ function projectionHtml(
               <strong>${escapeHtml(declaration.identity.memberName)}</strong>
               <span>${escapeHtml(declaration.kind)} · ${escapeHtml(
                 accessibilityLabel(declaration.accessibility))}</span>
+              <span class="type-explorer-outline-signature">${
+                escapeHtml(declaration.identity.stableSelector)
+              }</span>
             </button>
           </li>`;
         }).join("")}
@@ -438,7 +440,7 @@ function projectionHtml(
         <pre class="language-csharp" tabindex="0"><code class="language-csharp">${
           renderSourceDeclarations(
             projection,
-            selectedMember,
+            selectedDeclarationId,
             highlightCSharp)
         }</code></pre>
       </section>
@@ -447,7 +449,7 @@ function projectionHtml(
 
 function renderSourceDeclarations(
   projection: TypeExplorerProjection,
-  selectedMember: TypeExplorerMemberIdentity | null,
+  selectedDeclarationId: number | null,
   highlightCSharp: TypeExplorerViewOptions["highlightCSharp"],
 ): string {
   let cursor = 0;
@@ -455,7 +457,7 @@ function renderSourceDeclarations(
   for (const declaration of projection.declarations) {
     const start = declaration.range.start;
     const end = start + declaration.range.length;
-    const selected = sameIdentity(declaration.identity, selectedMember);
+    const selected = declaration.declarationId === selectedDeclarationId;
     html += highlightCSharp(projection.text.slice(cursor, start));
     html += `<span class="type-explorer-source-declaration${
       selected ? " selected" : ""

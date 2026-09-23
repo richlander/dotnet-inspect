@@ -20,20 +20,13 @@ test("Type Explorer recognizes only its canonical routed path", () => {
   assert.equal(isTypeExplorerPath("/type/source"), false);
 });
 
-test("Type Explorer intent round-trips complete presentation identity", () => {
+test("Type Explorer intent round-trips bounded exact selection currency", () => {
   const intent = {
     ...defaultTypeExplorerIntent(),
     bodyMode: "SelectedBody" as const,
     placement: "Static" as const,
     accessibilities: ["Public", "ProtectedInternal"] as const,
-    selectedMember: {
-      stableSelector: "M:ConvertName(System.String)",
-      canonicalSignature:
-        "System.String System.Text.Json.JsonNamingPolicy::ConvertName(System.String)",
-      fingerprint: "0123456789",
-      typeFullName: "System.Text.Json.JsonNamingPolicy",
-      memberName: "ConvertName",
-    },
+    selectedDeclarationId: 42,
     documentRevision: "a".repeat(64),
   };
 
@@ -60,9 +53,12 @@ test("Type Explorer rejects malformed, duplicate, and partial intent", () => {
   })), null);
   assert.equal(decodeTypeExplorerIntent(encoded({
     ...defaultTypeExplorerIntent(),
-    selectedMember: {
-      stableSelector: "M:ConvertName(System.String)",
-    },
+    selectedDeclarationId: 42,
+    documentRevision: null,
+  })), null);
+  assert.equal(decodeTypeExplorerIntent(encoded({
+    ...defaultTypeExplorerIntent(),
+    selectedDeclarationId: -1,
   })), null);
   assert.equal(decodeTypeExplorerIntent(encoded({
     ...defaultTypeExplorerIntent(),

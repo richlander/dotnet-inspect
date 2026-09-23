@@ -194,7 +194,7 @@ public static partial class SourceExports
                             cancellationToken: cancellationToken));
             return BrowserTypeExplorerAdapter.From(
                 inspection,
-                request.ToProjectionRequest());
+                request);
         }
     }
 }

@@ -37,7 +37,8 @@ import { inertStringFixture } from "./inert-string-fixture.ts";
 
 const projection = {
   bodyMode: "Bodies",
-  selectedMember: null,
+  selectedDeclarationId: null,
+  documentRevision: null,
   placement: "All",
   accessibilities: [
     "Unknown",
@@ -103,14 +104,20 @@ test("Type Explorer Worker decodes bounded complete requests", () => {
     { kind: "decoded", value: input });
 });
 
-test("Type Explorer Worker rejects malformed member identity and duplicate access", () => {
+test("Type Explorer Worker rejects malformed selection currency and duplicate access", () => {
   const malformed = engineWorkerTypeExplorerRequest.decode({
     ...projection,
-    selectedMember: {
-      stableSelector: "M:ConvertName(System.String)",
-    },
+    selectedDeclarationId: 1,
+    documentRevision: null,
   });
   assert.equal(malformed.kind, "rejected");
+
+  const staleRevision = engineWorkerTypeExplorerRequest.decode({
+    ...projection,
+    selectedDeclarationId: 1,
+    documentRevision: "stale",
+  });
+  assert.equal(staleRevision.kind, "rejected");
 
   const duplicate = engineWorkerTypeExplorerRequest.decode({
     ...projection,

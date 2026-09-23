@@ -338,7 +338,8 @@ public sealed class BrowserTypeSourceOperationTests(ITestOutputHelper output)
             packageId,
             new(
                 BrowserTypeExplorerBodyMode.Bodies,
-                SelectedMember: null,
+                SelectedDeclarationId: null,
+                DocumentRevision: null,
                 BrowserTypeExplorerPlacement.All,
                 Enum.GetValues<BrowserTypeExplorerAccessibility>(),
                 IncludeGenerated: false,
@@ -378,7 +379,8 @@ public sealed class BrowserTypeSourceOperationTests(ITestOutputHelper output)
             packageId,
             new(
                 BrowserTypeExplorerBodyMode.Skeleton,
-                SelectedMember: null,
+                SelectedDeclarationId: null,
+                DocumentRevision: null,
                 BrowserTypeExplorerPlacement.All,
                 Enum.GetValues<BrowserTypeExplorerAccessibility>(),
                 IncludeGenerated: false,
@@ -399,7 +401,8 @@ public sealed class BrowserTypeSourceOperationTests(ITestOutputHelper output)
                 packageId,
                 new(
                     BrowserTypeExplorerBodyMode.SelectedBody,
-                    selected.Identity,
+                    selected.DeclarationId,
+                    projection.Revision,
                     BrowserTypeExplorerPlacement.All,
                     Enum.GetValues<BrowserTypeExplorerAccessibility>(),
                     IncludeGenerated: false,
@@ -424,7 +427,8 @@ public sealed class BrowserTypeSourceOperationTests(ITestOutputHelper output)
                 packageId,
                 new(
                     BrowserTypeExplorerBodyMode.Bodies,
-                    SelectedMember: null,
+                    SelectedDeclarationId: null,
+                    DocumentRevision: null,
                     BrowserTypeExplorerPlacement.All,
                     Enum.GetValues<BrowserTypeExplorerAccessibility>(),
                     IncludeGenerated: true,
@@ -449,7 +453,8 @@ public sealed class BrowserTypeSourceOperationTests(ITestOutputHelper output)
                 packageId,
                 new(
                     BrowserTypeExplorerBodyMode.SelectedBody,
-                    selected.Identity,
+                    selected.DeclarationId,
+                    initial.Document!.Projection!.Revision,
                     BrowserTypeExplorerPlacement.All,
                     [hiddenBy],
                     IncludeGenerated: true,
@@ -465,6 +470,69 @@ public sealed class BrowserTypeSourceOperationTests(ITestOutputHelper output)
             "excluded by the structural filters",
             failure.Message,
             StringComparison.Ordinal);
+    }
+
+    // PR-fast: the bounded route selection currency never resolves against a different document.
+    [Fact]
+    public async Task TypeExplorer_InvalidSelectionCurrencyIsExplicitlyRejected()
+    {
+        const string packageId = "Type.Explorer.Selection.Currency";
+        await RegisterTypeExplorerPackageAsync(packageId);
+        BrowserTypeExplorerProjection projection =
+            Assert.IsType<BrowserTypeExplorerProjection>(
+                AssertTypeExplorerDocument(
+                    await QueryTypeExplorer(
+                        packageId,
+                        new(
+                            BrowserTypeExplorerBodyMode.Bodies,
+                            SelectedDeclarationId: null,
+                            DocumentRevision: null,
+                            BrowserTypeExplorerPlacement.All,
+                            Enum.GetValues<BrowserTypeExplorerAccessibility>(),
+                            IncludeGenerated: false,
+                            IncludeDocumentation: true,
+                            IncludeAttributes: true)))
+                    .Document!.Projection);
+        BrowserTypeExplorerDeclaration selected =
+            projection.Declarations[0];
+
+        BrowserTypeExplorerDocument revisionMismatch =
+            AssertTypeExplorerDocument(
+                await QueryTypeExplorer(
+                    packageId,
+                    new(
+                        BrowserTypeExplorerBodyMode.Bodies,
+                        selected.DeclarationId,
+                        new string('0', 64),
+                        BrowserTypeExplorerPlacement.All,
+                        Enum.GetValues<BrowserTypeExplorerAccessibility>(),
+                        IncludeGenerated: false,
+                        IncludeDocumentation: true,
+                        IncludeAttributes: true)))
+                .Document!;
+        Assert.Null(revisionMismatch.Projection);
+        Assert.Equal(
+            "SelectedDocumentRevisionMismatch",
+            revisionMismatch.ProjectionFailure!.Kind);
+
+        BrowserTypeExplorerDocument declarationMissing =
+            AssertTypeExplorerDocument(
+                await QueryTypeExplorer(
+                    packageId,
+                    new(
+                        BrowserTypeExplorerBodyMode.Bodies,
+                        int.MaxValue,
+                        projection.Revision,
+                        BrowserTypeExplorerPlacement.All,
+                        Enum.GetValues<BrowserTypeExplorerAccessibility>(),
+                        IncludeGenerated: false,
+                        IncludeDocumentation: true,
+                        IncludeAttributes: true)))
+                .Document!;
+        Assert.Null(declarationMissing.Projection);
+        Assert.Equal(
+            "SelectedDeclarationNotFound",
+            declarationMissing.ProjectionFailure!.Kind);
     }
 
     static async Task AssertReleased(string id, string packageId)

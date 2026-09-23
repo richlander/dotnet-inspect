@@ -37,7 +37,7 @@ export interface TypeExplorerIntent {
   readonly includeGenerated: boolean;
   readonly includeDocumentation: boolean;
   readonly includeAttributes: boolean;
-  readonly selectedMember: TypeExplorerMemberIdentity | null;
+  readonly selectedDeclarationId: number | null;
   readonly documentRevision: string | null;
 }
 
@@ -70,7 +70,7 @@ export function defaultTypeExplorerIntent(): TypeExplorerIntent {
     includeGenerated: false,
     includeDocumentation: true,
     includeAttributes: true,
-    selectedMember: null,
+    selectedDeclarationId: null,
     documentRevision: null,
   };
 }
@@ -175,7 +175,7 @@ function parseIntent(value: unknown): TypeExplorerIntent | null {
       "includeGenerated",
       "includeDocumentation",
       "includeAttributes",
-      "selectedMember",
+      "selectedDeclarationId",
       "documentRevision",
     ])
     || value.version !== 1
@@ -188,15 +188,20 @@ function parseIntent(value: unknown): TypeExplorerIntent | null {
     || typeof value.includeGenerated !== "boolean"
     || typeof value.includeDocumentation !== "boolean"
     || typeof value.includeAttributes !== "boolean"
+    || (value.selectedDeclarationId !== null
+      && (typeof value.selectedDeclarationId !== "number"
+        || !Number.isInteger(value.selectedDeclarationId)
+        || value.selectedDeclarationId < 0
+        || value.selectedDeclarationId > 0x7fffffff))
     || (value.documentRevision !== null
       && (typeof value.documentRevision !== "string"
         || !/^[0-9a-f]{64}$/iu.test(value.documentRevision)))) {
     return null;
   }
-  const selectedMember = value.selectedMember === null
-    ? null
-    : parseMemberIdentity(value.selectedMember);
-  if (value.selectedMember !== null && selectedMember === null) return null;
+  if (value.selectedDeclarationId !== null
+    && value.documentRevision === null) {
+    return null;
+  }
   return {
     version: 1,
     bodyMode: value.bodyMode,
@@ -205,50 +210,9 @@ function parseIntent(value: unknown): TypeExplorerIntent | null {
     includeGenerated: value.includeGenerated,
     includeDocumentation: value.includeDocumentation,
     includeAttributes: value.includeAttributes,
-    selectedMember,
+    selectedDeclarationId: value.selectedDeclarationId,
     documentRevision: value.documentRevision,
   };
-}
-
-function parseMemberIdentity(
-  value: unknown,
-): TypeExplorerMemberIdentity | null {
-  if (!isRecord(value)
-    || !hasExactKeys(value, [
-      "stableSelector",
-      "canonicalSignature",
-      "fingerprint",
-      "typeFullName",
-      "memberName",
-    ])) {
-    return null;
-  }
-  const stableSelector = value.stableSelector;
-  const canonicalSignature = value.canonicalSignature;
-  const fingerprint = value.fingerprint;
-  const typeFullName = value.typeFullName;
-  const memberName = value.memberName;
-  if (!validMemberIdentityText(stableSelector)
-    || !validMemberIdentityText(canonicalSignature)
-    || !validMemberIdentityText(fingerprint)
-    || !validMemberIdentityText(typeFullName)
-    || !validMemberIdentityText(memberName)) {
-    return null;
-  }
-  if (!/^[0-9a-f]{10}$/iu.test(fingerprint)) return null;
-  return {
-    stableSelector,
-    canonicalSignature,
-    fingerprint,
-    typeFullName,
-    memberName,
-  };
-}
-
-function validMemberIdentityText(value: unknown): value is string {
-  return typeof value === "string"
-    && value.length > 0
-    && value.length <= 16 * 1024;
 }
 
 function isRecord(

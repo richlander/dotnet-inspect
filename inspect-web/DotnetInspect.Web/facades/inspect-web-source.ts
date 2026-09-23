@@ -670,7 +670,8 @@ export interface BrowserTypeExplorerRegion {
 
 export interface BrowserTypeExplorerRequest {
   readonly bodyMode: BrowserTypeExplorerBodyMode;
-  readonly selectedMember: BrowserTypeExplorerMemberIdentity | null;
+  readonly selectedDeclarationId: number | null;
+  readonly documentRevision: string | null;
   readonly placement: BrowserTypeExplorerPlacement;
   readonly accessibilities: ReadonlyArray<BrowserTypeExplorerAccessibility>;
   readonly includeGenerated: boolean;

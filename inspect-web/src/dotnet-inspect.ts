@@ -14878,7 +14878,8 @@ function typeExplorerRequest(
 ): BrowserTypeExplorerRequest {
   return {
     bodyMode: intent.bodyMode,
-    selectedMember: intent.selectedMember,
+    selectedDeclarationId: intent.selectedDeclarationId,
+    documentRevision: intent.documentRevision,
     placement: intent.placement,
     accessibilities: intent.accessibilities,
     includeGenerated: intent.includeGenerated,
@@ -15172,7 +15173,7 @@ function renderTypeExplorerPage() {
           && !declaration.supportsSelectedBody
             ? "Bodies"
             : state.typeExplorerIntent.bodyMode,
-        selectedMember: declaration.identity,
+        selectedDeclarationId: declaration.declarationId,
       }, true);
     },
   });
