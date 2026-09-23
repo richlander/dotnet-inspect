@@ -262,6 +262,18 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
                     + $"{package.Id.ToLowerInvariant()}.{AuthenticDependencyVersion}.nupkg",
                 package => package.ReadArchive(),
                 StringComparer.Ordinal);
+            if (source == PublicDependencyFeed)
+            {
+                // The NuGet.org gallery client reads payloads from its CDN
+                // package endpoint rather than the flat container.
+                foreach (AuthenticDependencyPackage package in AuthenticDependencyPackages)
+                {
+                    _archives.Add(
+                        "https://globalcdn.nuget.org/packages/"
+                            + $"{package.Id.ToLowerInvariant()}.{AuthenticDependencyVersion}.nupkg",
+                        package.ReadArchive());
+                }
+            }
         }
 
         protected override Task<HttpResponseMessage> SendAsync(
