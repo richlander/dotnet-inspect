@@ -61,6 +61,12 @@ internal static class CSharpSpellability
             && !IsByRefLikeType(type, host)
             && CanSpellExplicitParameterType(type, host, ArgumentRefKind.Value);
 
+    public static bool CanSpellByRefLikeValueStorageType(TypeRef type, IrFunction host)
+        => type.Kind is TypeRefKind.Definition or TypeRefKind.GenericInstance
+            && host.TypeShapes.GetValueOrDefault(CoercionRendering.NamedDefinition(type)) == TypeShape.ValueType
+            && IsByRefLikeType(type, host)
+            && CanSpellExplicitParameterType(type, host, ArgumentRefKind.Value);
+
     public static bool CanSpellGenericParameterStorageType(TypeRef type, IrFunction host)
     {
         if (type.Kind is not (TypeRefKind.GenericParameter or TypeRefKind.MethodGenericParameter)

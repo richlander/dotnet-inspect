@@ -1154,10 +1154,12 @@ before printing. Admission requires every load to testify to that same nominal
 type and every store producer to have that exact result type. The existing
 type-shape map must identify the named definition as a value type, the imported
 byref-like fact set must contain that definition, and the complete explicit
-type must pass the ordinary storage spelling gate. Direct slot-copy components
-remain atomic. This is exact storage only: it does not extend the coercion
-domain or infer a conversion, escape permission, ref-safe context, lifetime,
-scope, capture, or suspension boundary.
+type must pass the ordinary storage spelling gate. The byref-like proof comes
+from imported metadata facts or the existing canonical core-library
+stack-only identities. Direct slot-copy components remain atomic. This is
+exact storage only: it does not extend the coercion domain or infer a
+conversion, escape permission, ref-safe context, lifetime, scope, capture, or
+suspension boundary.
 
 The rewrite preserves every store and load occurrence in its existing order
 and at its existing lexical position. The typed-local path must preserve the
@@ -1198,13 +1200,14 @@ definitions across 42 methods. They comprise 45 `ReadOnlySpan<T>` webs, one
 `Span<T>` web, two `InterpolatedStringScanner` webs, and one `BitHelper` web.
 All 49 have one exact candidate type and exact producers; together they carry
 170 stores and 169 loads, and none belongs to a direct-copy component.
-Forty-one methods have no other deferred web. The projected residual
+Forty-one methods have no other deferred web. The resulting residual
 materialization counts are 41,917 materialized and 775 deferred slots, with
-1,247 stores and 1,009 loads remaining. At the printer boundary the projected
+1,247 stores and 1,009 loads remaining. At the printer boundary the measured
 counts are 1,240 stores, 1,002 loads, 768 distinct slots, 520 methods, 330
-single-candidate slots, and 662 declarations; direct copies, multi-candidate
-unifications, and splits stay unchanged. These projections become evidence
-only when the product-backed censuses and Render A/B confirm them.
+single-candidate slots, and 664 declarations; direct copies, multi-candidate
+unifications, and splits stay unchanged. Both censuses report zero pass bugs,
+and exact product-body comparison reports zero changed methods across all
+89,065 inputs.
 
 `ByRefLikeSlotMaterializationTests` gates framework and metadata-proven custom
 ref structs, exact producer and load identity, repeated stores, mutation and

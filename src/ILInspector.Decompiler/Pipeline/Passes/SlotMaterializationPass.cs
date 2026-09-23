@@ -35,9 +35,9 @@ public readonly record struct SlotMaterializationDecision(
 /// <see cref="IrFunction.AddLocal"/>, keeping its <c>S_{slot}</c> name so slot
 /// references read the same — declaration order and form may still change
 /// (materialized locals append to the locals table, and a single-store local
-/// collapses to an initializer). Managed-reference locals retain their slot
-/// provenance because their legacy declaration order and scope remain part
-/// of the output contract. Its <see cref="StoreStackSlot"/>/
+/// collapses to an initializer). Managed-reference and byref-like value locals
+/// retain their slot provenance because their legacy declaration order and
+/// scope remain part of the output contract. Its <see cref="StoreStackSlot"/>/
 /// <see cref="LoadStackSlot"/> nodes stop reaching the printer. What remains
 /// on slots is the counted residual the printer's unifier still owns:
 /// ambiguous testimony, cross-family (true disjoint ranges), and nested-body
@@ -74,7 +74,10 @@ public sealed class SlotMaterializationPass : IIrPass
                 candidate.Type!,
                 $"S_{candidate.Slot}");
             indices[candidate.Slot] = index;
-            if (candidate.Type!.Kind == TypeRefKind.ByRef)
+            if (candidate.Type!.Kind == TypeRefKind.ByRef
+                || CSharpSpellability.CanSpellByRefLikeValueStorageType(
+                    candidate.Type,
+                    function))
             {
                 function.MarkMaterializedStackSlotLocal(
                     index,
@@ -214,6 +217,7 @@ public sealed class SlotMaterializationPass : IIrPass
                         || HasCompleteManagedReferenceStorageType(slotType)
                         || CSharpSpellability.CanSpellNamedReferenceStorageType(slotType, function)
                         || CSharpSpellability.CanSpellNamedValueStorageType(slotType, function)
+                        || CSharpSpellability.CanSpellByRefLikeValueStorageType(slotType, function)
                         || CSharpSpellability.CanSpellGenericParameterStorageType(slotType, function));
                 if (!exactStorage)
                     candidate.Vetoes |= SlotMaterializationVeto.OutsideCoercionDomain;
