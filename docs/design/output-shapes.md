@@ -679,7 +679,10 @@ of the ladder families contributes in one of four ways:
 - **Presentation modifiers** change how a selected payload is rendered without
   changing the shape (`--bare`, `--markdown`, `--json`, `--table`, `--tsv`,
   `--jsonl`, `--plaintext`, `--no-headers`, and graph-supported `--tree` or
-  `--mermaid`).
+  `--mermaid`). `--bare` is a formatter: it selects the undecorated rendering
+  of the selected payload, so it is rejected before acquisition when combined
+  with any other explicit format flag (`--json`, `--jsonl`, `--tsv`,
+  `--table`, `--markdown`, `--plaintext`, or `--mermaid`).
 - **URL-shape modifiers** prefer rendered browser views for emitted URLs
   (`--prefer-rendered-urls`). They are orthogonal to the output-shape ladder.
 
