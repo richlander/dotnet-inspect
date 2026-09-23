@@ -486,6 +486,13 @@ test.describe("published authored Source comparison transport", () => {
           __copiedMemberSource?: string;
         }).__copiedMemberSource)).toBe(expectedBody);
       expect(sourceFetchCount).toBe(settledSourceFetchCount);
+      await applicationPage.locator("#explore-source").click();
+      await expect(applicationPage.locator("#settings-backdrop")).toBeVisible();
+      await expect(
+        applicationPage.locator("#settings-decompiler-title"),
+      ).toBeFocused();
+      await applicationPage.locator("#settings-close").click();
+      await expect(applicationPage.locator("#explore-source")).toBeFocused();
       await chooseSubject(applicationPage, "type");
       const typeApiUrl = applicationPage.url();
       await applicationPage.locator('[data-lens="source"]:visible').click();
@@ -517,7 +524,9 @@ test.describe("published authored Source comparison transport", () => {
         .first();
       await sourceDeclaration.click();
       await expect(sourceDeclaration).toBeFocused();
-      await applicationPage.getByLabel("Skeleton").check();
+      const skeleton = applicationPage.getByLabel("Skeleton");
+      await skeleton.check();
+      await expect(skeleton).toBeFocused();
       await expect(
         applicationPage.getByRole("region", { name: "Whole-Type C#" }),
       ).toContainText("Counter", { timeout: 60_000 });

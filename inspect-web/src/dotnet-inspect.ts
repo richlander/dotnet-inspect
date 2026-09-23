@@ -3777,6 +3777,12 @@ let typeExplorerMemberFocusPending: {
   readonly pane: TypeExplorerSelectionPane;
   readonly focusGeneration: number;
 } | null = null;
+let typeExplorerControlFocusPending: {
+  readonly id: string;
+  readonly name: string;
+  readonly value: string;
+  readonly focusGeneration: number;
+} | null = null;
 let typeExplorerViewport = {
   sourceTop: 0,
   sourceLeft: 0,
@@ -10054,7 +10060,11 @@ function bindTypePanelEvents() {
       state.typeSourceView = view;
       observeAsync(loadSelectedTypeSource(), "Loading type code view");
     },
-    onExploreSource: openTypeExplorerRoute,
+    onExploreSource: () => {
+      if (scope() === "type" && state.lens === "source")
+        openTypeExplorerRoute();
+      else openSettings("source");
+    },
     onKindSelect: kind => {
       state.kindFilter = kind;
       state.typeCursor = 0;
@@ -14761,6 +14771,7 @@ function resetTypeExplorerRouteState() {
   typeExplorerHeadingFocusPending = false;
   typeExplorerOutlineOpen = false;
   typeExplorerMemberFocusPending = null;
+  typeExplorerControlFocusPending = null;
   typeExplorerViewport = {
     sourceTop: 0,
     sourceLeft: 0,
@@ -14800,6 +14811,7 @@ function openTypeExplorerRoute() {
   typeExplorerHeadingFocusPending = true;
   typeExplorerOutlineOpen = false;
   typeExplorerMemberFocusPending = null;
+  typeExplorerControlFocusPending = null;
   typeExplorerViewport = {
     sourceTop: 0,
     sourceLeft: 0,
@@ -14829,21 +14841,36 @@ function replaceTypeExplorerIntent(intent: TypeExplorerIntent) {
     typeExplorerUrl(new URL(location.href), intent).href,
     history.state)) {
     showToast("Type Explorer could not update its route.");
-    return;
+    return false;
   }
   state.typeExplorerIntent = intent;
   state.typeExplorerIntentError = "";
   state.typeExplorerView = { status: "loading" };
   render({ synchronizeUrl: false });
   observeAsync(loadTypeExplorer(), "Updating Type Explorer");
+  return true;
 }
 
 function setTypeExplorerIntent(
   intent: TypeExplorerIntent,
   preserveMemberFocus = false,
 ) {
-  if (!preserveMemberFocus) typeExplorerMemberFocusPending = null;
-  replaceTypeExplorerIntent(intent);
+  if (!preserveMemberFocus) {
+    typeExplorerMemberFocusPending = null;
+    typeExplorerControlFocusPending =
+      document.activeElement instanceof HTMLInputElement
+        ? {
+            id: document.activeElement.id,
+            name: document.activeElement.name,
+            value: document.activeElement.value,
+            focusGeneration: documentFocusGeneration,
+          }
+        : null;
+  }
+  if (!replaceTypeExplorerIntent(intent)) {
+    typeExplorerMemberFocusPending = null;
+    typeExplorerControlFocusPending = null;
+  }
 }
 
 function typeExplorerRequest(
@@ -14991,6 +15018,7 @@ async function loadTypeExplorer() {
     if (result.kind === "Canceled") {
       typeExplorerOperationId = null;
       typeExplorerMemberFocusPending = null;
+      typeExplorerControlFocusPending = null;
       state.typeExplorerView = canceledTypeExplorerView(result.reason);
       render({ synchronizeUrl: false });
       return;
@@ -14998,6 +15026,7 @@ async function loadTypeExplorer() {
     if (result.kind === "Failed") {
       typeExplorerOperationId = null;
       typeExplorerMemberFocusPending = null;
+      typeExplorerControlFocusPending = null;
       state.typeExplorerView = {
         status: "failed",
         error: result.error
@@ -15038,6 +15067,7 @@ async function loadTypeExplorer() {
     }
     typeExplorerOperationId = null;
     typeExplorerMemberFocusPending = null;
+    typeExplorerControlFocusPending = null;
     state.typeExplorerView = {
       status: "failed",
       error: errorMessage(error),
@@ -15094,6 +15124,7 @@ function renderTypeExplorerPage() {
     },
     toggleOutline: () => {
       typeExplorerMemberFocusPending = null;
+      typeExplorerControlFocusPending = null;
       typeExplorerOutlineOpen = !typeExplorerOutlineOpen;
       render({ synchronizeUrl: false });
       afterCurrentNavigationFrame(() =>
@@ -15128,6 +15159,7 @@ function renderTypeExplorerPage() {
       includeGenerated,
     }),
     selectMember: (declaration, pane) => {
+      typeExplorerControlFocusPending = null;
       typeExplorerMemberFocusPending = {
         identity: declaration.identity,
         pane,
@@ -15172,6 +15204,26 @@ function renderTypeExplorerPage() {
   } else if (pendingMemberFocus !== null
     && viewState.status === "ready") {
     typeExplorerMemberFocusPending = null;
+  }
+  const pendingControlFocus = typeExplorerControlFocusPending;
+  if (pendingControlFocus !== null && viewState.status === "ready") {
+    afterCurrentNavigationFrame(() => {
+      if (typeExplorerControlFocusPending !== pendingControlFocus) return;
+      typeExplorerControlFocusPending = null;
+      if (pendingControlFocus.focusGeneration !== documentFocusGeneration)
+        return;
+      const controls = app.querySelectorAll<HTMLInputElement>("input");
+      for (const control of controls) {
+        if ((pendingControlFocus.id !== ""
+              && control.id === pendingControlFocus.id)
+          || (pendingControlFocus.id === ""
+            && control.name === pendingControlFocus.name
+            && control.value === pendingControlFocus.value)) {
+          control.focus();
+          return;
+        }
+      }
+    });
   }
   if (typeExplorerHeadingFocusPending || headingHadFocus) {
     typeExplorerHeadingFocusPending = false;
@@ -21192,6 +21244,7 @@ window.addEventListener("popstate", () => {
     typeExplorerHeadingFocusPending = true;
     typeExplorerOutlineOpen = false;
     typeExplorerMemberFocusPending = null;
+    typeExplorerControlFocusPending = null;
     typeExplorerViewport = {
       sourceTop: 0,
       sourceLeft: 0,
@@ -21212,6 +21265,7 @@ window.addEventListener("popstate", () => {
     typeExplorerHeadingFocusPending = false;
     typeExplorerOutlineOpen = false;
     typeExplorerMemberFocusPending = null;
+    typeExplorerControlFocusPending = null;
     typeExplorerViewport = {
       sourceTop: 0,
       sourceLeft: 0,
