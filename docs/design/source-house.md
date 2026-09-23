@@ -1118,9 +1118,12 @@ Run `dotnet run --project tests/DotnetInspector.SourceHouse.Tests -c Release`.
 The suite runs in the ordinary CI contracts shard. The calibrated native-mapping
 deadline regression is tagged `Speed=Slow` under the repository's isolated-time
 threshold and remains included in this focused pre-merge gate; the other cases
-are PR-fast. It covers both a mapped partial type and an unmapped enum in the
-real SourceLinkService assembly, retaining document work to distinguish
-post-mapping expiry from earlier stops.
+are PR-fast. It covers a mapped partial type in the real SourceLinkService
+assembly, retaining document work to distinguish post-mapping expiry from
+earlier stops. Deadline expiry after completed mapping finds no target mapping
+remains unverified: the wall-clock harness cannot reliably land in the narrow
+synchronous interval before unavailable settlement. Ordinary unmapped absence
+is covered by `ExactInterfaceMemberWithoutSequencePoints_IsUnavailable`.
 
 | Property | Named cases |
 | --- | --- |

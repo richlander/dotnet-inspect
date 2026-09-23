@@ -111,6 +111,7 @@ public static class TypeCommand
             PreferRenderedUrls = options.PreferRenderedUrls,
             Verbosity = options.Verbosity,
             VerbosityExplicitlySet = options.VerbosityExplicitlySet,
+            UserVerbosityOverride = options.UserVerbosityOverride,
             JsonOutput = options.JsonOutput,
             CompactJson = options.CompactJson,
             Tabular = options.Tabular,
@@ -357,12 +358,14 @@ public static class TypeCommand
                 if (options.Columns?.Any(c => c.Equals("Description", StringComparison.OrdinalIgnoreCase)) == true)
                     listOptions = options with { ShowDocs = true };
 
-                if (pdbLookupPath != null && listOptions.ShowDocs)
-                    await CompiledDocumentationEnricher.EnrichAsync(
+                if (pdbLookupPath != null
+                    && (listOptions.ShowDocs || listOptions.ShowSamples))
+                    await DocumentationEnricher.EnrichAsync(
                         api.Types,
                         source,
                         loaded,
                         listOptions,
+                        context.HttpClient,
                         includeMembers: false);
 
                 if (options.EffectiveDiscovery)
@@ -565,12 +568,15 @@ public static class TypeCommand
                     // Enrich with local XML docs only (source info is in the source command)
                     {
                         var dllPath = runtimeAssemblyPath ?? apiDllPath;
-                        if (dllPath != null && effectiveOptions.ShowDocs)
-                            await CompiledDocumentationEnricher.EnrichAsync(
+                        if (dllPath != null
+                            && (effectiveOptions.ShowDocs
+                                || effectiveOptions.ShowSamples))
+                            await DocumentationEnricher.EnrichAsync(
                                 [apiType],
                                 source,
                                 loaded,
-                                effectiveOptions);
+                                effectiveOptions,
+                                context.HttpClient);
                     }
 
                     if (effectiveOptions.EffectiveDiscovery)

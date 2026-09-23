@@ -4,7 +4,7 @@ using System.Runtime.ExceptionServices;
 
 namespace NuGetFetch;
 
-internal sealed class NuGetGalleryPackageSourceClient : IPackageSourceClient
+internal sealed partial class NuGetGalleryPackageSourceClient : IPackageSourceClient
 {
     private const string SearchEndpoint =
         "https://azuresearch-usnc.nuget.org/query";

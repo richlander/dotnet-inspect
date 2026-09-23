@@ -9,16 +9,6 @@ using Analysis = ILInspector.Analysis;
 namespace DotnetInspector.Queries;
 
 /// <summary>
-/// Packages excluded from incremental supply-chain highlighting.
-/// </summary>
-public enum MemberCallGraphSupplyChainBaseline
-{
-    Nothing,
-    Self,
-    SelfAndRegisteredEcosystems,
-}
-
-/// <summary>
 /// Exact implementation member selected from one package-role projection.
 /// </summary>
 public sealed record PackageRoleMemberCallGraphFocus
@@ -111,22 +101,20 @@ public static class PackageRoleMemberCallGraphQuery
             projection,
             focus,
             request,
-            MemberCallGraphSupplyChainBaseline.Nothing,
-            registrations: null,
+            PackageSupplyChainBaselinePolicy.CreateNothing(
+                [focus.Package.PackageId]),
             CancellationToken.None);
 
     public static PackageRoleMemberCallGraphOutcome Execute(
         PackageAssemblyContextProjection projection,
         PackageRoleMemberCallGraphFocus focus,
         MemberCallGraphCalleeNeighborhoodRequest request,
-        MemberCallGraphSupplyChainBaseline baseline,
-        WorkspaceRegistrationRevision registrations) =>
+        PackageSupplyChainBaselinePolicy baseline) =>
         ExecuteCore(
             projection,
             focus,
             request,
             baseline,
-            registrations,
             CancellationToken.None);
 
     internal static PackageRoleMemberCallGraphOutcome
@@ -134,32 +122,34 @@ public static class PackageRoleMemberCallGraphQuery
         PackageAssemblyContextProjection projection,
         PackageRoleMemberCallGraphFocus focus,
         MemberCallGraphCalleeNeighborhoodRequest request,
-        MemberCallGraphSupplyChainBaseline baseline,
-        WorkspaceRegistrationRevision registrations,
+        PackageSupplyChainBaselinePolicy baseline,
         CancellationToken cancellationToken) =>
         ExecuteCore(
             projection,
             focus,
             request,
             baseline,
-            registrations,
             cancellationToken);
 
     private static PackageRoleMemberCallGraphOutcome ExecuteCore(
         PackageAssemblyContextProjection projection,
         PackageRoleMemberCallGraphFocus focus,
         MemberCallGraphCalleeNeighborhoodRequest request,
-        MemberCallGraphSupplyChainBaseline baseline,
-        WorkspaceRegistrationRevision? registrations,
+        PackageSupplyChainBaselinePolicy baseline,
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(projection);
         ArgumentNullException.ThrowIfNull(focus);
         ArgumentNullException.ThrowIfNull(request);
-        if (!Enum.IsDefined(baseline))
-            throw new ArgumentOutOfRangeException(nameof(baseline));
-        if (baseline is not MemberCallGraphSupplyChainBaseline.Nothing)
-            ArgumentNullException.ThrowIfNull(registrations);
+        ArgumentNullException.ThrowIfNull(baseline);
+        if (!baseline.RootPackageIds.Contains(
+                focus.Package.PackageId,
+                StringComparer.OrdinalIgnoreCase))
+        {
+            throw new ArgumentException(
+                "The package supply-chain baseline does not contain the focused root Package ID.",
+                nameof(baseline));
+        }
         cancellationToken.ThrowIfCancellationRequested();
 
         PackageAssemblyContextRoleProjection role =
@@ -260,10 +250,8 @@ public static class PackageRoleMemberCallGraphQuery
                         MemberCallGraphExternalFocusMembership membership =
                             ClassifyPackageMembership(
                                 participants,
-                                focus.Package,
                                 node,
                                 baseline,
-                                registrations,
                                 out PackageRootIdentity? package);
                         if (package is not null)
                             nodePackages.Add(node.Identity, package);
@@ -314,10 +302,8 @@ public static class PackageRoleMemberCallGraphQuery
     internal static MemberCallGraphExternalFocusMembership
         ClassifyPackageMembership(
         ImmutableArray<PackageAssemblyRoleParticipant> participants,
-        PackageRootIdentity root,
         CallGraphNode node,
-        MemberCallGraphSupplyChainBaseline baseline,
-        WorkspaceRegistrationRevision? registrations,
+        PackageSupplyChainBaselinePolicy baseline,
         out PackageRootIdentity? package)
     {
         AssemblyReferenceIdentity? identity =
@@ -348,86 +334,10 @@ public static class PackageRoleMemberCallGraphQuery
             return MemberCallGraphExternalFocusMembership.Unknown;
         }
 
-        return IsBaselinePackage(
-                root,
-                package,
-                baseline,
-                registrations)
+        return baseline.Classify(package.PackageId)
+                is PackageSupplyChainClassification.Baseline
             ? MemberCallGraphExternalFocusMembership.Hub
             : MemberCallGraphExternalFocusMembership.External;
-    }
-
-    internal static bool IsBaselinePackage(
-        PackageRootIdentity root,
-        PackageRootIdentity package,
-        MemberCallGraphSupplyChainBaseline baseline,
-        WorkspaceRegistrationRevision? registrations)
-    {
-        ArgumentNullException.ThrowIfNull(root);
-        ArgumentNullException.ThrowIfNull(package);
-        if (!Enum.IsDefined(baseline))
-            throw new ArgumentOutOfRangeException(nameof(baseline));
-        if (ReferenceEquals(package, root))
-            return true;
-        if (baseline is MemberCallGraphSupplyChainBaseline.Nothing)
-            return false;
-
-        ArgumentNullException.ThrowIfNull(registrations);
-        string packageId = package.PackageId;
-        foreach (WorkspaceRegistration registration
-            in registrations.Registrations)
-        {
-            if (registration
-                    is WorkspaceRegistration.PackagePrefix firstParty
-                && firstParty.Prefix.MatchesPackageId(packageId))
-            {
-                return true;
-            }
-        }
-
-        if (baseline is MemberCallGraphSupplyChainBaseline.Self)
-            return false;
-
-        foreach (WorkspaceRegistration.Ecosystem ecosystem
-            in registrations.Registrations.OfType<
-                WorkspaceRegistration.Ecosystem>())
-        {
-            WorkspaceEcosystemRegistrationDeclaration declaration =
-                ecosystem.Declaration;
-            if (declaration.CorePackages.Any(package =>
-                    string.Equals(
-                        package.PackageId,
-                        packageId,
-                        StringComparison.OrdinalIgnoreCase)))
-            {
-                return true;
-            }
-
-            foreach (WorkspaceEcosystemPopulationDeclaration population
-                in declaration.Populations)
-            {
-                switch (population)
-                {
-                    case WorkspaceEcosystemPopulationDeclaration
-                        .PackagePrefix prefix
-                        when prefix.Prefix.MatchesPackageId(packageId):
-                        return true;
-                    case WorkspaceEcosystemPopulationDeclaration
-                        .ExactLibrary
-                        {
-                            Coordinate:
-                                ExactLibrarySourceCoordinate.Package exact,
-                        }
-                        when string.Equals(
-                            exact.PackageCoordinate.PackageId,
-                            packageId,
-                            StringComparison.OrdinalIgnoreCase):
-                        return true;
-                }
-            }
-        }
-
-        return false;
     }
 
     internal static (PackageRootIdentity? Package, bool Ambiguous)

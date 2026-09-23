@@ -53,6 +53,8 @@ src/ILInspector.SourceLink
 src/ILInspector.TypeScriptGeneration
 src/InertText
 src/NetworkAccess
+src/BinaryFetch
+src/ZipFetch
 src/NuGetFetch
 src/UntrustedDocuments
 src/TsJsExport.Contracts

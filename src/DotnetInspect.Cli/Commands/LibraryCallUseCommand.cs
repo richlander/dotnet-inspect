@@ -253,12 +253,12 @@ public static class LibraryCallUseCommand
                 }
 
                 InspectionEnvelope<AssemblyPairCallUseInspectionOutcome>
-                    inspection = AssemblyPairCallUseInspection.Execute(
+                    pairInspection = AssemblyPairCallUseInspection.Execute(
                         group,
                         group.Participants[0].Assembly,
                         group.Participants[1].Assembly);
-                pairDiagnostics = inspection.Diagnostics;
-                if (inspection.Content
+                pairDiagnostics = pairInspection.Diagnostics;
+                if (pairInspection.Content
                     is AssemblyPairCallUseInspectionOutcome.Rejected rejected)
                 {
                     unavailable.Add(rejected.Detail);
@@ -267,7 +267,7 @@ public static class LibraryCallUseCommand
 
                 var available =
                     (AssemblyPairCallUseInspectionOutcome.Available)
-                        inspection.Content;
+                        pairInspection.Content;
                 pairProjection = available.Projection;
                 result = pairProjection.Pair;
                 try
@@ -279,10 +279,29 @@ public static class LibraryCallUseCommand
                         || (semanticRows is null
                             && selectedNameSet.Contains(
                                 DirectUseClustersSection));
-                    allClusters = requiresClusters
-                        ? AssemblyPairDirectUseClusterProjection
-                            .Create(result)
-                        : new(result, []);
+                    if (requiresClusters)
+                    {
+                        InspectionEnvelope<
+                            AssemblyPairDirectUseClusterInspectionOutcome>
+                            clusterInspection =
+                                AssemblyPairDirectUseClusterInspection
+                                    .Execute(pairInspection);
+                        allClusters =
+                            clusterInspection.Content switch
+                            {
+                                AssemblyPairDirectUseClusterInspectionOutcome
+                                    .Available clusters =>
+                                        clusters.Projection,
+                                _ => throw new InvalidOperationException(
+                                    "An available pair inspection produced a "
+                                        + "rejected Direct-Use Cluster "
+                                        + "inspection."),
+                            };
+                    }
+                    else
+                    {
+                        allClusters = new(result, []);
+                    }
                     selectedResult = result;
                     selectedClusters = allClusters;
                     if (options.QueryPlan.Cluster is int clusterOrdinal)

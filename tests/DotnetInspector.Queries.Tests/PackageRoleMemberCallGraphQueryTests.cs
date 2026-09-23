@@ -125,7 +125,7 @@ public sealed class PackageRoleMemberCallGraphQueryTests
                 nodePackages) =
             await ExecuteWithPolicyAsync(
                 root,
-                MemberCallGraphSupplyChainBaseline.Self,
+                PackageSupplyChainBaseline.Self,
                 plan,
                 target);
 
@@ -167,7 +167,7 @@ public sealed class PackageRoleMemberCallGraphQueryTests
         (InspectionGraphDocument document, _) =
             await ExecuteWithPolicyAsync(
                 root,
-                MemberCallGraphSupplyChainBaseline
+                PackageSupplyChainBaseline
                     .SelfAndRegisteredEcosystems,
                 plan,
                 target);
@@ -202,7 +202,7 @@ public sealed class PackageRoleMemberCallGraphQueryTests
                 CallerBindingCallerPath,
                 "Caller",
                 "Create",
-                MemberCallGraphSupplyChainBaseline.Self,
+                PackageSupplyChainBaseline.Self,
                 plan,
                 dependency);
 
@@ -280,7 +280,7 @@ public sealed class PackageRoleMemberCallGraphQueryTests
         ImmutableArray<PackageRoleMemberCallGraphNodePackage> NodePackages)>
         ExecuteWithPolicyAsync(
             PackageRootBinding caller,
-            MemberCallGraphSupplyChainBaseline baseline,
+            PackageSupplyChainBaseline baseline,
             WorkspacePlan plan,
             params PackageRootBinding[] packages) =>
         await ExecuteCoreAsync(
@@ -306,7 +306,7 @@ public sealed class PackageRoleMemberCallGraphQueryTests
                 focusAssemblyPath,
                 focusTypeName,
                 focusMethodName,
-                MemberCallGraphSupplyChainBaseline.Nothing,
+                PackageSupplyChainBaseline.Nothing,
                 WorkspacePlan.Empty,
                 packages);
 
@@ -318,7 +318,7 @@ public sealed class PackageRoleMemberCallGraphQueryTests
                 string focusAssemblyPath,
                 string focusTypeName,
                 string focusMethodName,
-                MemberCallGraphSupplyChainBaseline baseline,
+                PackageSupplyChainBaseline baseline,
                 WorkspacePlan plan,
                 params PackageRootBinding[] packages)
     {
@@ -362,8 +362,10 @@ public sealed class PackageRoleMemberCallGraphQueryTests
                     new(
                         maxDepth: 2,
                         maxNodes: 10),
-                    baseline,
-                    registrations);
+                    PackageSupplyChainBaselinePolicy.Create(
+                        [caller.Root.Identity.PackageId],
+                        baseline,
+                        registrations));
             PackageRoleMemberCallGraphOutcome.Unavailable? unavailable =
                 outcome as PackageRoleMemberCallGraphOutcome.Unavailable;
             Assert.True(

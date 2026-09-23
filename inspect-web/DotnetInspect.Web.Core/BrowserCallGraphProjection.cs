@@ -191,14 +191,14 @@ internal static class BrowserCallGraphProjection
     }
 
     static string ScopeLabel(
-        MemberCallGraphSupplyChainBaseline baseline) =>
+        PackageSupplyChainBaseline baseline) =>
         baseline switch
         {
-            MemberCallGraphSupplyChainBaseline.Nothing =>
+            PackageSupplyChainBaseline.Nothing =>
                 "External packages",
-            MemberCallGraphSupplyChainBaseline.Self =>
+            PackageSupplyChainBaseline.Self =>
                 "Outside first-party scope",
-            MemberCallGraphSupplyChainBaseline
+            PackageSupplyChainBaseline
                     .SelfAndRegisteredEcosystems =>
                 "Supply Chain",
             _ => throw new ArgumentOutOfRangeException(nameof(baseline)),

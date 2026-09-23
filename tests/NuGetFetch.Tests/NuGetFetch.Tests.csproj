@@ -27,6 +27,10 @@
   </ItemGroup>
 
   <ItemGroup>
+    <None Include="..\..\fixtures\nugetfetch\pclstorage.1.0.2.nupkg" Link="fixtures\pclstorage.1.0.2.nupkg" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="..\nuget\NuGetFetch.CustomClientFixture\NuGetFetch.CustomClientFixture.csproj" />
     <ProjectReference Include="..\nuget\NuGetFetch.PluginFixture\NuGetFetch.PluginFixture.csproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="..\..\src\NuGetFetch\NuGetFetch.csproj" />

@@ -759,12 +759,15 @@ public static class MemberCommand
             // Enrich with local XML docs only (source info is in the source command)
             {
                 var dllPath = runtimeAssemblyPath ?? apiDllPath;
-                if (dllPath != null && effectiveOptions.ShowDocs)
-                    await CompiledDocumentationEnricher.EnrichAsync(
+                if (dllPath != null
+                    && (effectiveOptions.ShowDocs
+                        || effectiveOptions.ShowSamples))
+                    await DocumentationEnricher.EnrichAsync(
                         [apiType],
                         source,
                         loaded,
-                        effectiveOptions);
+                        effectiveOptions,
+                        context.HttpClient);
             }
 
             if (apiDllPath != null

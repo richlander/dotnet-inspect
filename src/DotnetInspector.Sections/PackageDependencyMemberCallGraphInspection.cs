@@ -48,8 +48,8 @@ public sealed record PackageDependencyMemberCallGraphInspectionRequest
         int maximumDependencyDepth = DefaultMaximumDependencyDepth,
         PackageDependencyTraversalWorkBudget? traversalWorkBudget = null,
         PackageAssemblyContextRealizationOptions? realizationOptions = null,
-        MemberCallGraphSupplyChainBaseline supplyChainBaseline =
-            MemberCallGraphSupplyChainBaseline.Nothing,
+        PackageSupplyChainBaseline supplyChainBaseline =
+            PackageSupplyChainBaseline.Nothing,
         WorkspacePlan? workspacePlan = null)
     {
         ArgumentNullException.ThrowIfNull(root);
@@ -110,7 +110,7 @@ public sealed record PackageDependencyMemberCallGraphInspectionRequest
         get;
     }
 
-    public MemberCallGraphSupplyChainBaseline SupplyChainBaseline { get; }
+    public PackageSupplyChainBaseline SupplyChainBaseline { get; }
 
     public WorkspacePlan WorkspacePlan { get; }
 }
@@ -180,7 +180,7 @@ public sealed record PackageDependencyMemberCallGraphDocument(
     TraversalTargetFrameworkPolicy TraversalTargetPolicy,
     PackageDependencyTraversalSummary TraversalSummary,
     ImmutableArray<PackageDependencyMemberCallGraphInspectionRoute> Routes,
-    PackageDependencyMemberCallGraphBaseline Baseline,
+    PackageSupplyChainBaselineEvidence Baseline,
     ImmutableArray<PackageDependencyMemberCallGraphPackageSubject>
         PackageSubjects,
     InspectionGraphDocument Graph);

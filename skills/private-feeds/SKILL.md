@@ -89,6 +89,12 @@ dnx dotnet-inspect -y -- package MyCompany.Widget --versions-with-feed \
 Local and HTTP versions are combined and sorted before the result limit.
 Use `--versions -n 1` for one newest listed version row, or
 `Package@latest --versions` to force a fresh latest-version check.
+For online single-package inspection, an unpinned ID can reuse the tool's
+prior version settlement within its jittered one-hour window. A stale prior is
+refreshed within five seconds; if refresh fails, the tool serves the prior with
+one warning naming its age. Use `Package@latest` when the inspection must make
+a fresh version check. Version-listing, range, and wildcard queries retain
+their own selection paths.
 Missing folders or invalid archives are source failures, not package absence;
 usable peer results carry an explicit partial warning on stderr. Local reads
 use bounded enumeration rather than treating filenames as version evidence.

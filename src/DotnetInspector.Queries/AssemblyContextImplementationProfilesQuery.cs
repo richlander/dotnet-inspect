@@ -209,7 +209,7 @@ public static class AssemblyContextImplementationProfilesQuery
             [.. surface.InspectionFailures]);
     }
 
-    static ImmutableArray<AssemblyImplementationProfileMember>
+    internal static ImmutableArray<AssemblyImplementationProfileMember>
         AttributeProfiles(
             ImmutableArray<MethodImplementationProfile> profiles,
             IReadOnlyDictionary<

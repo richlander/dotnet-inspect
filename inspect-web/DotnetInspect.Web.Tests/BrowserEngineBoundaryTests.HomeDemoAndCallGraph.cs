@@ -815,9 +815,10 @@ public sealed partial class BrowserEngineBoundaryTests
                     SourceBoundedRoots: 0,
                     PartialRoots: 0),
                 [],
-                new PackageDependencyMemberCallGraphBaseline(
-                    MemberCallGraphSupplyChainBaseline
+                new PackageSupplyChainBaselineEvidence(
+                    PackageSupplyChainBaseline
                         .SelfAndRegisteredEcosystems,
+                    ["microsoft.extensions.http.polly"],
                     [],
                     [
                         "ecosystem.runtime",

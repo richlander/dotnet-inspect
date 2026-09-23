@@ -116,6 +116,108 @@ public sealed partial class CompiledXmlDocumentationHouseTests
 
     [Fact]
     public async Task
+        CombinedBatchScansCompiledXmlOnceAndSettlesEachAuthoredOperation()
+    {
+        var capability = new CountingSourceCapability(SourceBytes());
+        string identity;
+        await using (LibraryFixture probe =
+            await CreateSourceLibraryAsync())
+        {
+            identity = AuthoredScenario
+                .Create(probe, capability)
+                .Binding
+                .Subject
+                .CompiledXmlIdentity
+                .Value;
+        }
+
+        byte[] xml = Xml(identity, "compiled-channel-summary");
+        await using LibraryFixture library =
+            await LibraryFixture.CreateSourceAsync(
+                File.ReadAllBytes(AssemblyPath()),
+                File.ReadAllBytes(PdbPath()),
+                xml);
+        AuthoredScenario scenario =
+            AuthoredScenario.Create(library, capability);
+        DocumentationHouseRequest CreateRequest() =>
+            AuthoredRequest(
+                scenario,
+                DocumentationDemand
+                    .CompiledXmlAndAuthoredSourceDocumentation,
+                [
+                    Candidate(
+                        library,
+                        scenario.Binding.Subject,
+                        xmlIndex: 0),
+                ],
+                SourceHouseDocumentationHouseAdapter.CreateOperation(
+                    scenario.Binding,
+                    scenario.SourceRequest));
+        LibraryOperationLease firstOperation =
+            library.IssueOperation();
+        LibraryOperationLease secondOperation =
+            library.IssueOperation();
+
+        IReadOnlyList<DocumentationHouseOutcome> outcomes =
+            await DocumentationHouse.ExecuteManyAsync(
+                [CreateRequest(), CreateRequest()],
+                [firstOperation, secondOperation],
+                TestContext.Current.CancellationToken);
+
+        DocumentationHouseOutcome.Completed first =
+            Assert.IsType<DocumentationHouseOutcome.Completed>(
+                outcomes[0]);
+        DocumentationHouseOutcome.Completed second =
+            Assert.IsType<DocumentationHouseOutcome.Completed>(
+                outcomes[1]);
+        Assert.IsType<DocumentationCompiledXmlAttempt.Available>(
+            first.CompiledXmlAttempt);
+        Assert.IsType<DocumentationCompiledXmlAttempt.Available>(
+            second.CompiledXmlAttempt);
+        Assert.IsType<DocumentationAuthoredSourceAttempt.Available>(
+            first.AuthoredSourceAttempt);
+        Assert.IsType<DocumentationAuthoredSourceAttempt.Available>(
+            second.AuthoredSourceAttempt);
+        Assert.True(first.Work.ParsedCompiledXml);
+        Assert.False(second.Work.ParsedCompiledXml);
+        Assert.Equal(xml.Length, first.Work.CompiledXmlBytesObserved);
+        Assert.Equal(0, second.Work.CompiledXmlBytesObserved);
+        Assert.Equal(2, capability.SourceReads);
+        AssertOperationSettled(
+            firstOperation,
+            library.Reference.ApiAssembly);
+        AssertOperationSettled(
+            secondOperation,
+            library.Reference.ApiAssembly);
+    }
+
+    [Fact]
+    public async Task CombinedBatchRejectsDuplicateOperationLeasesBeforeWork()
+    {
+        await using LibraryFixture library =
+            await LibraryFixture.CreateAsync(
+                Xml(DeserializeIdentity, "duplicate-lease-summary"));
+        DocumentationSubjectReference subject = Subject(library);
+        DocumentationHouseRequest request = Request(
+            subject,
+            [Candidate(library, subject, xmlIndex: 0)]);
+        LibraryOperationLease operation = library.IssueOperation();
+        try
+        {
+            await Assert.ThrowsAsync<ArgumentException>(
+                async () => await DocumentationHouse.ExecuteManyAsync(
+                    [request, request],
+                    [operation, operation],
+                    TestContext.Current.CancellationToken));
+        }
+        finally
+        {
+            operation.Dispose();
+        }
+    }
+
+    [Fact]
+    public async Task
         AuthoredDemandWithoutOperation_IsUnavailableAndSettlesInHouse()
     {
         await using LibraryFixture library =

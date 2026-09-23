@@ -979,6 +979,29 @@ profiles, relationship preservation, and unbounded cost.
 `ImplementationProfileInspectionOperationTests` gate completed envelope Share,
 diagnostic, and failure behavior.
 
+`AssemblyContextImplementationProfileFamilyQuery` is the exact public
+method-family sibling to the whole-assembly seam. Its selection names one
+metadata Type definition identity and the complete stable-selector set for one
+public method name with at least two overloads. Selection resolves through the
+participant's product-issued public API surface before body analysis; unknown,
+partial, duplicate, cross-family, or non-method selections fail visibly rather
+than widening scope. The query supplies the selected declared MethodDef tokens
+as the Analysis body scope, while Analysis retains ownership of generated-body
+scope expansion and every implementation measurement. Its completed result
+preserves the public overload roster, including bodyless members, and only the
+selected family's physical profiles, body-token attribution, sibling-overload
+relationships, scoped population coverage, generated framework Types,
+diagnostics, and API-surface failures. `ImplementationProfileFamilyInspectionOperation`
+hands that participant outcome to hosts as an `InspectionEnvelope` with an
+explicit non-projectable Share result. This seam does not replace or narrow the
+whole-assembly query; it is the proportional production handoff for focused
+consumers such as the Inspect Web experience tracked by #7250.
+`AssemblyContextImplementationProfileFamilyQueryTests` gate exact and complete
+selection, pre-analysis body scoping, generated-body separation, bodyless
+roster retention, relationship containment, visible invalid selections, and
+participant isolation. `ImplementationProfileFamilyInspectionOperationTests`
+gate completed envelope Share, diagnostic, and failure behavior.
+
 `AssemblyContextStructuralCloneRetrievalQuery` is the first query that joins
 two explicitly selected assembly participants while both immutable snapshots
 remain borrowed. Its input names the seed and candidate groups and

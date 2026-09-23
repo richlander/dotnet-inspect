@@ -39,6 +39,13 @@ public enum PackageHouseLibraryOptionalArtifacts
     ImplementationPortablePdb = 1,
 }
 
+public enum PackageHouseLibraryOptionalArtifactOmissionKind
+{
+    ContentByteLimit,
+    RetainedByteLimit,
+    Unreadable,
+}
+
 [Flags]
 public enum PackageHouseLibraryArtifactRole
 {
@@ -80,16 +87,22 @@ public sealed class PackageHouseLibraryMaterializationReceipt
     internal PackageHouseLibraryMaterializationReceipt(
         PackageHouseResult packageResult,
         PackageHouseLibraryHandoff.Compile handoff,
-        LibraryReference library)
+        LibraryReference library,
+        PackageHouseLibraryOptionalArtifactOmissionKind?
+            implementationPortablePdbOmission = null)
     {
         PackageResult = packageResult;
         Handoff = handoff;
         Library = library;
+        ImplementationPortablePdbOmission =
+            implementationPortablePdbOmission;
     }
 
     public PackageHouseResult PackageResult { get; }
     public PackageHouseLibraryHandoff.Compile Handoff { get; }
     public LibraryReference Library { get; }
+    public PackageHouseLibraryOptionalArtifactOmissionKind?
+        ImplementationPortablePdbOmission { get; }
 }
 
 public enum PackageHouseLibraryMaterializationFailureKind

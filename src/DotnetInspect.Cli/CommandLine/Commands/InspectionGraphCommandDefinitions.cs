@@ -149,7 +149,7 @@ public static class InspectionGraphCommandDefinitions
                 result.GetValue(baselineOption);
             bool baselineParsed = TryParseSupplyChainBaseline(
                     baselineValue,
-                    out MemberCallGraphSupplyChainBaseline baseline);
+                    out PackageSupplyChainBaseline baseline);
             if (!baselineParsed)
             {
                 result.AddError(
@@ -171,7 +171,7 @@ public static class InspectionGraphCommandDefinitions
             }
             if (baselineParsed
                 && baseline
-                    is MemberCallGraphSupplyChainBaseline.Nothing
+                    is PackageSupplyChainBaseline.Nothing
                 && prefixes.Length != 0)
             {
                 result.AddError(
@@ -200,7 +200,7 @@ public static class InspectionGraphCommandDefinitions
             string? member = parseResult.GetValue(memberArgument);
             _ = TryParseSupplyChainBaseline(
                 parseResult.GetValue(baselineOption),
-                out MemberCallGraphSupplyChainBaseline baseline);
+                out PackageSupplyChainBaseline baseline);
             if (string.IsNullOrWhiteSpace(type))
             {
                 CommandError.Write("A focus type is required.");
@@ -287,26 +287,26 @@ public static class InspectionGraphCommandDefinitions
 
     static bool TryParseSupplyChainBaseline(
         string? value,
-        out MemberCallGraphSupplyChainBaseline baseline)
+        out PackageSupplyChainBaseline baseline)
     {
         switch (value?.Trim().ToLowerInvariant())
         {
             case null:
                 baseline =
-                    MemberCallGraphSupplyChainBaseline
+                    PackageSupplyChainBaseline
                         .SelfAndRegisteredEcosystems;
                 return true;
             case "nothing":
                 baseline =
-                    MemberCallGraphSupplyChainBaseline.Nothing;
+                    PackageSupplyChainBaseline.Nothing;
                 return true;
             case "self":
                 baseline =
-                    MemberCallGraphSupplyChainBaseline.Self;
+                    PackageSupplyChainBaseline.Self;
                 return true;
             case "self+registered-ecosystems":
                 baseline =
-                    MemberCallGraphSupplyChainBaseline
+                    PackageSupplyChainBaseline
                         .SelfAndRegisteredEcosystems;
                 return true;
             default:

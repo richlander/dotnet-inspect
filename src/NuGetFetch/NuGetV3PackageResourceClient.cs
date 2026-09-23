@@ -87,7 +87,11 @@ internal sealed class NuGetV3PackageResourceClient(HttpClient client)
         }
     }
 
-    internal async Task<(Stream Content, long? AdvertisedLength)> GetPackageAsync(
+    /// <summary>
+    /// Resolves the flat-container URL of one exact package archive and the
+    /// credential that applies to that endpoint, under the given deadline.
+    /// </summary>
+    internal async Task<(string Url, PackageSourceCredential? Credential)> ResolvePackageUrlAsync(
         string packageId,
         string version,
         string serviceIndexUrl,
@@ -108,11 +112,32 @@ internal sealed class NuGetV3PackageResourceClient(HttpClient client)
             baseAddress,
             $"{Uri.EscapeDataString(id)}/{Uri.EscapeDataString(normalizedVersion)}/"
             + $"{Uri.EscapeDataString($"{id}.{normalizedVersion}.nupkg")}");
-        PackageSourceCredential? endpointCredential =
+        return (
+            url,
             NuGetSourceRequest.CredentialForEndpoint(
                 serviceIndexUrl,
                 url,
-                credential);
+                credential));
+    }
+
+    internal async Task<(Stream Content, long? AdvertisedLength)> GetPackageAsync(
+        string packageId,
+        string version,
+        string serviceIndexUrl,
+        PackageSourceCredential? credential,
+        NuGetFetchOptions options,
+        NuGetOperationDeadline operation,
+        bool useNuGetOrgShortcut)
+    {
+        (string url, PackageSourceCredential? endpointCredential) =
+            await ResolvePackageUrlAsync(
+                packageId,
+                version,
+                serviceIndexUrl,
+                credential,
+                options,
+                operation,
+                useNuGetOrgShortcut).ConfigureAwait(false);
 
         return await operation.RunStreamingRequestAsync(
             async requestToken =>

@@ -416,6 +416,9 @@ public sealed class BrowserEngineLayeringTests
             "NuGetFetch.PackageExtractor",
             "NuGetFetch.PackageSignatureVerifier",
             "NuGetFetch.PackageSourceResultFactory",
+            // A random-access source over a seekable stream a host already owns
+            // (docs/design/package-archive-range-access.md, Library placement).
+            "BinaryFetch.StreamRandomAccessSource",
         ];
         HashSet<string> approved =
             approvedOwners.ToHashSet(StringComparer.Ordinal);

@@ -436,10 +436,17 @@ not adopted this transport.
 with a concrete `-S` when querying sectioned output. Markdown and JSON can
 represent multi-section documents.
 
+`--raw` is itself a formatter. On `package` and `project`, do not combine it
+with `--json`, `--jsonl`, `--tsv`, `--table`, `--markdown`, `--plaintext`, or
+`--mermaid`; the command rejects those combinations before acquisition.
+Explicit `--raw` outranks `DOTNET_INSPECT_FORMAT`. The retired `--bare`
+spelling receives the ordinary unrecognized-input result.
+
 Source URLs are fetchable by default. `--prefer-rendered-urls` prefers a browser
-view when supported; it changes neither `--print` acquisition nor `--raw`
-decoration. The old URL-shape spellings, `--raw` and `--blob`, are no longer
-accepted with that meaning; `--raw` now means the undecorated rendering only.
+view when supported; it changes neither `--print` acquisition nor undecorated
+`--raw` rendering. The former SourceLink URL-shape meaning of `--raw` is
+retired, and `--blob` is removed and unrecognized. Use no URL-shape flag for
+the default fetchable form.
 
 `-n N` selects the command's items. It selects semantic rows when the active
 command or lens declares them; otherwise it selects the first N rendered lines.

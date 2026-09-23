@@ -200,7 +200,7 @@ public static class ExternalCallGraphCommand
         ArgumentNullException.ThrowIfNull(options);
         WorkspacePlan product =
             options.SupplyChainBaseline
-                is MemberCallGraphSupplyChainBaseline
+                is PackageSupplyChainBaseline
                     .SelfAndRegisteredEcosystems
                 ? EcosystemPackCatalog.CreatePlatformWorkspacePlan()
                 : WorkspacePlan.Empty;

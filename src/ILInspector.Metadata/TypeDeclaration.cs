@@ -1,6 +1,8 @@
 using System.Collections.Immutable;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
+using System.Text.Json;
+using System.Text.Json.Serialization;
 
 namespace ILInspector.Metadata;
 
@@ -112,11 +114,25 @@ public readonly record struct TypeDefinitionToken
 }
 
 /// <summary>A validated ExportedType metadata token in one assembly candidate.</summary>
+[JsonConverter(typeof(ExportedTypeToken.Converter))]
 public readonly record struct ExportedTypeToken
 {
     ExportedTypeToken(int value) => Value = value;
 
     public int Value { get; }
+
+    static ExportedTypeToken FromToken(int token)
+    {
+        if ((token & unchecked((int)0xFF000000)) != 0x27000000
+            || (token & 0x00FFFFFF) == 0)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(token),
+                "An ExportedType token must identify a non-zero ExportedType row.");
+        }
+
+        return new ExportedTypeToken(token);
+    }
 
     internal static ExportedTypeToken FromHandle(
         MetadataReader reader,
@@ -130,7 +146,84 @@ public readonly record struct ExportedTypeToken
                 "An ExportedType token must identify a row in the supplied reader.");
         }
 
-        return new ExportedTypeToken(MetadataTokens.GetToken(handle));
+        return FromToken(MetadataTokens.GetToken(handle));
+    }
+
+    public sealed class Converter : JsonConverter<ExportedTypeToken>
+    {
+        public override ExportedTypeToken Read(
+            ref Utf8JsonReader reader,
+            Type typeToConvert,
+            JsonSerializerOptions options)
+        {
+            if (reader.TokenType != JsonTokenType.StartObject)
+            {
+                throw new JsonException(
+                    "An ExportedType token must be an object.");
+            }
+
+            int token = 0;
+            bool hasValue = false;
+            string valueName =
+                options.PropertyNamingPolicy?.ConvertName(nameof(Value))
+                ?? nameof(Value);
+            while (reader.Read()
+                && reader.TokenType != JsonTokenType.EndObject)
+            {
+                if (reader.TokenType != JsonTokenType.PropertyName)
+                    throw new JsonException("Expected a property name.");
+
+                string? propertyName = reader.GetString();
+                if (!reader.Read())
+                {
+                    throw new JsonException(
+                        "Incomplete ExportedType token value.");
+                }
+
+                if (string.Equals(
+                    propertyName,
+                    valueName,
+                    StringComparison.Ordinal))
+                {
+                    token = reader.GetInt32();
+                    hasValue = true;
+                }
+                else
+                {
+                    reader.Skip();
+                }
+            }
+
+            if (reader.TokenType != JsonTokenType.EndObject || !hasValue)
+            {
+                throw new JsonException(
+                    "Incomplete ExportedType token object.");
+            }
+
+            try
+            {
+                return FromToken(token);
+            }
+            catch (ArgumentOutOfRangeException exception)
+            {
+                throw new JsonException(
+                    "Invalid ExportedType token value.",
+                    exception);
+            }
+        }
+
+        public override void Write(
+            Utf8JsonWriter writer,
+            ExportedTypeToken value,
+            JsonSerializerOptions options)
+        {
+            string valueName =
+                options.PropertyNamingPolicy?.ConvertName(nameof(Value))
+                ?? nameof(Value);
+            writer.WriteStartObject();
+            writer.WriteNumber(valueName, value.Value);
+            writer.WriteEndObject();
+        }
     }
 }
 

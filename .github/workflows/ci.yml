@@ -1231,6 +1231,14 @@ jobs:
         if: matrix.shard == 'host-policy'
         run: dotnet run --project tests/NetworkAccess.Tests -c Release
 
+      - name: Run BinaryFetch tests
+        if: matrix.shard == 'host-policy'
+        run: dotnet run --project tests/BinaryFetch.Tests -c Release
+
+      - name: Run ZipFetch tests
+        if: matrix.shard == 'host-policy'
+        run: dotnet run --project tests/ZipFetch.Tests -c Release
+
       - name: Run UntrustedDocuments tests
         if: matrix.shard == 'host-policy'
         run: dotnet run --project tests/UntrustedDocuments.Tests -c Release

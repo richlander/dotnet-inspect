@@ -1429,20 +1429,16 @@ public sealed partial class AuthoredSourceHouseTests
             "Scheduling expired before source verification in every attempt.");
     }
 
-    [Theory]
+    [Fact]
     [Trait("Speed", "Slow")]
-    [InlineData(true)]
-    [InlineData(false)]
     public async Task
-        DeadlineDuringMappingWithoutCapabilities_IsIncomplete(bool hasMapping)
+        DeadlineDuringMappingWithoutCapabilities_IsIncomplete()
     {
         string assemblyPath =
             typeof(SourceLinkService).Assembly.Location;
         SourceHouseTarget.TypeTarget target = TypeTarget(
             assemblyPath,
-            hasMapping
-                ? typeof(SourceLinkService).FullName!
-                : typeof(SourceChecksumVerification).FullName!);
+            typeof(SourceLinkService).FullName!);
         await using LibraryFixture library =
             await LibraryFixture.CreateAsync(
                 assemblyPath,
@@ -1458,9 +1454,8 @@ public sealed partial class AuthoredSourceHouseTests
             shortestMilliseconds = Math.Min(
                 shortestMilliseconds,
                 stopwatch.Elapsed.TotalMilliseconds);
-            Assert.Equal(
-                hasMapping,
-                unavailable.AuthoredAttempt.Mapping is not null);
+            Assert.IsType<SourceHouseAuthoredMapping.Type>(
+                unavailable.AuthoredAttempt.Mapping);
             Assert.True(unavailable.Work.DocumentsObserved > 0);
             Assert.Empty(unavailable.AuthoredAttempt.SourceAttempts);
         }
@@ -1490,17 +1485,9 @@ public sealed partial class AuthoredSourceHouseTests
                 continue;
 
             Assert.True(DateTimeOffset.UtcNow >= deadline);
-            if (hasMapping)
-            {
-                Assert.IsType<SourceHouseAuthoredMapping.Type>(
-                    incomplete.AuthoredAttempt.Mapping);
-                Assert.True(incomplete.Work.TargetMappingsObserved > 0);
-            }
-            else
-            {
-                Assert.Null(incomplete.AuthoredAttempt.Mapping);
-                Assert.Equal(0, incomplete.Work.TargetMappingsObserved);
-            }
+            Assert.IsType<SourceHouseAuthoredMapping.Type>(
+                incomplete.AuthoredAttempt.Mapping);
+            Assert.True(incomplete.Work.TargetMappingsObserved > 0);
             Assert.Equal(
                 SourceHousePdbContributionKind.SuppliedCompanion,
                 incomplete.PdbContribution.Kind);

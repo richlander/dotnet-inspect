@@ -194,6 +194,8 @@
     <Project Path="src/ILInspector.Research/ILInspector.Research.csproj" />
     <Project Path="src/ILInspector.TypeScriptGeneration/ILInspector.TypeScriptGeneration.csproj" />
     <Project Path="src/InertText/InertText.csproj" />
+    <Project Path="src/BinaryFetch/BinaryFetch.csproj" />
+    <Project Path="src/ZipFetch/ZipFetch.csproj" />
     <Project Path="src/NetworkAccess/NetworkAccess.csproj" />
     <Project Path="src/mdi/mdi.csproj" />
     <Project Path="src/NuGetFetch/NuGetFetch.csproj" />
@@ -230,6 +232,8 @@
     <Project Path="tests/Inspector.Resources.Tests/Inspector.Resources.Tests.csproj" />
     <Project Path="tests/Inspector.Text.Tests/Inspector.Text.Tests.csproj" />
     <Project Path="tests/InertText.Tests/InertText.Tests.csproj" />
+    <Project Path="tests/BinaryFetch.Tests/BinaryFetch.Tests.csproj" />
+    <Project Path="tests/ZipFetch.Tests/ZipFetch.Tests.csproj" />
     <Project Path="tests/NetworkAccess.Tests/NetworkAccess.Tests.csproj" />
     <Project Path="tests/DotnetInspector.MetadataRendering.Tests/DotnetInspector.MetadataRendering.Tests.csproj" />
     <Project Path="tests/DotnetInspector.Networking.Tests/DotnetInspector.Networking.Tests.csproj" />

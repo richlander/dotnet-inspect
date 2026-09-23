@@ -1,6 +1,3 @@
-using System.Collections.Concurrent;
-using System.Text.RegularExpressions;
-using CSharpText;
 using ILInspector.Metadata;
 using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Output;
@@ -12,8 +9,7 @@ using DotnetInspect.Cli.Services;
 namespace DotnetInspect.Cli.Inspectors;
 
 /// <summary>
-/// Handles PDB acquisition and source/documentation enrichment for API types.
-/// Orchestrates symbol download, SourceLink resolution, source fetching, and doc comment parsing.
+/// Handles PDB acquisition and source-location enrichment for API types.
 /// </summary>
 internal static class SourceEnricher
 {
@@ -189,8 +185,6 @@ internal static class SourceEnricher
         VerboseLogger logger,
         HttpClient httpClient)
     {
-        var stopwatch = System.Diagnostics.Stopwatch.StartNew();
-
         var (packageName, packageVersion) = ResolvePackageInfo(options, dllPath);
 
         using var service = SourceLinkService.Open(dllPath, logger.Log);
@@ -224,109 +218,18 @@ internal static class SourceEnricher
             return;
         }
 
-        List<(ApiType Type, string TypeName, SourceLinkResolver.TypeSourceInfo? SourceInfo)> typeSourceInfo = [];
-        Dictionary<string, (string Url, string FilePath, string? Algorithm, byte[]? Checksum)>
-            allSourcesToFetch = [];
-
+        int resolvedTypes = 0;
         foreach (var apiType in types)
         {
             var typeName = apiType.FullName;
             var sourceInfo = service.ResolveTypeSource(typeName);
-            typeSourceInfo.Add((apiType, typeName, sourceInfo));
-
             if (sourceInfo is not null
-                && TypeSourceDocumentSelection.SelectDefault(sourceInfo)
-                    is { SourceUrl: not null } defaultDocument)
-            {
-                foreach (SourceLinkResolver.TypeSourceDocument document
-                    in EnumerateDefaultFirst(sourceInfo, defaultDocument))
-                {
-                    if (document.SourceUrl is not null)
-                    {
-                        AddSourceFetch(
-                            allSourcesToFetch,
-                            document.SourceUrl,
-                            document.FilePath,
-                            document.ChecksumAlgorithm,
-                            document.Checksum);
-                    }
-                }
-            }
+                && ProjectSourceInfo(apiType, sourceInfo) is not null)
+                resolvedTypes++;
         }
-
-        logger.Log($"Phase 1: Resolved {typeSourceInfo.Count} types, {allSourcesToFetch.Count} unique source documents ({stopwatch.ElapsedMilliseconds}ms)");
-
-        var fetcher = new SourceFetch(DotnetInspector.Networking.HttpClientFactory.SharedUntrustedFetch);
-        var fetchList = allSourcesToFetch
-            .OrderBy(entry => entry.Key, StringComparer.Ordinal)
-            .Select(entry => entry.Value)
-            .ToList();
-        var contentCache = new ConcurrentDictionary<string, string?>();
-
-        logger.Log($"Phase 2: Fetching {fetchList.Count} source documents (max 16 concurrent)");
-        await Parallel.ForEachAsync(fetchList,
-            new ParallelOptions { MaxDegreeOfParallelism = 16 },
-            async (sourceFetch, ct) =>
-            {
-                var result = await PdbSourceHouse.AcquireVerifiedSourceTextAsync(
-                    fetcher,
-                    sourceFetch.FilePath,
-                    sourceFetch.Url,
-                    sourceFetch.Algorithm,
-                    sourceFetch.Checksum,
-                    options.SourceRepositories,
-                    ct);
-                contentCache[SourceFetchKey(
-                    sourceFetch.Url,
-                    sourceFetch.Algorithm,
-                    sourceFetch.Checksum)] = result.Text;
-                if (result.Failure is not null)
-                    logger.LogWarning(result.Failure);
-            });
-
-        logger.Log($"Phase 2: Fetched {contentCache.Count(kv => kv.Value != null)} of {contentCache.Count} URLs ({stopwatch.ElapsedMilliseconds}ms)");
-
-        var parser = new DocCommentParser();
-        foreach (var (apiType, typeName, sourceInfo) in typeSourceInfo)
-        {
-            if (sourceInfo == null)
-                continue;
-
-            SourceLinkResolver.TypeSourceDocument? defaultDocument =
-                ProjectSourceInfo(apiType, sourceInfo);
-            if (defaultDocument is null)
-                continue;
-
-            if ((options.ShowDocs || options.ShowSamples)
-                && defaultDocument.SourceUrl is not null)
-            {
-                List<(string Content, string Url, string FilePath)> sourceContents = [];
-
-                foreach (SourceLinkResolver.TypeSourceDocument document
-                    in EnumerateDefaultFirst(sourceInfo, defaultDocument))
-                {
-                    if (document.SourceUrl is not null
-                        && contentCache.TryGetValue(
-                            SourceFetchKey(
-                                document.SourceUrl,
-                                document.ChecksumAlgorithm,
-                                document.Checksum),
-                            out var content)
-                        && content is not null)
-                    {
-                        sourceContents.Add(
-                            (content, document.SourceUrl, document.FilePath));
-                    }
-                }
-
-                if (sourceContents.Count > 0)
-                {
-                    MergePartialTypeDocumentation(apiType, sourceContents, parser, options, logger);
-                }
-            }
-        }
-
-        logger.Log($"Phase 3: Parsed docs for {typeSourceInfo.Count} types ({stopwatch.ElapsedMilliseconds}ms total)");
+        logger.Log(
+            $"Resolved source locations for {resolvedTypes} of "
+                + $"{types.Count} types.");
     }
 
     // ===== Repository URL Extraction =====
@@ -396,98 +299,6 @@ internal static class SourceEnricher
                 options.SourceOptions,
                 packageName));
 
-    internal static void MergePartialTypeDocumentation(
-        ApiType apiType,
-        List<(string Content, string Url, string FilePath)> sourceContents,
-        DocCommentParser parser,
-        ApiOptions options,
-        VerboseLogger logger)
-    {
-
-        DocComment? mergedTypeDoc = null;
-        List<SampleReference> allSamples = [];
-
-        foreach (var (content, url, _) in sourceContents)
-        {
-            var typeDoc = parser.ExtractTypeDocComment(content, apiType.Name);
-            if (typeDoc != null)
-            {
-                if (mergedTypeDoc == null)
-                {
-                    mergedTypeDoc = new DocComment
-                    {
-                        Summary = typeDoc.Summary,
-                        Remarks = typeDoc.Remarks,
-                        Parameters = typeDoc.Parameters,
-                        Returns = typeDoc.Returns
-                    };
-                    logger.Log("Found type documentation.");
-                }
-                else
-                {
-                    mergedTypeDoc.Summary ??= typeDoc.Summary;
-                    mergedTypeDoc.Remarks ??= typeDoc.Remarks;
-                    mergedTypeDoc.Returns ??= typeDoc.Returns;
-                    if (typeDoc.Parameters != null)
-                    {
-                        mergedTypeDoc.Parameters ??= new Dictionary<string, string>();
-                        foreach (var (key, value) in typeDoc.Parameters)
-                        {
-                            mergedTypeDoc.Parameters.TryAdd(key, value);
-                        }
-                    }
-                    logger.Log("Merged additional type documentation.");
-                }
-
-                if (typeDoc.Samples != null)
-                {
-                    allSamples.AddRange(typeDoc.Samples.Select(s => new SampleReference
-                    {
-                        RelativePath = s.RelativePath,
-                        Description = s.Description,
-                        Region = s.Region,
-                        ResolvedUrl = GitHubUrlResolver.ResolveSampleUrl(url, s.RelativePath)
-                    }));
-                }
-            }
-
-            var membersToDocument = options.MemberFilter.Count > 0
-                ? apiType.Members.Where(m => options.MemberFilter.Contains(m.Name))
-                : apiType.Members;
-
-            foreach (var member in membersToDocument)
-            {
-                if (member.Documentation.Summary == null)
-                {
-                    var memberDoc = parser.ExtractMemberDocComment(content, apiType.Name, member.Name);
-                    if (memberDoc != null)
-                    {
-                        member.Documentation = new DocComment
-                        {
-                            Summary = memberDoc.Summary,
-                            Remarks = memberDoc.Remarks,
-                            Parameters = memberDoc.Parameters,
-                            Returns = memberDoc.Returns,
-                            Samples = memberDoc.Samples?.Select(s => new SampleReference
-                            {
-                                RelativePath = s.RelativePath,
-                                Description = s.Description,
-                                Region = s.Region,
-                                ResolvedUrl = GitHubUrlResolver.ResolveSampleUrl(url, s.RelativePath)
-                            }).ToList() ?? []
-                        };
-                    }
-                }
-            }
-        }
-
-        if (mergedTypeDoc != null)
-        {
-            mergedTypeDoc.Samples = allSamples;
-            apiType.Documentation = mergedTypeDoc;
-        }
-    }
-
     private static async Task<bool> TryEnrichFromForwardedAssemblyAsync(
         ApiType apiType,
         string typeName,
@@ -538,7 +349,7 @@ internal static class SourceEnricher
         return true;
     }
 
-    internal static async Task ApplySourceInfoAsync(
+    internal static Task ApplySourceInfoAsync(
         ApiType apiType,
         SourceLinkResolver.TypeSourceInfo sourceInfo,
         ApiOptions options,
@@ -547,7 +358,7 @@ internal static class SourceEnricher
         SourceLinkResolver.TypeSourceDocument? defaultDocument =
             ProjectSourceInfo(apiType, sourceInfo);
         if (defaultDocument is null)
-            return;
+            return Task.CompletedTask;
 
         if (apiType.AdditionalSourceFiles.Count > 0)
         {
@@ -557,83 +368,7 @@ internal static class SourceEnricher
 
         logger.Log(
             $"Source ({defaultDocument.ResolutionMethod}) resolved.");
-
-        if (!(options.ShowDocs || options.ShowSamples)
-            || defaultDocument.SourceUrl is null)
-        {
-            return;
-        }
-
-        var fetcher = new SourceFetch(
-            DotnetInspector.Networking.HttpClientFactory.SharedUntrustedFetch);
-        var parser = new DocCommentParser();
-        List<(string Url, string FilePath, string? Algorithm, byte[]? Checksum)>
-            sourceFilesToFetch =
-            [
-                .. EnumerateDefaultFirst(sourceInfo, defaultDocument)
-                    .Where(static document => document.SourceUrl is not null)
-                    .Select(static document => (
-                        document.SourceUrl!,
-                        document.FilePath,
-                        document.ChecksumAlgorithm,
-                        document.Checksum)),
-            ];
-
-        List<(string Content, string Url, string FilePath)> allSourceContents = [];
-        string? primaryNamespace = null;
-        bool isPrimaryPartial = false;
-
-        foreach ((string url, string filePath, string? algorithm, byte[]? checksum) in sourceFilesToFetch)
-        {
-            logger.Log("Fetching SourceLink source.");
-            var fetch = await PdbSourceHouse.AcquireVerifiedSourceTextAsync(
-                fetcher,
-                filePath,
-                url,
-                algorithm,
-                checksum,
-                options.SourceRepositories);
-            string? content = fetch.Text;
-            if (content is null)
-            {
-                logger.LogWarning(fetch.Failure ?? "Could not fetch SourceLink source.");
-                continue;
-            }
-
-            logger.Log($"Fetched {content.Length} source bytes.");
-            if (allSourceContents.Count == 0)
-            {
-                isPrimaryPartial =
-                    IsPartialTypeDeclaration(content, apiType.Name);
-                primaryNamespace = ExtractNamespace(content);
-                allSourceContents.Add((content, url, filePath));
-            }
-            else if (isPrimaryPartial)
-            {
-                bool isMatchingPartial =
-                    IsPartialTypeDeclaration(content, apiType.Name);
-                string? fileNamespace = ExtractNamespace(content);
-                if (isMatchingPartial && fileNamespace == primaryNamespace)
-                {
-                    allSourceContents.Add((content, url, filePath));
-                    logger.Log("Validated matching partial source file.");
-                }
-                else
-                {
-                    logger.Log("Skipping non-matching partial source file.");
-                }
-            }
-        }
-
-        if (allSourceContents.Count > 0)
-        {
-            MergePartialTypeDocumentation(
-                apiType,
-                allSourceContents,
-                parser,
-                options,
-                logger);
-        }
+        return Task.CompletedTask;
     }
 
     private static SourceLinkResolver.TypeSourceDocument? ProjectSourceInfo(
@@ -670,45 +405,4 @@ internal static class SourceEnricher
         return defaultDocument;
     }
 
-    private static IEnumerable<SourceLinkResolver.TypeSourceDocument>
-        EnumerateDefaultFirst(
-            SourceLinkResolver.TypeSourceInfo sourceInfo,
-            SourceLinkResolver.TypeSourceDocument defaultDocument)
-    {
-        yield return defaultDocument;
-        foreach (SourceLinkResolver.TypeSourceDocument document
-            in sourceInfo.Documents)
-        {
-            if (!ReferenceEquals(document, defaultDocument))
-                yield return document;
-        }
-    }
-
-    private static void AddSourceFetch(
-        Dictionary<string, (string Url, string FilePath, string? Algorithm, byte[]? Checksum)> sources,
-        string url,
-        string filePath,
-        string? algorithm,
-        byte[]? checksum)
-        => sources.TryAdd(
-            SourceFetchKey(url, algorithm, checksum),
-            (url, filePath, algorithm, checksum));
-
-    private static string SourceFetchKey(
-        string url,
-        string? algorithm,
-        byte[]? checksum)
-        => $"{url}\n{algorithm}\n{(checksum is null ? "" : Convert.ToHexString(checksum))}";
-
-    private static bool IsPartialTypeDeclaration(string sourceContent, string typeName)
-    {
-        var pattern = $@"\bpartial\s+(?:class|struct|interface|record)\s+{Regex.Escape(typeName)}\b";
-        return Regex.IsMatch(sourceContent, pattern);
-    }
-
-    private static string? ExtractNamespace(string sourceContent)
-    {
-        var match = Regex.Match(sourceContent, @"^\s*namespace\s+([\w.]+)", RegexOptions.Multiline);
-        return match.Success ? match.Groups[1].Value : null;
-    }
 }

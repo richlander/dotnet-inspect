@@ -299,7 +299,7 @@ public sealed partial class PackageHouseExecutionTests
                 maxNodes: 10),
             DateTimeOffset.UtcNow.AddMinutes(1),
             supplyChainBaseline:
-                MemberCallGraphSupplyChainBaseline
+                PackageSupplyChainBaseline
                     .SelfAndRegisteredEcosystems);
         var laterEcosystem =
             new WorkspaceEcosystemRegistrationDeclaration(
@@ -346,6 +346,9 @@ public sealed partial class PackageHouseExecutionTests
             "net12.0",
             completed.TraversalTargetPolicy.TargetFramework);
         Assert.Empty(completed.Baseline.RegisteredEcosystems);
+        Assert.Equal(
+            [CallGraphRootPackage.ToLowerInvariant()],
+            completed.Baseline.RootPackageIds);
         WorkspaceScopeSnapshot finalScope =
             await CurrentScopeAsync(workspace);
         Assert.Equal(
@@ -1100,7 +1103,7 @@ public sealed partial class PackageHouseExecutionTests
                 maxNodes: 10),
             DateTimeOffset.UtcNow.AddMinutes(1),
             supplyChainBaseline:
-                MemberCallGraphSupplyChainBaseline
+                PackageSupplyChainBaseline
                     .SelfAndRegisteredEcosystems);
 
         PackageDependencyMemberCallGraphOutcome.Completed completed =
@@ -1123,12 +1126,15 @@ public sealed partial class PackageHouseExecutionTests
         Assert.Empty(environment.Clients[0].PayloadPackageIds);
         Assert.Single((await CurrentScopeAsync(workspace)).Packages);
         Assert.Equal(
-            MemberCallGraphSupplyChainBaseline
+            PackageSupplyChainBaseline
                 .SelfAndRegisteredEcosystems,
             completed.Baseline.Kind);
         Assert.Equal(
             ["ecosystem.runtime"],
             completed.Baseline.RegisteredEcosystems);
+        Assert.Equal(
+            [CallGraphRootPackage.ToLowerInvariant()],
+            completed.Baseline.RootPackageIds);
         Assert.DoesNotContain(
             completed.NodePackages,
             subject => string.Equals(

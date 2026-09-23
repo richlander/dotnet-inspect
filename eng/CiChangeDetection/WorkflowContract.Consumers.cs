@@ -84,6 +84,16 @@ internal static partial class WorkflowContract
         ValidateRequiredRunStep(
             jobs,
             "test",
+            "Run BinaryFetch tests",
+            "dotnet run --project tests/BinaryFetch.Tests -c Release");
+        ValidateRequiredRunStep(
+            jobs,
+            "test",
+            "Run ZipFetch tests",
+            "dotnet run --project tests/ZipFetch.Tests -c Release");
+        ValidateRequiredRunStep(
+            jobs,
+            "test",
             "Run UntrustedDocuments tests",
             "dotnet run --project tests/UntrustedDocuments.Tests -c Release");
         ValidateRequiredRunStep(

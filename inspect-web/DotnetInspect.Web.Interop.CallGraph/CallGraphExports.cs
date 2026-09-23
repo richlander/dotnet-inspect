@@ -55,7 +55,7 @@ public static partial class CallGraphExports
                 selectorKey,
                 metadataToken,
                 BrowserPackageWorkspace.ProductWorkspacePlan,
-                MemberCallGraphSupplyChainBaseline
+                PackageSupplyChainBaseline
                     .SelfAndRegisteredEcosystems);
         if (envelope.Content
             is PackageDependencyMemberCallGraphInspectionOutcome

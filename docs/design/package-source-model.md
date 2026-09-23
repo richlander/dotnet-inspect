@@ -632,6 +632,13 @@ platform packs independently reapply the package-ID and coordinate authority
 rules. Existence of a primary package on one authority does not authorize a
 related package or symbol endpoint on another.
 
+Ranged reads of an exact payload's archive directory and entries, without
+acquiring the whole archive, are owned by
+[Package archive range access](package-archive-range-access.md). They apply
+the same authorization, identity, and operation-context rules as a full
+payload acquisition; the lease steps that expose them are added under this
+owner when the first consumer adopts them.
+
 `PinnedAcquisition_OneAuthorizedAuthorityMaySucceedWithoutPeerReadability`,
 `DiscoveredPayload_RequiresReportingAuthority`,
 `PayloadTier_LocalBeforeHttpWithoutDeclarationPrecedence`, and

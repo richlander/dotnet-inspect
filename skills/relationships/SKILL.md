@@ -251,6 +251,21 @@ receipts; Markdown, Mermaid, and plaintext lower the same Markout graph. Calls
 into assemblies outside the explicit package context remain visible as
 unclassified boundaries with an incompleteness warning. `-n`, `--tail`, and
 `--rows` select complete logical edges after bounded graph construction.
+By default, the supply-chain baseline highlights third-party Package
+boundaries while keeping the root Package and registered .NET ecosystems as
+connectors. `--first-party-prefix PREFIX` adds a known first-party Package
+family to the baseline. Use `--baseline self` to keep only the root and explicit
+first-party prefixes as connectors, or `--baseline nothing` to highlight every
+known dependency Package; the latter rejects first-party prefixes. These
+choices change highlighting, not dependency traversal.
+
+For an exact pair of Libraries, `graph libraries --library ./Consumer.dll
+--library ./Provider.dll` reports physical cross-Library calls in both
+directions. Select `-S "Direct Use Clusters"` to group connected source and
+target methods with their physical call sites. Reopen one cluster with
+`--where "Cluster=N"`, then select `-S "Public Root Paths"` to see bounded
+paths from public consumer entrypoints to that cluster. Use `-Q "Call Sites"`
+to discover the cluster predicate before opening the Libraries.
 
 ## What does it integrate with? (ecosystem)
 

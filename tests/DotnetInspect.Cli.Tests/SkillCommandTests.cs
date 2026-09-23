@@ -249,6 +249,28 @@ public class SkillCommandTests
     }
 
     [Fact]
+    public async Task EmbeddedSkills_UseCurrentUndecoratedFormatter()
+    {
+        var outputs = new[]
+        {
+            await ConsoleCapture.RunAsync(
+                () => Task.FromResult(SkillCommand.ExecuteSkill("package-skills"))),
+            await ConsoleCapture.RunAsync(
+                () => Task.FromResult(SkillCommand.ExecuteSkill("private-feeds"))),
+            await ConsoleCapture.RunAsync(
+                () => Task.FromResult(SkillCommand.ExecuteSkill("query"))),
+            await ConsoleCapture.RunAsync(
+                () => Task.FromResult(SkillCommand.ExecuteSkill("sourcelink"))),
+        };
+
+        foreach (var (_, output, _) in outputs)
+        {
+            Assert.DoesNotContain("--bare", output);
+            Assert.Contains("--raw", output);
+        }
+    }
+
+    [Fact]
     public async Task ExecuteSkill_QueryDocumentsLegacyRowsLineComposition()
     {
         var (exitCode, output, _) = await ConsoleCapture.RunAsync(

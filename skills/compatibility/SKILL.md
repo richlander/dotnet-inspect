@@ -154,9 +154,11 @@ disappearance without treating endpoint-local IL offsets as identity.
 
 ## Did the implementation change? (decompiled C# + IL + PDB Source)
 
-`-S "Implementation Diff"` selects Research-composed body evidence instead of
-the default API compatibility view. Rows identify the member, producer (`C#`,
-`IL`, or `PDB Source`), change kind, and producer-owned evidence. `C#` is
+`--implementation` is the conventional shortcut for exact
+`-S "Implementation Diff"` selection. It selects Research-composed body
+evidence instead of the default API compatibility view. Rows identify the
+member, producer (`C#`, `IL`, or `PDB Source`), change kind, and producer-owned
+evidence. `C#` is
 decompiled text; `PDB Source` is Portable-PDB-selected, checksum-verified text
 acquired locally or through SourceLink. The lanes are peers: PDB-source absence
 or failure stays visible and never replaces the C# lane. Narrow with `-t` and
@@ -164,7 +166,7 @@ or failure stays visible and never replaces the C# lane. Narrow with `-t` and
 
 ```bash
 dnx dotnet-inspect -y -- diff --library old/Foo.dll..new/Foo.dll \
-  -S "Implementation Diff" --pdb-source --repo /path/to/Foo \
+  --implementation --pdb-source --repo /path/to/Foo \
   -t MyType -m HotPath
 ```
 
