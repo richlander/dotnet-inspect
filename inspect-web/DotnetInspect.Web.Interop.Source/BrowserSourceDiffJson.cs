@@ -7,6 +7,10 @@ namespace DotnetInspect.Web.Interop.Source;
 [SupportedOSPlatform("browser")]
 internal static class BrowserSourceDiffJson
 {
+    internal const string BoundedFailureError = "Source comparison failed.";
+    internal const string BoundedFailureDiagnostic =
+        "Source comparison failure details exceeded the diagnostic limit.";
+
     internal static string Serialize(BrowserSourceComparisonResult result)
     {
         ArgumentNullException.ThrowIfNull(result);
@@ -15,6 +19,24 @@ internal static class BrowserSourceDiffJson
             BrowserSourceDiffProjection.AdmitAuxiliaryText(
                 AuxiliaryText(result));
             return SerializeBounded(result);
+        }
+        catch (BrowserSourceDiffCapacityException)
+            when (result is
+            {
+                Kind: BrowserSourceComparisonResultKind.Failed,
+                FailureKind: not null,
+            })
+        {
+            var boundedFailure = new BrowserSourceComparisonResult(
+                Version: 1,
+                BrowserSourceComparisonResultKind.Failed,
+                Value: null,
+                result.FailureKind,
+                BoundedFailureError,
+                BoundedFailureDiagnostic,
+                Reason: null,
+                Capacity: null);
+            return SerializeBounded(boundedFailure);
         }
         catch (BrowserSourceDiffCapacityException error)
         {

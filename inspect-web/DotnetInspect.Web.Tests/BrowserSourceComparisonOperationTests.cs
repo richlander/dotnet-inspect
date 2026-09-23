@@ -353,6 +353,28 @@ public sealed class BrowserSourceComparisonOperationTests(ITestOutputHelper outp
     }
 
     [Fact]
+    public async Task OversizedMalformedRequestRetainsExpectedFailure()
+    {
+        string requestJson = $"{{\"{new string('x', 7_500)}\":0}}";
+        Assert.True(requestJson.Length <= BrowserSourceDiffProjection.MaximumRequestBytes);
+        string id = Guid.NewGuid().ToString();
+
+        BrowserSourceComparisonResult result = Read(
+            await DotnetInspect.Web.Interop.Source.SourceExports.QueryMemberSourceComparison(
+                id,
+                requestJson));
+
+        Assert.Equal(BrowserSourceComparisonResultKind.Failed, result.Kind);
+        Assert.Equal(BrowserTypeSourceFailureKind.Expected, result.FailureKind);
+        Assert.Equal(BrowserSourceDiffJson.BoundedFailureError, result.Error);
+        Assert.Equal(BrowserSourceDiffJson.BoundedFailureDiagnostic, result.Diagnostic);
+        Assert.Null(result.Capacity);
+        Assert.Equal(
+            BrowserTypeSourceCancellationKind.NotActive,
+            Cancel(id, "user").Kind);
+    }
+
+    [Fact]
     public void SourceDiffAdmissionAcceptsEveryExactFirstProfileLimit()
     {
         BrowserSourceDiffProjection.AdmitRequest(
@@ -459,7 +481,7 @@ public sealed class BrowserSourceComparisonOperationTests(ITestOutputHelper outp
     }
 
     [Fact]
-    public void DiagnosticExpansionReturnsTypedAuxiliaryCapacity()
+    public void DiagnosticExpansionRetainsUnexpectedFailure()
     {
         var oversized = new BrowserSourceComparisonResult(
             Version: 1,
@@ -475,16 +497,11 @@ public sealed class BrowserSourceComparisonOperationTests(ITestOutputHelper outp
         BrowserSourceComparisonResult result = Read(
             BrowserSourceDiffJson.Serialize(oversized));
 
-        Assert.Equal(BrowserSourceComparisonResultKind.TooComplex, result.Kind);
-        BrowserSourceDiffCapacity capacity =
-            Assert.IsType<BrowserSourceDiffCapacity>(result.Capacity);
-        Assert.Equal(
-            BrowserSourceDiffCapacityDimension.AuxiliaryTextBytes,
-            capacity.Dimension);
-        Assert.Equal(
-            BrowserSourceDiffProjection.MaximumAuxiliaryTextBytes,
-            capacity.Limit);
-        Assert.True(capacity.Actual > capacity.Limit);
+        Assert.Equal(BrowserSourceComparisonResultKind.Failed, result.Kind);
+        Assert.Equal(BrowserTypeSourceFailureKind.Unexpected, result.FailureKind);
+        Assert.Equal(BrowserSourceDiffJson.BoundedFailureError, result.Error);
+        Assert.Equal(BrowserSourceDiffJson.BoundedFailureDiagnostic, result.Diagnostic);
+        Assert.Null(result.Capacity);
     }
 
     [Fact]
