@@ -35,8 +35,10 @@ source batches are never rows.
 
 The resolved Source section is therefore inventory-shaped for cardinality
 terminals even though its result also carries scalar document facts. Missing,
-rejected, checksum-invalid, partial, or otherwise unsuccessful source does not
-become an empty line inventory.
+rejected, checksum-invalid, content-incomplete, or otherwise unsuccessful
+source does not become an empty line inventory. A complete selected document
+remains successful when type-document mapping evidence says the type itself is
+partial; that partiality is a scalar document fact, not incomplete content.
 
 This owner defines the document/line association, line identity, content
 binding, exact Count requirement, and Source-owned continuation compatibility.
@@ -173,10 +175,12 @@ The projection must not:
 - change exact type/member selection or partial-type document scope; or
 - make a bounded line segment appear to be the complete document.
 
-Authored, decompiled fallback, unavailable, checksum-failure, and partial
-outcomes retain their current visible behavior. Member-part spans and other
-adjacent typed annotations remain with their owners and may reference this
-document only through the owner-issued content binding and coordinates.
+Authored, decompiled fallback, unavailable, checksum-failure, and
+content-incomplete outcomes retain their current visible behavior. A complete
+selected authored document retains successful line results and its existing
+partial-type mapping evidence. Member-part spans and other adjacent typed
+annotations remain with their owners and may reference this document only
+through the owner-issued content binding and coordinates.
 
 ## Host adoption and rendering
 
@@ -261,7 +265,7 @@ acquisition, Query Space, or the viewer.
 | Gate | Property | Status |
 | --- | --- | --- |
 | `SourceDocumentLinesReconstructExactDecodedText` | Every supported terminator, empty/final-empty line, line number, and UTF-16 start offset reconstruct the exact decoded text. | Unverified until slice 2. |
-| `SourceDocumentProjectionPreservesProviderAndFailureEvidence` | PDB and decompiled success preserve facts, Share, and diagnostics; unavailable, checksum, partial, cancellation, and cleanup outcomes do not become successful line results. | Unverified until slice 2. |
+| `SourceDocumentProjectionPreservesProviderAndFailureEvidence` | PDB and decompiled success preserve facts, Share, diagnostics, and successful partial-type mapping evidence; unavailable, checksum, incomplete-content, cancellation, and cleanup outcomes do not become successful line results. | Unverified until slice 2. |
 | `SourceLineCountMatchesCompletelyDrainedRows` | Exact Count equals the completely drained ordered line population under one content binding. | Unverified until slice 3. |
 | `SourceLineSegmentSizeDoesNotChangeMeaning` | Different execution bounds preserve lines, order, Count, completion, reconstruction, and continuation meaning. | Unverified until slice 3. |
 | `SourceLineContinuationRejectsIncompatibleBinding` | Stale, expired, different-document, different-request, and different-selection receipts fail without restarting. | Unverified until slice 3. |
