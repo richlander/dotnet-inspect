@@ -188,6 +188,38 @@ test("Type Explorer disables Selected body without owner-issued support", () => 
     /value="SelectedBody" disabled/u);
 });
 
+test("Type Explorer keeps Selected body disabled during projection failure", () => {
+  const html = renderTypeExplorerView({
+    typeDisplay: "JsonNamingPolicy",
+    packageDisplay: "System.Text.Json 11.0.0 · net11.0",
+    intent: {
+      ...defaultTypeExplorerIntent(),
+      selectedDeclarationId: 7,
+      documentRevision: "a".repeat(64),
+    },
+    state: {
+      status: "ready",
+      inspection: {
+        ...inspection,
+        document: {
+          ...inspection.document!,
+          projection: null,
+          projectionFailure: {
+            kind: "SelectedMemberHidden",
+            message:
+              "The selected member is excluded by the structural filters.",
+          },
+        },
+      },
+    },
+    escapeHtml,
+    highlightCSharp: escapeHtml,
+  });
+
+  assert.match(html, /SelectedMemberHidden/u);
+  assert.match(html, /value="SelectedBody" disabled/u);
+});
+
 test("Type Explorer keeps failures visible and inert", () => {
   const html = renderTypeExplorerView({
     typeDisplay: "JsonNamingPolicy",

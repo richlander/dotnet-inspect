@@ -530,6 +530,32 @@ test.describe("published authored Source comparison transport", () => {
         .toBe(typeExplorerLayout.routeClientHeight);
       expect(typeExplorerLayout.sourceScrollHeight)
         .toBeGreaterThan(typeExplorerLayout.sourceClientHeight);
+      const selectedBody = applicationPage.getByRole("radio", {
+        name: "Selected body",
+      });
+      const buildValueOutline = applicationPage
+        .locator(".type-explorer-outline [data-type-explorer-declaration]")
+        .filter({ hasText: /\bBuildValue\b/u })
+        .first();
+      await buildValueOutline.click();
+      await expect(selectedBody).toBeDisabled();
+      const instanceMembers = applicationPage.getByRole("radio", {
+        name: "Instance",
+      });
+      await instanceMembers.check();
+      await expect(
+        applicationPage.locator(".type-explorer-failure"),
+      ).toContainText("SelectedMemberHidden");
+      await expect(selectedBody).toBeDisabled();
+      const allMembers = applicationPage.getByRole("radio", {
+        name: "All",
+      });
+      await allMembers.check();
+      await expect(
+        applicationPage.getByRole("region", { name: "Whole-Type C#" }),
+      ).toContainText("Counter", { timeout: 60_000 });
+      await expect(buildValueOutline).toHaveAttribute("aria-current", "true");
+      await expect(selectedBody).toBeDisabled();
       const valueOutline = applicationPage
         .locator(".type-explorer-outline [data-type-explorer-declaration]")
         .filter({ hasText: /\bValue\b/u })
@@ -544,9 +570,6 @@ test.describe("published authored Source comparison transport", () => {
       await expect(
         applicationPage.locator(".type-explorer-failure"),
       ).toContainText("SelectedMemberHidden");
-      const allMembers = applicationPage.getByRole("radio", {
-        name: "All",
-      });
       await allMembers.check();
       await expect(
         applicationPage.getByRole("region", { name: "Whole-Type C#" }),

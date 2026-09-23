@@ -315,7 +315,7 @@ function inspectionHtml(
             "SelectedBody",
             "Selected body",
             intent.selectedDeclarationId === null
-              || (!selectedBodyAvailable && projectionFailure === null),
+              || !selectedBodyAvailable,
           ],
         ],
         intent.bodyMode)}
