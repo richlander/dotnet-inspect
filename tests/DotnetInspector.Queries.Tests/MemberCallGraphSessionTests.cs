@@ -690,6 +690,16 @@ public sealed class MemberCallGraphSessionTests
         2,
         0)]
     [InlineData(
+        "RentAndReturnCompoundThroughGenericHelper",
+        ResourceOwnershipPathOutcome.Released,
+        1,
+        0)]
+    [InlineData(
+        "RentAndReturnCompoundThroughNestedGenericHelpers",
+        ResourceOwnershipPathOutcome.Released,
+        2,
+        0)]
+    [InlineData(
         "RentAndStoreThroughHelper",
         ResourceOwnershipPathOutcome.Stored,
         1,
@@ -789,6 +799,61 @@ public sealed class MemberCallGraphSessionTests
             new MemberCallGraphBuildCounts(0, 1, 0),
             graph.BuildCounts);
         Assert.Equal(1, context.Sources[0].OpenCount);
+    }
+
+    [Fact]
+    public async Task GenericOwnershipPreservesOpenGenericLocalRelease()
+    {
+        await using GraphContext context =
+            GraphContext.Create(OwnershipPath, TargetPath);
+        int root = MemberToken(
+            OwnershipPath,
+            "Entry",
+            "RentAndReturnDirectlyOpenGeneric");
+        using var graph = new MemberCallGraphSession(
+            context.Group,
+            context.Sources[0].Assembly,
+            root,
+            new MemberCallGraphOptions
+            {
+                Features =
+                    Analysis.LibraryBodyAnalysisFeatures.MethodEvidence
+                    | Analysis.LibraryBodyAnalysisFeatures.OwnershipFlow,
+                ResourceEffects =
+                    Analysis.ArrayPoolResourceEffectModel.Create(),
+            });
+        MemberCallGraphView view = graph.Callers();
+        CallGraphProjection projection =
+            CallGraphProjection.Create(
+                view.CallerRoot,
+                view.CalleeRoot);
+
+        ResourceOwnershipPathInspection inspection =
+            ResourceOwnershipPathFindings.Inspect(
+                view,
+                projection,
+                ResourceOwnershipSearchOptions.ArrayPool);
+        Finding<ResourceOwnershipPathWitness> finding =
+            Assert.Single(inspection.Findings);
+        Assert.Equal(
+            ResourceOwnershipPathOutcome.Released,
+            finding.Payload.Outcome);
+        Assert.Empty(finding.Payload.Steps);
+        Assert.True(finding.Payload.IsComplete);
+        Assert.False(
+            inspection.Limits.HasFlag(
+                AnnotatedCallGraphOwnershipLimit.AnalysisFailure));
+
+        AnnotatedCallGraphOwnershipInspection legacy =
+            ArrayPoolOwnershipPathFindings.Inspect(
+                view,
+                projection);
+        Finding<ArrayPoolOwnershipPathWitness> legacyFinding =
+            Assert.Single(legacy.Findings);
+        Assert.Equal(
+            Analysis.ArrayPoolOwnershipUseKind.ReturnedToPool,
+            legacyFinding.Payload.Outcome);
+        Assert.Empty(legacyFinding.Payload.Steps);
     }
 
     [Fact]

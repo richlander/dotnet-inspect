@@ -47,6 +47,48 @@ public static class Entry
         return buffer.Length;
     }
 
+    public static int RentAndReturnDirectlyOpenGeneric<T>()
+    {
+        T[] buffer = ArrayPool<T>.Shared.Rent(16);
+        try
+        {
+            ArrayPool<T>.Shared.Return(buffer);
+        }
+        finally
+        {
+            s_ownershipProbe++;
+        }
+        return buffer.Length;
+    }
+
+    public static int RentAndReturnCompoundThroughGenericHelper()
+    {
+        byte[][] buffer = ArrayPool<byte[]>.Shared.Rent(16);
+        try
+        {
+            ReturnGenericArrays<byte>(buffer);
+        }
+        finally
+        {
+            s_ownershipProbe++;
+        }
+        return buffer.Length;
+    }
+
+    public static int RentAndReturnCompoundThroughNestedGenericHelpers()
+    {
+        byte[][] buffer = ArrayPool<byte[]>.Shared.Rent(16);
+        try
+        {
+            ForwardGenericArrays<byte>(buffer);
+        }
+        finally
+        {
+            s_ownershipProbe++;
+        }
+        return buffer.Length;
+    }
+
     public static int RentAndForwardToReturn()
     {
         byte[] buffer = ArrayPool<byte>.Shared.Rent(16);
@@ -631,6 +673,12 @@ public static class Entry
 
     static void ForwardGeneric<T>(T[] resource) =>
         ReturnGeneric(resource);
+
+    static void ReturnGenericArrays<T>(T[][] resource) =>
+        ArrayPool<T[]>.Shared.Return(resource);
+
+    static void ForwardGenericArrays<T>(T[][] resource) =>
+        ReturnGenericArrays<T>(resource);
 
     static object AcquirePair<TFirst, TSecond>() =>
         new();

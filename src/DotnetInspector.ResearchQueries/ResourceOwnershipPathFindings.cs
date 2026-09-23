@@ -546,6 +546,8 @@ public static class ResourceOwnershipPathFindings
         ImmutableArray<ResourceOccurrenceResourceKind> right,
         ResourceOwnershipGenericContext genericContext)
     {
+        if (left == right)
+            return ResourceDomainMatch.Match;
         if (left.Length != right.Length)
             return ResourceDomainMatch.NoMatch;
         return Combine(
@@ -599,7 +601,7 @@ public static class ResourceOwnershipPathFindings
                 : ResourceDomainMatch.Incomplete;
         }
 
-        if (!TypeShapesMatch(left.Type, right.Type)
+        if (!CurrentTypeShapeMatches(left.Type, right.Type)
             || left.DefiningAssembly != right.DefiningAssembly
             || left.DefinitionKind != right.DefinitionKind
             || left.GenericScopeKind != right.GenericScopeKind
@@ -632,7 +634,7 @@ public static class ResourceOwnershipPathFindings
         return Combine(matches);
     }
 
-    static bool TypeShapesMatch(TypeRef left, TypeRef right)
+    static bool CurrentTypeShapeMatches(TypeRef left, TypeRef right)
     {
         if (left.Kind != right.Kind
             || left.Rank != right.Rank
@@ -654,15 +656,7 @@ public static class ResourceOwnershipPathFindings
         {
             return false;
         }
-        if (left.ElementType is not null
-            && !TypeShapesMatch(
-                left.ElementType,
-                right.ElementType!))
-        {
-            return false;
-        }
-        return left.TypeArguments.Zip(right.TypeArguments).All(pair =>
-            TypeShapesMatch(pair.First, pair.Second));
+        return true;
     }
 
     static ResourceDomainMatch Combine(

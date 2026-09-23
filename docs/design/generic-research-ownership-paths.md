@@ -69,6 +69,9 @@ the admitted effect applies. Resource-neutral forwarding remains the fallback
 at the same call coordinate. During composition, a release for the carried
 obligation's domain supersedes only the matching forwarding coordinate; it
 does not reclassify another resource kind or another parameter at that call.
+When Analysis reuses the acquisition's owner-issued immutable domain for a
+method-local release, that shared identity is already exact evidence even when
+the containing method remains open generic.
 
 Analysis builds the summary in the same execution that produced Resource
 Occurrence. It reuses the retained `MethodBodyAnalysisContext`, resolved
@@ -98,9 +101,10 @@ is incomplete.
 Research carries the physical call site's method generic arguments across each
 forwarding step. Before selecting a typed terminal use, it substitutes the
 complete detached occurrence type into the definition-local resource domain.
-The substitution composes across multiple generic forwarding steps. Missing
-exact argument evidence is incomplete, and a non-matching domain remains
-resource-neutral; neither becomes a typed terminal.
+The substitution recurses through compound element and argument domains and
+composes across multiple generic forwarding steps. Missing exact argument
+evidence is incomplete, and a non-matching domain remains resource-neutral;
+neither becomes a typed terminal.
 
 A terminal `ResourceOwnershipPathWitness` contains the obligation, selected
 resource kind, ordered physical forwarding coordinates, typed sink outcome,
