@@ -250,7 +250,8 @@ anchor's content (or the start of the text) to the start of the following
 anchor's content (or the end of the text). It therefore includes the boundary
 after the preceding anchor. Each boundary between two regions' lines belongs
 to exactly one region, and every boundary difference is located. For example,
-with the pair producer, whose texts are unterminated,
+with `TextAnalysisDiffPresentation.CreateAnalysisDiff`, whose texts are
+unterminated and which anchors every unchanged line that did not move,
 `a⏎␠` → `a` gives the region texts `⏎␠` and the empty string, so the edit is
 `LineBreaks`. A region of added blank lines likewise differs from an empty
 region by `LineBreaks`. Locating a difference in final-terminator presence
@@ -293,17 +294,21 @@ Each change receives exactly one outcome:
 | `Changed` | The whitespace-stripped change texts differ, or a `Moved` correspondence has an endpoint in the change. Movement is never whitespace. |
 
 A change whose texts are ordinal-equal is never issued alone. It joins a
-neighboring change, which keeps that neighbor's outcome.
+neighboring change, and the outcome of the joined change is recomputed.
 
-Adjacent changes in a region always have different outcomes, so every change
-is maximal. Two consequences follow:
+Each region first receives a deterministic *region outcome* from its own
+texts. It is `WhitespaceOnly` when the region texts differ whitespace-only and
+no `Moved` correspondence has an endpoint in the region, and `Changed`
+otherwise. The partition then follows two rules:
 
-- A region whose texts differ whitespace-only, with no `Moved` endpoint, is
-  exactly one `WhitespaceOnly` change.
-- A region whose whitespace-stripped texts differ, or that has a `Moved`
-  endpoint, contains at least one `Changed` change. Where the owner can
-  isolate a whitespace-only part of it, that part becomes a `WhitespaceOnly`
-  change between `Changed` changes.
+- A `WhitespaceOnly` region is issued as exactly one `WhitespaceOnly` change.
+- A `Changed` region contains at least one `Changed` change, and adjacent
+  changes in it always have different outcomes, so every change is maximal.
+  Where the owner can isolate a whitespace-only part, that part becomes its
+  own `WhitespaceOnly` change.
+
+Region outcomes, and the document summary built from them, never depend on
+how the owner splits a region.
 
 How far a `Changed` region is split is quality, not contract. The owner finds
 the split points with an alignment of the non-whitespace characters. Splitting
@@ -312,6 +317,8 @@ over the budget is one `Changed` change.
 
 Soundness doesn't depend on the aligner. A validator checks that:
 
+- each region's outcome matches its own texts, and a `WhitespaceOnly` region
+  is exactly one change;
 - the partition is ordered, non-overlapping, complete, and maximal, and the
   change texts are the consecutive cuts defined above; and
 - each change's outcome matches its own texts under the whitespace-only
@@ -340,8 +347,8 @@ therefore marks lines too, without any per-line machinery.
 | Summary | Condition |
 | --- | --- |
 | `NoDifference` | The two input texts are ordinal-equal. |
-| `WhitespaceOnly` | The texts differ, and every change is `WhitespaceOnly`. This includes texts that differ only in line-terminator spelling and so have no region. |
-| `Changed` | At least one change is `Changed`. |
+| `WhitespaceOnly` | The texts differ, and every region is `WhitespaceOnly`. This includes texts that differ only in line-terminator spelling and so have no region. |
+| `Changed` | At least one region is `Changed`. |
 
 A line diff's logical lines don't retain terminator spelling. The summary
 therefore reports a CRLF-versus-LF-only difference without locating it. The
@@ -442,6 +449,7 @@ their region's changes.
 | Blank-line spaces (Scrutor) | a blank line with spaces becomes empty | `WhitespaceOnly`, `BlankLineContent` |
 | Blank line removed (JToken.Remove) | blank line between statements removed | own region, one `WhitespaceOnly` change, `LineBreaks` |
 | Blank line after a rewritten line | `x = Foo(); // old` / `` / `y();` → `x = Foo(); // new` / `y();` | `x` lines one `Changed` change; the removed blank line its own `WhitespaceOnly` change, `LineBreaks` |
+| Line re-cut | `ab⏎b⏎c` → `a⏎␠b⏎bc` | one `WhitespaceOnly` change with two `LineBreaks` edits; no split into `Changed` parts is admissible |
 | Leading zero-line side | `p⏎k` → `p⏎⏎K` | two changes: Before `⏎`, After `⏎⏎`, `WhitespaceOnly`, one `LineBreaks`; `k` → `K` `Changed` |
 | Mixed reflow and edit | `class Foo {` / `int x;` → `class Foo` / `{` / `int y;` | two changes: `class Foo {` → `class Foo` / `{` `WhitespaceOnly`, `LineBreaks`; `int x;` → `int y;` `Changed` |
 | Insertion inside a line (JToken.Annotation) | `return (_annotations as T);` → `return (T)(_annotations as T);` | one `Changed` change |
@@ -456,7 +464,7 @@ their region's changes.
 | No-break space | `a b` → `a`U+00A0`b` | `Changed` |
 | Word merge | `foo bar` → `foobar` | `WhitespaceOnly`, `Separation` |
 | Swapped lines | `a` / `b` → `b` / `a` | `Changed` (movement) |
-| Trailing line after an anchor | `a⏎␠` → `a` (unterminated, pair producer) | `WhitespaceOnly`, `LineBreaks` covering the anchor's boundary |
+| Trailing line after an anchor | `a⏎␠` → `a` (via `TextAnalysisDiffPresentation.CreateAnalysisDiff`) | `WhitespaceOnly`, `LineBreaks` covering the anchor's boundary |
 | Final newline | `x` → `x⏎` | `WhitespaceOnly`, `LineBreaks` and `FinalLineTerminator` |
 | Terminator spelling, line diff | `a⏎b` with CRLF → LF | *doc* `WhitespaceOnly`, no region |
 | Terminator spelling, pair | `a⏎b` with CRLF → LF | `WhitespaceOnly`, `TerminatorSpelling` |
@@ -466,11 +474,14 @@ their region's changes.
 Soundness gates, planned in S1:
 
 - an independent validator runs over the fixtures and a pinned real-source
-  corpus. It checks that every region's changes form an ordered,
-  non-overlapping, complete partition, and recomputes each change's outcome
+  corpus. It recomputes each region's outcome, checks that a `WhitespaceOnly`
+  region is one change, checks that every region's changes form an ordered,
+  non-overlapping, complete, maximal partition of consecutive cuts, and
+  recomputes each change's outcome
   from its own texts, as [Changes](#changes) requires.
 
-The Mixed reflow and Blank line after a rewritten line rows state quality
+The Leading zero-line side, Mixed reflow, and Blank line after a rewritten
+line rows state quality
 expectations for the S1 splitter. The validator gate is what enforces
 soundness.
 
