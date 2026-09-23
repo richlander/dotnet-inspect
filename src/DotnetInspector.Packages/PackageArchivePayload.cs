@@ -63,6 +63,17 @@ internal sealed class PackageArchivePayload
             .ToList()
             .AsReadOnly();
 
+    internal Dictionary<string, PackageArchiveEntryValidation>
+        CreateEntryValidationIndex() =>
+        _entries
+            .Where(entry => !entry.IsDirectory)
+            .ToDictionary(
+                entry => entry.Path,
+                entry => new PackageArchiveEntryValidation(
+                    entry.UncompressedSize,
+                    entry.Crc32),
+                StringComparer.OrdinalIgnoreCase);
+
     internal bool TryOpenEntry(
         string relativePath,
         long maxExpandedBytes,
@@ -289,6 +300,10 @@ internal readonly record struct PackageArchiveEntry(
     ulong CompressedSize,
     ulong UncompressedSize,
     int DataOffset);
+
+internal readonly record struct PackageArchiveEntryValidation(
+    ulong ExpandedLength,
+    uint Crc32);
 
 internal sealed class PackageArchiveEntryReadStream : Stream
 {

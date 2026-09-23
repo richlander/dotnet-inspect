@@ -27,6 +27,8 @@ public sealed class FileSystemPackageContent :
 {
     private readonly string _root;
     private readonly PackageContentGenerationIdentity _generationIdentity = new();
+    private Dictionary<string, PackageArchiveEntryValidation>?
+        _archiveEntries;
 
     public FileSystemPackageContent(
         string rootPath,
@@ -182,22 +184,25 @@ public sealed class FileSystemPackageContent :
                 "Filesystem PackageHouse payload reads require a retained package archive.");
         }
 
-        using FileStream package = File.OpenRead(NupkgPath);
-        using var archive = new ZipArchive(
-            package,
-            ZipArchiveMode.Read);
-        ZipArchiveEntry? entry = archive.GetEntry(relativePath)
-            ?? archive.Entries.FirstOrDefault(candidate =>
-                candidate.FullName.Equals(
+        Dictionary<string, PackageArchiveEntryValidation>? entries =
+            Volatile.Read(ref _archiveEntries);
+        PackageArchiveEntryValidation entry;
+        if (entries is null)
+        {
+            if (!TryReadArchiveEntry(
                     relativePath,
-                    StringComparison.OrdinalIgnoreCase));
-        if (entry is null)
+                    out entry))
+            {
+                stream = null;
+                return false;
+            }
+        }
+        else if (!entries.TryGetValue(relativePath, out entry))
         {
             stream = null;
             return false;
         }
-        if (entry.Length < 0
-            || entry.Length > maxExpandedBytes)
+        if (entry.ExpandedLength > (ulong)maxExpandedBytes)
         {
             throw new InvalidDataException(
                 "Package entry exceeds the configured byte limit.");
@@ -209,7 +214,7 @@ public sealed class FileSystemPackageContent :
             stream = null;
             return false;
         }
-        if (file.Length != entry.Length)
+        if ((ulong)file.Length != entry.ExpandedLength)
         {
             throw new InvalidDataException(
                 "Extracted package entry does not match its declared size.");
@@ -220,7 +225,7 @@ public sealed class FileSystemPackageContent :
         {
             stream = new PackageArchiveEntryReadStream(
                 content,
-                checked((ulong)entry.Length),
+                entry.ExpandedLength,
                 entry.Crc32,
                 maxExpandedBytes);
             return true;
@@ -230,6 +235,43 @@ public sealed class FileSystemPackageContent :
             content.Dispose();
             throw;
         }
+    }
+
+    internal void RememberArchiveEntries(
+        PackageArchivePayload archive)
+    {
+        ArgumentNullException.ThrowIfNull(archive);
+        Dictionary<string, PackageArchiveEntryValidation> entries =
+            archive.CreateEntryValidationIndex();
+        Interlocked.CompareExchange(
+            ref _archiveEntries,
+            entries,
+            comparand: null);
+    }
+
+    private bool TryReadArchiveEntry(
+        string relativePath,
+        out PackageArchiveEntryValidation validation)
+    {
+        using FileStream package = File.OpenRead(NupkgPath!);
+        using var archive = new ZipArchive(
+            package,
+            ZipArchiveMode.Read);
+        ZipArchiveEntry? entry = archive.GetEntry(relativePath)
+            ?? archive.Entries.FirstOrDefault(candidate =>
+                candidate.FullName.Equals(
+                    relativePath,
+                    StringComparison.OrdinalIgnoreCase));
+        if (entry is null)
+        {
+            validation = default;
+            return false;
+        }
+
+        validation = new PackageArchiveEntryValidation(
+            checked((ulong)entry.Length),
+            entry.Crc32);
+        return true;
     }
 
     /// <inheritdoc />
