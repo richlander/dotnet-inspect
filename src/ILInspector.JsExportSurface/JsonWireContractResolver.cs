@@ -791,12 +791,12 @@ public static class JsonWireContractResolver
         LibraryBodyIndex bodyIndex,
         int metadataToken)
     {
-        foreach (MethodResultSink sink in bodyIndex.ResultSinks)
+        foreach (MethodResultSink sink in ResolveAuthenticReturnSinks(
+            bodyIndex,
+            metadataToken))
         {
-            if (sink.Caller.MetadataToken != metadataToken)
-                continue;
-
-            foreach (int sourceOffset in sink.SourceCallOffsets)
+            foreach (int sourceOffset
+                in EnumerateKnownSourceCallOffsets(sink))
             {
                 if (IsSerializerCall(
                         bodyIndex,
@@ -804,20 +804,6 @@ public static class JsonWireContractResolver
                         sourceOffset))
                 {
                     return true;
-                }
-            }
-            if (sink.StateMachineFieldSource is { } fieldSource)
-            {
-                foreach (int sourceOffset
-                    in fieldSource.SourceCallOffsets)
-                {
-                    if (IsSerializerCall(
-                            bodyIndex,
-                            sink.EvidenceMethod,
-                            sourceOffset))
-                    {
-                        return true;
-                    }
                 }
             }
         }

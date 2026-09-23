@@ -1337,6 +1337,46 @@ public sealed class JsonWireContractResolverTests
         Assert.Empty(function.CertificationDiagnostics);
     }
 
+    [Fact]
+    public void Build_IgnoresSerializationThatDoesNotReachExportReturn()
+    {
+        var (surface, bodyIndex) =
+            BuildFixtureSurfaceWithWireContracts(
+                typeof(JsonInputExports).Assembly.Location);
+        MethodIdentity export = Assert.Single(
+            bodyIndex.DeclaredMethods,
+            method => method.Name
+                == nameof(JsonInputExports.LogSerializedWidget));
+        DirectCall serializer = Assert.Single(
+            bodyIndex.DirectCalls,
+            call => call.Caller == export
+                && call.Callee.Name == "Serialize");
+        MethodResultSink loggingSink = Assert.Single(
+            bodyIndex.ResultSinks,
+            sink => sink.Caller == export
+                && sink.Kind
+                    == MethodResultSinkKind.SingleArgumentCall
+                && sink.SourceCallOffsets.Contains(
+                    serializer.ILOffset));
+        DirectCall consumer = Assert.Single(
+            bodyIndex.DirectCalls,
+            call => call.EvidenceMethod
+                    == loggingSink.EvidenceMethod
+                && call.ILOffset == loggingSink.ILOffset);
+        Assert.Equal("WriteLine", consumer.Callee.Name);
+
+        JsExportFunction function = Assert.Single(
+            surface.Functions,
+            candidate => candidate.Name
+                == nameof(JsonInputExports.LogSerializedWidget));
+        Assert.Null(function.ReturnWireType);
+        Assert.Empty(function.ParameterWireBindings);
+        Assert.Equal(
+            JsExportJsonContractCertification.Intrinsic,
+            function.JsonContractCertification);
+        Assert.Empty(function.CertificationDiagnostics);
+    }
+
     [Theory]
     [InlineData(
         nameof(JsonInputExports.CreateNullableWidgetParsed),

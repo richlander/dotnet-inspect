@@ -104,6 +104,13 @@ public static partial class JsonInputExports
     public static byte[] EchoBytes(byte[] value) => value;
 
     [JSExport]
+    public static void LogSerializedWidget(string name) =>
+        Console.WriteLine(
+            JsonSerializer.Serialize(
+                new JsonInputWidget(name),
+                JsonInputJsonContext.Default.JsonInputWidget));
+
+    [JSExport]
     public static string RenameAmbiguous(string widgetJson) =>
         widgetJson;
 
