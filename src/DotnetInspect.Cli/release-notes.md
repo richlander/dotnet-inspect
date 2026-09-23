@@ -67,12 +67,14 @@
   rejected, while Library's separate `@Integrations` category remains
   available. Computed `@All`, `@Default`, and `@Hidden` remain unsupported
   (#7453, #7506).
-- Uses explicit Package version lenses: `package ID --version VERSION`
-  verifies one exact version, while `package ID --latest-version` returns the
-  newest listed version. Root `dotnet-inspect --version` remains product
-  version reporting. SourceLink `--raw` and `--blob` are replaced by
-  `--prefer-rendered-urls`; direct fetchable URLs remain the default (#7621,
-  #8204).
+- **Breaking:** Removes `package ID --latest-version`. Use
+  `package ID --versions -n 1` for one newest listed version row, or
+  `package ID@latest --versions` to force a fresh check. JSON consumers now
+  read `[0].version` from the one-row array or use `--tsv`; exact
+  `package ID --version VERSION` verification and root
+  `dotnet-inspect --version` product-version reporting remain. SourceLink
+  `--raw` and `--blob` are replaced by `--prefer-rendered-urls`; direct
+  fetchable URLs remain the default (#7621, #8204, #8293).
 
 ### Workspaces and coordinates
 
@@ -90,6 +92,10 @@
   authentication-required endpoint, preserves the prior visible Workspace on
   cancellation or failure before publication, and enters a blocking retry
   state if post-cutover incumbent recovery fails (#8167, #8238).
+- Generates every Workspace share URL from one build-configured website
+  contract. Development builds target `dotnet-inspect.ca`, while production
+  NuGet packages and their CLI and Sections share producers target
+  `dotnet-inspect.net` (#8269).
 - Adds canonical Workspace component paths and immutable
   `workspace package add|update|remove` editing, plus nested packet
   encode/decode commands. Inspect Web now saves and reopens complete Workspace
@@ -182,6 +188,11 @@
 - Adds complete JSON and `InspectionEnvelope<ImplementationDiffDocument>`
   transport for one exact local Implementation Diff pair while preserving
   ordinary rendered output (#7876).
+- Adds `diff --history --major-versions` for one representative per package
+  major. API findings choose the first stable version, with the latest
+  prerelease fallback for preview-only majors; Analysis findings choose the
+  latest admitted version per major, while skipped servicing versions remain
+  visible as unevaluated gaps (#8295).
 - **Breaking:** Moves Type/Member history under `diff --history`, with full,
   checkpoint, and adaptive policies plus complete JSON/envelope transport and
   section projections. Deterministic `--sample-percent P` surveys can be

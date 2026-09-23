@@ -228,6 +228,27 @@ public class SkillCommandTests
     }
 
     [Fact]
+    public async Task EmbeddedSkills_UseCurrentVersionSelectionCommands()
+    {
+        var (_, router, _) = await ConsoleCapture.RunAsync(
+            () => Task.FromResult(SkillCommand.Execute()));
+        var (_, compatibility, _) = await ConsoleCapture.RunAsync(
+            () => Task.FromResult(SkillCommand.ExecuteSkill("compatibility")));
+        var (_, privateFeeds, _) = await ConsoleCapture.RunAsync(
+            () => Task.FromResult(SkillCommand.ExecuteSkill("private-feeds")));
+
+        foreach (string output in new[] { router, compatibility, privateFeeds })
+        {
+            Assert.DoesNotContain("--latest-version", output);
+            Assert.Contains("--versions -n 1", output);
+        }
+
+        Assert.Contains("--major-versions", router);
+        Assert.Contains("--major-versions", compatibility);
+        Assert.Contains("--major-versions", privateFeeds);
+    }
+
+    [Fact]
     public async Task ExecuteSkill_QueryDocumentsLegacyRowsLineComposition()
     {
         var (exitCode, output, _) = await ConsoleCapture.RunAsync(
