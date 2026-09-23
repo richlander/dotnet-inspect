@@ -71,7 +71,9 @@ internal static class PlatformTypeCatalogRouting
         CatalogBounds = new(
             new LibraryTypeDeclarationInventoryInspectionBounds(
                 maximumAssemblyBytes: 512 * 1024 * 1024,
-                maximumRetainedDeclarations: 500_000),
+                maximumRetainedDeclarations: 500_000,
+                maximumMetadataRows: int.MaxValue,
+                maximumRetainedTextCharacters: int.MaxValue),
             maximumAssemblies: 512,
             maximumAggregateAssemblyBytes: 2L * 1024 * 1024 * 1024,
             maximumRetainedEntries: 1_500_000,

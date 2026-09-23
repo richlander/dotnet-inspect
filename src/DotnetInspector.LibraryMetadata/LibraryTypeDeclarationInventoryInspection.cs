@@ -10,19 +10,29 @@ public sealed class LibraryTypeDeclarationInventoryInspectionBounds
 {
     public LibraryTypeDeclarationInventoryInspectionBounds(
         int maximumAssemblyBytes,
-        int maximumRetainedDeclarations)
+        int maximumRetainedDeclarations,
+        int maximumMetadataRows,
+        int maximumRetainedTextCharacters)
     {
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(
             maximumAssemblyBytes);
-        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(
+        ArgumentOutOfRangeException.ThrowIfNegative(
             maximumRetainedDeclarations);
+        ArgumentOutOfRangeException.ThrowIfNegative(maximumMetadataRows);
+        ArgumentOutOfRangeException.ThrowIfNegative(
+            maximumRetainedTextCharacters);
 
         MaximumAssemblyBytes = maximumAssemblyBytes;
         MaximumRetainedDeclarations = maximumRetainedDeclarations;
+        MaximumMetadataRows = maximumMetadataRows;
+        MaximumRetainedTextCharacters =
+            maximumRetainedTextCharacters;
     }
 
     public int MaximumAssemblyBytes { get; }
     public int MaximumRetainedDeclarations { get; }
+    public int MaximumMetadataRows { get; }
+    public int MaximumRetainedTextCharacters { get; }
 }
 
 /// <summary>
@@ -53,31 +63,61 @@ public sealed class LibraryTypeDeclarationInventoryInspectionRequest
 public sealed class LibraryTypeDeclarationInventoryCorrespondence
 {
     internal LibraryTypeDeclarationInventoryCorrespondence(
-        LibraryContentReference apiContent,
-        Guid moduleVersionId,
+        LibraryTypeDeclarationInventorySubject subject,
         AssemblyTypeDeclarationInventory inventory,
-        int assemblyBytes,
+        long metadataRows,
         int declarationCount)
     {
-        ApiContent = apiContent;
-        ModuleVersionId = moduleVersionId;
+        Subject = subject;
         Inventory = inventory;
-        AssemblyBytes = assemblyBytes;
+        MetadataRows = metadataRows;
         DeclarationCount = declarationCount;
+    }
+
+    public LibraryTypeDeclarationInventorySubject Subject { get; }
+    public LibraryReference Library => Subject.Library;
+    public LibraryContentReference ApiContent => Subject.ApiContent;
+    public AssemblyReferenceIdentity AssemblyIdentity =>
+        Subject.AssemblyIdentity;
+    public Guid ModuleVersionId => Subject.ModuleVersionId;
+    public AssemblyTypeDeclarationInventory Inventory { get; }
+    public int AssemblyBytes => Subject.AssemblyBytes;
+    public long MetadataRows { get; }
+    public int DeclarationCount { get; }
+    public long RetainedTextCharacters =>
+        Inventory.RetainedTextCharacters;
+}
+
+/// <summary>
+/// Resource-free subject facts established before declaration inventory work.
+/// </summary>
+public sealed class LibraryTypeDeclarationInventorySubject
+{
+    internal LibraryTypeDeclarationInventorySubject(
+        LibraryContentReference apiContent,
+        AssemblyReferenceIdentity assemblyIdentity,
+        Guid moduleVersionId,
+        int assemblyBytes)
+    {
+        ApiContent = apiContent;
+        AssemblyIdentity = assemblyIdentity;
+        ModuleVersionId = moduleVersionId;
+        AssemblyBytes = assemblyBytes;
     }
 
     public LibraryReference Library => ApiContent.Library;
     public LibraryContentReference ApiContent { get; }
+    public AssemblyReferenceIdentity AssemblyIdentity { get; }
     public Guid ModuleVersionId { get; }
-    public AssemblyTypeDeclarationInventory Inventory { get; }
     public int AssemblyBytes { get; }
-    public int DeclarationCount { get; }
 }
 
 public enum LibraryTypeDeclarationInventoryInspectionBound
 {
     AssemblyBytes,
+    MetadataRows,
     RetainedDeclarations,
+    RetainedTextCharacters,
 }
 
 public enum LibraryTypeDeclarationInventoryInspectionRejectionKind
@@ -109,9 +149,12 @@ public abstract record LibraryTypeDeclarationInventoryInspectionOutcome
         : LibraryTypeDeclarationInventoryInspectionOutcome;
 
     public sealed record Incomplete(
+        LibraryTypeDeclarationInventorySubject? Subject,
         LibraryTypeDeclarationInventoryInspectionBound Bound,
         int MeasuredAssemblyBytes,
-        int? MeasuredDeclarations)
+        long? MeasuredMetadataRows,
+        long? MeasuredDeclarations,
+        long? MeasuredRetainedTextCharacters)
         : LibraryTypeDeclarationInventoryInspectionOutcome;
 
     public sealed record Rejected(
@@ -163,9 +206,12 @@ public static class LibraryTypeDeclarationInventoryInspection
         if (assemblyBytes > request.Bounds.MaximumAssemblyBytes)
         {
             return new LibraryTypeDeclarationInventoryInspectionOutcome.Incomplete(
+                Subject: null,
                 LibraryTypeDeclarationInventoryInspectionBound.AssemblyBytes,
                 assemblyBytes,
-                MeasuredDeclarations: null);
+                MeasuredMetadataRows: null,
+                MeasuredDeclarations: null,
+                MeasuredRetainedTextCharacters: null);
         }
 
         if (view.Content.IsEmpty)
@@ -203,17 +249,87 @@ public static class LibraryTypeDeclarationInventoryInspection
                         .NotManagedAssembly);
             }
 
-            if (session.AssemblyInfo().AssemblyName is null)
+            if (!session.IsAssembly)
             {
                 return Failed(
                     LibraryTypeDeclarationInventoryInspectionFailureKind
                         .ManagedModule);
             }
 
+            AssemblyReferenceIdentity identity = session.AssemblyIdentity();
+            ManagedMetadataIdentity.Assembly? expectedIdentity =
+                reference.AssemblyIdentity;
+            if (expectedIdentity is null
+                || !identity.IsEquivalentTo(expectedIdentity.Identity))
+            {
+                return new LibraryTypeDeclarationInventoryInspectionOutcome.Rejected(
+                    LibraryTypeDeclarationInventoryInspectionRejectionKind
+                        .AssemblyIdentityMismatch);
+            }
+
+            Guid moduleVersionId = session.ModuleVersionId();
+            if (moduleVersionId == Guid.Empty)
+            {
+                return Failed(
+                    LibraryTypeDeclarationInventoryInspectionFailureKind
+                        .EmptyModuleVersionId);
+            }
+
+            var subject = new LibraryTypeDeclarationInventorySubject(
+                reference,
+                identity,
+                moduleVersionId,
+                assemblyBytes);
+            using var metadataOperation = new MetadataOperationContext(
+                new MetadataOperationPolicy(
+                    request.Bounds.MaximumMetadataRows));
+            using MetadataDeclarationSession declarationSession =
+                session.CreateDeclarationSession(metadataOperation);
+            if (declarationSession.ImageAdmission
+                is MetadataImageAdmissionResult.Rejected rowRejection)
+            {
+                return new LibraryTypeDeclarationInventoryInspectionOutcome.Incomplete(
+                    subject,
+                    LibraryTypeDeclarationInventoryInspectionBound.MetadataRows,
+                    assemblyBytes,
+                    rowRejection.Failure.ImageMetadataRows,
+                    MeasuredDeclarations: null,
+                    MeasuredRetainedTextCharacters: null);
+            }
+            long metadataRows =
+                ((MetadataImageAdmissionResult.Admitted)
+                    declarationSession.ImageAdmission).ImageMetadataRows;
+
             cancellationToken.ThrowIfCancellationRequested();
             AssemblyTypeDeclarationInventoryOutcome inventoryOutcome =
-                session.TypeDeclarations();
+                session.TypeDeclarations(
+                    request.Bounds.MaximumRetainedDeclarations,
+                    request.Bounds.MaximumRetainedTextCharacters);
             cancellationToken.ThrowIfCancellationRequested();
+            if (inventoryOutcome
+                is AssemblyTypeDeclarationInventoryOutcome.Incomplete
+                    incomplete)
+            {
+                return new LibraryTypeDeclarationInventoryInspectionOutcome.Incomplete(
+                    subject,
+                    incomplete.Bound switch
+                    {
+                        AssemblyTypeDeclarationInventoryBound
+                                .RetainedDeclarations =>
+                            LibraryTypeDeclarationInventoryInspectionBound
+                                .RetainedDeclarations,
+                        AssemblyTypeDeclarationInventoryBound
+                                .RetainedTextCharacters =>
+                            LibraryTypeDeclarationInventoryInspectionBound
+                                .RetainedTextCharacters,
+                        _ => throw new InvalidOperationException(
+                            "Unknown declaration inventory bound."),
+                    },
+                    assemblyBytes,
+                    metadataRows,
+                    incomplete.MeasuredDeclarations,
+                    incomplete.MeasuredRetainedTextCharacters);
+            }
             if (inventoryOutcome
                 is AssemblyTypeDeclarationInventoryOutcome.Rejected rejected)
             {
@@ -235,42 +351,18 @@ public static class LibraryTypeDeclarationInventoryInspection
             AssemblyTypeDeclarationInventory inventory =
                 ((AssemblyTypeDeclarationInventoryOutcome.Read)
                     inventoryOutcome).Inventory;
-            ManagedMetadataIdentity.Assembly? expectedIdentity =
-                reference.AssemblyIdentity;
-            if (expectedIdentity is null
-                || !inventory.Identity.IsEquivalentTo(
-                    expectedIdentity.Identity))
+            if (!inventory.Identity.IsEquivalentTo(identity))
             {
-                return new LibraryTypeDeclarationInventoryInspectionOutcome.Rejected(
-                    LibraryTypeDeclarationInventoryInspectionRejectionKind
-                        .AssemblyIdentityMismatch);
-            }
-
-            Guid moduleVersionId = session.ModuleVersionId();
-            if (moduleVersionId == Guid.Empty)
-            {
-                return Failed(
-                    LibraryTypeDeclarationInventoryInspectionFailureKind
-                        .EmptyModuleVersionId);
+                throw new InvalidOperationException(
+                    "Declaration inventory returned a different assembly identity from the inspected image.");
             }
 
             int declarationCount = inventory.Declarations.Length;
-            if (declarationCount
-                > request.Bounds.MaximumRetainedDeclarations)
-            {
-                return new LibraryTypeDeclarationInventoryInspectionOutcome.Incomplete(
-                    LibraryTypeDeclarationInventoryInspectionBound
-                        .RetainedDeclarations,
-                    assemblyBytes,
-                    declarationCount);
-            }
-
             return new LibraryTypeDeclarationInventoryInspectionOutcome.Completed(
                 new LibraryTypeDeclarationInventoryCorrespondence(
-                    reference,
-                    moduleVersionId,
+                    subject,
                     inventory,
-                    assemblyBytes,
+                    metadataRows,
                     declarationCount));
         }
         catch (UnsupportedMetadataFormatException)

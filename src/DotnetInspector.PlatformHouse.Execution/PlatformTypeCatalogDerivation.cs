@@ -201,7 +201,9 @@ public enum PlatformTypeCatalogDerivationBound
 {
     PopulationAssemblies,
     MemberAssemblyBytes,
+    MemberMetadataRows,
     MemberRetainedDeclarations,
+    MemberRetainedTextCharacters,
     AggregateAssemblyBytes,
     RetainedEntries,
     Duration,
@@ -406,7 +408,10 @@ public static class PlatformTypeCatalogDerivation
                     ? new(
                         maximumMemberAssemblyBytes,
                         bounds.MemberInspection
-                            .MaximumRetainedDeclarations)
+                            .MaximumRetainedDeclarations,
+                        bounds.MemberInspection.MaximumMetadataRows,
+                        bounds.MemberInspection
+                            .MaximumRetainedTextCharacters)
                     : bounds.MemberInspection;
             LibraryOperationLeaseIssueOutcome leaseOutcome =
                 owner.IssueOperationLease(member.Library);
@@ -451,16 +456,9 @@ public static class PlatformTypeCatalogDerivation
                     return new PlatformTypeCatalogDerivationOutcome.Incomplete(
                         population.Value,
                         population.Receipt,
-                        incomplete.Bound
-                            == LibraryTypeDeclarationInventoryInspectionBound
-                                .AssemblyBytes
-                            ? aggregateAssemblyBoundApplies
-                                ? PlatformTypeCatalogDerivationBound
-                                    .AggregateAssemblyBytes
-                                : PlatformTypeCatalogDerivationBound
-                                    .MemberAssemblyBytes
-                            : PlatformTypeCatalogDerivationBound
-                                .MemberRetainedDeclarations,
+                        IncompleteBound(
+                            incomplete.Bound,
+                            aggregateAssemblyBoundApplies),
                         work.Snapshot(),
                         index,
                         member,
@@ -599,6 +597,31 @@ public static class PlatformTypeCatalogDerivation
             completedWork);
         return new PlatformTypeCatalogDerivationOutcome.Completed(catalog);
     }
+
+    private static PlatformTypeCatalogDerivationBound IncompleteBound(
+        LibraryTypeDeclarationInventoryInspectionBound bound,
+        bool aggregateAssemblyBoundApplies) =>
+        bound switch
+        {
+            LibraryTypeDeclarationInventoryInspectionBound.AssemblyBytes =>
+                aggregateAssemblyBoundApplies
+                    ? PlatformTypeCatalogDerivationBound
+                        .AggregateAssemblyBytes
+                    : PlatformTypeCatalogDerivationBound
+                        .MemberAssemblyBytes,
+            LibraryTypeDeclarationInventoryInspectionBound.MetadataRows =>
+                PlatformTypeCatalogDerivationBound.MemberMetadataRows,
+            LibraryTypeDeclarationInventoryInspectionBound
+                    .RetainedDeclarations =>
+                PlatformTypeCatalogDerivationBound
+                    .MemberRetainedDeclarations,
+            LibraryTypeDeclarationInventoryInspectionBound
+                    .RetainedTextCharacters =>
+                PlatformTypeCatalogDerivationBound
+                    .MemberRetainedTextCharacters,
+            _ => throw new InvalidOperationException(
+                "Unknown Library declaration inventory bound."),
+        };
 
     private static bool IsCompleteReferencePopulation(
         PlatformPopulationRealizationResult.Completed population) =>
