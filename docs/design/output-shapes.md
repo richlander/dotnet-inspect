@@ -1532,7 +1532,11 @@ The CLI owns this preference. It changes emitted links, not the selected shape,
 payload framing, or source acquisition. Structured source-print output keeps
 the selected presentation URL in its `url` field, not the acquisition URL.
 `--raw` still removes document decoration; `--print` still requests content.
-The former `--raw` and `--blob` flags are removed, not retained as aliases.
+The former SourceLink URL-shape flags, a `--raw` that meant the fetchable shape
+and its `--blob` pair, are removed, not retained as aliases. `--raw` now names
+only the decoration modifier; a legacy URL-shape invocation fails visibly
+rather than silently taking the new meaning, because the modifier demands a
+single selected payload.
 
 Conversion is provider-aware. GitHub raw-content URLs use the existing
 SourceLink browse mapping, and GitHub's `/owner/repo/raw/ref/path` route can

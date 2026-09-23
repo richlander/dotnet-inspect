@@ -433,7 +433,8 @@ represent multi-section documents.
 
 Source URLs are fetchable by default. `--prefer-rendered-urls` prefers a browser
 view when supported; it changes neither `--print` acquisition nor `--raw`
-decoration. The old `--raw` and `--blob` flags are no longer accepted.
+decoration. The old URL-shape spellings, `--raw` and `--blob`, are no longer
+accepted with that meaning; `--raw` now means the undecorated rendering only.
 
 `-n N` selects the command's items. It selects semantic rows when the active
 command or lens declares them; otherwise it selects the first N rendered lines.
