@@ -51,8 +51,10 @@ shown. A bound request never degrades to an unbound one. An advertised version
 that is unlisted or absent fails visibly rather than sliding to latest.
 
 Implemented: exact `Name@Version` and the pinned-candidate path in
-[PackageHouse](package-house.md), and Inspect Web Spotlight, whose hits carry a
-version and whose selection acquires exactly that coordinate.
+[PackageHouse](package-house.md), whose exact demand either acquires the named
+coordinate or fails visibly and never selects another version; and Inspect Web
+Spotlight, whose hits carry a version and whose selection acquires exactly
+that coordinate.
 
 ### An unbound request is served under eventual consistency
 
@@ -68,15 +70,28 @@ keep eventual results honest:
   for one coordinate, and a request-level always-check modifier for a whole
   invocation (pending, #8285).
 
+Today the switch only distinguishes behavior on unmigrated consumers: migrated
+online single-package CLI resolution performs fresh discovery for a bare
+`Name` as well (see [Latest stable](#latest-stable-name)), so `Name` and
+`Name@latest` currently discover identically there. The distinction becomes
+observable once the next principle is adopted.
+
 Eventual consistency is per coordinate. A set can transiently mix versions;
 type discovery tolerates that, and set-level coherence is a separate opt-in
 property that this owner does not promise.
 
 ### Prefer a prior resolution over blocking
 
-When a prior resolution exists, an unbound request serves it and refreshes
-rather than blocking on discovery. A request blocks on discovery only when
-there is no prior resolution at all. The mechanisms that follow are:
+The rule (pending, #8285): when a prior resolution exists, an unbound request
+serves it and refreshes rather than blocking on discovery; a request blocks
+on discovery only when there is no prior resolution at all.
+
+Current behavior differs. Migrated online single-package CLI resolution
+performs fresh discovery on every bare `Name` request and stamps the receipt
+`RefreshedForRequest`; unmigrated consumers use a one-hour version cache and,
+when it has expired and local payloads exist, fail visibly on a one-second
+discovery budget rather than serving the expired entry. The mechanisms that
+adopt the rule are:
 
 - serve an expired version entry when the refresh fails or exceeds its budget,
   with a freshness warning, instead of failing (pending; today the
@@ -854,7 +869,8 @@ request deduplication is covered separately in
 A pinned version does not by itself guarantee byte reproducibility across
 feeds: two feeds may publish different payloads for one coordinate. A pinned
 coordinate plus one authorized producer, or another verified content identity,
-is reproducible. The bare-name default follows the
-[consistency principles](#consistency-principles): it is an unbound request
-served under eventual consistency, so it prefers a prior resolution over
-blocking and discloses the version it resolved.
+is reproducible. The bare-name default is an unbound request under the
+[consistency principles](#consistency-principles): it discloses the version it
+resolved today, and will prefer a prior resolution over blocking once #8285
+adopts that rule; until then, migrated CLI resolution discovers fresh on every
+request.
