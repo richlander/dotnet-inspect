@@ -1055,11 +1055,22 @@ measurable, unlike the control-flow rewrite's all-or-nothing invariant relaxatio
 A function-scope stack-slot web whose decided type is one complete managed
 reference materializes as a typed ref local before printing. Admission requires
 every load to testify to that exact managed-reference type, every store producer
-to have that same result type, and the complete referenced type to pass the
-existing explicit-type spelling rules in the owning method. Direct slot-copy
-components remain atomic: every member must independently satisfy its storage
-contract before any member materializes. This is exact storage, not a
-conversion, ref-safety inference, lifetime extension, or live-range split.
+to have that same result type, and the managed reference to carry a complete,
+non-unsupported element shape. Direct slot-copy components remain atomic: every
+member must independently satisfy its storage contract before any member
+materializes. This is exact storage, not a conversion, ref-safety inference,
+lifetime extension, or live-range split.
+
+Metadata-name spellability is not a storage gate. Both the residual ref-slot
+path and the typed-local path render the same exact type through `TypeText`, and
+the existing fidelity diagnostic independently reports an unrepresentable
+compiler-generated name. Making that presentation fact veto storage would
+retain a second ref-local renderer without producing more valid C#. The first
+implementation probe proved the distinction: a parameter-spellability gate
+materialized 360 of the fixed population but left 91 exact webs whose element
+names are compiler-generated. Those 91 already rendered with the same names;
+admitting their exact storage preserves output and fidelity while retiring the
+duplicate path.
 
 The rewrite preserves every producer and consumer occurrence in its existing
 order. A managed-reference store rebinds the ref local; it never becomes a
@@ -1068,9 +1079,10 @@ placement: a safely block-contained first store may declare the ref local,
 while a cross-block/read-before-store shape retains the existing explicit null
 reference initialization. No address, dereference, side effect, control-flow
 edge, `readonly`, `scoped`, pinned, or unsafe-context decision moves.
-Unspellable managed-reference types, missing or conflicting testimony,
-store-only/load-only webs, nested bodies awaiting their own finalization, and
-components with any independently deferred member remain outside admission.
+Malformed or unsupported managed-reference shapes, missing or conflicting
+testimony, store-only/load-only webs, nested bodies awaiting their own
+finalization, and components with any independently deferred member remain
+outside admission.
 
 No admitted managed-reference stack slot may reach `CSharpPrinter`. The
 materialization boundary fails visibly if such a decided exact web survives;
@@ -1093,15 +1105,16 @@ failures. The contract does not transfer that population result to unseen
 inputs.
 
 Focused Release gates cover direct and cross-block ref storage, repeated
-rebinding, atomic copies, declaration placement, visible declines, raised and
-lowered pipelines, and the pinned Roslyn witness. The fixed-input residual and
-printer-unifier censuses gate the measured population change; product Render
-A/B gates output neutrality. The existing storage-rewrite invariant gates node
-and occurrence preservation. Roslyn's bound ref-local model and ILSpy's typed
-expression/local model provide the same decision-before-emission baseline
-already surveyed above; this slice transfers only that ownership principle,
-not either implementation. The shared host-neutral pipeline adopts the change
-for CLI and Browser/Wasm in this one slice.
+rebinding, atomic copies, declaration placement, malformed and unsupported
+declines, compiler-generated-name independence, raised and lowered pipelines,
+and the pinned Roslyn witness. The fixed-input residual and printer-unifier
+censuses gate the measured population change; product Render A/B gates output
+neutrality. The existing storage-rewrite invariant gates node and occurrence
+preservation. Roslyn's bound ref-local model and ILSpy's typed expression/local
+model provide the same decision-before-emission baseline already surveyed
+above; this slice transfers only that ownership principle, not either
+implementation. The shared host-neutral pipeline adopts the change for CLI and
+Browser/Wasm in this one slice.
 
 ### Storage-rewrite validation
 
