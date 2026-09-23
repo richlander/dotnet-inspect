@@ -2372,9 +2372,9 @@ for (const atCap of [false, true]) {
   });
 }
 
-test("Add at the 12-coordinate cap refuses visibly before querying or evicting", async () => {
+test("Add at the 64-coordinate cap refuses visibly before querying or evicting", async () => {
   const h = harness();
-  assert.equal(MAX_WORKSPACE_PACKAGES, 12);
+  assert.equal(MAX_WORKSPACE_PACKAGES, 64);
   fillWorkspace(h);
   seedInspectionSelection(h);
   const previous = [...h.state.packages];
@@ -2392,13 +2392,13 @@ test("Add at the 12-coordinate cap refuses visibly before querying or evicting",
   assert.deepEqual(h.state.workspaceDependencies, dependencies);
   assert.deepEqual(inspectionSelection(h), selection);
   assertSourceHistory(h, href, entryState);
-  assert.match(h.state.queryNotice, /at most 12 coordinates.*Remove a package/);
+  assert.match(h.state.queryNotice, /at most 64 coordinates.*Remove a package/);
   assert.equal(h.state.queryNoticeRetryAction, null);
   h.flushFocus();
   assert.deepEqual(h.focus, [{ kind: "add-package" }]);
 });
 
-test("catalog-only Platform consumes one of the 12 Workspace coordinates", async () => {
+test("catalog-only Platform consumes one of the 64 Workspace coordinates", async () => {
   const h = harness();
   fillWorkspace(h, MAX_WORKSPACE_PACKAGES - 1);
   h.state.platformSelection = {
@@ -2412,7 +2412,7 @@ test("catalog-only Platform consumes one of the 12 Workspace coordinates", async
 
   assert.deepEqual(h.queries, []);
   assert.deepEqual(h.state.packages, previous);
-  assert.match(h.state.queryNotice, /at most 12 coordinates.*Remove a package/);
+  assert.match(h.state.queryNotice, /at most 64 coordinates.*Remove a package/);
   assert.equal(h.state.queryNoticeRetryAction, null);
 });
 
@@ -2500,7 +2500,7 @@ test("opening Platform at the coordinate cap refuses before changing subject or 
   assert.equal(h.state.rootKind, "package");
   assert.equal(h.state.platformSelection, null);
   assert.deepEqual(h.toasts, [
-    "Workspace holds at most 12 coordinates. Remove a package before opening Platform.",
+    "Workspace holds at most 64 coordinates. Remove a package before opening Platform.",
   ]);
 });
 
@@ -2519,7 +2519,7 @@ test("opening a Platform Library in place at the coordinate cap preserves the pr
   assert.equal(h.state.platformSelection, null);
   assert.equal(h.picker.resets, 0);
   assert.deepEqual(h.toasts, [
-    "Workspace holds at most 12 coordinates. Remove a package before opening Platform.",
+    "Workspace holds at most 64 coordinates. Remove a package before opening Platform.",
   ]);
 });
 
@@ -2540,8 +2540,8 @@ test("Add whose last slot fills during query refuses before retention and preser
     h.context);
   const arrived = await independent;
   const admitted = [...h.state.packages];
-  assert.equal(admitted.length, 12);
-  assert.equal(admitted[11], arrived);
+  assert.equal(admitted.length, MAX_WORKSPACE_PACKAGES);
+  assert.equal(admitted.at(-1), arrived);
   const dependencies = structuredClone(h.state.workspaceDependencies);
   query.resolve(packageLoadResult());
   await operation;
@@ -2557,7 +2557,7 @@ test("Add whose last slot fills during query refuses before retention and preser
   assert.deepEqual(inspectionSelection(h), selection);
   assert.deepEqual(h.invalidations, []);
   assertSourceHistory(h, href, entryState);
-  assert.match(h.state.queryNotice, /Adding Added\.Package failed:.*at most 12 coordinates/);
+  assert.match(h.state.queryNotice, /Adding Added\.Package failed:.*at most 64 coordinates/);
   assert.ok(h.state.queryNoticeRetryAction);
   assert.equal(h.state.loading, false);
   assert.equal(h.context.pendingDemoNavigation, null);
