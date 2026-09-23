@@ -29,13 +29,12 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
             libraryName: "Workspace.Ranged.dll",
             extraEntries: [("content/filler.bin", filler)]);
         var feed = new RangeHonoringFeedHandler(FirstFeed, id, package);
-        CoreHttpClientFactory.SetAuthenticationDecorator(_ => feed);
-        CoreHttpClientFactory.ResetSharedForTesting();
+        UseFeed(feed);
 
         var result = await RunCommandAsync(
             [
                 "find",
-                typeof(WorkspaceImplementation).FullName!,
+                $".{MemberSearchServiceTests.SearchTargetMemberName}",
                 "--package", $"{id}@{Version}",
                 "--tfm", "net11.0",
                 "--source", FirstFeed,
@@ -47,7 +46,7 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
 
         Assert.True(result.Exit == 0, result.Error);
         Assert.Contains(
-            nameof(WorkspaceImplementation),
+            MemberSearchServiceTests.SearchTargetMemberName,
             result.Output,
             StringComparison.Ordinal);
         Assert.Contains("payload Ranged", result.Error, StringComparison.Ordinal);
@@ -78,13 +77,12 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
             libraryName: "Workspace.RangeIgnored.dll");
         var feed = new RangeHonoringFeedHandler(
             FirstFeed, id, package, ignoreRange: true);
-        CoreHttpClientFactory.SetAuthenticationDecorator(_ => feed);
-        CoreHttpClientFactory.ResetSharedForTesting();
+        UseFeed(feed);
 
         var result = await RunCommandAsync(
             [
                 "find",
-                typeof(WorkspaceImplementation).FullName!,
+                $".{MemberSearchServiceTests.SearchTargetMemberName}",
                 "--package", $"{id}@{Version}",
                 "--tfm", "net11.0",
                 "--source", FirstFeed,
@@ -96,11 +94,18 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
 
         Assert.True(result.Exit == 0, result.Error);
         Assert.Contains(
-            nameof(WorkspaceImplementation),
+            MemberSearchServiceTests.SearchTargetMemberName,
             result.Output,
             StringComparison.Ordinal);
         Assert.Contains("RangeIgnored", result.Error, StringComparison.Ordinal);
         Assert.Contains("payload Download", result.Error, StringComparison.Ordinal);
+    }
+
+    private static void UseFeed(HttpMessageHandler feed)
+    {
+        CoreHttpClientFactory.SetAuthenticationDecorator(_ => feed);
+        CoreHttpClientFactory.ResetSharedForTesting();
+        CoreHttpClientFactory.SetPackageSourceHandlerForTesting(_ => feed);
     }
 
     /// <summary>

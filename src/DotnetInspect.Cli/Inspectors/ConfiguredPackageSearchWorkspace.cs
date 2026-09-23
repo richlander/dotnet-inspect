@@ -21,18 +21,21 @@ internal sealed class ConfiguredPackageSearchWorkspace : IAsyncDisposable
     readonly PackageArtifactRootCorrespondence _correspondence;
     readonly ArtifactRootGenerationReference _generation;
     readonly string _packageDisplay;
+    readonly SearchPackageStores _stores;
     bool _closed;
 
     ConfiguredPackageSearchWorkspace(
         InspectionWorkspace workspace,
         PackageArtifactRootCorrespondence correspondence,
         ArtifactRootGenerationReference generation,
-        string packageDisplay)
+        string packageDisplay,
+        SearchPackageStores stores)
     {
         _workspace = workspace;
         _correspondence = correspondence;
         _generation = generation;
         _packageDisplay = packageDisplay;
+        _stores = stores;
     }
 
     internal static bool IsEligible(
@@ -88,13 +91,14 @@ internal sealed class ConfiguredPackageSearchWorkspace : IAsyncDisposable
 
         var workspace = new InspectionWorkspace(
             workspacePlan ?? WorkspacePlan.Empty);
+        var stores = new SearchPackageStores();
         try
         {
             if (!InspectionGraphCommand.TryCreateMembers(
                     [packageSpec],
                     out WorkspaceMemberCoordinate[] members))
             {
-                await CloseAsync(workspace).ConfigureAwait(false);
+                await CloseAsync(workspace, stores).ConfigureAwait(false);
                 return null;
             }
 
@@ -106,13 +110,14 @@ internal sealed class ConfiguredPackageSearchWorkspace : IAsyncDisposable
                 CommandError.WriteWarning(
                     $"Could not load package Root '{packageSpec}': "
                     + "configured package search requires an exact version.");
-                await CloseAsync(workspace).ConfigureAwait(false);
+                await CloseAsync(workspace, stores).ConfigureAwait(false);
                 return null;
             }
 
             (PackageRootBinding? acquired, PackagePayloadOrigin origin) =
                 await AcquireRootAsync(
                     httpClient,
+                    stores,
                     member,
                     request,
                     targetFramework,
@@ -120,7 +125,7 @@ internal sealed class ConfiguredPackageSearchWorkspace : IAsyncDisposable
                     cancellationToken).ConfigureAwait(false);
             if (acquired is not { } binding)
             {
-                await CloseAsync(workspace).ConfigureAwait(false);
+                await CloseAsync(workspace, stores).ConfigureAwait(false);
                 return null;
             }
             WorkspaceScopeReadResult read =
@@ -130,7 +135,7 @@ internal sealed class ConfiguredPackageSearchWorkspace : IAsyncDisposable
                 CommandError.WriteWarning(
                     $"Could not open package Root '{packageSpec}': "
                     + unavailable.RuntimeFailure);
-                await CloseAsync(workspace).ConfigureAwait(false);
+                await CloseAsync(workspace, stores).ConfigureAwait(false);
                 return null;
             }
 
@@ -148,7 +153,7 @@ internal sealed class ConfiguredPackageSearchWorkspace : IAsyncDisposable
                 CommandError.WriteWarning(
                     $"Could not commit package Root '{packageSpec}': "
                     + Describe(admission));
-                await CloseAsync(workspace).ConfigureAwait(false);
+                await CloseAsync(workspace, stores).ConfigureAwait(false);
                 return null;
             }
 
@@ -171,12 +176,14 @@ internal sealed class ConfiguredPackageSearchWorkspace : IAsyncDisposable
                 workspace,
                 correspondence,
                 ready.Generation,
-                $"{binding.Root.PackageId}@{binding.Root.PackageVersion}");
+                $"{binding.Root.PackageId}@{binding.Root.PackageVersion}",
+                stores);
         }
         catch (Exception failure)
         {
             await CloseAfterFailureAsync(workspace, failure)
                 .ConfigureAwait(false);
+            stores.Dispose();
             throw;
         }
     }
@@ -239,7 +246,7 @@ internal sealed class ConfiguredPackageSearchWorkspace : IAsyncDisposable
         if (_closed)
             return;
         _closed = true;
-        await CloseAsync(_workspace).ConfigureAwait(false);
+        await CloseAsync(_workspace, _stores).ConfigureAwait(false);
     }
 
     /// <summary>
@@ -253,6 +260,7 @@ internal sealed class ConfiguredPackageSearchWorkspace : IAsyncDisposable
     static async ValueTask<(PackageRootBinding? Binding, PackagePayloadOrigin Origin)>
         AcquireRootAsync(
             HttpClient httpClient,
+            SearchPackageStores stores,
             WorkspaceMemberCoordinate.PackageMember member,
             AssemblySetRequest request,
             string targetFramework,
@@ -277,6 +285,7 @@ internal sealed class ConfiguredPackageSearchWorkspace : IAsyncDisposable
         (PackageRootBinding? binding, AcquiredPackageSourcePayload? payload) =
             await AcquireAndBindAsync(
                 composition,
+                stores,
                 member,
                 request,
                 target,
@@ -311,6 +320,7 @@ internal sealed class ConfiguredPackageSearchWorkspace : IAsyncDisposable
     static async Task<(PackageRootBinding? Binding, AcquiredPackageSourcePayload? Payload)>
         AcquireAndBindAsync(
             DesktopPackageSourceComposition composition,
+            SearchPackageStores stores,
             WorkspaceMemberCoordinate.PackageMember member,
             AssemblySetRequest request,
             PackageHouseTargetContext target,
@@ -323,7 +333,7 @@ internal sealed class ConfiguredPackageSearchWorkspace : IAsyncDisposable
             await composition.AcquirePinnedAsync(
                 member.PackageId,
                 member.Version!,
-                static (_, _) => new FileSystemPackageStore(),
+                stores.GetStore,
                 request.SourceOptions,
                 log,
                 cancellationToken,
@@ -407,14 +417,25 @@ internal sealed class ConfiguredPackageSearchWorkspace : IAsyncDisposable
                 "Unsupported Workspace Scope result."),
         };
 
-    static async Task CloseAsync(InspectionWorkspace workspace)
+    static async Task CloseAsync(
+        InspectionWorkspace workspace,
+        SearchPackageStores stores)
     {
-        InspectionWorkspaceCloseReport report =
-            await workspace.CloseAsync().ConfigureAwait(false);
-        if (!report.ArtifactSessionCleanupFailures.IsEmpty)
+        try
         {
-            throw new AggregateException(
-                report.ArtifactSessionCleanupFailures);
+            InspectionWorkspaceCloseReport report =
+                await workspace.CloseAsync().ConfigureAwait(false);
+            if (!report.ArtifactSessionCleanupFailures.IsEmpty)
+            {
+                throw new AggregateException(
+                    report.ArtifactSessionCleanupFailures);
+            }
+        }
+        finally
+        {
+            // Temporary authority content stays readable until the
+            // Workspace that admitted it has closed.
+            stores.Dispose();
         }
     }
 
@@ -487,4 +508,39 @@ internal sealed class PackageSearchQuerySources
             : throw new InspectionQueryException(
                 $"No committed package asset corresponds to "
                 + $"'{subject.Identity.Name}'.");
+}
+
+/// <summary>
+/// One authority-scoped desktop store per configured authority for one
+/// search, and the temporary root that holds authorities without a durable
+/// cache identity. The root is deleted when the search closes.
+/// </summary>
+internal sealed class SearchPackageStores : IDisposable
+{
+    readonly Dictionary<ConfiguredPackageAuthority, IPackageStore> _stores =
+        new(ReferenceEqualityComparer.Instance);
+    string? _temporaryRoot;
+
+    internal IPackageStore GetStore(
+        ConfiguredPackageAuthority authority,
+        PackageProducerIdentity producer)
+    {
+        if (!_stores.TryGetValue(authority, out IPackageStore? store))
+        {
+            store = new AuthorityScopedFileSystemPackageStore(
+                authority,
+                producer,
+                () => _temporaryRoot ??=
+                    Directory.CreateTempSubdirectory("inspect-search").FullName);
+            _stores.Add(authority, store);
+        }
+        return store;
+    }
+
+    public void Dispose()
+    {
+        _stores.Clear();
+        PackageExtractor.Cleanup(_temporaryRoot);
+        _temporaryRoot = null;
+    }
 }
