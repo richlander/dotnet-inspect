@@ -764,6 +764,31 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Type_PlatformPrefixBrowse_DefaultCount_UsesTypePopulation()
+    {
+        var found = await RunAppAsync(
+            "type", "System.IO.Compression.ZipF",
+            "--count", "--tips", "q");
+        var explicitClasses = await RunAppAsync(
+            "type", "System.IO.Compression.ZipF",
+            "-S", SectionNames.Classes,
+            "--count", "--tips", "q");
+
+        Assert.Equal(0, found.Exit);
+        Assert.Equal(0, explicitClasses.Exit);
+        Assert.Equal(explicitClasses.Output, found.Output);
+        Assert.Equal(
+            2,
+            int.Parse(
+                found.Output.Trim(),
+                CultureInfo.InvariantCulture));
+        Assert.Contains(
+            "best-effort platform prefix matches",
+            found.Error,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task Type_PlatformPrefixBrowse_WildcardNote_DoesNotDoubleStar()
     {
         var (exit, output, error) = await RunAppAsync(
@@ -808,6 +833,31 @@ public partial class CommandExecutionTests
         Assert.Contains("# System.Text.RegularExpressions.Regex", output);
         AssertLibraryAsset(output, "System.Text.RegularExpressions");
         Assert.Contains("Note: Type 'Regex' resolved via platform find", error);
+    }
+
+    [Fact]
+    public async Task Type_BareCount_SimpleTypeMiss_CountsResolvedMembers()
+    {
+        var found = await RunAppAsync(
+            "type", "Regex", "--count", "--tips", "q");
+        var direct = await RunAppAsync(
+            "type", "Regex",
+            "--platform", "System.Text.RegularExpressions",
+            "-S", SectionNames.MemberIndex,
+            "--count", "--tips", "q");
+
+        Assert.Equal(0, found.Exit);
+        Assert.Equal(0, direct.Exit);
+        Assert.Equal(direct.Output, found.Output);
+        Assert.True(
+            int.Parse(
+                found.Output.Trim(),
+                CultureInfo.InvariantCulture) > 0);
+        Assert.Contains(
+            "Note: Type 'Regex' resolved via platform find",
+            found.Error,
+            StringComparison.Ordinal);
+        Assert.Empty(direct.Error);
     }
 
     [Theory]
