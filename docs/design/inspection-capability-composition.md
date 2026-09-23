@@ -459,10 +459,17 @@ source-code names, or neighboring hosts.
 
 ## Platform and safety boundary
 
-The composed descriptor graph is resource-free, serialization-ready where
-exported, NativeAOT-compatible, and suitable for single-threaded Browser/Wasm.
-It contains no metadata readers, streams, package payloads, Workspace leases,
-credentials, executable inspected code, or inspected-assembly types.
+The composed descriptor graph is required to be resource-free,
+serialization-ready where exported, NativeAOT-compatible, and suitable for
+single-threaded Browser/Wasm. It must contain no metadata readers, streams,
+package payloads, Workspace leases, credentials, executable inspected code, or
+inspected-assembly types.
+
+These are target implementation properties, not evidence about the current
+design-only slice. They are **unverified** until the substrate and first-adopter
+Release gates named below exist and pass. Each adopting owner continues to
+inherit the platform contract of its existing operation; this pattern does not
+certify an otherwise unsupported operation for Browser/Wasm or NativeAOT.
 
 All artifact-authored descriptive text consumed by an adopted descriptor
 retains the containment contract of its owner. Capability composition does not
@@ -494,6 +501,8 @@ The first implementation adoption must provide Release gates for:
 
 - deterministic graph construction from explicitly ordered modules;
 - duplicate, missing, incompatible, and out-of-profile rejection;
+- graph construction from resource-free descriptors without invoking
+  acquisition, Workspace, metadata, or producer execution;
 - the real CLI command handler and Browser managed export executing through
   their registered binding objects and the same typed Package Query route;
 - Package Query structural and query projection without acquisition;
@@ -512,10 +521,15 @@ Release gates must execute the real CLI and Browser entrypoints through the
 binding-owned typed execution path. A descriptor registered beside a handler
 or export that directly bypasses that binding does not satisfy adoption.
 
-The no-reflection claim is enforced by construction shape: the catalog accepts
-only explicit modules and exposes no assembly-scan or CLR-type-discovery
-entrypoint. This design makes no repository-wide claim that unrelated
-components contain no reflection.
+The first implementation must also name the exact Browser/Wasm and NativeAOT
+gates that exercise the new substrate before claiming those target properties.
+They remain **unverified** in this design slice.
+
+The design requires catalog construction to accept only explicit modules and
+to expose no assembly-scan or CLR-type-discovery entrypoint. That
+implementation property is also **unverified** until #8417 records its
+absence-claim coverage and the corresponding gate. This design makes no
+repository-wide claim that unrelated components contain no reflection.
 
 ## Non-claims
 
