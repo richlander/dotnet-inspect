@@ -345,6 +345,8 @@ public partial class CommandExecutionTests
         Assert.True(work.GetProperty("metadataRows").GetInt64() > 0);
         Assert.True(
             work.GetProperty("retainedDeclarations").GetInt32() > 0);
+        Assert.True(
+            work.GetProperty("retainedTextCharacters").GetInt64() > 0);
         Assert.Equal(
             "nonProjectable",
             root.GetProperty("share")

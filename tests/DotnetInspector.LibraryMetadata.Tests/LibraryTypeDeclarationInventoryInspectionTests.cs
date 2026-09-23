@@ -18,7 +18,8 @@ public sealed class LibraryTypeDeclarationInventoryInspectionTests
         s_bounds = new(
             maximumAssemblyBytes: 16 * 1024 * 1024,
             maximumRetainedDeclarations: 100_000,
-            maximumMetadataRows: 1_000_000);
+            maximumMetadataRows: 1_000_000,
+            maximumRetainedTextCharacters: 20_000_000);
 
     [Fact]
     public async Task
@@ -51,6 +52,7 @@ public sealed class LibraryTypeDeclarationInventoryInspectionTests
         Assert.NotEqual(Guid.Empty, correspondence.ModuleVersionId);
         Assert.Equal(bytes.Length, correspondence.AssemblyBytes);
         Assert.True(correspondence.MetadataRows > 0);
+        Assert.True(correspondence.RetainedTextCharacters > 0);
         Assert.Equal(
             correspondence.Inventory.Declarations.Length,
             correspondence.DeclarationCount);
@@ -173,6 +175,8 @@ public sealed class LibraryTypeDeclarationInventoryInspectionTests
         using LibraryOperationLease operation = library.IssueOperation();
         var bounds = new LibraryTypeDeclarationInventoryInspectionBounds(
             bytes.Length - 1,
+            int.MaxValue,
+            int.MaxValue,
             int.MaxValue);
 
         LibraryTypeDeclarationInventoryInspectionOutcome.Incomplete incomplete =
@@ -192,6 +196,7 @@ public sealed class LibraryTypeDeclarationInventoryInspectionTests
         Assert.Equal(bytes.Length, incomplete.MeasuredAssemblyBytes);
         Assert.Null(incomplete.MeasuredMetadataRows);
         Assert.Null(incomplete.MeasuredDeclarations);
+        Assert.Null(incomplete.MeasuredRetainedTextCharacters);
     }
 
     [Fact]
@@ -210,7 +215,8 @@ public sealed class LibraryTypeDeclarationInventoryInspectionTests
         var bounds = new LibraryTypeDeclarationInventoryInspectionBounds(
             bytes.Length,
             int.MaxValue,
-            maximumMetadataRows: 1);
+            maximumMetadataRows: 1,
+            maximumRetainedTextCharacters: int.MaxValue);
 
         LibraryTypeDeclarationInventoryInspectionOutcome.Incomplete incomplete =
             Assert.IsType<
@@ -228,6 +234,7 @@ public sealed class LibraryTypeDeclarationInventoryInspectionTests
         Assert.NotNull(incomplete.Subject);
         Assert.True(incomplete.MeasuredMetadataRows > 1);
         Assert.Null(incomplete.MeasuredDeclarations);
+        Assert.Null(incomplete.MeasuredRetainedTextCharacters);
     }
 
     [Fact]
@@ -251,7 +258,9 @@ public sealed class LibraryTypeDeclarationInventoryInspectionTests
                     TestContext.Current.CancellationToken));
         var bounds = new LibraryTypeDeclarationInventoryInspectionBounds(
             bytes.Length,
-            complete.DeclarationCount - 1);
+            complete.DeclarationCount - 1,
+            int.MaxValue,
+            int.MaxValue);
 
         LibraryTypeDeclarationInventoryInspectionOutcome.Incomplete incomplete =
             Assert.IsType<
@@ -273,6 +282,46 @@ public sealed class LibraryTypeDeclarationInventoryInspectionTests
         Assert.Equal(
             complete.DeclarationCount,
             incomplete.MeasuredDeclarations);
+        Assert.True(incomplete.MeasuredRetainedTextCharacters > 0);
+    }
+
+    [Fact]
+    public async Task
+        RetainedTextBound_IsCheckedDuringDeclarationConstruction()
+    {
+        byte[] bytes = await RealAssetAsync("System.Text.Json.dll");
+        await using ArtifactFixture artifacts =
+            await ArtifactFixture.CreateAsync([bytes]);
+        await using OwnedLibrary library =
+            OwnedLibrary.Create(
+                artifacts,
+                artifactIndex: 0,
+                Identity(bytes));
+        using LibraryOperationLease operation = library.IssueOperation();
+        var bounds = new LibraryTypeDeclarationInventoryInspectionBounds(
+            bytes.Length,
+            int.MaxValue,
+            int.MaxValue,
+            maximumRetainedTextCharacters: 0);
+
+        LibraryTypeDeclarationInventoryInspectionOutcome.Incomplete incomplete =
+            Assert.IsType<
+                LibraryTypeDeclarationInventoryInspectionOutcome.Incomplete>(
+                LibraryTypeDeclarationInventoryInspection.Execute(
+                    new(
+                        library.Reference,
+                        bounds),
+                    operation,
+                    TestContext.Current.CancellationToken));
+
+        Assert.Equal(
+            LibraryTypeDeclarationInventoryInspectionBound
+                .RetainedTextCharacters,
+            incomplete.Bound);
+        Assert.NotNull(incomplete.Subject);
+        Assert.True(incomplete.MeasuredMetadataRows > 0);
+        Assert.NotNull(incomplete.MeasuredDeclarations);
+        Assert.True(incomplete.MeasuredRetainedTextCharacters > 0);
     }
 
     [Fact]
@@ -427,20 +476,23 @@ public sealed class LibraryTypeDeclarationInventoryInspectionTests
     }
 
     [Theory]
-    [InlineData(0, 1, 1)]
-    [InlineData(-1, 1, 1)]
-    [InlineData(1, -1, 1)]
-    [InlineData(1, 1, -1)]
+    [InlineData(0, 1, 1, 1)]
+    [InlineData(-1, 1, 1, 1)]
+    [InlineData(1, -1, 1, 1)]
+    [InlineData(1, 1, -1, 1)]
+    [InlineData(1, 1, 1, -1)]
     public void Bounds_RequirePositiveFiniteValues(
         int maximumAssemblyBytes,
         int maximumRetainedDeclarations,
-        int maximumMetadataRows)
+        int maximumMetadataRows,
+        int maximumRetainedTextCharacters)
     {
         Assert.Throws<ArgumentOutOfRangeException>(
             () => new LibraryTypeDeclarationInventoryInspectionBounds(
                 maximumAssemblyBytes,
                 maximumRetainedDeclarations,
-                maximumMetadataRows));
+                maximumMetadataRows,
+                maximumRetainedTextCharacters));
     }
 
     [Fact]
@@ -449,10 +501,12 @@ public sealed class LibraryTypeDeclarationInventoryInspectionTests
         var bounds = new LibraryTypeDeclarationInventoryInspectionBounds(
             maximumAssemblyBytes: 1,
             maximumRetainedDeclarations: 0,
-            maximumMetadataRows: 0);
+            maximumMetadataRows: 0,
+            maximumRetainedTextCharacters: 0);
 
         Assert.Equal(0, bounds.MaximumRetainedDeclarations);
         Assert.Equal(0, bounds.MaximumMetadataRows);
+        Assert.Equal(0, bounds.MaximumRetainedTextCharacters);
     }
 
     private static LibraryTypeDeclarationInventoryInspectionRequest Request(

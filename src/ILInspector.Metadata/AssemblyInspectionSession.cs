@@ -549,12 +549,14 @@ public sealed class AssemblyInspectionSession :
     /// without reopening its source. The result survives session disposal.
     /// </summary>
     public AssemblyTypeDeclarationInventoryOutcome TypeDeclarations(
-        int maximumRetainedDeclarations = int.MaxValue)
+        int maximumRetainedDeclarations = int.MaxValue,
+        int maximumRetainedTextCharacters = int.MaxValue)
     {
         _image.EnsureAlive();
         return AssemblyTypeDeclarationInventoryReader.Read(
             _image.PEReader,
-            maximumRetainedDeclarations);
+            maximumRetainedDeclarations,
+            maximumRetainedTextCharacters);
     }
 
     /// <summary>

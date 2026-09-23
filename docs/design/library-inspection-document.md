@@ -449,6 +449,13 @@ has settled.
 The plan supplies finite aggregate and population-specific limits. Measured
 work is retained by the result at the owner that consumed it.
 
+The initial declaration Count enforces Metadata-row admission before scanning
+and enforces retained-declaration and retained-text limits during detached
+inventory construction. Retained text counts the namespace and metadata-name
+segments stored by each structured declaration name. Bound exhaustion reports
+the first measured value beyond the limit and never returns a shortened
+inventory as success.
+
 Count-only execution may be cheaper than Rows but does not receive weaker
 completion semantics. A specialized Count kernel is an optimization over the
 same selected population.

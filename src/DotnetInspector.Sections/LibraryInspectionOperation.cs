@@ -84,6 +84,7 @@ public static class LibraryInspectionOperation
             count,
             correspondence.MetadataRows,
             correspondence.DeclarationCount,
+            correspondence.RetainedTextCharacters,
             diagnostics);
     }
 
@@ -99,28 +100,37 @@ public static class LibraryInspectionOperation
             LibraryTypePopulationCountBound bound,
             long limit,
             long measured) = incomplete.Bound switch
-        {
-            LibraryTypeDeclarationInventoryInspectionBound.MetadataRows =>
-                (
-                    LibraryTypePopulationCountBound.MetadataRows,
-                    request.Plan.Bounds.MaxMetadataRows,
-                    incomplete.MeasuredMetadataRows
-                        ?? throw new InvalidOperationException(
-                            "Metadata-row exhaustion omitted its measurement.")),
-            LibraryTypeDeclarationInventoryInspectionBound
-                    .RetainedDeclarations =>
-                (
-                    LibraryTypePopulationCountBound.RetainedDeclarations,
-                    MaximumRetainedDeclarations(request.Plan.Bounds),
-                    incomplete.MeasuredDeclarations
-                        ?? throw new InvalidOperationException(
-                            "Declaration retention exhaustion omitted its measurement.")),
-            LibraryTypeDeclarationInventoryInspectionBound.AssemblyBytes =>
-                throw new InvalidOperationException(
-                    "Library inspection does not impose an assembly-byte bound."),
-            _ => throw new InvalidOperationException(
-                "Unknown Library declaration inventory bound."),
-        };
+            {
+                LibraryTypeDeclarationInventoryInspectionBound.MetadataRows =>
+                    (
+                        LibraryTypePopulationCountBound.MetadataRows,
+                        request.Plan.Bounds.MaxMetadataRows,
+                        incomplete.MeasuredMetadataRows
+                            ?? throw new InvalidOperationException(
+                                "Metadata-row exhaustion omitted its measurement.")),
+                LibraryTypeDeclarationInventoryInspectionBound
+                        .RetainedDeclarations =>
+                    (
+                        LibraryTypePopulationCountBound.RetainedDeclarations,
+                        MaximumRetainedDeclarations(request.Plan.Bounds),
+                        incomplete.MeasuredDeclarations
+                            ?? throw new InvalidOperationException(
+                                "Declaration retention exhaustion omitted its measurement.")),
+                LibraryTypeDeclarationInventoryInspectionBound
+                        .RetainedTextCharacters =>
+                    (
+                        LibraryTypePopulationCountBound
+                            .RetainedTextCharacters,
+                        request.Plan.Bounds.MaxRetainedTextCharacters,
+                        incomplete.MeasuredRetainedTextCharacters
+                            ?? throw new InvalidOperationException(
+                                "Text retention exhaustion omitted its measurement.")),
+                LibraryTypeDeclarationInventoryInspectionBound.AssemblyBytes =>
+                    throw new InvalidOperationException(
+                        "Library inspection does not impose an assembly-byte bound."),
+                _ => throw new InvalidOperationException(
+                    "Unknown Library declaration inventory bound."),
+            };
         var count = new LibraryTypePopulationCountOutcome.Incomplete(
             bound,
             limit,
@@ -131,6 +141,7 @@ public static class LibraryInspectionOperation
             count,
             incomplete.MeasuredMetadataRows ?? 0,
             incomplete.MeasuredDeclarations ?? 0,
+            incomplete.MeasuredRetainedTextCharacters ?? 0,
             [
                 new(
                     Code(bound),
@@ -145,6 +156,7 @@ public static class LibraryInspectionOperation
         LibraryTypePopulationCountOutcome count,
         long metadataRows,
         long retainedDeclarations,
+        long retainedTextCharacters,
         ImmutableArray<InspectionDiagnostic> diagnostics)
     {
         AssemblyReferenceIdentity identity = subject.AssemblyIdentity;
@@ -171,7 +183,8 @@ public static class LibraryInspectionOperation
             new(
                 subject.AssemblyBytes,
                 metadataRows,
-                retainedDeclarations),
+                retainedDeclarations,
+                retainedTextCharacters),
             request.Plan.Bounds);
         return new(
             new LibraryInspectionOutcome.Available(document),
@@ -306,7 +319,9 @@ public static class LibraryInspectionOperation
             maximumAssemblyBytes: int.MaxValue,
             maximumRetainedDeclarations:
                 MaximumRetainedDeclarations(bounds),
-            maximumMetadataRows: bounds.MaxMetadataRows);
+            maximumMetadataRows: bounds.MaxMetadataRows,
+            maximumRetainedTextCharacters:
+                bounds.MaxRetainedTextCharacters);
 
     private static int MaximumRetainedDeclarations(
         ApiSurfaceExtractionBounds bounds) =>
@@ -430,6 +445,8 @@ public static class LibraryInspectionOperation
                 "library-inspection.types.count.incomplete.metadata-rows",
             LibraryTypePopulationCountBound.RetainedDeclarations =>
                 "library-inspection.types.count.incomplete.retained-declarations",
+            LibraryTypePopulationCountBound.RetainedTextCharacters =>
+                "library-inspection.types.count.incomplete.retained-text-characters",
             LibraryTypePopulationCountBound.Definitions =>
                 "library-inspection.types.count.incomplete.definitions",
             LibraryTypePopulationCountBound.Forwarders =>
@@ -445,6 +462,8 @@ public static class LibraryInspectionOperation
                 "The public Type Count exceeded its Metadata-row bound.",
             LibraryTypePopulationCountBound.RetainedDeclarations =>
                 "The public Type Count exceeded its retained-declaration bound.",
+            LibraryTypePopulationCountBound.RetainedTextCharacters =>
+                "The public Type Count exceeded its retained-text bound.",
             LibraryTypePopulationCountBound.Definitions =>
                 "The public Type Count exceeded its definition bound.",
             LibraryTypePopulationCountBound.Forwarders =>

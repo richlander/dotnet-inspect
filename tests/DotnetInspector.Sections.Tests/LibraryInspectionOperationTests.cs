@@ -39,6 +39,7 @@ public sealed class LibraryInspectionOperationTests
         Assert.Equal(content.Length, document.Work.AssemblyBytes);
         Assert.True(document.Work.MetadataRows > 0);
         Assert.True(document.Work.RetainedDeclarations > 0);
+        Assert.True(document.Work.RetainedTextCharacters > 0);
         Assert.Equal(
             document.ModuleVersionId,
             document.Types.Binding.ModuleVersionId);
@@ -253,6 +254,45 @@ public sealed class LibraryInspectionOperationTests
             document.Work.RetainedDeclarations);
         Assert.Equal(
             "library-inspection.types.count.incomplete.retained-declarations",
+            Assert.Single(envelope.Diagnostics).Code);
+        await library.RetireAsync();
+    }
+
+    [Fact]
+    public async Task
+        RetainedTextBoundRetainsDocumentAndIncompleteCount()
+    {
+        byte[] content =
+            await LibraryInspectionTestLibrary.RealSystemTextJsonAsync();
+        await using LibraryInspectionTestLibrary library =
+            await LibraryInspectionTestLibrary.CreateAsync(
+                content,
+                LibraryInspectionTestLibrary.Identity(content));
+        var bounds = new ApiSurfaceExtractionBounds(
+            maxTypes: 5_000,
+            maxMembers: 100_000,
+            maxInspectionFailures: 1_000,
+            maxTypeForwarders: 10_000,
+            maxMetadataRows: 1_000_000,
+            maxRetainedTextCharacters: 0);
+
+        InspectionEnvelope<LibraryInspectionOutcome> envelope =
+            Execute(library, bounds);
+
+        LibraryDocument document = Document(envelope);
+        LibraryTypePopulationCountOutcome.Incomplete incomplete =
+            Assert.IsType<LibraryTypePopulationCountOutcome.Incomplete>(
+                document.Types.Count);
+        Assert.Equal(
+            LibraryTypePopulationCountBound.RetainedTextCharacters,
+            incomplete.Bound);
+        Assert.Equal(0, incomplete.Limit);
+        Assert.True(incomplete.Measured > incomplete.Limit);
+        Assert.Equal(
+            incomplete.Measured,
+            document.Work.RetainedTextCharacters);
+        Assert.Equal(
+            "library-inspection.types.count.incomplete.retained-text-characters",
             Assert.Single(envelope.Diagnostics).Code);
         await library.RetireAsync();
     }
@@ -510,7 +550,8 @@ public sealed class LibraryInspectionOperationTests
             new(
                 AssemblyBytes: 1234,
                 MetadataRows: 567,
-                RetainedDeclarations: 21),
+                RetainedDeclarations: 21,
+                RetainedTextCharacters: 890),
             s_bounds);
         InspectionEnvelope<LibraryInspectionOutcome>[] envelopes =
         [

@@ -11,22 +11,28 @@ public sealed class LibraryTypeDeclarationInventoryInspectionBounds
     public LibraryTypeDeclarationInventoryInspectionBounds(
         int maximumAssemblyBytes,
         int maximumRetainedDeclarations,
-        int maximumMetadataRows = int.MaxValue)
+        int maximumMetadataRows,
+        int maximumRetainedTextCharacters)
     {
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(
             maximumAssemblyBytes);
         ArgumentOutOfRangeException.ThrowIfNegative(
             maximumRetainedDeclarations);
         ArgumentOutOfRangeException.ThrowIfNegative(maximumMetadataRows);
+        ArgumentOutOfRangeException.ThrowIfNegative(
+            maximumRetainedTextCharacters);
 
         MaximumAssemblyBytes = maximumAssemblyBytes;
         MaximumRetainedDeclarations = maximumRetainedDeclarations;
         MaximumMetadataRows = maximumMetadataRows;
+        MaximumRetainedTextCharacters =
+            maximumRetainedTextCharacters;
     }
 
     public int MaximumAssemblyBytes { get; }
     public int MaximumRetainedDeclarations { get; }
     public int MaximumMetadataRows { get; }
+    public int MaximumRetainedTextCharacters { get; }
 }
 
 /// <summary>
@@ -78,6 +84,8 @@ public sealed class LibraryTypeDeclarationInventoryCorrespondence
     public int AssemblyBytes => Subject.AssemblyBytes;
     public long MetadataRows { get; }
     public int DeclarationCount { get; }
+    public long RetainedTextCharacters =>
+        Inventory.RetainedTextCharacters;
 }
 
 /// <summary>
@@ -109,6 +117,7 @@ public enum LibraryTypeDeclarationInventoryInspectionBound
     AssemblyBytes,
     MetadataRows,
     RetainedDeclarations,
+    RetainedTextCharacters,
 }
 
 public enum LibraryTypeDeclarationInventoryInspectionRejectionKind
@@ -144,7 +153,8 @@ public abstract record LibraryTypeDeclarationInventoryInspectionOutcome
         LibraryTypeDeclarationInventoryInspectionBound Bound,
         int MeasuredAssemblyBytes,
         long? MeasuredMetadataRows,
-        long? MeasuredDeclarations)
+        long? MeasuredDeclarations,
+        long? MeasuredRetainedTextCharacters)
         : LibraryTypeDeclarationInventoryInspectionOutcome;
 
     public sealed record Rejected(
@@ -200,7 +210,8 @@ public static class LibraryTypeDeclarationInventoryInspection
                 LibraryTypeDeclarationInventoryInspectionBound.AssemblyBytes,
                 assemblyBytes,
                 MeasuredMetadataRows: null,
-                MeasuredDeclarations: null);
+                MeasuredDeclarations: null,
+                MeasuredRetainedTextCharacters: null);
         }
 
         if (view.Content.IsEmpty)
@@ -282,7 +293,8 @@ public static class LibraryTypeDeclarationInventoryInspection
                     LibraryTypeDeclarationInventoryInspectionBound.MetadataRows,
                     assemblyBytes,
                     rowRejection.Failure.ImageMetadataRows,
-                    MeasuredDeclarations: null);
+                    MeasuredDeclarations: null,
+                    MeasuredRetainedTextCharacters: null);
             }
             long metadataRows =
                 ((MetadataImageAdmissionResult.Admitted)
@@ -291,7 +303,8 @@ public static class LibraryTypeDeclarationInventoryInspection
             cancellationToken.ThrowIfCancellationRequested();
             AssemblyTypeDeclarationInventoryOutcome inventoryOutcome =
                 session.TypeDeclarations(
-                    request.Bounds.MaximumRetainedDeclarations);
+                    request.Bounds.MaximumRetainedDeclarations,
+                    request.Bounds.MaximumRetainedTextCharacters);
             cancellationToken.ThrowIfCancellationRequested();
             if (inventoryOutcome
                 is AssemblyTypeDeclarationInventoryOutcome.Incomplete
@@ -299,11 +312,23 @@ public static class LibraryTypeDeclarationInventoryInspection
             {
                 return new LibraryTypeDeclarationInventoryInspectionOutcome.Incomplete(
                     subject,
-                    LibraryTypeDeclarationInventoryInspectionBound
-                        .RetainedDeclarations,
+                    incomplete.Bound switch
+                    {
+                        AssemblyTypeDeclarationInventoryBound
+                                .RetainedDeclarations =>
+                            LibraryTypeDeclarationInventoryInspectionBound
+                                .RetainedDeclarations,
+                        AssemblyTypeDeclarationInventoryBound
+                                .RetainedTextCharacters =>
+                            LibraryTypeDeclarationInventoryInspectionBound
+                                .RetainedTextCharacters,
+                        _ => throw new InvalidOperationException(
+                            "Unknown declaration inventory bound."),
+                    },
                     assemblyBytes,
                     metadataRows,
-                    incomplete.MeasuredDeclarations);
+                    incomplete.MeasuredDeclarations,
+                    incomplete.MeasuredRetainedTextCharacters);
             }
             if (inventoryOutcome
                 is AssemblyTypeDeclarationInventoryOutcome.Rejected rejected)

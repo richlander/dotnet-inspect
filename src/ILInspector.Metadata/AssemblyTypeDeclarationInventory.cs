@@ -16,13 +16,15 @@ public sealed class AssemblyTypeDeclarationInventory
         ImmutableArray<MetadataTypeDefinitionName> definitions,
         ImmutableArray<MetadataTypeDefinitionName> forwarders,
         ImmutableArray<AssemblyTypeDeclaration> declarations,
-        int meaningfulPublicTypeCount)
+        int meaningfulPublicTypeCount,
+        long retainedTextCharacters)
     {
         Identity = identity;
         Definitions = definitions;
         Forwarders = forwarders;
         Declarations = declarations;
         MeaningfulPublicTypeCount = meaningfulPublicTypeCount;
+        RetainedTextCharacters = retainedTextCharacters;
     }
 
     public AssemblyReferenceIdentity Identity { get; }
@@ -30,6 +32,7 @@ public sealed class AssemblyTypeDeclarationInventory
     public ImmutableArray<MetadataTypeDefinitionName> Forwarders { get; }
     public ImmutableArray<AssemblyTypeDeclaration> Declarations { get; }
     public int MeaningfulPublicTypeCount { get; }
+    public long RetainedTextCharacters { get; }
 
     /// <summary>
     /// Selects public discovery declarations by default, or all declarations
@@ -126,11 +129,27 @@ public abstract class AssemblyTypeDeclarationInventoryOutcome
 
     public sealed class Incomplete : AssemblyTypeDeclarationInventoryOutcome
     {
-        internal Incomplete(long measuredDeclarations) =>
+        internal Incomplete(
+            AssemblyTypeDeclarationInventoryBound bound,
+            long measuredDeclarations,
+            long measuredRetainedTextCharacters)
+        {
+            Bound = bound;
             MeasuredDeclarations = measuredDeclarations;
+            MeasuredRetainedTextCharacters =
+                measuredRetainedTextCharacters;
+        }
 
+        public AssemblyTypeDeclarationInventoryBound Bound { get; }
         public long MeasuredDeclarations { get; }
+        public long MeasuredRetainedTextCharacters { get; }
     }
+}
+
+public enum AssemblyTypeDeclarationInventoryBound
+{
+    RetainedDeclarations,
+    RetainedTextCharacters,
 }
 
 /// <summary>
@@ -184,7 +203,8 @@ public static class AssemblyTypeDeclarationInventoryReader
                 ReadDeclarations(
                     reader,
                     actual,
-                    maximumRetainedDeclarations: int.MaxValue);
+                    maximumRetainedDeclarations: int.MaxValue,
+                    maximumRetainedTextCharacters: int.MaxValue);
             rejectionEstablished = outcome is AssemblyTypeDeclarationInventoryOutcome.Rejected;
             return outcome;
         }
@@ -259,15 +279,21 @@ public static class AssemblyTypeDeclarationInventoryReader
 
     internal static AssemblyTypeDeclarationInventoryOutcome Read(
         PEReader peReader)
-        => Read(peReader, int.MaxValue);
+        => Read(
+            peReader,
+            maximumRetainedDeclarations: int.MaxValue,
+            maximumRetainedTextCharacters: int.MaxValue);
 
     internal static AssemblyTypeDeclarationInventoryOutcome Read(
         PEReader peReader,
-        int maximumRetainedDeclarations)
+        int maximumRetainedDeclarations,
+        int maximumRetainedTextCharacters)
     {
         ArgumentNullException.ThrowIfNull(peReader);
         ArgumentOutOfRangeException.ThrowIfNegative(
             maximumRetainedDeclarations);
+        ArgumentOutOfRangeException.ThrowIfNegative(
+            maximumRetainedTextCharacters);
 
         try
         {
@@ -282,7 +308,8 @@ public static class AssemblyTypeDeclarationInventoryReader
             return ReadDeclarations(
                 reader,
                 AssemblyReferenceIdentity.FromAssemblyDefinition(reader),
-                maximumRetainedDeclarations);
+                maximumRetainedDeclarations,
+                maximumRetainedTextCharacters);
         }
         catch (UnsupportedMetadataFormatException)
         {
@@ -315,13 +342,15 @@ public static class AssemblyTypeDeclarationInventoryReader
     static AssemblyTypeDeclarationInventoryOutcome ReadDeclarations(
         MetadataReader reader,
         AssemblyReferenceIdentity identity,
-        int maximumRetainedDeclarations)
+        int maximumRetainedDeclarations,
+        int maximumRetainedTextCharacters)
     {
         var definitions = ImmutableArray.CreateBuilder<MetadataTypeDefinitionName>();
         var forwarders = ImmutableArray.CreateBuilder<MetadataTypeDefinitionName>();
         var declarations = ImmutableArray.CreateBuilder<AssemblyTypeDeclaration>();
         var names = new HashSet<MetadataTypeDefinitionName>();
         int meaningfulPublicTypeCount = 0;
+        long retainedTextCharacters = 0;
         MetadataVisibilityClassification visibility =
             MetadataVisibility.ClassifyAll(reader);
         foreach (TypeDefinitionHandle handle in reader.TypeDefinitions)
@@ -341,10 +370,25 @@ public static class AssemblyTypeDeclarationInventoryReader
                 && declarations.Count >= maximumRetainedDeclarations)
             {
                 return new AssemblyTypeDeclarationInventoryOutcome.Incomplete(
-                    (long)declarations.Count + 1);
+                    AssemblyTypeDeclarationInventoryBound
+                        .RetainedDeclarations,
+                    (long)declarations.Count + 1,
+                    retainedTextCharacters);
+            }
+            long measuredTextCharacters = checked(
+                retainedTextCharacters + TextCharacters(read.Name));
+            if (measuredTextCharacters
+                > maximumRetainedTextCharacters)
+            {
+                return new AssemblyTypeDeclarationInventoryOutcome.Incomplete(
+                    AssemblyTypeDeclarationInventoryBound
+                        .RetainedTextCharacters,
+                    declarations.Count + (isModule ? 0L : 1L),
+                    measuredTextCharacters);
             }
             if (!names.Add(read.Name))
                 return DuplicateDeclaration();
+            retainedTextCharacters = measuredTextCharacters;
 
             definitions.Add(read.Name);
             if (definition.IsPublic
@@ -381,10 +425,25 @@ public static class AssemblyTypeDeclarationInventoryReader
             if (declarations.Count >= maximumRetainedDeclarations)
             {
                 return new AssemblyTypeDeclarationInventoryOutcome.Incomplete(
-                    (long)declarations.Count + 1);
+                    AssemblyTypeDeclarationInventoryBound
+                        .RetainedDeclarations,
+                    (long)declarations.Count + 1,
+                    retainedTextCharacters);
+            }
+            long measuredTextCharacters = checked(
+                retainedTextCharacters + TextCharacters(read.Name));
+            if (measuredTextCharacters
+                > maximumRetainedTextCharacters)
+            {
+                return new AssemblyTypeDeclarationInventoryOutcome.Incomplete(
+                    AssemblyTypeDeclarationInventoryBound
+                        .RetainedTextCharacters,
+                    (long)declarations.Count + 1,
+                    measuredTextCharacters);
             }
             if (!names.Add(read.Name))
                 return DuplicateDeclaration();
+            retainedTextCharacters = measuredTextCharacters;
             if (!MetadataTypeDeclarationProbe.TryReadExportedCandidate(
                     reader, handle, referenceProjection,
                     out TypeDeclarationCandidate? candidate,
@@ -424,7 +483,16 @@ public static class AssemblyTypeDeclarationInventoryReader
         return new AssemblyTypeDeclarationInventoryOutcome.Read(
             new AssemblyTypeDeclarationInventory(
                 identity, definitions.ToImmutable(), forwarders.ToImmutable(),
-                declarations.ToImmutable(), meaningfulPublicTypeCount));
+                declarations.ToImmutable(), meaningfulPublicTypeCount,
+                retainedTextCharacters));
+    }
+
+    static long TextCharacters(MetadataTypeDefinitionName name)
+    {
+        long characters = name.Namespace.Length;
+        foreach (string segment in name.Segments)
+            characters = checked(characters + segment.Length);
+        return characters;
     }
 
     static AssemblyTypeDefinitionKind GetDefinitionKind(

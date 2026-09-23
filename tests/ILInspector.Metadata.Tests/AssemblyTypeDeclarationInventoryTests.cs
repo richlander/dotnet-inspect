@@ -148,10 +148,55 @@ public sealed partial class AssemblyTypeDeclarationInventoryTests
                 session.TypeDeclarations(
                     maximumRetainedDeclarations: 1));
 
+        Assert.Equal(
+            AssemblyTypeDeclarationInventoryBound.RetainedDeclarations,
+            incomplete.Bound);
         Assert.Equal(2, incomplete.MeasuredDeclarations);
+        Assert.True(incomplete.MeasuredRetainedTextCharacters > 0);
         Assert.Equal(
             2,
             Read(session).Declarations.Length);
+    }
+
+    [Fact]
+    public void
+        RetainedTextBound_StopsBeforeReturningPartialInventory()
+    {
+        byte[] image = BuildImage(metadata =>
+        {
+            AddDefinition(
+                metadata,
+                TypeAttributes.Public,
+                "Namespace",
+                "First");
+            AddDefinition(
+                metadata,
+                TypeAttributes.Public,
+                "Namespace",
+                "Second");
+        });
+        using var session =
+            AssemblyInspectionSession.Open(Descriptor(image));
+        AssemblyTypeDeclarationInventory complete = Read(session);
+
+        var incomplete =
+            Assert.IsType<AssemblyTypeDeclarationInventoryOutcome.Incomplete>(
+                session.TypeDeclarations(
+                    maximumRetainedDeclarations: int.MaxValue,
+                    maximumRetainedTextCharacters:
+                        checked((int)complete.RetainedTextCharacters - 1)));
+
+        Assert.Equal(
+            AssemblyTypeDeclarationInventoryBound
+                .RetainedTextCharacters,
+            incomplete.Bound);
+        Assert.True(
+            incomplete.MeasuredRetainedTextCharacters
+                > complete.RetainedTextCharacters - 1);
+        Assert.True(incomplete.MeasuredDeclarations > 0);
+        Assert.Equal(
+            complete.RetainedTextCharacters,
+            Read(session).RetainedTextCharacters);
     }
 
     [Fact]

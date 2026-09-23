@@ -128,6 +128,7 @@ public enum LibraryTypePopulationCountBound
 {
     MetadataRows,
     RetainedDeclarations,
+    RetainedTextCharacters,
     Definitions,
     Forwarders,
 }
@@ -224,7 +225,8 @@ public sealed record LibraryTypePopulationResult(
 public sealed record LibraryInspectionWork(
     int AssemblyBytes,
     long MetadataRows,
-    long RetainedDeclarations);
+    long RetainedDeclarations,
+    long RetainedTextCharacters);
 
 /// <summary>
 /// Resource-free, request-shaped content for one exact Library.
