@@ -108,8 +108,8 @@ verbosity, capability, and work-bound policies. The product must not overload
 
 ```console
 # API visibility: include declarations outside the public-facing default.
-dotnet-inspect member System.ThrowHelper \
-  --platform System.Private.CoreLib --all \
+dotnet-inspect member JsonSerializer \
+  --package System.Text.Json Serialize:1 --all \
   -S Callers
 
 # Implementation population: summarize the selected Library's admitted bodies.
