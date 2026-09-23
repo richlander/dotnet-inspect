@@ -575,6 +575,13 @@ internal sealed class MetadataMethodDeclarationEvidenceOperation
             site,
             method.GetParameters);
         int count = Read(site, () => range.Count);
+        if (count < 0)
+        {
+            throw Refuse(
+                site,
+                MetadataMethodDeclarationFailureReason.MalformedMetadata,
+                "The MethodDef ParamList range has a negative row count.");
+        }
         Charge(
             site,
             MetadataOperationDimension.RelationshipEdges,

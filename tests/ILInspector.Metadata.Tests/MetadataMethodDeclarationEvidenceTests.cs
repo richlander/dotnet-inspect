@@ -547,6 +547,26 @@ public sealed class MetadataMethodDeclarationEvidenceTests
     }
 
     [Fact]
+    public void DecreasingParameterRangeReturnsTypedRejection()
+    {
+        using var fixture = Fixture.Create(
+            decreasingParameterRange: true);
+
+        var rejected = Assert.IsType<MetadataMethodDeclarationResult.Rejected>(
+            Run(fixture));
+
+        Assert.Equal(
+            MetadataMethodDeclarationFailureReason.MalformedMetadata,
+            rejected.Failure.Reason);
+        Assert.Equal(
+            MetadataMethodDeclarationStage.ParameterCorrespondence,
+            rejected.Failure.Stage);
+        Assert.Equal(
+            HandleKind.MethodDefinition,
+            rejected.Failure.RelevantHandle.Kind);
+    }
+
+    [Fact]
     public void ParameterRangeBudgetIsChargedBeforeMaterialization()
     {
         using var fixture = Fixture.Create(
@@ -733,6 +753,7 @@ public sealed class MetadataMethodDeclarationEvidenceTests
             bool typeConstraintUsesMethodParameter = false,
             bool invalidConstraintCodedIndex = false,
             bool malformedParameterRange = false,
+            bool decreasingParameterRange = false,
             bool nestedOwner = false,
             bool invalidAncestorGenericIndex = false,
             bool unsortedCustomAttributes = false,
@@ -786,7 +807,11 @@ public sealed class MetadataMethodDeclarationEvidenceTests
                 metadata.GetOrAddString("<Module>"), default,
                 MetadataTokens.FieldDefinitionHandle(1),
                 MetadataTokens.MethodDefinitionHandle(1));
-            int firstParameterRow = malformedParameterRange ? 2 : 1;
+            int firstParameterRow = decreasingParameterRange
+                ? 3
+                : malformedParameterRange
+                    ? 2
+                    : 1;
             MethodDefinitionHandle method = metadata.AddMethodDefinition(
                 flags, MethodImplAttributes.IL, metadata.GetOrAddString(name),
                 signatureHandle, 0,
@@ -795,7 +820,9 @@ public sealed class MetadataMethodDeclarationEvidenceTests
                 MethodImplAttributes.IL, metadata.GetOrAddString("Other"),
                 signatureHandle, 0,
                 MetadataTokens.ParameterHandle(
-                    malformedParameterRange
+                    decreasingParameterRange
+                        ? 1
+                        : malformedParameterRange
                         ? 3
                         : (sequences?.Length ?? 0) + 1));
             TypeDefinitionHandle outer = nestedOwner
@@ -830,7 +857,7 @@ public sealed class MetadataMethodDeclarationEvidenceTests
                         metadata.GetOrAddString(sequence == 0 ? "ret" : "arg"),
                         sequence);
             }
-            else if (malformedParameterRange)
+            else if (malformedParameterRange || decreasingParameterRange)
             {
                 metadata.AddParameter(
                     0,
