@@ -440,9 +440,7 @@ public sealed partial class CSharpPrinter
         // admitted failed the arm-width spell check and rendered bare).
         TypeRef? primitiveCoercionSourceType =
             armTarget is not null
-            && EffectiveType(node) is { } nodeType
-            && !nodeType.Equals(armTarget)
-            && CanRenderPrimitiveJoinForTarget(armTarget, nodeType, armValues)
+            && node.PrimitiveJoinArmSource(armTarget) is { } nodeType
                 ? nodeType
                 : null;
         bool joinHasExactTypedArm = armTarget is { } anchorTarget && armValues.Any(value => JoinArmAnchorsTarget(value, anchorTarget));
