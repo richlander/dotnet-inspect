@@ -264,19 +264,27 @@ public sealed class SwitchSection : IrNode
     forwardName: "BoundConvertedSwitchExpression (value switch { ... })",
     precondition: "every arm (and the default) assigns the single join local one downstream read consumes, so the arms share that local's type; result is the arms' shared type",
     witness: "SwitchExpressionRaisingTests, corpus compile-back")]
-public sealed class SwitchExpression : IrExpression
+public sealed class SwitchExpression : IrExpression, IPrimitiveJoin
 {
     public SwitchExpression(IrExpression value, IEnumerable<SwitchExpressionArm> arms)
     {
         AddChild(value);
         foreach (var arm in arms)
             AddChild(arm);
+        ((IPrimitiveJoin)this).BindInitialPrimitiveTargets();
     }
 
     public IrExpression Value => (IrExpression)Children[0];
     public IReadOnlyList<SwitchExpressionArm> Arms => Children.Skip(1).Cast<SwitchExpressionArm>().ToList();
 
     public override TypeRef? ResultType => Arms.Select(a => a.Value.ResultType).FirstOrDefault(t => t is not null);
+
+    IReadOnlyList<IrExpression> IPrimitiveJoin.CompatibilityArms =>
+        [.. Arms.Select(arm => arm.Value)];
+    IReadOnlyList<IrExpression> IPrimitiveJoin.RenderedArms =>
+        [.. Arms.Select(arm => arm.Value)];
+    PrimitiveJoinTargetCompatibility IPrimitiveJoin.PrimitiveTargets { get; set; } =
+        PrimitiveJoinTargetCompatibility.Empty;
 
     public override string Describe() => $"SwitchExpression ({Children.Count - 1} arms)";
 }
