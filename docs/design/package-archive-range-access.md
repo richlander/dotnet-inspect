@@ -188,7 +188,13 @@ entries and 16 MiB of central directory. The shared reader applies them for
 every source; the local source keeps supplying them through its options. An
 entry count or directory size above the caps, or a derived total above the
 archive-total limit, is refused as `ResponseRejected` before any further
-transfer. An archive whose end-of-central-directory record cannot be found,
+transfer. The derived total is confirmed with the source before the
+archive-total limit is applied, so a total the source can refute (a known
+length, a visible header, or fewer bytes than the tail already served) is
+malformed rather than over a bound; the bound applies to a confirmed length.
+A derived total shorter than the tail bytes read is malformed before the
+source is consulted. An entry that lies within the retained tail is served
+from it without another transfer, so a small archive costs one request. An archive whose end-of-central-directory record cannot be found,
 or whose declared sizes do not agree with the transfer, is refused as
 `InvalidResponse`. Zip64 archives are refused as `ArchiveUnsupported`; no
 nupkg a supported source serves needs them (none of the 1,690 nupkgs in the
