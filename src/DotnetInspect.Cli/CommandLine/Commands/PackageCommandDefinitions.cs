@@ -787,6 +787,16 @@ public static class PackageCommandDefinitions
                 return 1;
             }
 
+            if (includeSections?.Contains(
+                    PackageQuerySections.LiteralStringsName) == true
+                && !options!.Plan.RequiresLibraryLiteralEvaluation)
+            {
+                CommandError.Write(
+                    $"Section '{PackageQuerySections.LiteralStringsName}' requires "
+                    + "--where \"library-literal=TEXT\" and --tfm TFM.");
+                return 1;
+            }
+
             options = options! with
             {
                 Count = parseResult.GetValue(opts.Count),

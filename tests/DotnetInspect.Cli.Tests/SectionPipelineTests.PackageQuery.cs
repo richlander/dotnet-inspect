@@ -17,6 +17,7 @@ public partial class SectionPipelineTests
         Assert.Equal(
             [
                 PackageProfileSections.Packages,
+                PackageQuerySections.LiteralStringsName,
                 PackageQuerySections.QuerySummaryName,
             ],
             category.Value);
@@ -37,6 +38,7 @@ public partial class SectionPipelineTests
             pipeline.AlphabeticalSectionOrder);
         Assert.Equal(
             [
+                SectionCost.Unbounded,
                 SectionCost.Unbounded,
                 SectionCost.NetworkFree,
             ],
