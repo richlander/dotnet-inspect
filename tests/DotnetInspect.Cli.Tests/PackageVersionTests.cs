@@ -595,6 +595,37 @@ public class PackageVersionTests
     }
 
     [Theory]
+    [InlineData("--json")]
+    [InlineData("--jsonl")]
+    [InlineData("--tsv")]
+    [InlineData("--table")]
+    [InlineData("--markdown")]
+    [InlineData("--plaintext")]
+    public async Task Bare_RejectsExplicitFormatsBeforeAcquisition(string format)
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "package", "ThisQueryMustNotReachTheNetwork", "--versions", "-n", "1", "--bare", format);
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains(
+            "--bare cannot be combined with --json, --jsonl, --tsv, --table, --markdown, --plaintext, or --mermaid.",
+            error);
+        Assert.DoesNotContain("not found", error, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task Bare_AloneKeepsTheUndecoratedListing()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "package", "System.Text.Json", "--versions", "-n", "1", "--bare");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Matches(@"^\d+\.\d+\.\d+\S*$", output.Trim());
+    }
+
+    [Theory]
     [InlineData("--head")]
     [InlineData("--tail")]
     [InlineData("--lines")]
