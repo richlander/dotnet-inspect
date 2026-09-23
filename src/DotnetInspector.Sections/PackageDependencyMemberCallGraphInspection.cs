@@ -166,7 +166,15 @@ public sealed record PackageDependencyMemberCallGraphDocument(
     TraversalTargetFrameworkPolicy TraversalTargetPolicy,
     PackageDependencyTraversalSummary TraversalSummary,
     ImmutableArray<PackageDependencyMemberCallGraphInspectionRoute> Routes,
+    ImmutableArray<PackageDependencyMemberCallGraphPackageSubject>
+        PackageSubjects,
     InspectionGraphDocument Graph);
+
+public sealed record PackageDependencyMemberCallGraphPackageSubject(
+    int NodeId,
+    string PackageId,
+    string PackageVersion,
+    string? TargetFramework);
 
 public sealed record PackageDependencyMemberCallGraphInspectionRoute(
     PackageDependencyMemberCallGraphRouteSubject Subject,
@@ -444,6 +452,15 @@ public static class PackageDependencyMemberCallGraphInspection
                             completed.TraversalSummary,
                             [
                                 .. completed.Routes.Select(Project),
+                            ],
+                            [
+                                .. completed.NodePackages.Select(
+                                    static nodePackage =>
+                                        new PackageDependencyMemberCallGraphPackageSubject(
+                                            nodePackage.NodeId,
+                                            nodePackage.Descriptor.PackageId,
+                                            nodePackage.Descriptor.PackageVersion,
+                                            nodePackage.Descriptor.TargetFramework)),
                             ],
                             completed.Graph)),
             PackageDependencyMemberCallGraphOutcome.WorkspaceNotCommitted
