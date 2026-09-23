@@ -732,7 +732,7 @@ public partial class PackageCommand
             || options.Columns is { Length: > 0 }
             || options.Fields is { Length: > 0 }
             || options.Count
-            || options.Bare
+            || options.Raw
             || options.JsonOutput
             || options.Tabular
             || options.Tsv

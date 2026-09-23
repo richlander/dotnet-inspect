@@ -320,15 +320,15 @@ The package command answers the latter from package contents:
 ```bash
 dotnet-inspect package wix@7.0.0 -S "Package license files"
 dotnet-inspect package wix@7.0.0 -S "Package license files" --count
-dotnet-inspect package wix@7.0.0 -S "Package license files" --print --bare
-dotnet-inspect package wix@7.0.0 --path @license --content --bare
+dotnet-inspect package wix@7.0.0 -S "Package license files" --print --raw
+dotnet-inspect package wix@7.0.0 --path @license --content --raw
 ```
 
 Package Query returns the semantic answer directly (`MIT`, `OSMF`, or `true`
 for license presence) and retains nuspec declaration kind and value as separate
 structured evidence.
 The query layer does not generate explanatory sentences. `--count` needs no
-`--bare` because it already emits a scalar. `--print --bare` intentionally
+`--raw` because it already emits a scalar. `--print --raw` intentionally
 removes package and section framing so stdout contains only the selected
 license document body.
 

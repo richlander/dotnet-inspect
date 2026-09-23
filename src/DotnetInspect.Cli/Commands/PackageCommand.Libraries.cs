@@ -60,7 +60,7 @@ public partial class PackageCommand
             && !options.Count
             && options.Discover == null
             && (options.Format != OutputFormat.Markdown
-                || options.Bare
+                || options.Raw
                 || options.Tabular
                 || options.Tsv
                 || options.Jsonl
