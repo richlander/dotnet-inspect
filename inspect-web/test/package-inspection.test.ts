@@ -312,6 +312,8 @@ function inspectionDependencies(
       population: null,
       distributions: [],
       asyncStateMachinePresence: null,
+      typeSummaries: [],
+      entangledRelationships: [],
       diagnostics: [],
       failure: null,
       compileLibrary: {
@@ -326,6 +328,8 @@ function inspectionDependencies(
       population: null,
       distributions: [],
       asyncStateMachinePresence: null,
+      typeSummaries: [],
+      entangledRelationships: [],
       diagnostics: [],
       failure: null,
       compileLibrary: {

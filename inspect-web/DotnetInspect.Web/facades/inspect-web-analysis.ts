@@ -322,6 +322,8 @@ export interface BrowserLibraryMetrics {
   readonly population: BrowserLibraryMetricsPopulation | null;
   readonly distributions: ReadonlyArray<BrowserLibraryMetricsDistribution>;
   readonly asyncStateMachinePresence: BrowserLibraryMetricsBooleanDisposition | null;
+  readonly typeSummaries: ReadonlyArray<BrowserLibraryMetricsType>;
+  readonly entangledRelationships: ReadonlyArray<BrowserLibraryMetricsRelationship>;
   readonly diagnostics: ReadonlyArray<string>;
   readonly failure: string | null;
   readonly compileLibrary: BrowserCompileLibraryAvailability;
@@ -351,6 +353,26 @@ export interface BrowserLibraryMetricsPopulation {
   readonly logicalOwnerCount: number;
   readonly completeProfileCount: number;
   readonly incompleteProfileCount: number;
+}
+
+export interface BrowserLibraryMetricsRelationship {
+  readonly sourceTypeId: string;
+  readonly targetTypeId: string;
+  readonly callSiteCount: number;
+  readonly sourceDegree: number;
+  readonly targetDegree: number;
+}
+
+export interface BrowserLibraryMetricsType {
+  readonly typeId: string;
+  readonly namespace: string;
+  readonly name: string;
+  readonly bodyCount: number;
+  readonly instructionCount: number;
+  readonly complexityTotal: number;
+  readonly loopCount: number;
+  readonly directCallCount: number;
+  readonly allocationCount: number;
 }
 
 export interface BrowserMemberFacts {

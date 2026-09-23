@@ -160,6 +160,54 @@ public sealed class LibraryStructuralReportTests
     }
 
     [Fact]
+    public void LibraryStructuralReport_ProjectsTypeAndEntangledRelationshipEvidence()
+    {
+        LibraryBodyAnalysisExecution execution =
+            LibraryBodyAnalysisService.ExecutePath(
+                FixtureCatalog.AnalysisCallerGraphTarget.AssemblyPath(),
+                LibraryBodyAnalysisRequest.Create(
+                    LibraryBodyAnalysisFeatures.MethodEvidence
+                    | LibraryBodyAnalysisFeatures.ImplementationProfiles));
+
+        var available = Assert.IsType<LibraryStructuralReportResult.Available>(
+            LibraryStructuralReport.Execute(
+                execution.ImplementationProfiles,
+                execution.CallGraph));
+
+        Assert.NotEmpty(available.Document.TypeSummaries);
+        Assert.Contains(
+            available.Document.TypeSummaries,
+            summary => summary.Type.Name == "InstanceRecursionApi"
+                && summary.BodyCount > 0
+                && summary.InstructionCount > 0);
+        Assert.NotEmpty(available.Document.EntangledRelationships);
+        Assert.True(
+            available.Document.EntangledRelationships.Length
+                <= LibraryStructuralReport.MaximumEntangledTypeCount
+                    * LibraryStructuralReport.MaximumEntangledTypeCount);
+        var repeated = Assert.IsType<LibraryStructuralReportResult.Available>(
+            LibraryStructuralReport.Execute(
+                execution.ImplementationProfiles,
+                execution.CallGraph));
+        Assert.Equal(
+            available.Document.EntangledRelationships,
+            repeated.Document.EntangledRelationships);
+        Assert.Equal(
+            available.Document.EntangledRelationships
+                .OrderByDescending(static relationship =>
+                    relationship.CallSiteCount)
+                .ThenBy(
+                    static relationship =>
+                        relationship.Source.ToQualifiedDisplayString(),
+                    StringComparer.Ordinal)
+                .ThenBy(
+                    static relationship =>
+                        relationship.Target.ToQualifiedDisplayString(),
+                    StringComparer.Ordinal),
+            available.Document.EntangledRelationships);
+    }
+
+    [Fact]
     public void LibraryStructuralReport_UsesDeterministicNearestRankAndMaximumTies()
     {
         var profiles = ImmutableArray.Create(

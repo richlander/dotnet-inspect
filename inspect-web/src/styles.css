@@ -1307,6 +1307,32 @@ kbd {
 .library-references-scroll > .document-section,
 .metadata-surface-scroll > .document-section,
 .metadata-surface-scroll > [data-type-graph-surface] > .document-section { padding: 24px 16px 0; }
+.metrics-visual-section { container: metrics-visual / inline-size; }
+.metrics-visual-copy { max-width: 760px; }
+.metrics-visual-copy h2 { margin: 0 0 8px; color: var(--text); font-size: 18px; }
+.metrics-visual-copy p { margin: 0 0 16px; color: var(--muted); line-height: 1.5; }
+.metrics-treemap,
+.metrics-relationship-crossing {
+  display: block; width: 100%; max-width: 100%; height: auto;
+  border: 1px solid var(--line); border-radius: 6px; background: var(--panel);
+}
+.metrics-treemap { min-height: 260px; }
+.metrics-treemap-cell rect { stroke: var(--bg); stroke-width: 2; }
+.metrics-treemap-label,
+.metrics-relationship-node text {
+  fill: var(--text); font: 11px var(--mono); pointer-events: none;
+}
+.metrics-relationship-crossing { min-height: 230px; }
+.metrics-relationship-edge {
+  fill: none; opacity: .78; transition: opacity .15s ease, stroke-width .15s ease;
+}
+.metrics-relationship-edge:hover { opacity: 1; }
+.metrics-relationship-node circle { fill: var(--accent); stroke: var(--bg); stroke-width: 2; }
+.metrics-relationship-node text { fill: var(--muted); font-size: 10px; }
+.metrics-visual-caption { margin: 10px 0 0; color: var(--dim); font: 10px/1.5 var(--mono); }
+.metrics-detail { margin-top: 18px; border-top: 1px solid var(--line); padding-top: 12px; }
+.metrics-detail summary { color: var(--muted); cursor: pointer; font: 12px var(--mono); }
+.metrics-table { margin-top: 12px; }
 .metadata-surface-scroll > .metadata-shape-section { padding: 0; }
 .metadata-shape-section .section-title { min-height: 40px; margin: 0; padding: 0 16px; border-bottom: 1px solid var(--line); }
 .metadata-shape-section .fact-rows { border-top: 0; }

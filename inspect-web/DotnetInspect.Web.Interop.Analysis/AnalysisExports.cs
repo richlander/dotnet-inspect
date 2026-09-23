@@ -676,6 +676,28 @@ public static partial class AnalysisExports
                         available.Document.AsyncStateMachinePresence.PresentCount,
                         available.Document.AsyncStateMachinePresence.AbsentCount),
                     [
+                        .. available.Document.TypeSummaries.Select(
+                            summary => new BrowserLibraryMetricsType(
+                                summary.Type.ToQualifiedDisplayString(),
+                                summary.Type.Namespace,
+                                summary.Type.Name,
+                                summary.BodyCount,
+                                summary.InstructionCount,
+                                summary.ComplexityTotal,
+                                summary.LoopCount,
+                                summary.DirectCallCount,
+                                summary.AllocationCount)),
+                    ],
+                    [
+                        .. available.Document.EntangledRelationships.Select(
+                            relationship => new BrowserLibraryMetricsRelationship(
+                                relationship.Source.ToQualifiedDisplayString(),
+                                relationship.Target.ToQualifiedDisplayString(),
+                                relationship.CallSiteCount,
+                                relationship.SourceDegree,
+                                relationship.TargetDegree)),
+                    ],
+                    [
                         .. available.Document.Diagnostics.Select(
                             diagnostic => diagnostic.Message),
                     ],
@@ -710,6 +732,8 @@ public static partial class AnalysisExports
             null,
             [],
             null,
+            [],
+            [],
             [],
             failure,
             compileLibrary);

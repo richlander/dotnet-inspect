@@ -173,6 +173,8 @@ public class MetricSectionTests
                 CompleteBodyCount: 2,
                 PresentCount: 0,
                 AbsentCount: 2),
+            TypeSummaries: [],
+            EntangledRelationships: [],
             Diagnostics: []);
         var view = new LibraryInspectionView(new LibraryInspection
         {

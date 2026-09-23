@@ -24,6 +24,24 @@ const data: BrowserLibraryMetrics = {
     maximum: 1,
   }],
   asyncStateMachinePresence: null,
+  typeSummaries: [{
+    typeId: "Example.Core.Engine",
+    namespace: "Example.Core",
+    name: "Engine",
+    bodyCount: 1,
+    instructionCount: 12,
+    complexityTotal: 3,
+    loopCount: 1,
+    directCallCount: 2,
+    allocationCount: 1,
+  }],
+  entangledRelationships: [{
+    sourceTypeId: "Example.Core.Engine",
+    targetTypeId: "Example.Core.Store",
+    callSiteCount: 4,
+    sourceDegree: 2,
+    targetDegree: 1,
+  }],
   diagnostics: ["One method body could not be analyzed."],
   failure: null,
   compileLibrary: {
@@ -72,4 +90,12 @@ test("fully profiled complete results do not render a qualification warning", ()
     },
   });
   assert.doesNotMatch(html, /Metrics are qualified|metadata-warning/);
+});
+
+test("renders the complexity and relationship visual evidence", () => {
+  const html = render();
+  assert.match(html, /Complexity Explorer/);
+  assert.match(html, /Example\.Core\.Engine/);
+  assert.match(html, /Relationship Crossing/);
+  assert.match(html, /Example\.Core\.Store/);
 });

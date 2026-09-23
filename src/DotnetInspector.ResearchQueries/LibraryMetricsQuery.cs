@@ -40,13 +40,24 @@ public static class LibraryMetricsQuery
         new("Library metrics", InspectionCost.Unbounded);
 
     public static LibraryMetricsResult Execute(
-        LibraryImplementationProfileAnalysisResult analysis)
+        LibraryBodyAnalysisExecution analysis)
     {
         ArgumentNullException.ThrowIfNull(analysis);
+        return Execute(
+            analysis.ImplementationProfiles,
+            analysis.CallGraph);
+    }
 
+    public static LibraryMetricsResult Execute(
+        LibraryImplementationProfileAnalysisResult analysis,
+        LibraryCallGraphAnalysisResult? callGraph = null)
+    {
+        ArgumentNullException.ThrowIfNull(analysis);
         try
         {
-            return LibraryStructuralReport.Execute(analysis) switch
+            return LibraryStructuralReport.Execute(
+                analysis,
+                callGraph) switch
             {
                 LibraryStructuralReportResult.Available available =>
                     new LibraryMetricsResult.Available(available.Document),
