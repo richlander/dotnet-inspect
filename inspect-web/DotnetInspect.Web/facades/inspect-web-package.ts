@@ -32,13 +32,15 @@ export type BrowserExactLibraryApiProjectionLimit = number;
 
 export type BrowserInspectionShareKind = "Available" | "NonProjectable" | number;
 
-export type BrowserPackageAssemblyAssessmentKind = "NoMatch" | "NotApplicable" | number;
+export type BrowserPackageAssemblyAssessmentKind = "Matched" | "NoMatch" | "NotApplicable" | "Failure" | "NotEvaluated" | number;
 
 export type BrowserPackageAssemblyNotApplicableReason = "NoCompileAssets" | "NoMatchingTargetFramework" | "EmptyCompileGroup" | "NoImplementationCounterpart" | number;
 
 export type BrowserPackageAssemblySemanticCandidateOutcomeKind = "Matched" | "NoMatch" | "NotApplicable" | "Failure" | "NotEvaluated" | number;
 
 export type BrowserPackageAssemblySemanticFailureKind = "Acquisition" | "Evaluation" | number;
+
+export type BrowserPackageAssemblySemanticLibraryAssessmentKind = "Matched" | "NoMatch" | "Failure" | number;
 
 export type BrowserPackageAssemblySemanticNonEvaluationKind = "OperationDeadline" | number;
 
@@ -352,7 +354,8 @@ export interface BrowserPackageAssemblyAssessment {
   readonly disposition: BrowserPackageAssemblyAssessmentKind;
   readonly message: string;
   readonly assetPath: string | null;
-  readonly rootRequest: string;
+  readonly rootRequest: string | null;
+  readonly libraries: ReadonlyArray<BrowserPackageAssemblySemanticLibraryAssessment>;
 }
 
 export interface BrowserPackageAssemblySemanticCandidateOutcome {
@@ -371,9 +374,19 @@ export interface BrowserPackageAssemblySemanticCandidateOutcome {
   readonly timeoutKind: string | null;
   readonly timeoutSeconds: number | null;
   readonly message: string | null;
+  readonly libraries: ReadonlyArray<BrowserPackageAssemblySemanticLibraryAssessment>;
+}
+
+export interface BrowserPackageAssemblySemanticLibraryAssessment {
+  readonly selectedAsset: BrowserPackageAssemblySemanticSelectedAsset;
+  readonly kind: BrowserPackageAssemblySemanticLibraryAssessmentKind;
+  readonly occurrences: number;
+  readonly failureStage: string | null;
+  readonly message: string | null;
 }
 
 export interface BrowserPackageAssemblySemanticOccurrence {
+  readonly libraryPath: string;
   readonly moduleVersionId: string;
   readonly methodDefinitionToken: number;
   readonly ilOffset: number;

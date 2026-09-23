@@ -24,6 +24,15 @@ Its close-report and cleanup-accessor cases exercise the production mapping
 helpers; they do not establish the still-unverified pending-close cancellation
 and combined producer/cleanup-failure scenarios below.
 
+The evaluator remains a one-Library owner. Package Query `library-literal`
+adopts aggregate implementation-role scope under
+[#8297](https://github.com/richlander/dotnet-inspect/issues/8297) by composing
+this same evaluator once per selector-issued implementation asset. The
+aggregate-versus-exact classification is owned by
+[Package Library Scope](package-library-scope.md), and the complete-row and
+failure semantics are owned by
+[Package Query library-literal](package-query-library-literal.md).
+
 `PackageAssemblyQueryPlanningTests` covers the finite explicit host request.
 The required-gate table remains the full target contract, not a claim that
 every listed pathological case is covered by those suites.
@@ -69,10 +78,9 @@ query result.
 
 The existing full package-role realization is deliberately not the default
 mechanism. It realizes all selected role assets so a workspace can answer
-cross-assembly questions. A sparse corpus query usually needs one primary
-assembly and one predicate. Realizing every compile and implementation asset
-would decompress, classify, and retain unrelated images before a candidate can
-be rejected.
+cross-assembly questions. One evaluator invocation needs one exact selected
+asset and one predicate. Even an aggregate independent scan need not realize
+every role asset together.
 
 This owner therefore composes one selected package artifact with one semantic
 producer. It depends on a sparse package-adapter projection that admits only
@@ -87,8 +95,10 @@ and is implemented by
 `PackageWorkspaceIntegrationsQuery` is the existing all-role package-grain
 precedent: it evaluates implementation assets in role order and then unmatched
 surface assets. This evaluator instead has **package + selected asset** grain.
-Full role realization remains the right path when the question requires a
-complete role, dependency binding, or cross-assembly relationship.
+An aggregate consumer may invoke it sequentially for every asset in an
+owner-issued role population, releasing each sparse realization before the
+next. Full role realization remains the right path when the question requires
+dependency binding or a cross-assembly relationship.
 
 ### Implementation prerequisites
 
@@ -153,6 +163,14 @@ accounting, cancellation, and release before delivery. Candidate scheduling
 and later bounded concurrency remain outside this one-candidate owner and are
 owned by the Find assembly-semantic query.
 
+Each registered pattern also declares its Library scope. The default evaluator
+route resolves one canonical selected asset and retains the count of
+unevaluated siblings. An aggregate implementation-body route receives each
+asset from the selector-issued ordered implementation population and invokes
+the same selected-asset core. The evaluator does not enumerate archive paths,
+choose aggregate scope, flatten producing-Library provenance, or issue a
+package-wide verdict.
+
 The end-to-end tracker #5766 carries the production-host adoption path. Its 12
 milestones are enumerated under [Delivery sequence](#delivery-sequence).
 [#6030](https://github.com/richlander/dotnet-inspect/issues/6030) delivers the
@@ -181,10 +199,12 @@ The public evaluation request carries two resource-free parts:
 Execution receives one exact `PackageRootBinding` separately as its
 package-owner-issued context. That context is the one intentional live route
 to package-owned selection and retained-content authority; it is not part of
-the public request or outcome object graph. The evaluator chooses an asset
-from the binding's frozen selection, then asks the package adapter to validate
-and project that exact asset. It does not dereference `IPackageContent` or
-construct an artifact registration itself.
+the public request or outcome object graph. The default route chooses one
+canonical asset from the binding's frozen selection. An internal aggregate
+consumer may instead provide one exact asset from the binding's selector-issued
+implementation population. Both routes ask the package adapter to validate and
+project that exact asset. Neither dereferences `IPackageContent` nor constructs
+an artifact registration itself.
 
 Before candidate resources are created, the evaluator also asks Artifact
 Acquisition to issue #5837's exact package Root reacquisition request from that

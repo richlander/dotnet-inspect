@@ -110,15 +110,16 @@ public static class PackageQuerySections
                 new InertString(
                     TextPolicy.Field,
                     match.Package.PackageId);
-            foreach (var occurrence in literal.Occurrences)
+            foreach (PackageQueryLibraryLiteralOccurrence occurrence
+                in literal.GetLibraryOccurrences())
             {
                 rows.Add(
                     new(
                         packageText,
-                        literal.SelectedAsset.PathText,
-                        occurrence.Address.MethodDefinitionToken,
-                        occurrence.Address.ILOffset,
-                        occurrence.LiteralText));
+                        occurrence.SelectedAsset.PathText,
+                        occurrence.Evidence.Address.MethodDefinitionToken,
+                        occurrence.Evidence.Address.ILOffset,
+                        occurrence.Evidence.LiteralText));
             }
         }
         return rows;

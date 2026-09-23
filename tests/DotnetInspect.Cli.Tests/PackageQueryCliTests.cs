@@ -1954,20 +1954,20 @@ public class PackageQueryCliTests
             .GetString()
             ?? throw new InvalidOperationException(
                 "Expected a package identity.");
-        string library = result
-            .GetProperty("libraryLiteral")
-            .GetProperty("selectedAsset")
-            .GetProperty("path")
-            .GetString()
-            ?? throw new InvalidOperationException(
-                "Expected a selected implementation library.");
+        JsonElement libraryLiteral = result.GetProperty("libraryLiteral");
         JsonElement[] occurrences =
         [
-            .. result
-                .GetProperty("libraryLiteral")
+            .. libraryLiteral
                 .GetProperty("occurrences")
                 .EnumerateArray()
         ];
+        JsonElement[] libraryOccurrences =
+        [
+            .. libraryLiteral
+                .GetProperty("libraryOccurrences")
+                .EnumerateArray()
+        ];
+        Assert.Equal(occurrences.Length, libraryOccurrences.Length);
 
         using JsonDocument projectedDocument =
             JsonDocument.Parse(projected.Output);
@@ -1980,9 +1980,17 @@ public class PackageQueryCliTests
         Assert.Equal(occurrences.Length, rows.Length);
         for (int index = 0; index < rows.Length; index++)
         {
-            JsonElement occurrence = occurrences[index];
+            JsonElement libraryOccurrence = libraryOccurrences[index];
+            JsonElement occurrence =
+                libraryOccurrence.GetProperty("evidence");
             JsonElement address = occurrence.GetProperty("address");
             JsonElement row = rows[index];
+            string library = libraryOccurrence
+                .GetProperty("selectedAsset")
+                .GetProperty("path")
+                .GetString()
+                ?? throw new InvalidOperationException(
+                    "Expected an occurrence implementation library.");
 
             Assert.Equal(package, row.GetProperty("package").GetString());
             Assert.Equal(library, row.GetProperty("library").GetString());
@@ -2026,6 +2034,87 @@ public class PackageQueryCliTests
             literal =>
                 !literal.StartsWith("https://", StringComparison.Ordinal)
                 && literal.Contains("https://", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    [Trait("Speed", "Slow")]
+    public async Task CliLiteralStringQueryFindsCompanionLibrary()
+    {
+        string[] arguments =
+        [
+            "package",
+            "query",
+            "Microsoft.Azure.SignalR",
+            "--where",
+            "library-literal=https://",
+            "--tfm",
+            "net8.0",
+        ];
+        var content = await Run([.. arguments, "--json", "--compact"]);
+        var projected = await Run(
+            [
+                .. arguments,
+                "-S",
+                PackageQuerySections.LiteralStringsName,
+                "--json",
+                "--compact",
+            ]);
+
+        Assert.Equal(0, content.ExitCode);
+        Assert.Equal(0, projected.ExitCode);
+        Assert.Empty(content.Error);
+        Assert.Empty(projected.Error);
+
+        using JsonDocument contentDocument = JsonDocument.Parse(content.Output);
+        JsonElement root = contentDocument.RootElement;
+        JsonElement result = Assert.Single(
+            root.GetProperty("results").EnumerateArray());
+        Assert.Equal(
+            "1.33.1",
+            result.GetProperty("package").GetProperty("version").GetString());
+        JsonElement[] libraries =
+        [
+            .. Assert.Single(
+                    root.GetProperty("libraryLiteralAssessments")
+                        .EnumerateArray())
+                .GetProperty("libraries")
+                .EnumerateArray(),
+        ];
+        JsonElement matched = Assert.Single(
+            libraries,
+            library => library.GetProperty("kind").GetInt32() == 0);
+        JsonElement noMatch = Assert.Single(
+            libraries,
+            library => library.GetProperty("kind").GetInt32() == 1);
+        Assert.Equal(
+            "lib/net8.0/Microsoft.Azure.SignalR.Common.dll",
+            matched
+                .GetProperty("selectedAsset")
+                .GetProperty("path")
+                .GetString());
+        Assert.Equal(
+            "lib/net8.0/Microsoft.Azure.SignalR.dll",
+            noMatch
+                .GetProperty("selectedAsset")
+                .GetProperty("path")
+                .GetString());
+        Assert.True(matched.GetProperty("occurrences").GetInt32() > 0);
+        Assert.Equal(0, noMatch.GetProperty("occurrences").GetInt32());
+
+        using JsonDocument projectedDocument =
+            JsonDocument.Parse(projected.Output);
+        JsonElement[] rows =
+        [
+            .. projectedDocument.RootElement
+                .GetProperty("literal_strings")
+                .EnumerateArray(),
+        ];
+        Assert.NotEmpty(rows);
+        Assert.All(
+            rows,
+            row => Assert.Equal(
+                "lib/net8.0/Microsoft.Azure.SignalR.Common.dll",
+                row.GetProperty("library").GetString()));
     }
 
     [Theory]

@@ -78,14 +78,22 @@ public sealed class BrowserPackageQueryOperationsTests
             new InertString(TextPolicy.Field, "Contoso"),
             new InertString(TextPolicy.Field, "net10.0"),
             UnevaluatedSiblings: 2);
+        var missedAsset = new PackageQueryLibraryLiteralSelectedAsset(
+            new InertString(
+                TextPolicy.Field,
+                "lib/net10.0/Contoso.Missed.dll"),
+            new InertString(TextPolicy.Field, "Contoso.Missed"),
+            new InertString(TextPolicy.Field, "net10.0"),
+            UnevaluatedSiblings: 2,
+            Ordinal: 0);
         var package = new PackageProfileMatch(
             "Contoso.Package",
-            "1.0.0",
+            "1.0.0-BETA",
             [],
             TotalDownloads: 42,
             Verified: false,
             source.Source,
-            Manifest("Contoso.Package", "1.0.0", isToolPackage: false));
+            Manifest("Contoso.Package", "1.0.0-BETA", isToolPackage: false));
         var match = new PackageQueryMatch(
             package,
             PackageQueryAcquisitionTier.PackageContent,
@@ -97,13 +105,24 @@ public sealed class BrowserPackageQueryOperationsTests
         var assessment = new PackageQueryLibraryLiteralAssessment(
             CandidateOrdinal: 1,
             "Contoso.Package",
-            "1.0.0",
+            "1.0.0-beta",
             source.Source,
             PackageQueryLibraryLiteralAssessmentKind.Matched)
         {
             RootRequest = rootRequest,
             SelectedAsset = selectedAsset,
             Message = "The selected library contains the literal.",
+            Libraries =
+            [
+                new(
+                    missedAsset,
+                    PackageQueryLibraryLiteralLibraryAssessmentKind.NoMatch,
+                    Occurrences: 0),
+                new(
+                    selectedAsset,
+                    PackageQueryLibraryLiteralLibraryAssessmentKind.Matched,
+                    Occurrences: 4),
+            ],
         };
         var summary = new PackageQuerySummary(
             new InertString(TextPolicy.Field, "Contoso."),
@@ -121,7 +140,8 @@ public sealed class BrowserPackageQueryOperationsTests
             NotApplicable = 0,
             NotEvaluatedCandidates = 0,
             Occurrences = 4,
-            Scope = "Selected primary implementation libraries",
+            Scope =
+                "All selected implementation libraries for one compatible target framework.",
         };
         var document = new PackageQueryDocument([match], [], summary)
         {
@@ -147,6 +167,28 @@ public sealed class BrowserPackageQueryOperationsTests
             "lib/net10.0/Contoso.dll",
             projectedAssessment.SelectedAsset.Path);
         Assert.Equal(2, projectedAssessment.SelectedAsset.UnevaluatedSiblings);
+        Assert.Collection(
+            projectedAssessment.Libraries,
+            library =>
+            {
+                Assert.Equal(
+                    BrowserPackageAssemblySemanticLibraryAssessmentKind.NoMatch,
+                    library.Kind);
+                Assert.Equal(
+                    "lib/net10.0/Contoso.Missed.dll",
+                    library.SelectedAsset.Path);
+                Assert.Equal(0, library.Occurrences);
+            },
+            library =>
+            {
+                Assert.Equal(
+                    BrowserPackageAssemblySemanticLibraryAssessmentKind.Matched,
+                    library.Kind);
+                Assert.Equal(
+                    "lib/net10.0/Contoso.dll",
+                    library.SelectedAsset.Path);
+                Assert.Equal(4, library.Occurrences);
+            });
         Assert.Equal(1, projected.Completion.EvaluatedCandidates);
         Assert.Equal(1, projected.Completion.SemanticMatches);
         Assert.Equal(4, projected.Completion.Occurrences);
@@ -1629,7 +1671,8 @@ public sealed class BrowserPackageQueryOperationsTests
                 BrowserPackageAssemblyAssessmentKind.NoMatch,
                 "No decoded literal matched in the selected assembly.",
                 "lib/net10.0/Contoso.Other.dll",
-                "opaque-assessment-root"));
+                "opaque-assessment-root",
+                []));
         var completion = new BrowserPackageQueryEvent(
             BrowserPackageQueryEventKind.Completed,
             Row: null,
