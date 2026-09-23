@@ -493,7 +493,9 @@ function renderRow(
     .map(item => {
       const summary = item.summary;
       const text = escapeHtml(formatEvidence(item));
-      if (item.id !== "selected-assembly" || summary === null)
+      if ((item.id !== "selected-assembly"
+          && item.id !== "implementation-libraries")
+        || summary === null)
         return `<li>${text}</li>`;
       const preview = summary.preview
         .map(value => `<li>${escapeHtml(value)}</li>`)
@@ -604,6 +606,9 @@ function formatEvidence(
       return `${property("path") ?? ""}: `
         + `${property("literal-use-count") ?? "0"} literal uses; `
         + `${property("unevaluated-sibling-count") ?? "0"} sibling assemblies not evaluated.`;
+    case "implementation-libraries":
+      return `${property("evaluated-library-count") ?? "0"} implementation libraries evaluated; `
+        + `${property("matched-library-count") ?? "0"} matched.`;
     case "literal-use":
       return `Method ${property("method-token") ?? ""}, `
         + `${property("il-offset") ?? ""}: ${property("excerpt") ?? ""}`;

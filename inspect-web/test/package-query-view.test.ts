@@ -236,16 +236,15 @@ test("library-literal renders as a composable multiline term with target selecti
     tier: "assembly",
     rootRequest: "opaque-root",
     evidence: [{
-      id: "selected-assembly",
+      id: "implementation-libraries",
       scope: "package",
       summary: {
         count: 5,
         preview: ["first", "second", "third"],
       },
       properties: [
-        { name: "path", value: "lib/net10.0/Contoso.Package.dll" },
-        { name: "literal-use-count", value: "5" },
-        { name: "unevaluated-sibling-count", value: "0" },
+        { name: "evaluated-library-count", value: "2" },
+        { name: "matched-library-count", value: "1" },
       ],
       number: null,
     }],
@@ -275,6 +274,9 @@ test("library-literal renders as a composable multiline term with target selecti
   assert.match(html, /<h2>Library selection<\/h2>/);
   assert.match(html, /<textarea[\s\S]*shared-literal-use-marker<\/textarea>/);
   assert.match(html, /value="net10\.0"/);
+  assert.match(
+    html,
+    /2 implementation libraries evaluated; 1 matched\./);
   assert.match(html, /Showing 3 of 5 occurrences/);
   assert.match(html, /1 matching package · 5 occurrences/);
   assert.match(html, /exact package population complete/);
