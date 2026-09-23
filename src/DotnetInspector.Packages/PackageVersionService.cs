@@ -96,11 +96,20 @@ public readonly record struct PackageVersionDiscoveryScope(
 
 /// <summary>
 /// The per-invocation service, budget, and offline policy a House consults
-/// for its selecting demands. A composition creates one per invocation so
-/// the refresh cap is shared by every House it issues.
+/// for its selecting demands, and the ledger of priors it served without a
+/// completed refresh so the host can disclose them once. A host opens one
+/// invocation scope; every composition created inside it shares the plan,
+/// so the refresh cap and the disclosure are per invocation rather than per
+/// composition.
 /// </summary>
 public sealed class PackageVersionServicePlan
 {
+    private static readonly AsyncLocal<PackageVersionServicePlan?> AmbientPlan = new();
+
+    private readonly object _gate = new();
+
+    private readonly List<PackageVersionResolutionReceipt.Prior> _servedPriors = [];
+
     public PackageVersionServicePlan(
         PackageVersionService service,
         PackageVersionRefreshBudget budget,
@@ -113,11 +122,86 @@ public sealed class PackageVersionServicePlan
         Offline = offline;
     }
 
+    /// <summary>The plan of the enclosing invocation scope, if a host opened one.</summary>
+    public static PackageVersionServicePlan? Current => AmbientPlan.Value;
+
+    /// <summary>
+    /// Opens an invocation scope whose plan every composition created inside
+    /// it shares. A scope opened inside another reuses the enclosing plan and
+    /// owns nothing, so a nested invocation neither splits the budget nor
+    /// discloses twice.
+    /// </summary>
+    public static PackageVersionInvocationScope BeginInvocation(bool offline)
+    {
+        if (AmbientPlan.Value is { } enclosing)
+            return new PackageVersionInvocationScope(enclosing, owns: false);
+        var plan = new PackageVersionServicePlan(
+            new PackageVersionService(),
+            new PackageVersionRefreshBudget(),
+            offline);
+        AmbientPlan.Value = plan;
+        return new PackageVersionInvocationScope(plan, owns: true);
+    }
+
     public PackageVersionService Service { get; }
 
     public PackageVersionRefreshBudget Budget { get; }
 
     public bool Offline { get; }
+
+    /// <summary>
+    /// The priors served as <see cref="PackageVersionDiscoveryFreshness.ServedPrior"/>
+    /// under this plan, in settlement order. A <c>Current</c> prior is not
+    /// recorded: it is the promised answer, not a disclosure.
+    /// </summary>
+    public IReadOnlyList<PackageVersionResolutionReceipt.Prior> ServedPriors
+    {
+        get
+        {
+            lock (_gate)
+                return [.. _servedPriors];
+        }
+    }
+
+    internal void RecordServedPrior(PackageVersionResolutionReceipt.Prior prior)
+    {
+        if (prior.Freshness != PackageVersionDiscoveryFreshness.ServedPrior)
+            return;
+        lock (_gate)
+            _servedPriors.Add(prior);
+    }
+
+    internal static void EndInvocation(PackageVersionServicePlan plan)
+    {
+        if (ReferenceEquals(AmbientPlan.Value, plan))
+            AmbientPlan.Value = null;
+    }
+}
+
+/// <summary>One host invocation's plan scope; disposing an owning scope closes it.</summary>
+public sealed class PackageVersionInvocationScope : IDisposable
+{
+    private bool _disposed;
+
+    internal PackageVersionInvocationScope(PackageVersionServicePlan plan, bool owns)
+    {
+        Plan = plan;
+        Owns = owns;
+    }
+
+    public PackageVersionServicePlan Plan { get; }
+
+    /// <summary>Whether this scope opened the plan and is the one to disclose for it.</summary>
+    public bool Owns { get; }
+
+    public void Dispose()
+    {
+        if (_disposed)
+            return;
+        _disposed = true;
+        if (Owns)
+            PackageVersionServicePlan.EndInvocation(Plan);
+    }
 }
 
 /// <summary>Which path produced a settlement.</summary>
@@ -138,14 +222,24 @@ public sealed class PackageVersionServiceSettlement
         PackageVersionServicePath path,
         bool entryWritten,
         bool entryEvicted,
-        IReadOnlyList<PackageAuthorityFailure>? pinFailures = null)
+        IReadOnlyList<PackageAuthorityFailure>? pinFailures = null,
+        IReadOnlyList<PackageAuthorityFailure>? refreshFailures = null)
     {
         Receipt = receipt;
         Path = path;
         EntryWritten = entryWritten;
         EntryEvicted = entryEvicted;
         PinFailures = pinFailures ?? [];
+        RefreshFailures = refreshFailures ?? [];
     }
+
+    /// <summary>
+    /// The failures of a refresh that did not complete before the prior was
+    /// served (empty when the refresh timed out without reporting). They are
+    /// absorbed into <c>ServedPrior</c>, not settlement failures; a host may
+    /// log them for diagnosis.
+    /// </summary>
+    public IReadOnlyList<PackageAuthorityFailure> RefreshFailures { get; }
 
     public PackageVersionResolutionReceipt Receipt { get; }
 
@@ -347,7 +441,8 @@ public sealed class PackageVersionService
             PackageVersionServicePath.PriorAfterRefreshFailure,
             PackageVersionDiscoveryFreshness.ServedPrior,
             age,
-            cancellationToken);
+            cancellationToken,
+            discovery?.Failures);
     }
 
     /// <summary>
@@ -504,7 +599,8 @@ public sealed class PackageVersionService
         PackageVersionServicePath path,
         PackageVersionDiscoveryFreshness freshness,
         TimeSpan? age,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        IReadOnlyList<PackageAuthorityFailure>? refreshFailures = null)
     {
         PackageSourceCoordinate coordinate = PackageSourceCoordinate.Create(
             request.PackageId,
@@ -518,7 +614,13 @@ public sealed class PackageVersionService
                 candidate,
                 freshness,
                 age);
-            return new(prior, path, entryWritten: false, entryEvicted: false);
+            return new(
+                prior,
+                path,
+                entryWritten: false,
+                entryEvicted: false,
+                pinFailures: null,
+                refreshFailures);
         }
 
         // The current generation would not pin the prior coordinate (the

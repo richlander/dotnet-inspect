@@ -477,10 +477,20 @@ public sealed class PackageHouse
                                     selection,
                                     authorization,
                                     discoveryContract);
+                                // The plan's ledger is what the host discloses
+                                // once per invocation; the per-package detail
+                                // stays at diagnostic verbosity here.
+                                plan.RecordServedPrior(served);
                                 _log?.Invoke(
                                     served.Age is { } age
                                         ? $"Version settlement: {served.Coordinate.PackageId}@{served.Coordinate.Version} served from a prior settlement ({settled.Path}, {age.TotalMinutes:F0} min old)."
                                         : $"Version settlement: {served.Coordinate.PackageId}@{served.Coordinate.Version} served from a prior settlement ({settled.Path}).");
+                                foreach (PackageAuthorityFailure refreshFailure
+                                    in settled.RefreshFailures)
+                                {
+                                    _log?.Invoke(
+                                        $"Version settlement: refresh failure absorbed: {refreshFailure.Authority}: {refreshFailure.Message}");
+                                }
                             }
                         }
                         else

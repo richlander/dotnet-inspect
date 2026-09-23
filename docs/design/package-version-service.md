@@ -211,9 +211,16 @@ labeled `Current`: `Current` means the entry is inside its window;
 was used anyway.
 
 Hosts disclose `ServedPrior` as one warning per invocation naming the count
-of packages served from prior settlements; the per-package detail, including
-age, is available at diagnostic verbosity. The resolved version is disclosed
-in the result as today.
+of packages served from prior settlements and their coordinates (a long list
+is truncated); the per-package detail, including age and the absorbed
+refresh failures, is available at diagnostic verbosity. The resolved version
+is disclosed in the result as today. The invocation is the host's boundary,
+not a composition's: a host opens one invocation scope whose plan every
+composition created inside it shares, PackageHouse records each served prior
+on that plan, and the host discloses the plan's ledger once when the
+invocation ends. A nested invocation reuses the enclosing scope. A composition
+created outside any scope falls back to a plan of its own, so the cap and the
+disclosure degrade to per composition rather than disappearing.
 
 ### Failure
 

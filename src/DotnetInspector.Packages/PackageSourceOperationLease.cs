@@ -448,9 +448,12 @@ public sealed class PackageSourceOperationLease : IDisposable
         using (work)
         {
             work.Context.ThrowIfExpired();
-            // The bounded context shares the caller token, so deadlines the
-            // Package Source Model attributes to the invocation stay exact;
-            // only the ceilings shrink.
+            // The bounded context shares the caller token (so caller
+            // cancellation keeps its attribution) and clips both ceilings to
+            // the bound. It does not observe the parent operation's remaining
+            // time: a refresh may run up to the bound past it, and the House
+            // re-checks the parent deadline after settlement so no served
+            // prior outlives it.
             using var bounded = new NuGetOperationContext(
                 Clip(work.Context.RequestTimeout, bound),
                 Clip(work.Context.OperationTimeout, bound),

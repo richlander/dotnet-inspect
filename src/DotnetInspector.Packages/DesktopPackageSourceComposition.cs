@@ -244,7 +244,7 @@ public sealed partial class DesktopPackageSourceComposition : IAsyncDisposable
         _ownedCredentialSource = provider;
         _createTransport = CreateProductionTransport;
         _sourceLease = PackageSourceSettlementService.IssueLease(GetSourceClient);
-        _versionSettlement = CreateVersionSettlementPlan();
+        _versionSettlement = PackageVersionServicePlan.Current ?? CreateVersionSettlementPlan();
     }
 
     /// <summary>
@@ -262,7 +262,7 @@ public sealed partial class DesktopPackageSourceComposition : IAsyncDisposable
         _credentialSource = credentialSource;
         _createTransport = CreateProductionTransport;
         _sourceLease = PackageSourceSettlementService.IssueLease(GetSourceClient);
-        _versionSettlement = CreateVersionSettlementPlan();
+        _versionSettlement = PackageVersionServicePlan.Current ?? CreateVersionSettlementPlan();
     }
 
     internal DesktopPackageSourceComposition(
@@ -276,13 +276,16 @@ public sealed partial class DesktopPackageSourceComposition : IAsyncDisposable
         _credentialSource = credentialSource;
         _createTransport = createTransport;
         _sourceLease = PackageSourceSettlementService.IssueLease(GetSourceClient);
-        _versionSettlement = CreateVersionSettlementPlan();
+        _versionSettlement = PackageVersionServicePlan.Current ?? CreateVersionSettlementPlan();
     }
 
     /// <summary>
-    /// One Package Version Service plan per composition, so the refresh cap
-    /// is shared by every House this invocation issues. Offline is the
-    /// host's networking policy at composition time.
+    /// The fallback plan for a composition created outside a host invocation
+    /// scope: its refresh cap and disclosure ledger are then per composition.
+    /// Hosts that acquire more than once per invocation open
+    /// <see cref="PackageVersionServicePlan.BeginInvocation"/> so every
+    /// composition shares one plan. Offline is the host's networking policy
+    /// at composition time.
     /// </summary>
     private static PackageVersionServicePlan CreateVersionSettlementPlan() =>
         new(

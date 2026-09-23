@@ -339,7 +339,6 @@ public partial class PackageCommand
             }
 
             resolution = outcome.Result!;
-            PackageVersionDisclosure.WriteServedPriorWarning(resolution);
             extractPath = resolution.ExtractPath;
             version = resolution.Version ?? version;
             string resolvedPackageName =

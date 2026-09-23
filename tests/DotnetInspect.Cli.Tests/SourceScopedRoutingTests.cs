@@ -2365,6 +2365,47 @@ public sealed class SourceScopedRoutingTests : IDisposable
         operation.ThrowIfExpired();
     }
 
+    [Fact]
+    public async Task BareNames_PastWindowPriors_RefreshUnderThePerInvocationCapAndDiscloseOnce()
+    {
+        string suffix = Guid.NewGuid().ToString("N");
+        string feed = Path.Combine(_testRoot, "prior-cap");
+        string[] packages = [.. Enumerable.Range(1, 10).Select(index => $"Prior.Cap{index}.{suffix}")];
+        foreach (string packageName in packages)
+        {
+            WriteLocalPackage(feed, packageName, "1.0.0");
+            WriteLocalPackage(feed, packageName, "2.0.0");
+            await SeedPriorSettlementAsync(packageName, feed, "1.0.0", TimeSpan.FromHours(3));
+        }
+
+        var (exit, output, error) = await RunOnlineLocalFeedCommandAsync(
+            ["package", .. packages, "--source", feed, "--json"]);
+
+        // One invocation, one plan: the first eight past-window entries
+        // refresh (cap 8), the remaining two are served as priors, and the
+        // host discloses those two once.
+        Assert.True(exit == 0, error);
+        using JsonDocument document = JsonDocument.Parse(output);
+        List<string> versions = [.. document.RootElement.EnumerateArray()
+            .Select(row => row.GetProperty("version").GetString()!)];
+        Assert.Equal(10, versions.Count);
+        Assert.Equal(8, versions.Count(version => version == "2.0.0"));
+        Assert.Equal(2, versions.Count(version => version == "1.0.0"));
+        string[] warnings = [.. error.Split('\n', StringSplitOptions.RemoveEmptyEntries)
+            .Where(line => line.StartsWith("Warning:", StringComparison.Ordinal))];
+        string warning = Assert.Single(warnings);
+        Assert.StartsWith(
+            "Warning: 2 packages were served from a prior version settlement without a completed refresh:",
+            warning);
+        int rewritten = 0;
+        foreach (string packageName in packages)
+        {
+            if (await ReadPriorSettlementVersionAsync(packageName, feed) == "2.0.0")
+                rewritten++;
+        }
+        Assert.Equal(8, rewritten);
+    }
+
     public static TheoryData<string, string, string, bool> ZeroArityLocalRows
     {
         get

@@ -422,6 +422,63 @@ public sealed class PackageVersionServiceTests
     }
 
     [Fact]
+    public async Task PastWindow_RefusingSource_ReportsTheAbsorbedRefreshFailures()
+    {
+        var world = new World();
+        var request = new PackageVersionSelectionRequest.LatestStable(world.PackageId);
+        await world.SeedAsync(request, "2.0.0");
+        world.Advance(TimeSpan.FromHours(2));
+
+        PackageVersionServiceSettlement served = await world.SettleAsync(
+            request,
+            world.Authorization,
+            World.Contract,
+            world.Operation(discoverFails: true));
+
+        Assert.Equal(PackageVersionServicePath.PriorAfterRefreshFailure, served.Path);
+        PackageAuthorityFailure failure = Assert.Single(served.RefreshFailures);
+        Assert.Equal(PackageAuthorityFailureKind.Timeout, failure.Kind);
+        Assert.Empty(served.PinFailures);
+    }
+
+    [Fact]
+    public void InvocationScope_SharesOnePlan_AndLedgerRecordsOnlyServedPriors()
+    {
+        var world = new World();
+        var request = new PackageVersionSelectionRequest.LatestStable(world.PackageId);
+        Assert.Null(PackageVersionServicePlan.Current);
+
+        using (PackageVersionInvocationScope outer = PackageVersionServicePlan.BeginInvocation(offline: false))
+        {
+            Assert.True(outer.Owns);
+            Assert.Same(outer.Plan, PackageVersionServicePlan.Current);
+            using (PackageVersionInvocationScope inner = PackageVersionServicePlan.BeginInvocation(offline: true))
+            {
+                // A nested invocation reuses the enclosing plan and owns nothing.
+                Assert.False(inner.Owns);
+                Assert.Same(outer.Plan, inner.Plan);
+                Assert.False(inner.Plan.Offline);
+            }
+            Assert.Same(outer.Plan, PackageVersionServicePlan.Current);
+
+            outer.Plan.RecordServedPrior(new PackageVersionResolutionReceipt.Prior(
+                request,
+                world.PinnedCandidate("1.0.0"),
+                PackageVersionDiscoveryFreshness.Current,
+                age: null));
+            outer.Plan.RecordServedPrior(new PackageVersionResolutionReceipt.Prior(
+                request,
+                world.PinnedCandidate("1.0.0"),
+                PackageVersionDiscoveryFreshness.ServedPrior,
+                TimeSpan.FromHours(2)));
+            PackageVersionResolutionReceipt.Prior recorded = Assert.Single(outer.Plan.ServedPriors);
+            Assert.Equal(PackageVersionDiscoveryFreshness.ServedPrior, recorded.Freshness);
+        }
+
+        Assert.Null(PackageVersionServicePlan.Current);
+    }
+
+    [Fact]
     public async Task Offline_ServesAnyPriorRegardlessOfAge_AndDiscoversWithoutOne()
     {
         var world = new World();
