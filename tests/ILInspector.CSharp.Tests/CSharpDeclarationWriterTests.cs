@@ -1059,8 +1059,13 @@ public sealed class CSharpDeclarationWriterTests
         Assert.Equal("public static unsafe async System.Threading.Tasks.Task Run()", declaration);
     }
 
-    [Fact]
-    public void ObsoleteErrorAttribute_PreservesCompileTimeErrorSemantics()
+    [Theory]
+    [InlineData("Use RunAsync.", "[Obsolete(\"Use RunAsync.\", true)]")]
+    [InlineData("", "[Obsolete(\"\", true)]")]
+    [InlineData(null, "[Obsolete(null, true)]")]
+    public void ObsoleteErrorAttribute_PreservesCompileTimeErrorSemantics(
+        string? message,
+        string expectedAttribute)
     {
         var type = new ApiType
         {
@@ -1074,7 +1079,7 @@ public sealed class CSharpDeclarationWriterTests
             Kind = "method",
             Signature = "void Run()",
             IsObsolete = true,
-            ObsoleteMessage = "Use RunAsync.",
+            ObsoleteMessage = message,
             ObsoleteIsError = true,
         };
 
@@ -1083,7 +1088,7 @@ public sealed class CSharpDeclarationWriterTests
             member);
 
         Assert.StartsWith(
-            "[Obsolete(\"Use RunAsync.\", true)]",
+            expectedAttribute,
             declaration);
     }
 

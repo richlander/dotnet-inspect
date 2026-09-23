@@ -423,8 +423,10 @@ internal static class CSharpDeclarationWriter
     internal static string RenderObsoleteAttributeBody(
         string? message,
         bool isError)
-        => string.IsNullOrWhiteSpace(message)
-            ? "System.Obsolete"
+        => message is null
+            ? isError
+                ? "System.Obsolete(null, true)"
+                : "System.Obsolete"
             : isError
                 ? $"System.Obsolete(\"{EscapeCSharpString(message)}\", true)"
                 : $"System.Obsolete(\"{EscapeCSharpString(message)}\")";
