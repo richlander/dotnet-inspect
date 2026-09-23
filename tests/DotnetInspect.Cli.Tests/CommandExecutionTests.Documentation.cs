@@ -1,11 +1,38 @@
 using System.Text.Json;
 
+using DotnetInspect.Cli.Inspectors;
+using DotnetInspect.Cli.Options;
+using DotnetInspect.Cli.Output;
 using DotnetInspector.Fixtures;
 
 namespace DotnetInspect.Cli.Tests;
 
 public partial class CommandExecutionTests
 {
+    [Fact]
+    public void
+        AuthoredDocumentationAuthorizationUsesUserVerbosityBeforePromotion()
+    {
+        Assert.False(
+            DocumentationEnricher.AuthorizesAuthoredDocumentation(
+                new ApiOptions
+                {
+                    ShowDocs = true,
+                    Verbosity = Verbosity.Detailed,
+                    VerbosityExplicitlySet = true,
+                    UserVerbosityOverride = Verbosity.Normal,
+                }));
+        Assert.True(
+            DocumentationEnricher.AuthorizesAuthoredDocumentation(
+                new ApiOptions
+                {
+                    ShowDocs = true,
+                    Verbosity = Verbosity.Detailed,
+                    VerbosityExplicitlySet = true,
+                    UserVerbosityOverride = Verbosity.Detailed,
+                }));
+    }
+
     [Fact]
     public async Task
         Member_DirectLibrary_UsesCompiledDocumentationHouseForDeclaration()

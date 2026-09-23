@@ -56,6 +56,10 @@ public sealed partial class AssemblyTypeDeclarationInventoryTests
         Assert.Equal(
             AssemblyTypeDeclarationKind.Definition,
             Assert.Single(inventory.Declarations).Kind);
+        Assert.NotNull(
+            Assert.Single(inventory.Declarations).DefinitionToken);
+        Assert.Null(
+            Assert.Single(inventory.Declarations).ExportedTypeToken);
         Assert.Equal(
             AssemblyTypeDefinitionKind.Class,
             Assert.Single(inventory.Declarations).DefinitionKind);
@@ -295,10 +299,41 @@ public sealed partial class AssemblyTypeDeclarationInventoryTests
             Assert.Null(declaration.DefinitionKind);
             Assert.True(declaration.IsPublicSurface);
             Assert.Null(declaration.DiscoveryAttributes);
+            Assert.Null(declaration.DefinitionToken);
+            Assert.NotNull(declaration.ExportedTypeToken);
         });
         Assert.Equal(
             [Name("N", "Outer`1"), Name("N", "Outer`1", "Inner`2")],
             inventory.Forwarders);
+
+        AssemblyTypeDeclarationRowsOutcome.Read rows =
+            Assert.IsType<AssemblyTypeDeclarationRowsOutcome.Read>(
+                session.TypeDeclarationRows(
+                    inventory,
+                    inventory.Declarations,
+                    includeMemberCount: true,
+                    maximumRetainedTextCharacters: int.MaxValue,
+                    cancellationToken:
+                        TestContext.Current.CancellationToken));
+        Assert.Equal(2, rows.Rows.Length);
+        Assert.All(rows.Rows, row =>
+        {
+            Assert.Null(row.MemberCount);
+            Assert.Equal("NotAcquired", row.Forwarding!.Target.Name);
+            Assert.NotEmpty(row.Forwarding.Declarations);
+        });
+        Assert.Single(rows.Rows[0].Forwarding!.Declarations);
+        Assert.Equal(2, rows.Rows[1].Forwarding!.Declarations.Length);
+        Assert.True(rows.RetainedTextCharacters > 0);
+
+        Assert.IsType<AssemblyTypeDeclarationRowsOutcome.Incomplete>(
+            session.TypeDeclarationRows(
+                inventory,
+                [inventory.Declarations[0]],
+                includeMemberCount: false,
+                maximumRetainedTextCharacters: 0,
+                cancellationToken:
+                    TestContext.Current.CancellationToken));
     }
 
     [Fact]

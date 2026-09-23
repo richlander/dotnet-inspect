@@ -118,6 +118,115 @@ public sealed class LibraryTypeDeclarationInventoryInspectionTests
 
     [Fact]
     public async Task
+        RealFacade_ProjectsOnlyRequestedRowsWithForwarderEvidence()
+    {
+        byte[] bytes = await RealAssetAsync("netstandard.dll");
+        await using ArtifactFixture artifacts =
+            await ArtifactFixture.CreateAsync([bytes]);
+        await using OwnedLibrary library =
+            OwnedLibrary.Create(
+                artifacts,
+                artifactIndex: 0,
+                Identity(bytes));
+        using LibraryOperationLease operation = library.IssueOperation();
+
+        LibraryTypeDeclarationInventoryCorrespondence correspondence =
+            Completed(
+                LibraryTypeDeclarationInventoryInspection.Execute(
+                    new(
+                        library.Reference,
+                        s_bounds,
+                        new(
+                            startOrdinal: 0,
+                            maximumRows: 10,
+                            includeMemberCount: true,
+                            expectedModuleVersionId: null)),
+                    operation,
+                    TestContext.Current.CancellationToken));
+
+        LibraryTypeDeclarationRowsInspectionOutcome.Read rows =
+            Assert.IsType<
+                LibraryTypeDeclarationRowsInspectionOutcome.Read>(
+                correspondence.Rows);
+        Assert.Equal(10, rows.Rows.Length);
+        Assert.Equal(10, rows.NextOrdinal);
+        Assert.All(rows.Rows, row =>
+        {
+            Assert.Equal(
+                AssemblyTypeDeclarationKind.Forwarder,
+                row.Declaration.Kind);
+            Assert.NotNull(row.Forwarding);
+            Assert.Null(row.MemberCount);
+        });
+        Assert.True(
+            correspondence.RetainedTextCharacters
+                > correspondence.Inventory.RetainedTextCharacters);
+        AssertResourceFree(
+            typeof(LibraryTypeDeclarationRowsInspectionOutcome.Read));
+        AssertResourceFree(typeof(AssemblyTypeDeclarationRow));
+        AssertResourceFree(typeof(AssemblyTypeForwardingEvidence));
+    }
+
+    [Fact]
+    public async Task
+        RowsRejectStaleAndOutOfRangeContinuationPositions()
+    {
+        byte[] bytes = await RealAssetAsync("System.Text.Json.dll");
+        await using ArtifactFixture artifacts =
+            await ArtifactFixture.CreateAsync([bytes]);
+        await using OwnedLibrary library =
+            OwnedLibrary.Create(
+                artifacts,
+                artifactIndex: 0,
+                Identity(bytes));
+        using LibraryOperationLease operation = library.IssueOperation();
+
+        LibraryTypeDeclarationRowsInspectionOutcome.Rejected stale =
+            Assert.IsType<
+                LibraryTypeDeclarationRowsInspectionOutcome.Rejected>(
+                Completed(
+                    LibraryTypeDeclarationInventoryInspection.Execute(
+                        new(
+                            library.Reference,
+                            s_bounds,
+                            new(
+                                startOrdinal: 1,
+                                maximumRows: 10,
+                                includeMemberCount: false,
+                                expectedModuleVersionId:
+                                    Guid.NewGuid())),
+                        operation,
+                        TestContext.Current.CancellationToken))
+                    .Rows);
+        Assert.Equal(
+            LibraryTypeDeclarationRowsInspectionRejectionKind
+                .StaleContinuation,
+            stale.Kind);
+
+        LibraryTypeDeclarationRowsInspectionOutcome.Rejected outOfRange =
+            Assert.IsType<
+                LibraryTypeDeclarationRowsInspectionOutcome.Rejected>(
+                Completed(
+                    LibraryTypeDeclarationInventoryInspection.Execute(
+                        new(
+                            library.Reference,
+                            s_bounds,
+                            new(
+                                startOrdinal: int.MaxValue,
+                                maximumRows: 10,
+                                includeMemberCount: false,
+                                expectedModuleVersionId: null)),
+                        operation,
+                        TestContext.Current.CancellationToken))
+                    .Rows);
+        Assert.Equal(
+            LibraryTypeDeclarationRowsInspectionRejectionKind
+                .ContinuationOutOfRange,
+            outOfRange.Kind);
+    }
+
+    [Fact]
+    public async Task
         EquivalentIdentityLibraries_RetainDistinctExactCorrespondence()
     {
         byte[] bytes = await RealAssetAsync("System.Text.Json.dll");

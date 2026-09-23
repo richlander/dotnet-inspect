@@ -27,7 +27,7 @@ using NuGetFetch;
 
 namespace DotnetInspect.Cli.Inspectors;
 
-internal static class CompiledDocumentationEnricher
+internal static class DocumentationEnricher
 {
     private static readonly ApiSurfaceExtractionBounds s_apiSurfaceBounds =
         new(
@@ -56,6 +56,7 @@ internal static class CompiledDocumentationEnricher
         ApiSourceResult source,
         ApiServices.LoadedApiSurface loaded,
         ApiOptions options,
+        HttpClient httpClient,
         bool includeMembers = true,
         CancellationToken cancellationToken = default)
     {
@@ -63,6 +64,7 @@ internal static class CompiledDocumentationEnricher
         ArgumentNullException.ThrowIfNull(source);
         ArgumentNullException.ThrowIfNull(loaded);
         ArgumentNullException.ThrowIfNull(options);
+        ArgumentNullException.ThrowIfNull(httpClient);
 
         ApiType[] requestedTypes = [.. types];
         if (requestedTypes.Length == 0)
@@ -112,10 +114,11 @@ internal static class CompiledDocumentationEnricher
                 hasPlatformFamily
                     ? selectedPlatformAssembly
                     : null;
-            IReadOnlyDictionary<string, CompiledDocumentationOutcome> outcomes;
+            bool hasCompiledDocumentationEvidence;
             if (platformAssembly is not null)
             {
-                outcomes = await QueryPlatformAsync(
+                IReadOnlyDictionary<string, CompiledDocumentationOutcome>
+                    outcomes = await QueryPlatformAsync(
                         source,
                         platformAssembly.Path
                             ?? throw new InvalidOperationException(
@@ -127,6 +130,12 @@ internal static class CompiledDocumentationEnricher
                         options,
                         cancellationToken)
                     .ConfigureAwait(false);
+                ApplyOutcomes(
+                    targets,
+                    outcomes,
+                    source.Context.Logger);
+                hasCompiledDocumentationEvidence =
+                    outcomes.Values.Any(HasCompiledDocumentationEvidence);
             }
             else
             {
@@ -134,13 +143,22 @@ internal static class CompiledDocumentationEnricher
                     GetPackageDocumentationRoute(source, group.Key);
                 if (packageRoute == PackageDocumentationRoute.PackageHouse)
                 {
-                    outcomes = await QueryPackageAsync(
+                    IReadOnlyDictionary<string, DocumentationQueryOutcome>
+                        outcomes = await QueryPackageAsync(
                             source,
                             group.Key,
                             targets.Ids,
                             options,
+                            httpClient,
                             cancellationToken)
                         .ConfigureAwait(false);
+                    ApplyOutcomes(
+                        targets,
+                        outcomes,
+                        source.Context.Logger);
+                    hasCompiledDocumentationEvidence =
+                        outcomes.Values.Any(
+                            HasCompiledDocumentationEvidence);
                 }
                 else if (packageRoute
                     == PackageDocumentationRoute.UnsupportedPackageAsset)
@@ -164,7 +182,8 @@ internal static class CompiledDocumentationEnricher
                                 + $"descriptor; skipping '{group.Key}'.");
                         continue;
                     }
-                    outcomes = await QueryDirectLibraryAsync(
+                    IReadOnlyDictionary<string, CompiledDocumentationOutcome>
+                        outcomes = await QueryDirectLibraryAsync(
                             group.Key,
                             assembly.Identity,
                             targets.Ids,
@@ -178,23 +197,17 @@ internal static class CompiledDocumentationEnricher
                             requireAllSubjects: !isPlatform,
                             cancellationToken)
                         .ConfigureAwait(false);
+                    ApplyOutcomes(
+                        targets,
+                        outcomes,
+                        source.Context.Logger);
+                    hasCompiledDocumentationEvidence =
+                        outcomes.Values.Any(
+                            HasCompiledDocumentationEvidence);
                 }
             }
 
-            ApplyOutcomes(
-                targets,
-                outcomes,
-                source.Context.Logger);
-            if (outcomes.Values.Any(
-                    static outcome =>
-                        outcome is CompiledDocumentationOutcome.Available
-                        || outcome
-                            is CompiledDocumentationOutcome.Absent absent
-                            && absent.Sources.Any(
-                                static source =>
-                                    source.Kind
-                                        == CompiledDocumentationSourceEvidenceKind
-                                            .Candidate)))
+            if (hasCompiledDocumentationEvidence)
             {
                 foreach (ApiType type in group)
                     type.SourceResolution = "XmlDoc";
@@ -617,12 +630,13 @@ internal static class CompiledDocumentationEnricher
     }
 
     private static async ValueTask<
-        IReadOnlyDictionary<string, CompiledDocumentationOutcome>>
+        IReadOnlyDictionary<string, DocumentationQueryOutcome>>
         QueryPackageAsync(
             ApiSourceResult source,
             string assemblyPath,
             IReadOnlyCollection<string> documentationIds,
             ApiOptions options,
+            HttpClient httpClient,
             CancellationToken cancellationToken)
     {
         using var stores = new DesktopPackageStoreScope(
@@ -668,21 +682,60 @@ internal static class CompiledDocumentationEnricher
             realization.LibraryHandoffs
                 .OfType<PackageHouseLibraryHandoff.Compile>()
                 .Single(candidate => ReferenceEquals(candidate.Asset, asset));
-        return await PackageCompiledDocumentationQuery.ExecuteManyAsync(
-                acquired,
-                handoff,
-                documentationIds,
-                new PackageCompiledDocumentationQueryLimits
+        bool includeAuthoredSource =
+            AuthorizesAuthoredDocumentation(options);
+        AssemblyContextSourceQueryContext? sourceContext =
+            includeAuthoredSource
+                ? new(
+                    httpClient,
+                    FileSystemPdbStore.CreateDefault(),
+                    new SourcePolicyPackageSourceAuthorization(
+                        options.SourceOptions),
+                    new SourceFetch(
+                        DotnetInspector.Networking.HttpClientFactory
+                            .SharedUntrustedFetch))
                 {
-                    ApiSurface = s_apiSurfaceBounds,
-                    ApiSurfaceScope = options.IncludeAll
-                        ? ApiSurfaceExtractionScope.IncludeAll
-                        : ApiSurfaceExtractionScope
-                            .PublicWithNonPublicTypes,
-                },
-                cancellationToken)
-            .ConfigureAwait(false);
+                    RepositoryPaths = options.SourceRepositories,
+                    NuGetSourceOptions = options.SourceOptions,
+                    PdbFallbackPackage = new(
+                        source.PackageName!,
+                        source.PackageVersion!),
+                    AllowLocalSourceReads = true,
+                    AllowAdjacentPdbReads = true,
+                    Log = source.Context.Logger.Log,
+                }
+                : null;
+        InspectionEnvelope<
+            IReadOnlyDictionary<string, DocumentationQueryOutcome>>
+            inspection =
+                await PackageDocumentationInspection.ExecuteManyAsync(
+                    acquired,
+                    handoff,
+                    documentationIds,
+                    includeAuthoredSource
+                        ? DocumentationDemand
+                            .CompiledXmlAndAuthoredSourceDocumentation
+                        : DocumentationDemand.CompiledXml,
+                    sourceContext,
+                    new PackageDocumentationQueryLimits
+                    {
+                        ApiSurface = s_apiSurfaceBounds,
+                        ApiSurfaceScope = options.IncludeAll
+                            ? ApiSurfaceExtractionScope.IncludeAll
+                            : ApiSurfaceExtractionScope
+                                .PublicWithNonPublicTypes,
+                    },
+                    cancellationToken)
+                .ConfigureAwait(false);
+        return inspection.Content;
     }
+
+    internal static bool AuthorizesAuthoredDocumentation(
+        ApiOptions options) =>
+        options.ShowSamples
+        || options.DocsExplicitlySet && options.ShowDocs
+        || options.VerbosityExplicitlySet
+            && options.UserVerbosity == Verbosity.Detailed;
 
     private static async ValueTask<
         IReadOnlyDictionary<string, CompiledDocumentationOutcome>>
@@ -989,6 +1042,59 @@ internal static class CompiledDocumentationEnricher
         }
     }
 
+    private static void ApplyOutcomes(
+        DocumentationTargetSet targets,
+        IReadOnlyDictionary<string, DocumentationQueryOutcome> outcomes,
+        VerboseLogger logger)
+    {
+        var compiledFailures =
+            new Dictionary<string, int>(StringComparer.Ordinal);
+        var authoredFailures =
+            new Dictionary<string, int>(StringComparer.Ordinal);
+        var settlementFailures =
+            new Dictionary<string, int>(StringComparer.Ordinal);
+        foreach ((string documentationId, DocumentationQueryOutcome outcome)
+            in outcomes)
+        {
+            if (outcome is DocumentationQueryOutcome.Completed completed)
+            {
+                targets.Apply(
+                    documentationId,
+                    CreateDocComment(completed.Fields));
+                if (completed.CompiledXml is { } compiled)
+                {
+                    DescribeCompiledNonSuccess(
+                        documentationId,
+                        compiled,
+                        logger,
+                        compiledFailures);
+                }
+                DescribeAuthoredNonSuccess(
+                    documentationId,
+                    completed.AuthoredSource,
+                    logger,
+                    authoredFailures);
+                continue;
+            }
+
+            string reason = outcome switch
+            {
+                DocumentationQueryOutcome.RequestRejected rejected =>
+                    $"request was rejected ({rejected.Reason})",
+                DocumentationQueryOutcome.Failed failed =>
+                    $"failed ({failed.Reason})",
+                DocumentationQueryOutcome.Incomplete incomplete =>
+                    $"was incomplete ({incomplete.Reason})",
+                _ => $"failed ({outcome.GetType().Name})",
+            };
+            AddFailure(settlementFailures, reason);
+        }
+
+        WriteFailures("Compiled documentation", compiledFailures);
+        WriteFailures("Authored documentation", authoredFailures);
+        WriteFailures("Documentation settlement", settlementFailures);
+    }
+
     private static DocComment CreateDocComment(
         CompiledDocumentationEntry documentation) =>
         new()
@@ -1000,7 +1106,159 @@ internal static class CompiledDocumentationEnricher
                 parameter => parameter.Name,
                 parameter => parameter.Description,
                 StringComparer.Ordinal),
+            Samples =
+            [
+                .. documentation.Samples.Select(
+                    static sample => new SampleReference
+                    {
+                        RelativePath = sample.Code,
+                        Description = sample.Title,
+                        Region = sample.Region,
+                    }),
+            ],
         };
+
+    private static DocComment CreateDocComment(
+        DocumentationQueryFieldSettlement fields) =>
+        new()
+        {
+            Summary = Select(fields.Summary),
+            Remarks = Select(fields.Remarks),
+            Returns = Select(fields.Returns),
+            Parameters = fields.Parameters
+                .Select(
+                    static parameter => (
+                        parameter.Name,
+                        Value: Select(parameter.Evidence)))
+                .Where(static parameter => parameter.Value is not null)
+                .ToDictionary(
+                    static parameter => parameter.Name,
+                    static parameter => parameter.Value!,
+                    StringComparer.Ordinal),
+            Samples =
+            [
+                .. (fields.Samples.Contributions.FirstOrDefault()?.Value
+                    ?? [])
+                    .Select(
+                        static sample => new SampleReference
+                        {
+                            RelativePath = sample.Code,
+                            Description = sample.Title,
+                            Region = sample.Region,
+                        }),
+            ],
+        };
+
+    private static string? Select(
+        DocumentationQueryTextFieldEvidence field) =>
+        field.Contributions.FirstOrDefault()?.Value;
+
+    private static void DescribeAuthoredNonSuccess(
+        string documentationId,
+        AuthoredDocumentationOutcome? outcome,
+        VerboseLogger logger,
+        Dictionary<string, int> failures)
+    {
+        switch (outcome)
+        {
+            case null:
+            case AuthoredDocumentationOutcome.Available:
+            case AuthoredDocumentationOutcome.Absent:
+                return;
+            case AuthoredDocumentationOutcome.Unavailable unavailable:
+                logger.Log(
+                    $"Authored documentation is unavailable for "
+                        + $"'{documentationId}' ({unavailable.Reason}).");
+                return;
+            case AuthoredDocumentationOutcome.Ambiguous ambiguous:
+                AddFailure(
+                    failures,
+                    $"was ambiguous ({ambiguous.Reason})");
+                return;
+            case AuthoredDocumentationOutcome.Rejected rejected:
+                AddFailure(
+                    failures,
+                    $"was rejected ({rejected.Reason})");
+                return;
+            case AuthoredDocumentationOutcome.Failed failed:
+                AddFailure(
+                    failures,
+                    $"failed ({failed.Reason})");
+                return;
+            case AuthoredDocumentationOutcome.Incomplete incomplete:
+                AddFailure(
+                    failures,
+                    $"was incomplete ({incomplete.Reason})");
+                return;
+            default:
+                AddFailure(
+                    failures,
+                    $"failed ({outcome.GetType().Name})");
+                return;
+        }
+    }
+
+    private static void DescribeCompiledNonSuccess(
+        string documentationId,
+        CompiledDocumentationOutcome outcome,
+        VerboseLogger logger,
+        Dictionary<string, int> failures)
+    {
+        if (outcome is CompiledDocumentationOutcome.Available
+            or CompiledDocumentationOutcome.Absent)
+        {
+            return;
+        }
+        if (outcome is CompiledDocumentationOutcome.Unavailable)
+        {
+            logger.Log(
+                $"Compiled documentation is unavailable for "
+                    + $"'{documentationId}'.");
+            return;
+        }
+
+        AddFailure(failures, DescribeFailure(outcome));
+    }
+
+    private static void AddFailure(
+        Dictionary<string, int> failures,
+        string reason) =>
+        failures[reason] =
+            failures.TryGetValue(reason, out int count)
+                ? count + 1
+                : 1;
+
+    private static void WriteFailures(
+        string channel,
+        IReadOnlyDictionary<string, int> failures)
+    {
+        foreach ((string reason, int count) in failures)
+        {
+            CommandError.WriteWarning(
+                count == 1
+                    ? $"{channel} {reason}."
+                    : $"{channel} {reason} for {count} subjects.");
+        }
+    }
+
+    private static bool HasCompiledDocumentationEvidence(
+        CompiledDocumentationOutcome outcome) =>
+        outcome is CompiledDocumentationOutcome.Available
+        || outcome
+            is CompiledDocumentationOutcome.Absent absent
+            && absent.Sources.Any(
+                static source =>
+                    source.Kind
+                        == CompiledDocumentationSourceEvidenceKind
+                            .Candidate);
+
+    private static bool HasCompiledDocumentationEvidence(
+        DocumentationQueryOutcome outcome) =>
+        outcome is DocumentationQueryOutcome.Completed
+        {
+            CompiledXml: { } compiled,
+        }
+        && HasCompiledDocumentationEvidence(compiled);
 
     private static string DescribeFailure(
         CompiledDocumentationOutcome outcome) =>

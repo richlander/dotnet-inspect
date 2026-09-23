@@ -147,6 +147,10 @@ both inspection families and the shorter name is established by the subject:
 - `InertText` owns construction-time containment of untrusted text.
 - `NetworkAccess` owns network-destination admission shared by
   otherwise independent transport owners.
+- `BinaryFetch` owns random-access byte reads over HTTP ranges and seekable
+  streams, and `ZipFetch` owns bounded ZIP directory and entry reads over
+  that contract; `NuGetFetch` consumes both, and their contracts are owned by
+  [Package archive range access](package-archive-range-access.md).
 - `QuerySpace` owns the portable, host-neutral query language and
   execution substrate without owning any inspected product subject.
 - `UntrustedDocuments` owns hardened JSON and XML parsing entry points.
@@ -280,7 +284,7 @@ implementation belongs to separately tracked owner-scoped work.
 | IL program inspection and action | `ILInspector.Metadata`, `ILInspector.SourceLink`, `ILInspector.Instructions`, `ILInspector.Analysis`, `ILInspector.Decompiler`, `ILInspector.ILDiff`, `ILInspector.Research` |
 | Ecosystem and reusable product composition | `DotnetInspector.Cache`, `DotnetInspector.DependencyManifests`, `DotnetInspector.Packages`, `DotnetInspector.Networking`, `DotnetInspector.Queries`, `DotnetInspector.PackageQueries`, `DotnetInspector.SourceSelection`, `DotnetInspector.Sections`, `DotnetInspector.Presentation`, `DotnetInspector.MetadataRendering` |
 | Subject-neutral inspection substrate | `Inspector.Artifacts`, `Inspector.Artifacts.Local`, `Inspector.Artifacts.Workspaces`, `Inspector.Findings`, `Inspector.Text` |
-| Independent domain roots | `NuGetFetch`, `NetworkAccess`, `UntrustedDocuments`, `CSharpText`, `InertText`, `QuerySpace`; target `SourceFetch` |
+| Independent domain roots | `NuGetFetch`, `BinaryFetch`, `ZipFetch`, `NetworkAccess`, `UntrustedDocuments`, `CSharpText`, `InertText`, `QuerySpace`; target `SourceFetch` |
 | Product hosts and host boundary | `DotnetInspect.Cli`, `DotnetInspect.Web`; child `DotnetInspect.Web.Interop` |
 
 The following dispositions close the existing ambiguous names:

@@ -1023,7 +1023,7 @@ internal static class BrowserPackageWorkspace
             string selectorKey,
             int metadataToken,
             WorkspacePlan workspacePlan,
-            MemberCallGraphSupplyChainBaseline supplyChainBaseline,
+            PackageSupplyChainBaseline supplyChainBaseline,
             CancellationToken cancellationToken = default) =>
         RunPackageOperationAsync(
             async deadline =>

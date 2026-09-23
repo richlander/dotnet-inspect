@@ -1,3 +1,5 @@
+using System.Diagnostics.CodeAnalysis;
+
 using CSharpText;
 using DotnetInspector.DocumentationHouse;
 using DotnetInspector.DocumentationHouse.Packages;
@@ -6,7 +8,10 @@ using DotnetInspector.LibraryMetadata;
 using DotnetInspector.Packages;
 using DotnetInspector.PackageQueries;
 using DotnetInspector.Queries;
+using DotnetInspector.Sections;
+using DotnetInspector.Services;
 using ILInspector.Metadata;
+using NuGetFetch;
 
 using DocumentationHouseService =
     DotnetInspector.DocumentationHouse.DocumentationHouse;
@@ -187,11 +192,13 @@ public sealed partial class PackageHouseExecutionTests
         byte[] portablePdb =
             GC.AllocateUninitializedArray<byte>(
                 checked((int)maxContentBytes + 1));
-        InMemoryPackageContent content = CreatePackageContent(
-            (MaterializedApiPath, assembly),
-            (MaterializedImplementationPath, assembly),
-            (MaterializedDocumentationPath, documentation),
-            (MaterializedPortablePdbPath, portablePdb));
+        IPackageContent content =
+            new ForwardOnlyPackageContent(
+                CreatePackageContent(
+                    (MaterializedApiPath, assembly),
+                    (MaterializedImplementationPath, assembly),
+                    (MaterializedDocumentationPath, documentation),
+                    (MaterializedPortablePdbPath, portablePdb)));
         await using HouseEnvironment environment =
             HouseEnvironment.CreateNuGetOrg(
                 MaterializedPackageId,
@@ -226,6 +233,210 @@ public sealed partial class PackageHouseExecutionTests
         Assert.Contains(
             "Converts the JsonDocument",
             available.Documentation.Summary,
+            StringComparison.Ordinal);
+        await environment.AssertRootSettledAsync();
+    }
+
+    [Fact]
+    public async Task
+        PackageDocumentationInspectionReturnsCombinedHostNeutralEnvelope()
+    {
+        InMemoryPackageContent content = CreatePackageContent(
+            (
+                MaterializedApiPath,
+                ReadRealAsset("System.Text.Json.dll")),
+            (
+                MaterializedImplementationPath,
+                ReadRealAsset("System.Text.Json.dll")),
+            (
+                MaterializedDocumentationPath,
+                ReadRealAsset("System.Text.Json.xml")));
+        await using HouseEnvironment environment =
+            HouseEnvironment.CreateNuGetOrg(
+                MaterializedPackageId,
+                new SourceBehavior([Version]));
+        (PackageHouseSettlement.Acquired settlement,
+            PackageHouseLibraryHandoff.Compile handoff) =
+            await ExecuteMaterializationInputAsync(
+                environment,
+                content);
+        using var client = new HttpClient();
+        var sourceContext = new AssemblyContextSourceQueryContext(
+            client,
+            new InMemoryPdbStore(),
+            new UniformPackageSourceAuthorization(
+                [PackageSource.NuGetOrg]),
+            new SourceFetch(
+                client,
+                new InMemorySourceContentStore()));
+
+        InspectionEnvelope<DocumentationQueryOutcome> inspection =
+            await PackageDocumentationInspection.ExecuteAsync(
+                settlement,
+                handoff,
+                PackageDocumentationDeserializeIdentity,
+                DocumentationDemand
+                    .CompiledXmlAndAuthoredSourceDocumentation,
+                sourceContext,
+                cancellationToken:
+                    TestContext.Current.CancellationToken);
+
+        var completed =
+            Assert.IsType<DocumentationQueryOutcome.Completed>(
+                inspection.Content);
+        Assert.IsType<CompiledDocumentationOutcome.Available>(
+            completed.CompiledXml);
+        Assert.IsType<AuthoredDocumentationOutcome.Unavailable>(
+            completed.AuthoredSource);
+        Assert.Equal(
+            DocumentationQueryFieldEvidenceKind.Selected,
+            completed.Fields.Summary.Kind);
+        Assert.IsType<InspectionShare.NonProjectable>(
+            inspection.Share);
+        await environment.AssertRootSettledAsync();
+    }
+
+    [Fact]
+    public async Task
+        CombinedPackageDocumentationPreservesCompiledXmlWhenPdbExceedsBudget()
+    {
+        byte[] assembly = ReadRealAsset("System.Text.Json.dll");
+        byte[] documentation = ReadRealAsset("System.Text.Json.xml");
+        long maxContentBytes = Math.Max(
+            assembly.LongLength,
+            documentation.LongLength);
+        byte[] portablePdb =
+            GC.AllocateUninitializedArray<byte>(
+                checked((int)maxContentBytes + 1));
+        IPackageContent content =
+            new ForwardOnlyPackageContent(
+                CreatePackageContent(
+                    (MaterializedApiPath, assembly),
+                    (MaterializedImplementationPath, assembly),
+                    (MaterializedDocumentationPath, documentation),
+                    (MaterializedPortablePdbPath, portablePdb)));
+        await using HouseEnvironment environment =
+            HouseEnvironment.CreateNuGetOrg(
+                MaterializedPackageId,
+                new SourceBehavior([Version]));
+        (PackageHouseSettlement.Acquired settlement,
+            PackageHouseLibraryHandoff.Compile handoff) =
+            await ExecuteMaterializationInputAsync(
+                environment,
+                content);
+        using var client = new HttpClient();
+        var sourceContext = new AssemblyContextSourceQueryContext(
+            client,
+            new InMemoryPdbStore(),
+            new UniformPackageSourceAuthorization(
+                [PackageSource.NuGetOrg]),
+            new SourceFetch(
+                client,
+                new InMemorySourceContentStore()));
+        var limits = new PackageDocumentationQueryLimits
+        {
+            Materialization =
+                new PackageHouseLibraryMaterializationLimits
+                {
+                    MaxContentBytes = maxContentBytes,
+                    MaxRetainedBytes =
+                        checked(
+                            (2 * assembly.LongLength)
+                            + documentation.LongLength),
+                },
+        };
+
+        InspectionEnvelope<DocumentationQueryOutcome> inspection =
+            await PackageDocumentationInspection.ExecuteAsync(
+                settlement,
+                handoff,
+                PackageDocumentationDeserializeIdentity,
+                DocumentationDemand
+                    .CompiledXmlAndAuthoredSourceDocumentation,
+                sourceContext,
+                limits,
+                TestContext.Current.CancellationToken);
+
+        var completed =
+            Assert.IsType<DocumentationQueryOutcome.Completed>(
+                inspection.Content);
+        Assert.IsType<CompiledDocumentationOutcome.Available>(
+            completed.CompiledXml);
+        AuthoredDocumentationOutcome.Incomplete authored =
+            Assert.IsType<AuthoredDocumentationOutcome.Incomplete>(
+                completed.AuthoredSource);
+        Assert.Equal(
+            AuthoredDocumentationIncompleteReason.SourceBytes,
+            authored.Reason);
+        await environment.AssertRootSettledAsync();
+    }
+
+    [Fact]
+    public async Task
+        CombinedPackageDocumentationPreservesCompiledXmlWhenPdbIsUnreadable()
+    {
+        byte[] assembly = ReadRealAsset("System.Text.Json.dll");
+        IPackageContent content =
+            new UnreadableEntryPackageContent(
+                CreatePackageContent(
+                    (MaterializedApiPath, assembly),
+                    (MaterializedImplementationPath, assembly),
+                    (
+                        MaterializedDocumentationPath,
+                        ReadRealAsset("System.Text.Json.xml")),
+                    (
+                        MaterializedPortablePdbPath,
+                        "unreadable"u8.ToArray())),
+                MaterializedPortablePdbPath);
+        await using HouseEnvironment environment =
+            HouseEnvironment.CreateNuGetOrg(
+                MaterializedPackageId,
+                new SourceBehavior([Version]));
+        (PackageHouseSettlement.Acquired settlement,
+            PackageHouseLibraryHandoff.Compile handoff) =
+            await ExecuteMaterializationInputAsync(
+                environment,
+                content);
+        using var client = new HttpClient();
+        var sourceContext = new AssemblyContextSourceQueryContext(
+            client,
+            new InMemoryPdbStore(),
+            new UniformPackageSourceAuthorization(
+                [PackageSource.NuGetOrg]),
+            new SourceFetch(
+                client,
+                new InMemorySourceContentStore()));
+
+        InspectionEnvelope<DocumentationQueryOutcome> inspection =
+            await PackageDocumentationInspection.ExecuteAsync(
+                settlement,
+                handoff,
+                PackageDocumentationDeserializeIdentity,
+                DocumentationDemand
+                    .CompiledXmlAndAuthoredSourceDocumentation,
+                sourceContext,
+                cancellationToken:
+                    TestContext.Current.CancellationToken);
+
+        var completed =
+            Assert.IsType<DocumentationQueryOutcome.Completed>(
+                inspection.Content);
+        Assert.IsType<CompiledDocumentationOutcome.Available>(
+            completed.CompiledXml);
+        AuthoredDocumentationOutcome.Incomplete authored =
+            Assert.IsType<AuthoredDocumentationOutcome.Incomplete>(
+                completed.AuthoredSource);
+        Assert.Equal(
+            AuthoredDocumentationIncompleteReason.SourceBytes,
+            authored.Reason);
+        Assert.Equal(
+            nameof(
+                PackageHouseLibraryOptionalArtifactOmissionKind
+                    .Unreadable),
+            authored.Observation?.Code);
+        Assert.Contains(
+            "could not be read",
+            authored.Observation?.Detail,
             StringComparison.Ordinal);
         await environment.AssertRootSettledAsync();
     }
@@ -395,5 +606,56 @@ public sealed partial class PackageHouseExecutionTests
             subject,
             DocumentationDemand.CompiledXml,
             plan);
+    }
+
+    private sealed class UnreadableEntryPackageContent(
+        IPackageContent inner,
+        string unreadablePath) : IPackageContent
+    {
+        public string? RootPath => inner.RootPath;
+        public string? NupkgPath => inner.NupkgPath;
+        public bool FromCache => inner.FromCache;
+        public string ProducerKey => inner.ProducerKey;
+        public bool RequiresArchiveTreeMatch =>
+            inner.RequiresArchiveTreeMatch;
+
+        public bool TryOpenArchive(
+            [NotNullWhen(true)] out Stream? stream) =>
+            inner.TryOpenArchive(out stream);
+
+        public bool TryOpenEntry(
+            string relativePath,
+            [NotNullWhen(true)] out Stream? stream)
+        {
+            ThrowIfUnreadable(relativePath);
+            return inner.TryOpenEntry(relativePath, out stream);
+        }
+
+        public bool TryOpenEntry(
+            string relativePath,
+            long maxExpandedBytes,
+            [NotNullWhen(true)] out Stream? stream)
+        {
+            ThrowIfUnreadable(relativePath);
+            return inner.TryOpenEntry(
+                relativePath,
+                maxExpandedBytes,
+                out stream);
+        }
+
+        public IEnumerable<string> EnumerateEntries() =>
+            inner.EnumerateEntries();
+
+        private void ThrowIfUnreadable(string relativePath)
+        {
+            if (string.Equals(
+                    relativePath,
+                    unreadablePath,
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                throw new InvalidDataException(
+                    "The package entry could not be read.");
+            }
+        }
     }
 }
