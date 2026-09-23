@@ -231,6 +231,8 @@ public static class LibraryCallUseCommand
         }
 
         AssemblyPairCallUseResult? result = null;
+        AssemblyPairCallUseProjection? pairProjection = null;
+        IReadOnlyList<InspectionDiagnostic> pairDiagnostics = [];
         AssemblyPairCallUseResult? selectedResult = null;
         AssemblyPairDirectUseClusterProjection? allClusters = null;
         AssemblyPairDirectUseClusterProjection? selectedClusters = null;
@@ -250,12 +252,26 @@ public static class LibraryCallUseCommand
                     return;
                 }
 
-                try
-                {
-                    result = AssemblyPairCallUseQuery.Execute(
+                InspectionEnvelope<AssemblyPairCallUseInspectionOutcome>
+                    inspection = AssemblyPairCallUseInspection.Execute(
                         group,
                         group.Participants[0].Assembly,
                         group.Participants[1].Assembly);
+                pairDiagnostics = inspection.Diagnostics;
+                if (inspection.Content
+                    is AssemblyPairCallUseInspectionOutcome.Rejected rejected)
+                {
+                    unavailable.Add(rejected.Detail);
+                    return;
+                }
+
+                var available =
+                    (AssemblyPairCallUseInspectionOutcome.Available)
+                        inspection.Content;
+                pairProjection = available.Projection;
+                result = pairProjection.Pair;
+                try
+                {
                     bool requiresClusters =
                         options.QueryPlan.Cluster is not null
                         || semanticRows?.Rows
@@ -304,10 +320,7 @@ public static class LibraryCallUseCommand
                         selectedClusters = new(result, []);
                     }
                 }
-                catch (ArgumentException exception)
-                    when (exception
-                        is AssemblyPairCallUseRequestException
-                            or AssemblyPairClusterRootPathRequestException)
+                catch (AssemblyPairClusterRootPathRequestException exception)
                 {
                     unavailable.Add(exception.Message);
                 }
@@ -328,12 +341,15 @@ public static class LibraryCallUseCommand
             WriteClusterNotFound(
                 result,
                 allClusters!,
-                clusterOrdinal);
+                clusterOrdinal,
+                pairDiagnostics);
             return 1;
         }
 
         AssemblyPairCallUseProjection projection =
-            AssemblyPairCallUseProjection.Create(selectedResult!);
+            ReferenceEquals(selectedResult, result)
+                ? pairProjection!
+                : AssemblyPairCallUseProjection.Create(selectedResult!);
         IReadOnlyList<AssemblyPairCallUseOccurrence> selectedOccurrences =
             selectedResult!.Occurrences;
         bool wroteCount = false;
@@ -446,7 +462,10 @@ public static class LibraryCallUseCommand
         {
             CommandError.Write(
                 "Pairwise call-use evidence is incomplete.",
-                [.. FailureDetails(selectedResult)]);
+                [
+                    .. pairDiagnostics.Select(
+                        diagnostic => diagnostic.Summary.ToString()),
+                ]);
             return 1;
         }
 
@@ -1349,7 +1368,8 @@ public static class LibraryCallUseCommand
     static void WriteClusterNotFound(
         AssemblyPairCallUseResult result,
         AssemblyPairDirectUseClusterProjection clusters,
-        int requested)
+        int requested,
+        IReadOnlyList<InspectionDiagnostic> diagnostics)
     {
         string availability = clusters.Clusters.Length == 0
             ? "No direct-use clusters were observed."
@@ -1366,46 +1386,11 @@ public static class LibraryCallUseCommand
         CommandError.Write(
             $"Direct Use Cluster {requested} was not observed; "
                 + "pairwise call-use evidence is incomplete.",
-            [availability, .. FailureDetails(result)]);
-    }
-
-    static IEnumerable<string> FailureDetails(
-        AssemblyPairCallUseResult result)
-    {
-        foreach (AssemblyPairCallUseFailure failure in result.Failures)
-        {
-            yield return failure switch
-            {
-                AssemblyPairCallUseFailure.Rejected rejected =>
-                    $"{FormatAssembly(rejected.Subject)}: "
-                    + rejected.Failure.Detail,
-                AssemblyPairCallUseFailure.InvalidImage invalid =>
-                    $"{FormatAssembly(invalid.Subject)}: "
-                    + invalid.Error.Message,
-                _ => $"{FormatAssembly(failure.Subject)}: unavailable",
-            };
-        }
-
-        foreach (AssemblyPairCallUseParticipant participant
-            in result.Participants)
-        {
-            foreach (AnalysisDiagnostic diagnostic
-                in participant.Diagnostics)
-            {
-                yield return
-                    $"{FormatAssembly(participant.Subject)} "
-                    + $"method 0x{diagnostic.MethodToken:X8}: "
-                    + diagnostic.Message;
-            }
-        }
-
-        if (result.Diagnostics.IsIncomplete)
-        {
-            yield return
-                "Pair correspondence: "
-                + $"{result.Diagnostics.UnresolvedCandidateCallCount} "
-                + "call sites name the other library but could not be matched.";
-        }
+            [
+                availability,
+                .. diagnostics.Select(
+                    diagnostic => diagnostic.Summary.ToString()),
+            ]);
     }
 
     sealed class AssemblySubjectPairComparer

@@ -69,6 +69,10 @@ import {
   createPublishedRuntimeBenchmarkBridge,
   installPublishedRuntimeBenchmarkBridge,
 } from "./published-runtime-benchmark-bridge.ts";
+import {
+  createPublishedSourceComparisonBridge,
+  installPublishedSourceComparisonBridge,
+} from "./published-source-comparison-bridge.ts";
 import type {
   LibraryLens,
   MemberSection,
@@ -839,6 +843,11 @@ async function loadEngineModule() {
       window,
       window.location.search,
       createPublishedRuntimeBenchmarkBridge(engineClient),
+    );
+    installPublishedSourceComparisonBridge(
+      window,
+      window.location.search,
+      createPublishedSourceComparisonBridge(engineClient),
     );
     cancelPackageQuery = (...args) =>
       engineClient.package.cancelPackageQuery(...args);
@@ -3894,9 +3903,18 @@ function commitStagedWorkspaceNavigation(
   navigationSeq: number,
   publication: StagedWorkspacePublication,
 ): boolean {
+  return commitStagedWorkspaceWithNavigation(
+    publication,
+    () => commitDemoNavigation(navigationSeq));
+}
+
+function commitStagedWorkspaceWithNavigation(
+  publication: StagedWorkspacePublication,
+  commitNavigation: () => boolean,
+): boolean {
   const previousCollection = retainedWorkspaces;
   retainedWorkspaces = publication.collection;
-  if (!commitDemoNavigation(navigationSeq)) {
+  if (!commitNavigation()) {
     retainedWorkspaces = previousCollection;
     return false;
   }
@@ -11992,6 +12010,13 @@ async function openPlatformLibrary(
     : null;
   if (construction) prepareUnpublishedWorkspace();
   else spotlight.reset();
+  if (deferPlatformPresentation && !scopeOnly) {
+    state.loading = true;
+    state.error = "";
+    state.loadingMessage = `Opening ${assembly.replace(/\.dll$/i, "")}…`;
+    state.loadingSubtitle = "Loading the framework Library for inspection.";
+    render({ synchronizeUrl: false });
+  }
   try {
     const target = await ensurePlatformCatalog(tfm, version);
     if (!navigationSequence.isCurrent(navigationSeq)) return undefined;
@@ -12010,7 +12035,9 @@ async function openPlatformLibrary(
       });
       if (!scopeOnly) render();
     }
-    startPlatformTargetWork(target);
+    // A Library selection needs only its selected family. Broad catalog warmup
+    // also downloads the other runtime pack and discovers unrelated versions.
+    if (!deferPlatformPresentation) startPlatformTargetWork(target);
     let pkg = runtimePackageForTarget(target);
     const alreadyLoaded = pkg?.assemblies.some(item => platformLibraryMatchesDescriptor(row, item));
     if (!alreadyLoaded) {
@@ -12042,7 +12069,6 @@ async function openPlatformLibrary(
     recordPlatformRecent(library.name, row.pack);
     state.platformOpeningStatus = { loading: false, error: "" };
     if (scopeOnly) return pkg;
-    state.loading = false;
     state.atPackageRoot = false;
     state.atLibraryRoot = true;
     state.libraryLens = "overview";
@@ -12059,18 +12085,24 @@ async function openPlatformLibrary(
         location.href,
         withPlatformRootParentHistory(history.state, hasPlatformRootParent));
     }
-    render();
     await loadSelectionData();
     if (!navigationSequence.isCurrent(navigationSeq)) return undefined;
     if (construction) {
       const destination = (await buildStateUrl()).toString();
       if (!navigationSequence.isCurrent(navigationSeq)) return undefined;
-      publishCurrentWorkspace(construction.retainedSnapshot);
-      workspaceLocation.push(destination);
-      render({ synchronizeUrl: false });
+      const publication = stageCurrentWorkspacePublication(
+        construction.retainedSnapshot,
+        destination);
+      if (!commitStagedWorkspaceWithNavigation(
+          publication,
+          () => workspaceLocation.push(destination))) {
+        throw new Error("Browser history could not be updated.");
+      }
     } else {
       ensureCurrentWorkspacePublished();
     }
+    state.loading = false;
+    render(construction ? { synchronizeUrl: false } : undefined);
     if (navigationGeneration != null)
       focusTypeList(navigationGeneration, focusGeneration);
     return pkg;
@@ -13335,13 +13367,7 @@ function renderHomeView(preservedFocus: HomeFocusTarget | null) {
           <button id="home-theme" aria-label="Switch theme">${state.theme === "dark" ? "light" : "dark"}</button>
         </div>
       </header>
-      ${visibleQueryNotice()
-        ? `<div class="query-notice" role="alert">
-            <span class="query-notice-glyph">⚠</span>
-            <span class="query-notice-text">${escapeHtml(visibleQueryNotice())}</span>
-            <button id="dismiss-notice" type="button" aria-label="Dismiss">×</button>
-          </div>`
-        : ""}
+      ${renderQueryNotice()}
       <main class="home-hero">
         <div class="home-copy">
           <p class="home-kicker">Browser-native · WebAssembly · zero install</p>
@@ -15472,6 +15498,10 @@ const loadErrorShellActions: LoadErrorShellBindingActions = {
 };
 
 function renderLoading() {
+  if (pendingWorkspaceConstruction !== null) {
+    // The interstitial replaces every Workspace control, so its status can remain exposed.
+    app.inert = false;
+  }
   app.innerHTML = `
     <div class="loading-screen">
       <a class="loading-brand" href="/" aria-label="dotnet inspect home"><span>◇</span> dotnet-inspect</a>
@@ -15491,7 +15521,7 @@ function renderLoading() {
              </div>
              ${state.errorDetail ? `<pre class="load-error-detail" hidden>${escapeHtml(state.errorDetail)}</pre>` : ""}
            </div>`
-        : `<div class="load-progress"><img class="loading-bot" src="${interstitialBotSrc()}" width="200" height="200" alt="dotnet-bot inspector mascot" /><span class="loader"></span><strong>${escapeHtml(state.loadingMessage)}</strong><small>${state.loadingSubtitle ? escapeHtml(state.loadingSubtitle) : `${escapeHtml(state.requestedPackage)}@${escapeHtml(state.requestedVersion)} · ${escapeHtml(state.requestedFramework || "best framework")}`}</small></div>`}
+        : `<div class="load-progress" role="status"><img class="loading-bot" src="${interstitialBotSrc()}" width="200" height="200" alt="dotnet-bot inspector mascot" /><span class="loader"></span><strong>${escapeHtml(state.loadingMessage)}</strong><small>${state.loadingSubtitle ? escapeHtml(state.loadingSubtitle) : `${escapeHtml(state.requestedPackage)}@${escapeHtml(state.requestedVersion)} · ${escapeHtml(state.requestedFramework || "best framework")}`}</small></div>`}
     </div>`;
   bindLoadErrorShell(document, loadErrorShellActions);
   bindLibraryOpenEvents();

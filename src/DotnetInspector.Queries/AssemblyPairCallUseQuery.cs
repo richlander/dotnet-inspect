@@ -6,16 +6,28 @@ using DotnetInspector.Services;
 
 namespace DotnetInspector.Queries;
 
+/// <summary>The reason a pairwise call-use request was rejected.</summary>
+public enum AssemblyPairCallUseRequestFailureKind
+{
+    SameParticipant,
+    ParticipantOutsideGroup,
+    SamePhysicalAssemblyArtifact,
+}
+
 /// <summary>The requested pair cannot form one pairwise call-use query.</summary>
 public sealed class AssemblyPairCallUseRequestException
     : ArgumentException
 {
     internal AssemblyPairCallUseRequestException(
+        AssemblyPairCallUseRequestFailureKind kind,
         string message,
         string parameterName)
         : base(message, parameterName)
     {
+        Kind = kind;
     }
+
+    public AssemblyPairCallUseRequestFailureKind Kind { get; }
 }
 
 /// <summary>
@@ -111,6 +123,7 @@ public static class AssemblyPairCallUseQuery
         if (ReferenceEquals(first.Registration, second.Registration))
         {
             throw new AssemblyPairCallUseRequestException(
+                AssemblyPairCallUseRequestFailureKind.SameParticipant,
                 "Pairwise call use requires two distinct participants.",
                 nameof(second));
         }
@@ -191,6 +204,8 @@ public static class AssemblyPairCallUseQuery
                     secondAnalyzed.ResultParticipant.Subject.Identity))
         {
             throw new AssemblyPairCallUseRequestException(
+                AssemblyPairCallUseRequestFailureKind
+                    .SamePhysicalAssemblyArtifact,
                 "Pairwise call use requires two distinct physical assembly artifacts.",
                 nameof(second));
         }
@@ -350,6 +365,8 @@ public static class AssemblyPairCallUseQuery
                 participant.Assembly.Registration,
                 assembly.Registration))
         ?? throw new AssemblyPairCallUseRequestException(
+            AssemblyPairCallUseRequestFailureKind
+                .ParticipantOutsideGroup,
             "The assembly does not belong to the context group.",
             nameof(assembly));
 

@@ -668,12 +668,12 @@ test("malformed package routes use the contained restore failure path", () => {
     /const homeShellActions: HomeShellBindingActions = \{\s*onDismissNotice: dismissQueryNotice,\s*onOpenDemos: openProductDemos,/);
   assert.equal(
     appSource.match(
-      /<span class="query-notice-text">\${escapeHtml\(visibleQueryNotice\(\)\)}<\/span>/g,
+      /<span class="query-notice-text">\${escapeHtml\(notice\)}<\/span>/g,
     )?.length,
     1);
   assert.equal(
     appSource.match(/\${renderQueryNotice\(\)}/g)?.length,
-    4);
+    5);
   assert.match(
     appSource,
     /state\.queryNotice && state\.queryNoticeRetryAction\s*\? '<button id="retry-notice"/);
@@ -971,7 +971,7 @@ test("Spotlight package opening retains the active Workspace and publishes a fre
     /catch \(error\) \{[\s\S]*const rollbackSnapshot = construction\?\.rollbackSnapshot[\s\S]*if \(rollbackSnapshot\) \{\s*failWorkspaceCatalogAction\([\s\S]*rollbackSnapshot,\s*\(\) => openPlatformLibrary\(assembly, pack, \{ \.\.\.options, tfm, version \}\),\s*focusWorkbenchSearchOrHeading\);[\s\S]*return undefined;/);
   assert.match(
     platformLibraryLoad,
-    /if \(construction\) \{\s*const destination = \(await buildStateUrl\(\)\)\.toString\(\);\s*if \(!navigationSequence\.isCurrent\(navigationSeq\)\) return undefined;\s*publishCurrentWorkspace\(construction\.retainedSnapshot\);\s*workspaceLocation\.push\(destination\)/);
+    /if \(construction\) \{\s*const destination = \(await buildStateUrl\(\)\)\.toString\(\);\s*if \(!navigationSequence\.isCurrent\(navigationSeq\)\) return undefined;\s*const publication = stageCurrentWorkspacePublication\(\s*construction\.retainedSnapshot,\s*destination\);\s*if \(!commitStagedWorkspaceWithNavigation\(\s*publication,\s*\(\) => workspaceLocation\.push\(destination\)\)\) \{\s*throw new Error\("Browser history could not be updated\."\)/);
   assert.match(
     appSource,
     /function focusWorkbenchSearchOrHeading\(\): boolean \{\s*return focusWorkbenchSearch\(document\) \|\| focusLevelOneHeading\(\);\s*}/);
@@ -1784,7 +1784,7 @@ test("Platform scope restoration defers selection, rendering, and data loading",
     ?? "";
   assert.match(
     openPlatformLibrary,
-    /const scopeOnly = options\.scopeOnly === true;[\s\S]*platformLibraryMatchesDescriptor\(row, item\)[\s\S]*state\.libraryScope = new Set\(\[library\.id\]\);[\s\S]*if \(scopeOnly\) return pkg;[\s\S]*render\(\);[\s\S]*await loadSelectionData\(\)/);
+    /const scopeOnly = options\.scopeOnly === true;[\s\S]*platformLibraryMatchesDescriptor\(row, item\)[\s\S]*state\.libraryScope = new Set\(\[library\.id\]\);[\s\S]*if \(scopeOnly\) return pkg;[\s\S]*await loadSelectionData\(\);[\s\S]*commitStagedWorkspaceWithNavigation\([\s\S]*state\.loading = false;\s*render\(/);
   const applyScope =
     appSource.match(/async function applyPlatformLibraryScope\([\s\S]*?\n}\n\nobserveAsync\(bootstrap\(\)/)?.[0]
     ?? "";

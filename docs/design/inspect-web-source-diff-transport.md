@@ -2,25 +2,31 @@
 
 ## Status and ownership
 
-Proposed, design-only contract for
-[#5684](https://github.com/richlander/dotnet-inspect/issues/5684).
+Implementation contract for
+[#5684](https://github.com/richlander/dotnet-inspect/issues/5684) and
+[#6057](https://github.com/richlander/dotnet-inspect/issues/6057).
 The member source-diff worker feature adapter owns this boundary:
 
 > An admitted member source comparison crosses the managed/worker/browser
 > boundary as one complete, bounded, typed value without changing its endpoint
 > text, analytical relations, statistics, or mapped presentation.
 
-This is one feature adapter under the
+This is one reusable line-diff feature adapter under the
 [worker runtime](inspect-web-worker-runtime.md#ownership), not a new runtime,
 comparison producer, or viewer. Its responsibility is feature payload
-admission, representation, encoding, and decoding. Its immediate consumers are
-the managed Source feature and the browser Diff surface.
+admission, representation, encoding, and decoding. The first production
+producer is the cross-version authored-Source comparison required by
+[#8171](https://github.com/richlander/dotnet-inspect/issues/8171). The
+same-member PDB/decompiled producer originally motivating this contract remains
+separately owned and may adopt the same payload without merging the two
+producers' acquisition or comparison semantics.
 
 Supporting owners remain authoritative:
 
 | Owner | Contract consumed |
 | --- | --- |
-| [Member source comparison query](member-source-comparison-query.md) | Exact member identity, endpoint acquisition, provenance, and independent attempt outcomes |
+| [Selected member source pair query](member-source-pair-query.md) | Exact cross-version member identity, independently resolved authored-Source endpoints, provenance, native comparison, and attempt outcomes |
+| [Member source comparison query](member-source-comparison-query.md) | Separately owned same-member PDB/decompiled comparison semantics for its later transport adoption |
 | [Member source diff presentation](member-source-diff-presentation.md) | Canonical endpoints, one analysis, six statistics, and one mapped diff |
 | [Analysis diff](analysis-diff.md) | Complete ordered sequences, distinct relation cases, and correspondence facets |
 | Markout `MappedTextDiff` | Ordered presentation ranges, inner mappings, annotations, and terminator assertions |
@@ -30,9 +36,10 @@ Supporting owners remain authoritative:
 | [Surface composition](inspect-web-surface-composition.md) | Page selection and placement; adoption tracked by #5685 |
 | Diff viewer, tracked by #5686 | Rows, interaction, selection, accessibility, and virtualization |
 
-Source acquisition, correspondence, C# normalization, page placement, and viewer
-interaction are non-claims. The limits below apply to this feature boundary,
-not to all metadata, source acquisition, or decompilation work.
+Source acquisition, producer-issued correspondence, C# normalization, page
+placement, and viewer interaction are non-claims. The limits below apply to
+this feature boundary, not to all metadata, source acquisition, or decompilation
+work.
 
 ## Purpose and delivery
 
@@ -41,7 +48,7 @@ unequal replacements and movement that a conventional text view can hide.
 A large result must not turn worker settlement into an unlimited browser
 decode or silently become a partial comparison.
 
-The shared-host delivery tracker is
+The original shared-host delivery tracker is
 [#5526](https://github.com/richlander/dotnet-inspect/issues/5526);
 [#5528](https://github.com/richlander/dotnet-inspect/issues/5528) composes the
 six production-adoption milestones, including the existing client prerequisite:
@@ -54,47 +61,37 @@ six production-adoption milestones, including the existing client prerequisite:
 5. Browser Diff placement and page actions: #5685.
 6. Browser diff viewer: #5686.
 
-The CLI reaches production at step 2; the browser completes adoption at step 6.
-The earlier five-diff-owner plan did not expose the client prerequisite.
-Milestone 3 is already owned work, not a runtime migration authorized by this
-design. The current source feature still calls page-bound facades; the
-production worker catalog currently registers a diagnostic canary.
-
-This design enables milestone 4 and does not claim a browser production caller
-yet. Implementation can prepare the feature binding independently, but its
-production activation waits for milestone 3. Starting a second managed runtime
-for Diff beside the existing page runtime is not an alternative.
+The CLI reached production at step 2, and the production Worker cutover is
+complete. This implementation lands milestone 4 through the existing ordinary
+Source operation and makes the typed result available to the page-facing
+engine client. Starting a second managed runtime for Diff beside the existing
+Worker runtime is not an alternative.
 Source and Annotated Source remain separate artifacts; this is an additive
 comparison operation, not their migration or replacement.
 The retained method-body comparison facade operation compares explicit
 IL/research subjects and is not an alternative implementation of this source
 comparison. Its former contextual dialog is retired under #6491.
 
-The shared Presentation adapter has already retired the CLI comparison-only
-projection. Transport must carry its Markout shape rather than introduce a
-browser differ or parse its formatted output. Browser-specific row lowering
-and interaction belong to #5686; this adapter provides neither HTML nor a
-second unified/side-by-side rendering algorithm.
+For the first adopter, Presentation projects the paired query's existing
+`FindingComparison<string>` into `AnalysisDiff<string>` without matching again,
+then performs the shared Markout lowering. Transport carries that typed shape
+rather than introducing a browser differ or parsing formatted output.
+Browser-specific row lowering and interaction belong to #5686; this adapter
+provides neither HTML nor a second unified/side-by-side rendering algorithm.
 
 ## Admission and result boundary
 
-The request carries the existing browser's package/platform, assembly, exact
-type, and member coordinates, plus the selected decompiler style-option IDs.
+The first-adopter request carries the existing browser's package, two exact
+versions, framework, assembly, exact type, and selected MethodDef coordinates.
 The worker resolves the coordinates through the existing
 managed member-resolution and workspace services; process-local registrations
 and page-owned workspace objects are not wire identities. It does not accept
 arbitrary Before/After strings, source-fetch URLs, or declarations reconstructed
-from display labels. The managed feature consumes the resulting
-`AssemblyMemberSourceRequest` and existing host source capabilities.
-
-The style IDs are the selection captured for this invocation, charged against
-the same 8 KiB encoded-request budget. The worker resolves them through the
-existing `BrowserStyleOptions` / product `StyleOptionCatalog` path and supplies
-the resulting `PrinterOptions` to `AssemblyMemberSourceRequest`. Existing
-catalog defaults, unknown-ID failures, and conflict semantics remain unchanged.
-The worker does not reread page preferences or silently substitute its own
-default options. This preserves the requested After endpoint; it does not make
-the separate Source section's text identical to canonical comparison text.
+from display labels. The managed feature consumes the selected member source
+pair query and existing host source capabilities. A later same-member
+PDB/decompiled adopter owns its own request additions, including any decompiler
+style selection; those producer semantics are not added to the authored-Source
+operation by this transport.
 
 One query result supplies both endpoint attempts. Only two complete attempts
 may enter the shared Presentation adapter. Feature preflight may decline their
@@ -102,17 +99,18 @@ size before projection, but must not trim, split, normalize, or substitute text
 to make them fit. This deliberately rejects some oversized inputs whose
 canonical projection might have been smaller.
 
-The feature outcome is a closed union:
+The operation outcome is a closed union, with endpoint distinctions retained
+inside a succeeded comparison:
 
 | Outcome | Meaning |
 | --- | --- |
-| Complete | One complete shared presentation, including an identical result with all six zero counts |
-| Unavailable | At least one endpoint is unavailable; retain each attempt's available/unavailable classification and owner-issued reason |
-| Not found / rejected | Retain the query's target or admission distinction |
-| Failed | Query, projection, or encoding failed; retain the stage and bounded diagnostic classification |
-| Too complex | A named feature limit was exceeded; retain the stage, limit dimension, and limit value |
+| Succeeded / Compared | One complete shared presentation, including an identical result with all six zero counts |
+| Succeeded / Unavailable or Failed | No diff; retain each endpoint's Available, Unavailable, NotFound, Rejected, or Failed state and owner-issued detail, plus the available endpoint text |
+| Failed | Request, query, or projection failed; retain the existing expected/unexpected classification and bounded diagnostic |
+| TooComplex | A named feature limit was exceeded; retain its dimension, limit, and observed value |
+| Canceled | Retain the managed operation's cancellation reason |
 
-Only Complete carries endpoint sequences, relations, mapped changes, and
+Only Succeeded / Compared carries endpoint sequences, relations, mapped changes, and
 statistics. An unavailable or failed attempt is not an empty diff, an identical
 result, or a one-sided completed comparison. A query's source-complexity
 outcome remains distinguishable from a transport-capacity refusal.
@@ -130,14 +128,16 @@ Unknown versions, case tags, enum values, or fields are rejected rather than
 silently dropped. The codec is a feature-owned projection of the existing
 types, not their default object-graph serialization.
 
-The managed facade's bounded JSON encoding and generated typed binding remain
-inside the worker. The worker posts the admitted plain DTO using the existing
-structured-clone envelope; the browser's operation-selected
-`BoundedPayloadDecoder` admits that DTO without parsing another JSON string.
-The JSON byte limit is an encoding budget, not a claim about the browser
-engine's internal structured-clone byte layout.
+The managed facade emits one bounded JSON string because the generated
+JSExport facade cannot expose this nested closed union directly. The existing
+ordinary Worker envelope carries that bounded string; the operation-selected
+`BoundedPayloadDecoder` unwraps the ordinary tuple, enforces the 1 MiB UTF-8
+ceiling before parsing, and admits the exact typed shape. There is no unbounded
+intermediate parse or generic DTO trust. The JSON byte limit is an encoding
+budget, not a claim about the browser engine's internal structured-clone byte
+layout.
 
-One Complete value contains:
+One Compared value contains:
 
 - two ordered logical-line sequences, each with its producer label and
   final-line-terminator assertion;
@@ -153,7 +153,7 @@ The line arrays are stored once. Both analytical coordinates and mapped ranges
 address those same arrays; duplicated canonical strings and duplicate mapped
 line arrays are unnecessary. Rejoining a sequence for copying is literal text
 assembly using its terminator assertion, not reflow, re-splitting, or matching.
-The member producer currently asserts absent final terminators on both sides;
+The first producer currently asserts absent final terminators on both sides;
 the codec preserves the full owner-defined terminator vocabulary.
 
 The relation cases stay distinct:
@@ -195,10 +195,9 @@ the CLI or the underlying producers' limits.
 | Encoded request | 8 KiB |
 | Raw member text before projection, per endpoint | 128 KiB UTF-8 |
 | Physical lines before projection, per endpoint | 1,024 |
-| Conservative projected After text bound | 256 KiB UTF-8 |
 | Canonical logical lines, per endpoint | 1,024 |
 | Canonical Before text | 128 KiB UTF-8 |
-| Canonical After text | 256 KiB UTF-8 |
+| Canonical After text | 128 KiB UTF-8 |
 | Analytical relations | 2,048 |
 | Coordinate occurrences across all relations | 2,048 |
 | Mapped changes | 2,048 |
@@ -226,18 +225,10 @@ The raw line bound keeps the present ordered matcher below
 64,000,000-cell limit. This is a structural input bound, not a claim that the
 whole source operation has a bounded task-loop-silence interval.
 
-Placement alignment can expand text: one large retained PDB indentation may
-be applied to many decompiled lines. Before projection, also require
-`rawAfterBytes + maxPdbLeadingWhitespaceBytes * rawAfterLineCount <= 256 KiB`.
-The maximum is over all raw PDB physical lines, so it bounds the prefix the
-shared declaration boundary could select without reproducing that boundary.
-This is a conservative admission calculation, not text normalization. It
-prevents a small raw pair from generating a large placement-expanded result.
-
-The canonical text byte limits name those same derived bounds for the
+The canonical text byte limits name the same per-endpoint bounds for the
 receiver. Charge the UTF-8 bytes of every logical line plus one LF separator
 between adjacent lines, plus a final LF when termination is asserted. Current
-member comparisons have absent final terminators. The browser first enforces
+authored-Source comparisons have absent final terminators. The browser first enforces
 each side's line-count cap and checks each line's UTF-16 length against that
 side's byte ceiling. It then performs bounded aggregate UTF-8 accounting;
 it never allocates or walks an unrestricted line population.
@@ -354,7 +345,7 @@ Addition                         [4]
 Added 1; Removed 1; Changed 2 -> 3; Moved 1 -> 1
 ```
 
-This is owner-issued codec data, not a claim that the current member producer
+This is owner-issued codec data, not a claim that the current producer
 emits every illustrated facet. It demonstrates multiple differences, a
 one-to-many replacement, and overlapping changed/moved populations. A mapped
 view may render the moved item as removal/addition; the received analytical
@@ -368,20 +359,19 @@ At the admission boundary:
 valid shape whose escaped result exceeds 1 MiB      -> Too complex: encoded bytes
 one endpoint unavailable                           -> Unavailable, no zero summary
 identical complete endpoints                       -> Complete, all six zeros
-style IDs ["explicit-object-creation"]              -> After uses that catalog selection
 old operation completes after cancellation          -> no publication to its sink
 ```
 
 ## Evidence and implementation gates
 
-The contract is **unverified** until its implementation gates run. This
-design-only PR does not claim bounded browser execution or codec fidelity from
-prose, mocked packets, or inherited runtime tests.
+The implementation claims bounded browser execution and codec fidelity only
+when the focused gates below pass. Prose, mocked packets, and inherited runtime
+tests do not establish those properties.
 
 | Required focused gate | Property |
 | --- | --- |
-| Request/style preservation | Empty and non-default catalog selections reach the query unchanged; selected-style results agree with the shared adapter at those options; unknown IDs remain visible failures and oversized selections consume the request budget |
-| Managed feature admission | Limit minus one, exact limit, and limit plus one at each admission boundary; byte-heavy and line-heavy endpoints; indentation expansion; refusal before projection and before oversized encoding |
+| Request preservation | Exact package versions and selected MethodDef coordinates reach the existing paired query unchanged; malformed and oversized requests remain visible failures or typed capacity refusals |
+| Managed feature admission | Exact limit and limit plus one at each admission boundary; byte-heavy and line-heavy endpoints; refusal before projection and before oversized encoding |
 | Managed/worker/browser codec round trip | Exact text, labels, terminators, all relation cases/facets, six counts, empty and N:M populations, mapped ranges, inner mappings, annotation targets/severity, and Unicode span coordinates |
 | Closed codec rejection | Unknown fields/tags/versions, invalid scalar or coordinate shapes, and collection limits fail visibly without repairing a payload |
 | Browser settlement capacity | Maximum admitted and refused payloads traverse the production codec without unrestricted recursive walks, bulk row materialization, or an uncapped intermediate parse |

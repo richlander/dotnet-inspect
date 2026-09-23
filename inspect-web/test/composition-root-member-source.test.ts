@@ -184,7 +184,7 @@ test("Platform Library entry from demos publishes only after selection and resto
     /const navigationSeq = options\.navigationSeq \?\? navigationSequence\.begin\(\);/);
   assert.match(
     openLibrary,
-    /render\(\);\s*await loadSelectionData\(\);\s*if \(!navigationSequence\.isCurrent\(navigationSeq\)\) return undefined;\s*if \(construction\) \{\s*const destination = \(await buildStateUrl\(\)\)\.toString\(\);\s*if \(!navigationSequence\.isCurrent\(navigationSeq\)\) return undefined;\s*publishCurrentWorkspace\(construction\.retainedSnapshot\);\s*workspaceLocation\.push\(destination\);/);
+    /await loadSelectionData\(\);\s*if \(!navigationSequence\.isCurrent\(navigationSeq\)\) return undefined;\s*if \(construction\) \{\s*const destination = \(await buildStateUrl\(\)\)\.toString\(\);\s*if \(!navigationSequence\.isCurrent\(navigationSeq\)\) return undefined;\s*const publication = stageCurrentWorkspacePublication\(\s*construction\.retainedSnapshot,\s*destination\);\s*if \(!commitStagedWorkspaceWithNavigation\(\s*publication,\s*\(\) => workspaceLocation\.push\(destination\)\)\) \{\s*throw new Error\("Browser history could not be updated\."\);[\s\S]*state\.loading = false;\s*render\(construction \? \{ synchronizeUrl: false \} : undefined\)/);
   assert.match(
     openLibrary,
     /const rollbackSnapshot = construction\?\.rollbackSnapshot[\s\S]*if \(rollbackSnapshot\) \{\s*failWorkspaceCatalogAction\([\s\S]*rollbackSnapshot,[\s\S]*focusWorkbenchSearchOrHeading\);\s*return undefined;/);

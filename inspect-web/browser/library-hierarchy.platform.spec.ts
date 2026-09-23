@@ -456,10 +456,18 @@ test("Spotlight offers NuGet and .NET Library System.Text.Json destinations with
   await expect(page.locator(".platform-workspace")).toHaveCount(0);
   await expect(subjectTab(page, "platform")).toHaveCount(0);
   await expect(page.getByText("Opening the selected Library...")).toHaveCount(0);
+  await expect(page.getByRole("status")).toContainText("Opening System.Text.Json…");
+  await expect(page.locator(".load-progress .loader")).toBeVisible();
+  await expect(page.locator("#app")).toHaveAttribute("aria-busy", "true");
+  expect(await page.locator("#app").getAttribute("inert")).toBeNull();
+  await expect(page.locator("html")).toHaveAttribute("data-platform-library-request");
+  await expect(page.locator("html")).not.toHaveAttribute("data-platform-warmup");
+  await expect(page.locator("html")).not.toHaveAttribute("data-platform-versions-request");
   await releaseFacade(page, "finish-platform-library");
   await expect(subjectTab(page, "library")).toHaveAttribute("aria-selected", "true");
   await expect(subjectTab(page, "platform")).toHaveCount(0);
   await expect(page.locator("[data-type-nav-back]")).toHaveCount(0);
+  await expect(page.locator(".load-progress")).toHaveCount(0);
   await expect(page.locator(".inspected-target .subject-path")).toContainText("System.Text.Json");
   await expect(page.locator(".inspected-target .subject-path")).not.toContainText("Platform");
   await openProductDestination(page, "workspace");
@@ -485,17 +493,69 @@ test("Spotlight offers NuGet and .NET Library System.Text.Json destinations with
 });
 
 test("Spotlight framework Library failure stays outside Platform presentation", async ({ page }) => {
-  await installFacades(page, surface, [], "ready", "ready", { libraryFailure: true });
+  await installFacades(page, surface, [], "ready", "ready", {
+    libraryFailure: true, libraryPending: true,
+  });
   await page.goto("/");
   const search = page.getByRole("combobox");
   await search.fill("System.Text.Json");
   await page.locator('[data-sl-framework-lib="System.Text.Json"]').click();
   await expect(page.locator(".platform-workspace")).toHaveCount(0);
   await expect(subjectTab(page, "platform")).toHaveCount(0);
+  await expect(page.getByRole("status")).toContainText("Opening System.Text.Json…");
+  await expect(page.locator("html")).toHaveAttribute("data-platform-library-request");
+  await releaseFacade(page, "finish-platform-library");
+  await expect(page.locator(".load-progress")).toHaveCount(0);
   await expect(page.locator(".query-notice-text")).toContainText(
     "Could not open Library: Library offline",
   );
   await expect(page.locator(".query-notice-text")).not.toContainText("Platform Library");
+});
+
+test("rejected Spotlight Library history restores a retryable predecessor", async ({
+  page,
+}) => {
+  await installFacades(page, surface, [], "ready", "ready", {});
+  await page.goto("/");
+  const predecessorLocation = page.url();
+  const predecessorWorkspace = await currentWorkspaceHistoryState(page);
+  await page.getByRole("combobox").fill("System.Text.Json");
+  await page.evaluate(() => {
+    history.pushState = () => {
+      throw new DOMException("Fixture history rejection.", "SecurityError");
+    };
+  });
+
+  await page.locator('[data-sl-framework-lib="System.Text.Json"]').click();
+
+  await expect(page.locator(".query-notice-text")).toContainText(
+    "Could not open Library: Browser history could not be updated.",
+  );
+  await expect(page.locator("#retry-notice")).toBeVisible();
+  await expect(page).toHaveURL(predecessorLocation);
+  expect(await currentWorkspaceHistoryState(page)).toEqual(predecessorWorkspace);
+  await expect(subjectTab(page, "library")).toHaveCount(0);
+});
+
+// PR-fast: hold the real Library acquisition handoff while Browser history moves.
+test("Back supersedes pending Spotlight Library loading", async ({ page }) => {
+  await installFacades(page, surface, [], "ready", "ready", { libraryPending: true });
+  await page.goto("/query");
+  await expect(page.locator("#package-query-heading")).toHaveText("Package query");
+  await openProductDestination(page, "home");
+  await page.getByRole("combobox").fill("System.Text.Json");
+  await page.locator('[data-sl-framework-lib="System.Text.Json"]').click();
+  await expect(page.getByRole("status")).toContainText("Opening System.Text.Json…");
+  await expect(page.locator("html")).toHaveAttribute("data-platform-library-request");
+
+  await page.goBack();
+  await expect(page).toHaveURL(/\/query$/);
+  await expect(page.locator("#package-query-heading")).toHaveText("Package query");
+  await releaseFacade(page, "finish-platform-library");
+  await page.waitForTimeout(100);
+  await expect(page.locator(".load-progress")).toHaveCount(0);
+  await expect(page.locator("#package-query-heading")).toHaveText("Package query");
+  await expect(page).toHaveURL(/\/query$/);
 });
 
 test("a direct Spotlight framework Library remains a Library after package activation", async ({ page }) => {
@@ -1004,10 +1064,13 @@ test("a fresh Spotlight Library preserves the predecessor Platform parent", asyn
   await releaseFacade(page, "hold-workspace-encode");
   await page.locator('[data-sl-framework-lib="System.Facade"]').click();
   await expect(page.locator("html")).toHaveAttribute("data-workspace-encode-pending", "true");
-  await expect(page.locator("#inspector-panel h1")).toHaveText("System.Facade");
+  await expect(page.getByRole("status")).toContainText("Opening System.Facade…");
+  await expect(page.locator("#inspector-panel h1")).toHaveCount(0);
+  await expect(page).toHaveURL(predecessorLocation);
   await expect(subjectTab(page, "platform")).toHaveCount(0);
   await expect(page.locator("[data-type-nav-back]")).toHaveCount(0);
   await releaseFacade(page, "finish-workspace-encode");
+  await expect(page.locator("#inspector-panel h1")).toHaveText("System.Facade");
   await page.getByRole("button", { name: "Application menu", exact: true }).click();
   await page.getByRole("menuitem", { name: "Settings", exact: true }).click();
   await page.locator('#settings-dialog [data-theme="light"]').click();

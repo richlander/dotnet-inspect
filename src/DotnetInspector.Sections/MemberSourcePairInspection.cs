@@ -16,7 +16,9 @@ public static class MemberSourcePairInspection
             AssemblyContextParticipant afterParticipant,
             AssemblyMemberSourcePairRequest request,
             AssemblyContextSourceQueryContext context,
-            CancellationToken cancellationToken = default)
+            CancellationToken cancellationToken = default,
+            Action<AssemblyMemberSourcePairEndpoint, AssemblyMemberSourcePairEndpoint>?
+                admitEndpoints = null)
     {
         AssemblyMemberSourcePairResult content =
             await AssemblyContextMemberSourcePairQuery.ExecuteAsync(
@@ -26,7 +28,8 @@ public static class MemberSourcePairInspection
                     afterParticipant,
                     request,
                     context,
-                    cancellationToken)
+                    cancellationToken,
+                    admitEndpoints)
                 .ConfigureAwait(false);
 
         return new(
