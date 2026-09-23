@@ -41,13 +41,13 @@ internal static class ApiAnalysisInspection
     }
 
     /// <summary>
-    /// Opens the command-scoped Analysis index used by type and library sections. The resolver is
-    /// built from <paramref name="options"/> so this type-scoped index honors <c>--project</c>
+    /// Opens the command-scoped Analysis execution used by type and library sections. The resolver is
+    /// built from <paramref name="options"/> so this type-scoped execution honors <c>--project</c>
     /// (project-assets) and <c>--tfm</c> reference resolution, consistent with the member-analysis
     /// path (<see cref="ApiMemberAnalysisInspection"/>); passing <see langword="null"/> falls back to
     /// bare-assembly resolution.
     /// </summary>
-    internal static Analysis.LibraryBodyIndex OpenTypeAnalysisIndex(
+    internal static Analysis.LibraryBodyAnalysisExecution OpenTypeAnalysis(
         string assemblyPath,
         IReadOnlyCollection<string>? requestedSections = null,
         ApiType? type = null,
@@ -94,7 +94,7 @@ internal static class ApiAnalysisInspection
                 features,
                 CreateReferenceResolver(sourcePath, options),
                 sourceAssembly,
-                bodyTypeScope: bodyTypeScope).BodyIndex;
+                bodyTypeScope: bodyTypeScope).AnalysisExecution;
         }
 
         return MethodBodyInspectionSession.Open(
@@ -105,7 +105,8 @@ internal static class ApiAnalysisInspection
             bodyScope: null,
             bodyTypeScope: bodyTypeScope,
             includeImplementationProfiles:
-                SectionNames.IncludesBodyMetrics(requestedSections)).BodyIndex;
+                SectionNames.IncludesBodyMetrics(requestedSections))
+            .AnalysisExecution;
     }
 
     internal static bool SameType(Analysis.TypeRef typeRef, ApiType type)
