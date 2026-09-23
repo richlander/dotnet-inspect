@@ -70,17 +70,23 @@ public abstract class PlatformHouseOperationSnapshot
     {
         internal ResolveTypeDefinition(
             PlatformMetadataRequestIdentity request,
-            PlatformReferenceCandidateIdentity startingReference,
+            PlatformTypeResolutionCandidateIdentity startingCandidate,
+            PlatformViewDemand startingView,
             PlatformViewDemand requiredView)
             : base(PlatformHouseOperationKind.ResolveTypeDefinition)
         {
             Request = request;
-            StartingReference = startingReference;
+            StartingCandidate = startingCandidate;
+            StartingView = startingView;
             RequiredView = requiredView;
         }
 
         public PlatformMetadataRequestIdentity Request { get; }
-        public PlatformReferenceCandidateIdentity StartingReference { get; }
+        public PlatformTypeResolutionCandidateIdentity StartingCandidate
+        {
+            get;
+        }
+        public PlatformViewDemand StartingView { get; }
         public PlatformViewDemand RequiredView { get; }
     }
 }
@@ -212,32 +218,50 @@ public abstract class PlatformHouseOperation
     {
         private protected ResolveTypeDefinition(
             PlatformMetadataRequestEvidence<TypeResolutionRequest> request,
-            PlatformReferenceCandidateIdentity startingReference,
+            PlatformTypeResolutionCandidateIdentity startingCandidate,
+            PlatformViewDemand startingView,
             PlatformViewDemand requiredView)
             : base(CreateSnapshot(
                 request,
-                startingReference,
+                startingCandidate,
+                startingView,
                 requiredView))
         {
             Request = request.Value;
+            StartingView = startingView;
             RequiredView = requiredView;
         }
 
         public TypeResolutionRequest Request { get; }
+        public PlatformViewDemand StartingView { get; }
         public PlatformViewDemand RequiredView { get; }
 
         static PlatformHouseOperationSnapshot CreateSnapshot(
             PlatformMetadataRequestEvidence<TypeResolutionRequest> request,
-            PlatformReferenceCandidateIdentity startingReference,
+            PlatformTypeResolutionCandidateIdentity startingCandidate,
+            PlatformViewDemand startingView,
             PlatformViewDemand requiredView)
         {
             ArgumentNullException.ThrowIfNull(request);
-            ArgumentNullException.ThrowIfNull(startingReference);
+            ArgumentNullException.ThrowIfNull(startingCandidate);
+            if (startingView is not PlatformViewDemand.Reference
+                and not PlatformViewDemand.Implementation)
+            {
+                throw new ArgumentOutOfRangeException(nameof(startingView));
+            }
             if (!Enum.IsDefined(requiredView))
                 throw new ArgumentOutOfRangeException(nameof(requiredView));
+            if (startingView == PlatformViewDemand.Implementation
+                && requiredView != PlatformViewDemand.Implementation)
+            {
+                throw new ArgumentException(
+                    "An implementation-view start supports only implementation demand.",
+                    nameof(requiredView));
+            }
             return new PlatformHouseOperationSnapshot.ResolveTypeDefinition(
                 request.Identity,
-                startingReference,
+                startingCandidate,
+                startingView,
                 requiredView);
         }
 
@@ -247,7 +271,7 @@ public abstract class PlatformHouseOperation
         {
             public FromReference(
                 PlatformMetadataRequestEvidence<TypeResolutionRequest> request,
-                PlatformReferenceCandidateEvidence<TStartingReference>
+                PlatformTypeResolutionCandidateEvidence<TStartingReference>
                     startingReference,
                 PlatformViewDemand requiredView)
                 : base(
@@ -255,12 +279,35 @@ public abstract class PlatformHouseOperation
                     (startingReference
                         ?? throw new ArgumentNullException(
                             nameof(startingReference))).Identity,
+                    PlatformViewDemand.Reference,
                     requiredView)
             {
                 StartingReference = startingReference.Value;
             }
 
             public TStartingReference StartingReference { get; }
+        }
+
+        public sealed class FromImplementation<TStartingImplementation> :
+            ResolveTypeDefinition
+            where TStartingImplementation : notnull
+        {
+            public FromImplementation(
+                PlatformMetadataRequestEvidence<TypeResolutionRequest> request,
+                PlatformTypeResolutionCandidateEvidence<
+                    TStartingImplementation> startingImplementation)
+                : base(
+                    request,
+                    (startingImplementation
+                        ?? throw new ArgumentNullException(
+                            nameof(startingImplementation))).Identity,
+                    PlatformViewDemand.Implementation,
+                    PlatformViewDemand.Implementation)
+            {
+                StartingImplementation = startingImplementation.Value;
+            }
+
+            public TStartingImplementation StartingImplementation { get; }
         }
     }
 }
