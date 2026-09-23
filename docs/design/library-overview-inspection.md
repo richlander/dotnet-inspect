@@ -222,6 +222,62 @@ inventory and navigation content. A host may request both operations and
 compose their separately typed results, but one cannot be treated as an
 alternate serialization of the other.
 
+## Host compatibility and composition
+
+The shared overview is the baseline scalar value, not the union of every fact
+that either initial host currently places on an overview screen. Production
+adoption therefore composes separately owned results at the presentation
+boundary without adding those results to `LibraryOverviewDocument`.
+
+The ordinary CLI projects these existing `Library Info` fields from the shared
+Document when the overview is available:
+
+- `Name` from managed assembly identity;
+- `AssemblyVersion` from managed assembly identity; and
+- `PublicKeyToken` from managed assembly identity.
+
+The legacy CLI `Types` and `Methods` fields remain supplemental during
+adoption. They count all Metadata definitions, while the shared Document
+reports public API counts; substituting one for the other would silently
+change their semantics. Architecture, target framework, file provenance,
+product attributes, build characteristics, Source, resources, Findings,
+Integration, ecosystem, and filesystem facts also remain results of their
+current adjacent owners until their focused #8088 migrations. The CLI may
+continue rendering those typed supplemental facts in the same section, but
+they do not become overview Content and cannot turn the scalar Document into
+an inventory.
+
+Inspect Web projects managed assembly identity and public API counts from the
+same shared Document. Its exact-Library API result remains a separate
+supplement that owns package and asset selection, source coordinate, type-kind
+facets, namespaces, full API inventory, projection truncation, and the
+interaction state derived from that inventory. Navigation and filtering may
+compose those facts around the scalar baseline; they do not authorize the
+Browser to recover baseline counts or identity from the exact-API result.
+
+Composition preserves these invariants:
+
+- both hosts receive the complete
+  `InspectionEnvelope<LibraryOverviewOutcome>`, including its Share and
+  diagnostics;
+- an unavailable overview remains visible even when a supplemental operation
+  succeeds and never falls back to host reconstruction;
+- a supplemental failure remains independently visible and does not rewrite a
+  successful overview outcome;
+- public counts and total Metadata-definition counts retain their distinct
+  names and meanings;
+- equivalent requests over the same exact Library bytes produce equal
+  baseline Content regardless of source route or host; and
+- host view models may reference the baseline and supplemental results, but
+  no host-authored combined model becomes a replacement semantic operation or
+  transport envelope.
+
+Running the baseline and a richer supplemental operation independently may
+repeat bounded Metadata work. Correct shared ownership and typed failure
+behavior take priority in this cutover. Any later optimization must preserve
+both operation contracts and prove that it shares owner-issued evidence rather
+than deriving one result from the other's display or wire projection.
+
 ## Lease transfer and settlement
 
 The caller transfers one `LibraryOperationLease` to the operation and must not
@@ -331,17 +387,17 @@ The complete initial operation adoption is staged through focused slices:
    Discovery initially publishes only the adopted `Library Info` capability;
    mixed aggregate JSON plus semantic Rows fails visibly until a structured
    per-section JSON lowering can preserve independent row windows.
-4. Before content cutover, settle the compatibility boundary between the
-   current narrow `LibraryOverviewDocument`, the broader ordinary CLI
-   `Library Info` field set, and the Browser overview's current eager API
-   inventory. The declaration/admission slice does not replace either host's
-   content path or present the narrower Document as a compatible substitute.
+4. Apply the compatibility boundary above: shared identity and public counts
+   come only from the baseline envelope, total-definition counts retain their
+   distinct CLI meaning, and Browser API inventory remains a separately typed
+   navigation supplement.
 5. Adopt one complete host-neutral overview operation and envelope for direct,
-   PackageHouse, and PlatformHouse CLI routes while preserving supported
-   fields, projections, Share, diagnostics, and rendered output.
-6. Consume that same envelope in Inspect Web's Library overview, preserve its
-   navigation and typed failure behavior, then retire the covered eager or
-   host-owned overview construction.
+   PackageHouse, and PlatformHouse CLI routes. Preserve supported supplemental
+   fields, projections, Share, diagnostics, and rendered output without
+   appending those fields to overview Content.
+6. Consume that same envelope in Inspect Web's Library overview. Preserve its
+   separately typed exact-API navigation inventory and failure behavior, then
+   retire Browser reconstruction of the baseline identity and public counts.
 
 The remaining ordinary Library sections migrate under #8088 by their own
 semantic owners. This design does not make their legacy implementation
@@ -409,7 +465,7 @@ gates prove:
 - package and Platform adoption preserve the same overview Content for the
   same Library bytes; and
 - CLI and Inspect Web consume equal baseline envelopes for an equivalent
-  semantic request.
+  semantic request while retaining separately typed supplemental results.
 
 No new TLA+ model is required. The operation introduces no new concurrent
 state machine; it consumes the existing Library lease lifecycle and is gated by
