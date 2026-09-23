@@ -22,7 +22,7 @@ public class SharedOptions
     };
     public Option<bool> Markdown { get; } = new("--markdown") { Description = "Output as markdown" };
     public Option<bool> PlainText { get; } = new("--plaintext") { Description = "Output as plain text" };
-    public Option<bool> Bare { get; } = new("--bare") { Description = "Render the selected payload without document decoration; does not change the selected shape" };
+    public Option<bool> Raw { get; } = new("--raw") { Description = "Render the selected payload without document decoration; does not change the selected shape" };
     public Option<bool> PreferRenderedUrls { get; } = new("--prefer-rendered-urls") { Description = "Prefer rendered browser-view URLs when supported; otherwise keep the original URL" };
     public Option<bool> Mermaid { get; } = new("--mermaid") { Description = "Output as mermaid diagram (standalone or with --markdown for embedded)" };
     public Option<bool> Taste { get; } = new("--taste") { Description = "Render source with the full oracle-endorsed style set (includes byte-divergent lenses); Annotated Source names the applied knobs on the signature" };
@@ -480,7 +480,7 @@ public class SharedOptions
         Option[] presentationOptions =
         [
             Json, Markdown, PlainText, Table, Tsv, Jsonl, Tree, Mermaid,
-            NoHeaders, Bare, Columns, Fields, Print, Value, Urls, Paths,
+            NoHeaders, Raw, Columns, Fields, Print, Value, Urls, Paths,
             JsonArray, PreferRenderedUrls,
             .. incompatibleOptions
         ];
@@ -707,9 +707,10 @@ public class SharedOptions
         bool tsvFlag = IsExplicitTrue(parseResult, Tsv);
         bool jsonlFlag = IsExplicitTrue(parseResult, Jsonl);
         bool hasVerbosity = parseResult.GetResult(Verbosity) is { Implicit: false };
+        bool rawFlag = IsExplicitTrue(parseResult, Raw);
         Verbosity? verbosity = hasVerbosity ? ParseVerbosity(parseResult) : null;
-        ValidateRendererFlags(jsonFlag, markdownFlag, plainTextFlag, mermaidFlag, tableFlag || tsvFlag || jsonlFlag, hasVerbosity);
-        if (ShouldSuppressEnvironmentTabularFormat(
+        ValidateRendererFlags(jsonFlag, markdownFlag, plainTextFlag, mermaidFlag, tableFlag || tsvFlag || jsonlFlag, hasVerbosity, rawFlag);
+        if (ShouldSuppressEnvironmentFormat(
             parseResult,
             tableFlag || tsvFlag || jsonlFlag,
             jsonFlag || markdownFlag || plainTextFlag || mermaidFlag || hasVerbosity))
@@ -772,7 +773,7 @@ public class SharedOptions
         if (IsExplicitTrue(parseResult, Markdown)) return true;
         if (IsExplicitTrue(parseResult, PlainText)) return true;
         if (IsExplicitTrue(parseResult, Mermaid)) return true;
-        if (IsExplicitTrue(parseResult, Bare)) return true;
+        if (IsExplicitTrue(parseResult, Raw)) return true;
         if (parseResult.GetResult(Verbosity) is { Implicit: false }) return true;
         return false;
     }
@@ -888,8 +889,18 @@ public class SharedOptions
         bool plainTextFlag,
         bool mermaidFlag,
         bool tabularFlag,
-        bool hasVerbosity)
+        bool hasVerbosity,
+        bool rawFlag = false)
     {
+        // --raw is a formatter: it selects the undecorated rendering of the payload,
+        // so it cannot be combined with another explicit format.
+        if (rawFlag
+            && (jsonFlag || markdownFlag || plainTextFlag || mermaidFlag || tabularFlag))
+        {
+            CommandError.WriteLine("--raw cannot be combined with --json, --jsonl, --tsv, --table, --markdown, --plaintext, or --mermaid.");
+            throw new OperationCanceledException();
+        }
+
         if (!tabularFlag)
             return;
 
@@ -923,7 +934,7 @@ public class SharedOptions
         || IsExplicitTrue(parseResult, Markdown)
         || IsExplicitTrue(parseResult, PlainText)
         || IsExplicitTrue(parseResult, Mermaid)
-        || IsExplicitTrue(parseResult, Bare)
+        || IsExplicitTrue(parseResult, Raw)
         || parseResult.GetResult(Verbosity) is { Implicit: false };
 
     private bool IsNonTabularFormatExplicitlySet(CommandResult result) =>
@@ -931,17 +942,20 @@ public class SharedOptions
         || IsExplicitTrue(result, Markdown)
         || IsExplicitTrue(result, PlainText)
         || IsExplicitTrue(result, Mermaid)
-        || IsExplicitTrue(result, Bare)
+        || IsExplicitTrue(result, Raw)
         || result.GetResult(Verbosity) is { Implicit: false };
 
-    private bool ShouldSuppressEnvironmentTabularFormat(
+    // An explicit --raw is a format choice, so it outranks the environment default
+    // (explicit flags → DOTNET_INSPECT_FORMAT → default). Any other explicit format
+    // has already been rejected alongside --raw by ValidateRendererFlags.
+    private bool ShouldSuppressEnvironmentFormat(
         ParseResult parseResult,
         bool tabularFlag,
         bool explicitNonTabularFormat) =>
         !tabularFlag
         && !explicitNonTabularFormat
-        && IsExplicitTrue(parseResult, Bare)
-        && OutputFormatResolver.GetEnvironmentOverride() is OutputFormat.Table or OutputFormat.Tsv or OutputFormat.Jsonl;
+        && IsExplicitTrue(parseResult, Raw)
+        && OutputFormatResolver.GetEnvironmentOverride() is not null;
 
     private static readonly char[] ListSeparators = [',', ';'];
 

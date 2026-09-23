@@ -517,7 +517,7 @@ public partial class CommandExecutionTests
     [Theory]
     [InlineData("--versions", "--print")]
     [InlineData("--versions-with-feed", "--value")]
-    [InlineData("--latest-version", "--urls")]
+    [InlineData("--versions", "--urls")]
     [InlineData("--tfms", "--paths")]
     [InlineData("--layout", "--print")]
     [InlineData("--content", "--value")]
@@ -525,7 +525,7 @@ public partial class CommandExecutionTests
         string lens,
         string projection)
     {
-        var target = lens is "--latest-version" or "--versions" or "--versions-with-feed"
+        var target = lens is "--versions" or "--versions-with-feed"
             ? "ThisQueryMustNotReachTheNetwork"
             : Path.Combine(
                 Path.GetTempPath(),
@@ -545,14 +545,13 @@ public partial class CommandExecutionTests
     [Theory]
     [InlineData("--versions")]
     [InlineData("--versions-with-feed")]
-    [InlineData("--latest-version")]
     [InlineData("--tfms")]
     [InlineData("--layout")]
     [InlineData("--content")]
     public async Task ProjectedJsonRoutingAudit_PackageLensFieldsFailBeforeAcquisition(
         string lens)
     {
-        var target = lens is "--latest-version" or "--versions" or "--versions-with-feed"
+        var target = lens is "--versions" or "--versions-with-feed"
             ? "ThisQueryMustNotReachTheNetwork"
             : Path.Combine(
                 Path.GetTempPath(),
@@ -866,7 +865,7 @@ public partial class CommandExecutionTests
     [Fact]
     public void ProjectionAudit_WrongFlagDoesNotSatisfyRequest()
     {
-        // The print writer also serves --bare, so an untyped "honored" signal would let it
+        // The print writer also serves --raw, so an untyped "honored" signal would let it
         // satisfy an unrelated recorded --count and let that drop escape.
         var result = CommandLineBuilder.CreateRootCommand()
             .Parse(["library", TestAssemblyPath, "-S", "References", "--count"]);
@@ -1027,7 +1026,7 @@ public partial class CommandExecutionTests
         Assert.DoesNotContain(UnsafeEvidenceQuery.Definition.Name, error);
         Assert.DoesNotContain("body index", error);
 
-        var (bareExit, bareOutput, bareError) = await RunAppAsync(
+        var (bareExit, rawOutput, bareError) = await RunAppAsync(
             "library", assemblyPath,
             "-D",
             "--trace",
@@ -1036,7 +1035,7 @@ public partial class CommandExecutionTests
         Assert.Equal(0, bareExit);
         Assert.Contains(
             $"| {SectionNames.UnsafeMembers} | section |",
-            bareOutput);
+            rawOutput);
         Assert.Contains(
             UnsafeEvidencePresenceQuery.Definition.Name,
             bareError);

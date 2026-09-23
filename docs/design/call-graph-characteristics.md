@@ -15,7 +15,7 @@ implementation names their gates below.
 
 | Owns | Does not own |
 | --- | --- |
-| Mapping call topology, occurrences, node signals, and loop state into inspection-graph descriptors | The heterogeneous inspection-graph envelope |
+| Mapping call topology, occurrences, node signals, loop state, and selected implementation-profile evidence into inspection-graph descriptors and joins | The heterogeneous inspection-graph envelope |
 | Call-specific aggregation and migration from label storage | Seed-centric versus ad hoc construction |
 | Call node/edge/occurrence presentation bindings | Integration, metadata, opportunity, or package-ownership relationships |
 
@@ -38,6 +38,7 @@ Related:
 | `CallGraphProjection.Edges` | One logical caller-to-callee row collapsed by `(From, To)`, with retained physical call-site ids, typed any-in-loop state, and explicit physical-occurrence incompleteness | Edge with primary `call` relationship |
 | `CallGraphProjection.CallSites` | Every physical `DirectCall` supporting a projected product edge, deduplicated across caller and callee walks | Document-wide occurrence plane |
 | `CallGraphInspectionGraphAdapter` | Physical `call.site` receipts, direct occurrence values, and complete-evidence edge aggregates; fully or partially evidence-free edges retain an explicit transitional limit | Current L1 call adapter |
+| `CallGraphImplementationDocument` | Unchanged inspection graph plus one Analysis receipt, raw implementation profiles and overload relationships, profile coverage, diagnostics, and explicit document-local joins | Current opt-in implementation-evidence plane |
 | `AnnotatedCallGraphOccurrence` | Retained focus call site joined to an edge row and source fact | Partial occurrence adapter, not document-wide retention |
 | `CallGraphSectionAdapter --fields` | Node signal selection and label projection | L2 bindings over semantic node descriptors |
 | Markout `GraphEdge.Label` | Renderer slot | Projection target, never semantic storage |
@@ -68,6 +69,103 @@ selectable characteristics because the edge remains a call when those values
 are omitted from presentation. Integration, extension, metadata-reference, and
 opportunity are different relationship families. If one shares endpoints with
 a call, it remains a separate logical edge with its own occurrences.
+
+## Implementation profile plane
+
+`CallGraphImplementationDocumentAdapter` composes an already-produced
+`CallGraphProjection` and
+`LibraryImplementationProfileAnalysisResult`. It does not request Analysis
+features or choose evidence scope. The resulting
+`CallGraphImplementationDocument` retains:
+
+- the unchanged `InspectionGraphDocument` as authoritative topology;
+- the exact Analysis receipt, population coverage, and diagnostics;
+- every raw `MethodImplementationProfile` and
+  `OverloadCallRelationship`; and
+- one ordered document-local join for every retained profile and overload
+  relationship.
+
+A profile join independently maps its logical declared owner and physical
+evidence method through `CallGraphProjection.FindNode`. Found, not-projected,
+and ambiguous outcomes remain distinct. Several physical profiles can
+therefore join one logical graph node without being summed, maximized, or
+replaced by a representative body. An evidence method that has no graph node
+remains retained with an explicit not-projected join.
+
+An overload-relationship join first maps its exact caller and callee. It then
+maps to their existing ordinary `call` edge and, when retained, the exact
+physical call occurrence identified by evidence method, IL offset, and call
+kind. It never creates another edge or occurrence. Missing physical occurrence
+evidence does not erase an otherwise found logical edge.
+
+`Create_RetainsPopulationAndJoinsExistingOverloadOccurrence` gates unchanged
+topology, raw population retention, and edge/occurrence reuse.
+`Create_PreservesPhysicalProfilesBehindOneLogicalAsyncNode` gates the
+logical-owner/physical-body distinction.
+`Create_SystemTextJsonRetainsEverySelectedSerializeProfile` gates the pinned
+15-overload `System.Text.Json` corpus and scoped-coverage preservation.
+`Create_RejectsUnrequestedImplementationProfiles` gates explicit selection.
+
+This slice is intentionally construction-only. Issue #8244 owns request
+selection, scope, and execution reuse; #8243 owns the overload-family graph
+mode; #6980 owns envelope and transport adoption.
+
+## Overload-family structural plane
+
+`OverloadFamilyCallGraphStructuralQuery` composes the bounded equal-peer graph
+issued by `OverloadFamilyCallGraphQuery` into one
+`OverloadFamilyCallGraphStructuralDocument`. The document retains that graph
+unchanged as authoritative topology and adds deterministic document-local
+components and node facts. It does not select a primary, canonical, core, or
+hot overload.
+
+The family is the ordered peer-seed set already resolved by the overload-family
+query. Direct call edges between family members form the family delegation
+graph. Its strongly connected components are ordered by their earliest family
+seed, and a component with no incoming edge from another family component is a
+family-entry component. Recursive siblings therefore remain one entry
+component rather than acquiring an arbitrary root from traversal order.
+
+Each entry component is one origin. Reachability starts from every member of
+that component and follows retained call topology. Every admitted node records
+the ordered entry-component origins that reach it, and every family component
+records the union of its members' origins. A family node with multiple origins
+is a family-convergence point; a non-family node with multiple origins is an
+implementation-convergence point. Several entries, several convergence
+points, disconnected family members, no convergence point, and a family seed
+that is also a convergence point are all valid.
+
+For an instance-constructor family, a direct same-family edge contributes to
+delegation only when at least one retained physical occurrence has
+`CallKind.Call`. A same-type `CallKind.NewObject` edge remains in the
+authoritative graph and in ordinary downstream topology but does not connect
+family components or carry one constructor entry's origin into another
+constructor. Base constructors have another declaring type, and `.cctor` has
+another metadata name, so neither is a family member.
+
+Structural confidence is complete only when the retained graph has no
+unexplored traversal, unavailable physical occurrence, incomplete
+correspondence, or recoverable Analysis-failure diagnostic. The declared depth
+and node budgets do not by themselves downgrade confidence; the existing
+Call Graph diagnostic does so when a budget, unresolved call, unavailable body,
+or failure leaves an unexplored boundary. An incomplete document still retains
+observed components, origins, and convergence as graph-relative candidates,
+but it cannot support a complete entry or convergence absence claim.
+
+Implementation-profile coverage remains a separate supporting plane. When a
+consumer composes these facts with `CallGraphImplementationDocument`, its raw
+profiles, coverage, and diagnostics remain visible and never determine or
+upgrade structural status.
+
+`Derive_DirectSiblingChainRetainsTransitiveEntryOrigin`,
+`Derive_TwoEntriesConvergeOnFamilyOverload`,
+`Derive_PublicEntriesConvergeOnlyOnPrivateHelper`,
+`Derive_RecursiveFamilyCollapsesIntoOneEntryComponent`, and
+`Derive_ConstructorNewObjectDoesNotCreateDelegation` gate the pathological
+component, reachability, convergence, cycle, and constructor cases.
+`Derive_IncompleteTraversalProducesCandidateFacts` gates the absence boundary.
+`Derive_SystemTextJsonRetainsEntriesAndSharedHelperConvergence` gates the
+pinned 15-overload `System.Text.Json` corpus.
 
 ## Target call catalog
 
@@ -166,8 +264,10 @@ Only its actual caller-to-callee edges use this call-specific catalog.
 3. Move loop state out of label storage and add L1 occurrence and edge
    characteristics. **Current.** L2 selectors and structured output bindings
    remain.
-4. Project package/group boundary descriptors from workspace-owned provenance.
-5. Let the inspection graph compose call edges with other relation adapters.
+4. Correlate selected implementation profiles and overload relationships with
+   graph nodes, edges, and occurrences without changing topology. **Current.**
+5. Project package/group boundary descriptors from workspace-owned provenance.
+6. Let the inspection graph compose call edges with other relation adapters.
 
 ## Required gates
 
@@ -176,6 +276,11 @@ Only its actual caller-to-callee edges use this call-specific catalog.
   `CallTreePerf.InLoop` independently of edge loop aggregation;
 - two call sites between the same members produce one call edge and two
   occurrences;
+- implementation profiles retain separate logical-owner and physical-body
+  joins;
+- an overload relationship reuses its existing call edge and occurrence;
+- incomplete scoped profile coverage remains visible beside healthy graph
+  evidence;
 - loop presentation is unchanged after the typed-value migration;
 - selecting no optional fields preserves topology, limits, and failures;
 - structural discovery does not execute call or analysis producers;

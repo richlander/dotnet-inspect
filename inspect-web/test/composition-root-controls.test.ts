@@ -666,6 +666,7 @@ test("typed library controls own library and Platform picker bindings", () => {
   for (const lens of [
     "integrations",
     "analysis",
+    "metrics",
     "metadata",
   ]) {
     assert.match(
@@ -702,12 +703,15 @@ test("typed library controls own library and Platform picker bindings", () => {
   assert.match(
     binding,
     /onPlatformLensLibrarySelect: \(lens, name, pack\) =>\s*observeAsync\(\s*openPlatformLensLibrary\(lens, name, pack\),\s*"Opening a platform library"\)/);
+  assert.match(
+    appSource,
+    /else if \(lens === "metrics"\) await loadPackageLibraryMetrics\(\)/);
   assert.doesNotMatch(
     workspaceBinding,
-    /\[data-(?:library-chip|access-chip|platform-(?:library-select|integrations-library|opportunities-library|analysis-library|metadata-library))\]|#library-jump/);
+    /\[data-(?:library-chip|access-chip|platform-(?:library-select|integrations-library|opportunities-library|analysis-library|metrics-library|metadata-library))\]|#library-jump/);
   assert.doesNotMatch(
     appSource,
-    /\[data-(?:library-chip|access-chip|platform-(?:library-select|integrations-library|opportunities-library|analysis-library|metadata-library))\]|#library-jump/);
+    /\[data-(?:library-chip|access-chip|platform-(?:library-select|integrations-library|opportunities-library|analysis-library|metrics-library|metadata-library))\]|#library-jump/);
   assert.doesNotMatch(appSource, /bindPlatformLensPicker/);
 });
 
@@ -831,7 +835,7 @@ test("keyboard help projects available global and current graph bindings", () =>
     ?? "";
   assert.match(
     catalogRenderer,
-    /applicationScopeHtml: renderApplicationScopeBar\(\s*"workspace",\s*true,\s*escapeHtml\)[\s\S]*<main id="subject-panel" class="workspace" role="tabpanel" aria-labelledby="application-scope-workspace">/);
+    /workbenchShellHtml\(\{[\s\S]*<main id="subject-panel" class="workspace">/);
   assert.match(
     appSource,
     /function drillIn\(\) \{\s*if \(scope\(\) === "workspace"\) \{\s*if \(!state\.package\) return;/);
@@ -878,7 +882,7 @@ test("deferred Spotlight focus preserves newer document focus", () => {
 });
 
 test("the shell separates typed target and Subject navigation rows", () => {
-  const renderNode = functionDeclaration("render");
+  const renderNode = functionDeclaration("renderCore");
   const subjectPathNode = functionDeclaration("inspectedSubjectPath");
   const subjectPathRenderer = functionDeclaration("renderInspectedSubjectPath");
   const subjectIconRenderer =
@@ -1007,10 +1011,10 @@ test("typed graph interactions own graph controls and Mermaid node bindings", ()
     /const loaded = disposition === "loaded" && candidate\.status === "unique"\s*\? resolveLoadedGraphTarget\(target, candidate\)\s*: null/);
   assert.match(
     callGraphBinding,
-    /combinedGraphTargetNavigationDisposition\(\s*candidate,\s*runtimeCandidate,\s*target,\s*runtimeResident\)/);
+    /combinedGraphTargetNavigationDisposition\(\s*candidate,\s*runtimeCandidate,\s*target,\s*runtimeResident,\s*packageAvailable\)/);
   assert.match(
     callGraphBinding,
-    /if \(loaded\) \{[\s\S]*navigateToGraphMember\([\s\S]*loaded,[\s\S]*target,[\s\S]*loadedSection,[\s\S]*failureSurface\)[\s\S]*\} else if \(disposition === "resident"\) \{[\s\S]*startPlatformDrill\(target\)[\s\S]*\} else if \(platform\) \{[\s\S]*navigateOrDrillPlatform\([\s\S]*target,[\s\S]*runtimeSection,[\s\S]*failureSurface\)/);
+    /if \(loaded\) \{[\s\S]*navigateToGraphMember\([\s\S]*loaded,[\s\S]*target,[\s\S]*loadedSection,[\s\S]*failureSurface\)[\s\S]*\} else if \(disposition === "package" && packageCoordinate\) \{[\s\S]*openPackageGraphMember\([\s\S]*\} else if \(disposition === "resident"\) \{[\s\S]*startPlatformDrill\(target\)[\s\S]*\} else if \(platform\) \{[\s\S]*navigateOrDrillPlatform\([\s\S]*target,[\s\S]*runtimeSection,[\s\S]*failureSurface\)/);
   assert.match(
     graphInteractionsSource,
     /resolveCallGraphNode[\s\S]*setAttribute\("tabindex", "0"\)[\s\S]*setAttribute\("role", "button"\)[\s\S]*setAttribute\("aria-label", binding\.label\)[\s\S]*addEventListener\("click"[\s\S]*"call-graph-node\.activate"[\s\S]*"dependency-graph-node\.activate"[\s\S]*key: \["Enter", " "\]/);

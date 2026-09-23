@@ -7,7 +7,7 @@ namespace DotnetInspect.Cli.Commands;
 
 internal static class WorkspaceShareOutput
 {
-    internal const string UrlPrefix = "https://dotnet-inspect.net/?w=";
+    internal const string UrlPrefix = WorkspaceShareUrl.Prefix;
 
     private static readonly AsyncLocal<DeferredSideOutput?> DeferredOutput = new();
 

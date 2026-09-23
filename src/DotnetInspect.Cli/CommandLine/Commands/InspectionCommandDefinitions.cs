@@ -47,6 +47,10 @@ public static class InspectionCommandDefinitions
         };
         var tfmOption = new Option<string?>("--tfm") { Description = "Target framework (e.g., net8.0)" };
         var allOption = new Option<bool>("--all") { Description = "Include non-public, hidden, and obsolete members" };
+        var implementationOption = new Option<bool>("--implementation")
+        {
+            Description = "Select body-level C# and IL comparison (equivalent to -S \"Implementation Diff\")",
+        };
         var historyOption = new Option<bool>("--history")
         {
             Description = "Inspect one Finding across a package version population; requires one full Type name",
@@ -63,6 +67,10 @@ public static class InspectionCommandDefinitions
         var samplePercentOption = new Option<int?>("--sample-percent")
         {
             Description = "History representative positional sample (1-100 percent), optionally capped by --max-probes",
+        };
+        var majorVersionsOption = new Option<bool>("--major-versions")
+        {
+            Description = "History: evaluate one representative per package major; API uses first stable, Analysis uses latest",
         };
         var prereleaseOption = new Option<bool>("--preview")
         {
@@ -105,10 +113,12 @@ public static class InspectionCommandDefinitions
         diffCommand.Options.Add(frameworkOption);
         diffCommand.Options.Add(tfmOption);
         diffCommand.Options.Add(allOption);
+        diffCommand.Options.Add(implementationOption);
         diffCommand.Options.Add(historyOption);
         diffCommand.Options.Add(atOption);
         diffCommand.Options.Add(maxProbesOption);
         diffCommand.Options.Add(samplePercentOption);
+        diffCommand.Options.Add(majorVersionsOption);
         diffCommand.Options.Add(prereleaseOption);
         diffCommand.Options.Add(configDirectoryOption);
         diffCommand.Options.Add(typeFilterOption);
@@ -177,7 +187,10 @@ public static class InspectionCommandDefinitions
                 string.Equals(
                     selector,
                     DiffSections.ImplementationDiff.Name,
-                    StringComparison.OrdinalIgnoreCase);
+                    StringComparison.OrdinalIgnoreCase)
+                || result.GetValue(implementationOption)
+                    && result.GetResult(opts.Select)
+                        is not { Implicit: false };
             if (!implementationTransport)
             {
                 if (result.GetResult(opts.Select) is { Implicit: false })
@@ -207,7 +220,8 @@ public static class InspectionCommandDefinitions
 
         var commandArgs = new DiffOptionsParser.DiffCommandArgs(
             argsArg, packageOption, platformOption, libraryOption, frameworkOption, tfmOption, allOption,
-            historyOption, atOption, maxProbesOption, samplePercentOption, prereleaseOption, opts.Count,
+            implementationOption,
+            historyOption, atOption, maxProbesOption, samplePercentOption, majorVersionsOption, prereleaseOption, opts.Count,
             typeFilterOption, memberFilterOption, opts.NoHeaders, nameOnlyOption, breakingOption, additiveOption, changedOption, allocRegressionsOption, pdbSourceOption, legacyAuthoredSourceOption, findingOption, legendOption, repoOption, compactOption);
 
         diffCommand.SetAction(async (parseResult, ct) =>
@@ -356,6 +370,11 @@ public static class InspectionCommandDefinitions
         {
             Description = "Extract embedded resources beneath a directory without overwriting files"
         };
+        var compactOption = new Option<bool>("--compact")
+        {
+            Description =
+                "Minified JSON (use with --envelope)",
+        };
         var outOption = SharedOptions.CreateOutputPathOption();
         assemblyCommand.Arguments.Add(assemblyPathArg);
         assemblyCommand.Options.Add(referencesOption);
@@ -374,6 +393,7 @@ public static class InspectionCommandDefinitions
         assemblyCommand.Options.Add(detailsOption);
         assemblyCommand.Options.Add(opts.PreferRenderedUrls);
         assemblyCommand.Options.Add(extractResourcesOption);
+        assemblyCommand.Options.Add(compactOption);
         assemblyCommand.Options.Add(outOption);
         SharedOptions.AddOutputPathValidator(assemblyCommand, outOption);
         // Registered per-command rather than in AddOutputOptionsTo: only the commands that build a
@@ -386,6 +406,60 @@ public static class InspectionCommandDefinitions
         opts.AddPrintOptionTo(assemblyCommand);
         opts.AddShapeProjectionOptionsTo(assemblyCommand);
         opts.AddPerformanceTriageOptionsTo(assemblyCommand);
+        opts.AddEnvelopeOptionTo(
+            assemblyCommand,
+            opts.Discover,
+            opts.Schema,
+            opts.Verbosity,
+            opts.Rows,
+            opts.Row,
+            opts.RowWhere,
+            opts.Limit,
+            opts.Head,
+            opts.Tail,
+            opts.Lines,
+            opts.TailLines,
+            opts.Trace,
+            opts.Count,
+            opts.Effective,
+            opts.Source,
+            opts.AddSource,
+            opts.NuGetConfig,
+            referencesOption,
+            dependenciesOption,
+            referenceDepthOption,
+            asmPlatformOption,
+            asmPackageOption,
+            workspaceOption,
+            namesakeLibraryOption,
+            asmPrereleaseOption,
+            asmFrameworkOption,
+            asmVersionOption,
+            asmTfmOption,
+            typeFilterOption,
+            metadataRootOption,
+            detailsOption,
+            extractResourcesOption);
+        assemblyCommand.Validators.Add(result =>
+        {
+            if (result.GetResult(compactOption)
+                    is { Implicit: false }
+                && !result.GetValue(opts.Envelope))
+            {
+                result.AddError(
+                    "--compact requires library --envelope.");
+            }
+            if (!result.GetValue(opts.Envelope))
+                return;
+
+            if (result.GetResult(opts.Select)
+                is { Implicit: false })
+            {
+                result.AddError(
+                    "library --envelope does not accept section "
+                        + "selection.");
+            }
+        });
         assemblyCommand.Subcommands.Add(
             LibraryCoordinateCommandDefinitions.Create(
                 opts,
@@ -472,7 +546,11 @@ public static class InspectionCommandDefinitions
                         + "combined with an exact Library source.");
                 return 1;
             }
-            if (workspacePacket is not null)
+            if (parseResult.GetValue(opts.Envelope))
+            {
+                assemblyPath = source;
+            }
+            else if (workspacePacket is not null)
             {
                 if (string.IsNullOrWhiteSpace(explicitPackage))
                 {
@@ -754,6 +832,10 @@ public static class InspectionCommandDefinitions
                 FieldsExplicitlySet =
                     parseResult.GetResult(opts.Fields) is { Implicit: false },
                 Count = parseResult.GetValue(opts.Count),
+                EnvelopeOutput =
+                    parseResult.GetValue(opts.Envelope),
+                CompactJson =
+                    parseResult.GetValue(compactOption),
                 Print = parseResult.GetValue(opts.Print),
                 Value = parseResult.GetValue(opts.Value),
                 Urls = parseResult.GetValue(opts.Urls),
@@ -783,7 +865,7 @@ public static class InspectionCommandDefinitions
                 ExtractResources = parseResult.GetValue(extractResourcesOption)
             };
 
-            return await LibraryCommand.ExecuteAsync(options);
+            return await LibraryCommand.ExecuteAsync(options, ct);
         });
 
         CliRowSelectionCommandRegistry.Register(

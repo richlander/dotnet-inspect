@@ -294,6 +294,14 @@ public record LibraryOptions : IProjectionOptions
     public bool Count { get; init; }
 
     /// <summary>
+    /// Output the complete shared inspection envelope as JSON.
+    /// </summary>
+    public bool EnvelopeOutput { get; init; }
+
+    /// <summary>Output minified envelope JSON.</summary>
+    public bool CompactJson { get; init; }
+
+    /// <summary>
     /// Path to write a projected payload to instead of stdout.
     /// </summary>
     public string? OutputPath { get; init; }

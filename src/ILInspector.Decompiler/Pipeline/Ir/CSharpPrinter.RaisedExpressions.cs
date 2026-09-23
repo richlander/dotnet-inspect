@@ -122,12 +122,9 @@ public sealed partial class CSharpPrinter
 
         if (lambda.ExpressionBody is { } expr)
         {
-            if (_stackSlotTelemetry is not null
-                && lambda.NeedsIsolatedLocalScope)
-            {
-                _ = LambdaBodyTextWithLocalScope(lambda);
-            }
-            string expressionText = ExpressionTreeBodyText(lambda, expr);
+            string expressionText = lambda.NeedsIsolatedLocalScope
+                ? LambdaExpressionTextWithLocalScope(lambda, expr)
+                : ExpressionTreeBodyText(lambda, expr);
             if (!lambda.IsExpressionTree
                 && EmitsExplicitUnsafeContexts
                 && HasRequiredUnsafeOperation(expr))
@@ -294,6 +291,24 @@ public sealed partial class CSharpPrinter
 
     /// <summary>Renders a locals-bearing lambda body through an isolated nested printer, trimmed but not yet flattened.</summary>
     string LambdaBodyTextWithLocalScope(Lambda lambda)
+        => WithLambdaLocalScope(
+            lambda,
+            static (printer, function) => printer.PrintBody(function).Trim());
+
+    string LambdaExpressionTextWithLocalScope(
+        Lambda lambda,
+        IrExpression expression)
+        => WithLambdaLocalScope(
+            lambda,
+            (printer, function) =>
+            {
+                printer.PrepareBody(function);
+                return printer.ExpressionTreeBodyText(lambda, expression);
+            });
+
+    T WithLambdaLocalScope<T>(
+        Lambda lambda,
+        Func<CSharpPrinter, IrFunction, T> render)
     {
         var body = lambda.Body;
         body.Detach();
@@ -327,7 +342,7 @@ public sealed partial class CSharpPrinter
             {
                 _labelScopeSuffix = AllocateNestedLabelScopeSuffix(),
             };
-            return printer.PrintBody(function).Trim();
+            return render(printer, function);
         }
         finally
         {
@@ -425,9 +440,7 @@ public sealed partial class CSharpPrinter
         // admitted failed the arm-width spell check and rendered bare).
         TypeRef? primitiveCoercionSourceType =
             armTarget is not null
-            && EffectiveType(node) is { } nodeType
-            && !nodeType.Equals(armTarget)
-            && CanRenderPrimitiveJoinForTarget(armTarget, nodeType, armValues)
+            && node.PrimitiveJoinArmSource(armTarget) is { } nodeType
                 ? nodeType
                 : null;
         bool joinHasExactTypedArm = armTarget is { } anchorTarget && armValues.Any(value => JoinArmAnchorsTarget(value, anchorTarget));

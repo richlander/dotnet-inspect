@@ -33,6 +33,37 @@ public sealed class MetadataDeclarationSession : IDisposable
         }
     }
 
+    public MetadataMethodDeclarationResult PostMethodDeclaration(
+        MetadataTypeDefinitionAddress type,
+        ILInspector.MetadataPrimitives.MetadataMethodAddress method,
+        CancellationToken token = default)
+    {
+        EnsureAccess();
+        token.ThrowIfCancellationRequested();
+        MetadataOperationContext operation = _operationContext!;
+        if (_imageAdmission is MetadataImageAdmissionResult.Rejected rejected)
+        {
+            return new MetadataMethodDeclarationResult.Rejected(
+                new MetadataMethodDeclarationFailure(
+                    new(type, method),
+                    MetadataMethodDeclarationFailureReason.BudgetExceeded,
+                    MetadataMethodDeclarationStage.RequestValidation,
+                    MetadataMethodDeclarationMechanism.ImageAdmission,
+                    "The metadata image was not admitted.",
+                    default,
+                    MetadataOperationDimension.MetadataRows,
+                    rejected.Failure.MaxMetadataRows,
+                    rejected.Failure.ImageMetadataRows),
+                operation.Counters);
+        }
+
+        return new MetadataMethodDeclarationEvidenceOperation(
+            _assemblySession!.GetMetadataReaderForDeclarationSession(),
+            operation,
+            GetOrCreateTypeDefinitionIndex)
+            .Post(type, method, token);
+    }
+
     public MetadataMethodImplementationResult Relate(
         MetadataTypeDefinitionAddress type,
         ILInspector.MetadataPrimitives.MetadataMethodAddress body,
@@ -70,6 +101,50 @@ public sealed class MetadataDeclarationSession : IDisposable
             operationContext,
             GetOrCreateTypeDefinitionIndex)
             .Relate(type, body, token);
+    }
+
+    public MetadataInterfaceImplementationResult Relate(
+        MetadataTypeDefinitionAddress type,
+        MetadataTypeIdentity interfaceType,
+        CancellationToken token = default)
+    {
+        EnsureAccess();
+        token.ThrowIfCancellationRequested();
+        MetadataOperationContext operationContext = _operationContext!;
+        if (_imageAdmission is MetadataImageAdmissionResult.Rejected rejected)
+        {
+            var request =
+                new MetadataInterfaceImplementationRequest(
+                    type,
+                    interfaceType);
+            return new MetadataInterfaceImplementationResult.Rejected(
+                new MetadataInterfaceImplementationFailure(
+                    request,
+                    MetadataInterfaceImplementationFailureReason
+                        .BudgetExceeded,
+                    MetadataInterfaceImplementationStage
+                        .RequestValidation,
+                    MetadataInterfaceImplementationMechanism
+                        .ImageAdmission,
+                    "The metadata image was not admitted by the operation policy.",
+                    RelevantRow: null,
+                    RelevantHandle: default,
+                    BudgetDimension:
+                        MetadataOperationDimension.MetadataRows,
+                    BudgetLimit:
+                        rejected.Failure.MaxMetadataRows,
+                    AttemptedCharge:
+                        rejected.Failure.ImageMetadataRows),
+                operationContext.Counters);
+        }
+
+        MetadataReader reader =
+            _assemblySession!.GetMetadataReaderForDeclarationSession();
+        return new MetadataInterfaceImplementationEvidenceOperation(
+            reader,
+            operationContext,
+            GetOrCreateTypeDefinitionIndex)
+            .Relate(type, interfaceType, token);
     }
 
     MetadataTypeDefinitionIndex GetOrCreateTypeDefinitionIndex(

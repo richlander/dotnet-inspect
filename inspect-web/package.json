@@ -43,5 +43,8 @@
     "marked": "18.0.13",
     "mermaid": "12.0.0",
     "prismjs": "1.30.0"
+  },
+  "overrides": {
+    "lodash-es": "4.18.1"
   }
 }

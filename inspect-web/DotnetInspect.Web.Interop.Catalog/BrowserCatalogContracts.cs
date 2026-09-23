@@ -179,7 +179,10 @@ public sealed record BrowserCallGraphTarget(
     string SelectorKey,
     string Kind,
     string? PlatformPack,
-    string? SurfaceAssemblyId);
+    string? SurfaceAssemblyId,
+    string? PackageId = null,
+    string? PackageVersion = null,
+    string? PackageFramework = null);
 
 public sealed record BrowserCallGraphNode(
     string Label,
@@ -757,6 +760,11 @@ public sealed record BrowserRetainedWorkspaceSettlementResult(
     string Status,
     BrowserRetainedWorkspaceSettlement? Settlement);
 
+/// <summary>One page-session credential for an authenticated Workspace source.</summary>
+public sealed record BrowserRetainedWorkspacePackageSourceCredential(
+    string Username,
+    string Pat);
+
 [JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase)]
 [JsonSerializable(typeof(BrowserVocabularyDocument))]
 [JsonSerializable(typeof(BrowserHomeDemoCatalog))]
@@ -773,4 +781,7 @@ public sealed record BrowserRetainedWorkspaceSettlementResult(
 [JsonSerializable(typeof(BrowserRetainedWorkspacePlatformAdmissionResult))]
 [JsonSerializable(typeof(BrowserRetainedWorkspaceDeactivationResult))]
 [JsonSerializable(typeof(BrowserRetainedWorkspaceSettlementResult))]
+[JsonSerializable(typeof(Dictionary<
+    string,
+    BrowserRetainedWorkspacePackageSourceCredential>))]
 internal sealed partial class BrowserCatalogJsonContext : JsonSerializerContext;

@@ -329,7 +329,7 @@ browser view when a supported provider mapping exists; otherwise the URL stays
 unchanged. For GitHub this selects `/blob/` views. Only the GitHub route segment
 is changed, not arbitrary `/raw/` segments in file paths or other providers.
 The [URL preference contract](output-shapes.md#url-shape-modifiers-orthogonal-to-the-ladder)
-owns this behavior and its distinction from `--print` and `--bare`.
+owns this behavior and its distinction from `--print` and `--raw`.
 
 ```bash
 # Default: fetchable source URLs

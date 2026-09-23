@@ -903,6 +903,32 @@ function deferred<T>(): Deferred<T> {
   return { promise, resolve: complete };
 }
 
+test("product navigation discloses startup-dependent destinations", async ({
+  context,
+  page,
+}) => {
+  await context.route("**/*.wasm", () => {});
+  await page.goto("/");
+  await expect(page.locator(".home-search.engine-pending")).toBeVisible();
+  const historyLength = await page.evaluate(() => history.length);
+
+  await page.locator("[data-product-navigation-button]").click();
+  for (const destination of ["query", "activity"] as const) {
+    const item = page.locator(
+      `[data-product-destination="${destination}"]`);
+    await expect(item).toHaveAttribute("aria-disabled", "true");
+    await expect(item).toHaveAccessibleDescription(
+      "Available after runtime startup completes");
+    await item.focus();
+    await page.keyboard.press("Enter");
+    await expect(page).toHaveURL("http://127.0.0.1:4187/");
+    await expect(page.locator(".home-title")).toBeVisible();
+    await expect(page.locator("[data-product-navigation-menu]")).toBeVisible();
+    await expect(item).toBeFocused();
+    expect(await page.evaluate(() => history.length)).toBe(historyLength);
+  }
+});
+
 test.describe("Package Query website over real Wasm", () => {
   test("qualifies package Results by decoded library literal and opens the exact Root", async ({
     page,
@@ -1393,6 +1419,7 @@ test.describe("Package Query website over real Wasm", () => {
 
     await firstValue.fill("Microsoft.Extensions.Logging");
     await page.locator(".brand").click();
+    await page.locator('[data-product-destination="home"]').click();
     await expect(page.locator(".home-search")).toBeVisible();
     await page.goBack();
     await expect(firstValue)
@@ -2445,7 +2472,8 @@ test.describe("bounded network-backed two-host demo", () => {
     await expect(page.locator(".inspected-target"))
       .toContainText("System.Text.Json", { timeout: 180_000 });
 
-    await page.locator('[data-application-scope="workspace"]').click();
+    await page.locator("[data-product-navigation-button]").click();
+    await page.locator('[data-product-destination="workspace"]').click();
     await page.getByRole(
       "button",
       { name: "Save Workspace", exact: true },
@@ -2555,7 +2583,8 @@ test.describe("bounded network-backed two-host demo", () => {
     expect(managedUrl).not.toBe(compatibilityUrl);
     await expect(page.locator("[data-workspace-add-package]")).toHaveCount(0);
 
-    await page.locator('[data-application-scope="query"]').click();
+    await page.locator("[data-product-navigation-button]").click();
+    await page.locator('[data-product-destination="query"]').click();
     await expect(page).toHaveURL(/\/query$/);
     await expect(page.locator("#package-query-heading"))
       .toHaveText("Package query");
@@ -2575,12 +2604,20 @@ test.describe("bounded network-backed two-host demo", () => {
     await expect(page.locator(".workspace-list .workspace-row"))
       .toHaveCount(2);
 
-    await page.locator('[data-application-scope="activity"]').click();
+    await page.locator("[data-product-navigation-button]").click();
+    await page.locator('[data-product-destination="activity"]').click();
     await expect(page).toHaveURL(/\/activity$/);
     await expect(page.locator("#package-changes-heading"))
       .toHaveText("Package Activity");
+    const productNavigationButton =
+      page.locator("[data-product-navigation-button]");
+    await productNavigationButton.click();
+    await page.locator('[data-product-destination="workspace"]').focus();
+    await expect(page.locator(".product-navigation-menu")).toBeVisible();
     await page.evaluate(() => history.back());
     await expect.poll(() => page.url()).toBe(managedUrl);
+    await expect(page.locator(".product-navigation-menu")).toBeHidden();
+    await expect(productNavigationButton).toBeFocused();
     await expect(page.locator("[data-navigation-order]"))
       .toContainText("System.Text.Json");
     await expect(page.locator("#package-changes-heading")).toHaveCount(0);
@@ -2595,10 +2632,8 @@ test.describe("bounded network-backed two-host demo", () => {
     await expect(page.locator(".workspace-list .workspace-row"))
       .toHaveCount(2);
 
-    await page.getByRole(
-      "link",
-      { name: "dotnet inspect home", exact: true },
-    ).click();
+    await page.locator("[data-product-navigation-button]").click();
+    await page.locator('[data-product-destination="home"]').click();
     await expect(page).toHaveURL(/\/$/);
     await expect(page.locator("#spotlight-input")).toBeVisible();
     await page.evaluate(() => history.back());

@@ -137,6 +137,10 @@ public static class CSharpDecompilerService
         cancellationToken.ThrowIfCancellationRequested();
 
         bool pdbSupplied = pdbImage.HasValue;
+        var tracker =
+            new CSharpTypeDocumentProductionTracker(
+                maxBodyProjections,
+                cancellationToken);
         if (pdbImage is { IsDefaultOrEmpty: true })
         {
             return new CSharpTypeDocumentOutcome.Rejected(
@@ -166,7 +170,7 @@ public static class CSharpDecompilerService
                     source,
                     pdbSupplied,
                     printerOptions,
-                    maxBodyProjections,
+                    tracker,
                     cancellationToken);
             cancellationToken.ThrowIfCancellationRequested();
             return outcome;
@@ -183,7 +187,8 @@ public static class CSharpDecompilerService
             cancellationToken.ThrowIfCancellationRequested();
             return new CSharpTypeDocumentOutcome.Unavailable(
                 $"Structured C# Type production is unavailable: "
-                    + $"{ex.GetType().Name}: {ex.Message}");
+                    + $"{ex.GetType().Name}: {ex.Message}",
+                tracker.Attempted);
         }
     }
 
@@ -423,6 +428,29 @@ internal sealed record CSharpServiceCompositionResult(
 
 internal sealed class CSharpCompositionBudgetExceededException : Exception
 {
+}
+
+internal sealed class CSharpTypeDocumentProductionTracker(
+    int maximum,
+    CancellationToken cancellationToken)
+{
+    int _attempted;
+
+    internal int Attempted => _attempted;
+    internal int Maximum { get; } =
+        maximum >= 0
+            ? maximum
+            : throw new ArgumentOutOfRangeException(nameof(maximum));
+
+    internal bool TryBegin()
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        if (_attempted >= Maximum)
+            return false;
+
+        _attempted++;
+        return true;
+    }
 }
 
 internal sealed class CSharpCompositionTracker(

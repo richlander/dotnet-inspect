@@ -9,6 +9,7 @@ import {
   installFacades,
   releaseFacade,
   currentWorkspaceHistoryState,
+  openProductDestination,
   openInstalledPlatform,
   openPlatform,
 } from "./library-hierarchy.support.ts";
@@ -21,7 +22,7 @@ test("Platform Workspace entry preserves the catalog for Back and Forward", asyn
   await openPlatform(page);
   const catalogLocation = page.url();
   const predecessor = await currentWorkspaceHistoryState(page);
-  await page.locator('[data-application-scope="workspace"]').click();
+  await openProductDestination(page, "workspace");
   await expect(page.locator("#inspector-panel h1")).toHaveText("Workspace");
   await expect(page.locator("[data-workspace-select]")).toBeFocused();
   await expect(page).not.toHaveURL(catalogLocation);
@@ -38,18 +39,77 @@ test("Platform Workspace entry preserves the catalog for Back and Forward", asyn
   await expect(page.locator("#inspector-panel h1")).toHaveText("Workspace");
 });
 
+test("rejected Platform Workspace history retains the catalog", async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await openPlatform(page);
+  const catalogLocation = page.url();
+  const historyLength = await page.evaluate(() => history.length);
+  const predecessor = await currentWorkspaceHistoryState(page);
+  await page.evaluate(() => {
+    history.pushState = () => {
+      throw new DOMException("Fixture history rejection.", "SecurityError");
+    };
+  });
+
+  await openProductDestination(page, "workspace");
+
+  await expect(page.locator('.toast[role="status"]'))
+    .toContainText("Browser history could not be updated.");
+  await expect(page).toHaveURL(catalogLocation);
+  await expect(subjectTab(page, "platform")).toHaveAttribute("aria-selected", "true");
+  expect(await page.evaluate(() => history.length)).toBe(historyLength);
+  expect(await currentWorkspaceHistoryState(page)).toEqual(predecessor);
+  await expect(page.locator("[data-product-navigation-button]")).toBeFocused();
+});
+
+for (const [destination, label] of [
+  ["home", "Home"],
+  ["query", "Query"],
+  ["activity", "Activity"],
+] as const) {
+  test(`rejected Platform ${label} history retains the catalog`, async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await openPlatform(page);
+    const catalogLocation = page.url();
+    const historyLength = await page.evaluate(() => history.length);
+    const predecessor = await currentWorkspaceHistoryState(page);
+    await page.evaluate(() => {
+      history.pushState = () => {
+        throw new DOMException("Fixture history rejection.", "SecurityError");
+      };
+    });
+
+    await openProductDestination(page, destination);
+
+    await expect(page.locator('.toast[role="status"]'))
+      .toContainText(
+        `Opening ${label} failed: Browser history could not be updated.`);
+    await expect(page).toHaveURL(catalogLocation);
+    await expect(subjectTab(page, "platform"))
+      .toHaveAttribute("aria-selected", "true");
+    expect(await page.evaluate(() => history.length)).toBe(historyLength);
+    expect(await currentWorkspaceHistoryState(page)).toEqual(predecessor);
+    await expect(page.locator("[data-product-navigation-button]"))
+      .toBeFocused();
+  });
+}
+
 test("pending Platform Workspace entry retains the catalog and newer Search focus", async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
   await openPlatform(page);
   const catalogLocation = page.url();
   await releaseFacade(page, "hold-workspace-encode");
-  await page.locator('[data-application-scope="workspace"]').click();
+  await openProductDestination(page, "workspace");
   await expect(page.locator("html"))
     .toHaveAttribute("data-workspace-encode-pending", "true");
   await expect(page).toHaveURL(catalogLocation);
   await expect(subjectTab(page, "platform")).toHaveAttribute("aria-selected", "true");
-  await expect(page.locator('[data-application-scope="workspace"]'))
+  await page.locator("[data-product-navigation-button]").click();
+  await expect(page.locator('[data-product-destination="workspace"]'))
     .not.toHaveAttribute("aria-current", "page");
+  await page.keyboard.press("Escape");
   const search = page.locator("#open-search");
   await search.focus();
 
@@ -65,7 +125,7 @@ test("failed Platform Workspace entry retains the catalog and focused control", 
   const historyLength = await page.evaluate(() => history.length);
   await releaseFacade(page, "hold-workspace-encode");
   await releaseFacade(page, "fail-workspace-encode");
-  await page.locator('[data-application-scope="workspace"]').click();
+  await openProductDestination(page, "workspace");
   await expect(page.locator("html"))
     .toHaveAttribute("data-workspace-encode-pending", "true");
   const search = page.locator("#open-search");
@@ -84,10 +144,10 @@ test("superseded Platform Workspace entry leaves Query and its focus current", a
   await page.setViewportSize({ width: 1440, height: 900 });
   await openPlatform(page);
   await releaseFacade(page, "hold-workspace-encode");
-  await page.locator('[data-application-scope="workspace"]').click();
+  await openProductDestination(page, "workspace");
   await expect(page.locator("html"))
     .toHaveAttribute("data-workspace-encode-pending", "true");
-  await page.locator('[data-application-scope="query"]').click();
+  await openProductDestination(page, "query");
   await expect(page).toHaveURL(/\/query$/);
   await releaseFacade(page, "finish-workspace-encode");
   await page.waitForTimeout(100);
@@ -99,13 +159,198 @@ test("Activity Back restores focus on the Platform route", async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
   await openPlatform(page);
   const platformLocation = page.url();
-  await page.locator("[data-application-scope='activity']").click();
+  await openProductDestination(page, "activity");
   await expect(page).toHaveURL(/\/activity$/);
 
   await page.goBack();
 
   await expect(page).toHaveURL(platformLocation);
-  await expect(page.locator("[data-application-scope='activity']")).toBeFocused();
+  await expect(page.locator("[data-product-navigation-button]")).toBeFocused();
+});
+
+test("platform-only Workspace preserves Query as its Back predecessor", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await openPlatform(page);
+  await openProductDestination(page, "query");
+  await expect(page).toHaveURL(/\/query$/);
+
+  await openProductDestination(page, "workspace");
+
+  await expect(page.locator("#inspector-panel h1")).toHaveText("Workspace");
+  await expect(page).not.toHaveURL(/\/query$/);
+  await page.goBack();
+  await expect(page).toHaveURL(/\/query$/);
+  await expect(page.locator("#package-query-heading"))
+    .toHaveText("Package query");
+});
+
+test("pending platform Workspace projection keeps Query current", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await openPlatform(page);
+  await openProductDestination(page, "query");
+  await expect(page).toHaveURL(/\/query$/);
+  const queryLocation = page.url();
+
+  await releaseFacade(page, "hold-workspace-encode");
+  await openProductDestination(page, "workspace");
+  await expect(page.locator("html"))
+    .toHaveAttribute("data-workspace-encode-pending", "true");
+  await expect(page).toHaveURL(queryLocation);
+  await expect(page.locator("#package-query-heading"))
+    .toHaveText("Package query");
+  await expect(page.locator("[data-product-navigation-button]"))
+    .toBeFocused();
+
+  await page.locator("[data-product-navigation-button]").click();
+  await expect(page.locator('[data-product-destination="query"]'))
+    .toHaveAttribute("aria-current", "page");
+  await expect(page.locator('[data-product-destination="workspace"]'))
+    .not.toHaveAttribute("aria-current", "page");
+  await page.evaluate(() => {
+    const app = document.querySelector("#app");
+    if (!app) throw new Error("Missing application root");
+    const observer = new MutationObserver(() => {
+      const active = document.activeElement;
+      document.documentElement.dataset.workspaceInterveningFocus =
+        `${active?.tagName ?? ""}#${active?.id ?? ""}`;
+      observer.disconnect();
+    });
+    observer.observe(app, { childList: true });
+  });
+
+  await releaseFacade(page, "finish-workspace-encode");
+  await expect(page.locator("html"))
+    .toHaveAttribute("data-workspace-intervening-focus", "DIV#app");
+  const app = page.locator("#app");
+  await expect(app).toBeFocused();
+  await expect(app).toHaveAttribute("tabindex", "-1");
+  await page.keyboard.press("Tab");
+  await expect(app).not.toHaveAttribute("tabindex");
+  await expect(page.locator("#inspector-panel h1")).toHaveText("Workspace");
+  await expect(page).not.toHaveURL(queryLocation);
+});
+
+test("Workspace projection parks brand focus before replacement", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await openPlatform(page);
+  await openProductDestination(page, "query");
+  await releaseFacade(page, "hold-workspace-encode");
+  await openProductDestination(page, "workspace");
+  await expect(page.locator("html"))
+    .toHaveAttribute("data-workspace-encode-pending", "true");
+  await expect(page.locator("[data-product-navigation-button]"))
+    .toBeFocused();
+  await page.evaluate(() => {
+    const app = document.querySelector("#app");
+    if (!app) throw new Error("Missing application root");
+    const observer = new MutationObserver(() => {
+      const active = document.activeElement;
+      document.documentElement.dataset.workspaceReplacementFocus =
+        `${active?.tagName ?? ""}#${active?.id ?? ""}`;
+      observer.disconnect();
+    });
+    observer.observe(app, { childList: true });
+  });
+
+  await releaseFacade(page, "finish-workspace-encode");
+
+  await expect(page.locator("html"))
+    .toHaveAttribute("data-workspace-replacement-focus", "DIV#app");
+  await expect(page.locator("[data-workspace-select]")).toBeFocused();
+});
+
+test("superseded Workspace projection cannot steal Activity focus", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await openPlatform(page);
+  await openProductDestination(page, "query");
+  await releaseFacade(page, "hold-workspace-encode");
+  await openProductDestination(page, "workspace");
+  await expect(page.locator("html"))
+    .toHaveAttribute("data-workspace-encode-pending", "true");
+
+  await openProductDestination(page, "activity");
+  await expect(page).toHaveURL(/\/activity$/);
+  const packageSet = page.locator("#package-changes-package-set");
+  await expect(packageSet).toBeFocused();
+
+  await releaseFacade(page, "finish-workspace-encode");
+  await page.waitForTimeout(100);
+  await expect(packageSet).toBeFocused();
+});
+
+test("Platform Workspace projection failure remains visible on Query", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await openPlatform(page);
+  await openProductDestination(page, "query");
+  const queryLocation = page.url();
+
+  await releaseFacade(page, "fail-workspace-encode");
+  await openProductDestination(page, "workspace");
+
+  await expect(page).toHaveURL(queryLocation);
+  await expect(page.locator("#package-query-heading"))
+    .toHaveText("Package query");
+  await expect(page.locator(".query-navigation-error"))
+    .toContainText("Fixture workspace projection failure.");
+  await expect(page.locator("[data-product-navigation-button]"))
+    .toBeFocused();
+});
+
+test("delayed Platform Workspace failure preserves newer Query focus", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await openPlatform(page);
+  await openProductDestination(page, "query");
+
+  await releaseFacade(page, "hold-workspace-encode");
+  await releaseFacade(page, "fail-workspace-encode");
+  await openProductDestination(page, "workspace");
+  await expect(page.locator("html"))
+    .toHaveAttribute("data-workspace-encode-pending", "true");
+
+  const queryInput = page.locator("#package-query-prefix");
+  await queryInput.focus();
+  await expect(queryInput).toBeFocused();
+  await releaseFacade(page, "finish-workspace-encode");
+
+  await expect(page.locator(".query-navigation-error"))
+    .toContainText("Fixture workspace projection failure.");
+  await expect(queryInput).toBeFocused();
+});
+
+test("Platform Library projection failure does not use package fallback", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await openPlatform(page);
+  await page.getByRole(
+    "button",
+    { name: /System.Text.Json Implementation/ },
+  ).click();
+  await expect(subjectTab(page, "library"))
+    .toHaveAttribute("aria-selected", "true");
+  await openProductDestination(page, "query");
+  const queryLocation = page.url();
+
+  await releaseFacade(page, "fail-workspace-encode");
+  await openProductDestination(page, "workspace");
+
+  await expect(page).toHaveURL(queryLocation);
+  await expect(page.locator("#package-query-heading"))
+    .toHaveText("Package query");
+  await expect(page.locator(".query-navigation-error"))
+    .toContainText("Fixture workspace projection failure.");
 });
 
 test("Platform opens its catalog before warm-up, with reference membership and role labels", async ({ page }) => {
@@ -217,12 +462,12 @@ test("Spotlight offers NuGet and .NET Library System.Text.Json destinations with
   await expect(page.locator("[data-type-nav-back]")).toHaveCount(0);
   await expect(page.locator(".inspected-target .subject-path")).toContainText("System.Text.Json");
   await expect(page.locator(".inspected-target .subject-path")).not.toContainText("Platform");
-  await page.locator('[data-application-scope="workspace"]').click();
+  await openProductDestination(page, "workspace");
   await expect(page.locator("[data-workspace-platform]")).toHaveCount(0);
   await expect(page.locator("[data-workspace-framework-library]")).toContainText("System.Text.Json");
   await page.locator("[data-workspace-framework-library]").click();
   await expect(subjectTab(page, "library")).toHaveAttribute("aria-selected", "true");
-  await page.locator('[data-application-scope="workspace"]').click();
+  await openProductDestination(page, "workspace");
   await page.keyboard.press("Control+p");
   await page.locator("#spotlight-input").fill("System.Text.Json");
   await page.locator('[data-sl-framework-lib="System.Text.Json"]').click();
@@ -265,7 +510,7 @@ test("a direct Spotlight framework Library remains a Library after package activ
   await page.locator('[data-sl-framework-lib="System.Text.Json"]').click();
   await expect(subjectTab(page, "library")).toHaveAttribute("aria-selected", "true");
 
-  await page.locator('[data-application-scope="workspace"]').click();
+  await openProductDestination(page, "workspace");
   await page.getByRole("button", { name: "Add package", exact: true }).click();
   const add = page.getByRole("dialog", { name: "Add package", exact: true });
   await add.getByRole("combobox", { name: "Add package", exact: true })
@@ -280,7 +525,7 @@ test("a direct Spotlight framework Library remains a Library after package activ
     { name: "Inspect Second.Package 1.0.0 net10.0", exact: true },
   ).click();
   await expect(page.locator(".inspected-target")).toContainText("Second.Package");
-  await page.locator('[data-application-scope="workspace"]').click();
+  await openProductDestination(page, "workspace");
   await expect(page.locator("[data-workspace-platform]")).toHaveCount(0);
   await expect(page.locator("[data-workspace-framework-library]"))
     .toContainText("System.Text.Json");
@@ -309,7 +554,7 @@ test("Workspace retains an in-place framework Library selection", async ({ page 
   await picker.selectOption("System.Facade");
   await expect(picker).toHaveValue("System.Facade");
 
-  await page.locator('[data-application-scope="workspace"]').click();
+  await openProductDestination(page, "workspace");
   const frameworkLibrary =
     page.locator("[data-workspace-framework-library]");
   await expect(frameworkLibrary).toContainText("System.Facade");
@@ -392,7 +637,7 @@ test("Catalog-only Platform is a Workspace coordinate and pending Library work c
   await openPlatform(page, { libraryPending: true, warmup: "pending" });
   await page.getByRole("button", { name: /System.Text.Json Implementation/ }).click();
   await expect(page.locator("html")).toHaveAttribute("data-platform-library-request");
-  await page.locator('[data-application-scope="workspace"]').click();
+  await openProductDestination(page, "workspace");
   await expect(page.locator("#inspector-panel h1")).toHaveText("Workspace");
   await expect(page.locator("#inspector-panel")).toContainText(platformVersion);
   await releaseFacade(page, "finish-platform-library");
@@ -593,7 +838,7 @@ test("Package and catalog-only Platform remain distinct coordinates in the same 
   await page.reload();
   await expect(page.locator("#platform-version")).toHaveValue(platformVersion);
   await expect(page.locator("html")).not.toHaveAttribute("data-platform-library-request");
-  await page.locator('[data-application-scope="workspace"]').click();
+  await openProductDestination(page, "workspace");
   await expect(page.locator("#inspector-panel")).toContainText("2 loaded coordinates");
   await expect(page.locator("#inspector-panel")).toContainText("Example.Package");
   await expect(page.locator("[data-workspace-platform]")).toContainText(platformVersion);
@@ -601,7 +846,7 @@ test("Package and catalog-only Platform remain distinct coordinates in the same 
   await expect(subjectTab(page, "library")).toHaveAttribute("aria-selected", "true");
   await expect(page.locator(".library-overview-surface h1"))
     .toHaveText("All libraries");
-  await page.locator('[data-application-scope="workspace"]').click();
+  await openProductDestination(page, "workspace");
   await page.locator("[data-workspace-platform]").click();
   await expect(subjectTab(page, "platform")).toHaveAttribute("aria-selected", "true");
   await expect(page.locator("#platform-version")).toHaveValue(platformVersion);
@@ -615,7 +860,7 @@ test("an unrelated Platform history entry does not parent a Spotlight Library", 
   await expect(subjectTab(page, "library")).toHaveAttribute("aria-selected", "true");
   await page.locator("[data-type-nav-back]").click();
   await expect(subjectTab(page, "platform")).toHaveAttribute("aria-selected", "true");
-  await page.locator('[data-application-scope="workspace"]').click();
+  await openProductDestination(page, "workspace");
   await page.locator("[data-workspace-activate]").click();
   await expect(page.locator(".inspected-target")).toContainText("Example.Package");
 
@@ -627,7 +872,7 @@ test("an unrelated Platform history entry does not parent a Spotlight Library", 
   await expect(subjectTab(page, "platform")).toHaveCount(0);
   await expect(page.locator("[data-type-nav-back]")).toHaveCount(0);
   await expect(page.locator(".inspected-target .subject-path")).not.toContainText("Platform");
-  await page.locator('[data-application-scope="workspace"]').click();
+  await openProductDestination(page, "workspace");
   await expect(page.locator("[data-workspace-platform]")).toHaveCount(0);
 });
 
@@ -639,7 +884,7 @@ test("an unrelated Platform history entry does not parent Spotlight Types or Mem
   await expect(subjectTab(page, "library")).toHaveAttribute("aria-selected", "true");
   await page.locator("[data-type-nav-back]").click();
   await expect(subjectTab(page, "platform")).toHaveAttribute("aria-selected", "true");
-  await page.locator('[data-application-scope="workspace"]').click();
+  await openProductDestination(page, "workspace");
   await page.locator("[data-workspace-activate]").click();
   await expect(page.locator(".inspected-target")).toContainText("Example.Package");
 
@@ -652,7 +897,7 @@ test("an unrelated Platform history entry does not parent Spotlight Types or Mem
   await expect(subjectTab(page, "platform")).toHaveCount(0);
   await expect(page.locator("[data-type-nav-back]")).toHaveAttribute("title", "Back to library");
   await expect(page.locator(".inspected-target .subject-path")).not.toContainText("Platform");
-  await page.locator('[data-application-scope="workspace"]').click();
+  await openProductDestination(page, "workspace");
   await expect(page.locator("[data-workspace-platform]")).toHaveCount(0);
   await page.locator("[data-workspace-activate]").click();
   await expect(page.locator(".inspected-target")).toContainText("Example.Package");
@@ -665,7 +910,7 @@ test("an unrelated Platform history entry does not parent Spotlight Types or Mem
   await expect(subjectTab(page, "member")).toHaveAttribute("aria-selected", "true");
   await expect(subjectTab(page, "platform")).toHaveCount(0);
   await expect(page.locator(".inspected-target .subject-path")).not.toContainText("Platform");
-  await page.locator('[data-application-scope="workspace"]').click();
+  await openProductDestination(page, "workspace");
   await expect(page.locator("[data-workspace-platform]")).toHaveCount(0);
 });
 
@@ -692,7 +937,7 @@ test("catalog-only Platform retains its Workspace identity and canonical URL acr
   await expect(page.locator("#platform-version")).toHaveValue(platformVersion);
   await expect(page.locator("html")).not.toHaveAttribute("data-platform-library-request");
 
-  await page.locator('[data-application-scope="workspace"]').click();
+  await openProductDestination(page, "workspace");
   await expect(page.locator("[data-workspace-select]")).toContainText("1 loaded coordinate");
   await expect(page.locator("[data-workspace-switch]")).toHaveCount(1);
   await page.locator("[data-workspace-platform]").click();
@@ -735,7 +980,7 @@ test("Platform descendant history and retained switching preserve the real paren
   await page.keyboard.press("Control+p");
   await page.locator('[data-sl-pkg-recent="Second.Package"]').click();
   await expect(page.locator(".inspected-target")).toContainText("Second.Package");
-  await page.locator('[data-application-scope="workspace"]').click();
+  await openProductDestination(page, "workspace");
   await page.locator("[data-workspace-switch]").click();
 
   await expect(subjectTab(page, "member")).toHaveAttribute("aria-selected", "true");

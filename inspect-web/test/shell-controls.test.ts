@@ -259,11 +259,13 @@ test("application menu renders exact conditional inventory", () => {
   assert.match(button, /aria-haspopup="menu"/);
   assert.match(
     withShare,
-    /data-application-action="open-library"[\s\S]*role="separator"[\s\S]*data-application-action="share"[\s\S]*role="separator"[\s\S]*data-application-action="settings"[\s\S]*data-application-action="keyboard-help"/);
+    /data-application-action="share"[\s\S]*role="separator"[\s\S]*data-application-action="settings"[\s\S]*data-application-action="keyboard-help"/);
+  assert.doesNotMatch(withShare, /data-application-action="open-library"/);
   assert.doesNotMatch(withoutShare, /data-application-action="share"/);
   assert.match(
     withoutShare,
-    /data-application-action="open-library"[\s\S]*role="separator"[\s\S]*data-application-action="settings"[\s\S]*data-application-action="keyboard-help"/);
+    /data-application-action="settings"[\s\S]*data-application-action="keyboard-help"/);
+  assert.doesNotMatch(withoutShare, /role="separator"/);
 });
 
 test("application menu follows menu-button keyboard and dismissal behavior", () => {
@@ -271,16 +273,14 @@ test("application menu follows menu-button keyboard and dismissal behavior", () 
   const button = root.add("#application-menu-button");
   const menu = root.add("#application-menu");
   menu.hidden = true;
-  const open = root.element({ applicationAction: "open-library" });
   const share = root.element({ applicationAction: "share" });
   const settings = root.element({ applicationAction: "settings" });
   const help = root.element({ applicationAction: "keyboard-help" });
-  open.hidden = false;
   share.hidden = false;
   settings.hidden = false;
   help.hidden = false;
-  menu.addAll('[role="menuitem"]', open, share, settings, help);
-  menu.addAll("[data-application-action]", open, share, settings, help);
+  menu.addAll('[role="menuitem"]', share, settings, help);
+  menu.addAll("[data-application-action]", share, settings, help);
   root.addAll(
     'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
     button);
@@ -297,14 +297,14 @@ test("application menu follows menu-button keyboard and dismissal behavior", () 
   assert.equal(button.dispatch("keydown", { key: "ArrowDown" }), true);
   assert.equal(menu.hidden, false);
   assert.equal(button.getAttribute("aria-expanded"), "true");
-  assert.equal(open.focused, true);
+  assert.equal(share.focused, true);
 
   menu.dispatch("keydown", { key: "ArrowDown" });
-  assert.equal(share.focused, true);
+  assert.equal(settings.focused, true);
   menu.dispatch("keydown", { key: "End" });
   assert.equal(help.focused, true);
   menu.dispatch("keydown", { key: "ArrowDown" });
-  assert.equal(open.focused, true);
+  assert.equal(share.focused, true);
   assert.equal(menu.dispatch("keydown", { key: "Escape" }), true);
   assert.equal(menu.hidden, true);
   assert.equal(button.focused, true);
@@ -381,8 +381,6 @@ test("keyboard help is rendered from registered keybinding descriptions", () => 
 
 test("workbench shell separates navigation and inspected target rows", () => {
   const html = workbenchShellHtml({
-    applicationScopeHtml:
-      '<nav class="application-scope-strip">Query Workspace</nav>',
     contextualActionsHtml: '<div class="working-surface-actions">Copy</div>',
     inspectedTargetHtml: '<div class="inspected-target" data-test="target">System.Text.Json</div>',
     subjectInspectorHtml: '<div class="lensbar">Subjects</div>',
@@ -391,7 +389,7 @@ test("workbench shell separates navigation and inspected target rows", () => {
 
   assert.match(
     html,
-    /class="titlebar"[\s\S]*class="brand"[\s\S]*class="application-scope-region"[\s\S]*class="lensbar"[\s\S]*class="title-navigation"[\s\S]*class="application-menu-slot"[\s\S]*class="targetbar"[\s\S]*data-test="target"[\s\S]*class="working-surface-actions"/);
+    /class="titlebar"[\s\S]*class="brand"[\s\S]*class="product-navigation-menu"[\s\S]*class="lensbar"[\s\S]*class="title-navigation"[\s\S]*class="application-menu-slot"[\s\S]*class="targetbar"[\s\S]*data-test="target"[\s\S]*class="working-surface-actions"/);
   assert.doesNotMatch(html, /workspace-window|workspace-strip/);
   assert.doesNotMatch(
     html,
@@ -401,7 +399,9 @@ test("workbench shell separates navigation and inspected target rows", () => {
   assert.match(html, /id="nav-back"[\s\S]*<svg[\s\S]*id="nav-forward"/);
   assert.match(html, /id="nav-forward"[\s\S]*disabled/);
   assert.match(html, /id="application-menu-button"/);
-  assert.doesNotMatch(html, /id="go-home"|>Home<\/button>/);
+  assert.match(
+    html,
+    /data-product-destination="home"[\s\S]*data-product-destination="query"[\s\S]*data-product-destination="workspace"[\s\S]*data-product-destination="activity"/);
   assert.doesNotMatch(html, /id="open-settings"/);
   assert.doesNotMatch(html, /id="share"/);
   assert.doesNotMatch(html, /id="help"/);

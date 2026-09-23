@@ -3,6 +3,7 @@ using System.CommandLine.Parsing;
 using DotnetInspect.Cli.Commands;
 using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Output;
+using DotnetInspect.Cli.Sections;
 using DotnetInspector.Services;
 using DotnetInspect.Cli.Services;
 using QuerySpace.Rows;
@@ -27,10 +28,12 @@ public static class DiffOptionsParser
         Option<string?> FrameworkOption,
         Option<string?> TfmOption,
         Option<bool> AllOption,
+        Option<bool> ImplementationOption,
         Option<bool> HistoryOption,
         Option<string[]> AtOption,
         Option<int?> MaxProbesOption,
         Option<int?> SamplePercentOption,
+        Option<bool> MajorVersionsOption,
         Option<bool> PrereleaseOption,
         Option<bool> CountOption,
         Option<string[]> TypeFilterOption,
@@ -144,6 +147,8 @@ public static class DiffOptionsParser
             MaxProbes = parseResult.GetValue(args.MaxProbesOption),
             SamplePercent =
                 parseResult.GetValue(args.SamplePercentOption),
+            MajorVersions =
+                parseResult.GetValue(args.MajorVersionsOption),
             IncludePrerelease = parseResult.GetValue(args.PrereleaseOption),
             Count = parseResult.GetValue(args.CountOption),
             SemanticRowSelection = semanticRowSelection,
@@ -178,7 +183,10 @@ public static class DiffOptionsParser
             Discover = opts.ParseDiscover(parseResult),
             Schema = opts.ParseSchema(parseResult),
             Tree = parseResult.GetValue(opts.Tree),
-            Select = opts.ParseSelect(parseResult),
+            Select = ParseEffectiveSelect(
+                parseResult,
+                opts,
+                args.ImplementationOption),
             SelectDefault = opts.ParseSelectDefault(parseResult),
             Columns = opts.ParseColumns(parseResult),
             Fields = opts.ParseFields(parseResult),
@@ -190,6 +198,27 @@ public static class DiffOptionsParser
             ? TipLevel.Quiet : opts.ParseTipLevel(parseResult);
 
         return new Success(options, verbosity, tipLevel);
+    }
+
+    internal static string[]? ParseEffectiveSelect(
+        ParseResult parseResult,
+        SharedOptions opts,
+        Option<bool> implementationOption)
+    {
+        string[]? selectors = opts.ParseSelect(parseResult);
+        if (!parseResult.GetValue(implementationOption)
+            || selectors?.Contains(
+                DiffSections.ImplementationDiff.Name,
+                StringComparer.OrdinalIgnoreCase) == true)
+        {
+            return selectors;
+        }
+
+        return
+        [
+            .. selectors ?? [],
+            DiffSections.ImplementationDiff.Name,
+        ];
     }
 
     /// <summary>

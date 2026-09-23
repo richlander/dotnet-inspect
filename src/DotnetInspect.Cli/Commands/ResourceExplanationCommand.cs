@@ -47,7 +47,9 @@ public static class ResourceExplanationCommand
                 projection.ExactOnlySections,
                 projection.OutputCapabilities
                 ?? throw new InvalidOperationException(
-                    "Library output capabilities are required."));
+                    "Library output capabilities are required."),
+                sectionCardinalities:
+                    projection.SectionCardinalities);
         if (structural is null)
         {
             CommandError.Write(

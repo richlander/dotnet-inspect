@@ -5,6 +5,7 @@ import {
   assertNever,
   callGraphAssemblyIdentityMatches,
   callGraphDiagnosticsMessage,
+  callGraphTargetPackageCoordinate,
   callGraphTargetMatchesType,
   callGraphTargetTypeId,
   combinedGraphTargetNavigationDisposition,
@@ -120,6 +121,12 @@ import {
   WORKBENCH_KEYBINDING_PRIORITY,
 } from "./workbench-keybindings.ts";
 import {
+  createWorkspaceFeedActivationCoordinator,
+  type RetainedWorkspaceModels,
+  type WorkspaceFeedActivationCoordinator,
+  type WorkspaceFeedRollbackTransfer,
+} from "./workspace-feed-activation.ts";
+import {
   createAppMemberSurface,
   createAppTypeSurface,
   createPackageAcquisition,
@@ -181,6 +188,7 @@ import {
   renderKeyboardHelpDialog,
   renderTitleNavigation,
   restoreApplicationMenuFocusIfOwned,
+  trapModalTab,
   type ApplicationAction,
   type HomeShellBindingActions,
   type LoadErrorShellBindingActions,
@@ -277,6 +285,7 @@ import {
   type IntegrationMode,
 } from "./integration-inspector.ts";
 import { renderLibraryAnalysisSurface } from "./library-analysis.ts";
+import { renderLibraryMetricsSurface } from "./library-metrics.ts";
 import {
   captureMemberFocus,
   createMemberFocusRestorer,
@@ -341,7 +350,6 @@ import {
   captureScopeBarFocus,
   createScopeBarState,
   focusRenderedElement,
-  renderApplicationScopeBar,
   renderScopeBar as renderScopeBarPure,
   restoreScopeBarFocus,
   type ScopeBarBinding,
@@ -449,7 +457,12 @@ import {
   type StyleOption,
   type StyleTier,
 } from "./settings-panel.ts";
-import { renderBrand } from "./brand.ts";
+import {
+  bindProductNavigation,
+  renderBrand,
+  type ProductAction,
+  type ProductDestination,
+} from "./brand.ts";
 import {
   DEFAULT_PLATFORM_FRAMEWORK, isExactPlatformPruningFramework,
   loadPlatformIndex, parsePlatformCatalogTarget,
@@ -735,6 +748,10 @@ let inspectPackageOpportunities:
   EngineClient["analysis"]["queryPackageOpportunities"];
 let inspectPackagePerformance:
   EngineClient["analysis"]["queryPackagePerformance"];
+let inspectPackageLibraryMetrics:
+  EngineClient["analysis"]["queryPackageLibraryMetrics"];
+let inspectPlatformLibraryMetrics:
+  EngineClient["analysis"]["queryPlatformLibraryMetrics"];
 let inspectPlatformIntegrations:
   EngineClient["analysis"]["queryPlatformIntegrations"];
 let inspectPlatformOpportunities:
@@ -882,6 +899,8 @@ async function loadEngineModule() {
       queryPackageIntegrations: inspectPackageIntegrations,
       queryPackageOpportunities: inspectPackageOpportunities,
       queryPackagePerformance: inspectPackagePerformance,
+      queryPackageLibraryMetrics: inspectPackageLibraryMetrics,
+      queryPlatformLibraryMetrics: inspectPlatformLibraryMetrics,
       queryPlatformIntegrations: inspectPlatformIntegrations,
       queryPlatformOpportunities: inspectPlatformOpportunities,
       queryPlatformPerformance: inspectPlatformPerformance,
@@ -1058,7 +1077,7 @@ let homeBotAnimationStartedAt: number | null = null;
 let homeReadyGlintPending = true;
 let homeFocusRenderGeneration = 0;
 let pendingHomeFocusTarget: HomeFocusTarget | null = null;
-type LibraryOpenReturnTarget = "home" | "application" | "surface";
+type LibraryOpenReturnTarget = "home" | "product-navigation" | "surface";
 const initialState = {
   theme: localStorage.getItem("inspect-theme") === "light" ? "light" : "dark",
   memberFiltersExpanded: false,
@@ -1106,6 +1125,7 @@ const initialState = {
   requestedVersion: "10.0.0",
   requestedFramework: DEFAULT_REQUESTED_FRAMEWORK,
   workspaceShareBasis: null,
+  workspaceFeedUrl: null,
   selectedTypeId: "",
   selectedMemberKey: "",
   memberBrowseTypeId: "",
@@ -1161,6 +1181,10 @@ const initialState = {
   packagePerformanceLoading: false,
   packagePerformanceError: "",
   packagePerformanceKey: "",
+  packageLibraryMetrics: null,
+  packageLibraryMetricsLoading: false,
+  packageLibraryMetricsError: "",
+  packageLibraryMetricsKey: "",
   packageMetadata: null,
   packageMetadataLoading: false,
   packageMetadataError: "",
@@ -1265,6 +1289,7 @@ interface StateOverrides {
   uploadedLibrary: AppPackage | null;
   workspaceOccurrences: BrowserWorkspacePackageOccurrenceView | null;
   workspaceShareBasis: BrowserWorkspaceShareState | null;
+  workspaceFeedUrl: string | null;
   platformIndex: PlatformIndex | null;
   platformSelection: PlatformNavigationState | null;
   frameworkLibraryPresentation: {
@@ -1398,6 +1423,14 @@ interface CanonicalWorkspaceRestoreSnapshot {
   hasWorkspace: boolean;
   url: string;
   navigation: NavigationHistorySnapshot<WorkspaceView>;
+  activeRetainedWorkspacePosting: BrowserRetainedWorkspacePosting | null;
+  retainedWorkspacePresentation: NavigationDescriptorPresentation | null;
+  retainedWorkspaceInitialDetailAuthority: {
+    realizationId: string;
+    navigationSeq: number;
+    presentationCurrent: boolean;
+  } | null;
+  installedRetainedLocation: InstalledLocationAssociation | null;
   failedWorkspaceUrlState: FailedWorkspaceUrlState | null;
   platformLibraryRetry: RetryAction;
   platformCatalogRetry: RetryAction;
@@ -1423,6 +1456,17 @@ let failedManagedRetainedDefinitionId: string | null = null;
 const retainedLocationIntents = createNavigationLocationIntentArbiter();
 let installedRetainedLocation: InstalledLocationAssociation | null = null;
 let activeWorkspaceUrl: string | null = null;
+let workspaceFeedActivation:
+  WorkspaceFeedActivationCoordinator<
+    CanonicalWorkspaceRestoreSnapshot
+  > | null = null;
+const workspaceFeedRollbackTransfers = new WeakMap<
+  CanonicalWorkspaceRestoreSnapshot,
+  WorkspaceFeedRollbackTransfer<CanonicalWorkspaceRestoreSnapshot>
+>();
+let workspaceFeedRollbackTransfer:
+  WorkspaceFeedRollbackTransfer<CanonicalWorkspaceRestoreSnapshot> | null =
+    null;
 let pendingWorkspaceConstruction: {
   navigationSeq: number;
   supersessionSnapshot: CanonicalWorkspaceRestoreSnapshot;
@@ -1508,6 +1552,10 @@ CanonicalWorkspaceRestoreSnapshot {
       || retainedWorkspaces.activeWorkspaceId !== null,
     url: captureCanonicalWorkspaceUrl(),
     navigation: navigationHistory.snapshot(),
+    activeRetainedWorkspacePosting,
+    retainedWorkspacePresentation,
+    retainedWorkspaceInitialDetailAuthority,
+    installedRetainedLocation,
     failedWorkspaceUrlState: failedWorkspaceUrlState
       ? structuredClone(failedWorkspaceUrlState)
       : null,
@@ -1637,6 +1685,11 @@ function restoreCanonicalWorkspaceRestoreSnapshot(
   state.workspaceOccurrences = null;
   state.workspaceOccurrenceError = "";
   navigationHistory.restore(snapshot.navigation);
+  activeRetainedWorkspacePosting = snapshot.activeRetainedWorkspacePosting;
+  retainedWorkspacePresentation = snapshot.retainedWorkspacePresentation;
+  retainedWorkspaceInitialDetailAuthority =
+    snapshot.retainedWorkspaceInitialDetailAuthority;
+  installedRetainedLocation = snapshot.installedRetainedLocation;
   failedWorkspaceUrlState = snapshot.failedWorkspaceUrlState
     ? structuredClone(snapshot.failedWorkspaceUrlState)
     : null;
@@ -1679,6 +1732,12 @@ function cloneCanonicalWorkspaceSnapshotForRetention(
     hasWorkspace: snapshot.hasWorkspace,
     url: snapshot.url,
     navigation: structuredClone(snapshot.navigation),
+    activeRetainedWorkspacePosting:
+      snapshot.activeRetainedWorkspacePosting,
+    retainedWorkspacePresentation: snapshot.retainedWorkspacePresentation,
+    retainedWorkspaceInitialDetailAuthority:
+      snapshot.retainedWorkspaceInitialDetailAuthority,
+    installedRetainedLocation: snapshot.installedRetainedLocation,
     failedWorkspaceUrlState: snapshot.failedWorkspaceUrlState
       ? structuredClone(snapshot.failedWorkspaceUrlState)
       : null,
@@ -1783,7 +1842,7 @@ function restoreRetainedWorkspaceSnapshot(
 }
 
 function captureWorkspaceConstructionSnapshots(navigationSeq: number) {
-  const supersessionSnapshot = captureCanonicalWorkspaceRestoreSnapshot();
+  const supersessionSnapshot = captureWorkspaceNavigationRollback();
   const hasActiveWorkspace = retainedWorkspaces.activeWorkspaceId !== null;
   const retainedSnapshot = hasActiveWorkspace
     ? cloneCanonicalWorkspaceSnapshotForRetention(supersessionSnapshot)
@@ -1805,7 +1864,7 @@ function captureWorkspaceConstructionSnapshots(navigationSeq: number) {
 function captureWorkspaceMutationSnapshot(
   navigationSeq: number,
 ): CanonicalWorkspaceRestoreSnapshot {
-  const snapshot = captureCanonicalWorkspaceRestoreSnapshot();
+  const snapshot = captureWorkspaceNavigationRollback();
   pendingWorkspaceConstruction = {
     navigationSeq,
     supersessionSnapshot: snapshot,
@@ -1814,6 +1873,76 @@ function captureWorkspaceMutationSnapshot(
   setWorkspaceConstructionPending(true);
   invalidateWorkspaceAsyncOwners();
   return snapshot;
+}
+
+function captureWorkspaceNavigationRollback():
+CanonicalWorkspaceRestoreSnapshot {
+  let transfer =
+    workspaceFeedActivation?.transferCommittedRollback() ?? null;
+  if (transfer === null && workspaceFeedRollbackTransfer !== null) {
+    transfer = workspaceFeedRollbackTransfer.transfer();
+    if (transfer === null) workspaceFeedRollbackTransfer = null;
+  }
+  if (transfer === null) {
+    return captureCanonicalWorkspaceRestoreSnapshot();
+  }
+  workspaceFeedRollbackTransfer = transfer;
+  workspaceFeedRollbackTransfers.set(transfer.snapshot, transfer);
+  return transfer.snapshot;
+}
+
+async function restoreWorkspaceNavigationRollback(
+  snapshot: CanonicalWorkspaceRestoreSnapshot,
+): Promise<boolean> {
+  const transfer = workspaceFeedRollbackTransfers.get(snapshot);
+  if (transfer === undefined) {
+    restoreCanonicalWorkspaceRestoreSnapshot(snapshot);
+    return true;
+  }
+  const restored = await transfer.restore();
+  if (workspaceFeedRollbackTransfers.get(snapshot) === transfer) {
+    workspaceFeedRollbackTransfers.delete(snapshot);
+  }
+  if (workspaceFeedRollbackTransfer === transfer) {
+    workspaceFeedRollbackTransfer = null;
+  }
+  return restored;
+}
+
+function recoverWorkspaceNavigationRollback(
+  snapshot: CanonicalWorkspaceRestoreSnapshot,
+  complete: () => void,
+): void {
+  setWorkspaceConstructionPending(true);
+  observeAsync(
+    restoreWorkspaceNavigationRollback(snapshot).then(
+      restored => {
+        if (restored) complete();
+        return undefined;
+      },
+      (error: unknown) => reportWorkspaceNavigationRollbackFailure(
+        snapshot,
+        error,
+        complete)),
+    "Restoring the prior Workspace",
+  );
+}
+
+function reportWorkspaceNavigationRollbackFailure(
+  snapshot: CanonicalWorkspaceRestoreSnapshot,
+  error: unknown,
+  complete: () => void,
+): void {
+  discardPendingWorkspaceConstruction();
+  clearWorkspacePackages();
+  state.loading = false;
+  state.home = false;
+  state.errorTitle = "Workspace recovery failed";
+  state.error =
+    `The prior Workspace could not be restored: ${errorMessage(error)}`;
+  state.retryAction = () =>
+    recoverWorkspaceNavigationRollback(snapshot, complete);
+  render();
 }
 
 function setWorkspaceConstructionPending(pending: boolean): void {
@@ -1832,6 +1961,16 @@ function cancelPendingWorkspaceConstruction(): void {
   memberDetailInspection.invalidate();
   if (pending.retainedSnapshot) {
     releaseRetainedWorkspaceSnapshot(pending.retainedSnapshot);
+  }
+  const transfer = workspaceFeedRollbackTransfers.get(
+    pending.supersessionSnapshot);
+  if (transfer !== undefined) {
+    const successor = transfer.transfer();
+    if (successor !== null) {
+      workspaceFeedRollbackTransfer = successor;
+      workspaceFeedRollbackTransfers.set(successor.snapshot, successor);
+      return;
+    }
   }
   restoreCanonicalWorkspaceRestoreSnapshot(pending.supersessionSnapshot);
   setWorkspaceConstructionPending(false);
@@ -2381,7 +2520,10 @@ function retainedWorkspaceItems() {
       active: workspace.id === retainedWorkspaces.activeWorkspaceId,
     };
   });
-  const managed = retainedWorkspaceActivation?.state.definitions.map(
+  const managed = retainedWorkspaceActivation?.state.definitions
+    .filter(definition =>
+      workspaceFeedActivation?.ownsRetainedDefinition(definition.id) !== true)
+    .map(
     definition => ({
       id: definition.id,
       label: definition.label,
@@ -2541,8 +2683,12 @@ function selectRetainedWorkspace(workspaceId: string): void {
     );
     return;
   }
+  const activeManagedDefinitionId =
+    retainedWorkspaceActivation?.state.activeDefinitionId ?? null;
   if (retainedWorkspaceActivation !== null
-    && retainedWorkspaceActivation.state.activeDefinitionId !== null) {
+    && activeManagedDefinitionId !== null
+    && workspaceFeedActivation?.ownsRetainedDefinition(
+      activeManagedDefinitionId) !== true) {
     observeAsync(
       activateCompatibilityRetainedWorkspace(workspaceId),
       "Activating compatibility Workspace",
@@ -2566,6 +2712,24 @@ function selectRetainedWorkspace(workspaceId: string): void {
   } catch (error) {
     showToast(`Could not activate Workspace: ${errorMessage(error)}`);
   }
+}
+
+async function deleteActiveManagedWorkspace(
+  controller: RetainedWorkspaceActivationController,
+  retainedDefinitionId: string,
+  completeDeactivation: () => void | Promise<void>,
+): Promise<void> {
+  if (workspaceFeedActivation?.ownsRetainedDefinition(
+    retainedDefinitionId)) {
+    await workspaceFeedActivation.deactivateRetainedDefinition(
+      retainedDefinitionId,
+      completeDeactivation);
+    return;
+  }
+  await controller.delete(retainedDefinitionId, {
+    successorDefinitionId: null,
+    completeDeactivation,
+  });
 }
 
 async function activateCompatibilityRetainedWorkspace(
@@ -2593,9 +2757,10 @@ async function activateCompatibilityRetainedWorkspace(
         installedRetainedLocation,
         history,
       );
-    await controller.delete(activeDefinitionId, {
-      successorDefinitionId: null,
-      completeDeactivation: () => {
+    await deleteActiveManagedWorkspace(
+      controller,
+      activeDefinitionId,
+      () => {
         if (!activateRetainedWorkspaceProjection(workspaceId, false)) {
           throw new Error("The compatibility Workspace is no longer available.");
         }
@@ -2616,7 +2781,8 @@ async function activateCompatibilityRetainedWorkspace(
         installedRetainedLocation = null;
         render({ synchronizeUrl: false });
       },
-    });
+    );
+    clearWorkspaceFeedIdentity();
     retainedWorkspacePostings.delete(activeDefinitionId);
 }
 
@@ -2675,6 +2841,7 @@ async function activateManagedRetainedWorkspace(
         locationIntent,
         activationNavigationSeq,
       );
+      clearWorkspaceFeedIdentity();
     }
 }
 
@@ -2682,15 +2849,49 @@ function activateRetainedWorkspaceProjection(
   workspaceId: string,
   restoreUrl = true,
 ): boolean {
-  const currentSnapshot = captureRetainedWorkspaceSnapshot();
-  const transition = activateRetainedWorkspaceState(
-    retainedWorkspaces,
-    workspaceId,
-    currentSnapshot);
-  if (!transition.activatedSnapshot) return false;
-  retainedWorkspaces = transition.collection;
-  restoreRetainedWorkspaceSnapshot(transition.activatedSnapshot, restoreUrl);
-  return true;
+  const sourceRollbackTransfer =
+    workspaceFeedActivation?.transferCommittedRollback() ?? null;
+  if (sourceRollbackTransfer !== null) {
+    workspaceFeedRollbackTransfers.set(
+      sourceRollbackTransfer.snapshot,
+      sourceRollbackTransfer);
+  }
+  const currentSnapshot = sourceRollbackTransfer !== null
+    ? cloneCanonicalWorkspaceSnapshotForRetention(
+      sourceRollbackTransfer.snapshot)
+    : captureRetainedWorkspaceSnapshot();
+  if (sourceRollbackTransfer !== null) invalidateWorkspaceAsyncOwners();
+  const priorCollection = retainedWorkspaces;
+  try {
+    const transition = activateRetainedWorkspaceState(
+      retainedWorkspaces,
+      workspaceId,
+      currentSnapshot);
+    if (!transition.activatedSnapshot) {
+      if (sourceRollbackTransfer !== null) {
+        releaseRetainedWorkspaceSnapshot(currentSnapshot);
+        recoverWorkspaceNavigationRollback(
+          sourceRollbackTransfer.snapshot,
+          () => setWorkspaceConstructionPending(false));
+      }
+      return false;
+    }
+    restoreRetainedWorkspaceSnapshot(
+      transition.activatedSnapshot,
+      restoreUrl);
+    retainedWorkspaces = transition.collection;
+    workspaceFeedActivation?.clearActiveUrl();
+    return true;
+  } catch (error) {
+    retainedWorkspaces = priorCollection;
+    if (sourceRollbackTransfer !== null) {
+      releaseRetainedWorkspaceSnapshot(currentSnapshot);
+      recoverWorkspaceNavigationRollback(
+        sourceRollbackTransfer.snapshot,
+        () => setWorkspaceConstructionPending(false));
+    }
+    throw error;
+  }
 }
 
 function rebindActiveWorkspaceHistory(): void {
@@ -3798,6 +3999,12 @@ function requireElement(selector: string): HTMLElement {
 }
 
 const app = requireElement("#app");
+const productNavigationBinding = bindProductNavigation(app, {
+  currentDestination: currentProductDestination,
+  onAction: dispatchProductAction,
+  onNavigate: navigateProductDestination,
+  unavailableReason: productNavigationUnavailableReason,
+});
 const graphExplorer = createGraphExplorer(document);
 let graphExplorerNavigationFocusPending = false;
 let graphExplorerOriginKey: string | null = null;
@@ -3820,6 +4027,7 @@ let callGraphRenderOperation: {
 } | null = null;
 let spotlightFocusGeneration = 0;
 let documentFocusGeneration = 0;
+let workspaceProductFocusParkingActive = false;
 let contentFramePane: ContentFramePane = "detail";
 let contentFrameFocusOwner: ContentFrameFocusOwner = null;
 interface ContentFrameReplacementAuthority {
@@ -3944,7 +4152,7 @@ const libraryApiDiff = createLibraryApiDiffCoordinator({
 const compareClone = createCompareCloneCoordinator({
   state,
   operationAuthority,
-  query: requestJson => inspectCloneCandidates(requestJson),
+  query: request => inspectCloneCandidates(request),
   describeError: errorMessage,
   reportOperationDiagnostic: diagnostic => {
     console.error("Compare Clone operation authority failure.", diagnostic);
@@ -4148,6 +4356,11 @@ function renderPreservingContentFrameFocus() {
 
 function trackContentFrameFocus(event: FocusEvent) {
   documentFocusGeneration++;
+  if (workspaceProductFocusParkingActive
+    && document.activeElement !== app) {
+    workspaceProductFocusParkingActive = false;
+    app.removeAttribute("tabindex");
+  }
   contentFrameReplacementAuthority = null;
   const focused = event.target instanceof HTMLElement ? event.target : null;
   contentFrameFocusOwner = contentFrameFocusOwnerFor(focused);
@@ -4678,6 +4891,7 @@ function invalidateWorkspaceMembershipViews(): void {
   state.memberCallGraphKey = "";
   state.platformStack = [];
   state.workspaceShareBasis = null;
+  state.workspaceFeedUrl = null;
   clearWorkspaceOccurrenceView();
   packageInspection.invalidatePackageResults();
   spotlightCache = null;
@@ -4733,6 +4947,7 @@ function clearWorkspacePackages() {
   state.package = null;
   state.uploadedLibrary = null;
   state.workspaceShareBasis = null;
+  state.workspaceFeedUrl = null;
   state.platformSelection = null;
   state.frameworkLibraryPresentation = null;
   state.platformPresentedAsRoot = false;
@@ -5335,6 +5550,7 @@ function libraryLensRequiresExactLibrary(lens: LibraryLens) {
     case "references":
     case "integrations":
     case "analysis":
+    case "metrics":
     case "metadata": return true;
     default: return assertNever(lens, "library lens");
   }
@@ -6270,6 +6486,15 @@ function settingsOwnsHomeFocusTarget(target: HomeFocusTarget | null): boolean {
 }
 
 function render(options: { synchronizeUrl?: boolean } = {}) {
+  productNavigationBinding.beforeRender();
+  try {
+    renderCore(options);
+  } finally {
+    productNavigationBinding.afterRender();
+  }
+}
+
+function renderCore(options: { synchronizeUrl?: boolean }) {
   sourceInspection.cancelHiddenRequest();
   libraryApiDiff.reconcile(currentLibraryApiDiffSelection());
   compareClone.reconcile(currentCompareCloneTarget());
@@ -6319,8 +6544,8 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
     pendingHomeFocusTarget ?? captureHomeFocus(focusedElement);
   contentFrameFocusOwner = null;
   contentFrameReplacementAuthority = null;
-  const scopeBarOwnsFocus = focusedElement
-    ?.closest("[data-scope-bar], [data-application-scope-strip]") != null;
+  const scopeBarOwnsFocus =
+    focusedElement?.closest("[data-scope-bar]") != null;
   const scopeBarFocus = focusedElement
     ? captureScopeBarFocus(focusedElement)
     : null;
@@ -6582,6 +6807,8 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
     libraryIntegrationsWorkingSurface && state.integrationMode === "opportunities";
   const libraryAnalysisWorkingSurface =
     activeScope === "library" && state.libraryLens === "analysis";
+  const libraryMetricsWorkingSurface =
+    activeScope === "library" && state.libraryLens === "metrics";
   const memberOverloadPicker =
     currentMember !== undefined
     && currentMember.overloads.length > 1
@@ -6627,6 +6854,7 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
     || libraryIntegrationsWorkingSurface
     || libraryOpportunitiesWorkingSurface
     || libraryAnalysisWorkingSurface
+    || libraryMetricsWorkingSurface
     || memberWorkingSurface;
 
   if (scopeBarOwnsFocus) {
@@ -6638,10 +6866,6 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
   app.innerHTML = `
     <div class="workbench"${state.memberAnnotatedModal || applicationModalOpen ? " inert" : ""}>
       ${workbenchShellHtml({
-        applicationScopeHtml: renderApplicationScopeBar(
-          activeScope === "workspace" ? "workspace" : null,
-          true,
-          escapeHtml),
         contextualActionsHtml: !loadingPackageContent && (annotatedPageContext || sourcePageKind || callGraphPageContext || packageDependenciesWorkingSurface || metadataWorkingSurface)
           ? `<div class="working-surface-actions" role="group" aria-label="${metadataWorkingSurface ? "Type graph actions" : packageDependenciesWorkingSurface ? "Dependency graph actions" : callGraphPageContext ? "Call graph actions" : annotatedPageContext ? "Annotated Source actions" : sourcePageKind ? "Source actions" : "Member actions"}">
               ${metadataWorkingSurface
@@ -6697,9 +6921,7 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
 
       <main id="subject-panel" class="workspace${contentFrameEnabled ? " content-frame" : ""}"
         ${contentFrameEnabled ? `data-content-pane="${contentFramePane}"` : ""}
-        ${activeScope === "workspace"
-          ? 'role="tabpanel" aria-labelledby="application-scope-workspace"'
-          : ""}>
+        >
         ${renderNavPane(current, visible)}
 
         <section class="detail-pane${contentFrameEnabled
@@ -6710,7 +6932,7 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
           ${contentFrameEnabled
             ? renderContentNavigationBar(contentNavigationLabel)
             : ""}
-          <article id="inspector-panel" ${loadingPackageContent ? 'aria-busy="true"' : ""} class="detail-scroll${annotatedWorkingSurface ? " annotated-working-surface" : ""}${sourceWorkingSurface ? " source-working-surface" : ""}${apiWorkingSurface ? " api-working-surface" : ""}${metadataWorkingSurface ? " metadata-working-surface" : ""}${overviewWorkingSurface ? " overview-working-surface" : ""}${packageDependenciesWorkingSurface ? " package-dependencies-working-surface" : ""}${compareWorkingSurface ? " library-api-diff-working-surface" : ""}${libraryMetadataWorkingSurface ? " package-metadata-working-surface" : ""}${libraryReferencesWorkingSurface ? " library-references-working-surface" : ""}${libraryIntegrationsWorkingSurface ? " library-integrations-working-surface" : ""}${libraryOpportunitiesWorkingSurface ? " library-opportunities-working-surface" : ""}${libraryAnalysisWorkingSurface ? " library-analysis-working-surface" : ""}${memberWorkingSurface ? " member-working-surface" : ""}">
+          <article id="inspector-panel" ${loadingPackageContent ? 'aria-busy="true"' : ""} class="detail-scroll${annotatedWorkingSurface ? " annotated-working-surface" : ""}${sourceWorkingSurface ? " source-working-surface" : ""}${apiWorkingSurface ? " api-working-surface" : ""}${metadataWorkingSurface ? " metadata-working-surface" : ""}${overviewWorkingSurface ? " overview-working-surface" : ""}${packageDependenciesWorkingSurface ? " package-dependencies-working-surface" : ""}${compareWorkingSurface ? " library-api-diff-working-surface" : ""}${libraryMetadataWorkingSurface ? " package-metadata-working-surface" : ""}${libraryReferencesWorkingSurface ? " library-references-working-surface" : ""}${libraryIntegrationsWorkingSurface ? " library-integrations-working-surface" : ""}${libraryOpportunitiesWorkingSurface ? " library-opportunities-working-surface" : ""}${libraryAnalysisWorkingSurface || libraryMetricsWorkingSurface ? " library-analysis-working-surface" : ""}${memberWorkingSurface ? " member-working-surface" : ""}">
             ${loadingPackageContent
               ? `<div id="package-content-loading" class="package-content-loading" role="status" tabindex="-1" data-package-loading-control="${packageContentLoadingFocusControl ?? (state.requestedVersion !== pkg.version ? "package-version" : "package-framework")}"${state.requestedVersion !== pkg.version ? "" : ` data-package-loading-framework="${escapeHtml(state.requestedFramework)}"`}><span class="loader" aria-hidden="true"></span><span>Loading ${state.requestedVersion !== pkg.version ? `version ${escapeHtml(state.requestedVersion)}` : escapeHtml(state.requestedFramework)} content…</span></div>`
               : renderLens(current)}
@@ -6827,6 +7049,7 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
     maybeAutoLoadPackageIntegrations();
     maybeAutoLoadPackageOpportunities();
     maybeAutoLoadPackagePerformance();
+    maybeAutoLoadPackageLibraryMetrics();
     maybeAutoLoadPackageMetadata();
   }
   if (scope() === "member"
@@ -6851,10 +7074,6 @@ function renderWorkspaceCatalogView() {
   app.innerHTML = `
     <div class="workbench"${state.settings || state.keyboardHelp || state.libraryOpen ? " inert" : ""}>
       ${workbenchShellHtml({
-        applicationScopeHtml: renderApplicationScopeBar(
-          "workspace",
-          true,
-          escapeHtml),
         inspectedTargetHtml: `
           <div class="inspected-target" aria-label="Inspected target">
             <span class="subject-icon" aria-hidden="true">W</span>
@@ -6870,7 +7089,7 @@ function renderWorkspaceCatalogView() {
       <div class="notice-stack">
         ${renderQueryNotice()}
       </div>
-      <main id="subject-panel" class="workspace" role="tabpanel" aria-labelledby="application-scope-workspace">
+      <main id="subject-panel" class="workspace">
         ${renderWorkspaceNavPane()}
         <section class="detail-pane">
           <article id="inspector-panel" class="detail-scroll">
@@ -7302,6 +7521,7 @@ function renderLibraryView() {
     || state.libraryLens === "references"
     || state.libraryLens === "integrations"
     || state.libraryLens === "analysis"
+    || state.libraryLens === "metrics"
     || state.libraryLens === "metadata") return body;
   return `${libraryHeading()}${body}`;
 }
@@ -7399,6 +7619,7 @@ function libraryLensBody() {
       ? renderPackageOpportunities()
       : renderPackageIntegrations();
     case "analysis": return renderPackagePerformance();
+    case "metrics": return renderPackageLibraryMetrics();
     case "metadata": return renderPackageMetadata();
     default: return assertNever(state.libraryLens, "library lens");
   }
@@ -7841,6 +8062,12 @@ const packageInspection = createPackageInspectionCoordinator({
     packageModel.version,
     packageModel.activeFramework,
     library),
+  queryPackageLibraryMetrics: (packageModel, library) =>
+    inspectPackageLibraryMetrics(
+      packageModel.id,
+      packageModel.version,
+      packageModel.activeFramework,
+      library),
   queryPlatformPerformance: async (
     framework,
     platformVersion,
@@ -7853,6 +8080,17 @@ const packageInspection = createPackageInspectionCoordinator({
         platformVersion,
         assemblyFileName,
         pack)),
+  queryPlatformLibraryMetrics: (
+    framework,
+    platformVersion,
+    assemblyFileName,
+    pack,
+  ) =>
+    inspectPlatformLibraryMetrics(
+      framework,
+      platformVersion,
+      assemblyFileName,
+      pack),
   queryPackageMetadata: (packageModel, library) =>
     inspectPackageMetadata(
       packageModel.id,
@@ -8046,6 +8284,31 @@ function renderPackagePerformance() {
   });
 }
 
+function renderPackageLibraryMetrics() {
+  const pkg = currentPackage();
+  const library = selectedLibrary();
+  const scopedLib = scopedPlatformLibrary();
+  const current = packageScopeSignature();
+  return renderLibraryMetricsSurface({
+    libraryName: library?.name ?? "",
+    assemblyIdentity: library ? libraryIdentity(library) : "No library selected",
+    assetPath: library?.asset ?? "",
+    coordinate: `${pkg.activeFramework} · ${pkg.id}@${pkg.version}`,
+    requireLibrary: pkg.isRuntimePack && !scopedLib,
+    pickerHtml: pkg.isRuntimePack
+      ? platformLibrarySelectHtml({
+          dataAttr: "data-platform-metrics-library",
+          selected: scopedLib || "",
+        })
+      : "",
+    fresh: state.packageLibraryMetricsKey === current,
+    loading: state.packageLibraryMetricsLoading,
+    error: state.packageLibraryMetricsError,
+    data: state.packageLibraryMetrics,
+    escapeHtml,
+  });
+}
+
 async function loadPackagePerformance() {
   const pkg = currentPackage();
   const scopedLib = selectedLibraryRequest() || null;
@@ -8061,6 +8324,23 @@ function maybeAutoLoadPackagePerformance() {
   if (Boolean(state.package?.isRuntimePack) && !scopedPlatformLibrary()) return;
   if (state.packagePerformanceKey === packageScopeSignature()) return;
   observeAsync(loadPackagePerformance(), "Loading package analysis");
+}
+
+function loadPackageLibraryMetrics() {
+  const pkg = currentPackage();
+  const scopedLib = selectedLibraryRequest() || null;
+  return packageInspection.loadLibraryMetrics(
+    pkg,
+    packageScopeSignature(),
+    scopedLib);
+}
+
+function maybeAutoLoadPackageLibraryMetrics() {
+  if (!state.atLibraryRoot || state.libraryLens !== "metrics") return;
+  if (aggregateLibrarySubjectIsActive()) return;
+  if (Boolean(state.package?.isRuntimePack) && !scopedPlatformLibrary()) return;
+  if (state.packageLibraryMetricsKey === packageScopeSignature()) return;
+  observeAsync(loadPackageLibraryMetrics(), "Loading library metrics");
 }
 
 // The Library Metadata lens describes one image-level container: metadata format version,
@@ -9543,6 +9823,7 @@ async function openPlatformLensLibrary(
     else await loadPackageIntegrations();
   }
   else if (lens === "analysis") await loadPackagePerformance();
+  else if (lens === "metrics") await loadPackageLibraryMetrics();
   else await loadPackageMetadata();
 }
 
@@ -9850,20 +10131,6 @@ function bindTypePanelEvents() {
 
 function bindScopeBarEvents() {
   scopeBarBinding = bindScopeBar(document, {
-    onApplicationScopeSelect: applicationScope => {
-      if (applicationScope === "query") {
-        openPackageQueryRoute("", {
-          preserveState: true,
-          returnFocus: "application-query",
-        });
-      } else if (applicationScope === "activity") {
-        openPackageActivityRoute("application-activity");
-      } else if (scope() !== "workspace") {
-        observeAsync(
-          selectWorkspaceApplicationScope(),
-          "Opening the Workspace scope");
-      }
-    },
     onMemberSectionSelect: section => {
       contentFramePane = "detail";
       applyMemberSection(section);
@@ -10990,7 +11257,6 @@ function renderPlatformView() {
   const idle = { loading: false, error: "" };
   app.innerHTML = `<div class="workbench"${state.settings || state.keyboardHelp || state.libraryOpen ? " inert" : ""}>
     ${workbenchShellHtml({
-      applicationScopeHtml: renderApplicationScopeBar(null, true, escapeHtml),
       inspectedTargetHtml: `<div class="inspected-target"><span class="subject-icon" aria-hidden="true">.NET</span><div class="subject-path">${renderInspectedSubjectPath(currentInspectedSubjectPath())}</div></div>`,
       subjectInspectorHtml: renderScopeBar(["platform"]),
       titleNavigationHtml: renderTitleNavigation(navigationHistory.canBack(), navigationHistory.canForward()),
@@ -12425,6 +12691,8 @@ async function buildStateUrl(base = location.href): Promise<URL> {
 }
 
 async function buildShareUrl(base = location.href): Promise<URL> {
+  if (state.workspaceFeedUrl)
+    return new URL(state.workspaceFeedUrl);
   const snapshot = captureWorkspaceUrlState();
   return snapshot
     ? await workspaceLocation.build(snapshot, base)
@@ -12452,11 +12720,18 @@ function syncUrl() {
   if (pendingWorkspaceConstruction
     && navigationSequence.isCurrent(
       pendingWorkspaceConstruction.navigationSeq)) return;
+  if (workspaceFeedActivation?.blocksUrlSynchronization) return;
   if (retainFailedWorkspaceUrl()) return;
   const pushFromProductDemos =
     isProductHomeDemosPath(location.pathname);
   if (state.loading) return;
   document.title = `dotnet-inspect -- ${packageDisplayName(state.package)}`;
+  if (state.workspaceFeedUrl) {
+    workspaceLocation.replace(
+      state.workspaceFeedUrl,
+      history.state);
+    return;
+  }
   const navigationSeq = navigationSequence.current();
   if (state.atPackageRoot && state.package) {
     const revision = ++syncUrlRevision;
@@ -13444,10 +13719,12 @@ async function openSavedWorkspaceEntry(entry: SavedWorkspace): Promise<void> {
       await openSavedWorkspaceCore(entry);
       return;
     }
-    await controller.delete(activeDefinitionId, {
-      successorDefinitionId: null,
-      completeDeactivation: () => openSavedWorkspaceCore(entry),
-    });
+    await deleteActiveManagedWorkspace(
+      controller,
+      activeDefinitionId,
+      () => openSavedWorkspaceCore(entry),
+    );
+    clearWorkspaceFeedIdentity();
     retainedWorkspacePostings.delete(activeDefinitionId);
     return;
   }
@@ -13513,6 +13790,7 @@ async function openSavedWorkspaceEntry(entry: SavedWorkspace): Promise<void> {
       locationIntent,
       activationNavigationSeq,
     );
+    clearWorkspaceFeedIdentity();
   }
 }
 
@@ -13666,6 +13944,7 @@ async function restoreFreshWorkspaceFromHistory(
       && (state.package || state.platformSelection)) {
       const destination = (await buildStateUrl()).toString();
       if (!navigationSequence.isCurrent(navigationSeq)) return;
+      clearWorkspaceFeedIdentity();
       publishCurrentWorkspace(construction.retainedSnapshot);
       workspaceLocation.replace(destination, history.state);
       render({ synchronizeUrl: false });
@@ -13710,6 +13989,7 @@ async function restoreRetainedWorkspaceFromHistory(
     if (!failed && navigationSequence.isCurrent(navigationSeq)) {
       const destination = (await buildStateUrl()).toString();
       if (!navigationSequence.isCurrent(navigationSeq)) return;
+      clearWorkspaceFeedIdentity();
       discardPendingWorkspaceConstruction();
       activeWorkspaceUrl = destination;
       workspaceLocation.replace(destination, history.state);
@@ -13742,6 +14022,16 @@ function failWorkspaceCatalogAction(
   retry: RetryAction,
   restoreFocus: () => boolean,
 ): void {
+  if (snapshot && workspaceFeedRollbackTransfers.has(snapshot)) {
+    recoverWorkspaceNavigationRollback(
+      snapshot,
+      () => failWorkspaceCatalogAction(
+        message,
+        snapshot,
+        retry,
+        restoreFocus));
+    return;
+  }
   discardPendingWorkspaceConstruction();
   if (snapshot) restoreCanonicalWorkspaceRestoreSnapshot(snapshot);
   state.loading = false;
@@ -13764,18 +14054,40 @@ function failWorkspaceCatalogAction(
 // Return to the intro/home page without tearing down the warm engine or the loaded packages.
 // Soft in-app navigation (pushState "/") so a refresh stays on home and Back returns to the
 // workbench; the home search reuses the still-resident package list.
-function goHome() {
-  navigationSequence.begin();
+function goHome(): boolean {
+  if (!clearWorkspaceRouteFailure()) {
+    render();
+    return false;
+  }
+  const navigationSeq = navigationSequence.begin();
+  const initiatingFocusGeneration = documentFocusGeneration;
+  try {
+    supersedeRetainedLocationIntentForRoutedNavigation();
+  } catch (error) {
+    reportProductNavigationFailure(
+      "home",
+      error,
+      navigationSeq,
+      initiatingFocusGeneration,
+      true,
+    );
+    return false;
+  }
+  if (!workspaceLocation.push("/")) {
+    reportProductNavigationFailure(
+      "home",
+      new Error("Browser history could not be updated."),
+      navigationSeq,
+      initiatingFocusGeneration,
+      true,
+    );
+    return false;
+  }
   state.loading = false;
   state.memberCallGraphSeq++;
   state.memberCallGraphExpanding = false;
   invalidateGraphMemberNavigation();
   clearNavigationError();
-  if (!clearWorkspaceRouteFailure()) {
-    render();
-    return;
-  }
-  supersedeRetainedLocationIntentForRoutedNavigation();
   discardPackageQueryTermEditors();
   state.packageQueryOpen = false;
   state.packageActivityOpen = false;
@@ -13784,8 +14096,96 @@ function goHome() {
   state.credits = false;
   state.home = true;
   spotlight.reset();
-  workspaceLocation.push("/");
   render();
+  return true;
+}
+
+function currentProductDestination(): ProductDestination | null {
+  if (isDiagnosticsPath(location.pathname)
+    || isProductHomeDemosPath(location.pathname)
+    || state.credits) return null;
+  if (state.packageQueryOpen) return "query";
+  if (state.packageActivityOpen) return "activity";
+  if (state.workspaceSubjectOpen && !state.home) return "workspace";
+  if (state.home && !state.credits) return "home";
+  return null;
+}
+
+function productNavigationUnavailableReason(
+  destination: ProductDestination,
+): string | null {
+  if (destination === "workspace"
+    && state.package === null
+    && state.platformSelection === null) {
+    return "No workspace is open";
+  }
+  if (destination !== "query" && destination !== "activity") return null;
+  if (!state.engineReady) return "Available after runtime startup completes";
+  if (state.loading) return "Available after the current inspection loads";
+  if (state.error) return "Available after the current inspection error is resolved";
+  return null;
+}
+
+function focusProductNavigationButton(): void {
+  document.querySelector<HTMLElement>("[data-product-navigation-button]")
+    ?.focus({ preventScroll: true });
+}
+
+function productNavigationOwnsFocus(): boolean {
+  return document.activeElement instanceof Element
+    && (document.activeElement.closest("[data-product-navigation-button]")
+        !== null
+      || document.activeElement.closest("[data-product-navigation-menu]")
+        !== null);
+}
+
+function navigateProductDestination(destination: ProductDestination): void {
+  if (destination === currentProductDestination()) {
+    focusProductNavigationButton();
+    return;
+  }
+  if (destination === "home") {
+    if (goHome()) {
+      afterCurrentNavigationFrame(() => focusLevelOneHeading());
+    }
+    return;
+  }
+  if (destination === "query") {
+    openPackageQueryRoute("", {
+      preserveState: true,
+      returnFocus: "application-query",
+    });
+    return;
+  }
+  if (destination === "activity") {
+    openPackageActivityRoute("application-activity");
+    return;
+  }
+  observeAsync(
+    openWorkspaceProductDestination().then(completion => {
+      if (completion === null) return undefined;
+      requestAnimationFrame(() => {
+        const releaseFocusParking = () => {
+          if (completion.focusGeneration === null) return;
+          if (document.activeElement === app) {
+            return;
+          }
+          workspaceProductFocusParkingActive = false;
+          app.removeAttribute("tabindex");
+        };
+        if (!navigationSequence.isCurrent(completion.navigationSeq)
+          || completion.focusGeneration === null
+          || !completion.restoreDestinationFocus
+          || completion.focusGeneration !== documentFocusGeneration) {
+          releaseFocusParking();
+          return;
+        }
+        focusWorkspaceOrHeading();
+        releaseFocusParking();
+      });
+      return undefined;
+    }),
+    "Opening the Workspace destination");
 }
 
 function openCredits() {
@@ -13883,15 +14283,30 @@ function diagnosticsBuildState(): DiagnosticsBuildState {
 }
 
 function renderDiagnosticsPage() {
-  const activeId = document.activeElement?.id;
+  const activeElement = document.activeElement;
+  const activeId = activeElement?.id;
+  const productNavigationFocused = Boolean(
+    activeElement?.closest("[data-product-navigation-menu]"));
+  const diagnosticsFocusWillBeReplaced =
+    productNavigationFocused
+    || activeId === "diagnostics-heading"
+    || activeId === "diagnostics-product"
+    || activeId === "diagnostics-commit"
+    || activeId === "diagnostics-back";
   const focusTargetId = diagnosticsHeadingFocusPending
     || activeId === "diagnostics-heading"
     ? "diagnostics-heading"
-    : activeId === "diagnostics-product"
+    : productNavigationFocused
+      ? "diagnostics-product"
+      : activeId === "diagnostics-product"
       || activeId === "diagnostics-commit"
       || activeId === "diagnostics-back"
       ? activeId
       : null;
+  if (diagnosticsFocusWillBeReplaced) {
+    app.tabIndex = -1;
+    app.focus({ preventScroll: true });
+  }
   state.diagnosticsCapturedAtUtc ??= new Date().toISOString();
   document.title = "Diagnostics · dotnet-inspect";
   app.innerHTML = diagnosticsViewHtml({
@@ -13902,25 +14317,33 @@ function renderDiagnosticsPage() {
   }, value => escapeHtml(value));
   bindDiagnosticsView(document, {
     onBack: closeDiagnosticsRoute,
-    onHome: openDiagnosticsHome,
   });
   if (focusTargetId) {
     const focusGeneration = documentFocusGeneration;
     requestAnimationFrame(() => {
+      const releaseFocusParking = () => {
+        if (diagnosticsFocusWillBeReplaced) {
+          app.removeAttribute("tabindex");
+        }
+      };
       if (!isDiagnosticsPath(location.pathname)) {
         diagnosticsHeadingFocusPending = false;
+        releaseFocusParking();
         return;
       }
       if (focusGeneration !== documentFocusGeneration) {
         diagnosticsHeadingFocusPending = false;
+        releaseFocusParking();
         return;
       }
       if (focusTargetId === "diagnostics-heading") {
         diagnosticsHeadingFocusPending = false;
         focusLevelOneHeading();
+        releaseFocusParking();
         return;
       }
       document.getElementById(focusTargetId)?.focus({ preventScroll: true });
+      releaseFocusParking();
     });
   }
 }
@@ -13958,11 +14381,6 @@ function closeDiagnosticsRoute() {
     return;
   }
   replaceDiagnosticsWithHome();
-}
-
-function openDiagnosticsHome() {
-  diagnosticsDestinationFocusPending = true;
-  goHome();
 }
 
 function replaceDiagnosticsWithHome() {
@@ -14004,6 +14422,12 @@ function focusPackageActivityInput() {
       if (document.activeElement === packageSet) return;
     }
     focusLevelOneHeading();
+  });
+}
+
+function afterNavigationFrame(navigationSeq: number, action: () => void) {
+  requestAnimationFrame(() => {
+    if (navigationSequence.isCurrent(navigationSeq)) action();
   });
 }
 
@@ -14072,9 +14496,8 @@ function restorePackageQueryReturnFocus() {
   if (!state.packageQueryReturnFocusPending) return;
   if (state.packageQueryReturnFocus === "application-query") {
     afterCurrentNavigationFrame(() => {
-      const queryScope = document.querySelector<HTMLElement>(
-        '[data-application-scope="query"]');
-      if (focusRenderedElement(queryScope)) {
+      if (focusRenderedElement(document.querySelector<HTMLElement>(
+        "[data-product-navigation-button]"))) {
         state.packageQueryReturnFocus = null;
         state.packageQueryReturnFocusPending = false;
       } else if (focusLevelOneHeading()) {
@@ -14101,9 +14524,8 @@ function restorePackageActivityReturnFocus() {
   if (state.packageActivityReturnFocus === "application-activity") {
     afterCurrentNavigationFrame(() => {
       afterCurrentNavigationFrame(() => {
-        const activityScope = document.querySelector<HTMLElement>(
-          '[data-application-scope="activity"]');
-        if (focusRenderedElement(activityScope) || focusLevelOneHeading()) {
+        if (focusRenderedElement(document.querySelector<HTMLElement>(
+          "[data-product-navigation-button]")) || focusLevelOneHeading()) {
           state.packageActivityReturnFocus = null;
           state.packageActivityReturnFocusPending = false;
         }
@@ -14199,11 +14621,42 @@ function openPackageQueryRoute(
     preserveState?: boolean;
     returnFocus?: PackageQueryReturnFocus;
   } = {},
-) {
-  if (!state.engineReady || state.loading || state.error) return;
+): boolean {
+  if (!state.engineReady || state.loading || state.error) return false;
+  const returnFocus: PackageQueryReturnFocus = options.returnFocus
+    ?? (state.home ? "home-search" : "package-search");
+  const navigationSeq = navigationSequence.begin();
+  const initiatingFocusGeneration = documentFocusGeneration;
+  try {
+    supersedeRetainedLocationIntentForRoutedNavigation();
+  } catch (error) {
+    reportProductNavigationFailure(
+      "query",
+      error,
+      navigationSeq,
+      initiatingFocusGeneration,
+      returnFocus === "application-query",
+    );
+    return false;
+  }
+  const predecessorEntryId = ensureCurrentHistoryEntryId();
+  const successorState = predecessorEntryId
+    ? packageQueryHistoryState(
+        null,
+        crypto.randomUUID(),
+        { predecessorEntryId, returnFocus })
+    : null;
+  if (!workspaceLocation.push("/query", successorState)) {
+    reportProductNavigationFailure(
+      "query",
+      new Error("Browser history could not be updated."),
+      navigationSeq,
+      initiatingFocusGeneration,
+      returnFocus === "application-query",
+    );
+    return false;
+  }
   dismissModalsForRoutedNavigation();
-  supersedeRetainedLocationIntentForRoutedNavigation();
-  navigationSequence.begin();
   packageQueryController.cancel();
   packageChangesController.cancel("disposed");
   packageQueryHandoffNavigationSeq = null;
@@ -14215,9 +14668,6 @@ function openPackageQueryRoute(
     state.packageQueryPrefix = validPackageQuerySearchText(seed);
   }
   state.packageQueryNavigationError = "";
-  const returnFocus: PackageQueryReturnFocus = options.returnFocus
-    ?? (state.home ? "home-search" : "package-search");
-  const predecessorEntryId = ensureCurrentHistoryEntryId();
   if (predecessorEntryId) {
     state.packageQueryOpenedFromApp = true;
     state.packageQueryPredecessorEntryId = predecessorEntryId;
@@ -14230,119 +14680,224 @@ function openPackageQueryRoute(
   state.packageActivityOpen = false;
   state.credits = false;
   state.home = false;
-  workspaceLocation.push(
-    "/query",
-    predecessorEntryId
-      ? packageQueryHistoryState(
-          null,
-          crypto.randomUUID(),
-          { predecessorEntryId, returnFocus })
-      : null);
   render();
   focusPackageQueryInput();
+  return true;
 }
 
 function openPackageActivityRoute(
   returnFocus: PackageActivityReturnFocus =
   state.home ? "home-search" : "package-search",
-) {
-  if (!state.engineReady || state.loading || state.error) return;
+): boolean {
+  if (!state.engineReady || state.loading || state.error) return false;
+  const navigationSeq = navigationSequence.begin();
+  const initiatingFocusGeneration = documentFocusGeneration;
+  try {
+    supersedeRetainedLocationIntentForRoutedNavigation();
+  } catch (error) {
+    reportProductNavigationFailure(
+      "activity",
+      error,
+      navigationSeq,
+      initiatingFocusGeneration,
+      returnFocus === "application-activity",
+    );
+    return false;
+  }
+  const predecessorEntryId = ensureCurrentHistoryEntryId();
+  const successorState = predecessorEntryId
+    ? packageActivityHistoryState(
+        null,
+        crypto.randomUUID(),
+        { predecessorEntryId, returnFocus })
+    : null;
+  if (!workspaceLocation.push(PACKAGE_ACTIVITY_PATH, successorState)) {
+    reportProductNavigationFailure(
+      "activity",
+      new Error("Browser history could not be updated."),
+      navigationSeq,
+      initiatingFocusGeneration,
+      returnFocus === "application-activity",
+    );
+    return false;
+  }
   dismissModalsForRoutedNavigation();
-  supersedeRetainedLocationIntentForRoutedNavigation();
-  navigationSequence.begin();
   packageQueryController.cancel();
   packageChangesController.cancel("superseded");
   discardPackageQueryTermEditors();
-  const predecessorEntryId = ensureCurrentHistoryEntryId();
   if (predecessorEntryId) {
-  state.packageActivityOpenedFromApp = true;
-  state.packageActivityPredecessorEntryId = predecessorEntryId;
-  state.packageActivityReturnFocus = returnFocus;
-  state.packageActivityReturnFocusPending = false;
+    state.packageActivityOpenedFromApp = true;
+    state.packageActivityPredecessorEntryId = predecessorEntryId;
+    state.packageActivityReturnFocus = returnFocus;
+    state.packageActivityReturnFocusPending = false;
   } else {
-  applyPackageActivityHistory(null);
+    applyPackageActivityHistory(null);
   }
   state.packageQueryOpen = false;
   state.packageActivityOpen = true;
   state.credits = false;
   state.home = false;
-  workspaceLocation.push(
-  PACKAGE_ACTIVITY_PATH,
-  predecessorEntryId
-    ? packageActivityHistoryState(
-        null,
-        crypto.randomUUID(),
-        { predecessorEntryId, returnFocus })
-    : null);
   render();
   focusPackageActivityInput();
+  return true;
 }
 
-async function selectWorkspaceApplicationScope() {
-  const pkg = state.package;
-  if (!pkg) {
-    if (state.platformSelection) {
-      const navigationSeq = navigationSequence.begin();
-      const focusGeneration = documentFocusGeneration;
-      let destination: URL;
-      try {
-        const snapshot = captureWorkspaceUrlState();
-        if (!snapshot) throw new Error("The Platform workspace is unavailable.");
-        destination = await workspaceLocation.build({
-          ...snapshot,
-          subject: "workspace",
-        });
-      } catch (error) {
-        if (navigationSequence.isCurrent(navigationSeq)) {
-          showToast(`Opening Workspace failed: ${errorMessage(error)}`);
-        }
-        return;
-      }
-      if (!navigationSequence.isCurrent(navigationSeq)) return;
-      if (!workspaceLocation.push(destination.toString())) {
-        showToast("Opening Workspace failed: browser history could not be updated.");
-        return;
-      }
-      // Retire any maintenance projection captured from the predecessor.
-      syncUrlRevision++;
-      const restoreDestinationFocus = focusGeneration === documentFocusGeneration;
-      state.workspaceSubjectOpen = true;
-      state.atPackageRoot = true;
-      state.atLibraryRoot = false;
-      activeWorkspaceUrl = destination.toString();
-      render({ synchronizeUrl: false });
-      if (restoreDestinationFocus) focusWorkspaceOrHeading();
-    }
-    return;
+function reportProductNavigationFailure(
+  destination: ProductDestination,
+  error: unknown,
+  navigationSeq: number,
+  initiatingFocusGeneration: number,
+  restoreProductNavigationFocus: boolean,
+): void {
+  const label = destination[0]!.toUpperCase() + destination.slice(1);
+  console.error(`Opening ${label} failed.`, error);
+  const message =
+    `Opening ${label} failed: ${errorMessage(error) || "Unknown error."}`;
+  const restoreInvokerFocus =
+    restoreProductNavigationFocus
+    && initiatingFocusGeneration === documentFocusGeneration;
+  if (state.packageQueryOpen) {
+    state.packageQueryNavigationError = message;
+  } else {
+    appendQueryNotice(message);
   }
+  render();
+  showToast(message);
+  if (!restoreInvokerFocus) return;
+  const focusGeneration = documentFocusGeneration;
+  afterNavigationFrame(navigationSeq, () => {
+    if (focusGeneration === documentFocusGeneration) {
+      focusProductNavigationButton();
+    }
+  });
+}
+
+async function openWorkspaceProductDestination(): Promise<{
+  readonly navigationSeq: number;
+  readonly focusGeneration: number | null;
+  readonly restoreDestinationFocus: boolean;
+} | null> {
+  const pkg = state.package;
+  if (!pkg && !state.platformSelection) return null;
+  const fallbackPackage = pkg?.source.kind === "platform" ? null : pkg;
+
+  dismissModalsForRoutedNavigation();
   const navigationSeq = navigationSequence.begin();
+  const initiatingFocusGeneration = documentFocusGeneration;
+  const routeState = {
+    packageQueryOpen: state.packageQueryOpen,
+    packageActivityOpen: state.packageActivityOpen,
+    credits: state.credits,
+    home: state.home,
+    workspaceSubjectOpen: state.workspaceSubjectOpen,
+    atPackageRoot: state.atPackageRoot,
+    atLibraryRoot: state.atLibraryRoot,
+    selectedMemberKey: state.selectedMemberKey,
+    memberBrowseTypeId: state.memberBrowseTypeId,
+    selectedOverloadIndex: state.selectedOverloadIndex,
+  };
+  state.packageQueryOpen = false;
+  state.packageActivityOpen = false;
+  state.credits = false;
+  state.home = false;
   state.workspaceSubjectOpen = true;
   state.atPackageRoot = true;
   state.atLibraryRoot = false;
   state.selectedMemberKey = "";
   state.memberBrowseTypeId = "";
   state.selectedOverloadIndex = null;
-  const projected = await buildStateUrl();
-  if (!navigationSequence.isCurrent(navigationSeq)) return;
+  const projection = buildStateUrl();
+  Object.assign(state, routeState);
+
+  let projected: URL | null = null;
+  let projectionError: unknown = null;
+  try {
+    projected = await projection;
+  } catch (error) {
+    projectionError = error;
+  }
+  if (!navigationSequence.isCurrent(navigationSeq)) return null;
+  if (!fallbackPackage && projectionError !== null) {
+    reportProductNavigationFailure(
+      "workspace",
+      projectionError,
+      navigationSeq,
+      initiatingFocusGeneration,
+      true,
+    );
+    return null;
+  }
+
   const successor = resolvePackageQueryWorkspaceSuccessor(
-    () => projected,
     () => {
+      if (projectionError !== null) {
+        throw projectionError instanceof Error
+          ? projectionError
+          : new Error(
+            errorMessage(projectionError) || "Workspace URL encoding failed.");
+      }
+      if (!projected) throw new Error("Workspace URL projection did not complete.");
+      return projected;
+    },
+    () => {
+      if (!fallbackPackage) {
+        throw new Error("Package Workspace fallback is unavailable.");
+      }
       const fallback = buildPackageRootStateUrl(location.href, {
-        package: pkg.id,
-        version: pkg.version,
-        framework: pkg.activeFramework,
+        package: fallbackPackage.id,
+        version: fallbackPackage.version,
+        framework: fallbackPackage.activeFramework,
         lens: state.packageLens,
       });
       fallback.hash = "workspace";
       return fallback;
     });
+  if (!workspaceLocation.push(successor.url.toString())) {
+    reportProductNavigationFailure(
+      "workspace",
+      new Error("Browser history could not be updated."),
+      navigationSeq,
+      initiatingFocusGeneration,
+      true,
+    );
+    return null;
+  }
+
+  discardPackageQueryTermEditors();
+  state.packageQueryOpen = false;
+  state.packageActivityOpen = false;
+  packageQueryController.cancel();
+  packageChangesController.cancel("disposed");
+  state.packageQueryNavigationError = "";
+  state.credits = false;
+  state.home = false;
+  spotlight.reset();
+
+  state.workspaceSubjectOpen = true;
+  state.atPackageRoot = true;
+  state.atLibraryRoot = false;
+  state.selectedMemberKey = "";
+  state.memberBrowseTypeId = "";
+  state.selectedOverloadIndex = null;
   if (!successor.projected) {
     appendQueryNotice(
       `Workspace opened, but its complete state could not be saved in the address bar: ${errorMessage(successor.projectionError)
         || "workspace URL encoding failed."}`);
   }
-  workspaceLocation.push(successor.url.toString());
+  const restoreDestinationFocus =
+    initiatingFocusGeneration === documentFocusGeneration
+    && document.activeElement instanceof Element
+    && document.activeElement.closest("[data-product-navigation-button]")
+      !== null;
+  let focusGeneration: number | null = null;
+  if (productNavigationOwnsFocus()) {
+    workspaceProductFocusParkingActive = true;
+    app.tabIndex = -1;
+    app.focus({ preventScroll: true });
+    focusGeneration = documentFocusGeneration;
+  }
   render();
+  return { navigationSeq, focusGeneration, restoreDestinationFocus };
 }
 
 function closePackageQueryRoute() {
@@ -14593,10 +15148,6 @@ async function openPackageQueryRow(
       ...(rootRequest === undefined ? {} : { rootRequest }),
       failureHandler: (message: string) => {
         loadFailure = message;
-        discardPendingWorkspaceConstruction();
-        if (rollbackSnapshot) {
-          restoreCanonicalWorkspaceRestoreSnapshot(rollbackSnapshot);
-        }
       },
     });
   if (!navigationSequence.isCurrent(navigationSeq)) {
@@ -14605,6 +15156,17 @@ async function openPackageQueryRow(
     return;
   }
   if (!loaded) {
+    try {
+      if (!await restoreWorkspaceNavigationRollback(rollbackSnapshot)) return;
+    } catch (error) {
+      reportWorkspaceNavigationRollbackFailure(
+        rollbackSnapshot,
+        error,
+        () => observeAsync(
+          openPackageQueryRow(packageId, version, rootRequest),
+          "Retrying Package query navigation"));
+      return;
+    }
     discardPendingWorkspaceConstruction();
     packageQueryHandoffNavigationSeq = null;
     const failure = loadFailure || state.error || state.queryNotice
@@ -14632,10 +15194,18 @@ async function openPackageQueryRow(
     destination = (await buildStateUrl()).toString();
   } catch (error) {
     if (!navigationSequence.isCurrent(navigationSeq)) return;
-    discardPendingWorkspaceConstruction();
-    if (rollbackSnapshot) {
-      restoreCanonicalWorkspaceRestoreSnapshot(rollbackSnapshot);
+    try {
+      if (!await restoreWorkspaceNavigationRollback(rollbackSnapshot)) return;
+    } catch (restoreError) {
+      reportWorkspaceNavigationRollbackFailure(
+        rollbackSnapshot,
+        restoreError,
+        () => observeAsync(
+          openPackageQueryRow(packageId, version, rootRequest),
+          "Retrying Package query navigation"));
+      return;
     }
+    discardPendingWorkspaceConstruction();
     state.loading = false;
     state.error = "";
     state.errorTitle = "";
@@ -15824,12 +16394,28 @@ function callGraphTargetBinding(
     state.package,
     ...state.packages.filter(item => item !== state.package),
   ].filter((pkg): pkg is AppPackage => pkg != null);
+  const packageCoordinate = callGraphTargetPackageCoordinate(target);
+  const coordinatePackages = packageCoordinate
+    ? packages.filter(pkg =>
+        pkg.id.toLowerCase() === packageCoordinate.id.toLowerCase()
+        && pkg.version.toLowerCase() === packageCoordinate.version.toLowerCase()
+        && pkg.activeFramework === packageCoordinate.framework)
+    : [];
+  if (coordinatePackages.length > 1) {
+    return blockedCallGraphNodeBinding(
+      target,
+      "the exact target package coordinate is not unique in the loaded workspace",
+      failureSurface);
+  }
+  const coordinatePackage = coordinatePackages[0] ?? null;
   const candidate =
     resolveLoadedGraphTargetCandidate<AppPackage, AppTypeSurface>(
-      packages,
+      coordinatePackage ? [coordinatePackage] : packages,
       target);
-  if (candidate.status === "resident" && destination !== "default") {
-    const residentPackage = loadedGraphTargetPackage(packages, target);
+  if (candidate.status === "resident"
+      && (coordinatePackage !== null || destination !== "default")) {
+    const residentPackage =
+      coordinatePackage ?? loadedGraphTargetPackage(packages, target);
     if (!residentPackage) {
       return blockedCallGraphNodeBinding(
         target,
@@ -15851,10 +16437,13 @@ function callGraphTargetBinding(
       },
     };
   }
+  const packageAvailable =
+    packageCoordinate !== null && coordinatePackage === null;
   const pack = runtimePackForFramework(
     runtimePackPackage(),
     platformCatalogFramework(state.package?.activeFramework || ""));
-  const runtimeCandidate = (candidate.status === "missing"
+  const runtimeCandidate = !packageAvailable
+    && (candidate.status === "missing"
       || candidate.status === "skew") && pack
     ? resolveRuntimeGraphTargetCandidate(pack, target)
     : null;
@@ -15868,7 +16457,8 @@ function callGraphTargetBinding(
     candidate,
     runtimeCandidate,
     target,
-    runtimeResident);
+    runtimeResident,
+    packageAvailable);
   if (disposition === "blocked") {
     const reason = runtimeCandidate?.status === "ambiguous"
         || runtimeCandidate?.status === "skew"
@@ -15916,6 +16506,14 @@ function callGraphTargetBinding(
             loadedSection,
             failureSurface),
           "Opening a graph member");
+      } else if (disposition === "package" && packageCoordinate) {
+        observeAsync(
+          openPackageGraphMember(
+            packageCoordinate,
+            target,
+            loadedSection,
+            failureSurface),
+          "Opening a dependency package graph member");
       } else if (disposition === "resident") {
         if (pack && resident) {
           navigationSequence.begin();
@@ -15954,6 +16552,37 @@ function callGraphTargetBinding(
       }
     },
   };
+}
+
+async function openPackageGraphMember(
+  coordinate: {
+    id: string;
+    version: string;
+    framework: string;
+  },
+  target: InspectedCallGraphTarget,
+  section: "overview" | "source",
+  failureSurface: GraphNavigationFailureSurface,
+) {
+  closeGraphExplorerForNavigation();
+  if (retainedWorkspaces.activeWorkspaceId === null
+      && !canPublishRetainedWorkspace()) {
+    showGraphMemberNavigationError(
+      target,
+      retainedWorkspaceCapacityMessage(),
+      failureSurface);
+    return;
+  }
+  const pkg = await loadPackage(
+    coordinate.id,
+    coordinate.version,
+    coordinate.framework);
+  if (!pkg) return;
+  await navigateToUnprojectedGraphMember(
+    pkg,
+    target,
+    section,
+    failureSurface);
 }
 
 function blockedCallGraphNodeBinding(
@@ -17104,9 +17733,6 @@ function clearTaste() {
 
 function dispatchApplicationAction(action: ApplicationAction) {
   switch (action) {
-    case "open-library":
-      openLibraryDialog("application");
-      return;
     case "share":
       if (state.rootKind === "library") {
         showToast("Uploaded Libraries cannot be shared.");
@@ -17120,6 +17746,14 @@ function dispatchApplicationAction(action: ApplicationAction) {
     case "keyboard-help":
       if (state.keyboardHelp) closeKeyboardHelp();
       else openKeyboardHelp();
+      return;
+  }
+}
+
+function dispatchProductAction(action: ProductAction) {
+  switch (action) {
+    case "open-library":
+      openLibraryDialog("product-navigation");
       return;
   }
 }
@@ -17162,9 +17796,10 @@ function closeLibraryDialog() {
     if (returnTarget === "home") {
       document.querySelector<HTMLElement>("#home-open-library")
         ?.focus({ preventScroll: true });
-    } else if (returnTarget === "application") {
+    } else if (returnTarget === "product-navigation") {
       restoreOrdinaryModalDismissFocus(() =>
-        document.querySelector<HTMLElement>("#application-menu-button")
+        document.querySelector<HTMLElement>(
+          "[data-product-navigation-button]")
           ?.focus({ preventScroll: true }));
     } else {
       focusLevelOneHeading();
@@ -18645,6 +19280,17 @@ function failCanonicalWorkspaceRestore(
   retryAction: RetryAction =
     () => restoreWorkspaceFromLocation(loc, deep),
 ) {
+  if (snapshot && workspaceFeedRollbackTransfers.has(snapshot)) {
+    recoverWorkspaceNavigationRollback(
+      snapshot,
+      () => failCanonicalWorkspaceRestore(
+        loc,
+        deep,
+        message,
+        snapshot,
+        retryAction));
+    return;
+  }
   discardPendingWorkspaceConstruction();
   const failedUrl = location.href;
   const ownedRetryAction = retryAction
@@ -18710,12 +19356,250 @@ function applyLocationView(loc: ParsedLocation) {
   state.libraryLens = loc.libraryLens || "overview";
 }
 
+function workspaceFeedActivationCoordinator():
+  WorkspaceFeedActivationCoordinator<
+    CanonicalWorkspaceRestoreSnapshot
+  > {
+  workspaceFeedActivation ??= createWorkspaceFeedActivationCoordinator({
+      client: engineClient.catalog,
+      activationController: requireRetainedWorkspaceActivation(),
+      document,
+      applicationRoot: app,
+      maxVisibleModels: MAX_WORKSPACE_PACKAGES,
+      isCurrent: sequence => navigationSequence.isCurrent(sequence),
+      beginNavigation: () => navigationSequence.begin(),
+      hasVisibleWorkspace: () =>
+        state.package !== null || state.platformSelection !== null,
+      captureRollback: captureCanonicalWorkspaceRestoreSnapshot,
+      cloneRollback: cloneCanonicalWorkspaceSnapshotForRetention,
+      restoreRollback: restoreWorkspaceFeedRollback,
+      releaseRollback: releaseRetainedWorkspaceSnapshot,
+      publish: publishSourceBearingWorkspace,
+      setLoading() {
+        state.loading = true;
+        state.loadingMessage = "Opening shared Workspace…";
+        state.loadingSubtitle =
+          "Loading package surfaces from the declared sources…";
+        render({ synchronizeUrl: false });
+      },
+      pushLocation(destination) {
+        activeWorkspaceUrl = destination;
+        workspaceLocation.push(destination, history.state);
+      },
+      reportFailure(message, retry) {
+        state.loading = false;
+        if (state.package || state.platformSelection) {
+          appendQueryNotice(`Workspace restore failed: ${message}`, retry);
+        } else {
+          state.errorTitle = "Workspace restore failed";
+          state.error = message;
+          state.retryAction = retry;
+        }
+        render({ synchronizeUrl: false });
+      },
+      reportBlockingFailure(message, retry) {
+        discardPendingWorkspaceConstruction();
+        clearWorkspacePackages();
+        activeRetainedWorkspacePosting = null;
+        retainedWorkspacePresentation = null;
+        retainedWorkspaceInitialDetailAuthority = null;
+        installedRetainedLocation = null;
+        activeWorkspaceUrl = null;
+        state.workspaceFeedUrl = null;
+        state.loading = false;
+        state.home = false;
+        state.errorTitle = "Workspace recovery failed";
+        state.error = message;
+        state.retryAction = retry;
+        render({ synchronizeUrl: false });
+      },
+      successorCommitted() {
+        discardPendingWorkspaceConstruction();
+      },
+      reportPredecessorFailure(error) {
+        showToast(
+          `Could not confirm the replaced Workspace was released: ${
+            errorMessage(error)
+          }`);
+      },
+      observe: observeAsync,
+      errorMessage,
+      escapeHtml,
+      trapModalTab,
+    });
+  return workspaceFeedActivation;
+}
+
+async function restoreWorkspaceFeedRollback(
+  snapshot: CanonicalWorkspaceRestoreSnapshot,
+  isCurrent: () => boolean,
+): Promise<void> {
+  if (!isCurrent()) return;
+  const priorPosting = snapshot.activeRetainedWorkspacePosting;
+  if (priorPosting !== null
+    && retainedWorkspaceActivation?.state.definitions.some(
+      definition => definition.id
+        === priorPosting.retainedDefinitionId)) {
+    const restored = await workspaceFeedActivationCoordinator()
+      .reactivateRetainedDefinition(
+        priorPosting.retainedDefinitionId,
+        navigationSequence.current(),
+        isCurrent,
+        posting => {
+          if (!isCurrent()) {
+            throw new Error(
+              "The incumbent Workspace recovery was superseded.");
+          }
+          snapshot.activeRetainedWorkspacePosting = posting;
+          snapshot.retainedWorkspaceInitialDetailAuthority = null;
+          restoreCanonicalWorkspaceRestoreSnapshot(snapshot);
+          activeWorkspaceUrl = snapshot.url;
+          render({ synchronizeUrl: false });
+        });
+    if (!isCurrent()) return;
+    if (!restored) {
+      throw new Error(
+        "The incumbent retained Workspace could not be reactivated.");
+    }
+    return;
+  }
+  if (!isCurrent()) return;
+  restoreCanonicalWorkspaceRestoreSnapshot(snapshot);
+  activeWorkspaceUrl = snapshot.url;
+  render({ synchronizeUrl: false });
+}
+
+async function tryOpenSourceBearingWorkspace(
+  url: URL,
+  navigationSeq: number,
+  commitHistory = false,
+): Promise<boolean> {
+  let inheritedRollback:
+    WorkspaceFeedRollbackTransfer<CanonicalWorkspaceRestoreSnapshot> | null =
+      null;
+  if (workspaceFeedRollbackTransfer !== null) {
+    inheritedRollback = workspaceFeedRollbackTransfer.transfer();
+    if (inheritedRollback !== null) {
+      workspaceFeedRollbackTransfer = inheritedRollback;
+      workspaceFeedRollbackTransfers.set(
+        inheritedRollback.snapshot,
+        inheritedRollback);
+    }
+  }
+  const handled = await workspaceFeedActivationCoordinator().tryOpen(
+    url,
+    navigationSeq,
+    commitHistory,
+    inheritedRollback);
+  if (handled
+    && inheritedRollback !== null
+    && workspaceFeedRollbackTransfer === inheritedRollback) {
+    workspaceFeedRollbackTransfer = null;
+    if (workspaceFeedRollbackTransfers.get(inheritedRollback.snapshot)
+      === inheritedRollback) {
+      workspaceFeedRollbackTransfers.delete(inheritedRollback.snapshot);
+    }
+  }
+  return handled;
+}
+
+function cancelWorkspaceCredentialPrompt(showFailure = true): void {
+  workspaceFeedActivation?.cancelPrompt(showFailure);
+}
+
+function clearWorkspaceFeedIdentity(): void {
+  if (activeRetainedWorkspacePosting !== null
+    && workspaceFeedActivation?.ownsRetainedDefinition(
+      activeRetainedWorkspacePosting.retainedDefinitionId)) {
+    activeRetainedWorkspacePosting = null;
+    retainedWorkspacePresentation = null;
+    retainedWorkspaceInitialDetailAuthority = null;
+    installedRetainedLocation = null;
+  }
+  workspaceFeedActivation?.clearActiveUrl();
+  state.workspaceFeedUrl = null;
+}
+
+function publishSourceBearingWorkspace(
+  posting: BrowserRetainedWorkspacePosting,
+  models: RetainedWorkspaceModels,
+): void {
+  const allModels = [
+    ...models.packages.map(item => item.packageModel),
+    ...models.platforms.map(item => item.packageModel),
+  ];
+  if (allModels.length === 0) {
+    throw new Error("The retained Workspace did not publish a package surface.");
+  }
+
+  clearWorkspacePackages();
+  for (const packageModel of allModels) retainPackageModel(packageModel);
+  activeRetainedWorkspacePosting = posting;
+  retainedWorkspacePresentation =
+    createNavigationDescriptorPresentation(posting);
+  retainedWorkspaceInitialDetailAuthority = null;
+  installedRetainedLocation = null;
+  const activeTab = posting.definition.activeTabId === null
+    ? null
+    : posting.definition.tabs.find(
+        tab => tab.id === posting.definition.activeTabId);
+  const activePackageSubjectId =
+    posting.navigation.snapshot.activePackage;
+  const activePackage = models.packages.find(item =>
+    item.consumerPackageSubjectId === activePackageSubjectId)?.packageModel
+    ?? (activeTab?.kind === "package"
+    ? models.packages.find(item =>
+        item.packageModel.id.toLowerCase() === activeTab.source.toLowerCase()
+        && (!activeTab.version
+          || item.packageModel.version.toLowerCase()
+            === activeTab.version.toLowerCase())
+        && (!activeTab.framework
+          || item.packageModel.activeFramework.toLowerCase()
+            === activeTab.framework.toLowerCase()))?.packageModel
+    : activeTab?.kind === "group"
+      ? models.platforms[0]?.packageModel
+      : null);
+  const selected = activePackage ?? allModels[0]!;
+  activatePackage(selected, { resetAccessibility: true });
+  state.home = false;
+  state.credits = false;
+  state.loading = false;
+  state.error = "";
+  state.errorTitle = "";
+  state.errorDetail = "";
+  state.retryAction = null;
+  state.requestedPackage = selected.id;
+  state.requestedVersion = selected.version;
+  state.requestedFramework = selected.activeFramework;
+  state.workspaceSubjectOpen = activeTab === null;
+  state.atPackageRoot = true;
+  state.atLibraryRoot = false;
+  state.packageLens = "overview";
+  state.libraryLens = "overview";
+  state.selectedTypeId = defaultVisibleTypeId(selected);
+  state.selectedMemberKey = "";
+  state.memberBrowseTypeId = "";
+  state.selectedOverloadIndex = null;
+  resetLocationFilters();
+  resetMemberSectionState();
+  commitWorkspaceShareBasis(null);
+  state.workspaceFeedUrl = posting.canonicalLocation;
+  activeWorkspaceUrl = posting.canonicalLocation;
+  render({ synchronizeUrl: false });
+}
+
 // Restores the full open-tab set from the opaque workspace bucket (or just the visible
 // target for a lone/legacy link), loading each tab in order so the tab bar and any
 // cross-package dependency edges come back. Only the focused target restores its deep-link.
 async function restoreInitialWorkspace() {
   const navigationSeq = navigationSequence.current();
-  const loc = await workspaceLocation.preflightCurrent().resolve();
+  const preflight = workspaceLocation.preflightCurrent();
+  if (await tryOpenSourceBearingWorkspace(
+    new URL(location.href),
+    navigationSeq)) {
+    return;
+  }
+  const loc = await preflight.resolve();
   if (!navigationSequence.isCurrent(navigationSeq)) return;
   if (loc.routeFailure) {
     await restoreWorkspaceFromLocation(
@@ -19019,7 +19903,7 @@ async function navigateWithinCurrentWorkspace(
     return;
   }
   const canonicalSnapshot = loc.hasWorkspaceState
-    ? captureCanonicalWorkspaceRestoreSnapshot()
+    ? captureWorkspaceNavigationRollback()
     : null;
   state.credits = false;
   resetLocationFilters();
@@ -19044,7 +19928,8 @@ async function navigateWithinCurrentWorkspace(
     await restorePlatformScopeThenDeepLink(
       loc,
       navigationSeq,
-      canonicalSnapshot);
+      canonicalSnapshot,
+      true);
     return;
   }
   const pkg = state.package;
@@ -19070,6 +19955,7 @@ async function navigateWithinCurrentWorkspace(
       canonicalSnapshot);
     return;
   }
+  clearWorkspaceFeedIdentity();
   commitWorkspaceShareBasis(loc.shareState);
   applyDeepLink(loc);
   render();
@@ -19117,6 +20003,7 @@ async function openFreshWorkspaceLink(
       && (state.package || state.platformSelection)) {
       const destination = (await buildStateUrl()).toString();
       if (!navigationSequence.isCurrent(navigationSeq)) return;
+      clearWorkspaceFeedIdentity();
       publishCurrentWorkspace(construction.retainedSnapshot);
       workspaceLocation.push(destination);
       render({ synchronizeUrl: false });
@@ -19164,9 +20051,11 @@ async function navigateInAppUrl(url: URL) {
     state.packageQueryNavigationError = "";
   }
   const navigationSeq = navigationSequence.begin();
+  cancelWorkspaceCredentialPrompt(false);
   if (focusWorkspaceAfterRoutedPage) {
     packageQueryWorkspaceFocusNavigationSeq = navigationSeq;
   }
+  if (await tryOpenSourceBearingWorkspace(url, navigationSeq, true)) return;
   let loc: ParsedLocation;
   try {
     loc = await parseWorkspaceHref(url.toString());
@@ -19677,6 +20566,7 @@ function clearNavigationError() {
 }
 
 function dismissModalsForRoutedNavigation() {
+  cancelWorkspaceCredentialPrompt(false);
   closeGraphExplorerForNavigation();
   const dismissedAnnotatedSourceModal = dismissAnnotatedSourceModal(false);
   state.settings = false;
@@ -19708,7 +20598,11 @@ window.addEventListener("popstate", () => {
     retainedWorkspaceIdFromHistory(history.state);
   const historyWorkspaceReferenced =
     historyReferencesRetainedWorkspace(history.state);
-  const managedHistoryWorkspaceAvailable = historyWorkspaceId !== null
+  const sourceHistoryWorkspaceAvailable = historyWorkspaceId !== null
+    && workspaceFeedActivation?.ownsRetainedDefinition(
+      historyWorkspaceId) === true;
+  const managedHistoryWorkspaceAvailable = !sourceHistoryWorkspaceAvailable
+    && historyWorkspaceId !== null
     && retainedWorkspaceActivation?.state.definitions.some(
       definition => definition.id === historyWorkspaceId) === true;
   let restoredActiveManagedWorkspace = false;
@@ -19763,11 +20657,15 @@ window.addEventListener("popstate", () => {
   const historyWorkspaceAvailable = historyWorkspaceId !== null
     && retainedWorkspaces.workspaces.some(
       workspace => workspace.id === historyWorkspaceId);
+  const deferHistoryWorkspaceActivation =
+    location.pathname === "/"
+    && new URL(location.href).searchParams.has("w");
   if (historyWorkspaceAvailable
     && historyWorkspaceId !== null
     && retainedWorkspaceActivation !== null
     && (retainedWorkspaceActivation.state.activeDefinitionId !== null
-      || retainedWorkspaceActivation.state.pendingDefinitionId !== null)) {
+      || retainedWorkspaceActivation.state.pendingDefinitionId !== null)
+    && !deferHistoryWorkspaceActivation) {
     const locationIntent = retainedLocationIntents.selectBrowserEntry({
       url: location.href,
       historyState: history.state,
@@ -19800,7 +20698,8 @@ window.addEventListener("popstate", () => {
     return;
   }
   if (historyWorkspaceAvailable
-    && historyWorkspaceId !== retainedWorkspaces.activeWorkspaceId) {
+    && historyWorkspaceId !== retainedWorkspaces.activeWorkspaceId
+    && !deferHistoryWorkspaceActivation) {
     try {
       activateRetainedWorkspaceProjection(historyWorkspaceId, false);
     } catch (error) {
@@ -19951,6 +20850,16 @@ window.addEventListener("popstate", () => {
     packageQueryWorkspaceFocusNavigationSeq = navigationSeq;
   }
   if (!state.engineReady) {
+    if (deferHistoryWorkspaceActivation
+      && historyWorkspaceAvailable
+      && historyWorkspaceId !== retainedWorkspaces.activeWorkspaceId) {
+      try {
+        activateRetainedWorkspaceProjection(historyWorkspaceId, false);
+      } catch (error) {
+        showToast(`Could not activate Workspace: ${errorMessage(error)}`);
+        return;
+      }
+    }
     const pendingWorkspace = workspaceLocation.preflightCurrent();
     const pendingLocation = pendingWorkspace.visible;
     state.queryNotice = pendingLocation.workspaceNotice || "";
@@ -19967,6 +20876,44 @@ window.addEventListener("popstate", () => {
     if (state.home) clearNavigationError();
     render();
     return;
+  }
+  if (await tryOpenSourceBearingWorkspace(
+    new URL(location.href),
+    navigationSeq)) {
+    return;
+  }
+  if (!navigationSequence.isCurrent(navigationSeq)) return;
+  if (deferHistoryWorkspaceActivation
+    && historyWorkspaceAvailable
+    && historyWorkspaceId !== retainedWorkspaces.activeWorkspaceId) {
+    if (historyWorkspaceId !== null
+      && retainedWorkspaceActivation !== null
+      && (retainedWorkspaceActivation.state.activeDefinitionId !== null
+        || retainedWorkspaceActivation.state.pendingDefinitionId !== null)) {
+      const locationIntent = retainedLocationIntents.selectBrowserEntry({
+        url: location.href,
+        historyState: history.state,
+        retainedDefinitionId: historyWorkspaceId,
+        incumbent: installedRetainedLocation,
+      });
+      try {
+        await activateCompatibilityRetainedWorkspace(historyWorkspaceId, {
+          declaration: locationIntent,
+          restoration:
+            activeWorkspaceUrl === location.href ? "exact" : "changed",
+        });
+      } catch (error) {
+        realignRetainedLocationIntent(locationIntent, "failed");
+        showToast(`Could not restore Workspace: ${errorMessage(error)}`);
+      }
+      return;
+    }
+    try {
+      activateRetainedWorkspaceProjection(historyWorkspaceId, false);
+    } catch (error) {
+      showToast(`Could not activate Workspace: ${errorMessage(error)}`);
+      return;
+    }
   }
   const loc = await parseLocation();
   if (!navigationSequence.isCurrent(navigationSeq)) return;
@@ -20004,6 +20951,7 @@ window.addEventListener("popstate", () => {
     state.credits = false;
     state.home = true;
     spotlight.reset();
+    clearWorkspaceFeedIdentity();
     render({
       synchronizeUrl: !unavailableWorkspaceAdmissionRejected,
     });
@@ -20067,7 +21015,8 @@ window.addEventListener("popstate", () => {
         restorePlatformScopeThenDeepLink(
           loc,
           navigationSeq,
-          canonicalSnapshot),
+          canonicalSnapshot,
+          true),
         "Restoring platform history");
     } else {
       const libraryFailure = applyLoadedPackageLibraryScope(
@@ -20093,6 +21042,7 @@ window.addEventListener("popstate", () => {
           canonicalSnapshot);
         return;
       }
+      clearWorkspaceFeedIdentity();
       commitWorkspaceShareBasis(loc.shareState);
       applyDeepLink(loc);
       render();
@@ -20119,6 +21069,7 @@ async function restorePlatformScopeThenDeepLink(
   loc: ParsedLocation,
   navigationSeq: number,
   canonicalSnapshot: CanonicalWorkspaceRestoreSnapshot | null = null,
+  retireWorkspaceFeed = false,
 ) {
   const scoped = await applyPlatformLibraryScope(
     loc.library,
@@ -20127,7 +21078,8 @@ async function restorePlatformScopeThenDeepLink(
     () => restorePlatformScopeThenDeepLink(
       loc,
       navigationSequence.current(),
-      canonicalSnapshot));
+      canonicalSnapshot,
+      retireWorkspaceFeed));
   if (!navigationSequence.isCurrent(navigationSeq)) return;
   if (!scoped) {
     if (loc.shareState) {
@@ -20158,6 +21110,7 @@ async function restorePlatformScopeThenDeepLink(
       canonicalSnapshot);
     return;
   }
+  if (retireWorkspaceFeed) clearWorkspaceFeedIdentity();
   commitWorkspaceShareBasis(loc.shareState);
   applyLocationView(loc);
   applyDeepLink(loc);

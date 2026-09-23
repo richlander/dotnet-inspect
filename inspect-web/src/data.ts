@@ -43,6 +43,7 @@ export const libraryLenses = [
   ["references", "References"],
   ["integrations", "Integrations"],
   ["analysis", "Analysis"],
+  ["metrics", "Metrics"],
   ["metadata", "Metadata"]
 ] as const;
 
@@ -100,7 +101,7 @@ export function isWorkspaceScope(
     && workspaceScopes.some(scope => scope === value);
 }
 
-export const MAX_WORKSPACE_PACKAGES = 12;
+export const MAX_WORKSPACE_PACKAGES = 64;
 
 /** The identity coordinate shared by every workspace/package-graph helper below. */
 export interface PackageIdentity {
@@ -660,6 +661,27 @@ export interface CallGraphTarget {
   metadataToken?: number | null;
   kind?: string | null;
   surfaceAssemblyId?: string | null;
+  packageId?: string | null;
+  packageVersion?: string | null;
+  packageFramework?: string | null;
+}
+
+export interface CallGraphPackageCoordinate {
+  id: string;
+  version: string;
+  framework: string;
+}
+
+export function callGraphTargetPackageCoordinate(
+  target: CallGraphTarget | null | undefined,
+): CallGraphPackageCoordinate | null {
+  if (!target?.packageId || !target.packageVersion || !target.packageFramework)
+    return null;
+  return {
+    id: target.packageId,
+    version: target.packageVersion,
+    framework: target.packageFramework,
+  };
 }
 
 export function callGraphTargetTypeId(target: CallGraphTarget | null | undefined): string {
@@ -1172,18 +1194,24 @@ export function resolveOpportunitySourceType<
 }
 
 export type GraphTargetNavigationDisposition =
-  "blocked" | "loaded" | "none" | "platform" | "resident";
+  "blocked" | "loaded" | "none" | "package" | "platform" | "resident";
 
 export function graphTargetNavigationDisposition(
   candidate: GraphTargetCandidate<unknown, unknown>,
   target: CallGraphTarget | null | undefined,
   resident = false,
+  packageAvailable = false,
 ): GraphTargetNavigationDisposition {
   if (Object.prototype.hasOwnProperty.call(
       target ?? {},
       "assemblyVersion")
       && !target?.assemblyVersion) {
     return "none";
+  }
+  if (packageAvailable
+      && Boolean(target?.assembly)
+      && Boolean(callGraphTargetTypeId(target))) {
+    return "package";
   }
   if (candidate.status === "ambiguous"
       || candidate.status === "skew"
@@ -1203,9 +1231,15 @@ export function combinedGraphTargetNavigationDisposition(
   runtimeCandidate: GraphTargetCandidate<unknown, unknown> | null,
   target: CallGraphTarget | null | undefined,
   runtimeResident = false,
+  packageAvailable = false,
 ): GraphTargetNavigationDisposition {
-  const packageDisposition = graphTargetNavigationDisposition(candidate, target);
+  const packageDisposition = graphTargetNavigationDisposition(
+    candidate,
+    target,
+    false,
+    packageAvailable);
   if (packageDisposition === "none") return "none";
+  if (packageDisposition === "package") return "package";
   if (runtimeCandidate) {
     if (runtimeCandidate.status === "ambiguous"
         || runtimeCandidate.status === "skew") {

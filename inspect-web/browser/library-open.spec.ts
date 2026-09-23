@@ -1,6 +1,7 @@
 import { expect, test, type Page } from "@playwright/test";
 import {
   installLibraryUploadFacades,
+  openProductDestination,
   releaseFacade,
   root,
   subjectTab,
@@ -55,8 +56,8 @@ async function waitForWorkspaceReady(page: Page) {
     .not.toHaveAttribute("aria-busy", "true");
 }
 
-async function openLibraryFromApplicationMenu(page: Page) {
-  await page.locator("#application-menu-button").click();
+async function openLibraryFromBrandMenu(page: Page) {
+  await page.locator("[data-product-navigation-button]").click();
   await page.getByRole(
     "menuitem",
     { name: "Open Library…", exact: true },
@@ -91,15 +92,15 @@ test("Open dismissal restores its logical invoker", async ({ page }) => {
 
   await page.goto(root);
   await waitForWorkspaceReady(page);
-  await openLibraryFromApplicationMenu(page);
+  await openLibraryFromBrandMenu(page);
   await page.keyboard.press("Escape");
-  await expect(page.locator("#application-menu-button")).toBeFocused();
+  await expect(page.locator("[data-product-navigation-button]")).toBeFocused();
 
-  await openLibraryFromApplicationMenu(page);
+  await openLibraryFromBrandMenu(page);
   await page.locator("#library-open-backdrop").click({
     position: { x: 5, y: 5 },
   });
-  await expect(page.locator("#application-menu-button")).toBeFocused();
+  await expect(page.locator("[data-product-navigation-button]")).toBeFocused();
 });
 
 test("global drop replaces another modal and inerts its surface", async ({
@@ -259,7 +260,7 @@ test("successful upload is excluded from retained Workspace restoration", async 
   await expect(page.locator(".inspected-target"))
     .toContainText("Other.Package");
 
-  await page.locator('[data-application-scope="workspace"]').click();
+  await openProductDestination(page, "workspace");
   await page.locator('[data-workspace-switch="workspace-1"]').click();
 
   await expect(page.getByText("Browser upload", { exact: true }))
@@ -309,10 +310,7 @@ test("failed Package open restores the uploaded Library", async ({ page }) => {
   await expect(page.getByText("Browser upload", { exact: true }))
     .toBeVisible();
 
-  await page.getByRole(
-    "button",
-    { name: "Search", exact: true },
-  ).click();
+  await page.getByRole("button", { name: /Search/ }).click();
   await page.locator("#spotlight-input")
     .fill("Other.Package@1.0.1");
   await page.locator('[data-sl-pkg-load="Other.Package"]').click();

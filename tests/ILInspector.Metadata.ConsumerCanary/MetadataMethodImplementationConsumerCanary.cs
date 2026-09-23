@@ -5,6 +5,36 @@ namespace ILInspector.Metadata.ConsumerCanary;
 
 public static class MetadataMethodImplementationConsumerCanary
 {
+    public static MetadataMethodDeclarationResult PostMethod(
+        string assemblyPath,
+        MetadataTypeDefinitionAddress type,
+        MetadataMethodAddress method)
+    {
+        using var assembly = AssemblyInspectionSession.Open(assemblyPath);
+        using var operation =
+            new MetadataOperationContext(MetadataOperationPolicy.Unbounded);
+        using MetadataDeclarationSession declarations =
+            assembly.CreateDeclarationSession(operation);
+        return declarations.PostMethodDeclaration(type, method);
+    }
+
+    public static bool Consume(MetadataMethodDeclarationResult result) =>
+        result switch
+        {
+            MetadataMethodDeclarationResult.Posted posted =>
+                posted.Evidence.Signature.ParameterTypes.Length
+                    == posted.Evidence.Parameters.Length
+                && posted.Evidence.Method.Handle.IsNil is false
+                && posted.Evidence.Type.Definition.Value != 0
+                && posted.Evidence.TypeParameters.All(p =>
+                    p.Name.Length >= 0
+                    && p.Constraints.All(c => c is not null)),
+            MetadataMethodDeclarationResult.Rejected rejected =>
+                rejected.Failure.Detail.Length > 0
+                && rejected.Counters.MetadataRows >= 0,
+            _ => false,
+        };
+
     public static MetadataMethodImplementationResult Relate(
         string assemblyPath,
         MetadataTypeDefinitionAddress type,
@@ -33,6 +63,38 @@ public static class MetadataMethodImplementationConsumerCanary
             MetadataMethodImplementationResult.Absent absent =>
                 absent.Counters.MethodImplementationRows >= 0,
             MetadataMethodImplementationResult.Rejected rejected =>
+                rejected.Failure.Detail.Length > 0
+                && rejected.Counters.MetadataRows >= 0,
+            _ => false,
+        };
+
+    public static MetadataInterfaceImplementationResult RelateInterface(
+        string assemblyPath,
+        MetadataTypeDefinitionAddress type,
+        MetadataTypeIdentity interfaceType)
+    {
+        using var assembly =
+            AssemblyInspectionSession.Open(assemblyPath);
+        using var operation =
+            new MetadataOperationContext(
+                MetadataOperationPolicy.Unbounded);
+        using MetadataDeclarationSession declarations =
+            assembly.CreateDeclarationSession(operation);
+        return declarations.Relate(type, interfaceType);
+    }
+
+    public static bool Consume(
+        MetadataInterfaceImplementationResult result) =>
+        result switch
+        {
+            MetadataInterfaceImplementationResult.Related related =>
+                related.Relationships.All(
+                    relationship =>
+                        relationship.Relationship.Handle.IsNil is false
+                        && relationship.Target.Handle.IsNil is false),
+            MetadataInterfaceImplementationResult.Absent absent =>
+                absent.Counters.InterfaceImplementationRows >= 0,
+            MetadataInterfaceImplementationResult.Rejected rejected =>
                 rejected.Failure.Detail.Length > 0
                 && rejected.Counters.MetadataRows >= 0,
             _ => false,

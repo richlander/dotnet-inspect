@@ -8,6 +8,24 @@ internal static class LibraryOutputCapabilities
     public static OutputCapabilityCatalog Catalog { get; } =
         CreateCatalog();
 
+    public static OutputCapabilityCatalog AggregateCardinalityCatalog
+        { get; } =
+        new(
+            new Dictionary<string, SectionOutputCapabilities>(
+                StringComparer.OrdinalIgnoreCase)
+            {
+                [SectionNames.LibraryInfo] =
+                    SectionOutputCapabilities.Create(
+                        [
+                            DiscoveryOutputMode.Markdown,
+                            DiscoveryOutputMode.Json,
+                            DiscoveryOutputMode.Table,
+                            DiscoveryOutputMode.Tsv,
+                            DiscoveryOutputMode.Jsonl,
+                        ]),
+            },
+            []);
+
     private static OutputCapabilityCatalog CreateCatalog()
     {
         Dictionary<string, SectionOutputCapabilities> sections =

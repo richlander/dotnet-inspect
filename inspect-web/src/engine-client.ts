@@ -72,6 +72,8 @@ type AnalysisOperations =
   | "queryPackageIntegrations"
   | "queryPackageOpportunities"
   | "queryPackagePerformance"
+  | "queryPackageLibraryMetrics"
+  | "queryPlatformLibraryMetrics"
   | "queryPlatformIntegrations"
   | "queryPlatformOpportunities"
   | "queryPlatformPerformance";

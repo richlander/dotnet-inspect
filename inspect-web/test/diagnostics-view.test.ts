@@ -58,6 +58,10 @@ const ready: DiagnosticsViewModel = {
 test("Diagnostics renders runtime, build, and isolated-storage evidence in order", () => {
   const html = diagnosticsViewHtml(ready, escapeHtml);
 
+  assert.match(
+    html,
+    /id="diagnostics-product"[\s\S]*aria-label="dotnet-inspect navigation"/);
+  assert.doesNotMatch(html, /aria-label="dotnet-inspect workspace"/);
   assert.match(html, /aria-label="Back to previous page"/);
   assert.match(html, /&larr; Back/);
   assert.ok(html.indexOf(">Runtime startup<") < html.indexOf(">Build<"));
@@ -206,11 +210,11 @@ test("Diagnostics renders explicit runtime and cache failures with escaped detai
   assert.doesNotMatch(html, /<script>/);
 });
 
-test("Diagnostics binds product Home and Back as distinct route actions", () => {
+test("Diagnostics binds Back as its route action", () => {
   const listeners = new Map<string, EventListener>();
   const root = {
     querySelector(selector: string) {
-      return selector === "#diagnostics-product" || selector === "#diagnostics-back"
+      return selector === "#diagnostics-back"
         ? {
             addEventListener(_type: string, listener: EventListener) {
               listeners.set(selector, listener);
@@ -223,11 +227,9 @@ test("Diagnostics binds product Home and Back as distinct route actions", () => 
 
   bindDiagnosticsView(fakeDom.parentNode(root), {
     onBack: () => calls.push("back"),
-    onHome: () => calls.push("home"),
   });
   const event = fakeDom.event({ preventDefault() {} });
-  listeners.get("#diagnostics-product")?.(event);
   listeners.get("#diagnostics-back")?.(event);
 
-  assert.deepEqual(calls, ["home", "back"]);
+  assert.deepEqual(calls, ["back"]);
 });

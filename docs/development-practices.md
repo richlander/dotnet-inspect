@@ -284,11 +284,14 @@ change they teach, and rerun affected examples rather than preserving stale
 syntax. The skills are the compatibility mitigation: an agent learns the
 current reliable workflow from the current binary.
 
-`README.md` remains shipped documentation and must also describe current
-behavior, but it is not a reason to carry obsolete CLI paths. This policy does
-not redefine platform support, inspected-library compatibility analysis,
-serialized formats, protocols, library APIs, or another explicitly owned
-compatibility contract.
+`README.md` remains shipped landing-page documentation and its featured
+daily-driver and delightful-demo commands must describe current behavior.
+Their website links use packet URLs that open the same view. Detailed command
+guidance belongs in `docs/cli-reference.md` and the product skills. None of
+these surfaces is a reason to carry obsolete CLI paths. This policy does not
+redefine platform support, inspected-library compatibility analysis, serialized
+formats, protocols, library APIs, or another explicitly owned compatibility
+contract.
 
 ## Lead with the demo
 

@@ -21,7 +21,7 @@ namespace DotnetInspector.Queries.Tests;
 
 public sealed partial class AssemblyContextSourceQueryTests
 {
-    sealed class TestAssembly
+    internal sealed class TestAssembly
     {
         readonly ApiSurface _surface;
 
@@ -225,7 +225,7 @@ public sealed partial class AssemblyContextSourceQueryTests
         }
     }
 
-    sealed class QueryHost : IDisposable
+    internal sealed class QueryHost : IDisposable
     {
         readonly HttpClient _symbolClient;
         readonly HttpClient _sourceClient;

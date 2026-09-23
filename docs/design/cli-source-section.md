@@ -29,6 +29,9 @@ The supporting owners are:
   native singleton output and explicit format precedence.
 - [Output shapes](output-shapes.md): document rendering and unary payload
   projection.
+- [Source document cardinality](source-document-cardinality.md): the planned
+  shared document facts, ordered `Lines` inventory, exact Count, content
+  binding, and continuation contract for large Source results.
 
 ## Selection and authorization
 
@@ -102,6 +105,12 @@ delivery. Browser member Source already consumes the member operation. Browser
 type Source uses the owner's PDB-latency-hedged operation; CLI type Source stays
 serial. The scheduling distinction does not authorize a host-owned fallback
 algorithm.
+
+Issue #8281 evolves the successful content projection, not this acquisition
+policy: one shared Source document operation will preserve the completed
+envelope while exposing document facts beside continued line rows. The current
+CLI-local JSON/document projection remains authoritative until that focused
+adoption preserves its output and visible failure behavior.
 
 PR #8163 introduced the structured C# Type document core without changing
 production source construction. Integration with that document is a separate

@@ -11,6 +11,7 @@ import type {
 } from "./facades/inspect-web-package.d.ts";
 import type {
   BrowserPackageIntegrations,
+  BrowserLibraryMetrics,
   BrowserPackageOpportunities,
   BrowserPackagePerformance,
   BrowserPerformanceMember,
@@ -26,6 +27,7 @@ import type {
 } from "./package-acquisition.ts";
 
 export type PackagePerformance = BrowserPackagePerformance;
+export type PackageLibraryMetrics = BrowserLibraryMetrics;
 
 export interface ResolvedPackagePerformanceMember {
   type: AppTypeSurface;
@@ -97,6 +99,10 @@ export interface PackageInspectionState {
   packagePerformanceLoading: boolean;
   packagePerformanceError: string;
   packagePerformanceKey: string;
+  packageLibraryMetrics: PackageLibraryMetrics | null;
+  packageLibraryMetricsLoading: boolean;
+  packageLibraryMetricsError: string;
+  packageLibraryMetricsKey: string;
   packageMetadata: PackageMetadata | null;
   packageMetadataLoading: boolean;
   packageMetadataError: string;
@@ -137,12 +143,22 @@ export interface PackageInspectionDependencies {
     packageModel: AppPackage,
     library: string,
   ): Promise<PackagePerformance>;
+  queryPackageLibraryMetrics(
+    packageModel: AppPackage,
+    library: string,
+  ): Promise<PackageLibraryMetrics>;
   queryPlatformPerformance(
     framework: string,
     platformVersion: string,
     assemblyFileName: string,
     pack: string,
   ): Promise<PackagePerformance>;
+  queryPlatformLibraryMetrics(
+    framework: string,
+    platformVersion: string,
+    assemblyFileName: string,
+    pack: string,
+  ): Promise<PackageLibraryMetrics>;
   queryPackageMetadata(
     packageModel: AppPackage,
     library: string,
@@ -186,6 +202,11 @@ export interface PackageInspectionCoordinator {
     scopedLibrary: string | null,
   ): Promise<void>;
   loadPerformance(
+    packageModel: AppPackage,
+    signature: string,
+    scopedLibrary: string | null,
+  ): Promise<void>;
+  loadLibraryMetrics(
     packageModel: AppPackage,
     signature: string,
     scopedLibrary: string | null,
@@ -311,6 +332,10 @@ export function createPackageInspectionCoordinator(
       state.packagePerformanceLoading = false;
       state.packagePerformanceError = "";
       state.packagePerformanceKey = "";
+      state.packageLibraryMetrics = null;
+      state.packageLibraryMetricsLoading = false;
+      state.packageLibraryMetricsError = "";
+      state.packageLibraryMetricsKey = "";
       state.packageMetadata = null;
       state.packageMetadataLoading = false;
       state.packageMetadataError = "";
@@ -544,6 +569,52 @@ export function createPackageInspectionCoordinator(
       } finally {
         if (ownsRequest()) {
           state.packagePerformanceLoading = false;
+        }
+        if (generation === packageResultGeneration) {
+          dependencies.render();
+        }
+      }
+    },
+
+    async loadLibraryMetrics(packageModel, signature, scopedLibrary) {
+      if (packageModel.isRuntimePack && !scopedLibrary) return;
+      if (state.packageLibraryMetricsKey === signature
+        && (state.packageLibraryMetrics || state.packageLibraryMetricsError)) {
+        dependencies.render();
+        return;
+      }
+      const generation = packageResultGeneration;
+      const ownsRequest = () =>
+        state.packageLibraryMetricsKey === signature
+        && generation === packageResultGeneration;
+      state.packageLibraryMetricsKey = signature;
+      state.packageLibraryMetrics = null;
+      state.packageLibraryMetricsError = "";
+      state.packageLibraryMetricsLoading = true;
+      dependencies.render();
+      try {
+        const coordinates = packageModel.isRuntimePack
+          ? platformCoordinates(packageModel, scopedLibrary ?? "")
+          : null;
+        const result = coordinates
+          ? await dependencies.queryPlatformLibraryMetrics(
+              coordinates.framework,
+              coordinates.platformVersion,
+              coordinates.assemblyFileName,
+              coordinates.pack)
+          : await dependencies.queryPackageLibraryMetrics(
+              packageModel,
+              scopedLibrary ?? "");
+        if (ownsRequest()) {
+          state.packageLibraryMetrics = result;
+        }
+      } catch (error) {
+        if (ownsRequest()) {
+          state.packageLibraryMetricsError = dependencies.describeError(error);
+        }
+      } finally {
+        if (ownsRequest()) {
+          state.packageLibraryMetricsLoading = false;
         }
         if (generation === packageResultGeneration) {
           dependencies.render();

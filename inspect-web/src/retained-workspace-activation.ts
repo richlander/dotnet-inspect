@@ -2,6 +2,7 @@ import type {
   BrowserRetainedWorkspaceActivationResult,
   BrowserRetainedWorkspaceConsumerCompletionResult,
   BrowserRetainedWorkspaceDeactivationResult,
+  BrowserRetainedWorkspacePackageSourceCredential,
   BrowserRetainedWorkspacePosting,
   BrowserRetainedWorkspacePreparedPosting,
   BrowserRetainedWorkspacePreparationResult,
@@ -36,11 +37,6 @@ interface SoleDeactivationIntent {
   readonly retainedDefinitionId: string;
 }
 
-interface RetainedWorkspacePackageSourceCredential {
-  readonly username: string;
-  readonly pat: string;
-}
-
 export interface RetainedWorkspaceActivationClient {
   describeWorkspacePackageSources?(
     canonicalPacket: string,
@@ -57,7 +53,9 @@ export interface RetainedWorkspaceActivationClient {
     label: string,
     canonicalLocation: string,
     canonicalPacket: string,
-    packageSourceCredentialsJson: string,
+    packageSourceCredentials: Readonly<
+      Record<string, BrowserRetainedWorkspacePackageSourceCredential>
+    >,
   ): Promise<BrowserRetainedWorkspacePreparationResult>;
   commitRetainedWorkspaceActivation(
     receipt: string,
@@ -153,11 +151,12 @@ export interface RetainedWorkspaceActivationController {
     ) => void | Promise<void>,
     committed?: () => void,
     packageSourceCredentials?: Readonly<
-      Record<string, RetainedWorkspacePackageSourceCredential>
+      Record<string, BrowserRetainedWorkspacePackageSourceCredential>
     >,
     isPresentationCurrent?: (
       posting: BrowserRetainedWorkspacePosting,
     ) => boolean,
+    activationHooks?: RetainedWorkspaceActivationHooks,
   ): Promise<BrowserRetainedWorkspaceActivationResult>;
   cancelPending(): boolean;
   waitForPendingCommit(): Promise<void> | null;
@@ -179,6 +178,7 @@ interface RetainedWorkspaceDeletionOptions {
     posting: BrowserRetainedWorkspacePosting,
   ) => boolean;
   readonly completeDeactivation?: () => void | Promise<void>;
+  readonly hooks?: RetainedWorkspaceActivationHooks;
 }
 
 export function createRetainedWorkspaceActivationController(
@@ -279,6 +279,7 @@ export function createRetainedWorkspaceActivationController(
 
   function observePredecessorOnce(
     posting: BrowserRetainedWorkspacePosting,
+    activationHooks: RetainedWorkspaceActivationHooks,
   ): void {
     const predecessor = posting.predecessor;
     if (predecessor === null
@@ -294,9 +295,9 @@ export function createRetainedWorkspaceActivationController(
     void client.observeRetainedWorkspaceSettlement(
       predecessor.settlementId,
     ).then(
-      value => hooks.predecessorSettled(observation, value),
+      value => activationHooks.predecessorSettled(observation, value),
       (error: unknown) =>
-        hooks.predecessorObservationFailed(observation, error),
+        activationHooks.predecessorObservationFailed(observation, error),
     );
   }
 
@@ -340,6 +341,7 @@ export function createRetainedWorkspaceActivationController(
     isPresentationCurrent: (
       posting: BrowserRetainedWorkspacePosting,
     ) => boolean,
+    activationHooks: RetainedWorkspaceActivationHooks,
   ): Promise<boolean> {
     const authority = authorityArguments(posting);
     if (posting.publicationOrdinal <= postedPublicationOrdinal) {
@@ -353,12 +355,12 @@ export function createRetainedWorkspaceActivationController(
       if (!await client.validateRetainedWorkspaceNavigationAuthority(
         ...authority,
       )) {
-        hooks.clear(isPresentationCurrent(posting));
+        activationHooks.clear(isPresentationCurrent(posting));
         await abandonPosting(posting);
         return false;
       }
       postedPublicationOrdinal = posting.publicationOrdinal;
-      hooks.post(posting, isPresentationCurrent(posting));
+      activationHooks.post(posting, isPresentationCurrent(posting));
       const recorded =
         await client.recordRetainedWorkspaceNavigationPosting(
           ...authority,
@@ -390,7 +392,7 @@ export function createRetainedWorkspaceActivationController(
     } catch (error) {
       let clearFailure: unknown = null;
       try {
-        hooks.clear(isPresentationCurrent(posting));
+        activationHooks.clear(isPresentationCurrent(posting));
       } catch (clearError) {
         clearFailure = clearError;
       }
@@ -510,11 +512,12 @@ export function createRetainedWorkspaceActivationController(
     ) => void | Promise<void> = () => {},
     committed: () => void = () => {},
     packageSourceCredentials: Readonly<
-      Record<string, RetainedWorkspacePackageSourceCredential>
+      Record<string, BrowserRetainedWorkspacePackageSourceCredential>
     > = {},
     isPresentationCurrent: (
       posting: BrowserRetainedWorkspacePosting,
     ) => boolean = () => true,
+    activationHooks: RetainedWorkspaceActivationHooks = hooks,
   ): Promise<BrowserRetainedWorkspaceActivationResult> {
     const definition = find(retainedDefinitionId);
     if (soleDeactivationIntent !== null) {
@@ -571,7 +574,7 @@ export function createRetainedWorkspaceActivationController(
             definition.label,
             definition.canonicalLocation,
             definition.canonicalPacket,
-            JSON.stringify(packageSourceCredentials),
+            packageSourceCredentials,
           );
         }
         switch (preparation.status) {
@@ -693,7 +696,7 @@ export function createRetainedWorkspaceActivationController(
               `Retained Workspace ${result.status} omitted posting evidence.`,
             );
           }
-          observePredecessorOnce(posting);
+          observePredecessorOnce(posting, activationHooks);
           if (result.status === "activated") {
             if (receipt === null) {
               throw new Error(
@@ -707,6 +710,7 @@ export function createRetainedWorkspaceActivationController(
                 posting,
                 complete,
                 isPresentationCurrent,
+                activationHooks,
               );
               if (!posted) {
                 throw new Error(
@@ -782,7 +786,7 @@ export function createRetainedWorkspaceActivationController(
         pendingDefinitionId = null;
         let reconciliationError: unknown = null;
         try {
-          hooks.clear();
+          activationHooks.clear();
         } catch (clearError) {
           reconciliationError = clearError;
         }
@@ -916,6 +920,7 @@ export function createRetainedWorkspaceActivationController(
     retainedDefinitionId: string,
     options: RetainedWorkspaceDeletionOptions = {},
   ): Promise<void> {
+    const operationHooks = options.hooks ?? hooks;
     const removedIndex = definitions.findIndex(
       definition => definition.id === retainedDefinitionId,
     );
@@ -977,6 +982,7 @@ export function createRetainedWorkspaceActivationController(
         completeCommittedDeletion,
         {},
         options.isSuccessorPresentationCurrent,
+        operationHooks,
       );
       if (result.status !== "activated" && result.status !== "noEffect") {
         return;
@@ -1008,7 +1014,7 @@ export function createRetainedWorkspaceActivationController(
           : "Retained Workspace deactivation outcome is unknown.";
         activeDefinitionId = null;
         try {
-          hooks.clear();
+          operationHooks.clear();
         } catch (clearError) {
           const clearMessage = clearError instanceof Error
             ? clearError.message
@@ -1042,7 +1048,7 @@ export function createRetainedWorkspaceActivationController(
           activeDefinitionId = null;
           lastFailure = null;
           try {
-            hooks.clear();
+            operationHooks.clear();
             await options.completeDeactivation?.();
             await completeDeactivationReceipt(receipt, true, null);
             completionAccepted = true;
@@ -1070,7 +1076,7 @@ export function createRetainedWorkspaceActivationController(
             definition => definition.id !== retainedDefinitionId,
           );
           activeDefinitionId = null;
-          hooks.clear();
+          operationHooks.clear();
           return;
         case "cleanupFailed": {
           const receipt = result.completionReceipt;
@@ -1088,7 +1094,7 @@ export function createRetainedWorkspaceActivationController(
             ?? "The active Workspace could not be settled.";
           lastFailure = managedFailure;
           try {
-            hooks.clear();
+            operationHooks.clear();
             await options.completeDeactivation?.();
             await completeDeactivationReceipt(receipt, true, null);
             completionAccepted = true;
