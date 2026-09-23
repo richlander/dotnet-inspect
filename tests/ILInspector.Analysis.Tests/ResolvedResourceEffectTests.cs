@@ -626,6 +626,82 @@ public sealed partial class DirectCallDefinitionResolutionTests
     }
 
     [Fact]
+    public void StaticExplicitInterfaceEffectAppliesWithoutInterfaceInvocation()
+    {
+        SyntheticParticipant participant =
+            CreateInterfaceParticipant(
+                explicitImplementation: true,
+                includeInterfaceCall: false,
+                staticExplicitImplementation: true);
+        ResourceEffectAdmission admission = AdmitModels(
+            Model(
+                "example.static-explicit-interface-application",
+                InterfaceTarget(participant, isStatic: true),
+                new ResourceEffect.Operation(
+                    ResourceOperationBoundary.Ordinary,
+                    ResourceOperationThrows.Possible,
+                    Guard: null)));
+
+        ResourceEffectResolutionOutcome.Complete complete =
+            Assert.IsType<ResourceEffectResolutionOutcome.Complete>(
+                ResourceEffectResolver.Resolve(
+                    participant.Policy,
+                    admission,
+                    [participant.Participant],
+                    cancellationToken:
+                        TestContext.Current.CancellationToken));
+
+        ResolvedResourceEffect implementation =
+            Assert.Single(complete.Snapshot.Effects);
+        Assert.Equal(
+            "ExplicitTarget",
+            implementation.DirectCall.Definition.Member.Name);
+        Assert.Equal(
+            "Contract",
+            implementation.DirectCall.Call.Caller.DeclaringType.Name);
+        Assert.Equal(
+            CallKind.Call,
+            implementation.DirectCall.Call.Kind);
+        Assert.False(
+            implementation.DirectCall.Definition.Member.HasThis);
+        Assert.IsType<
+            ResourceEffectMethodImplementationEvidence.Explicit>(
+                implementation.InterfaceApplication!.Method);
+    }
+
+    [Fact]
+    public void StaticInterfaceCandidateSelectionRejectsNonMethodImplBody()
+    {
+        SyntheticParticipant interfaceParticipant =
+            CreateInterfaceParticipant(
+                explicitImplementation: true,
+                includeInterfaceCall: false,
+                staticExplicitImplementation: true);
+        ResourceEffectAdmission admission = AdmitModels(
+            Model(
+                "example.static-interface-candidate",
+                InterfaceTarget(
+                    interfaceParticipant,
+                    isStatic: true),
+                new ResourceEffect.Operation(
+                    ResourceOperationBoundary.Ordinary,
+                    ResourceOperationThrows.Possible,
+                    Guard: null)));
+        SyntheticParticipant unrelated = CreateSynthetic(new()
+        {
+            TargetName = "StaticLookalike",
+        });
+        var selector =
+            new ResourceEffectDirectCallCandidateSelector(admission);
+
+        Assert.DoesNotContain(
+            unrelated.Participant.CallGraph.DirectCalls,
+            call => selector.Includes(
+                unrelated.Participant,
+                call));
+    }
+
+    [Fact]
     public void VersionAgnosticSelectorRetainsSecondVersionImplementationCandidate()
     {
         const string AssemblyName = "VersionSplitInterfaceTarget";
@@ -3406,7 +3482,8 @@ public sealed partial class DirectCallDefinitionResolutionTests
     }
 
     static ResourceEffectTargetSelector InterfaceTarget(
-        SyntheticParticipant participant)
+        SyntheticParticipant participant,
+        bool isStatic = false)
     {
         AssemblyReferenceIdentity identity =
             participant.Participant.Assembly.Identity;
@@ -3422,10 +3499,10 @@ public sealed partial class DirectCallDefinitionResolutionTests
                     [new ResourceTypeNameSegment("IContract", 0)]),
                 "Target",
                 ResourceEffectMemberKind.Method,
-                isStatic: false,
+                isStatic,
                 genericArity: 0,
                 ResourceEffectCallingConvention.Default,
-                hasThis: true,
+                hasThis: !isStatic,
                 explicitThis: false,
                 parameters: [],
                 CoreType("Void")));

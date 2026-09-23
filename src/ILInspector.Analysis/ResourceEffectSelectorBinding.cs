@@ -467,9 +467,9 @@ public static class ResourceEffectSelectorBinder
         if (selector.Kind
                 is ResourceEffectMemberKind.Field
                     or ResourceEffectMemberKind.Constructor
-            || selector.IsStatic
             || member.Kind == MemberKind.Constructor
-            || !member.HasThis)
+            || !allowAnyName
+                && (selector.IsStatic || !member.HasThis))
         {
             return false;
         }

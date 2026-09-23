@@ -2344,7 +2344,8 @@ public sealed partial class DirectCallDefinitionResolutionTests
         bool wrappedTypeParameter = false,
         string assemblyName = "InterfaceDirectCalls",
         Version? assemblyVersion = null,
-        byte[]? assemblyPublicKey = null)
+        byte[]? assemblyPublicKey = null,
+        bool staticExplicitImplementation = false)
     {
         assemblyVersion ??= new Version(1, 0, 0, 0);
         addPublicDecoy |= addSwappedGenericDecoy;
@@ -2469,7 +2470,8 @@ public sealed partial class DirectCallDefinitionResolutionTests
                 MetadataTokens.MethodDefinitionHandle(
                     2
                     + implementationMethodCount
-                    + (addNonImplementer ? 1 : 0)));
+                    + (addNonImplementer ? 1 : 0)
+                    + (staticExplicitImplementation ? 1 : 0)));
         if (invalidOnlyInterfaceImpl)
         {
             metadata.AddInterfaceImplementation(
@@ -2550,14 +2552,18 @@ public sealed partial class DirectCallDefinitionResolutionTests
         byte[] interfaceTypeParameter = wrappedTypeParameter
             ? GenericInstanceSignature(wrapper, [0x13, 0x00])
             : [0x13, 0x00];
-        byte[] interfaceMethodSignature = methodGeneric
+        byte[] interfaceMethodSignature = staticExplicitImplementation
+            ? [0x00, 0x00, 0x01]
+            : methodGeneric
             ? genericInterface
                 ? [0x30, 0x01, 0x02, 0x01, .. interfaceTypeParameter, 0x1E, 0x00]
                 : [0x30, 0x01, 0x01, 0x01, 0x1E, 0x00]
             : genericInterface
                 ? [0x20, 0x01, 0x01, .. interfaceTypeParameter]
                 : [0x20, 0x00, 0x01];
-        byte[] implementationMethodSignature = methodGeneric
+        byte[] implementationMethodSignature = staticExplicitImplementation
+            ? [0x00, 0x00, 0x01]
+            : methodGeneric
             ? genericImplementation
                 ? [0x30, 0x01, 0x02, 0x01, .. interfaceTypeParameter, 0x1E, 0x00]
                 : fixedGenericInterface
@@ -2573,7 +2579,10 @@ public sealed partial class DirectCallDefinitionResolutionTests
                 MethodAttributes.Public
                     | MethodAttributes.Abstract
                     | MethodAttributes.Virtual
-                    | MethodAttributes.NewSlot,
+                    | MethodAttributes.NewSlot
+                    | (staticExplicitImplementation
+                        ? MethodAttributes.Static
+                        : 0),
                 MethodImplAttributes.IL,
                 metadata.GetOrAddString("Target"),
                 metadata.GetOrAddBlob(interfaceMethodSignature),
@@ -2584,8 +2593,10 @@ public sealed partial class DirectCallDefinitionResolutionTests
                 (explicitImplementation
                     ? MethodAttributes.Private
                     : MethodAttributes.Public)
-                    | MethodAttributes.Final
-                    | MethodAttributes.Virtual,
+                    | (staticExplicitImplementation
+                        ? MethodAttributes.Static
+                        : MethodAttributes.Final
+                            | MethodAttributes.Virtual),
                 MethodImplAttributes.IL,
                 metadata.GetOrAddString(
                     explicitImplementation
@@ -2737,22 +2748,35 @@ public sealed partial class DirectCallDefinitionResolutionTests
         }
         if (includeInterfaceCall)
         {
-        callerInstructions.OpCode(ILOpCode.Ldnull);
+            if (!staticExplicitImplementation)
+                callerInstructions.OpCode(ILOpCode.Ldnull);
             if (genericInterface && methodGeneric)
-                callerInstructions.OpCode(callerGenericTypeArgument ? ILOpCode.Ldarg_0 : ILOpCode.Ldc_i4_0);
+            {
+                callerInstructions.OpCode(
+                    callerGenericTypeArgument
+                        ? ILOpCode.Ldarg_0
+                        : ILOpCode.Ldc_i4_0);
+            }
             if (genericInterface || methodGeneric)
-            callerInstructions.OpCode(ILOpCode.Ldc_i4_0);
-        callerInstructions.OpCode(ILOpCode.Callvirt);
-        callerInstructions.Token(interfaceCallTarget);
+                callerInstructions.OpCode(ILOpCode.Ldc_i4_0);
+            callerInstructions.OpCode(
+                staticExplicitImplementation
+                    ? ILOpCode.Call
+                    : ILOpCode.Callvirt);
+            callerInstructions.Token(interfaceCallTarget);
         }
-        callerInstructions.OpCode(ILOpCode.Ldnull);
+        if (!staticExplicitImplementation)
+            callerInstructions.OpCode(ILOpCode.Ldnull);
         if (genericImplementation || fixedGenericInterface)
             callerInstructions.OpCode(callerGenericTypeArgument ? ILOpCode.Ldarg_0 : ILOpCode.Ldc_i4_0);
         else if (methodGeneric)
             callerInstructions.OpCode(ILOpCode.Ldnull);
         if (genericImplementation && methodGeneric)
         callerInstructions.OpCode(ILOpCode.Ldnull);
-        callerInstructions.OpCode(ILOpCode.Callvirt);
+        callerInstructions.OpCode(
+            staticExplicitImplementation
+                ? ILOpCode.Call
+                : ILOpCode.Callvirt);
         callerInstructions.Token(implementationCallTarget);
         if (!stringImplementationCallTarget.IsNil)
         {

@@ -288,9 +288,9 @@ member facts and exact retained target-definition facts:
   count prefilter;
 - possible implicit interface implementations preserve the selected member
   name and instance signature shape;
-- a name-disjoint local MethodDef remains a candidate exactly when the
+- an explicit-body-shaped local MethodDef remains a candidate exactly when the
   participant's bounded MethodImpl census names its token as a body;
-- a name-disjoint external member remains a candidate when the exact
+- an explicit-body-shaped external member remains a candidate when the exact
   source-relative assembly selection's bounded MethodImpl census contains its
   name; forwarded, multi-module, unavailable, malformed, or budget-incomplete
   targets remain candidates; and
