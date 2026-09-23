@@ -793,6 +793,13 @@ candidates. Candidate failures remain visible and prevent an unqualified
 Count. Candidate packages are disposable: they are never added to the package
 cache.
 
+Select `-S "Literal Strings"` to itemize every physical matching `ldstr` as a
+row with Package, Library, Method Token, IL Offset, and the complete decoded
+Literal. Prefix and interior substring matches remain whole strings. Repeated
+matches within one literal remain one physical row, while separate instructions
+retain separate coordinates. This evidence projection does not change
+package-grain row selection or Count.
+
 Unprojected Package Query `--json` emits the complete owner-issued
 `PackageQueryDocument`. `--envelope` emits that same Content with Share and
 diagnostics using result kind `package-query`. Query controls such as

@@ -16,7 +16,10 @@
 - Adds exact decoded-string `library-literal=<text>` qualification to Package
   Query with an exact `--tfm`. Results remain package-grain while retaining the
   selected Library, complete occurrences, typed completion, and an exact Root
-  reopening token (#8054).
+  reopening token. Select `Literal Strings` to itemize each physical matching
+  `ldstr` with Package, Library, Method Token, IL Offset, and the complete
+  decoded Literal; repeated matches within one literal remain one row, while
+  separate instructions retain separate coordinates (#8054, #8277).
 - **Breaking:** Replaces `package search` and patternless
   `find --package-prefix` with host-neutral `package query`. Exact IDs and
   terminal-star prefixes share the Package Query engine; `--take` limits

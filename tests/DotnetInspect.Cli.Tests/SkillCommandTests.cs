@@ -185,7 +185,9 @@ public class SkillCommandTests
         Assert.Contains(
             "Use dotnet-inspect to find evidence",
             router);
-        Assert.Contains("installed .NET Runtime and ASP.NET Core", router);
+        Assert.Contains(
+            "installed .NET Runtime, ASP.NET Core, and .NET Standard",
+            router);
         Assert.Contains("find JsonSerializer", router);
         Assert.Contains("find ControllerBase", router);
         Assert.Contains("find OptionsBuilder", router);
@@ -206,8 +208,10 @@ public class SkillCommandTests
             Assert.Contains("router choose", output);
             Assert.Contains("installed .NET Runtime", output);
             Assert.Contains("ASP.NET Core", output);
+            Assert.Contains(".NET Standard", output);
             Assert.Contains("Microsoft.Extensions", output);
             Assert.Contains("`--package", output);
+            Assert.Contains("`--package-prefix", output);
             Assert.Contains("`--project", output);
             Assert.Contains("package query", output);
             Assert.Contains("library query", output);
