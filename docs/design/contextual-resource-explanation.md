@@ -155,6 +155,15 @@ mapping. Until both are available, the command does not advertise
 `--explain`. The host does not expose a subject-only intermediate gesture or
 manufacture a generic help document as a success-shaped substitute.
 
+The adoption state is explicit:
+
+| Command-level resource | Exact-subject mapping | `--explain` admission |
+| --- | --- | --- |
+| Absent | Absent | Not advertised or admitted |
+| Present | Absent | Not advertised or admitted |
+| Absent | Present | Not advertised or admitted |
+| Present | Present | Advertised; the invocation discriminator selects command-level or exact-subject mode |
+
 ### Exact resolved subject
 
 A subject-level request uses the exact subject already resolved by the command
@@ -202,6 +211,17 @@ operation with its already resolved typed input. It bypasses public reference
 serialization and parsing but not the subject owner's validation or failure
 contract.
 
+Operand-specific options are admitted before acquisition or dispatch:
+
+| Operand | Admitted options | Rejected options |
+| --- | --- | --- |
+| `ResourcePath` | Resource Explanation traversal options, including `--depth`, plus shared presentation and destination options | Subject-reference operations and options |
+| Reusable inspection reference | Options declared by the reference owner's explanation affordance, plus shared presentation and destination options | Resource Explanation traversal options, including `--depth` |
+
+An invalid operand, an option outside the selected operand's row, or an
+ambiguous operand fails before either explanation owner is invoked. The facade
+never ignores an inapplicable option or transfers it to the other owner.
+
 ### Cardinality
 
 Direct subject-level `--explain` requires exactly one resolved explainable
@@ -232,6 +252,12 @@ An adopting command classifies its options before acquisition:
   the explanation owner; and
 - ordinary section, row, payload, graph, Count, or competing content
   operations are rejected rather than ignored.
+
+Command-level mode is selected only when the invocation carries no subject or
+source-selection intent. Any source, version, framework, Library, Type,
+Member, occurrence, or partially specified subject intent selects
+exact-subject resolution mode. If that resolution fails, the command preserves
+its ordinary visible result and never falls back to command-level explanation.
 
 The completed explanation is returned through
 `InspectionEnvelope<TContent>`. CLI and Browser/Wasm consumers lower the same
@@ -404,11 +430,12 @@ The pathological neighboring cases are:
 | Property | Required gate |
 | --- | --- |
 | Command-level explanation consumes the exact owner-issued resource identity without deriving it from the parser token and performs no subject acquisition. | CLI composition test whose parser token deliberately differs from the registered canonical path, asserting the exact issued identity reaches Resource Explanation while all acquisition capabilities fail fast. |
-| A command that has not completed paired command-level and exact-subject adoption neither advertises nor executes `--explain`, produces no generic-help substitute, and performs no acquisition or explanation work. | Non-adopter CLI help and invocation test with fail-fast acquisition and explanation collaborators, asserting the declared visible unsupported result. |
+| A command advertises and executes `--explain` only after paired command-level and exact-subject adoption. | Four-state CLI help and invocation matrix covering neither registration, command-resource only, exact-subject mapping only, and both; the first three states assert the visible unsupported result with fail-fast acquisition and explanation collaborators. |
+| Command-level and exact-subject mode are distinguished without fallback. | First-adopter CLI matrix covering an empty target, every source and subject input family, and representative partial subject input; failed subject resolution preserves its ordinary visible result without invoking command-level explanation. |
 | Exact-subject explanation preserves the command owner's resolved subject, parses and resolves once, acquires each required source at most once, and does not execute ordinary section producers. | First-adopter integration test with counting command-preprocessing, resolution, and acquisition collaborators, fail-fast ordinary producers, and a real `System.Text.Json` command. |
 | Direct explanation does not serialize and parse a reusable reference. | Host-neutral composition test whose reference serializer and parser fail if called. |
 | Zero, multiple, unavailable, and failed subject outcomes remain distinct and visible. | Cardinality and failure matrix over the first adopter. |
-| The top-level `explain` facade distinguishes product-resource paths from reusable references, invokes the exact typed owner, and preserves each owner's Content and failures. | Facade-level CLI gate covering one registered `ResourcePath`, one reusable reference, a close grammar-boundary negative case, exact typed dispatcher and Content selection, and invalid, unavailable, and reopening-failure reference outcomes. |
+| The top-level `explain` facade distinguishes product-resource paths from reusable references, admits only operand-specific options, invokes the exact typed owner, and preserves each owner's Content and failures. | Facade-level CLI gate covering one registered `ResourcePath`, one reusable reference, a close grammar-boundary negative case, the complete operand-specific option matrix including `--depth`, rejection before acquisition or dispatch, exact typed dispatcher and Content selection, and invalid, unavailable, and reopening-failure reference outcomes. |
 | `--explain` and `--references` admit only their declared subject, selection, traversal, presentation, and destination combinations; conflicting content operations fail before acquisition. | First-adopter CLI option-matrix test covering every accepted family, mutual exclusion, representative competing section/row/payload/Count operations, and fail-fast acquisition for every rejected combination. |
 | `--references` observes the exact post-selection row sequence. | Row-selection integration tests covering predicate, order, head/tail, and absolute range selection. |
 | `--references` emits the exact owner-issued reference attached to each selected row without reconstructing identity or resolving or acquiring the subject again. | First-adopter projection test with independently retained references, misleading and colliding display fields, and fail-fast subject-resolution and acquisition collaborators; each output record must equal its row's retained reference. |
