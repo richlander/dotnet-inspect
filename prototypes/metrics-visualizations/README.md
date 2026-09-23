@@ -6,6 +6,8 @@ the repository's Release assemblies:
 
 - `data/analysis.json`: 13,100 complete bodies from `ILInspector.Analysis`.
 - `data/research.json`: 4,008 complete bodies from `ILInspector.Research`.
+- Each dataset also retains the strongest 500 aggregated internal
+  type-to-type direct-call relationships for the relationship views.
 
 The prototypes intentionally do not call the production Browser/Wasm contract.
 They are visual design experiments over the same kind of Analysis evidence.
@@ -24,13 +26,18 @@ dependency is added to the repository.
 
 1. **Library map** — a zoomable treemap. Area answers “where is the
    implementation?” and color answers “where is branching density
-   concentrated?” without claiming that a color is a defect severity.
-2. **Method field** — a dot field that shows the shape of one selected measure.
-   Each dot is a physical method body; isolated dots expose a long tail without
-   requiring users to understand percentile terminology.
-3. **Library comparison** — connected metric ranges compare the two real
-   assemblies. It uses p50, p95, and maximum as landmarks while keeping the
-   per-metric scale visible.
+   concentrated?” Scroll, pinch, and drag expose smaller regions without
+   claiming that a color is a defect severity.
+2. **Relationship views** — the same direct-call evidence rendered as a Sankey
+   flow, an arc diagram, or a chord diagram. These answer “where does the code
+   flow?” and make crossings and mutual relationships visible.
+3. **Composition views** — a radial namespace/type map paired with a plain
+   language size-band donut. These answer “what kind of code fills the
+   library?” without requiring percentile vocabulary.
+4. **Diverging comparison** — upper-tail metric differences between the two
+   real assemblies, with optional namespace/type composition comparisons. This
+   is a candidate grammar for library, version, namespace, type, or member
+   comparisons.
 
 ## Data refresh
 

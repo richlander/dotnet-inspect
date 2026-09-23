@@ -42,53 +42,84 @@
       </div>
     </section>
 
-    <section class="prototype-card" aria-labelledby="field-title">
+    <section class="prototype-card" aria-labelledby="flow-title">
       <div class="card-copy">
-        <p class="eyebrow">02 · notice</p>
-        <h2 id="field-title">Does this library have a long tail?</h2>
-        <p>Every point is one physical method body. A dense cloud says “most
-          methods look like this”; isolated points say “there are a few methods
-          worth opening.” Select a measure to change the question.</p>
-        <label class="metric-picker" for="field-metric">Show me
-          <select id="field-metric">
-            <option value="complexity">branching</option>
-            <option value="instructionCount">implementation size</option>
-            <option value="loops">loops</option>
-            <option value="calls">direct calls</option>
-            <option value="allocations">allocations</option>
-          </select>
-        </label>
-        <div id="field-summary" class="field-summary"></div>
+        <p class="eyebrow">02 · follow</p>
+        <h2 id="flow-title">Where does the code flow?</h2>
+        <p>Relationships make “spaghetti code” visible. The same real call
+          evidence can be lowered three ways: a flow from source to destination,
+          an arc that exposes crossings, or a chord that shows mutual pull.</p>
+        <div class="view-switcher" role="group" aria-label="Relationship view">
+          <button class="view-button is-selected" data-flow-view="sankey" type="button">Flow</button>
+          <button class="view-button" data-flow-view="arc" type="button">Arc</button>
+          <button class="view-button" data-flow-view="chord" type="button">Chord</button>
+        </div>
+        <div id="flow-summary" class="field-summary"></div>
       </div>
       <div class="chart-shell">
         <div class="chart-toolbar">
-          <span id="field-label">Normal-flow cyclomatic complexity</span>
-          <span class="legend-note">Each dot = one body</span>
+          <span id="flow-label">Sankey · type-to-type calls</span>
+          <span class="legend-note">top connected types</span>
         </div>
-        <svg id="field-chart" role="img" aria-label="Method metric dot field"></svg>
-        <div id="field-detail" class="chart-detail" aria-live="polite"></div>
+        <svg id="flow-chart" role="img" aria-label="Type relationship visualization"></svg>
+        <div id="flow-detail" class="chart-detail" aria-live="polite"></div>
+      </div>
+    </section>
+
+    <section class="prototype-card" aria-labelledby="composition-title">
+      <div class="card-copy">
+        <p class="eyebrow">03 · compose</p>
+        <h2 id="composition-title">What kind of code fills the library?</h2>
+        <p>Composition is easier to read as a shape than as a list of
+          percentages. The radial view shows namespace and type hierarchy;
+          the donut turns implementation size into a few plain-language bands.</p>
+        <label class="metric-picker" for="composition-metric">Size bands by
+          <select id="composition-metric">
+            <option value="instructionCount">implementation size</option>
+            <option value="complexity">branching</option>
+          </select>
+        </label>
+        <div id="composition-summary" class="field-summary"></div>
+      </div>
+      <div class="chart-shell">
+        <div class="chart-toolbar">
+          <span id="composition-label">Radial map · namespace → type</span>
+          <span class="legend-note">click a segment to zoom</span>
+        </div>
+        <div class="dual-chart">
+          <svg id="radial-chart" role="img" aria-label="Radial library composition"></svg>
+          <svg id="band-chart" role="img" aria-label="Library metric size bands"></svg>
+        </div>
+        <div id="composition-detail" class="chart-detail" aria-live="polite"></div>
       </div>
     </section>
 
     <section class="prototype-card" aria-labelledby="compare-title">
       <div class="card-copy">
-        <p class="eyebrow">03 · compare</p>
-        <h2 id="compare-title">How do two libraries differ?</h2>
-        <p>Comparison is easier when the landmarks stay attached to the same
-          measure. These ranges show the middle, upper tail, and largest observed
-          body for two real assemblies. The scale is independent for each row, so
-          a large number does not dominate every other measure.</p>
-        <p class="explanation"><span class="key analysis-key"></span>
-          ILInspector.Analysis <span class="key research-key"></span>
-          ILInspector.Research</p>
+        <p class="eyebrow">04 · compare</p>
+        <h2 id="compare-title">What changed between libraries?</h2>
+        <p>A diverging chart gives direction a visual meaning. The center is
+          the shared baseline; bars to the left or right show which namespace
+          or metric carries more implementation volume in one assembly or the
+          other.</p>
+        <label class="metric-picker" for="compare-scope">Compare by
+          <select id="compare-scope">
+            <option value="metric">metric</option>
+            <option value="namespace">namespace</option>
+            <option value="type">type</option>
+          </select>
+        </label>
+        <div class="explanation"><span class="key analysis-key"></span>
+          more in Analysis <span class="key research-key"></span>
+          more in Research</div>
       </div>
       <div class="chart-shell">
         <div class="chart-toolbar">
-          <span>Distribution landmarks</span>
-          <span class="legend-note">log scale per measure</span>
+          <span id="compare-label">Diverging implementation volume</span>
+          <span class="legend-note">top differences</span>
         </div>
-        <svg id="compare-chart" role="img" aria-label="Comparison of two library metric distributions"></svg>
-        <div id="compare-detail" class="chart-detail"></div>
+        <svg id="compare-chart" role="img" aria-label="Diverging library comparison"></svg>
+        <div id="compare-detail" class="chart-detail" aria-live="polite"></div>
       </div>
     </section>
 

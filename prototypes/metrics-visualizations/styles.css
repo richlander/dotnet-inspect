@@ -78,8 +78,9 @@ select { padding: 5px 8px; color: var(--teal); }
 .legend-note { color: var(--dim); }
 
 svg { display: block; width: 100%; overflow: visible; }
-#map-chart { height: 410px; margin-top: 12px; }
-#field-chart { height: 330px; margin-top: 12px; }
+#map-chart { height: 410px; margin-top: 12px; overflow: hidden; }
+#flow-chart { height: 410px; margin-top: 12px; }
+#radial-chart, #band-chart { height: 390px; margin-top: 12px; }
 #compare-chart { height: 390px; margin-top: 12px; }
 
 .chart-detail { min-height: 24px; margin-top: 6px; color: var(--muted); font: 12px/1.4 var(--mono); }
@@ -87,6 +88,10 @@ svg { display: block; width: 100%; overflow: visible; }
 .metric-picker { display: block; margin-top: 28px; color: var(--dim); font: 12px/1.5 var(--mono); }
 .field-summary { min-height: 60px; margin-top: 20px; color: var(--dim); font: 12px/1.6 var(--mono); }
 .field-summary strong { color: var(--amber); font-weight: 500; }
+.view-switcher { display: flex; gap: 6px; margin-top: 26px; }
+.view-button { color: var(--muted); }
+.view-button.is-selected { border-color: var(--teal); color: var(--teal); }
+.dual-chart { display: grid; grid-template-columns: 1.15fr .85fr; gap: 14px; }
 
 .treemap-cell { cursor: pointer; }
 .treemap-cell rect { stroke: #0c1624; stroke-width: 2px; transition: stroke .15s, opacity .15s; }
@@ -99,11 +104,26 @@ svg { display: block; width: 100%; overflow: visible; }
 .axis text { fill: var(--dim); font: 10px var(--mono); }
 .grid line { stroke: #1c2b3e; }
 .grid path { display: none; }
-.field-dot { fill: var(--blue); opacity: .24; }
-.field-dot.is-tail { fill: var(--amber); opacity: .82; }
-.field-dot:hover { fill: var(--ink); opacity: 1; }
-.field-guide { stroke: #536b86; stroke-dasharray: 3 5; }
-.field-label { fill: var(--dim); font: 10px var(--mono); }
+.flow-node rect { fill: var(--blue); stroke: #0c1624; stroke-width: 1; }
+.flow-node text { fill: var(--ink); font: 10px var(--mono); }
+.flow-link { fill: none; stroke: var(--teal); stroke-opacity: .22; }
+.flow-link:hover { stroke: var(--amber); stroke-opacity: .72; }
+.arc-node, .chord-node { fill: var(--blue); stroke: #0c1624; stroke-width: 1; }
+.arc-link { fill: none; stroke: var(--teal); stroke-opacity: .28; }
+.arc-link:hover { stroke: var(--amber); stroke-opacity: .9; }
+.chord-link { fill: var(--teal); fill-opacity: .25; }
+.chord-link:hover { fill: var(--amber); fill-opacity: .8; }
+.flow-label { fill: var(--muted); font: 9px var(--mono); }
+.band-arc { stroke: #0c1624; stroke-width: 2; }
+.band-label { fill: var(--muted); font: 10px var(--mono); }
+.radial-node { stroke: #0c1624; stroke-width: 1; cursor: pointer; }
+.radial-node:hover { stroke: var(--ink); }
+.radial-label { fill: var(--muted); font: 9px var(--mono); pointer-events: none; }
+.compare-bar-analysis { fill: var(--blue); }
+.compare-bar-research { fill: var(--teal); }
+.compare-zero { stroke: #8da0b6; stroke-dasharray: 3 4; }
+.compare-name { fill: var(--muted); font: 10px var(--mono); }
+.compare-axis { fill: var(--dim); font: 9px var(--mono); }
 .compare-row { stroke: #26384e; }
 .compare-line { stroke-width: 4; stroke-linecap: round; opacity: .8; }
 .compare-point { stroke: #0c1624; stroke-width: 2; }
@@ -120,4 +140,5 @@ svg { display: block; width: 100%; overflow: visible; }
   .card-copy { padding: 0; }
   .chart-shell { overflow-x: auto; }
   .chart-shell svg { min-width: 560px; }
+  .dual-chart { min-width: 720px; }
 }
