@@ -70,7 +70,15 @@ Local-folder sources satisfy the capability trivially: the archive is a
 seekable file, and the same reader runs over it with no transport. The
 central-directory and local-header reading that `LocalPackageArchiveReader`
 implements today for the manifest becomes the shared reader; the local reader
-consumes it rather than keeping a private copy.
+consumes it rather than keeping a private copy, and keeps projecting the
+reader's refusals into its own outcomes exactly as it does today.
+
+The caller supplies the limits as a NuGetFetch-owned primitive record,
+`PackageArchiveReadLimits`: the archive total in bytes, the directory caps
+(entries and bytes), the per-entry expanded bound, and the entry-read slack
+described below. NuGetFetch cannot reference `PackagePayloadLimits`, which
+lives in `DotnetInspector.Packages`; that layer maps its limits into this
+record at the lease step, as the full fetch already passes primitive limits.
 
 ### Reading the directory
 
@@ -80,27 +88,54 @@ locates the record, and reads the central directory from it. When the
 directory does not fit in the tail, the reader makes exactly one more ranged
 request for it. The result is the archive directory: an immutable list of
 entries with path, compression method, compressed size, expanded size, CRC,
-and local-header offset, plus the archive's total length.
+and local-header offset, plus the archive's total length and the validator
+the source supplied (`ETag`, `Last-Modified`, or none).
 
-The directory is bounded before it is parsed: an entry count or directory
-size above the reader's caps is refused as `InvalidResponse`, and an archive
-whose end-of-central-directory record cannot be found, or whose declared
-sizes do not agree with the transfer, is refused the same way. Zip64
-archives are refused as `Unsupported`; no nupkg a supported source serves
-needs them, and the refusal is visible rather than a silent misread.
+The archive's total length is derived from the end-of-central-directory
+record itself (directory offset plus directory size plus the record and its
+comment), so it is known wherever the record is, and it is cross-checked
+against `Content-Range` and `Content-Length` wherever those are visible. A
+disagreement is `InvalidResponse`. An archive shorter than the tail request
+arrives whole; the reader recognizes that by the derived total and needs no
+second request.
+
+The directory is bounded before it is parsed with the same caps the
+[local-folder source](local-folder-package-source.md) already fixes: 50,000
+entries and 16 MiB of central directory. The shared reader applies them for
+every source; the local source keeps supplying them through its options. An
+entry count or directory size above the caps, an archive whose
+end-of-central-directory record cannot be found, or declared sizes that do
+not agree with the transfer are refused as `InvalidResponse`. Zip64 archives
+are refused as `ArchiveUnsupported`; no nupkg a supported source serves needs
+them (none of the 1,690 nupkgs in the reviewer's local corpus used Zip64 or
+data descriptors), and the refusal is visible and falls back to the full
+fetch rather than misreading.
 
 ### Reading an entry
 
-An entry read fetches the entry's local header and compressed data in one
-ranged request from the local-header offset, validates the local-header
-signature and the header's agreement with the directory entry, and expands
-the data (stored or deflate; other methods are `Unsupported`). Expansion
-stops at the caller's `maxExpandedBytes`: an entry whose expanded size the
-directory declares above the limit is refused before any transfer, and an
-entry whose actual expansion exceeds the limit or the declared size is
-refused mid-stream without retaining partial bytes. The CRC is checked on
-completion; a mismatch is `InvalidResponse`. The expanded bytes are returned
-as caller-owned content, never the response stream.
+An entry read fetches the entry's local header and compressed data starting
+at the local-header offset. The local header's name and extra-field lengths
+are known only once the header is read, and the local extra field is not
+reliably the central one: in the reviewer's corpus of 1,690 nupkgs, 906
+entries across 35 packages (for example `Grpc.Net.Client` 2.80.0 and
+`Grpc.Tools` 2.80.0) carry a longer local extra field than the directory
+declares. So the first request is sized from the directory entry plus a
+bounded slack from the limits record, and when the header shows that the
+compressed data extends past what arrived, the reader makes exactly one
+follow-up request for the remainder. Before any request, the entry's extent
+must lie inside the archive: local-header offset plus header plus compressed
+size at or before the central-directory offset, otherwise `InvalidResponse`,
+so a crafted directory entry cannot drive a large transfer.
+
+The reader validates the local-header signature and the header's agreement
+with the directory entry (name, method, and CRC when the header carries it),
+then expands the data (stored or deflate; other methods are
+`ArchiveUnsupported`). Expansion stops at the caller's expanded bound: an
+entry whose expanded size the directory declares above the bound is refused
+before any transfer, and an entry whose actual expansion exceeds the bound or
+the declared size is refused mid-stream without retaining partial bytes. The
+CRC is checked on completion; a mismatch is `InvalidResponse`. The expanded
+bytes are returned as caller-owned content, never the response stream.
 
 ### Transport rules
 
@@ -110,7 +145,7 @@ as caller-owned content, never the response stream.
   established.
 - A `200` answer to a ranged request means the source ignored the range. The
   reader does not consume the body as a full download; it closes the response
-  and reports `Unsupported` for that source, so the caller takes the full
+  and reports `RangeIgnored` for that source, so the caller takes the full
   fetch path. The source is remembered as non-ranged for the rest of the
   invocation.
 - Every request after the first carries `If-Range` with the validator (`ETag`
@@ -119,9 +154,12 @@ as caller-owned content, never the response stream.
   changed between requests; the reader reports `ArchiveChanged` and retains
   nothing. nuget.org content is immutable, so this protects the private feeds
   and mirrors that are not.
-- A source that supplies no validator is still readable when its
-  `Content-Range` totals agree across requests; the reader records that the
-  archive identity is unverified across requests.
+- A source that supplies no validator is still readable when the derived
+  totals agree across requests. The directory result records the validator
+  kind as none, which is the outcome surface for "archive identity across
+  requests unverified"; every entry is still checked against the directory
+  through its local header and CRC, so mixed archive versions cannot pass
+  undetected.
 - Request deadlines, the operation ceiling, caller cancellation, retry, and
   credential application are the existing `NuGetOperationContext` and
   `NuGetSourceRequest` mechanics; this capability adds no deadline of its
@@ -132,26 +170,46 @@ as caller-owned content, never the response stream.
 In a browser, `fetch` performs the ranged request, but a CDN that does not
 expose `Content-Range` to scripts (nuget.org exposes `ETag`, `Content-Length`,
 and `Last-Modified`, not `Content-Range`) leaves the reader with the status
-and the body. The browser reader accepts a `206` whose body length equals the
-requested length as a matching range and applies the same validator and
-total-length rules where the headers are visible. This degradation is named
-here so the Wasm adoption slice does not rediscover it.
+and the body. The rules above already make that sufficient: the archive total
+comes from the end-of-central-directory record, not from `Content-Range`; a
+tail body shorter than the request is the whole archive when the derived
+total equals the body length; and a `206` whose body length equals the
+requested length, or equals the derived total, is a matching range. Where a
+header is visible it is cross-checked as on other hosts. Both a suffix
+`Range` and `If-Range` trigger a CORS preflight, which nuget.org allows
+(`access-control-allow-headers: range,if-range`, probed 2026-09-23). The
+contract suite runs the reader in a headers-hidden mode to gate these rules;
+the end-to-end browser read is `unverified` until the Inspect Web adoption
+slice adds its Playwright gate.
 
 ### Outcomes
 
-The capability returns `PackageSourceOperationResult<T>` shapes from the
-source-result contract with the existing failure kinds; it introduces two
-typed reasons beside them, `Unsupported` (range ignored, Zip64, or an
-unsupported compression method) and `ArchiveChanged`. It never turns a
+The capability owns its own closed result type, `PackageArchiveReadResult<T>`,
+issued for the directory and for entry content, rather than extending the
+source-result contract of [browser package sources](browser-package-sources.md),
+whose operation-result container and failure kinds are closed and stay
+unchanged. A read result holds exactly one of: the value; an ordinary
+`PackageSourceFailure` issued by the existing factory for the transport class
+of failures (`AuthenticationRequired`, `Timeout`, `Transport`,
+`InvalidResponse`, `ResponseRejected`, `NotFound`), so authorization,
+deadline, and credential-safety semantics are inherited verbatim; or one of
+three range-specific reasons owned here — `RangeIgnored` (a `200` to a ranged
+request), `ArchiveChanged` (validator or total changed between requests), and
+`ArchiveUnsupported` (Zip64, or a compression method other than stored and
+deflate). The first two mean "take the full fetch"; the third means the
+archive cannot be read by range at all. The existing `Unsupported` source
+failure keeps its meaning, that a client or source lacks an operation, and
+is not reused for per-archive conditions. The capability never turns a
 failure into an empty directory or a truncated entry.
 
 ## Boundary
 
 Inputs: an exact coordinate; an authorized `PackageSourceResultIdentity`; the
-operation context; the caller's limits (`PackagePayloadLimits.MaxArchiveBytes`
-for the archive total, `maxExpandedBytes` per entry, and the reader's
-directory caps). Outputs: the archive directory; per-entry expanded content;
-typed failures.
+operation context; the caller's `PackageArchiveReadLimits` (archive total,
+enforced against the derived total before the directory is parsed; directory
+entry and byte caps; per-entry expanded bound; entry-read slack). Outputs:
+the archive directory with its validator kind; per-entry expanded content;
+`PackageArchiveReadResult<T>` failures.
 
 Non-claims:
 
@@ -177,16 +235,18 @@ All gates run in Release.
 | 1. Directory within the tail | one ranged request; directory equals `ZipArchive`'s view of the same file (oracle) | contract suite |
 | 2. Directory larger than the tail | exactly two ranged requests; same equality | contract suite |
 | 3. Entry read | one ranged request; expanded bytes equal the original file; CRC checked | contract suite |
-| 4. `200` to a ranged request | `Unsupported`; no bytes retained; the source is not ranged again in the invocation | contract suite |
+| 4. `200` to a ranged request | `RangeIgnored`; no bytes retained; the source is not ranged again in the invocation | contract suite |
 | 5. Archive replaced between requests (validator differs, or `200` to `If-Range`) | `ArchiveChanged`; nothing retained | contract suite |
-| 6. `Content-Range` total disagrees with the directory read | `InvalidResponse` | contract suite |
-| 7. Entry declared above `maxExpandedBytes` | refused before any transfer | contract suite |
+| 6. `Content-Range` or `Content-Length` disagrees with the derived total | `InvalidResponse` | contract suite |
+| 7. Entry declared above the expanded bound; entry extent past the central-directory offset | refused before any transfer | contract suite |
 | 8. Entry expands past its declared size (crafted deflate) | refused mid-stream; no partial content | contract suite |
 | 9. No end-of-central-directory record; directory over the caps | `InvalidResponse` | contract suite |
-| 10. Zip64 archive; unsupported method | `Unsupported`, visible | contract suite |
-| 11. Local-folder archive through the shared reader | directory and entries equal the `ZipArchive` oracle; the manifest read the local source performs today is unchanged | contract suite (local) |
+| 10. Zip64 archive; unsupported method | `ArchiveUnsupported`, visible | contract suite |
+| 11. Local-folder archive through the shared reader | directory and entries equal the `ZipArchive` oracle; the local source's manifest outcomes, including its invalid-data outcome for Zip64, are unchanged | contract suite (local) |
 | 12. Operation ceiling during an entry read | terminal typed timeout, no partial content | contract suite |
 | 13. Motivating asset | `Microsoft.NETCore.App.Ref` 9.0.18 from nuget.org: directory in under 100 KB of transfer, `ref/net9.0/System.Runtime.dll` expanded and parseable by the metadata reader | Slow network gate, plus a preserved probe as design evidence |
+| 14. Local extra field longer than the directory declares | `Grpc.Net.Client` 2.80.0 (real asset, preserved as a fixture): first request short by the extra bytes, exactly one follow-up, CRC passes | contract suite |
+| 15. Headers hidden (browser mode) | archive smaller than the tail read whole from the derived total; `206` matched by body length; validator rules where visible | contract suite (headers-hidden mode); end-to-end browser read `unverified` until the Inspect Web slice |
 
 ## Adoption
 
