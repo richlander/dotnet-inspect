@@ -244,6 +244,28 @@ public sealed class PackageSourceOperationLease : IDisposable
         return DiscoverCoreAsync(StartWork(), packageId, authorization, contract, log);
     }
 
+    /// <summary>
+    /// Discovers versions under a deadline no longer than
+    /// <paramref name="bound"/>: the step's request and operation ceilings
+    /// are each clipped to the bound while the caller's cancellation still
+    /// applies. A refresh the Package Version Service can abandon for a
+    /// retained prior uses this form; an expired bound surfaces as the
+    /// ordinary timeout evidence, never as a longer wait.
+    /// </summary>
+    public Task<PackageVersionDiscoveryResult> DiscoverVersionsAsync(
+        string packageId,
+        PackageSourceAuthorization authorization,
+        PackageVersionDiscoveryContract contract,
+        TimeSpan bound,
+        Action<string>? log = null)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(packageId);
+        ArgumentNullException.ThrowIfNull(authorization);
+        ArgumentNullException.ThrowIfNull(contract);
+        ArgumentOutOfRangeException.ThrowIfLessThanOrEqual(bound, TimeSpan.Zero);
+        return DiscoverBoundedCoreAsync(StartWork(), packageId, authorization, contract, bound, log);
+    }
+
     public Task<ConfiguredPackageManifestResult> AcquireCandidateManifestAsync(
         PackageAcquisitionCandidate candidate)
     {
@@ -415,6 +437,30 @@ public sealed class PackageSourceOperationLease : IDisposable
         using (work)
             return await work.Generation.DiscoverVersionsAsync(
                 packageId, authorization, contract, operationContext: work.Context, log).ConfigureAwait(false);
+    }
+
+    private static async Task<PackageVersionDiscoveryResult> DiscoverBoundedCoreAsync(
+        ActiveWorkRegistration work, string packageId, PackageSourceAuthorization authorization,
+        PackageVersionDiscoveryContract contract,
+        TimeSpan bound,
+        Action<string>? log)
+    {
+        using (work)
+        {
+            work.Context.ThrowIfExpired();
+            // The bounded context shares the caller token, so deadlines the
+            // Package Source Model attributes to the invocation stay exact;
+            // only the ceilings shrink.
+            using var bounded = new NuGetOperationContext(
+                Clip(work.Context.RequestTimeout, bound),
+                Clip(work.Context.OperationTimeout, bound),
+                work.Context.CancellationToken);
+            return await work.Generation.DiscoverVersionsAsync(
+                packageId, authorization, contract, operationContext: bounded, log).ConfigureAwait(false);
+        }
+
+        static TimeSpan Clip(TimeSpan ceiling, TimeSpan bound) =>
+            ceiling < bound ? ceiling : bound;
     }
 
     private static async Task<ConfiguredPackageManifestResult> ManifestCoreAsync(

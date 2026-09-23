@@ -1175,6 +1175,7 @@ public partial class PackageCommand
                     return 1;
                 }
                 resolution = outcome.Result!;
+                PackageVersionDisclosure.WriteServedPriorWarning(resolution);
             }
             else
             {

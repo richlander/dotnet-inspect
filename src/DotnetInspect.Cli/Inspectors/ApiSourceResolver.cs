@@ -174,6 +174,7 @@ internal static class ApiSourceResolver
                     return (null!, 1);
                 }
                 var extracted = outcome.Result!;
+                PackageVersionDisclosure.WriteServedPriorWarning(extracted);
                 packageAuthority = extracted.Authority;
                 packageProducerKey = extracted.ProducerKey;
                 if (extracted.SelectedVersionSourceUrls is not null)

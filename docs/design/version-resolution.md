@@ -70,11 +70,13 @@ keep eventual results honest:
   for one coordinate, and a request-level always-check modifier for a whole
   invocation (pending, #8285).
 
-Today the switch only distinguishes behavior on unmigrated consumers: migrated
-online single-package CLI resolution performs fresh discovery for a bare
-`Name` as well (see [Latest stable](#latest-stable-name)), so `Name` and
-`Name@latest` currently discover identically there. The distinction becomes
-observable once the next principle is adopted.
+On the migrated online single-package CLI path the switch is observable: a
+bare `Name` declares the `Current` requirement and is answered by a prior
+settlement inside its window through the
+[Package Version Service](package-version-service.md), while `Name@latest`
+declares `RefreshedForRequest` and always discovers. The legacy `find`,
+search-scope, and assembly-set paths still discover a bare `Name` on their
+own hourly schedule until adoption step 3.
 
 Eventual consistency is per coordinate. A set can transiently mix versions;
 type discovery tolerates that, and set-level coherence is a separate opt-in

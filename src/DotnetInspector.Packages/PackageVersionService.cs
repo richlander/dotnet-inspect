@@ -66,8 +66,14 @@ public sealed class PackageVersionRefreshBudget
 /// </summary>
 public sealed class PackageVersionServiceOperation
 {
-    /// <summary>Discovers versions through the authorized sources.</summary>
-    public required Func<CancellationToken, Task<PackageVersionDiscoveryResult>> Discover { get; init; }
+    /// <summary>
+    /// Discovers versions through the authorized sources within the given
+    /// scope. A terminal discovery (no prior to fall back on) is unbounded;
+    /// a refresh carries the per-refresh bound, and a source that cannot
+    /// observe the token honors <see cref="PackageVersionDiscoveryScope.Bound"/>
+    /// directly.
+    /// </summary>
+    public required Func<PackageVersionDiscoveryScope, Task<PackageVersionDiscoveryResult>> Discover { get; init; }
 
     /// <summary>Issues the current generation's pinned candidate for one coordinate.</summary>
     public required Func<PackageSourceCoordinate, PackageAcquisitionCandidateResult> Pin { get; init; }
@@ -77,6 +83,41 @@ public sealed class PackageVersionServiceOperation
 
     /// <summary>Consumer offline policy: serve any prior regardless of age.</summary>
     public bool Offline { get; init; }
+}
+
+/// <summary>
+/// The time scope of one discovery the service requests: the caller's token
+/// and, for a refresh, the per-refresh bound after which the prior is served
+/// instead.
+/// </summary>
+public readonly record struct PackageVersionDiscoveryScope(
+    TimeSpan? Bound,
+    CancellationToken CancellationToken);
+
+/// <summary>
+/// The per-invocation service, budget, and offline policy a House consults
+/// for its selecting demands. A composition creates one per invocation so
+/// the refresh cap is shared by every House it issues.
+/// </summary>
+public sealed class PackageVersionServicePlan
+{
+    public PackageVersionServicePlan(
+        PackageVersionService service,
+        PackageVersionRefreshBudget budget,
+        bool offline = false)
+    {
+        ArgumentNullException.ThrowIfNull(service);
+        ArgumentNullException.ThrowIfNull(budget);
+        Service = service;
+        Budget = budget;
+        Offline = offline;
+    }
+
+    public PackageVersionService Service { get; }
+
+    public PackageVersionRefreshBudget Budget { get; }
+
+    public bool Offline { get; }
 }
 
 /// <summary>Which path produced a settlement.</summary>
@@ -96,12 +137,14 @@ public sealed class PackageVersionServiceSettlement
         PackageVersionResolutionReceipt receipt,
         PackageVersionServicePath path,
         bool entryWritten,
-        bool entryEvicted)
+        bool entryEvicted,
+        IReadOnlyList<PackageAuthorityFailure>? pinFailures = null)
     {
         Receipt = receipt;
         Path = path;
         EntryWritten = entryWritten;
         EntryEvicted = entryEvicted;
+        PinFailures = pinFailures ?? [];
     }
 
     public PackageVersionResolutionReceipt Receipt { get; }
@@ -111,6 +154,13 @@ public sealed class PackageVersionServiceSettlement
     public bool EntryWritten { get; }
 
     public bool EntryEvicted { get; }
+
+    /// <summary>
+    /// The failures of a pin the current generation refused for a retained
+    /// prior. The prior was not served; the settlement came from discovery,
+    /// and these failures belong on it beside the discovery's own.
+    /// </summary>
+    public IReadOnlyList<PackageAuthorityFailure> PinFailures { get; }
 }
 
 /// <summary>
@@ -237,13 +287,23 @@ public sealed class PackageVersionService
             bound.CancelAfter(_options.RefreshBound);
             try
             {
-                discovery = await operation.Discover(bound.Token)
+                discovery = await operation.Discover(
+                    new PackageVersionDiscoveryScope(_options.RefreshBound, bound.Token))
                     .ConfigureAwait(false);
             }
             catch (OperationCanceledException)
                 when (bound.IsCancellationRequested
                     && !cancellationToken.IsCancellationRequested)
             {
+                discovery = null;
+            }
+            catch (TimeoutException)
+                when (!cancellationToken.IsCancellationRequested)
+            {
+                // A source that bounds itself by deadline rather than by the
+                // token reports the expired refresh this way; the prior
+                // answers, and the caller's own deadline is checked by the
+                // caller after settlement.
                 discovery = null;
             }
         }
@@ -339,7 +399,9 @@ public sealed class PackageVersionService
                 return null;
             text.Append(sourceKey).Append('\n');
         }
-        text.Append("package:").Append(request.PackageId).Append('\n');
+        // NuGet package IDs are case-insensitive; the key must not split on
+        // the spelling one invocation happened to use.
+        text.Append("package:").Append(request.PackageId.ToLowerInvariant()).Append('\n');
         text.Append("kind:").Append(KindDescriptor(request)).Append('\n');
         text.Append("prerelease:").Append(contract.IncludePrerelease ? '1' : '0').Append('\n');
         text.Append("unlisted:").Append(contract.IncludeUnlisted ? '1' : '0');
@@ -405,10 +467,13 @@ public sealed class PackageVersionService
         PackageVersionDiscoveryContract contract,
         PackageVersionServiceOperation operation,
         string? key,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        IReadOnlyList<PackageAuthorityFailure>? pinFailures = null)
     {
         PackageVersionDiscoveryResult discovery =
-            await operation.Discover(cancellationToken).ConfigureAwait(false);
+            await operation.Discover(
+                new PackageVersionDiscoveryScope(Bound: null, cancellationToken))
+                .ConfigureAwait(false);
         PackageVersionResolutionReceipt receipt =
             PackageVersionSelectionResolver.Resolve(
                 request,
@@ -421,7 +486,12 @@ public sealed class PackageVersionService
             WriteEntry(key, request, authorization, contract, resolved, _time.GetUtcNow());
             written = true;
         }
-        return new(receipt, PackageVersionServicePath.Discovered, written, entryEvicted: false);
+        return new(
+            receipt,
+            PackageVersionServicePath.Discovered,
+            written,
+            entryEvicted: false,
+            pinFailures);
     }
 
     private async Task<PackageVersionServiceSettlement> ServePriorOrDiscoverAsync(
@@ -453,15 +523,18 @@ public sealed class PackageVersionService
 
         // The current generation would not pin the prior coordinate (the
         // authorization was denied or incomplete). The prior cannot be served,
-        // so the request discovers as if no prior existed; the entry stays
-        // for a later invocation whose authorization admits it.
+        // so the request discovers as if no prior existed, under the ordinary
+        // operation deadline, and the pin's own failures travel with the
+        // settlement so the refusal stays visible. The entry stays for a
+        // later invocation whose authorization admits it.
         return await DiscoverAndRecordAsync(
             request,
             authorization,
             contract,
             operation,
             key,
-            cancellationToken).ConfigureAwait(false);
+            cancellationToken,
+            pinned.Failures).ConfigureAwait(false);
     }
 
     private static void WriteEntry(
@@ -473,11 +546,13 @@ public sealed class PackageVersionService
         DateTimeOffset writtenAt)
     {
         string version = resolved.Coordinate.Version;
+        // The reporting source is recorded under the same identity the key
+        // uses, so a local and an HTTP authority are both attributable.
         string sourceKey = resolved.Discovery.Candidates
             .Where(candidate => candidate.Observation.Coordinate.Version.Equals(
                 version,
                 StringComparison.OrdinalIgnoreCase))
-            .Select(candidate => candidate.Authority.PersistentCacheKey)
+            .Select(candidate => SourceIdentity(candidate.Authority))
             .FirstOrDefault(sourceKey => sourceKey is not null)
             ?? string.Empty;
         string content = string.Join(

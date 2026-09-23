@@ -296,8 +296,14 @@ A `Prior` receipt, issued by the
 settlement is served, is a settled arm exactly like `Resolved`: the decision
 retains its exact coordinate and pinned candidate, and every post-acquisition
 terminal result, success or typed failure, preserves a `Prior` decision as it
-preserves a `Resolved` one. PackageHouse does not interpret selector text or
-reproduce semantic version ordering.
+preserves a `Resolved` one. A House constructed with a
+`PackageVersionServicePlan` settles its latest-family selecting demands
+(`LatestStable`, `LatestPrerelease`, `AlwaysLatest`) through the service;
+without one, and for `Wildcard` and `Range`, it discovers. When acquisition
+after a `Prior` decision ends in the not-found outcome, the House evicts the
+prior through the service and appends a `Stage(Acquisition)` failure naming
+the eviction; the result is still the ordinary `NotFound`. PackageHouse does
+not interpret selector text or reproduce semantic version ordering.
 
 The candidate-bound arm accepts one `PackageAcquisitionCandidate` already
 issued by the supplied operation lease's root generation. A candidate may be

@@ -228,6 +228,7 @@ public sealed partial class DesktopPackageSourceComposition : IAsyncDisposable
         _authoritiesByAssociation =
             new(ReferenceEqualityComparer.Instance);
     private readonly PackageSourceSettlementLease _sourceLease;
+    private readonly PackageVersionServicePlan _versionSettlement;
     private readonly object _disposeGate = new();
     private Task? _disposal;
 
@@ -243,6 +244,7 @@ public sealed partial class DesktopPackageSourceComposition : IAsyncDisposable
         _ownedCredentialSource = provider;
         _createTransport = CreateProductionTransport;
         _sourceLease = PackageSourceSettlementService.IssueLease(GetSourceClient);
+        _versionSettlement = CreateVersionSettlementPlan();
     }
 
     /// <summary>
@@ -260,6 +262,7 @@ public sealed partial class DesktopPackageSourceComposition : IAsyncDisposable
         _credentialSource = credentialSource;
         _createTransport = CreateProductionTransport;
         _sourceLease = PackageSourceSettlementService.IssueLease(GetSourceClient);
+        _versionSettlement = CreateVersionSettlementPlan();
     }
 
     internal DesktopPackageSourceComposition(
@@ -273,7 +276,19 @@ public sealed partial class DesktopPackageSourceComposition : IAsyncDisposable
         _credentialSource = credentialSource;
         _createTransport = createTransport;
         _sourceLease = PackageSourceSettlementService.IssueLease(GetSourceClient);
+        _versionSettlement = CreateVersionSettlementPlan();
     }
+
+    /// <summary>
+    /// One Package Version Service plan per composition, so the refresh cap
+    /// is shared by every House this invocation issues. Offline is the
+    /// host's networking policy at composition time.
+    /// </summary>
+    private static PackageVersionServicePlan CreateVersionSettlementPlan() =>
+        new(
+            new PackageVersionService(),
+            new PackageVersionRefreshBudget(),
+            offline: DotnetInspector.Networking.HttpClientFactory.IsOffline);
 
     internal NuGetOperationContext CreateOperationContext(CancellationToken cancellationToken = default) =>
         new(_options.RequestTimeout, _options.OperationTimeout, cancellationToken);

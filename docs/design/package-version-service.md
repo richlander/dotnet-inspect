@@ -95,14 +95,16 @@ both and hosts both paths.
 
 The store retains prior settlements, not discovery evidence.
 
-- **Key:** the ordered set of authorized source keys; the normalized package
-  ID; the request kind and its parameters (`LatestStable`,
+- **Key:** the ordered set of authorized source identities (a local
+  authority's persistent key, or an HTTP authority's endpoint); the
+  case-folded package ID; the request kind and its parameters (`LatestStable`,
   `LatestPrerelease`, `Wildcard` with its normalized prefix, `Range` with its
   range and address); and the discovery contract's prerelease and unlisted
   policy. A request under a different authorization or contract is a
   different key. There is no per-source entry and no aggregation rule: the
   authorization set is part of the identity.
-- **Value:** the settled exact version and the source key that reported it.
+- **Value:** the settled exact version and the identity of the source that
+  reported it, spelled as the key spells it.
 - **Freshness evidence:** the entry's write time. No separate expiry file.
 - **Category:** a new versioned `PersistentCache` category. The legacy
   `versions-v5` latest entries are read as seed priors for `LatestStable` and
@@ -148,6 +150,19 @@ resolution checks authorization only and never reports absence, so a prior
 whose coordinate has since disappeared from every authorized source is
 detected only when acquisition fails, inside PackageHouse, after the `Prior`
 receipt has been issued.
+
+When the current generation refuses to pin the prior coordinate (a denied or
+incomplete authorization), no prior is served: the request discovers under
+the ordinary operation deadline as if no entry existed, and the pin's own
+failures travel on the settlement so the refusal stays visible beside the
+discovery's. The entry is kept for a later invocation whose authorization
+admits it.
+
+A refresh runs under the per-refresh bound by clipping the source step's
+request and operation ceilings to the bound while keeping the caller's
+cancellation; an expired bound is ordinary timeout evidence that the service
+absorbs into `ServedPrior`. The caller's own deadline is still checked after
+settlement, so a served prior never extends an operation past it.
 
 Under the Settle profile no acquisition runs, so a prior served there is a
 settlement only and is never checked for existence; the check happens in
@@ -214,12 +229,14 @@ The CLI cases run through the source-scoped feed harness in
 `SourceScopedRoutingTests`. Today that harness serves one package's versions
 from one fake feed, returns a chosen refusal status for a refused source, can
 demand authorization, records request URLs, and can write local feeds through
-its test helpers. It cannot delay a response, serve several packages, or
-backdate an entry, so timing, cap, and determinism cases stay in the contract
-suite. Adoption step 1 adds one harness helper: seed a prior-settlement entry
-for the new category with a controllable write time, so the in-window and
-past-window preconditions of the CLI cases can be created. All gates run in
-Release.
+its test helpers. It cannot delay a response or serve several packages, so
+timing, cap, and determinism cases stay in the contract suite. Adoption step
+2 added two harness helpers: seed a prior-settlement entry for the new
+category with a controllable write time, so the in-window and past-window
+preconditions of the CLI cases can be created; and a feed whose version
+listing is unavailable while its exact payloads still answer, so a failed
+refresh and a successful acquisition of the retained prior can be observed in
+one invocation. All gates run in Release.
 
 | Case | Expected | Gate |
 | --- | --- | --- |
@@ -252,10 +269,12 @@ before this design, with the target under one second warm and no cliff.
    `LatestPrerelease`, together with the eviction hook and its
    `Stage(Acquisition)` failure on the not-found path, since this is the
    first point where priors are served and case 9 becomes runnable. This is
-   the primary CLI path; `Name` and `Name@latest` become observable there.
-   Corrective but breaking: `Name` stops discovering on every request.
-   `Wildcard` and `Range` continue to discover until a later slice adopts
-   their keys.
+   the primary CLI path; `Name` and `Name@latest` become observable there:
+   the composition's selector maps a bare name to `LatestStable` or
+   `LatestPrerelease` and the explicit `latest` spelling to `AlwaysLatest`,
+   which also refreshes the matching latest entry. Corrective but breaking:
+   `Name` stops discovering on every request. `Wildcard` and `Range`
+   continue to discover until a later slice adopts their keys.
 3. `PackageExtractor` latest resolution adopts it for `find`, the search
    scopes, and unversioned `AssemblySetRequest` acquisition; its private TTL
    check, `CachedVersionResolutionTimeout`, and cached-version error path
