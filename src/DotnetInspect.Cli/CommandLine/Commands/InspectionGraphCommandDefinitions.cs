@@ -5,7 +5,9 @@ using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Output;
 using DotnetInspector.Services;
 using DotnetInspect.Cli.Services;
+using DotnetInspector.Queries;
 using DotnetInspector.Sections;
+using DotnetInspector.SourceSelection;
 
 namespace DotnetInspect.Cli.CommandLine;
 
@@ -34,7 +36,7 @@ public static class InspectionGraphCommandDefinitions
     {
         var command = new Command(
             ExternalCallGraphCommand.Name,
-            "Show external package calls with shortest local connectors");
+            "Show supply-chain package exits with shortest baseline connectors");
         var typeArgument = new Argument<string?>("type")
         {
             Description = "Type containing the focus member",
@@ -65,6 +67,20 @@ public static class InspectionGraphCommandDefinitions
             Description =
                 "Include non-public types and members in focus selection",
         };
+        var baselineOption = new Option<string>("--baseline")
+        {
+            Description =
+                "Supply-chain baseline: nothing, self, or self+registered-ecosystems",
+            DefaultValueFactory = _ =>
+                "self+registered-ecosystems",
+        };
+        var firstPartyPrefixOption =
+            new Option<string[]>("--first-party-prefix")
+            {
+                Description =
+                    "Explicit first-party package prefix; repeat for additional prefixes",
+                AllowMultipleArgumentsPerToken = false,
+            };
         var depthOption = new Option<int>("--depth")
         {
             Description = "Maximum outgoing call depth",
@@ -82,6 +98,8 @@ public static class InspectionGraphCommandDefinitions
         command.Options.Add(rootTfmOption);
         command.Options.Add(tfmOption);
         command.Options.Add(allOption);
+        command.Options.Add(baselineOption);
+        command.Options.Add(firstPartyPrefixOption);
         command.Options.Add(depthOption);
         command.Options.Add(maxNodesOption);
         command.Options.Add(opts.Json);
@@ -127,6 +145,38 @@ public static class InspectionGraphCommandDefinitions
                 result.AddError(
                     "--tree is a standalone graph rendering and cannot combine with another output format.");
             }
+            string? baselineValue =
+                result.GetValue(baselineOption);
+            bool baselineParsed = TryParseSupplyChainBaseline(
+                    baselineValue,
+                    out MemberCallGraphSupplyChainBaseline baseline);
+            if (!baselineParsed)
+            {
+                result.AddError(
+                    "--baseline must be nothing, self, or self+registered-ecosystems.");
+            }
+            string[] prefixes =
+                result.GetValue(firstPartyPrefixOption) ?? [];
+            foreach (string prefix in prefixes)
+            {
+                try
+                {
+                    _ = new PackagePrefixDeclaration(prefix);
+                }
+                catch (ArgumentException)
+                {
+                    result.AddError(
+                        $"--first-party-prefix '{prefix}' is not a valid package prefix.");
+                }
+            }
+            if (baselineParsed
+                && baseline
+                    is MemberCallGraphSupplyChainBaseline.Nothing
+                && prefixes.Length != 0)
+            {
+                result.AddError(
+                    "--first-party-prefix requires the self or self+registered-ecosystems baseline.");
+            }
         });
 
         command.SetAction(async (parseResult, cancellationToken) =>
@@ -148,6 +198,9 @@ public static class InspectionGraphCommandDefinitions
             string? tfm = parseResult.GetValue(tfmOption);
             string? type = parseResult.GetValue(typeArgument);
             string? member = parseResult.GetValue(memberArgument);
+            _ = TryParseSupplyChainBaseline(
+                parseResult.GetValue(baselineOption),
+                out MemberCallGraphSupplyChainBaseline baseline);
             if (string.IsNullOrWhiteSpace(type))
             {
                 CommandError.Write("A focus type is required.");
@@ -186,6 +239,10 @@ public static class InspectionGraphCommandDefinitions
                     RootTfm = rootTfm,
                     Tfm = tfm,
                     IncludeAll = parseResult.GetValue(allOption),
+                    SupplyChainBaseline = baseline,
+                    FirstPartyPackagePrefixes =
+                        parseResult.GetValue(firstPartyPrefixOption)
+                        ?? [],
                     Depth = parseResult.GetValue(depthOption),
                     MaxNodes = parseResult.GetValue(maxNodesOption),
                     Format = opts.ResolveFormat(parseResult),
@@ -226,6 +283,36 @@ public static class InspectionGraphCommandDefinitions
                     lowering));
 
         return command;
+    }
+
+    static bool TryParseSupplyChainBaseline(
+        string? value,
+        out MemberCallGraphSupplyChainBaseline baseline)
+    {
+        switch (value?.Trim().ToLowerInvariant())
+        {
+            case null:
+                baseline =
+                    MemberCallGraphSupplyChainBaseline
+                        .SelfAndRegisteredEcosystems;
+                return true;
+            case "nothing":
+                baseline =
+                    MemberCallGraphSupplyChainBaseline.Nothing;
+                return true;
+            case "self":
+                baseline =
+                    MemberCallGraphSupplyChainBaseline.Self;
+                return true;
+            case "self+registered-ecosystems":
+                baseline =
+                    MemberCallGraphSupplyChainBaseline
+                        .SelfAndRegisteredEcosystems;
+                return true;
+            default:
+                baseline = default;
+                return false;
+        }
     }
 
     static Command CreateLibrariesCommand(SharedOptions opts)

@@ -621,6 +621,15 @@ public sealed partial class BrowserEngineBoundaryTests
                     SourceBoundedRoots: 0,
                     PartialRoots: 0),
                 [],
+                new PackageDependencyMemberCallGraphBaseline(
+                    MemberCallGraphSupplyChainBaseline
+                        .SelfAndRegisteredEcosystems,
+                    [],
+                    [
+                        "ecosystem.runtime",
+                        "ecosystem.aspnetcore",
+                        "ecosystem.microsoft-extensions",
+                    ]),
                 [
                     new PackageDependencyMemberCallGraphPackageSubject(
                         NodeId: 1,
@@ -647,7 +656,7 @@ public sealed partial class BrowserEngineBoundaryTests
         Assert.Equal("net8.0", dependencyTarget.PackageFramework);
         Assert.Equal("1.2.3.4", dependencyTarget.AssemblyVersion);
         Assert.Contains("Example.Worker.Run", projected.Mermaid);
-        Assert.Equal("CrossLibrary", projected.Scope.CalleeScope);
+        Assert.Equal("Supply Chain", projected.Scope.CalleeScope);
 
         BrowserCallGraph wire = BrowserCallGraphWireProjection.Project(
             projected,

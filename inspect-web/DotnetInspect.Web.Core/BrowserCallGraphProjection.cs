@@ -131,7 +131,7 @@ internal static class BrowserCallGraphProjection
                     Packages: 1,
                     Assemblies: 0,
                     CallerAssemblies: 0,
-                    CalleeScope: "CrossLibrary"),
+                    CalleeScope: ScopeLabel(document.Baseline.Kind)),
                 [],
                 Diagnostics(graph),
                 NoBody: true);
@@ -176,7 +176,7 @@ internal static class BrowserCallGraphProjection
                 packageCount,
                 assemblies.Length,
                 string.IsNullOrWhiteSpace(focusAssembly) ? 0 : 1,
-                "CrossLibrary"),
+                ScopeLabel(document.Baseline.Kind)),
             [
                 .. graph.Nodes.Select(node =>
                     Target(
@@ -186,6 +186,20 @@ internal static class BrowserCallGraphProjection
             Diagnostics(graph),
             NoBody: false);
     }
+
+    static string ScopeLabel(
+        MemberCallGraphSupplyChainBaseline baseline) =>
+        baseline switch
+        {
+            MemberCallGraphSupplyChainBaseline.Nothing =>
+                "External packages",
+            MemberCallGraphSupplyChainBaseline.Self =>
+                "Outside first-party scope",
+            MemberCallGraphSupplyChainBaseline
+                    .SelfAndRegisteredEcosystems =>
+                "Supply Chain",
+            _ => throw new ArgumentOutOfRangeException(nameof(baseline)),
+        };
 
     internal static string Mermaid(CallGraphProjection projection)
     {

@@ -1012,6 +1012,8 @@ internal static class BrowserPackageWorkspace
             string memberName,
             string selectorKey,
             int metadataToken,
+            WorkspacePlan workspacePlan,
+            MemberCallGraphSupplyChainBaseline supplyChainBaseline,
             CancellationToken cancellationToken = default) =>
         RunPackageOperationAsync(
             async deadline =>
@@ -1120,7 +1122,11 @@ internal static class BrowserPackageWorkspace
                                 .Add(deadline.Remaining),
                             maximumDependencyDepth: 4,
                             realizationOptions:
-                                DependencyCallGraphRealizationPolicy),
+                                DependencyCallGraphRealizationPolicy,
+                            supplyChainBaseline:
+                                supplyChainBaseline,
+                            workspacePlan:
+                                workspacePlan),
                         new PackageDependencyMemberCallGraphInspectionSource(
                             new PackageDependencyTraversalCandidateAdapter(
                                 candidateSource),
