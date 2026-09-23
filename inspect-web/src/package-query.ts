@@ -333,7 +333,7 @@ export interface QueryAssemblyAssessment {
   libraries: readonly QueryLibraryAssessment[];
 }
 
-export interface QueryLibraryAssessment {
+interface QueryLibraryAssessment {
   path: string;
   assemblyName: string;
   targetFramework: string;

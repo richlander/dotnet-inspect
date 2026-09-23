@@ -138,7 +138,7 @@ function semanticSucceeded(): BrowserPackageQueryResult {
     packageId: "contoso.package",
     version: "2.0.0",
     producer: "nuget.org",
-    selectedAsset: selectedAsset!,
+    selectedAsset,
     occurrences,
   };
   const libraryLiteralAssessment = {
