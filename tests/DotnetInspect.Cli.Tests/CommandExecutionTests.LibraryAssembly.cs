@@ -1505,8 +1505,13 @@ public partial class CommandExecutionTests
             "| References | section | library/sections/references "
             + "| --markdown, --plaintext, --json, --table, --tsv, --jsonl |",
             output);
-        Assert.DoesNotContain("| Shape |", output);
-        Assert.DoesNotContain("| Terminals |", output);
+        Assert.Contains("| Shape |", output);
+        Assert.Contains("| Terminals |", output);
+        Assert.Contains(
+            "| Library Info | section | library/sections/library-info "
+            + "| --markdown, --plaintext, --json, --table, --tsv, --jsonl "
+            + "| scalar |  |",
+            output);
         Assert.DoesNotContain("File not found", output);
     }
 
@@ -1594,6 +1599,109 @@ public partial class CommandExecutionTests
                 .Select(item => item.GetString()));
         Assert.False(row.TryGetProperty("shape", out _));
         Assert.False(row.TryGetProperty("terminals", out _));
+    }
+
+    [Fact]
+    public async Task
+        LibraryCommand_DiscoverDetails_LibraryInfoDeclaresScalar()
+    {
+        string missingPath = Path.Combine(
+            Path.GetTempPath(),
+            $"dotnet-inspect-missing-{Guid.NewGuid():N}.dll");
+
+        var (exit, output, error) = await RunAppAsync(
+            "library",
+            missingPath,
+            "-D",
+            SectionNames.LibraryInfo,
+            "--details",
+            "--json",
+            "--tips",
+            "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        using JsonDocument document = JsonDocument.Parse(output);
+        JsonElement row =
+            Assert.Single(document.RootElement.EnumerateArray());
+        Assert.Equal(
+            SectionNames.LibraryInfo,
+            row.GetProperty("name").GetString());
+        Assert.Equal(
+            "scalar",
+            row.GetProperty("shape").GetString());
+        Assert.Empty(
+            row.GetProperty("terminals").EnumerateArray());
+    }
+
+    [Theory]
+    [InlineData("--count")]
+    [InlineData("--rows", "1")]
+    public async Task
+        LibraryCommand_LibraryInfoRejectsSemanticTerminalBeforeAcquisition(
+            params string[] terminal)
+    {
+        string missingPath = Path.Combine(
+            Path.GetTempPath(),
+            $"dotnet-inspect-missing-{Guid.NewGuid():N}.dll");
+        string[] args =
+        [
+            "library",
+            missingPath,
+            "-S",
+            SectionNames.LibraryInfo,
+            .. terminal,
+            "--tips",
+            "q",
+        ];
+
+        var (exit, output, error) = await RunAppAsync(args);
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains(
+            $"Section '{SectionNames.LibraryInfo}' is scalar",
+            error);
+        Assert.Contains(terminal[0], error);
+        Assert.DoesNotContain(
+            "does not exist",
+            error,
+            StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task
+        LibraryCommand_MixedAndFixedScalarSelectionsRejectCount()
+    {
+        string missingPath = Path.Combine(
+            Path.GetTempPath(),
+            $"dotnet-inspect-missing-{Guid.NewGuid():N}.dll");
+        var mixed = await RunAppAsync(
+            "library",
+            missingPath,
+            "-S",
+            $"{SectionNames.LibraryInfo},{SectionNames.References}",
+            "--count",
+            "--tips",
+            "q");
+        var fixedOverview = await RunAppAsync(
+            "library",
+            missingPath,
+            "-S",
+            "--count",
+            "--tips",
+            "q");
+
+        Assert.Equal(1, mixed.Exit);
+        Assert.Empty(mixed.Output);
+        Assert.Contains(
+            $"Section '{SectionNames.LibraryInfo}' is scalar",
+            mixed.Error);
+        Assert.Equal(1, fixedOverview.Exit);
+        Assert.Empty(fixedOverview.Output);
+        Assert.Contains(
+            $"Section '{SectionNames.LibraryInfo}' is scalar",
+            fixedOverview.Error);
     }
 
     [Fact]
@@ -4396,7 +4504,20 @@ public partial class CommandExecutionTests
             var (jsonExit, jsonOutput, jsonError) = await RunAppAsync(
                 "library", "System.Runtime.dll", "--package", packagePath, "--tfm", "all",
                 "-S", SectionNames.LibraryInfo, "--json", "--tips", "q");
-
+            var discovery = await RunAppAsync(
+                "library",
+                "System.Runtime.dll",
+                "--package",
+                packagePath,
+                "--tfm",
+                "all",
+                "-D",
+                SectionNames.LibraryInfo,
+                "--schema",
+                "--details",
+                "--json",
+                "--tips",
+                "q");
             Assert.Equal(0, markdownExit);
             Assert.Contains("## Libraries", markdownOutput);
             Assert.Empty(markdownError);
@@ -4405,6 +4526,16 @@ public partial class CommandExecutionTests
             Assert.Equal(JsonValueKind.Array, document.RootElement.ValueKind);
             Assert.Single(document.RootElement.EnumerateArray());
             Assert.Empty(jsonError);
+            Assert.Equal(0, discovery.Exit);
+            Assert.Empty(discovery.Error);
+            using (JsonDocument discoveryDocument =
+                   JsonDocument.Parse(discovery.Output))
+            {
+                JsonElement row = Assert.Single(
+                    discoveryDocument.RootElement.EnumerateArray());
+                Assert.False(row.TryGetProperty("shape", out _));
+                Assert.False(row.TryGetProperty("terminals", out _));
+            }
         }
         finally
         {

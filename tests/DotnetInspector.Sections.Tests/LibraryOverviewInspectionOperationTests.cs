@@ -19,6 +19,16 @@ public sealed class LibraryOverviewInspectionOperationTests
             maxRetainedTextCharacters: 20_000_000);
 
     [Fact]
+    public void Cardinality_IsScalarWithoutTerminals()
+    {
+        SectionCardinalityDeclaration declaration =
+            LibraryOverviewInspectionOperation.Cardinality;
+
+        Assert.Equal(SectionSemanticShape.Scalar, declaration.Shape);
+        Assert.Empty(declaration.Terminals);
+    }
+
+    [Fact]
     public async Task
         RealSystemTextJson_ReturnsDetachedPortableOverviewAndSettlesLease()
     {

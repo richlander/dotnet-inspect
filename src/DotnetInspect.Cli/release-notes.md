@@ -48,6 +48,12 @@
   distinguish direct relationships from occurrence-addressed
   `Dependency Hierarchy` and `Reference Hierarchy` views (#7720, #7791,
   #7792, #7939, #8040).
+- Declares exact `Library Info` as scalar and aggregate all-Libraries
+  `Library Info` as inventory. Exact Count and Rows fail before acquisition;
+  aggregate Count and Rows select Libraries rather than rendered overview
+  properties across output formats. Mixed aggregate JSON with semantic Rows is
+  rejected when the legacy whole-inspection shape cannot preserve independent
+  section windows (#8283).
 - Renames the `.NET`/`dotnet` ecosystem to `.NET Runtime`/`runtime`, keeps
   ASP.NET Core independent, reports recognized Package and Library ecosystem
   dependencies, and exposes ecosystem-aware Package Query qualification.
