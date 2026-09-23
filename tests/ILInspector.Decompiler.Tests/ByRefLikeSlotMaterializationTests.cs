@@ -93,6 +93,25 @@ public class ByRefLikeSlotMaterializationTests
     }
 
     [Fact]
+    public void CoreNameLookalikeRemainsDeferred()
+    {
+        var definition = TypeRef.Definition("Lookalike", "System", "Span`1");
+        var type = TypeRef.GenericInstance(definition, [Int32]);
+        var function = Function(type,
+            new StoreStackSlot(0, new DefaultValue(type)),
+            new Return(new LoadStackSlot(0, type)));
+        function.TypeShapes = new Dictionary<TypeRef, TypeShape>
+        {
+            [definition] = TypeShape.ValueType,
+        };
+
+        var decision = Assert.Single(SlotMaterializationPass.Analyze(function));
+
+        Assert.Equal(SlotMaterializationVeto.OutsideCoercionDomain, decision.Vetoes);
+        AssertRetained(function);
+    }
+
+    [Fact]
     public void ByRefLikeStorageDoesNotInferConversions()
     {
         var spanByte = TypeRef.GenericInstance(Span, [Byte]);
