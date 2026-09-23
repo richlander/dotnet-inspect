@@ -262,7 +262,10 @@ are returned as caller-owned content, never the response stream.
 - Request deadlines, the operation ceiling, caller cancellation, retry, and
   credential application are the existing `NuGetOperationContext` and
   `NuGetSourceRequest` mechanics; this capability adds no deadline of its
-  own. Each ranged request is one request under the shared context.
+  own. Each ranged request is one request under the shared context. Ranged
+  requests retry transient statuses on both the v3 and gallery clients; the
+  v3 client's complete fetch does not, and this capability does not change
+  it.
 
 ### Browser host
 
@@ -366,7 +369,7 @@ All gates run in Release.
 | 12. Operation ceiling during an entry read | terminal typed timeout, no partial content | contract suite |
 | 13. Motivating asset | `Microsoft.NETCore.App.Ref` 9.0.18 from nuget.org: directory in under 100 KB of transfer, `ref/net9.0/System.Runtime.dll` expanded and parseable by the metadata reader | Slow network gate, plus a preserved probe as design evidence |
 | 14. Local extra field longer than the directory declares, slack fixed at 0 | `PCLStorage` 1.0.2 (real asset, preserved as `fixtures/nugetfetch/pclstorage.1.0.2.nupkg`; 40 of its entries carry longer local extra fields): first request short by the extra bytes, exactly one follow-up rechecked against the directory offset, CRC passes | contract suite |
-| 14a. Same asset with the Packages layer's default slack | no follow-up; CRC passes | lands with slice 2 in `PackagePayloadAcquisitionTests`, where that layer sets the default; slice 1's contract suite has no such value to run against |
+| 14a. Same asset with the Packages layer's default slack | no follow-up; CRC passes | `PackageRangedRealizationTests.RangedRealize_RealAsset_ReadsEachSelectedEntryInOneRequest`, where that layer sets the default ([package source model](package-source-model.md#ranged-payload-realization)) |
 | 15. Headers hidden (browser mode) | archive smaller than the tail read whole from the derived total; `206` matched by body length; validator rules where visible | contract suite (headers-hidden mode); end-to-end browser read `unverified` until the Inspect Web slice |
 
 ## Adoption
@@ -377,16 +380,22 @@ All gates run in Release.
    ZIP library, the NuGetFetch adapter on the v3 and gallery clients, and
    the capability's contract suite. No production consumer changes behavior
    at this head; the CLI still fetches whole archives.
-2. The operation lease gains the ranged steps under the package source
-   model's ownership, an `IPackageContent` over ranged access materializes
-   only the entries a consumer opens, and `find` with the search scopes adopt
-   it on the House path with stream-based assembly reading. This is the first
-   production-host consumer and the CLI demo; it is also Package Version
-   Service adoption step 3 (#8285), and the legacy `PackageExtractor` latest
-   path retires there.
+2. The operation lease gains the ranged step under the package source
+   model's ownership
+   ([Ranged payload realization](package-source-model.md#ranged-payload-realization)),
+   ranged content materializes only the entries a House realization selects,
+   and the exact-package search Root (`find` member search, `implements`,
+   `extensions`, and `depends` with one exact `--package` and `--tfm`) adopts
+   it: the first production-host consumer and the CLI demo. A second part
+   moves the remaining search scopes — `find` type search through the
+   declaration locator, and multi-package, floating-version, and
+   targetless searches through the assembly set — onto the House path with
+   ranged access; that part is also Package Version Service adoption step 3
+   (#8285), and the legacy `PackageExtractor` latest path retires there.
 3. Inspect Web adopts the same content over the browser reader for package
    opens that today buffer the whole nupkg, under the browser-host rule above.
 4. The warm queue and the size-differentiated cache policy (#8386) decide
    when a ranged read is followed by a complete download.
 
-Total: four slices; both hosts named; the retired path named.
+Total: four slices, the second in two parts; both hosts named; the retired
+path named.

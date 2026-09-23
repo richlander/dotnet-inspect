@@ -636,8 +636,8 @@ Ranged reads of an exact payload's archive directory and entries, without
 acquiring the whole archive, are owned by
 [Package archive range access](package-archive-range-access.md). They apply
 the same authorization, identity, and operation-context rules as a full
-payload acquisition; the lease steps that expose them are added under this
-owner when the first consumer adopts them.
+payload acquisition; the lease step that exposes them is
+[Ranged payload realization](#ranged-payload-realization).
 
 `PinnedAcquisition_OneAuthorizedAuthorityMaySucceedWithoutPeerReadability`,
 `DiscoveredPayload_RequiresReportingAuthority`,
@@ -961,6 +961,82 @@ The external-operation deadline, commit-lifetime, caller-cancellation, and
 selected-wrapper tests gate the shared operation and temporary ownership.
 Existing caller-pinned acquisition and authority-store gates remain applicable
 to their shared implementation.
+
+### Ranged payload realization
+
+`PackageSourceOperationLease.AcquireCandidatePayloadAsync` accepts an optional
+ranged entry selection. Without one the step is unchanged. With one, every
+rule of candidate payload acquisition above still applies — candidate
+authority, reporting authority for discovered coordinates, every authorized
+cache before cold acquisition, local before HTTP, and one operation context —
+and only the cold acquisition from an authority changes: when that
+authority's client exposes the
+[package archive range capability](package-archive-range-access.md#capability),
+the step reads the archive's directory, asks the selection which entries it
+needs from a directory-only view of the content, reads exactly those entries,
+and returns them as ranged content.
+
+- **Ranged content** carries the complete entry directory with declared
+  expanded lengths, and the expanded bytes of the selected entries, each
+  checked against the directory by the archive reader. Any other entry is
+  listed but unreadable: opening it is a visible refusal, never a missing
+  entry. It has no retained archive and no filesystem location, a fresh
+  content generation per read, and origin `Ranged`. It is not committed to
+  the authority's store.
+- **Limits.** The payload limits map onto the archive reader's bounds: the
+  archive total, the entry count, and the expanded-byte bound, which applies
+  to the selected entries together. The directory cap is the reader's
+  default, and the entry-read slack is the reader's maximum, so a local
+  header longer than its central record does not cost a second request.
+- **Refusals fall back on the same authority.** `RangeIgnored`,
+  `ArchiveChanged`, and `ArchiveUnsupported` make the step acquire the
+  complete archive from that authority, exactly as without a selection. A
+  not-found answer counts the authority as not found; any other failure is
+  the ordinary attributed failure, and the next authority is tried. An
+  expired operation ceiling remains terminal.
+
+The PackageHouse supplies the selection and bounds it. A host sets ranged
+access on its `PackagePayloadAcquisitionPlan`; ranged access requires a
+`Realize` operation, and an `Acquire` operation with it is refused before any
+source work. The selection is exactly the assets that operation's realization
+selects over the directory — the compile selection's assets and
+implementation assets, or the runtime universe — so the realization receipt
+is evaluated over the same content and names only materialized entries.
+
+The desktop CLI's first consumer is the exact-package search Root used by
+`find` member search, `implements`, `extensions`, and `depends` with one
+`--package ID@VERSION` and `--tfm`. Online, it acquires through the House
+with ranged access. When the Root's compatible compile selection names an
+entry the ranged read did not materialize, it acquires the complete archive
+instead. Offline, it keeps the local package cache path, as the package
+command's offline branch does. HTTP authorities still have no durable cache
+identity, so their ranged content is read again by each invocation, as their
+complete payloads already are on this path. Before this adoption the search
+Root read the legacy producer-keyed cache, which the configured-authority
+path does not consult; a repeated online search of an HTTP package therefore
+costs a ranged read where it previously cost nothing after the first
+download. Filling a durable cache after a ranged read is
+the warm queue and cache policy of
+[#8386](https://github.com/richlander/dotnet-inspect/issues/8386), which also
+decides durable HTTP identity. Local-folder authorities do not expose the
+capability at this head and keep complete acquisition with their durable
+store.
+
+`PackageRangedRealizationTests` gates the lease and House contract: the real
+asset `PCLStorage` 1.0.2 realized for `net45` reads one request per selected
+entry and commits nothing
+(`RangedRealize_RealAsset_ReadsEachSelectedEntryInOneRequest`, which is
+[range-access gate 14a](package-archive-range-access.md#pathological-cases-and-gates)),
+unselected entries refuse visibly
+(`RangedContent_UnmaterializedEntryIsVisible`), `RangeIgnored` falls back to the
+complete fetch on the same authority, an authorized cache still answers first,
+an `Acquire` with ranged access is refused, and the limits mapping. The CLI
+consumer's gates are in `ConfiguredPayloadAcquisitionTests`: the real
+`Avalonia` 12.1.2 archive searched for `net10.0` transfers under a quarter of
+its bytes (`SearchCommand_RangedRead_RealAvaloniaArchive`), a
+`netstandard2.0`-only package realized for `net11.0` needs no complete
+download, a large unselected entry is never transferred, and a source that
+ignores `Range` completes through the complete download.
 
 ### House population substrate and legacy range consumers
 

@@ -116,14 +116,23 @@ internal sealed class ConfiguredPackageSearchWorkspace : IAsyncDisposable
             }
 
             (PackageRootBinding? acquired, PackagePayloadOrigin origin) =
-                await AcquireRootAsync(
-                    httpClient,
-                    stores,
-                    member,
-                    request,
-                    targetFramework,
-                    log,
-                    cancellationToken).ConfigureAwait(false);
+                DotnetInspector.Networking.HttpClientFactory.IsOffline
+                    ? await AcquireOfflineRootAsync(
+                        httpClient,
+                        members,
+                        packageSpec,
+                        request,
+                        targetFramework,
+                        log,
+                        cancellationToken).ConfigureAwait(false)
+                    : await AcquireRootAsync(
+                        httpClient,
+                        stores,
+                        member,
+                        request,
+                        targetFramework,
+                        log,
+                        cancellationToken).ConfigureAwait(false);
             if (acquired is not { } binding)
             {
                 await CloseAsync(workspace, stores).ConfigureAwait(false);
@@ -248,6 +257,57 @@ internal sealed class ConfiguredPackageSearchWorkspace : IAsyncDisposable
             return;
         _closed = true;
         await CloseAsync(_workspace, _stores).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Offline, configured-authority acquisition is unavailable (as it is for
+    /// the package command), so the Root comes from the local package cache
+    /// through the workspace loader.
+    /// </summary>
+    static async ValueTask<(PackageRootBinding? Binding, PackagePayloadOrigin Origin)>
+        AcquireOfflineRootAsync(
+            HttpClient httpClient,
+            WorkspaceMemberCoordinate[] members,
+            string packageSpec,
+            AssemblySetRequest request,
+            string targetFramework,
+            Action<string>? log,
+            CancellationToken cancellationToken)
+    {
+        WorkspacePackageRootAcquisitionOutcome acquisition =
+            await WorkspaceContextLoader.AcquirePackageRootAsync(
+                new WorkspaceContextInput
+                {
+                    Framework = targetFramework,
+                    Members = members,
+                },
+                new WorkspaceContextLoadOptions
+                {
+                    HttpClient = httpClient,
+                    SourceAuthorization =
+                        new SourcePolicyPackageSourceAuthorization(
+                            request.SourceOptions),
+                    PackageStore = new FileSystemPackageStore(),
+                    UseVersionCache = false,
+                    Log = log,
+                },
+                cancellationToken).ConfigureAwait(false);
+        if (acquisition
+            is WorkspacePackageRootAcquisitionOutcome.Failed failed)
+        {
+            foreach (WorkspaceContextLoadFailure failure
+                in failed.Failures)
+            {
+                CommandError.WriteWarning(
+                    $"Could not load package Root '{packageSpec}': "
+                    + $"{failure.Kind}: {failure.Message}");
+            }
+            return (null, default);
+        }
+
+        return (
+            ((WorkspacePackageRootAcquisitionOutcome.Acquired)acquisition).Root,
+            PackagePayloadOrigin.Cache);
     }
 
     /// <summary>

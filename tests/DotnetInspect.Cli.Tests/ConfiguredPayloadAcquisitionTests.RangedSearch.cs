@@ -59,6 +59,92 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
     }
 
     /// <summary>
+    /// The real Avalonia 12.1.2 archive (10 MB: net8.0 and net10.0 libraries,
+    /// XML docs, analyzers, designer tools) searched for net10.0 transfers
+    /// the directory and the net10.0 assemblies only, about a fifth of it.
+    /// </summary>
+    [Fact]
+    public async Task SearchCommand_RangedRead_RealAvaloniaArchive()
+    {
+        const string Id = "Avalonia";
+        const string AvaloniaVersion = "12.1.2";
+        string path = Path.Combine(
+            AppContext.BaseDirectory, "RealAssets", "ApiMatching", "avalonia.12.1.2.nupkg");
+        byte[] package = await File.ReadAllBytesAsync(
+            path, TestContext.Current.CancellationToken);
+        Assert.Equal(
+            "99987414c63ac3993346a84a852006df963ff839f96d140557ee31f8850db08f",
+            Convert.ToHexStringLower(SHA256.HashData(package)));
+        var feed = new RangeHonoringFeedHandler(
+            FirstFeed, Id, package, version: AvaloniaVersion);
+        UseFeed(feed);
+
+        var result = await RunCommandAsync(
+            [
+                "find",
+                ".InvalidateMeasure",
+                "--package", $"{Id}@{AvaloniaVersion}",
+                "--tfm", "net10.0",
+                "--source", FirstFeed,
+                "--all",
+                "--json",
+                "--verbose",
+                "--tips", "q",
+            ]);
+
+        Assert.True(result.Exit == 0, result.Error);
+        Assert.Contains("InvalidateMeasure", result.Output, StringComparison.Ordinal);
+        Assert.Contains("payload Ranged", result.Error, StringComparison.Ordinal);
+        Assert.Equal(0, feed.FullPackageResponses);
+        Assert.True(
+            feed.PackageBytesServed < package.Length / 4,
+            $"served {feed.PackageBytesServed} of {package.Length} package bytes");
+    }
+
+    /// <summary>
+    /// A package whose only library targets netstandard2.0 is searched for
+    /// net11.0: the ranged read materializes the compatible slice the Root
+    /// binds, so no complete download follows.
+    /// </summary>
+    [Fact]
+    public async Task SearchCommand_RangedRead_CompatibleSliceNeedsNoCompleteDownload()
+    {
+        string id = $"Workspace.Compatible.{Guid.NewGuid():N}";
+        byte[] assembly = await File.ReadAllBytesAsync(
+            typeof(ConfiguredPayloadAcquisitionTests).Assembly.Location,
+            TestContext.Current.CancellationToken);
+        byte[] package = CreatePackage(
+            id,
+            "compatible slice package",
+            library: assembly,
+            libraryName: "Workspace.Compatible.dll",
+            libraryDirectory: "lib/netstandard2.0");
+        var feed = new RangeHonoringFeedHandler(FirstFeed, id, package);
+        UseFeed(feed);
+
+        var result = await RunCommandAsync(
+            [
+                "find",
+                $".{MemberSearchServiceTests.SearchTargetMemberName}",
+                "--package", $"{id}@{Version}",
+                "--tfm", "net11.0",
+                "--source", FirstFeed,
+                "--all",
+                "--json",
+                "--verbose",
+                "--tips", "q",
+            ]);
+
+        Assert.True(result.Exit == 0, result.Error);
+        Assert.Contains(
+            MemberSearchServiceTests.SearchTargetMemberName,
+            result.Output,
+            StringComparison.Ordinal);
+        Assert.Contains("payload Ranged", result.Error, StringComparison.Ordinal);
+        Assert.Equal(0, feed.FullPackageResponses);
+    }
+
+    /// <summary>
     /// A source that answers a ranged request with the whole archive is
     /// refused as <c>RangeIgnored</c> and the same authority serves the
     /// complete download, so the search still completes.
@@ -117,7 +203,8 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
         string source,
         string id,
         byte[] package,
-        bool ignoreRange = false) : HttpMessageHandler
+        bool ignoreRange = false,
+        string version = Version) : HttpMessageHandler
     {
         private const string ETag = "\"ranged-fixture\"";
         private long _packageBytesServed;
@@ -140,7 +227,7 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
             Requests.Enqueue(url);
             string flat = new Uri(new Uri(source), "flat2/").AbsoluteUri;
             string lower = id.ToLowerInvariant();
-            string packageUrl = $"{flat}{lower}/{Version}/{lower}.{Version}.nupkg";
+            string packageUrl = $"{flat}{lower}/{version}/{lower}.{version}.nupkg";
             if (url == source)
             {
                 return Task.FromResult(Respond(
