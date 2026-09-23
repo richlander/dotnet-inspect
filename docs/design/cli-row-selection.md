@@ -24,12 +24,13 @@ graph edges, a single package's layout lens, `Package files`, or
 one selected Project document section, explicit-source Type catalog listings,
 `match --similar` ranked candidates, and the exact `Clone Candidates` section
 for Library, Type, or Member, plus exact Member `Calls` and `Callers`, and the
-Graph Libraries default or exact `Call Sites`, exact `Consumer Use Sites`,
-exact `Provider API Types`, or exact `Direct Use Clusters` cohorts, have
-semantic `-n` adoption. Their supported Window and direction capabilities
-remain command-specific. These adopters also accept explicit rendered-line
-selection where their output format permits it. Unselected modes of a
-partially adopted command use the rendered-line fallback.
+Graph Libraries default or exact `Direct Use Clusters`, the Graph Cluster
+default or exact `Call Sites`, and exact `Consumer Use Sites` or `Provider API
+Types` cohorts have semantic `-n` adoption. Their supported Window and
+direction capabilities remain command-specific. These adopters also accept
+explicit rendered-line selection where their output format permits it.
+Unselected modes of a partially adopted command use the rendered-line
+fallback.
 Commands without an active semantic row adoption, including text documents and
 structured commands whose item rows have not yet been adopted, lower bare `-n`
 to rendered-line selection. Explicit `--lines` remains accepted as redundant
@@ -734,14 +735,13 @@ $ dotnet-inspect graph integrations \
 Error: Integration graph row selection stage 1 requires edge 3, but only 2 edges are available.
 ```
 
-The default `graph libraries` call-site view and exact
-`-S "Call Sites"` selection declare one semantic row per complete
-`AssemblyPairCallUseOccurrence` in the owner-issued query order. Selection
+The default `graph libraries` view and exact `-S "Direct Use Clusters"`
+selection declare one semantic row per complete
+`AssemblyPairDirectUseCluster` in Query-issued deterministic order. Selection
 runs after both local libraries resolve, bidirectional pair inspection
-completes, and an optional Direct Use Cluster narrows the occurrence vector.
-Count, Markdown, plaintext, table, TSV, JSONL, and JSON then consume the same
-selected physical call-site identities. Retained incomplete-evidence
-diagnostics remain visible and preserve their nonzero exit.
+completes, and complete cluster derivation finishes. Count, Markdown,
+plaintext, table, TSV, JSONL, and JSON then consume the same selected cluster
+identities and retained call-site references.
 
 ```console
 $ dotnet-inspect graph libraries \
@@ -750,33 +750,49 @@ $ dotnet-inspect graph libraries \
     -n 1 --tail --jsonl
 ```
 
-What to notice: the final physical call site is selected before JSONL
-lowering. Strict Window failure withholds the complete command output, while
-explicit `--lines` continues to select rendered text.
+What to notice: the final pair-wide cluster is selected before JSONL lowering.
+Strict Window failure withholds the complete command output, while explicit
+`--lines` continues to select rendered text.
+
+The default `graph cluster N` call-site view and exact `-S "Call Sites"`
+selection declare one semantic row per complete
+`AssemblyPairCallUseOccurrence` in the owner-issued query order. Selection
+runs after the positive ordinal scopes the pair to one observed Direct-Use
+Cluster. Count and every row renderer consume the same selected physical
+call-site identities. Retained incomplete-evidence diagnostics remain visible
+and preserve their nonzero exit.
+
+```console
+$ dotnet-inspect graph cluster 3 \
+    --library ./Consumer.dll \
+    --library ./Provider.dll \
+    -n 1 --tail --jsonl
+```
 
 Exact `-S "Consumer Use Sites"` and `-S "Provider API Types"` each declare one
 semantic row per owner-issued summary group. Consumer rows are attributed
 source methods plus the directed target participant and MVIDs. Provider rows
 are structured target declaring types plus the directed source participant and
 MVIDs. Each vector inherits deterministic first-occurrence order from the
-complete pair result. Selection runs after optional `--where "Cluster=N"`
-scoping and summary grouping, so a selected row keeps its complete group
-counts and occurrence-index receipts. Its rendered `Call Site Rows` continue
-to reference the unchanged call-site vector for the effective pair scope.
-Count and every row renderer consume the same selected summary identities.
-Incomplete pair evidence remains visible and nonzero after positive selected
-output.
+complete pair result. On `graph cluster N`, selection runs after focused
+cluster scoping and summary grouping, so a selected row keeps its complete
+group counts and occurrence-index receipts. Its rendered `Call Site Rows`
+continue to reference the unchanged call-site vector for the effective pair
+scope. Count and every row renderer consume the same selected summary
+identities. Incomplete pair evidence remains visible and nonzero after
+positive selected output.
 
 Exact `-S "Direct Use Clusters"` selection, including repeated identical exact
 selectors after case-insensitive deduplication, declares a separate semantic row
 per complete `AssemblyPairDirectUseCluster` in the Query-issued deterministic
 cluster order.
-Selection runs after pair inspection, complete cluster derivation, and optional
-`--where "Cluster=N"` scoping. The selected cluster identities feed Count,
-Markdown, plaintext, table, TSV, JSONL, and JSON without changing their
-retained call-site references. Repeated identical exact selectors resolve to
-the same declaration after case-insensitive deduplication. Incomplete pair
-evidence remains visible and nonzero after selected cluster output.
+On `graph libraries`, selection runs after pair inspection and complete
+cluster derivation. On `graph cluster N`, the same declaration contains the
+one focused cluster. The selected cluster identities feed Count, Markdown,
+plaintext, table, TSV, JSONL, and JSON without changing their retained
+call-site references. Repeated identical exact selectors resolve to the same
+declaration after case-insensitive deduplication. Incomplete pair evidence
+remains visible and nonzero after selected cluster output.
 
 Graph Libraries lowers these four exact semantic lenses through the
 Query-owned Graph Libraries QuerySpace and the Sections row executor. One
@@ -1473,7 +1489,7 @@ The Integration graph adoption is enforced by:
 | `InspectionGraphCommandTests.OutputModes_UseTheSameWindowedLogicalEdges` and `SemanticTail_SelectsTheSameLogicalEdgeAcrossFormats` | Legacy direct callers retain row-window behavior, while semantic Tail selects one edge identity before Markdown, table, JSON, JSONL, or Count lowering. |
 | `InspectionGraphCommandTests.SemanticUnavailableWindow_WithholdsGraph` and `VisibleGraphFailure_PreservesOutputAndNonzeroExit` | One strict unavailable Window emits no partial graph; successful semantic selection preserves retained graph failures and their nonzero exit. |
 | `InspectionGraphCommandTests.IntegrationsCommand_AcceptsSemanticOpenWindows`, `IntegrationsCommand_RejectsLegacyCountRows`, `IntegrationsCommand_HeadAllowsCompleteJsonBeforeRequiredInputs`, and `IntegrationsCommand_LinesRejectJsonBeforeRequiredInputs` | Integration graph accepts shared prefix/suffix Window, explicit Head, and bare Head as semantic requests, rejects the retired legacy count form of `--rows`, and rejects explicit complete-JSON line clipping before package validation. |
-| `InspectionGraphCommandTests.LibrariesCommand_SemanticTailSelectsTheSameCallSiteAcrossFormats`, `LibrariesCommand_SemanticTailSelectsTheSameSummaryAcrossFormats`, `LibrariesCommand_SemanticTailSelectsTheSameClusterAcrossFormats`, `LibrariesCommand_StrictUnavailableWindowWithholdsOutput`, `LibrariesCommand_StrictUnavailableSummaryWindowWithholdsOutput`, `LibrariesCommand_StrictUnavailableClusterWindowWithholdsOutput`, `LibrariesCommand_ClusterScopePrecedesSemanticWindow`, `LibrariesCommand_SummaryGroupingAndClusterScopePrecedeSemanticWindow`, `LibrariesCommand_SemanticSummarySelectionPreservesIncompleteEvidence`, `LibrariesCommand_SemanticClusterSelectionPreservesIncompleteEvidence`, `LibrariesCommand_RejectsLegacyCountRows`, `LibrariesCommand_HeadAllowsCompleteJsonBeforeRequiredInputs`, and `LibrariesCommand_BareSummaryViewRetainsRenderedLineFallback` | Default and exact Call Sites select the same physical occurrence before every row lowering. Exact Consumer Use Sites and Provider API Types select owner-issued summary identities after optional cluster scoping and grouping without changing complete group counts or call-site receipts. Exact Direct Use Clusters selects the same Query-issued cluster identity after optional cluster scoping. All exact declarations reject legacy numeric `--rows`, withhold output for unavailable strict Window, and permit semantic Head with complete JSON. Selected summary and cluster output preserve incomplete pair evidence and its nonzero exit; bare, path, wildcard, category, and multi-section views remain on rendered-line fallback. |
+| `InspectionGraphCommandTests.ClusterCommand_SemanticTailSelectsTheSameCallSiteAcrossFormats`, `LibrariesCommand_SemanticTailSelectsTheSameSummaryAcrossFormats`, `LibrariesCommand_SemanticTailSelectsTheSameClusterAcrossFormats`, `LibrariesCommand_StrictUnavailableWindowWithholdsOutput`, `LibrariesCommand_StrictUnavailableSummaryWindowWithholdsOutput`, `LibrariesCommand_StrictUnavailableClusterWindowWithholdsOutput`, `ClusterCommand_ClusterScopePrecedesSemanticWindow`, `ClusterCommand_SummaryGroupingAndClusterScopePrecedeSemanticWindow`, `LibrariesCommand_SemanticSummarySelectionPreservesIncompleteEvidence`, `LibrariesCommand_SemanticClusterSelectionPreservesIncompleteEvidence`, `LibrariesCommand_RejectsLegacyCountRows`, `LibrariesCommand_HeadAllowsCompleteJsonBeforeRequiredInputs`, and `LibrariesCommand_BareSummaryViewRetainsRenderedLineFallback` | The Graph Cluster default and exact Call Sites select the same physical occurrence before every row lowering. Exact Consumer Use Sites and Provider API Types select owner-issued summary identities after focused cluster scoping and grouping without changing complete group counts or call-site receipts. The Graph Libraries default and exact Direct Use Clusters select the same Query-issued cluster identities; the focused route retains one selected cluster. All exact declarations reject legacy numeric `--rows`, withhold output for unavailable strict Window, and permit semantic Head with complete JSON. Selected summary and cluster output preserve incomplete pair evidence and its nonzero exit; bare, path, wildcard, category, and multi-section views remain on rendered-line fallback. |
 
 The Type catalog adoption is enforced by:
 

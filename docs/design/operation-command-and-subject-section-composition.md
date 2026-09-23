@@ -240,8 +240,8 @@ The composition reaches production through focused owner adoptions:
    defines names and migration; #7625 defines contextual defaults and explicit
    override.
 3. **Graph:** #7624 adopts the general Graph command, section presets, and
-   current `graph calls`, `graph libraries`, and `graph integrations`
-   migrations.
+   current `graph calls`, `graph libraries`, `graph cluster`, and
+   `graph integrations` migrations.
 4. **Dependency:** the Dependency owner retains `depends`, distinguishes its
    direct and rooted results from Graph, and adopts subject sections without a
    second operation. Package adopted `Dependency Hierarchy` as a subject

@@ -184,7 +184,8 @@ stderr rather than mixed into structured output.
 | `timeline X` | Correlate API or member-body Findings across a package version range. |
 | `graph integrations` | Induce extension, observed Integration, and Integration-opportunity relationships over an explicit package set; `-n`, `--tail`, and `--rows` select complete logical edges after graph construction. |
 | `graph calls TYPE MEMBER` | Explain one package member's supply-chain exits across its dependency graph, retaining highlighted boundaries and their shortest baseline connectors. |
-| `graph libraries` | Show exact resolved cross-library calls, direct-use clusters, and public entrypoint paths to one selected cluster. |
+| `graph libraries` | Discover deterministic direct-use clusters and exact cross-library relationships between two local Libraries. |
+| `graph cluster N` | Inspect exact calls and optional public-entrypoint paths for one pair-local Direct-Use Cluster ordinal. |
 | `depends [Type]` | With a positional type, walk its hierarchy inside `--package`, `--library`, `--project`, or platform search scopes. Without a positional type, combine repeatable explicit `--package`, `--nuspec`, `--library`, and `--project` roots, or exclusive `--package-prefix`, into one dependency graph and evidence document. |
 | `extensions X` | Find extension methods and C# extension properties for a type. |
 | `implements X` | Find concrete implementors or subclasses. |
@@ -1484,6 +1485,9 @@ dotnet-inspect graph calls \
 dotnet-inspect graph libraries \
   --library ./Consumer.dll \
   --library ./Provider.dll
+dotnet-inspect graph cluster 3 \
+  --library ./Consumer.dll \
+  --library ./Provider.dll
 dotnet-inspect graph libraries \
   --library ./Consumer.dll \
   --library ./Provider.dll \
@@ -1522,8 +1526,8 @@ graph edge in the completed typed document. Head/Tail and strict Window select
 those edges before Markdown, table, TSV, JSONL, JSON, Mermaid, plaintext graph,
 or Count lowering; selection does not reduce package acquisition or hide
 retained graph failures. Add `--lines` only to clip rendered text explicitly.
-`graph libraries` retains independent section row sets; its adopted Call Sites
-and Direct Use Clusters cohorts are described below.
+`graph libraries` and `graph cluster` retain independent section row sets;
+their adopted Direct Use Clusters and Call Sites cohorts are described below.
 
 `graph calls` is the integration-style complement to the general
 `member -S "Call Graph"` view. It starts from one exact member in
@@ -1595,70 +1599,68 @@ show `4.3.2` and `4.3.1`, respectively, the disposition is
 `PackageRetained`: the command does not select or downgrade to `4.3.1`.
 
 `graph libraries` evaluates both directions in the pair; every row still names
-its directed source and target. Omitting `-S` preserves the exact physical call
-sites. In that default view, and with exact `-S "Call Sites"`, `-n`, bare
-`-N`, `--tail`, and strict `--rows` select complete physical call sites before
-Markdown, plaintext, table, TSV, JSONL, JSON, or Count lowering. Exact
-`-S "Direct Use Clusters"` applies the same gestures to complete deterministic
-cluster rows after optional `--where "Cluster=N"` scoping. Use `--lines` for
-explicit rendered-line clipping. Bare `-S` shows `Consumer Use Sites` and
-`Provider API Types`: the local
-methods containing direct calls, and the provider declaring types selected by
-those calls. These are direct-use surfaces, not semantic feature clusters,
-public-entrypoint reachability, or a list of configured ecosystem Integrations.
+its directed source and target. Omitting `-S` shows `Direct Use Clusters`.
+In that default view, and with exact `-S "Direct Use Clusters"`, `-n`, bare
+`-N`, `--tail`, and strict `--rows` select complete deterministic cluster rows
+before Markdown, plaintext, table, TSV, JSONL, JSON, or Count lowering. Use
+`--lines` for explicit rendered-line clipping. Bare `-S` shows `Consumer Use
+Sites` and `Provider API Types`: the local methods containing direct calls,
+and the provider declaring types selected by those calls. These are direct-use
+surfaces, not semantic feature clusters, public-entrypoint reachability, or a
+list of configured ecosystem Integrations.
 Select `@Libraries` to compose `Call Sites`, `Consumer Use Sites`, `Direct Use
 Clusters`, and `Provider API Types` in alphabetical section order. `Public Root
-Paths` remains an exact-name section because its required cluster coordinate
-does not compose with the pair-wide category. Summary, path, wildcard,
-category, and multi-section views retain rendered-line `-n` because their
-independent row schemas do not form one semantic sequence.
+Paths` remains an exact-name section because its required focused cluster does
+not compose with the pair-wide category. Summary, path, wildcard, category,
+and multi-section views retain rendered-line `-n` because their independent
+row schemas do not form one semantic sequence.
 
-`-S "Direct Use Clusters"` partitions the exact directed call rows into
+The default `Direct Use Clusters` section partitions the exact directed calls
+into
 connected components of source and target methods. Each explicit row retains
 its call-site references and separately counts source members, provider types,
 target members, extension methods, and physical sites. A one-extension-method
 row exposes a small direct-use footprint; it is not yet proof that the package
-is removable or that copying source is safe. The section remains outside the
-default and bare `-S` views.
+is removable or that copying source is safe.
 
 Use the pair-wide cluster ordinal to reopen one component as exact calls:
-Run `dotnet-inspect graph libraries -Q "Call Sites"` to discover the predicate
-and its supported operator without inspecting a pair.
 
 ```bash
 dotnet-inspect graph libraries \
   --library ./Consumer.dll \
-  --library ./Provider.dll \
-  -S "Direct Use Clusters"
+  --library ./Provider.dll
 
-dotnet-inspect graph libraries \
+dotnet-inspect graph cluster 3 \
+  --library ./Consumer.dll \
+  --library ./Provider.dll
+
+dotnet-inspect graph cluster 3 \
   --library ./Consumer.dll \
   --library ./Provider.dll \
-  --where "Cluster=3"
-
-dotnet-inspect graph libraries \
-  --library ./Consumer.dll \
-  --library ./Provider.dll \
-  --where "Cluster=3" \
   -S "Public Root Paths"
 ```
 
-The drill-down names every source member, source token, target member, target
-token, call kind, evidence method, evidence token, and IL offset in that
-cluster. Use source and target identities for ordinary `member` inspection.
-Use the evidence token with the IL offset for `library coordinate`, because a
-compiler-generated physical body can differ from the attributed source member.
-The cluster remains structural evidence rather than a source-inlining verdict.
+`graph cluster N` requires the same two Libraries and defaults to exact `Call
+Sites`. Its heading and description identify the focused cluster and summarize
+its source-member, provider-type, target-member, extension-method, and physical
+call-site footprint. The rows name every source member, source token, target
+member, target token, call kind, evidence method, evidence token, and IL offset
+in that cluster. Use source and target identities for ordinary `member`
+inspection. Use the evidence token with the IL offset for `library coordinate`,
+because a compiler-generated physical body can differ from the attributed
+source member. The cluster remains structural evidence rather than a
+source-inlining verdict.
 
 `Public Root Paths` traces the selected cluster's exact consumer methods back
 to exhaustive public MethodDef roots in the consumer library. Each row reports
 one deterministic shortest local static path, its public root and destination
 tokens, and physical IL receipts for every logical step. The section must be
-named explicitly and requires exactly one `Cluster=N` predicate; it is excluded
-from defaults, bare `-S`, and wildcard section selection. A complete empty
-section means no public root has a local static path to the selected use sites.
-If pair, public-root, or path analysis is incomplete, retained positive paths
-are still rendered and the command exits nonzero instead of asserting absence.
+named explicitly under `graph cluster N`; it is excluded from defaults, bare
+`-S`, and wildcard section selection. Pair-wide `graph libraries` rejects the
+section with focused-route guidance. A complete empty section means no public
+root has a local static path to the selected use sites. If pair, public-root,
+or path analysis is incomplete, retained positive paths are still rendered
+and the command exits nonzero instead of asserting absence.
 
 ```bash
 dotnet-inspect member "<SourceType>" \

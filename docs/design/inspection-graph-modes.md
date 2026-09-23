@@ -151,7 +151,7 @@ The revised placement path has **5 steps**:
 | 1 | General Graph command binding over existing typed modes, relationship sets, lenses, limits, failures, and Markout lowering. |
 | 2 | Top-level inline Workspace construction and canonical packet reopening without another packet grammar. |
 | 3 | Package, Library, Type, and Member sections that bind authored Graph presets to already resolved subjects without subject subcommands. |
-| 4 | Migration or retention decisions for current `graph calls`, `graph libraries`, and `graph integrations`, preserving each useful workflow until parity. |
+| 4 | Migration or retention decisions for current `graph calls`, `graph libraries`, `graph cluster`, and `graph integrations`, preserving each useful workflow until parity. |
 | 5 | Help, discovery, defaults, naming, sharing/replay, completion, examples, relationship-skill adoption, and CLI plus Browser/Wasm demonstrations. |
 
 Subject-section adoptions remain independently scoped and may use separate

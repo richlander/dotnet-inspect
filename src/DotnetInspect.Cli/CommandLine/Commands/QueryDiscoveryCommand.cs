@@ -20,15 +20,6 @@ internal static class QueryDiscoveryCommand
             command.Options.Add(options.QueryHelp);
             WrapAction(command, options);
         }
-        Command? graphLibraries = root.Subcommands
-            .SingleOrDefault(command => command.Name == "graph")
-            ?.Subcommands
-            .SingleOrDefault(command => command.Name == "libraries");
-        if (graphLibraries is not null)
-        {
-            graphLibraries.Options.Add(options.QueryHelp);
-            WrapAction(graphLibraries, options);
-        }
     }
 
     private static void WrapAction(Command command, SharedOptions options)
@@ -75,8 +66,7 @@ internal static class QueryDiscoveryCommand
                 or "package"
                 or "package query"
                 or "find"
-                or "depends"
-                or "graph libraries"))
+                or "depends"))
         {
             CommandError.Write($"Query discovery is not supported by the '{result.CommandResult.Command.Name}' subcommand.");
             exitCode = 1;
@@ -206,12 +196,6 @@ internal static class QueryDiscoveryCommand
             && parent.Command.Name is "package" or "library")
         {
             return $"{parent.Command.Name} query";
-        }
-        if (name == "libraries"
-            && result.CommandResult.Parent is CommandResult graph
-            && graph.Command.Name == "graph")
-        {
-            return "graph libraries";
         }
         return name;
     }
