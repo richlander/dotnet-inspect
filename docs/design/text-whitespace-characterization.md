@@ -289,19 +289,40 @@ Localization is deterministic for the same inputs.
 
 ### Line facts
 
+Line facts come from *components*, not from where intervals fall. An aligned
+pair links the Before line that holds one of its characters to the After line
+that holds the other. A component is a maximal set of lines connected by those
+links. A line without non-whitespace characters has no links, so it is a
+component by itself.
+
+A component is *changed* when either:
+
+- one of its lines contains an unaligned non-whitespace character; or
+- a dirty interval lies strictly between two non-whitespace characters of one
+  of its lines.
+
 Every Before and After line inside a region receives exactly one fact:
 
 | Fact | Meaning |
 | --- | --- |
-| `Changed` | The line contains an unaligned non-whitespace character. |
-| `WhitespaceOnly` | Every non-whitespace character on the line is aligned to an equal character, and a differing interval (a whitespace edit or a dirty interval) overlaps the line. The line holds no content change, although its placement or surrounding whitespace changed. |
-| `Unaffected` | Every non-whitespace character on the line is aligned, and every interval that overlaps the line is clean and identical on both sides. |
+| `Changed` | The line's component is changed. |
+| `Unaffected` | The component is not changed and is exactly one Before line and one After line, and those lines are ordinal-equal. |
+| `WhitespaceOnly` | Any other line in a component that is not changed. |
 | `NotLocalized` | The line is in a `NotLocalized` region. |
 
-The first three facts partition the lines of every localized region by their
-content. For example, a blank line removed inside a rewritten block has no
-non-whitespace characters, lies in a dirty interval, and is `WhitespaceOnly`.
-Anchor lines are outside every region and carry no fact.
+Both sides of a content edit are `Changed`, including a side whose own
+characters all survive. `WhitespaceOnly` therefore means that the line and
+every line linked to it hold exactly the same non-whitespace characters, in
+order, and differ only in whitespace or line structure. For example:
+
+- a reflowed brace forms one component of whitespace-only lines;
+- a removed blank line inside a rewritten block is its own component, and is
+  `WhitespaceOnly`; and
+- in `return (x);` → `return (T)(x);`, both lines are `Changed`.
+
+The facts depend only on the texts and the issued alignment, so a validator can
+recompute them exactly. Anchor lines are outside every region and carry no
+fact.
 
 ### Document summary
 
@@ -348,16 +369,22 @@ annotations. Addition-only and removal-only regions, such as blank lines,
 present at line level. The first adopter owns the lowering's exact shape and
 must take it from the issued edits rather than re-derive it.
 
-Markout is the rendering substrate, not a consumer. S2 requires no Markout
-change: annotations serve mark mode in every formatter, and the Unicode and
-Spectre formatters render inner mappings for highlight mode. The Markdown and
-plain-text unified diffs cannot express intraline ranges, so hosts using them
-fall back from highlight to mark. Two Markout additions would improve
-highlight mode and are optional follow-ons under the
-[Markout co-development loop](../markout-co-development.md): visible glyphs
-for spaces, tabs, and boundaries inside changed spans, and a typed category on
-inner mappings so formatters can style whitespace edits differently from
-content edits.
+Markout is the rendering substrate, not a consumer. Mark mode needs no Markout
+change, because annotations render in every formatter. The Unicode and Spectre
+formatters also render inner mappings, but they render every changed span the
+same way. The Markdown and plain-text unified diffs cannot express intraline
+ranges, so hosts using them fall back from highlight to mark.
+
+Views that style whitespace-only changes differently need a typed whitespace
+class in Markout, on changes or lines and on inner mappings, because
+whitespace-only additions and removals have no inner mappings. Visible glyphs
+for spaces, tabs, and boundaries would also be needed. That Markout slice (M1)
+runs under the [Markout co-development loop](../markout-co-development.md) and
+is proposed in #8393 pending operator approval. It doesn't change the facts
+defined here. Terminal color also requires the CLI to adopt an ANSI formatter.
+Inspect Web styles directly from the typed facts. None of these hosts may use
+color as the only cue: whitespace styling pairs a color shade with a non-color
+cue, such as visible glyphs or a label.
 
 ## Bounds and failure
 
@@ -384,7 +411,11 @@ their region.
 | Blank-line spaces (Scrutor) | a blank line with spaces becomes empty | `WhitespaceOnly`, `BlankLineContent` |
 | Blank line removed (JToken.Remove) | blank line between statements removed | own region `WhitespaceOnly`, `LineBreaks` |
 | Blank line in rewrite (JToken.Annotation) | blank line removed inside a changed region | region `Changed`; blank line localized `WhitespaceOnly` |
-| Mixed reflow and edit | `class Foo {` / `int x;` → `class Foo` / `{` / `int y;` | region `Changed`; reflow lines `WhitespaceOnly`; `int` lines `Changed` |
+| Mixed reflow and edit | `class Foo {` / `int x;` → `class Foo` / `{` / `int y;` | region `Changed`; `class Foo {`, `class Foo`, and `{` form one component and are `WhitespaceOnly`; `int` lines `Changed` |
+| Insertion inside a line (JToken.Annotation) | `return (_annotations as T);` → `return (T)(_annotations as T);` | both lines `Changed` |
+| Pure deletion | `foo(a, b)` → `foo(a)` | both lines `Changed` |
+| Append at line end | `x = 1;` → `x = 1; z` | both lines `Changed` |
+| Scatter | `ab` → `a` / `XYZ` / `b` | every line `Changed` |
 | Separation | `foo( x )` → `foo(x)` | `WhitespaceOnly`, `Separation` |
 | Token fusion | `x - -y` → `x--y` | `WhitespaceOnly`, `Separation`; the text layer makes no layout claim |
 | Literal whitespace | `"a b"` → `"a  b"` | `WhitespaceOnly`, `Spacing`; significance left to a certifier |
