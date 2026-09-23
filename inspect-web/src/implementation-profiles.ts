@@ -214,6 +214,7 @@ export interface ImplementationProfileCoordinatorDependencies {
 }
 
 export interface ImplementationProfileCoordinator {
+  hasActivated(request: ImplementationProfileFamilyRequest): boolean;
   activate(
     request: ImplementationProfileFamilyRequest,
     selection: ImplementationProfileFamilySelection,
@@ -970,6 +971,9 @@ export function createImplementationProfileCoordinator(
   };
 
   return {
+    hasActivated(request) {
+      return cache.status(request) !== "missing";
+    },
     activate: start,
     retry(request, selection) {
       cache.retry(request);
@@ -1022,6 +1026,27 @@ function renderAnalysisDiagnostics(
       `<li>Method token ${diagnostic.methodToken}: ${escapeHtml(diagnostic.method)} - ${escapeHtml(diagnostic.message)}</li>`)
       .join("")
   }</ul></section>`;
+}
+
+function renderUnavailableBodies(
+  title: string,
+  bodies: ReadonlyArray<BrowserImplementationProfileUnavailableBody>,
+  escapeHtml: (value: unknown) => string,
+): string {
+  if (bodies.length === 0) return "";
+  return `<section class="implementation-profile-unavailable-bodies">
+    <h3>${escapeHtml(title)}</h3>
+    <ul>${bodies.map(body =>
+      `<li>Method token ${body.methodToken}${
+        body.evidenceMethodKey === null
+          ? ""
+          : ` (<code>${escapeHtml(body.evidenceMethodKey)}</code>)`
+      }: ${escapeHtml(body.reason)}${
+        body.diagnostic === null
+          ? ""
+          : ` - ${escapeHtml(body.diagnostic.message)}`
+      }</li>`).join("")}</ul>
+  </section>`;
 }
 
 function renderApiSurfaceFailures(
@@ -1111,22 +1136,19 @@ function renderFamily(
   const rows = family.rows.map((row, rowIndex) => {
     const physical = row.physicalRows.map(item =>
       renderPhysicalRow(item, physicalIndex++, escapeHtml)).join("");
-    const unavailable = row.unavailableBodies.map(body =>
-      `<li>Method token ${body.methodToken}: ${escapeHtml(body.reason)}${
-        body.diagnostic === null
-          ? ""
-          : ` - ${escapeHtml(body.diagnostic.message)}`
-      }</li>`).join("");
-    const absence = physical.length > 0
+    const unavailable = renderUnavailableBodies(
+      physical.length > 0
+        ? "Additional unavailable physical evidence"
+        : "Unavailable physical evidence",
+      row.unavailableBodies,
+      escapeHtml,
+    );
+    const absence = physical.length > 0 || unavailable.length > 0
       ? ""
-      : `<p class="implementation-profile-no-body">${
-          unavailable.length > 0
-            ? "Physical evidence is unavailable."
-            : "No physical profile was attributed to this overload."
-        }</p>${unavailable.length > 0 ? `<ul>${unavailable}</ul>` : ""}`;
+      : `<p class="implementation-profile-no-body">No physical profile was attributed to this overload.</p>`;
     return `<section class="implementation-profile-overload${row.member.selected ? " is-selected" : ""}" aria-labelledby="implementation-profile-overload-${rowIndex}">
       <h3 id="implementation-profile-overload-${rowIndex}">${escapeHtml(row.member.display)}${row.member.selected ? " - selected overload" : ""}</h3>
-      ${physical}${absence}
+      ${physical}${unavailable}${absence}
     </section>`;
   }).join("");
   const emptyNotice = state.status === "empty"
@@ -1148,6 +1170,11 @@ function renderFamily(
     ? `<details class="implementation-profile-qualification">
         <summary>Coverage and diagnostic details</summary>
       <p>Family body analysis requested: ${family.coverage.wasRequested ? "Yes" : "No"}</p>
+        ${renderUnavailableBodies(
+          "Unavailable physical bodies",
+          family.coverage.unavailableBodies,
+          escapeHtml,
+        )}
         ${renderAnalysisDiagnostics(
           "Coverage diagnostics",
           family.coverage.diagnostics,

@@ -654,12 +654,10 @@ test("MethodDef-only member sections are hidden for bodiless APIs", () => {
     ["overview", "call-graph", "facts", "source", "annotated", "compare"]);
 });
 
-// Arrowing between members keeps the active section (e.g. Source) sticky, the same way
-// arrowing between types never disturbs the type-level lens. openMemberGroup/openOverload
-// (the two entry points arrow-key nav uses) must clear cached per-member content without
-// resetting memberSection, and only fall back to Overview when the newly selected member
-// doesn't support the section that was showing.
-test("moving between members keeps the active section sticky, falling back to Overview only when unsupported", () => {
+// Arrowing between members keeps ordinary sections sticky. Implementation Profiles is
+// retained only for an exact family that was already activated, so navigation itself
+// cannot authorize expensive analysis for another family.
+test("moving between members keeps sections sticky without activating a new profile family", () => {
   const openMemberGroupBody =
     appSource.match(/function openMemberGroup\(key: string\) \{[\s\S]*?\n}\n/)?.[0] ?? "";
   assert.match(openMemberGroupBody, /clearMemberContentCache\(\)/);
@@ -676,6 +674,9 @@ test("moving between members keeps the active section sticky, falling back to Ov
   assert.match(
     openMemberGroupBody,
     /const retainedSection = state\.memberSection;[\s\S]*let selectedFirstOverload = false;[\s\S]*selectedFirstOverload = true;[\s\S]*if \(selectedFirstOverload && state\.memberSection !== retainedSection\) \{\s*state\.selectedOverloadIndex = null;\s*state\.selectedBodyTarget = null/);
+  assert.match(
+    openMemberGroupBody,
+    /retainMemberSectionIfSupported\(group\);[\s\S]*state\.memberSection === "implementation-profiles"[\s\S]*implementationProfileTarget\(\)[\s\S]*!implementationProfiles\.hasActivated\(target\.request\)[\s\S]*state\.memberSection = "overview"/);
   assert.match(openMemberGroupBody, /loadMemberSectionContent\(state\.memberSection\)/);
 
   const openOverloadBody =

@@ -6260,6 +6260,11 @@ function openMemberGroup(key: string) {
       selectedFirstOverload = true;
     }
     retainMemberSectionIfSupported(group);
+    if (state.memberSection === "implementation-profiles") {
+      const target = implementationProfileTarget();
+      if (!target || !implementationProfiles.hasActivated(target.request))
+        state.memberSection = "overview";
+    }
     if (selectedFirstOverload && state.memberSection !== retainedSection) {
       state.selectedOverloadIndex = null;
       state.selectedBodyTarget = null;

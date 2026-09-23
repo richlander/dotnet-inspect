@@ -21,9 +21,11 @@ function overload(
   stableSelector: string,
   signature: string,
   metadataToken: number,
+  name = "Run",
 ): BrowserMemberSurface {
   return {
     ...run,
+    name,
     signature,
     metadataToken,
     declarationMetadataToken: metadataToken,
@@ -34,7 +36,7 @@ function overload(
     graphSelectorKey: stableSelector,
     bodySelectors: [{
       token: metadataToken,
-      memberName: "Run",
+      memberName: name,
       selectorKey: stableSelector,
     }],
   };
@@ -43,24 +45,36 @@ function overload(
 function overloadedPackage(): BrowserPackageSurface {
   const type = {
     ...createType("Example.Widget", core),
-    members: 2,
+    members: 4,
     api: [
       overload("Run(int)", "public void Run(int value)", 0x06000100),
       overload("Run(string)", "public void Run(string value)", 0x06000101),
+      overload(
+        "Compute(int)",
+        "public void Compute(int value)",
+        0x06000102,
+        "Compute",
+      ),
+      overload(
+        "Compute(string)",
+        "public void Compute(string value)",
+        0x06000103,
+        "Compute",
+      ),
     ],
   };
   return {
     ...surface,
     assemblies: surface.assemblies.map(assembly =>
       assembly.id === core.id
-        ? { ...assembly, publicMembers: 2 }
+        ? { ...assembly, publicMembers: 4 }
         : assembly),
     types: [
       type,
       ...surface.types.filter(candidate =>
         candidate.definitionId !== type.definitionId),
     ],
-    totalMembers: 3,
+    totalMembers: 5,
   };
 }
 
@@ -146,6 +160,55 @@ test("implementation profiles stay lazy, preserve family identity, and render ac
     page.getByText("Distinct opcode count", { exact: true }).first(),
   ).toBeVisible();
 
+  await page.locator("[data-nav-member]").filter({ hasText: "Compute" })
+    .click();
+  await expect(html).toHaveAttribute(
+    "data-implementation-profile-request-count",
+    "1",
+  );
+  await expect(inspectorTab(
+    page,
+    "data-member-section",
+    "overview",
+  )).toHaveAttribute("aria-selected", "true");
+
+  await chooseInspector(
+    page,
+    "data-member-section",
+    "implementation-profiles",
+    "Implementation profiles",
+  );
+  await expect(html).toHaveAttribute(
+    "data-implementation-profile-request-count",
+    "2",
+  );
+  expect(JSON.parse(
+    await html.getAttribute("data-implementation-profile-request") ?? "null",
+  )).toEqual([
+    "Example.Package",
+    "1.0.0",
+    "net10.0",
+    core.id,
+    "Example.Widget",
+    ["Compute(int)", "Compute(string)"],
+  ]);
+  await releaseFacade(
+    page,
+    `fixture-implementation-profiles-ready:${core.id}`,
+  );
+  await expect(page.getByRole("heading", {
+    name: "Example.Widget.Compute",
+  })).toBeVisible();
+
+  await page.locator("[data-nav-member]").filter({ hasText: "Run" }).click();
+  await expect(html).toHaveAttribute(
+    "data-implementation-profile-request-count",
+    "2",
+  );
+  await expect(page.getByRole("heading", {
+    name: "Example.Widget.Run",
+  })).toBeVisible();
+
   await chooseInspector(
     page,
     "data-member-section",
@@ -160,7 +223,7 @@ test("implementation profiles stay lazy, preserve family identity, and render ac
   );
   await expect(html).toHaveAttribute(
     "data-implementation-profile-request-count",
-    "1",
+    "2",
   );
   await expect(page.getByRole("heading", {
     name: "Example.Widget.Run",

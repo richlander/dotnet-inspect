@@ -68,6 +68,13 @@ overload selection, and first paint perform no implementation-profile work.
 The Browser starts acquisition only after the user selects the Implementation
 Profiles Member section or explicitly retries that section.
 
+Retaining a Member section while navigating does not authorize acquisition for
+a new overload family. The Browser keeps Implementation Profiles selected only
+when the destination exact-family request already has an in-flight, settled, or
+producer-failed cache entry from an earlier explicit activation. Otherwise
+ordinary Member navigation falls back to Overview. Returning to a previously
+activated family may restore or reuse its exact cached state.
+
 One request names one exact implementation participant and public overload
 family:
 
@@ -192,6 +199,12 @@ Each physical row provides:
 - exact incoming and outgoing sibling-overload relationship counts; and
 - progressive disclosure of every raw metric, incomplete reason, and matching
   exact relationship.
+
+Every owner-issued unavailable-body receipt remains visible in the incomplete
+coverage disclosure, including when no successful profile supplies enough
+membership evidence to associate it with one logical overload. When the
+owner-issued body tokens do support row association, the overload also shows
+the unavailable receipt even if another physical profile is available.
 
 The Browser omits relative bars when comparison would add noise: fewer than two
 physical rows, or every row has at most eight instructions with no branches,

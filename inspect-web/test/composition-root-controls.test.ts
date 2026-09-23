@@ -136,6 +136,9 @@ test("implementation profiles stay lazy and family-level across package and plat
   assert.match(
     openGroup,
     /state\.memberSection !== "overview"[\s\S]*state\.memberSection !== "implementation-profiles"[\s\S]*state\.selectedOverloadIndex = 0/);
+  assert.match(
+    openGroup,
+    /retainMemberSectionIfSupported\(group\);[\s\S]*state\.memberSection === "implementation-profiles"[\s\S]*implementationProfileTarget\(\)[\s\S]*!implementationProfiles\.hasActivated\(target\.request\)[\s\S]*state\.memberSection = "overview"/);
 
   const applySection = sourceText(functionDeclaration("applyMemberSection"));
   assert.match(

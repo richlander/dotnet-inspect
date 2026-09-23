@@ -801,10 +801,12 @@ test("operation authority suppresses stale publication while exact-family result
   });
   const readState = () => state.implementationProfiles;
 
+  assert.equal(coordinator.hasActivated(packageRequest), false);
   const first = coordinator.activate(
     packageRequest,
     selection(() => packageCurrent),
   );
+  assert.equal(coordinator.hasActivated(packageRequest), true);
   packageCurrent = false;
   const second = coordinator.activate(
     otherFamilyRequest,
@@ -840,6 +842,100 @@ test("operation authority suppresses stale publication while exact-family result
     queries.get(implementationProfileCacheKey(packageRequest)),
     1,
   );
+});
+
+test("unavailable body coverage remains visible without successful profile attribution", () => {
+  const base = content();
+  const failedToken = 0x06000004;
+  const projected = projectImplementationProfileFamily(
+    available({
+      content: content({
+        members: base.members.map(member =>
+          member.stableSelector === "M(int)"
+            ? { ...member, bodyTokens: [] }
+            : member),
+        profiles: [profile({
+          methodKey: "logical-string",
+          evidenceMethodKey: "logical-string",
+          publicMembers: [{
+            typeDefinitionId: "type:Example.Widget",
+            member: "M",
+            stableSelector: "M(string)",
+            bodyTokens: [0x06000002],
+          }],
+        })],
+        overloadRelationships: [],
+        coverage: {
+          ...base.coverage,
+          profiledEvidenceBodyKeys: ["logical-string"],
+          unavailableBodies: [{
+            evidenceMethodKey: null,
+            methodToken: failedToken,
+            reason: "AnalysisFailed",
+            diagnostic: {
+              methodToken: failedToken,
+              method: "Widget.M(int)",
+              message: "Decoder failed.",
+              sourceMethodToken: null,
+              declaringType: "Example.Widget",
+              sourceDeclaringType: null,
+            },
+          }],
+        },
+      }),
+    }),
+    selection(),
+  );
+
+  assert.equal(projected.status, "incomplete");
+  if (projected.status !== "incomplete") return;
+  const affected = projected.family.rows.find(
+    row => row.member.stableSelector === "M(int)",
+  );
+  assert.equal(affected?.physicalRows.length, 0);
+  assert.equal(affected?.unavailableBodies.length, 0);
+
+  const html = renderImplementationProfileState(projected, escapeHtml);
+  assert.match(html, /Unavailable physical bodies/);
+  assert.match(html, new RegExp(`Method token ${failedToken}`));
+  assert.match(html, /AnalysisFailed/);
+  assert.match(html, /Decoder failed\./);
+});
+
+test("row-associated unavailable bodies remain visible beside physical profiles", () => {
+  const base = content();
+  const projected = projectImplementationProfileFamily(
+    available({
+      content: content({
+        profiles: [profile()],
+        overloadRelationships: [],
+        coverage: {
+          ...base.coverage,
+          profiledEvidenceBodyKeys: ["logical-int"],
+          unavailableBodies: [{
+            evidenceMethodKey: "generated-int",
+            methodToken: 0x06000003,
+            reason: "AnalysisFailed",
+            diagnostic: null,
+          }],
+        },
+      }),
+    }),
+    selection(),
+  );
+
+  assert.equal(projected.status, "incomplete");
+  if (projected.status !== "incomplete") return;
+  const affected = projected.family.rows.find(
+    row => row.member.stableSelector === "M(int)",
+  );
+  assert.equal(affected?.physicalRows.length, 1);
+  assert.equal(affected?.unavailableBodies.length, 1);
+
+  const html = renderImplementationProfileState(projected, escapeHtml);
+  assert.match(html, /Additional unavailable physical evidence/);
+  assert.match(html, /generated-int/);
+  assert.match(html, /AnalysisFailed/);
 });
 
 test("the coordinator retains producer-failed state and retries only explicitly", async () => {
