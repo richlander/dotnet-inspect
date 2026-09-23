@@ -286,8 +286,9 @@ member facts and exact retained target-definition facts:
 - direct candidates preserve the existing metadata name, declaring-type,
   member-kind, staticness, generic-arity, calling-convention, and parameter-
   count prefilter;
-- possible implicit interface implementations preserve the selected member
-  name and instance signature shape;
+- possible implicit interface implementations preserve the exact selected
+  member name and instance signature shape; qualified explicit-interface names
+  require the explicit-body evidence below;
 - an explicit-body-shaped local MethodDef remains a candidate exactly when the
   participant's bounded MethodImpl census names its token as a body;
 - an explicit-body-shaped external member remains a candidate when the exact

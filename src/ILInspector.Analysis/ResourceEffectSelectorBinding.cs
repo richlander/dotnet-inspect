@@ -480,7 +480,7 @@ public static class ResourceEffectSelectorBinder
                 allowAnyName
                     ? member with { Name = selector.MetadataName }
                     : member,
-                allowExplicitInterfaceName: !allowAnyName))
+                allowExplicitInterfaceName: false))
         {
             return false;
         }

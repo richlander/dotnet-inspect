@@ -2345,7 +2345,8 @@ public sealed partial class DirectCallDefinitionResolutionTests
         string assemblyName = "InterfaceDirectCalls",
         Version? assemblyVersion = null,
         byte[]? assemblyPublicKey = null,
-        bool staticExplicitImplementation = false)
+        bool staticExplicitImplementation = false,
+        string decoyMethodName = "Target")
     {
         assemblyVersion ??= new Version(1, 0, 0, 0);
         addPublicDecoy |= addSwappedGenericDecoy;
@@ -2618,7 +2619,7 @@ public sealed partial class DirectCallDefinitionResolutionTests
                     | MethodAttributes.Final
                     | MethodAttributes.Virtual,
                 MethodImplAttributes.IL,
-                metadata.GetOrAddString("Target"),
+                metadata.GetOrAddString(decoyMethodName),
                 metadata.GetOrAddBlob(addSwappedGenericDecoy
                     ? new byte[] { 0x30, 0x01, 0x02, 0x01, 0x1E, 0x00, 0x13, 0x00 }
                     : implementationMethodSignature),
@@ -2713,7 +2714,7 @@ public sealed partial class DirectCallDefinitionResolutionTests
             {
                 decoyCallTarget = metadata.AddMemberReference(
                     closedImplementation,
-                    metadata.GetOrAddString("Target"),
+                    metadata.GetOrAddString(decoyMethodName),
                         metadata.GetOrAddBlob(
                             implementationMethodSignature));
                 }

@@ -702,6 +702,43 @@ public sealed partial class DirectCallDefinitionResolutionTests
     }
 
     [Fact]
+    public void QualifiedInterfaceCandidateRequiresMethodImplEvidence()
+    {
+        SyntheticParticipant participant =
+            CreateInterfaceParticipant(
+                addPublicDecoy: true,
+                includeInterfaceCall: false,
+                decoyMethodName: "IUnrelated.Target");
+        ResourceEffectAdmission admission = AdmitModels(
+            Model(
+                "example.qualified-interface-candidate",
+                InterfaceTarget(participant),
+                new ResourceEffect.Operation(
+                    ResourceOperationBoundary.Ordinary,
+                    ResourceOperationThrows.Possible,
+                    Guard: null)));
+
+        ResourceEffectResolutionOutcome.Complete complete =
+            Assert.IsType<ResourceEffectResolutionOutcome.Complete>(
+                ResourceEffectResolver.Resolve(
+                    participant.Policy,
+                    admission,
+                    [participant.Participant],
+                    directCallLimits:
+                        new DirectCallDefinitionResolutionLimits(
+                            maxInvocationOccurrences: 1),
+                    cancellationToken:
+                        TestContext.Current.CancellationToken));
+
+        DirectCallDefinitionResolution.Resolved result =
+            Assert.IsType<DirectCallDefinitionResolution.Resolved>(
+                Assert.Single(
+                    complete.Receipt.Population.Results));
+        Assert.Equal("Target", result.Call.Callee.Name);
+        Assert.Single(complete.Snapshot.Effects);
+    }
+
+    [Fact]
     public void VersionAgnosticSelectorRetainsSecondVersionImplementationCandidate()
     {
         const string AssemblyName = "VersionSplitInterfaceTarget";
