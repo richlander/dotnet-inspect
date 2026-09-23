@@ -10,16 +10,6 @@ namespace DotnetInspect.Cli.CommandLine;
 public static class ArgumentPreprocessor
 {
     /// <summary>
-    /// Diagnostic for the removed <c>--latest-version</c> token. The token stays
-    /// reserved on the package command so it is rejected here instead of being
-    /// rebound as an option value or routed to another operation.
-    /// </summary>
-    public const string RemovedLatestVersionError =
-        "'--latest-version' has been removed. Use 'package Package --versions -n 1' "
-        + "(add --preview for prerelease), or 'package Package@latest --versions' "
-        + "to force a fresh check.";
-
-    /// <summary>
     /// When the -NN shorthand is used (e.g. -30), stores the line limit.
     /// Also set for explicit -n N so both forms behave consistently.
     /// </summary>

@@ -5,6 +5,7 @@ import {
   assertNever,
   callGraphAssemblyIdentityMatches,
   callGraphDiagnosticsMessage,
+  callGraphTargetPackageCoordinate,
   callGraphTargetMatchesType,
   callGraphTargetTypeId,
   combinedGraphTargetNavigationDisposition,
@@ -4151,7 +4152,7 @@ const libraryApiDiff = createLibraryApiDiffCoordinator({
 const compareClone = createCompareCloneCoordinator({
   state,
   operationAuthority,
-  query: requestJson => inspectCloneCandidates(requestJson),
+  query: request => inspectCloneCandidates(request),
   describeError: errorMessage,
   reportOperationDiagnostic: diagnostic => {
     console.error("Compare Clone operation authority failure.", diagnostic);
@@ -16384,12 +16385,28 @@ function callGraphTargetBinding(
     state.package,
     ...state.packages.filter(item => item !== state.package),
   ].filter((pkg): pkg is AppPackage => pkg != null);
+  const packageCoordinate = callGraphTargetPackageCoordinate(target);
+  const coordinatePackages = packageCoordinate
+    ? packages.filter(pkg =>
+        pkg.id.toLowerCase() === packageCoordinate.id.toLowerCase()
+        && pkg.version.toLowerCase() === packageCoordinate.version.toLowerCase()
+        && pkg.activeFramework === packageCoordinate.framework)
+    : [];
+  if (coordinatePackages.length > 1) {
+    return blockedCallGraphNodeBinding(
+      target,
+      "the exact target package coordinate is not unique in the loaded workspace",
+      failureSurface);
+  }
+  const coordinatePackage = coordinatePackages[0] ?? null;
   const candidate =
     resolveLoadedGraphTargetCandidate<AppPackage, AppTypeSurface>(
-      packages,
+      coordinatePackage ? [coordinatePackage] : packages,
       target);
-  if (candidate.status === "resident" && destination !== "default") {
-    const residentPackage = loadedGraphTargetPackage(packages, target);
+  if (candidate.status === "resident"
+      && (coordinatePackage !== null || destination !== "default")) {
+    const residentPackage =
+      coordinatePackage ?? loadedGraphTargetPackage(packages, target);
     if (!residentPackage) {
       return blockedCallGraphNodeBinding(
         target,
@@ -16411,10 +16428,13 @@ function callGraphTargetBinding(
       },
     };
   }
+  const packageAvailable =
+    packageCoordinate !== null && coordinatePackage === null;
   const pack = runtimePackForFramework(
     runtimePackPackage(),
     platformCatalogFramework(state.package?.activeFramework || ""));
-  const runtimeCandidate = (candidate.status === "missing"
+  const runtimeCandidate = !packageAvailable
+    && (candidate.status === "missing"
       || candidate.status === "skew") && pack
     ? resolveRuntimeGraphTargetCandidate(pack, target)
     : null;
@@ -16428,7 +16448,8 @@ function callGraphTargetBinding(
     candidate,
     runtimeCandidate,
     target,
-    runtimeResident);
+    runtimeResident,
+    packageAvailable);
   if (disposition === "blocked") {
     const reason = runtimeCandidate?.status === "ambiguous"
         || runtimeCandidate?.status === "skew"
@@ -16476,6 +16497,14 @@ function callGraphTargetBinding(
             loadedSection,
             failureSurface),
           "Opening a graph member");
+      } else if (disposition === "package" && packageCoordinate) {
+        observeAsync(
+          openPackageGraphMember(
+            packageCoordinate,
+            target,
+            loadedSection,
+            failureSurface),
+          "Opening a dependency package graph member");
       } else if (disposition === "resident") {
         if (pack && resident) {
           navigationSequence.begin();
@@ -16514,6 +16543,37 @@ function callGraphTargetBinding(
       }
     },
   };
+}
+
+async function openPackageGraphMember(
+  coordinate: {
+    id: string;
+    version: string;
+    framework: string;
+  },
+  target: InspectedCallGraphTarget,
+  section: "overview" | "source",
+  failureSurface: GraphNavigationFailureSurface,
+) {
+  closeGraphExplorerForNavigation();
+  if (retainedWorkspaces.activeWorkspaceId === null
+      && !canPublishRetainedWorkspace()) {
+    showGraphMemberNavigationError(
+      target,
+      retainedWorkspaceCapacityMessage(),
+      failureSurface);
+    return;
+  }
+  const pkg = await loadPackage(
+    coordinate.id,
+    coordinate.version,
+    coordinate.framework);
+  if (!pkg) return;
+  await navigateToUnprojectedGraphMember(
+    pkg,
+    target,
+    section,
+    failureSurface);
 }
 
 function blockedCallGraphNodeBinding(

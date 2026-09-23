@@ -111,7 +111,7 @@ public sealed class WorkspacePacketCommandTests
         Assert.Equal(0, result.ExitCode);
         Assert.Empty(result.Error);
         Assert.Equal(
-            $"https://dotnet-inspect.net/?w={encoded}{Environment.NewLine}",
+            $"https://dotnet-inspect.ca/?w={encoded}{Environment.NewLine}",
             result.Output);
         Assert.Equal(encoded, new Uri(result.Output.TrimEnd()).Query[3..]);
     }
@@ -149,7 +149,7 @@ public sealed class WorkspacePacketCommandTests
             Assert.Equal(0, url.ExitCode);
             Assert.Empty(url.Error);
             Assert.Equal(
-                $"https://dotnet-inspect.net/?w={CanonicalVector}",
+                $"https://dotnet-inspect.ca/?w={CanonicalVector}",
                 url.Output.TrimEnd());
         }
         finally
@@ -272,7 +272,7 @@ public sealed class WorkspacePacketCommandTests
         Assert.Equal(0, result.ExitCode);
         Assert.Empty(result.Error);
         Assert.Equal(
-            $"https://dotnet-inspect.net/?w={CanonicalVector}",
+            $"https://dotnet-inspect.ca/?w={CanonicalVector}",
             result.Output.TrimEnd());
     }
 
@@ -314,7 +314,7 @@ public sealed class WorkspacePacketCommandTests
         Assert.Equal(0, url.ExitCode);
         Assert.Empty(url.Error);
         Assert.Equal(
-            $"https://dotnet-inspect.net/?w={packet}",
+            $"https://dotnet-inspect.ca/?w={packet}",
             url.Output.TrimEnd());
     }
 

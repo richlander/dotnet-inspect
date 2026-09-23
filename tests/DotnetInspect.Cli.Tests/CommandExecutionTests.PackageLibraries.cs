@@ -667,7 +667,9 @@ public partial class CommandExecutionTests
             Assert.Contains("DotnetInspect.Cli.Tests", explicitMarkdown.Output);
             Assert.Equal(1, bare.Exit);
             Assert.Empty(bare.Output);
-            Assert.Contains("--tree cannot be combined with row projections or non-Markdown formats", bare.Error);
+            Assert.Contains(
+                "--bare cannot be combined with --json, --jsonl, --tsv, --table, --markdown, --plaintext, or --mermaid.",
+                bare.Error);
             Assert.Equal(1, file.Exit);
             Assert.Empty(file.Output);
             Assert.NotEmpty(file.Error);

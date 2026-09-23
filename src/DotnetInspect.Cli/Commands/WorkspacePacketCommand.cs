@@ -60,7 +60,7 @@ public static class WorkspacePacketCommand
                 cancellationToken);
             string encoded = WorkspaceSharePacketCodec.Encode(packet);
             Console.WriteLine(url
-                ? $"https://dotnet-inspect.net/?w={encoded}"
+                ? WorkspaceShareUrl.Create(encoded)
                 : encoded);
             return 0;
         }

@@ -84,7 +84,7 @@ public sealed class WorkspaceTopLevelInventoryOperationTests
             execution.Inspection.Share);
         Assert.Equal(packet, share.Packet);
         Assert.Equal(
-            $"https://dotnet-inspect.net/?w={packet}",
+            $"https://dotnet-inspect.ca/?w={packet}",
             share.FullUrl);
         Assert.Empty(execution.Inspection.Diagnostics);
         Assert.True(execution.Selection.HasAuthority);

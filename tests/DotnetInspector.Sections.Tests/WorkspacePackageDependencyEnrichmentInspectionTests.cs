@@ -135,7 +135,7 @@ public sealed class WorkspacePackageDependencyEnrichmentInspectionTests
             Assert.Equal([0, 1, 3], packet.Contexts[0].TabIndexes);
             Assert.Equal([2, 4, 5], packet.Contexts[1].TabIndexes);
             Assert.Equal(
-                "https://dotnet-inspect.net/?w=" + share.Packet,
+                "https://dotnet-inspect.ca/?w=" + share.Packet,
                 share.FullUrl);
         }
         finally

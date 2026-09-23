@@ -185,7 +185,9 @@ public class SkillCommandTests
         Assert.Contains(
             "Use dotnet-inspect to find evidence",
             router);
-        Assert.Contains("installed .NET Runtime and ASP.NET Core", router);
+        Assert.Contains(
+            "installed .NET Runtime, ASP.NET Core, and .NET Standard",
+            router);
         Assert.Contains("find JsonSerializer", router);
         Assert.Contains("find ControllerBase", router);
         Assert.Contains("find OptionsBuilder", router);
@@ -206,8 +208,10 @@ public class SkillCommandTests
             Assert.Contains("router choose", output);
             Assert.Contains("installed .NET Runtime", output);
             Assert.Contains("ASP.NET Core", output);
+            Assert.Contains(".NET Standard", output);
             Assert.Contains("Microsoft.Extensions", output);
             Assert.Contains("`--package", output);
+            Assert.Contains("`--package-prefix", output);
             Assert.Contains("`--project", output);
             Assert.Contains("package query", output);
             Assert.Contains("library query", output);
@@ -221,6 +225,27 @@ public class SkillCommandTests
         Assert.Contains(
             "find IChatClient --package Microsoft.Extensions.AI.Abstractions",
             router);
+    }
+
+    [Fact]
+    public async Task EmbeddedSkills_UseCurrentVersionSelectionCommands()
+    {
+        var (_, router, _) = await ConsoleCapture.RunAsync(
+            () => Task.FromResult(SkillCommand.Execute()));
+        var (_, compatibility, _) = await ConsoleCapture.RunAsync(
+            () => Task.FromResult(SkillCommand.ExecuteSkill("compatibility")));
+        var (_, privateFeeds, _) = await ConsoleCapture.RunAsync(
+            () => Task.FromResult(SkillCommand.ExecuteSkill("private-feeds")));
+
+        foreach (string output in new[] { router, compatibility, privateFeeds })
+        {
+            Assert.DoesNotContain("--latest-version", output);
+            Assert.Contains("--versions -n 1", output);
+        }
+
+        Assert.Contains("--major-versions", router);
+        Assert.Contains("--major-versions", compatibility);
+        Assert.Contains("--major-versions", privateFeeds);
     }
 
     [Fact]

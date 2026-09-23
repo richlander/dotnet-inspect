@@ -102,6 +102,8 @@ public static class FixtureIds
         "analysis.async-sibling.friend-base";
     public const string AnalysisAsyncSiblingFriend = "analysis.async-sibling.friend";
     public const string AnalysisCallerLoop = "analysis.caller-loop";
+    public const string AnalysisOverloadFamilyLens =
+        "analysis.overload-family-lens";
     public const string AnalysisLocalThrows = "analysis.local-throws";
     public const string AnalysisCrossAsmCollision = "analysis.cross-asm-collision";
     public const string AnalysisCrossAsmShape = "analysis.cross-asm-shape";
@@ -612,6 +614,12 @@ public static class FixtureCatalog
         "ILInspector.Analysis.Fixtures.dll",
         "analysis", "caller-loop", "allocation");
 
+    public static readonly FixtureDefinition AnalysisOverloadFamilyLens = Fixture(
+        FixtureIds.AnalysisOverloadFamilyLens,
+        "ILInspector.Analysis.Fixtures",
+        "ILInspector.Analysis.Fixtures.dll",
+        "analysis", "overload-family", "call-graph");
+
     public static readonly FixtureDefinition AnalysisLocalThrows = Fixture(
         FixtureIds.AnalysisLocalThrows,
         "ILInspector.Analysis.Fixtures",
@@ -1098,6 +1106,7 @@ public static class FixtureCatalog
         AnalysisAsyncSiblingFriendBase,
         AnalysisAsyncSiblingFriend,
         AnalysisCallerLoop,
+        AnalysisOverloadFamilyLens,
         AnalysisLocalThrows,
         AnalysisStringLiterals,
         AnalysisStringMaterialization,
