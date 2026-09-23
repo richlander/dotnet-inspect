@@ -18,9 +18,10 @@ delivery shape. Its normative claim is:
 > One Library API comparison over two retained images is producible as an
 > ordered row source partitioned by exact Type key and materialized per member
 > row. It yields the same relations, classifications, and counts as the
-> whole-surface comparison, answers exact inventory Counts from key-only passes
-> ahead of any row, exposes compatibility totals from a distinct typed change
-> population, checkpoints continuation at an owner-issued
+> whole-surface comparison, answers exact inventory Counts from text-free
+> correspondence and structural-facet passes ahead of any row, exposes
+> compatibility totals from a distinct typed change population, checkpoints
+> continuation at an owner-issued
 > `(TypeKey, MemberKey)`, and bounds retained text per delivery window rather
 > than per assembly, so that the Compare inventories are delivered through
 > QuerySpace Rows and exact Count over one immutable snapshot generation.
@@ -58,7 +59,8 @@ This owner defines:
   Type;
 - the three row sources, Type summaries, member rows, and compatibility
   changes, and their ordering;
-- the key-only pass that answers exact Counts before rows;
+- the text-free correspondence and structural-facet pass that answers exact
+  Counts before rows;
 - the snapshot generation that binds Count and Rows executions to one pair of
   retained images;
 - per-window work bounds for retained text and what a bound-exceeding
@@ -143,8 +145,8 @@ admits, so:
   keys within their Type;
 - a continuation may checkpoint inside a Type at the owner-issued
   `(TypeKey, MemberKey)` of the last delivered member row; and
-- Type summary rows are produced from key sets and signature models, never
-  from retained member text.
+- Type summary rows are produced from identity correspondence, structural
+  facets, and signature models, never from retained member text.
 
 Retained text (rendered signatures, display strings) is projected only for the
 member rows inside the current window. Classification needs each changed
@@ -191,17 +193,24 @@ Compare experience already applies to Clone.
 
 ## Counts
 
-Exact inventory Counts are answered before any row from a key-only pass over
-the two surfaces:
+Exact inventory Counts are answered before any row from a text-free structural
+pass over the two surfaces:
 
-- changed, added, and removed Types from the Type key sets;
-- changed Members from the member key sets within changed Types.
+- Type keys establish additions, removals, and candidate matched pairs; typed
+  Type facets determine which matched Types changed;
+- member keys establish additions, removals, and candidate matched pairs
+  within changed Types; typed member facets and signature models determine
+  which matched Members changed.
 
 These are QuerySpace exact Counts over the selected Type-summary and member-row
 populations. Breaking, additive, and potentially-breaking totals are separate
 exact Counts over the compatibility-change population after its classification
 predicate; they are not Type-row or member-row cardinalities. Classification
 uses Type facets and member signature models without retained text.
+
+The Count pass executes the same correspondence and structural comparisons
+needed to determine row membership. It does not project retained member
+signatures, display strings, or relation rows merely to count them.
 
 A retained-text work bound never redefines any population: a window that could
 not project its text still counts, and its members are reported as source-only
