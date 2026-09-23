@@ -1893,7 +1893,8 @@ public sealed partial class ConfiguredPayloadAcquisitionTests : IDisposable
         byte[]? library = null,
         string libraryName = "Npgsql.dll",
         byte[]? documentation = null,
-        string libraryDirectory = "lib/net11.0")
+        string libraryDirectory = "lib/net11.0",
+        byte[]? pdb = null)
     {
         string directory = hierarchical ? Path.Combine(root, id.ToLowerInvariant(), version) : root;
         Directory.CreateDirectory(directory);
@@ -1907,7 +1908,8 @@ public sealed partial class ConfiguredPayloadAcquisitionTests : IDisposable
                 library,
                 libraryName,
                 documentation,
-                libraryDirectory));
+                libraryDirectory,
+                pdb: pdb));
     }
 
     private static HttpContent PackageContent(string id, string readme) =>
@@ -1921,7 +1923,8 @@ public sealed partial class ConfiguredPayloadAcquisitionTests : IDisposable
         string libraryDirectory = "lib/net11.0",
         IReadOnlyList<(string Path, byte[] Content)>? extraEntries = null,
         IReadOnlyList<(string Id, string Version)>? dependencies = null,
-        string? nuspecContent = null)
+        string? nuspecContent = null,
+        byte[]? pdb = null)
     {
         string dependenciesXml = dependencies is { Count: > 0 }
             ? "<dependencies><group targetFramework=\"net11.0\">"
@@ -1957,6 +1960,14 @@ public sealed partial class ConfiguredPayloadAcquisitionTests : IDisposable
                         + Path.ChangeExtension(libraryName, ".xml"))
                     .Open();
                 entry.Write(documentation);
+            }
+            if (pdb is not null)
+            {
+                using Stream entry = archive.CreateEntry(
+                    $"{libraryDirectory}/"
+                        + Path.ChangeExtension(libraryName, ".pdb"))
+                    .Open();
+                entry.Write(pdb);
             }
             if (redirectId is not null)
             {

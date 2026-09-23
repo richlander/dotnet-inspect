@@ -38,7 +38,7 @@ public static partial class DocumentationQuery
         return new(query.Request, outcome, Content(outcome));
     }
 
-    private static DocumentationQueryOutcome Content(
+    internal static DocumentationQueryOutcome Content(
         DocumentationHouseOutcome outcome)
     {
         CompiledDocumentationSubject subject =

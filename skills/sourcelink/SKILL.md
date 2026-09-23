@@ -120,8 +120,8 @@ PDBs *carry* SourceLink data; they are not SourceLink themselves. SourceLink URL
 rows default to raw/fetchable form; add `--prefer-rendered-urls` to prefer
 browser views when supported, leaving other URLs unchanged. Prefer
 `--urls` when you want URL payloads, `--paths` for file paths, and `--print` when
-you want the referenced source body. `--raw` remains a raw selected-payload
-escape hatch.
+you want the referenced source body. `--raw` remains an undecorated
+selected-payload escape hatch.
 
 ```bash
 dnx dotnet-inspect -y -- member Type Method:1 -S "Source Locations" --urls --jsonl
