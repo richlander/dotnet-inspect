@@ -43,6 +43,9 @@ import type {
   BrowserMemberSource,
   BrowserSource,
 } from "../src/facades/inspect-web-source.d.ts";
+import type {
+  BrowserSourceComparisonResult,
+} from "../src/source-diff-transport.ts";
 
 type FacadeOverrides = {
   readonly [TGroup in keyof EngineWorkerOrdinaryFacades]?:
@@ -1266,6 +1269,76 @@ test("ordinary source transport preserves member parts and flat graph source", a
 
   assert.deepEqual(await memberResult, member);
   assert.deepEqual(await graphResult, flat);
+  state.host.dispose();
+});
+
+test("ordinary source comparison transport decodes the bounded typed payload", async () => {
+  const endpoint = {
+    packageId: "Example",
+    framework: "net11.0",
+    assembly: "Example",
+    assetPath: "lib/net11.0/Example.dll",
+    moduleVersionId: "00000000-0000-0000-0000-000000000001",
+    assemblyIdentity: "Example, Version=1.0.0.0",
+    memberIdentity: "Example.C::M()",
+    metadataToken: 0x06000001,
+    browseUrl: null,
+    repositoryUrl: null,
+    revision: null,
+  };
+  const result = {
+    version: 1,
+    kind: "Succeeded",
+    value: {
+      request: {
+        packageId: "Example",
+        beforeVersion: "1.0.0",
+        afterVersion: "2.0.0",
+        framework: "net11.0",
+        assembly: "Example",
+        typeIdentity: "Example.C",
+        memberName: "M",
+        selectorKey: "M()",
+        metadataToken: 0x06000001,
+      },
+      status: "Unavailable",
+      isExact: false,
+      before: {
+        ...endpoint,
+        version: "1.0.0",
+        state: "Available",
+        detail: null,
+        text: "void M()",
+      },
+      after: {
+        ...endpoint,
+        version: "2.0.0",
+        state: "Unavailable",
+        detail: "Source was not available.",
+        text: null,
+      },
+      diff: null,
+      failure: "Source was not available.",
+    },
+    failureKind: null,
+    error: null,
+    diagnostic: null,
+    reason: null,
+    capacity: null,
+  } satisfies BrowserSourceComparisonResult;
+  const state = fixture({
+    source: {
+      queryMemberSourceComparison: async () => result,
+    },
+  });
+
+  const pending = state.client.source.queryMemberSourceComparison(
+    "source-comparison-operation",
+    result.value.request,
+  );
+  await state.environment.flushAsync();
+
+  assert.deepEqual(await pending, result);
   state.host.dispose();
 });
 

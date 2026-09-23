@@ -236,7 +236,9 @@ public sealed class PackageSourceOperationOwnershipTests
 
         MethodInfo[] wrappers = operation.GetMethods(BindingFlags.Public | BindingFlags.Instance)
             .Where(method => method.Name.EndsWith("Async", StringComparison.Ordinal)).ToArray();
-        Assert.Equal(8, wrappers.Length);
+        // Inventory: the bounded DiscoverVersionsAsync overload (Package
+        // Version Service refresh) is the ninth wrapper and tenth machine.
+        Assert.Equal(9, wrappers.Length);
         Assert.All(wrappers, method =>
         {
             Assert.Null(method.GetCustomAttribute<AsyncStateMachineAttribute>());
@@ -247,7 +249,7 @@ public sealed class PackageSourceOperationOwnershipTests
             .GetMethods(BindingFlags.NonPublic | BindingFlags.Static)
             .Select(method => method.GetCustomAttribute<AsyncStateMachineAttribute>())
             .OfType<AsyncStateMachineAttribute>().ToArray();
-        Assert.Equal(9, machines.Length);
+        Assert.Equal(10, machines.Length);
         Assert.All(machines, machine =>
         {
             FieldInfo[] fields = machine.StateMachineType.GetFields(

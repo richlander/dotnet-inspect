@@ -28,7 +28,23 @@ export type BrowserMemberSourcePartKind = "Member" | "XmlDocumentation" | "Attri
 
 export type BrowserMethodBodyResultKind = "Succeeded" | "Failed" | "Canceled" | number;
 
-export type BrowserSourceComparisonResultKind = "Succeeded" | "Failed" | "Canceled" | number;
+export type BrowserSourceComparisonResultKind = "Succeeded" | "TooComplex" | "Failed" | "Canceled" | number;
+
+export type BrowserSourceDiffAnnotationTargetKind = "Change" | "Line" | "Span" | number;
+
+export type BrowserSourceDiffCapacityDimension = "RequestBytes" | "RawBeforeBytes" | "RawAfterBytes" | "RawBeforeLines" | "RawAfterLines" | "Relations" | "CoordinateOccurrences" | "MappedChanges" | "InnerMappings" | "Annotations" | "AnnotationTextBytes" | "AuxiliaryTextBytes" | "EncodedResultBytes" | number;
+
+export type BrowserSourceDiffContentKind = "Unchanged" | "Changed" | number;
+
+export type BrowserSourceDiffLineTerminator = "Unknown" | "Present" | "Absent" | number;
+
+export type BrowserSourceDiffPlacementKind = "Stable" | "Moved" | number;
+
+export type BrowserSourceDiffRelationKind = "Addition" | "Removal" | "Correspondence" | number;
+
+export type BrowserSourceDiffSeverity = "Note" | "Tip" | "Important" | "Warning" | "Caution" | number;
+
+export type BrowserSourceDiffSide = "Before" | "After" | "Both" | number;
 
 export type BrowserSynchronousCompletionKind = "TaskWait" | "TaskResult" | "TaskAwaiterGetResult" | number;
 
@@ -428,7 +444,7 @@ export interface BrowserSourceComparison {
   readonly isExact: boolean;
   readonly before: BrowserSourceComparisonEndpoint;
   readonly after: BrowserSourceComparisonEndpoint;
-  readonly lines: ReadonlyArray<BrowserSourceComparisonLine>;
+  readonly diff: BrowserSourceDiff | null;
   readonly failure: string | null;
 }
 
@@ -445,18 +461,9 @@ export interface BrowserSourceComparisonEndpoint {
   readonly state: string;
   readonly detail: string | null;
   readonly text: string | null;
-  readonly sourceUrl: string | null;
+  readonly browseUrl: string | null;
   readonly repositoryUrl: string | null;
   readonly revision: string | null;
-}
-
-export interface BrowserSourceComparisonLine {
-  readonly kind: string;
-  readonly difference: string;
-  readonly beforeLine: number | null;
-  readonly beforeText: string | null;
-  readonly afterLine: number | null;
-  readonly afterText: string | null;
 }
 
 export interface BrowserSourceComparisonRequest {
@@ -479,6 +486,77 @@ export interface BrowserSourceComparisonResult {
   readonly error: string | null;
   readonly diagnostic: string | null;
   readonly reason: string | null;
+  readonly capacity: BrowserSourceDiffCapacity | null;
+}
+
+export interface BrowserSourceDiff {
+  readonly version: number;
+  readonly before: BrowserSourceDiffSequence;
+  readonly after: BrowserSourceDiffSequence;
+  readonly relations: ReadonlyArray<BrowserSourceDiffRelation>;
+  readonly statistics: BrowserSourceDiffStatistics;
+  readonly changes: ReadonlyArray<BrowserSourceDiffChange>;
+}
+
+export interface BrowserSourceDiffAnnotation {
+  readonly text: string;
+  readonly severity: BrowserSourceDiffSeverity;
+  readonly targetKind: BrowserSourceDiffAnnotationTargetKind;
+  readonly side: BrowserSourceDiffSide | null;
+  readonly line: number | null;
+  readonly span: BrowserSourceDiffSpan | null;
+}
+
+export interface BrowserSourceDiffCapacity {
+  readonly dimension: BrowserSourceDiffCapacityDimension;
+  readonly limit: number;
+  readonly actual: number;
+}
+
+export interface BrowserSourceDiffChange {
+  readonly before: BrowserSourceDiffRange;
+  readonly after: BrowserSourceDiffRange;
+  readonly innerMappings: ReadonlyArray<BrowserSourceDiffInnerMapping>;
+  readonly annotations: ReadonlyArray<BrowserSourceDiffAnnotation>;
+}
+
+export interface BrowserSourceDiffInnerMapping {
+  readonly before: BrowserSourceDiffSpan;
+  readonly after: BrowserSourceDiffSpan;
+}
+
+export interface BrowserSourceDiffRange {
+  readonly start: number;
+  readonly count: number;
+}
+
+export interface BrowserSourceDiffRelation {
+  readonly kind: BrowserSourceDiffRelationKind;
+  readonly beforeCoordinates: ReadonlyArray<number>;
+  readonly afterCoordinates: ReadonlyArray<number>;
+  readonly content: BrowserSourceDiffContentKind | null;
+  readonly placement: BrowserSourceDiffPlacementKind | null;
+}
+
+export interface BrowserSourceDiffSequence {
+  readonly label: string | null;
+  readonly lines: ReadonlyArray<string>;
+  readonly finalLineTerminator: BrowserSourceDiffLineTerminator;
+}
+
+export interface BrowserSourceDiffSpan {
+  readonly line: number;
+  readonly start: number;
+  readonly count: number;
+}
+
+export interface BrowserSourceDiffStatistics {
+  readonly added: number;
+  readonly removed: number;
+  readonly changedBefore: number;
+  readonly changedAfter: number;
+  readonly movedBefore: number;
+  readonly movedAfter: number;
 }
 
 export interface BrowserSourceFactInstance {

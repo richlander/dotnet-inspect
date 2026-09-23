@@ -2,6 +2,13 @@ import { expect, test, type Page } from "@playwright/test";
 import { writeFile } from "node:fs/promises";
 import type { TypeSourceView } from "../src/source-inspection.ts";
 import {
+  sourceDiffPayloadDecoder,
+  type BrowserSourceComparisonResult,
+} from "../src/source-diff-transport.ts";
+import type {
+  PublishedSourceComparisonBridge,
+} from "../src/published-source-comparison-bridge.ts";
+import {
   chooseSubject,
   selectFirstExactLibrary,
 } from "./library-subject-actions.ts";
@@ -12,6 +19,19 @@ const beforePackage = process.env.INSPECT_WEB_SOURCE_DIFF_BEFORE_PACKAGE;
 const afterPackage = process.env.INSPECT_WEB_SOURCE_DIFF_AFTER_PACKAGE;
 const beforeSource = process.env.INSPECT_WEB_SOURCE_DIFF_BEFORE_SOURCE;
 const afterSource = process.env.INSPECT_WEB_SOURCE_DIFF_AFTER_SOURCE;
+
+type SourceComparisonGateWindow = Window & {
+  __inspectWebSourceComparison?: PublishedSourceComparisonBridge;
+  __sourceComparisonPending?: Promise<BrowserSourceComparisonResult>;
+};
+
+function decodeSourceComparison(
+  value: unknown,
+): BrowserSourceComparisonResult {
+  const result = sourceDiffPayloadDecoder.decode(value);
+  if (result.kind === "decoded") return result.value;
+  throw new Error(`Published Source comparison was rejected: ${result.message}`);
+}
 
 async function openPublishedSite(page: Page): Promise<void> {
   await page.route(site!, route => route.fulfill({
@@ -140,7 +160,7 @@ test.describe("published authored Source comparison transport", () => {
     async ({ page }, testInfo) => {
       test.skip(fixtureOnly, "The CI gate uses deterministic acquired artifacts.");
       await openPublishedSite(page);
-      const evidence = await page.evaluate(async () => {
+      const rawEvidence = await page.evaluate(async () => {
         const packages = await import("/inspect-web-package.js");
         const source = await import("/inspect-web-source.js");
         const loadResult = await packages.queryPackage(
@@ -183,6 +203,11 @@ test.describe("published authored Source comparison transport", () => {
         );
         return { request, compared, same };
       });
+      const evidence = {
+        request: rawEvidence.request,
+        compared: decodeSourceComparison(rawEvidence.compared),
+        same: decodeSourceComparison(rawEvidence.same),
+      };
       const evidencePath =
         testInfo.outputPath("public-source-comparisons.json");
       await writeFile(evidencePath, JSON.stringify(evidence, null, 2));
@@ -302,11 +327,12 @@ test.describe("published authored Source comparison transport", () => {
 
       async function compareMember(targetPage: Page, name: string) {
         const selected = await memberRequest(targetPage, name);
-        return targetPage.evaluate(async request => {
+        const result = await targetPage.evaluate(async request => {
           const source = await import("/inspect-web-source.js");
           return source.queryMemberSourceComparison(
             `source-comparison-fixture-${request.memberName}`, request);
         }, selected);
+        return decodeSourceComparison(result);
       }
 
       async function memberSource(
@@ -535,31 +561,44 @@ test.describe("published authored Source comparison transport", () => {
       expect(changed.kind).toBe("Succeeded");
       expect(changed.value?.status).toBe("Compared");
       expect(changed.value?.isExact).toBe(false);
-      expect(changed.value?.lines.some(line =>
-        line.kind === "Removed" && line.beforeText?.includes("1 + 2")))
-        .toBe(true);
-      expect(changed.value?.lines.some(line =>
-        line.kind === "Added" && line.afterText?.includes("=> 3")))
-        .toBe(true);
+      expect(changed.value?.diff?.before.lines.some(line =>
+        line.includes("1 + 2"))).toBe(true);
+      expect(changed.value?.diff?.after.lines.some(line =>
+        line.includes("=> 3"))).toBe(true);
+      expect(changed.value?.diff?.relations.some(relation =>
+        relation.kind === "Removal")).toBe(true);
+      expect(changed.value?.diff?.relations.some(relation =>
+        relation.kind === "Addition")).toBe(true);
+      expect(changed.value?.diff?.changes).toHaveLength(1);
 
       expect(exact.kind).toBe("Succeeded");
       expect(exact.value?.status).toBe("Compared");
       expect(exact.value?.isExact).toBe(true);
+      expect(exact.value?.diff?.changes).toHaveLength(0);
+      expect(exact.value?.diff?.statistics).toEqual({
+        added: 0,
+        removed: 0,
+        changedBefore: 0,
+        changedAfter: 0,
+        movedBefore: 0,
+        movedAfter: 0,
+      });
 
       for (const result of [moved, movedAndEdited]) {
         expect(result.kind).toBe("Succeeded");
         expect(result.value?.status).toBe("Compared");
-        const moves = result.value?.lines.filter(
-          line => line.difference === "Moved") ?? [];
-        expect(moves).toHaveLength(2);
-        expect(moves.map(line => [
-          line.beforeLine, line.afterLine,
-        ])).toEqual([[3, 5], [4, 6]]);
+        const moves = result.value?.diff?.relations.filter(
+          relation => relation.placement === "Moved") ?? [];
+        expect(moves).not.toHaveLength(0);
+        expect(moves.some(relation =>
+          relation.beforeCoordinates[0] !== relation.afterCoordinates[0]))
+          .toBe(true);
       }
-      expect(movedAndEdited.value?.lines.some(
-        line => line.kind === "Removed")).toBe(true);
-      expect(movedAndEdited.value?.lines.some(
-        line => line.kind === "Added")).toBe(true);
+      expect(movedAndEdited.value?.diff?.after.lines.some(
+        line => line.includes("+ 1"))).toBe(true);
+      expect((movedAndEdited.value?.diff?.statistics.added ?? 0)
+        + (movedAndEdited.value?.diff?.statistics.changedAfter ?? 0))
+        .toBeGreaterThan(0);
 
       expect(unavailable.kind).toBe("Succeeded");
       expect(unavailable.value?.status).toBe("Unavailable");
@@ -567,6 +606,141 @@ test.describe("published authored Source comparison transport", () => {
       expect(unavailable.value?.before.text).toContain("1 + 2");
       expect(unavailable.value?.after.state).not.toBe("Available");
       expect(unavailable.value?.isExact).toBe(false);
-      expect(unavailable.value?.lines).toHaveLength(0);
+      expect(unavailable.value?.diff).toBeNull();
+    });
+
+  test("production Worker decodes cancellation and successor comparison",
+    async ({ page }) => {
+      test.skip(!beforePackage || !afterPackage || !beforeSource || !afterSource,
+        "Set the four catalog-resolved Source comparison fixture assets.");
+      await page.context().route(
+        "**/inspectweb.sourcecomparisonfixture*.nupkg",
+        async route => {
+          const version =
+            route.request().url().includes(".2.0.0.nupkg") ? 2 : 1;
+          await route.fulfill({
+            path: version === 1 ? beforePackage! : afterPackage!,
+            contentType: "application/octet-stream",
+            headers: { "access-control-allow-origin": "*" },
+          });
+        });
+      let releaseSource!: () => void;
+      const sourceGate = new Promise<void>(resolve => {
+        releaseSource = resolve;
+      });
+      let sourceStarted!: () => void;
+      const sourceStart = new Promise<void>(resolve => {
+        sourceStarted = resolve;
+      });
+      let holdSource = true;
+      await page.context().route(
+        "https://raw.githubusercontent.com/dotnet-inspect-fixtures/source-comparison/**",
+        async route => {
+          if (holdSource) {
+            sourceStarted();
+            await sourceGate;
+          }
+          const after =
+            route.request().url().includes("/source-comparison/v2/");
+          await route.fulfill({
+            path: after ? afterSource! : beforeSource!,
+            contentType: "text/plain",
+            headers: { "access-control-allow-origin": "*" },
+          }).catch(() => undefined);
+        });
+
+      const applicationUrl = new URL(site!);
+      applicationUrl.searchParams.set("source-comparison-gate", "1");
+      await page.goto(applicationUrl.href);
+      await expect.poll(() => page.evaluate(() =>
+        (window as SourceComparisonGateWindow)
+          .__inspectWebSourceComparison !== undefined), {
+        timeout: 180_000,
+      }).toBe(true);
+      const request = await page.evaluate(async () => {
+        const bridge = (window as SourceComparisonGateWindow)
+          .__inspectWebSourceComparison;
+        if (!bridge) throw new Error("Source comparison bridge is unavailable.");
+        const loadResult = await bridge.package.queryPackage(
+          "InspectWeb.SourceComparisonFixture", "1.0.0", "net11.0",
+        );
+        const surface = loadResult.surface;
+        if (surface === null) {
+          throw new Error(
+            loadResult.versionSettlement.content.failure?.reason
+              ?? "Package version settlement did not produce a surface.",
+          );
+        }
+        const type = surface.types.find(candidate =>
+          candidate.definitionId === "SourceDiffFixture.Counter");
+        const member = type?.api.find(candidate => candidate.name === "Value");
+        const body = member?.bodySelectors.find(candidate =>
+          candidate.token === member.metadataToken);
+        if (!type || !body) {
+          throw new Error("The fixture does not expose Counter.Value.");
+        }
+        return {
+          packageId: surface.package,
+          beforeVersion: surface.version,
+          afterVersion: "2.0.0",
+          framework: surface.activeFramework,
+          assembly: type.assemblyId,
+          typeIdentity: type.definitionId,
+          memberName: body.memberName,
+          selectorKey: body.selectorKey,
+          metadataToken: body.token,
+        };
+      });
+      const canceledId = "source-comparison-worker-canceled";
+      await page.evaluate(({ operationId, request }) => {
+        const target = window as SourceComparisonGateWindow;
+        const bridge = target.__inspectWebSourceComparison;
+        if (!bridge) throw new Error("Source comparison bridge is unavailable.");
+        target.__sourceComparisonPending =
+          bridge.source.queryMemberSourceComparison(operationId, request);
+      }, { operationId: canceledId, request });
+      await sourceStart;
+      await page.evaluate(async operationId => {
+        const bridge = (window as SourceComparisonGateWindow)
+          .__inspectWebSourceComparison;
+        if (!bridge) throw new Error("Source comparison bridge is unavailable.");
+        await bridge.source.cancelMemberSourceComparison(
+          operationId,
+          "superseded",
+        );
+      }, canceledId);
+      holdSource = false;
+      releaseSource();
+      const canceled = await page.evaluate(async () => {
+        const target = window as SourceComparisonGateWindow;
+        if (!target.__sourceComparisonPending) {
+          throw new Error("Canceled Source comparison is unavailable.");
+        }
+        return await target.__sourceComparisonPending;
+      });
+      expect(canceled.kind).toBe("Canceled");
+      expect(canceled.reason).toBe("superseded");
+
+      const successor = await page.evaluate(
+        async ({ operationId, request }) => {
+          const bridge = (window as SourceComparisonGateWindow)
+            .__inspectWebSourceComparison;
+          if (!bridge) throw new Error("Source comparison bridge is unavailable.");
+          return await bridge.source.queryMemberSourceComparison(
+            operationId,
+            request,
+          );
+        },
+        {
+          operationId: "source-comparison-worker-successor",
+          request,
+        },
+      );
+      expect(successor.kind).toBe("Succeeded");
+      expect(successor.value?.status).toBe("Compared");
+      expect(successor.value?.diff?.before.lines.some(line =>
+        line.includes("1 + 2"))).toBe(true);
+      expect(successor.value?.diff?.after.lines.some(line =>
+        line.includes("=> 3"))).toBe(true);
     });
 });

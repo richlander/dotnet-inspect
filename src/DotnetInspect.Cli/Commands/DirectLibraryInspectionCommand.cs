@@ -11,7 +11,7 @@ using ILInspector.Metadata;
 
 namespace DotnetInspect.Cli.Commands;
 
-internal static class DirectLibraryOverviewCommand
+internal static class DirectLibraryInspectionCommand
 {
     private const long MaxAssemblyImageBytes =
         512L * 1024 * 1024;
@@ -26,12 +26,12 @@ internal static class DirectLibraryOverviewCommand
             maxRetainedTextCharacters: 20_000_000);
 
     private static readonly InspectionEnvelopeJsonContract<
-        LibraryOverviewOutcome> s_overviewJson =
+        LibraryInspectionOutcome> s_inspectionJson =
             new(
-                "library-overview",
+                "library-inspection",
                 1,
-                LibraryOverviewInspectionJsonContext.Default
-                    .LibraryOverviewOutcome);
+                LibraryInspectionJsonContext.Default
+                    .LibraryInspectionOutcome);
 
     internal static bool ShouldExecute(
         LibraryOptions options) =>
@@ -46,26 +46,21 @@ internal static class DirectLibraryOverviewCommand
             || string.IsNullOrWhiteSpace(source.AssemblyName))
         {
             CommandError.Write(
-                "Library overview envelopes require one direct managed "
+                "Library inspection envelopes require one direct managed "
                     + "assembly file.");
             return 1;
         }
-        if (options.Count)
+        if (options.Count || options.Rows is not null)
         {
             CommandError.Write(
-                "The scalar Library overview does not support --count.");
-            return 1;
-        }
-        if (options.Rows is not null)
-        {
-            CommandError.Write(
-                "The scalar Library overview does not support --rows.");
+                "Library inspection --envelope does not accept CLI terminal "
+                    + "modifiers.");
             return 1;
         }
         if (HasSectionSelection(options))
         {
             CommandError.Write(
-                "Library overview --envelope does not accept section "
+                "Library inspection --envelope does not accept section "
                     + "selection.");
             return 1;
         }
@@ -82,7 +77,7 @@ internal static class DirectLibraryOverviewCommand
             selection = ResolvedAssemblyReference.SelectFromPath(
                 source.AssemblyName,
                 AssemblyResolutionProvenance.Local(
-                    "direct Library overview"));
+                    "direct Library inspection"));
         }
         catch (Exception failure)
             when (failure is IOException
@@ -99,7 +94,7 @@ internal static class DirectLibraryOverviewCommand
             return 1;
         }
 
-        InspectionEnvelope<LibraryOverviewOutcome>? result = null;
+        InspectionEnvelope<LibraryInspectionOutcome>? result = null;
         string? terminalFailure = null;
         ExceptionDispatchInfo? primaryFailure = null;
         List<string> cleanupFailures = [];
@@ -156,18 +151,22 @@ internal static class DirectLibraryOverviewCommand
                 {
                     terminalFailure =
                         "The direct Library owner could not issue the "
-                            + "overview operation lease.";
+                            + "inspection operation lease.";
                 }
                 else
                 {
-                    var request = new LibraryOverviewRequest(
-                        available.Reference,
+                    var plan = new LibraryInspectionPlan(
+                        new(
+                            LibraryTypeAccessibility.Public,
+                            new()),
                         s_bounds);
-                    result =
-                        LibraryOverviewInspectionOperation.Execute(
-                            request,
-                            operation.Lease,
-                            cancellationToken);
+                    var request = new LibraryInspectionRequest(
+                        available.Reference,
+                        plan);
+                    result = LibraryInspectionOperation.Execute(
+                        request,
+                        operation.Lease,
+                        cancellationToken);
                 }
             }
         }
@@ -257,26 +256,28 @@ internal static class DirectLibraryOverviewCommand
         return WriteEnvelope(
             result
             ?? throw new InvalidOperationException(
-                "Direct Library overview produced no terminal result."),
+                "Direct Library inspection produced no terminal result."),
             options);
     }
 
     private static int WriteEnvelope(
-        InspectionEnvelope<LibraryOverviewOutcome> envelope,
+        InspectionEnvelope<LibraryInspectionOutcome> envelope,
         LibraryOptions options)
     {
         bool wrote = InspectionEnvelopeOutput.TryWrite(
             envelope,
-            s_overviewJson,
+            s_inspectionJson,
             includeEnvelope: true,
             options.CompactJson,
             options.OutputPath);
         WriteDiagnostics(envelope.Diagnostics);
         return wrote
             && envelope.Content
-                is LibraryOverviewOutcome.Available
-                    ? 0
-                    : 1;
+                is LibraryInspectionOutcome.Available available
+            && available.Document.Types.Count
+                is LibraryTypePopulationCountOutcome.Counted
+            ? 0
+            : 1;
     }
 
     private static void WriteDiagnostics(
@@ -298,7 +299,7 @@ internal static class DirectLibraryOverviewCommand
                     break;
                 default:
                     throw new InvalidOperationException(
-                        "Unknown Library overview diagnostic severity.");
+                        "Unknown Library inspection diagnostic severity.");
             }
         }
     }
@@ -339,7 +340,7 @@ internal static class DirectLibraryOverviewCommand
                 "The selected Library image could not be captured "
                     + $"({rejected.Failure.Kind}).",
             AssemblyContextLibraryAdapterResult.Incomplete incomplete =>
-                "The selected Library image exceeds the direct overview "
+                "The selected Library image exceeds the direct inspection "
                     + $"limit of {incomplete.MaxCapturedImageBytes} bytes.",
             AssemblyContextLibraryAdapterResult.ArtifactNotPublished =>
                 "The selected Library image could not be published to "
@@ -348,7 +349,7 @@ internal static class DirectLibraryOverviewCommand
                 "The selected Library image could not be projected as "
                     + "managed Metadata.",
             AssemblyContextLibraryAdapterResult.PortablePdbRejected =>
-                "The direct Library overview rejected an unexpected "
+                "The direct Library inspection rejected an unexpected "
                     + "Portable PDB companion.",
             _ => throw new InvalidOperationException(
                 "Unknown direct Library realization result."),

@@ -336,6 +336,149 @@ public sealed class PackageVersionServiceTests
     }
 
     [Fact]
+    public async Task NonResolvedPin_DiscoversUnboundedAndRetainsThePinFailures()
+    {
+        var world = new World();
+        var request = new PackageVersionSelectionRequest.LatestStable(world.PackageId);
+        await world.SeedAsync(request, "2.0.0");
+
+        PackageVersionServiceSettlement settlement = await world.SettleAsync(
+            request,
+            world.Authorization,
+            World.Contract,
+            world.Operation(
+                discoverVersions: ["2.0.0", "2.1.0"],
+                pinState: PackageAcquisitionCandidateResultState.Incomplete));
+
+        // The prior was not served; the current generation refused to pin it.
+        Assert.Equal(PackageVersionServicePath.Discovered, settlement.Path);
+        Assert.Equal(
+            "2.1.0",
+            Assert.IsType<PackageVersionResolutionReceipt.Resolved>(settlement.Receipt)
+                .Coordinate.Version);
+        PackageAuthorityFailure pinFailure = Assert.Single(settlement.PinFailures);
+        Assert.Equal(PackageAuthorityFailureKind.Configuration, pinFailure.Kind);
+        // A pin refusal is not a refresh: the discovery ran under the ordinary
+        // deadline, not the per-refresh bound (the seed's discovery did too).
+        Assert.All(world.DiscoveryBounds, bound => Assert.Null(bound));
+    }
+
+    [Fact]
+    public async Task Refresh_CarriesThePerRefreshBound_AndTerminalDiscoveryDoesNot()
+    {
+        var options = new PackageVersionServiceOptions { RefreshBound = TimeSpan.FromSeconds(3) };
+        var world = new World(options);
+        var request = new PackageVersionSelectionRequest.LatestStable(world.PackageId);
+
+        await world.SettleAsync(
+            request,
+            world.Authorization,
+            World.Contract,
+            world.Operation(discoverVersions: ["1.0.0"]));
+        world.Advance(TimeSpan.FromHours(2));
+        await world.SettleAsync(
+            request,
+            world.Authorization,
+            World.Contract,
+            world.Operation(discoverVersions: ["1.0.0", "1.1.0"]));
+
+        Assert.Equal([null, TimeSpan.FromSeconds(3)], world.DiscoveryBounds);
+    }
+
+    [Fact]
+    public async Task Entry_RecordsTheSourceIdentityTheKeyUses()
+    {
+        var world = new World();
+        var request = new PackageVersionSelectionRequest.LatestStable(world.PackageId);
+
+        await world.SettleAsync(
+            request,
+            world.Authorization,
+            World.Contract,
+            world.Operation(discoverVersions: ["1.0.0"]));
+
+        string key = PackageVersionService.StoreKey(request, world.Authorization, World.Contract)!;
+        string entry = PersistentCache.TryGet(
+            PackageVersionService.StoreCategory, key, extension: "txt")!;
+        string[] lines = entry.Split('\n');
+        Assert.Equal("1.0.0", lines[0]);
+        // An HTTP authority has no persistent cache key; the entry still names it.
+        Assert.Equal("http:" + new Uri(SourceUrl).AbsoluteUri.ToLowerInvariant(), lines[1]);
+    }
+
+    [Fact]
+    public void StoreKey_IgnoresPackageIdCase()
+    {
+        var world = new World();
+        string lower = PackageVersionService.StoreKey(
+            new PackageVersionSelectionRequest.LatestStable(world.PackageId.ToLowerInvariant()),
+            world.Authorization,
+            World.Contract)!;
+        string upper = PackageVersionService.StoreKey(
+            new PackageVersionSelectionRequest.LatestStable(world.PackageId.ToUpperInvariant()),
+            world.Authorization,
+            World.Contract)!;
+        Assert.Equal(lower, upper);
+    }
+
+    [Fact]
+    public async Task PastWindow_RefusingSource_ReportsTheAbsorbedRefreshFailures()
+    {
+        var world = new World();
+        var request = new PackageVersionSelectionRequest.LatestStable(world.PackageId);
+        await world.SeedAsync(request, "2.0.0");
+        world.Advance(TimeSpan.FromHours(2));
+
+        PackageVersionServiceSettlement served = await world.SettleAsync(
+            request,
+            world.Authorization,
+            World.Contract,
+            world.Operation(discoverFails: true));
+
+        Assert.Equal(PackageVersionServicePath.PriorAfterRefreshFailure, served.Path);
+        PackageAuthorityFailure failure = Assert.Single(served.RefreshFailures);
+        Assert.Equal(PackageAuthorityFailureKind.Timeout, failure.Kind);
+        Assert.Empty(served.PinFailures);
+    }
+
+    [Fact]
+    public void InvocationScope_SharesOnePlan_AndLedgerRecordsOnlyServedPriors()
+    {
+        var world = new World();
+        var request = new PackageVersionSelectionRequest.LatestStable(world.PackageId);
+        Assert.Null(PackageVersionServicePlan.Current);
+
+        using (PackageVersionInvocationScope outer = PackageVersionServicePlan.BeginInvocation(offline: false))
+        {
+            Assert.True(outer.Owns);
+            Assert.Same(outer.Plan, PackageVersionServicePlan.Current);
+            using (PackageVersionInvocationScope inner = PackageVersionServicePlan.BeginInvocation(offline: true))
+            {
+                // A nested invocation reuses the enclosing plan and owns nothing.
+                Assert.False(inner.Owns);
+                Assert.Same(outer.Plan, inner.Plan);
+                Assert.False(inner.Plan.Offline);
+            }
+            Assert.Same(outer.Plan, PackageVersionServicePlan.Current);
+
+            outer.Plan.RecordServedPrior(new PackageVersionResolutionReceipt.Prior(
+                request,
+                world.PinnedCandidate("1.0.0"),
+                PackageVersionDiscoveryFreshness.Current,
+                age: null));
+            outer.Plan.RecordServedPrior(new PackageVersionResolutionReceipt.Prior(
+                request,
+                world.PinnedCandidate("1.0.0"),
+                PackageVersionDiscoveryFreshness.ServedPrior,
+                TimeSpan.FromHours(2)));
+            PackageVersionResolutionReceipt.Prior recorded = Assert.Single(outer.Plan.ServedPriors);
+            Assert.Equal(PackageVersionDiscoveryFreshness.ServedPrior, recorded.Freshness);
+        }
+
+        Assert.Null(PackageVersionServicePlan.Current);
+    }
+
+    [Fact]
     public async Task Offline_ServesAnyPriorRegardlessOfAge_AndDiscoversWithoutOne()
     {
         var world = new World();
@@ -528,6 +671,8 @@ public sealed class PackageVersionServiceTests
 
         public int DiscoveryCalls { get; private set; }
 
+        public List<TimeSpan?> DiscoveryBounds { get; } = [];
+
         public void Advance(TimeSpan by) => _clock.UtcNow += by;
 
         public Task<PackageVersionServiceSettlement> SettleAsync(
@@ -558,24 +703,37 @@ public sealed class PackageVersionServiceTests
             bool discoverFails = false,
             TimeSpan? discoverDelay = null,
             PackageVersionRefreshBudget? budget = null,
-            bool offline = false) =>
+            bool offline = false,
+            PackageAcquisitionCandidateResultState pinState =
+                PackageAcquisitionCandidateResultState.Resolved) =>
             new()
             {
-                Discover = async token =>
+                Discover = async scope =>
                 {
                     DiscoveryCalls++;
+                    DiscoveryBounds.Add(scope.Bound);
                     if (discoverDelay is { } delay)
-                        await Task.Delay(delay, token);
+                        await Task.Delay(delay, scope.CancellationToken);
                     if (discoverFails)
                         return FailedDiscovery();
                     if (discoverVersions is null)
                         throw new InvalidOperationException("Discovery was not expected on this path.");
                     return Discovery(discoverVersions);
                 },
-                Pin = coordinate => new PackageAcquisitionCandidateResult(
-                    PackageAcquisitionCandidateResultState.Resolved,
-                    PackageAcquisitionCandidate.CreatePinned(Issuer, coordinate, [_authority]),
-                    []),
+                Pin = coordinate => pinState == PackageAcquisitionCandidateResultState.Resolved
+                    ? new PackageAcquisitionCandidateResult(
+                        PackageAcquisitionCandidateResultState.Resolved,
+                        PackageAcquisitionCandidate.CreatePinned(Issuer, coordinate, [_authority]),
+                        [])
+                    : new PackageAcquisitionCandidateResult(
+                        pinState,
+                        candidate: null,
+                        [
+                            new PackageAuthorityFailure(
+                                new InertString(TextPolicy.Field, "priors"),
+                                PackageAuthorityFailureKind.Configuration,
+                                "The source configuration could not be read."),
+                        ]),
                 Budget = budget ?? new PackageVersionRefreshBudget(),
                 Offline = offline,
             };

@@ -51,12 +51,20 @@ public sealed class ConfiguredPackagePayloadResult
                 "The configured payload and source identify different producers.",
                 nameof(payload));
         }
-        if (houseSettlement is not null
+        if (payload is not null
+            && houseSettlement is not null
             && (houseSettlement is not PackageHouseSettlement.Acquired acquired
                 || !ReferenceEquals(acquired.Payload, payload)))
         {
             throw new ArgumentException(
                 "A configured payload House settlement must retain the exact acquired payload.",
+                nameof(houseSettlement));
+        }
+        if (payload is null
+            && houseSettlement is PackageHouseSettlement.Acquired)
+        {
+            throw new ArgumentException(
+                "An acquired House settlement requires its payload.",
                 nameof(houseSettlement));
         }
 

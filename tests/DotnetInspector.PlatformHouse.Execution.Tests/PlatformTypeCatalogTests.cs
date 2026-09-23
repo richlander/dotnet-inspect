@@ -22,7 +22,9 @@ public partial class PlatformLibraryRealizationTests
         s_catalogBounds = new(
             new LibraryTypeDeclarationInventoryInspectionBounds(
                 maximumAssemblyBytes: 16 * 1024 * 1024,
-                maximumRetainedDeclarations: 100_000),
+                maximumRetainedDeclarations: 100_000,
+                maximumMetadataRows: int.MaxValue,
+                maximumRetainedTextCharacters: int.MaxValue),
             maximumAssemblies: 256,
             maximumAggregateAssemblyBytes: 256 * 1024 * 1024,
             maximumRetainedEntries: 500_000,
@@ -938,7 +940,9 @@ public partial class PlatformLibraryRealizationTests
                         new(
                             new LibraryTypeDeclarationInventoryInspectionBounds(
                                 maximumAssemblyBytes: 1,
-                                maximumRetainedDeclarations: 100_000),
+                                maximumRetainedDeclarations: 100_000,
+                                maximumMetadataRows: int.MaxValue,
+                                maximumRetainedTextCharacters: int.MaxValue),
                             s_catalogBounds.MaximumAssemblies,
                             s_catalogBounds
                                 .MaximumAggregateAssemblyBytes,
@@ -979,6 +983,108 @@ public partial class PlatformLibraryRealizationTests
                     population.Receipt,
                     incomplete.PopulationReceipt);
             }
+        }
+        finally
+        {
+            await RetireCatalogPopulationAsync(
+                population,
+                artifacts,
+                cancellationToken);
+        }
+    }
+
+    [Fact]
+    public async Task
+        TypeCatalog_PreservesMemberBoundsAcrossAssemblyByteNormalization()
+    {
+        CancellationToken cancellationToken =
+            TestContext.Current.CancellationToken;
+        var request = PopulationRequest(cancellationToken);
+        PlatformSourceContribution.Realization contribution =
+            PopulationContribution(
+                request.Request,
+                request.Reference);
+        string asset = RealCatalogAsset("System.Text.Json.dll");
+        long assetBytes = new FileInfo(asset).Length;
+        Assert.InRange(assetBytes, 1, 16 * 1024 * 1024 - 1);
+        await using ArtifactFixture artifacts =
+            await ArtifactFixture.CreatePopulationAsync(
+                (contribution, asset));
+        PlatformPopulationRealizationResult.Completed population =
+            await RealizeCatalogPopulationAsync(
+                request.Request,
+                artifacts,
+                count: 1);
+        try
+        {
+            AssertMetadataRows(
+                maximumAggregateAssemblyBytes: 32 * 1024 * 1024);
+            AssertMetadataRows(assetBytes);
+
+            var textIncomplete = Assert.IsType<
+                PlatformTypeCatalogDerivationOutcome.Incomplete>(
+                    PlatformTypeCatalogDerivation.Execute(
+                        population,
+                        Bounds(
+                            maximumAggregateAssemblyBytes:
+                                32 * 1024 * 1024,
+                            maximumMetadataRows: int.MaxValue,
+                            maximumRetainedTextCharacters: 0),
+                        cancellationToken));
+            Assert.Equal(
+                PlatformTypeCatalogDerivationBound
+                    .MemberRetainedTextCharacters,
+                textIncomplete.Bound);
+            Assert.Equal(
+                LibraryTypeDeclarationInventoryInspectionBound
+                    .RetainedTextCharacters,
+                Assert.IsType<
+                        LibraryTypeDeclarationInventoryInspectionOutcome
+                            .Incomplete>(
+                        textIncomplete.MemberOutcome)
+                    .Bound);
+
+            void AssertMetadataRows(
+                long maximumAggregateAssemblyBytes)
+            {
+                var incomplete = Assert.IsType<
+                    PlatformTypeCatalogDerivationOutcome.Incomplete>(
+                        PlatformTypeCatalogDerivation.Execute(
+                            population,
+                            Bounds(
+                                maximumAggregateAssemblyBytes,
+                                maximumMetadataRows: 1,
+                                maximumRetainedTextCharacters:
+                                    int.MaxValue),
+                            cancellationToken));
+                Assert.Equal(
+                    PlatformTypeCatalogDerivationBound
+                        .MemberMetadataRows,
+                    incomplete.Bound);
+                Assert.Equal(
+                    LibraryTypeDeclarationInventoryInspectionBound
+                        .MetadataRows,
+                    Assert.IsType<
+                            LibraryTypeDeclarationInventoryInspectionOutcome
+                                .Incomplete>(
+                            incomplete.MemberOutcome)
+                        .Bound);
+            }
+
+            PlatformTypeCatalogDerivationBounds Bounds(
+                long maximumAggregateAssemblyBytes,
+                int maximumMetadataRows,
+                int maximumRetainedTextCharacters) =>
+                new(
+                    new(
+                        maximumAssemblyBytes: 16 * 1024 * 1024,
+                        maximumRetainedDeclarations: 100_000,
+                        maximumMetadataRows,
+                        maximumRetainedTextCharacters),
+                    maximumAssemblies: 1,
+                    maximumAggregateAssemblyBytes,
+                    maximumRetainedEntries: 100_000,
+                    maximumDuration: TimeSpan.FromSeconds(30));
         }
         finally
         {

@@ -10,12 +10,12 @@ using Inspector.Artifacts.Workspaces;
 
 namespace DotnetInspector.Sections.Tests;
 
-internal sealed class LibraryOverviewTestLibrary : IAsyncDisposable
+internal sealed class LibraryInspectionTestLibrary : IAsyncDisposable
 {
     private readonly ArtifactSetSession _session;
     private readonly LibraryContentOwner _owner;
 
-    private LibraryOverviewTestLibrary(
+    private LibraryInspectionTestLibrary(
         ArtifactSetSession session,
         LibraryContentOwner owner)
     {
@@ -27,7 +27,7 @@ internal sealed class LibraryOverviewTestLibrary : IAsyncDisposable
 
     public LibraryContentOwnerState State => _owner.State;
 
-    public static async Task<LibraryOverviewTestLibrary> CreateAsync(
+    public static async Task<LibraryInspectionTestLibrary> CreateAsync(
         byte[] content,
         ManagedMetadataIdentity.Assembly identity)
     {
@@ -39,7 +39,7 @@ internal sealed class LibraryOverviewTestLibrary : IAsyncDisposable
                 (scope, cancellationToken) =>
                 {
                     contribution = scope.Register(
-                        new Provenance("library-overview-test"),
+                        new Provenance("library-inspection-test"),
                         token =>
                         {
                             token.ThrowIfCancellationRequested();
@@ -81,7 +81,7 @@ internal sealed class LibraryOverviewTestLibrary : IAsyncDisposable
                     library,
                     [contentLease]);
                 contentLease = null;
-                return new LibraryOverviewTestLibrary(session, owner);
+                return new LibraryInspectionTestLibrary(session, owner);
             }
             finally
             {
@@ -124,6 +124,15 @@ internal sealed class LibraryOverviewTestLibrary : IAsyncDisposable
                 "System.Text.Json.dll"),
             TestContext.Current.CancellationToken);
 
+    public static async Task<byte[]> RealNetstandardAsync() =>
+        await File.ReadAllBytesAsync(
+            Path.Combine(
+                AppContext.BaseDirectory,
+                "RealAssets",
+                "LibraryOverview",
+                "netstandard.dll"),
+            TestContext.Current.CancellationToken);
+
     public static ManagedMetadataIdentity.Assembly Identity(
         byte[] content)
     {
@@ -147,6 +156,7 @@ internal sealed class LibraryOverviewTestLibrary : IAsyncDisposable
         bool includeAssembly = true,
         bool emptyModuleVersionId = false,
         bool malformedPublicType = false,
+        bool includeModuleExport = false,
         string metadataVersion = "v4.0.30319")
     {
         var metadata = new MetadataBuilder();
@@ -185,6 +195,19 @@ internal sealed class LibraryOverviewTestLibrary : IAsyncDisposable
                 MetadataTokens.TypeReferenceHandle(1),
                 MetadataTokens.FieldDefinitionHandle(1),
                 MetadataTokens.MethodDefinitionHandle(1));
+        }
+        if (includeModuleExport)
+        {
+            AssemblyFileHandle file = metadata.AddAssemblyFile(
+                metadata.GetOrAddString("Probe.netmodule"),
+                default,
+                containsMetadata: true);
+            metadata.AddExportedType(
+                TypeAttributes.Public,
+                metadata.GetOrAddString("Probe"),
+                metadata.GetOrAddString("Exported"),
+                file,
+                typeDefinitionId: 1);
         }
 
         var peBuilder = new ManagedPEBuilder(

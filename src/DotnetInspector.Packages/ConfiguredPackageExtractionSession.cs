@@ -87,12 +87,24 @@ internal sealed class ConfiguredPackageExtractionSession(
     {
         foreach (PackageAuthorityFailure failure in result.Failures)
             log?.Invoke($"{failure.Authority}: {failure.Message}");
+        // Stage failures are House-owned diagnostics with no authority (a
+        // prior-settlement eviction, for one); they stay visible beside the
+        // attributed failures rather than vanishing in the projection.
+        IReadOnlyList<string> stageReasons = result.HouseSettlement is { } settlement
+            ? [.. settlement.Result.Evidence.Failures
+                .OfType<PackageHouseFailure.Stage>()
+                .Select(failure => failure.Reason.ToString())]
+            : [];
+        foreach (string reason in stageReasons)
+            log?.Invoke(reason);
         if (result.Payload is not { } payload)
         {
+            IEnumerable<string> reasons = result.Failures
+                .Select(failure => $"{failure.Authority}: {failure.Message}")
+                .Concat(stageReasons);
             string reason = result.Failures.Count == 0
-                ? noMatch
-                : string.Join(Environment.NewLine,
-                    result.Failures.Select(failure => $"{failure.Authority}: {failure.Message}"));
+                ? string.Join(Environment.NewLine, [noMatch, .. stageReasons])
+                : string.Join(Environment.NewLine, reasons);
             return PackageExtractionOutcome.Error(
                 $"{request} could not be acquired. {reason}");
         }

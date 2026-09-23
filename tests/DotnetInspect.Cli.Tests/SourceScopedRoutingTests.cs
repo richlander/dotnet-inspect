@@ -2184,6 +2184,228 @@ public sealed class SourceScopedRoutingTests : IDisposable
         }
     }
 
+    // Package Version Service, CLI harness cases (docs/design/package-version-service.md).
+
+    [Fact]
+    public async Task BareName_InWindowPrior_IsServedWithoutDiscovery()
+    {
+        string packageName = $"Prior.InWindow{Guid.NewGuid():N}";
+        string feed = Path.Combine(_testRoot, "prior-in-window");
+        WriteLocalPackage(feed, packageName, "1.0.0");
+        WriteLocalPackage(feed, packageName, "2.0.0");
+        await SeedPriorSettlementAsync(packageName, feed, "1.0.0", TimeSpan.Zero);
+
+        var (exit, output, error) = await RunOnlineLocalFeedCommandAsync(
+            ["package", packageName, "--source", feed]);
+
+        // The bare request is bound to the product's own prior: no discovery,
+        // no warning, and the entry is untouched.
+        Assert.True(exit == 0, error);
+        Assert.Contains("| Version | 1.0.0 |", output);
+        Assert.DoesNotContain("Warning:", error);
+        Assert.Equal("1.0.0", await ReadPriorSettlementVersionAsync(packageName, feed));
+    }
+
+    [Fact]
+    public async Task BareName_PastWindowPrior_FastSourceRefreshesAndRewritesTheEntry()
+    {
+        string packageName = $"Prior.PastWindow{Guid.NewGuid():N}";
+        string feed = Path.Combine(_testRoot, "prior-past-window");
+        WriteLocalPackage(feed, packageName, "1.0.0");
+        WriteLocalPackage(feed, packageName, "2.0.0");
+        await SeedPriorSettlementAsync(packageName, feed, "1.0.0", TimeSpan.FromHours(3));
+
+        var (exit, output, error) = await RunOnlineLocalFeedCommandAsync(
+            ["package", packageName, "--source", feed]);
+
+        Assert.True(exit == 0, error);
+        Assert.Contains("| Version | 2.0.0 |", output);
+        Assert.DoesNotContain("Warning:", error);
+        Assert.Equal("2.0.0", await ReadPriorSettlementVersionAsync(packageName, feed));
+    }
+
+    [Fact]
+    public async Task BareName_NoPrior_FailingSourceFailsVisiblyAndWritesNothing()
+    {
+        string packageName = $"Prior.NoEntry{Guid.NewGuid():N}";
+
+        var (exit, output, error, _) = await RunOnlineVersionFeedCommandAsync(
+            packageName,
+            "1.0.0",
+            ["package", packageName, "--source", RefusedSource],
+            refusedStatus: HttpStatusCode.Forbidden);
+
+        Assert.True(exit == 1, error);
+        Assert.Empty(output);
+        Assert.Contains("could not be acquired", error);
+        Assert.Null(await ReadPriorSettlementVersionAsync(packageName, RefusedSource));
+    }
+
+    [Fact]
+    public async Task BareName_VanishedPrior_FailsVisiblyOnceThenDiscovers()
+    {
+        string packageName = $"Prior.Vanished{Guid.NewGuid():N}";
+        string feed = Path.Combine(_testRoot, "prior-vanished");
+        WriteLocalPackage(feed, packageName, "2.0.0");
+        await SeedPriorSettlementAsync(packageName, feed, "1.0.0", TimeSpan.Zero);
+
+        var first = await RunOnlineLocalFeedCommandAsync(
+            ["package", packageName, "--source", feed]);
+
+        // One visible failure with the eviction diagnostic; the entry is gone.
+        Assert.True(first.Exit == 1, first.Error);
+        Assert.Contains("could not be acquired", first.Error);
+        Assert.Contains(
+            $"The retained prior settlement {packageName.ToLowerInvariant()}@1.0.0 is no longer supplied by any authorized source and was evicted",
+            first.Error);
+        Assert.Null(await ReadPriorSettlementVersionAsync(packageName, feed));
+
+        var second = await RunOnlineLocalFeedCommandAsync(
+            ["package", packageName, "--source", feed]);
+
+        Assert.True(second.Exit == 0, second.Error);
+        Assert.Contains("| Version | 2.0.0 |", second.Output);
+        Assert.DoesNotContain("Warning:", second.Error);
+        Assert.Equal("2.0.0", await ReadPriorSettlementVersionAsync(packageName, feed));
+    }
+
+    [Fact]
+    public async Task AlwaysLatest_InWindowPrior_DiscoversAndRewritesTheEntry()
+    {
+        string packageName = $"Prior.AlwaysLatest{Guid.NewGuid():N}";
+        string feed = Path.Combine(_testRoot, "prior-always-latest");
+        WriteLocalPackage(feed, packageName, "1.0.0");
+        WriteLocalPackage(feed, packageName, "2.0.0");
+        await SeedPriorSettlementAsync(packageName, feed, "1.0.0", TimeSpan.Zero);
+
+        var (exit, output, error) = await RunOnlineLocalFeedCommandAsync(
+            ["package", $"{packageName}@latest", "--source", feed]);
+
+        Assert.True(exit == 0, error);
+        Assert.Contains("| Version | 2.0.0 |", output);
+        Assert.DoesNotContain("Warning:", error);
+        Assert.Equal("2.0.0", await ReadPriorSettlementVersionAsync(packageName, feed));
+    }
+
+    [Fact]
+    public async Task AlwaysLatest_InWindowPrior_RefusingSourceFailsVisibly()
+    {
+        string packageName = $"Prior.AlwaysRefused{Guid.NewGuid():N}";
+        await SeedPriorSettlementAsync(packageName, RefusedSource, "1.0.0", TimeSpan.Zero);
+
+        var (exit, output, error, _) = await RunOnlineVersionFeedCommandAsync(
+            packageName,
+            "1.0.0",
+            ["package", $"{packageName}@latest", "--source", RefusedSource],
+            refusedStatus: HttpStatusCode.Forbidden);
+
+        Assert.True(exit == 1, error);
+        Assert.Empty(output);
+        Assert.Contains("could not be acquired", error);
+        Assert.Equal("1.0.0", await ReadPriorSettlementVersionAsync(packageName, RefusedSource));
+    }
+
+    [Fact]
+    public async Task BareName_PastWindowPrior_RefusingSource_ServesThePriorWithOneWarning()
+    {
+        string packageName = $"Prior.Served{Guid.NewGuid():N}";
+        await SeedPriorSettlementAsync(packageName, SecondSource, "1.0.0", TimeSpan.FromHours(3));
+
+        // The feed refuses the version listing (the refresh) but still serves
+        // the exact payload the prior names.
+        var (exit, output, error, requests) = await RunOnlineRefreshRefusingFeedCommandAsync(
+            packageName,
+            ["package", packageName, "--source", SecondSource]);
+
+        Assert.True(exit == 0, error);
+        Assert.Contains("| Version | 1.0.0 |", output);
+        Assert.Single(
+            error.Split('\n', StringSplitOptions.RemoveEmptyEntries),
+            line => line.StartsWith("Warning: 1 package was served from a prior version settlement", StringComparison.Ordinal));
+        Assert.Contains($"{packageName.ToLowerInvariant()}@1.0.0", error);
+        Assert.Contains("@latest", error);
+        Assert.Contains(
+            requests,
+            url => url.EndsWith($"/{packageName.ToLowerInvariant()}/index.json", StringComparison.Ordinal));
+        Assert.Contains(requests, url => url.EndsWith(".nupkg", StringComparison.OrdinalIgnoreCase));
+        // The entry is kept, not rewritten: the refresh did not complete.
+        Assert.Equal("1.0.0", await ReadPriorSettlementVersionAsync(packageName, SecondSource));
+    }
+
+    [Fact]
+    public async Task BoundedDiscovery_ReturnsWithinTheBoundWithTimeoutEvidence()
+    {
+        const string Source = "https://bounded.example/v3/index.json";
+        var handler = new NeverCompletesHandler();
+        await using var composition = new DesktopPackageSourceComposition(
+            TimeSpan.FromSeconds(30),
+            new UnavailableCredentialSource(),
+            (_, _) => handler);
+        using var operation = composition.IssueSettlementOperation(
+            TestContext.Current.CancellationToken);
+        PackageSourceAuthorization authorization = composition.AuthorizeSourcesFor(
+            "bounded-contract",
+            new NuGetSourceOptions { Sources = [Source] });
+        var stopwatch = System.Diagnostics.Stopwatch.StartNew();
+
+        PackageVersionDiscoveryResult result = await operation.DiscoverVersionsAsync(
+            "bounded-contract",
+            authorization,
+            PackageVersionDiscoveryContract.Create(
+                includePrerelease: false,
+                includeUnlisted: false,
+                limit: null),
+            bound: TimeSpan.FromMilliseconds(300));
+
+        // The bound, not the 30 s request ceiling, ended the discovery, and
+        // the operation lease is free for the next step.
+        Assert.True(stopwatch.Elapsed < TimeSpan.FromSeconds(10), stopwatch.Elapsed.ToString());
+        Assert.Equal(PackageVersionDiscoveryState.Failed, result.State);
+        Assert.Contains(result.Failures, failure => failure.Kind == PackageAuthorityFailureKind.Timeout);
+        operation.ThrowIfExpired();
+    }
+
+    [Fact]
+    public async Task BareNames_PastWindowPriors_RefreshUnderThePerInvocationCapAndDiscloseOnce()
+    {
+        string suffix = Guid.NewGuid().ToString("N");
+        string feed = Path.Combine(_testRoot, "prior-cap");
+        string[] packages = [.. Enumerable.Range(1, 10).Select(index => $"Prior.Cap{index}.{suffix}")];
+        foreach (string packageName in packages)
+        {
+            WriteLocalPackage(feed, packageName, "1.0.0");
+            WriteLocalPackage(feed, packageName, "2.0.0");
+            await SeedPriorSettlementAsync(packageName, feed, "1.0.0", TimeSpan.FromHours(3));
+        }
+
+        var (exit, output, error) = await RunOnlineLocalFeedCommandAsync(
+            ["package", .. packages, "--source", feed, "--json"]);
+
+        // One invocation, one plan: the first eight past-window entries
+        // refresh (cap 8), the remaining two are served as priors, and the
+        // host discloses those two once.
+        Assert.True(exit == 0, error);
+        using JsonDocument document = JsonDocument.Parse(output);
+        List<string> versions = [.. document.RootElement.EnumerateArray()
+            .Select(row => row.GetProperty("version").GetString()!)];
+        Assert.Equal(10, versions.Count);
+        Assert.Equal(8, versions.Count(version => version == "2.0.0"));
+        Assert.Equal(2, versions.Count(version => version == "1.0.0"));
+        string[] warnings = [.. error.Split('\n', StringSplitOptions.RemoveEmptyEntries)
+            .Where(line => line.StartsWith("Warning:", StringComparison.Ordinal))];
+        string warning = Assert.Single(warnings);
+        Assert.StartsWith(
+            "Warning: 2 packages were served from a prior version settlement without a completed refresh:",
+            warning);
+        int rewritten = 0;
+        foreach (string packageName in packages)
+        {
+            if (await ReadPriorSettlementVersionAsync(packageName, feed) == "2.0.0")
+                rewritten++;
+        }
+        Assert.Equal(8, rewritten);
+    }
+
     public static TheoryData<string, string, string, bool> ZeroArityLocalRows
     {
         get
@@ -2643,6 +2865,104 @@ public sealed class SourceScopedRoutingTests : IDisposable
             });
 
         Assert.Null(version);
+    }
+
+    /// <summary>
+    /// Seeds one prior settlement for a bare (latest-stable) request under the
+    /// given source set, written <paramref name="age"/> ago, so the in-window
+    /// and past-window preconditions of the Package Version Service's CLI
+    /// cases can be created.
+    /// </summary>
+    private static async Task SeedPriorSettlementAsync(
+        string packageName,
+        string source,
+        string version,
+        TimeSpan age)
+    {
+        string key = await PriorSettlementKeyAsync(packageName, source);
+        string content = string.Join(
+            '\n',
+            version,
+            "",
+            (DateTimeOffset.UtcNow - age).UtcTicks.ToString(
+                System.Globalization.CultureInfo.InvariantCulture));
+        PersistentCache.Set(
+            PackageVersionService.StoreCategory,
+            key,
+            content,
+            extension: "txt");
+    }
+
+    private static async Task<string?> ReadPriorSettlementVersionAsync(
+        string packageName,
+        string source) =>
+        PersistentCache.TryGet(
+            PackageVersionService.StoreCategory,
+            await PriorSettlementKeyAsync(packageName, source),
+            extension: "txt")?.Split('\n')[0];
+
+    private static async Task<string> PriorSettlementKeyAsync(string packageName, string source)
+    {
+        await using var composition = new DesktopPackageSourceComposition(
+            TimeSpan.FromSeconds(5));
+        PackageSourceAuthorization authorization = composition.AuthorizeSourcesFor(
+            packageName.ToLowerInvariant(),
+            new NuGetSourceOptions { Sources = [source] });
+        return PackageVersionService.StoreKey(
+            new PackageVersionSelectionRequest.LatestStable(packageName.ToLowerInvariant()),
+            authorization,
+            PackageVersionDiscoveryContract.Create(
+                includePrerelease: false,
+                includeUnlisted: false,
+                limit: null))
+            ?? throw new InvalidOperationException("The source has no persistent identity.");
+    }
+
+    private static async Task<(int Exit, string Output, string Error)> RunOnlineLocalFeedCommandAsync(
+        string[] args)
+    {
+        DotnetInspector.Networking.HttpClientFactory.Initialize(
+            new HttpClientFactoryOptions());
+        DotnetInspector.Networking.HttpClientFactory.ResetSharedForTesting();
+        try
+        {
+            return await RunCommandAsync(args);
+        }
+        finally
+        {
+            DotnetInspector.Networking.HttpClientFactory.Initialize(
+                new HttpClientFactoryOptions { Offline = true });
+            DotnetInspector.Networking.HttpClientFactory.ResetSharedForTesting();
+        }
+    }
+
+    private static async Task<(
+        int Exit,
+        string Output,
+        string Error,
+        ConcurrentQueue<string> Requests)> RunOnlineRefreshRefusingFeedCommandAsync(
+            string packageName,
+            string[] args)
+    {
+        var requests = new ConcurrentQueue<string>();
+        DotnetInspector.Networking.HttpClientFactory.SetAuthenticationDecorator(
+            innerHandler => new RefreshRefusingFeedHandler(packageName, requests, innerHandler));
+        DotnetInspector.Networking.HttpClientFactory.Initialize(new HttpClientFactoryOptions());
+        DotnetInspector.Networking.HttpClientFactory.ResetSharedForTesting();
+        DotnetInspector.Networking.HttpClientFactory.SetPackageSourceHandlerForTesting(
+            _ => new RefreshRefusingFeedHandler(packageName, requests, new HttpClientHandler()));
+        try
+        {
+            var result = await RunCommandAsync(args);
+            return (result.Exit, result.Output, result.Error, requests);
+        }
+        finally
+        {
+            DotnetInspector.Networking.HttpClientFactory.SetAuthenticationDecorator(null);
+            DotnetInspector.Networking.HttpClientFactory.Initialize(
+                new HttpClientFactoryOptions { Offline = true });
+            DotnetInspector.Networking.HttpClientFactory.ResetSharedForTesting();
+        }
     }
 
     private static void SeedLatestCandidate(
@@ -3145,6 +3465,81 @@ public sealed class SourceScopedRoutingTests : IDisposable
                 Content = new StringContent(body ?? ""),
                 RequestMessage = request,
             });
+        }
+    }
+
+    /// <summary>
+    /// The second source with its version listing unavailable (503) while
+    /// the service index and every exact payload still answer: a refresh
+    /// fails, an acquisition of a retained prior succeeds.
+    /// </summary>
+    private sealed class RefreshRefusingFeedHandler(
+        string packageName,
+        ConcurrentQueue<string> requests,
+        HttpMessageHandler innerHandler)
+        : DelegatingHandler(innerHandler)
+    {
+        protected override Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken)
+        {
+            string url = request.RequestUri!.GetLeftPart(UriPartial.Path);
+            requests.Enqueue(url);
+            string id = packageName.ToLowerInvariant();
+            if (url.Equals(SecondSource, StringComparison.OrdinalIgnoreCase))
+            {
+                return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new StringContent($$"""
+                        {
+                          "version": "3.0.0",
+                          "resources": [
+                            { "@id": "{{SecondFlatContainer}}", "@type": "PackageBaseAddress/3.0.0" }
+                          ]
+                        }
+                        """),
+                    RequestMessage = request,
+                });
+            }
+            if (url.Equals($"{SecondFlatContainer}{id}/index.json", StringComparison.OrdinalIgnoreCase))
+            {
+                return Task.FromResult(new HttpResponseMessage(HttpStatusCode.ServiceUnavailable)
+                {
+                    Content = new StringContent(""),
+                    RequestMessage = request,
+                });
+            }
+            if (url.StartsWith($"{SecondFlatContainer}{id}/", StringComparison.OrdinalIgnoreCase)
+                && url.EndsWith(".nupkg", StringComparison.OrdinalIgnoreCase))
+            {
+                string version = url[($"{SecondFlatContainer}{id}/".Length)..].Split('/')[0];
+                return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new ByteArrayContent(PackageBytes(packageName, version)),
+                    RequestMessage = request,
+                });
+            }
+            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.NotFound)
+            {
+                Content = new StringContent(""),
+                RequestMessage = request,
+            });
+        }
+
+        private static byte[] PackageBytes(string packageName, string version)
+        {
+            using var buffer = new MemoryStream();
+            using (var archive = new ZipArchive(buffer, ZipArchiveMode.Create, leaveOpen: true))
+            using (var writer = new StreamWriter(
+                archive.CreateEntry($"{packageName.ToLowerInvariant()}.nuspec").Open()))
+            {
+                writer.Write($"""
+                    <package><metadata>
+                      <id>{packageName}</id><version>{version}</version>
+                    </metadata></package>
+                    """);
+            }
+            return buffer.ToArray();
         }
     }
 
