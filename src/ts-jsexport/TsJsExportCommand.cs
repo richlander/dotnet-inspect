@@ -131,6 +131,7 @@ public static class TsJsExportCommand
             if (!JsExportSurfaceLoader.TryLoad(
                     assemblyPath,
                     searchPaths,
+                    JsExportContractIdentity.Api,
                     "ts-jsexport",
                     stderr,
                     out global::ILInspector.JsExportSurface.JsExportSurface?

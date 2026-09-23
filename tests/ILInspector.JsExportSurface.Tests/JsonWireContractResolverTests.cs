@@ -358,9 +358,19 @@ public sealed class JsonWireContractResolverTests
         var (apiSurface, bodyIndex) =
             ExtractFixtureSurfaceWithWireContracts(path);
         return (
-            JsExportSurfaceBuilder.Build(apiSurface, bodyIndex),
+            BuildWithJsonInputContract(apiSurface, bodyIndex),
             bodyIndex);
     }
+
+    private static ILInspector.JsExportSurface.JsExportSurface
+        BuildWithJsonInputContract(
+            ApiSurface apiSurface,
+            LibraryBodyIndex bodyIndex) =>
+            JsExportSurfaceBuilder.Build(
+                apiSurface,
+                bodyIndex,
+                jsonInputContractIdentity:
+                    TsJsExport.JsExportContractIdentity.Api);
 
     private static (ApiSurface Surface, LibraryBodyIndex BodyIndex)
         ExtractFixtureSurfaceWithWireContracts(string path)
@@ -1287,10 +1297,10 @@ public sealed class JsonWireContractResolverTests
         exports.JsExportJsonInputDeclarations.Add(declaration);
 
         ILInspector.JsExportSurface.JsExportSurface declared =
-            JsExportSurfaceBuilder.Build(apiSurface, bodyIndex);
+            BuildWithJsonInputContract(apiSurface, bodyIndex);
         exports.JsExportJsonInputDeclarations.Clear();
         ILInspector.JsExportSurface.JsExportSurface inferred =
-            JsExportSurfaceBuilder.Build(apiSurface, bodyIndex);
+            BuildWithJsonInputContract(apiSurface, bodyIndex);
         declared = SelectFunction(
             declared,
             nameof(JsonInputExports.RenameWidget));
@@ -1364,6 +1374,25 @@ public sealed class JsonWireContractResolverTests
     }
 
     [Fact]
+    public void Build_RejectsJsonInputWithoutTrustedContractIdentity()
+    {
+        var (apiSurface, bodyIndex) =
+            ExtractFixtureSurfaceWithWireContracts(
+                typeof(JsonInputExports).Assembly.Location);
+
+        UnsupportedJsExportSurfaceException exception =
+            Assert.Throws<UnsupportedJsExportSurfaceException>(
+                () => JsExportSurfaceBuilder.Build(
+                    apiSurface,
+                    bodyIndex));
+
+        Assert.Contains(
+            "trusted contract assembly identity was not supplied",
+            exception.Message,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void Build_RejectsStaleJsonInputParameterName()
     {
         var (apiSurface, bodyIndex) =
@@ -1381,7 +1410,7 @@ public sealed class JsonWireContractResolverTests
 
         UnsupportedJsExportSurfaceException exception =
             Assert.Throws<UnsupportedJsExportSurfaceException>(
-                () => JsExportSurfaceBuilder.Build(
+                () => BuildWithJsonInputContract(
                     apiSurface,
                     bodyIndex));
 
@@ -1409,7 +1438,7 @@ public sealed class JsonWireContractResolverTests
 
         UnsupportedJsExportSurfaceException exception =
             Assert.Throws<UnsupportedJsExportSurfaceException>(
-                () => JsExportSurfaceBuilder.Build(
+                () => BuildWithJsonInputContract(
                     apiSurface,
                     bodyIndex));
 
@@ -1441,7 +1470,7 @@ public sealed class JsonWireContractResolverTests
 
         UnsupportedJsExportSurfaceException exception =
             Assert.Throws<UnsupportedJsExportSurfaceException>(
-                () => JsExportSurfaceBuilder.Build(
+                () => BuildWithJsonInputContract(
                     apiSurface,
                     bodyIndex));
 
@@ -1473,7 +1502,7 @@ public sealed class JsonWireContractResolverTests
 
         UnsupportedJsExportSurfaceException exception =
             Assert.Throws<UnsupportedJsExportSurfaceException>(
-                () => JsExportSurfaceBuilder.Build(
+                () => BuildWithJsonInputContract(
                     apiSurface,
                     bodyIndex));
 
@@ -1505,7 +1534,7 @@ public sealed class JsonWireContractResolverTests
 
         UnsupportedJsExportSurfaceException exception =
             Assert.Throws<UnsupportedJsExportSurfaceException>(
-                () => JsExportSurfaceBuilder.Build(
+                () => BuildWithJsonInputContract(
                     apiSurface,
                     bodyIndex));
 
@@ -1537,7 +1566,7 @@ public sealed class JsonWireContractResolverTests
 
         UnsupportedJsExportSurfaceException exception =
             Assert.Throws<UnsupportedJsExportSurfaceException>(
-                () => JsExportSurfaceBuilder.Build(
+                () => BuildWithJsonInputContract(
                     apiSurface,
                     bodyIndex));
 
@@ -1572,7 +1601,7 @@ public sealed class JsonWireContractResolverTests
 
         UnsupportedJsExportSurfaceException exception =
             Assert.Throws<UnsupportedJsExportSurfaceException>(
-                () => JsExportSurfaceBuilder.Build(
+                () => BuildWithJsonInputContract(
                     apiSurface,
                     bodyIndex));
 
@@ -1607,7 +1636,7 @@ public sealed class JsonWireContractResolverTests
 
         UnsupportedJsExportSurfaceException exception =
             Assert.Throws<UnsupportedJsExportSurfaceException>(
-                () => JsExportSurfaceBuilder.Build(
+                () => BuildWithJsonInputContract(
                     apiSurface,
                     bodyIndex));
 
@@ -1632,7 +1661,7 @@ public sealed class JsonWireContractResolverTests
 
         UnsupportedJsExportSurfaceException exception =
             Assert.Throws<UnsupportedJsExportSurfaceException>(
-                () => JsExportSurfaceBuilder.Build(
+                () => BuildWithJsonInputContract(
                     apiSurface,
                     bodyIndex));
 
@@ -1970,7 +1999,7 @@ public sealed class JsonWireContractResolverTests
                 includeAll: false);
 
             Assert.Throws<UnsupportedJsExportSurfaceException>(
-                () => JsExportSurfaceBuilder.Build(
+                () => BuildWithJsonInputContract(
                     apiSurface,
                     bodyIndex));
         }
@@ -2066,7 +2095,7 @@ public sealed class JsonWireContractResolverTests
                 includeAll: false);
 
             Assert.Throws<UnsupportedJsExportSurfaceException>(
-                () => JsExportSurfaceBuilder.Build(
+                () => BuildWithJsonInputContract(
                     apiSurface,
                     bodyIndex));
         }

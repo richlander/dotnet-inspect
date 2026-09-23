@@ -1,9 +1,7 @@
 using System.Collections.Immutable;
 using System.Globalization;
-using System.Reflection;
 using ILInspector.Analysis;
 using ILInspector.Metadata;
-using TsJsExport;
 
 namespace ILInspector.JsExportSurface;
 
@@ -19,8 +17,6 @@ public static class JsExportSurfaceBuilder
     const string SystemTextJsonAssemblyName = "System.Text.Json";
     const string UnsupportedContextOptionsReason =
         "serializer context options are unsupported";
-    static readonly ApiAssemblyIdentity s_jsonInputContractIdentity =
-        ContractIdentity();
     readonly record struct JsonWireContextOptions(
         JsonWireNamingPolicy NamingPolicy,
         JsonWireIgnoreCondition DefaultIgnoreCondition,
@@ -40,7 +36,8 @@ public static class JsExportSurfaceBuilder
         IReadOnlyDictionary<ApiTypeReferenceIdentity, ApiType>?
             referencedTypeDefinitions = null,
         IReadOnlyDictionary<ApiType, LibraryBodyIndex>?
-            referencedBodyIndexes = null)
+            referencedBodyIndexes = null,
+        ApiAssemblyIdentity? jsonInputContractIdentity = null)
     {
         var typesByIdentity = surface.Types
             .SelectMany(type =>
@@ -672,7 +669,8 @@ public static class JsExportSurfaceBuilder
                         functions,
                         registeredJsonTypeInfoGetterModes,
                         registeredJsonTypeInfoContextScopeKeys,
-                        registeredJsonTypeInfoShapes);
+                        registeredJsonTypeInfoShapes,
+                        jsonInputContractIdentity);
             for (int index = 0; index < functions.Count; index++)
             {
                 JsExportFunction function = functions[index];
@@ -753,7 +751,8 @@ public static class JsExportSurfaceBuilder
             IReadOnlyDictionary<JsonContextGetterIdentity, string>
                 registeredJsonTypeInfoContextScopeKeys,
             IReadOnlyDictionary<JsonContextGetterIdentity, ApiTypeShape>
-                registeredJsonTypeInfoShapes)
+                registeredJsonTypeInfoShapes,
+            ApiAssemblyIdentity? jsonInputContractIdentity)
     {
         var result =
             new Dictionary<
@@ -770,8 +769,15 @@ public static class JsExportSurfaceBuilder
             in type.JsExportJsonInputDeclarations)
         {
             string location = FormatTypeLocation(type);
+            if (jsonInputContractIdentity is null)
+            {
+                throw new UnsupportedJsExportSurfaceException(
+                    location,
+                    "JsExportJsonInputAttribute cannot be authenticated because "
+                        + "the trusted contract assembly identity was not supplied");
+            }
             if (declaration.AttributeAssembly is not { } attributeAssembly
-                || !attributeAssembly.Equals(s_jsonInputContractIdentity))
+                || !attributeAssembly.Equals(jsonInputContractIdentity))
             {
                 throw new UnsupportedJsExportSurfaceException(
                     location,
@@ -884,22 +890,6 @@ public static class JsExportSurfaceBuilder
                 ]);
         }
         return result;
-    }
-
-    static ApiAssemblyIdentity ContractIdentity()
-    {
-        AssemblyName name =
-            typeof(JsExportJsonInputAttribute).Assembly.GetName();
-        byte[]? publicKeyToken = name.GetPublicKeyToken();
-        return new(
-            name.Name
-                ?? throw new InvalidOperationException(
-                    "TsJsExport.Contracts has no assembly name."),
-            name.Version,
-            name.CultureName,
-            publicKeyToken is { Length: > 0 }
-                ? Convert.ToHexString(publicKeyToken).ToLowerInvariant()
-                : null);
     }
 
     static string FormatWireType(ApiTypeShape shape) =>

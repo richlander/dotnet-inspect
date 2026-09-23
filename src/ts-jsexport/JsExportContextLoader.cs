@@ -26,7 +26,7 @@ internal static class JsExportContextLoader
     const string RootAttributeNamespace = "TsJsExport";
 
     static readonly AssemblyReferenceIdentity s_contractIdentity =
-        ContractIdentity();
+        JsExportContractIdentity.Reference;
     static readonly Encoding s_strictUtf8 =
         new UTF8Encoding(
             encoderShouldEmitUTF8Identifier: false,
@@ -562,19 +562,6 @@ internal static class JsExportContextLoader
         return true;
     }
 
-    static AssemblyReferenceIdentity ContractIdentity()
-    {
-        AssemblyName name = typeof(JsExportRootAttribute).Assembly.GetName();
-        byte[]? token = name.GetPublicKeyToken();
-        return new AssemblyReferenceIdentity(
-            name.Name!,
-            name.Version,
-            name.CultureName,
-            token is { Length: > 0 }
-                ? Convert.ToHexString(token).ToLowerInvariant()
-                : null);
-    }
-
     internal static bool ArtifactNamesCollide(
         string first,
         string second) =>
@@ -694,6 +681,7 @@ internal static class JsExportContextGenerator
             if (!JsExportSurfaceLoader.TryLoad(
                     root.AssemblyPath,
                     searchLocations,
+                    JsExportContractIdentity.Api,
                     toolName,
                     error,
                     out global::ILInspector.JsExportSurface.JsExportSurface?
