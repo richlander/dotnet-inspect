@@ -16,6 +16,25 @@ The model combines five mechanisms:
 `-D`, `-S`, and `-Q` are intentionally capitalized. They form a query namespace that
 is less likely to collide with command-specific lowercase options.
 
+## API visibility and implementation populations
+
+`--all` has one meaning at API boundaries: it widens the ordinary
+public-facing declaration population to include non-public, hidden, and
+obsolete declarations. It is not a general request to analyze every
+implementation body.
+
+Whole-library and other implementation-oriented operations define their own
+complete admitted body population. Library Metrics, implementation Diff, and
+body-derived relationship evidence include private and compiler-generated
+bodies when those bodies belong to the selected implementation population;
+they do not require `--all` for completeness. A follow-up API command may
+still need `--all` to resolve a non-public result identified by an aggregate
+analysis. These are separate gestures with separate contracts.
+
+See [API and implementation population scope](api-population-scope.md) for
+the normative distinction and the boundaries between API visibility,
+implementation completeness, and package-library selection.
+
 ## Verbosity
 
 Verbosity reveals more about the same subject. It must not silently enter
@@ -209,6 +228,20 @@ dotnet-inspect package System.Text.Json -S @Audit
 dotnet-inspect package query Newtonsoft.Json -S @Query
 dotnet-inspect member JsonSerializer Serialize:1 --platform System.Text.Json -S @Calls
 ```
+
+### Command-specific section shortcuts
+
+A command-specific convenience option may contribute one canonical exact
+section selector before ordinary section resolution. The resulting request
+retains the section's exact-selection provenance and follows the same
+composition, validation, producer planning, output, and transport path as the
+equivalent `-S` spelling. An accompanying explicit section selection composes
+normally; the shortcut does not create a second operation or hide the canonical
+section from discovery.
+
+The first focused adoption is `diff --implementation`, equivalent to
+`diff -S "Implementation Diff"`. This does not establish a generic alias
+framework or authorize shortcuts for other sections without focused design.
 
 Selection controls both rendering and data collection. Only producers needed
 by the requested sections should run.

@@ -684,8 +684,22 @@ export function runEntryPoint(
   return $requireRuntime().runMain(mainAssemblyName, args);
 }
 
-export async function queryCloneCandidates(requestJson: string): Promise<BrowserCloneCandidateResult> {
-  const $result = await $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Analysis"]["AnalysisExports"]["QueryCloneCandidates.976702342"](requestJson);
+function $serializeJsonInput(
+  value: unknown,
+  operation: string,
+  parameter: string,
+): string {
+  const json = JSON.stringify(value);
+  if (json === undefined) {
+    throw new TypeError(
+      `${operation} parameter '${parameter}' could not be serialized as JSON.`,
+    );
+  }
+  return json;
+}
+
+export async function queryCloneCandidates(requestJson: BrowserCloneCandidateRequest): Promise<BrowserCloneCandidateResult> {
+  const $result = await $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Analysis"]["AnalysisExports"]["QueryCloneCandidates.976702342"]($serializeJsonInput(requestJson, "DotnetInspect.Web.Interop.Analysis.AnalysisExports.QueryCloneCandidates.976702342", "requestJson"));
   const $parsed: unknown = JSON.parse($result);
   return $parsed as BrowserCloneCandidateResult;
 }

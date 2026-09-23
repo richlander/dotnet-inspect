@@ -5,7 +5,7 @@ producers define the rows and capabilities; Markout renders those shapes after
 dotnet-inspect flags choose which rung you land on. Naming the ladder gives a
 shared vocabulary for the output flags
 (`-S`, `--fields`/`--columns`, `--tsv`/`--jsonl`, `--count`, `-n`/`--rows`,
-`--print`, `--bare`, …) and for deciding what a new flag should
+`--print`, `--raw`, …) and for deciding what a new flag should
 do.
 
 **Document** in this file means a rendered multi-section output shape. A typed
@@ -16,7 +16,7 @@ may render through that shape, but the two terms are not equivalent.
 Default-renderer policy is owned by
 [Native type and source defaults](rendering-model.md#native-type-and-source-defaults).
 In particular, `type`/`member` source payloads do not require or accept
-`--bare`; other content owners retain their existing gestures. Shape selection
+`--raw`; other content owners retain their existing gestures. Shape selection
 and payload acquisition are unchanged by that presentation choice.
 
 The item-limit, projection-role, typed-L2 result, and multi-item print passages
@@ -446,7 +446,7 @@ Serialization never recaptures evidence or projects Share.
 | `--verbose`, `--trace`, `--info`, `--tips` | Retain their stderr-only role. | Retain their ordinary role; only the evidence option requests service evidence. |
 | Source, endpoints, subject, API scope, traversal, or other semantic inputs | Retain the operation owner's admission, authorization, and semantic meaning. | Retain the same meaning. |
 | `-S`, `-v`, row/query controls, or `--count` | Admit only when the operation binds their complete effect into its owner-issued service result; reject post-service shaping. | Retain ordinary shaping; semantic inputs still bind the service result. |
-| `--fields`, `--columns`, `--bare`, `--no-headers`, `--print`, `--value`, URL/path projections, or rendered-line clipping | Reject post-service presentation or projection requests. | Retain ordinary primary-output behavior without shaping the attachment. |
+| `--fields`, `--columns`, `--raw`, `--no-headers`, `--print`, `--value`, URL/path projections, or rendered-line clipping | Reject post-service presentation or projection requests. | Retain ordinary primary-output behavior without shaping the attachment. |
 | `--out <path>` | Require explicit adoption of complete baseline-envelope file output. | Admit an ordinary output destination when it is distinct from the evidence destination. |
 | Discover, schema/query help, or another content operation | Require that operation's own envelope registration. | Require that operation's own evidence registration; never fall through an early ordinary-output return. |
 
@@ -677,9 +677,9 @@ of the ladder families contributes in one of four ways:
 - **Item/range selectors** narrow the rows without changing the shape rung
   (`--where`, `--order-by`, `-n`, `--top`, `--rows`).
 - **Presentation modifiers** change how a selected payload is rendered without
-  changing the shape (`--bare`, `--markdown`, `--json`, `--table`, `--tsv`,
+  changing the shape (`--raw`, `--markdown`, `--json`, `--table`, `--tsv`,
   `--jsonl`, `--plaintext`, `--no-headers`, and graph-supported `--tree` or
-  `--mermaid`). `--bare` is a formatter: it selects the undecorated rendering
+  `--mermaid`). `--raw` is a formatter: it selects the undecorated rendering
   of the selected payload, so it is rejected before acquisition when combined
   with any other explicit format flag (`--json`, `--jsonl`, `--tsv`,
   `--table`, `--markdown`, `--plaintext`, or `--mermaid`).
@@ -1216,7 +1216,7 @@ acquired, is not omitted. Other rows continue, and any failure makes the command
 exit non-zero. Normal text frames every result with typed row identity; JSONL
 and JSON-array output retain that identity in one complete object per row.
 Plain `--json` retains its unary one-object contract and rejects multiple
-selected rows. Unary `--bare` and unstructured `--out` report acquisition or
+selected rows. Unary `--raw` and unstructured `--out` report acquisition or
 transformation failures as diagnostics with no payload envelope.
 
 A printed document is the document the package shipped. Markdown conventions --
@@ -1264,7 +1264,7 @@ requested transformation itself is invalid rather than one row's payload being
 missing or unavailable.
 
 Normal `--print` stdout is a framed, visually encoded projection, even for one
-row. Unary `--bare` removes the frame but remains terminal-safe rather than an
+row. Unary `--raw` removes the frame but remains terminal-safe rather than an
 exact byte-transfer contract. A caller printing a manifest in order to hash or
 diff it uses unary `--out`, which preserves the package bytes exactly,
 including any byte order mark.
@@ -1350,7 +1350,7 @@ is the one payload projection the surface does honor.
 
 Writers report *which* flag they honored rather than merely acknowledging one.
 A writer can be reached for more than one reason — the print writer also serves
-`--bare` — so an untyped signal would let it satisfy an unrelated request and let
+`--raw` — so an untyped signal would let it satisfy an unrelated request and let
 that drop escape.
 
 The projections are mutually exclusive. Two of them cannot both shape one
@@ -1379,7 +1379,7 @@ unchanged. Because the lens owns the shape, its answers are fixed:
   in `--jsonl` — and that placeholder is **not** counted. The count answers *how
   many files did I get content for*, so counting placeholders would report
   matches that did not happen. The placeholder is presentation, which is why
-  `--skip-empty` removes it and `--bare` never emits it: under `--skip-empty` the
+  `--skip-empty` removes it and `--raw` never emits it: under `--skip-empty` the
   rendered rows and the count agree exactly. This is the one place the count is
   deliberately smaller than the default render's row total.
 - An opaque lens payload refuses `--print`, `--value`, `--urls`, and `--paths`
@@ -1442,7 +1442,7 @@ longer be exact. Every refused export is decided before opening its destination:
 an absent path stays absent, and an existing file remains byte-for-byte
 unchanged.
 
-The historical target gives `--print` unary `--bare` and `--out` companions;
+The historical target gives `--print` unary `--raw` and `--out` companions;
 this is not a universal statement of implemented command options. In particular,
 the adopted `type`/`member` source paths use native payload output by default
 and explicit `--markdown` for document presentation, as defined by the rendering
@@ -1475,7 +1475,7 @@ These are gated by `PayloadLensContainmentTests`, which runs the built CLI over
 a package whose README carries bidi, ESC, and LS hazards and asserts encoded
 stdout, contained stderr, parsed JSON payload fidelity, and exact `--out`
 export. `PackageContentOutput_ContainsNoLiveControlsOnStdoutAndPreservesExplicitFileExport`
-gates both framed and `--bare` single-file content export with a UTF-16 payload
+gates both framed and `--raw` single-file content export with a UTF-16 payload
 that has no trailing newline. The target
 `MultiPrintFrameFieldsAreContained` gate applies the same adversarial coverage
 to every `--print` frame field, and `MultiPrintPayloadCannotForgeFrames` covers
@@ -1513,8 +1513,8 @@ not a rendering of the service envelope.
 | `-n N --lines` | keep the first N lines of the rendered report, or of each multi-print payload |
 | `-n N --lines --head` | keep the first N lines with the default direction explicit |
 | `-n N --tail-lines` | keep the last N lines; sugar for `--lines --tail` |
-| `--bare` | render the selected payload without document decoration; multi-item print rejects it because framing carries row identity |
-| `--plaintext` | render a whole-document plain-text view; distinct from `--bare` |
+| `--raw` | render the selected payload without document decoration; multi-item print rejects it because framing carries row identity |
+| `--plaintext` | render a whole-document plain-text view; distinct from `--raw` |
 
 `--tsv`/`--jsonl`/`--table` render **one section at a time**, so they require a
 Table-or-narrower selection; multi-section (Document) output stays in Markdown or
@@ -1531,8 +1531,16 @@ project every selected row in that set.
 The CLI owns this preference. It changes emitted links, not the selected shape,
 payload framing, or source acquisition. Structured source-print output keeps
 the selected presentation URL in its `url` field, not the acquisition URL.
-`--bare` still removes document decoration; `--print` still requests content.
-The former `--raw` and `--blob` flags are removed, not retained as aliases.
+`--raw` still removes document decoration; `--print` still requests content.
+The former SourceLink URL-shape flags, a `--raw` that meant the fetchable shape
+and its `--blob` pair, are removed, not retained as aliases. `--raw` now names
+only the decoration modifier. A legacy URL-shape invocation fails visibly
+unless it already selects exactly one payload: with `--print`, with no section,
+or with a section the modifier does not support, the `--print` or modifier
+diagnostic fires. With a single URL section such as `SourceLink: Files`, it takes the new
+meaning and prints undecorated URLs, one per line, with exit 0; the URL values
+are unchanged because the fetchable shape is now the default. That is the one
+accepted reinterpretation, and the release note states it.
 
 Conversion is provider-aware. GitHub raw-content URLs use the existing
 SourceLink browse mapping, and GitHub's `/owner/repo/raw/ref/path` route can
@@ -1724,7 +1732,7 @@ dotnet-inspect library coordinate 0x06000002+0x1 --library My.dll \
 
 # Printable payload: the visually encoded resolved source line
 dotnet-inspect library coordinate 0x06000002+0x1 --library My.dll \
-  -S "Context: Source Location" --print --bare
+  -S "Context: Source Location" --print --raw
 #         return JsonSerializer.Serialize(value, options);
 
 # Singleton count
@@ -1739,7 +1747,7 @@ symbolication evidence, `Context: Member` shows the owning metadata context,
 active exception-handling regions, `Context: Callsite` shows the call-like
 operation at the coordinate, `Context: Return Address` points back to the prior
 call, `--urls` returns the anchored source location, `--paths` returns the PDB
-document path, and `--print --bare` returns the visually encoded payload at the
+document path, and `--print --raw` returns the visually encoded payload at the
 location without the normal frame or gutter. Use `--print --out <path>` instead
 for exact payload export.
 
@@ -1756,7 +1764,7 @@ The stable vocabulary is:
   `--tail` reverses it when the producer can establish a truthful suffix.
 - `--rows` selects absolute stable row ranges and carries no count-only form.
 - Normal `--print` projects every selected row to one framed or structured
-  success/failure result. Unary `--bare` and unstructured `--out` carry no
+  success/failure result. Unary `--raw` and unstructured `--out` carry no
   result envelope. None of these modes invents printability or evaluates new
   addresses.
 - `--lines` changes the `-n` unit to rendered lines. For multi-item print the
@@ -1768,11 +1776,11 @@ The stable vocabulary is:
   1. Any future selector that takes an ordinal joins this rule: the number a
   reader arrives at by counting rows is the number that can be addressed, and no
   later item/range window or projection may renumber it.
-- `--bare` is a presentation modifier: for one selected payload, it strips the
+- `--raw` is a presentation modifier: for one selected payload, it strips the
   surrounding frame and payload gutter.
 - `--prefer-rendered-urls` is a URL-shape preference, not a payload-shape or
   decoration modifier.
-- `--plaintext` remains distinct from `--bare`; if it stays in the product, it is
+- `--plaintext` remains distinct from `--raw`; if it stays in the product, it is
   a whole-document plain-text rendering mode rather than a bare-payload mode.
 - `library coordinate` supplies coordinate input that has no other expression
   and gates the sections it makes meaningful. Coordinate input does not narrow

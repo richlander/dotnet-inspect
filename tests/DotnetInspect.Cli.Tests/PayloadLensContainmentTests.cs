@@ -150,7 +150,7 @@ public class PayloadLensContainmentTests : IDisposable
                 package.Path,
                 ..ReadmeLens,
                 "--body",
-                "--bare",
+                "--raw",
                 "--out",
                 outputPath,
             ]);
@@ -380,7 +380,7 @@ public class PayloadLensContainmentTests : IDisposable
         using var package = HostilePackage.Create();
 
         var (output, error) = RunCli(
-            [package.Path, "-S", "Package skill files", "--print", "--bare", "--tips", "q"]);
+            [package.Path, "-S", "Package skill files", "--print", "--raw", "--tips", "q"]);
 
         Assert.Empty(error);
         Assert.Equal("skill payload\n", output.ReplaceLineEndings("\n"));

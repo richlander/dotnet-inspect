@@ -378,7 +378,7 @@ public class QueryDiscoveryTests
     [InlineData("--schema")]
     [InlineData("--tree")]
     [InlineData("--print")]
-    [InlineData("--bare")]
+    [InlineData("--raw")]
     public async Task QueryRejectsConflictingModes(string flag)
     {
         var result = await Run("library", "/missing/target.dll", "-Q", "Body Shapes", flag);
