@@ -244,16 +244,7 @@ public static class ArgumentPreprocessor
     {
         SetLineWindow(headLines: null, tailLines: null);
 
-        // These options are single-valued (comma/semicolon-separated), so a natural `-S A -S B`
-        // otherwise errors with "expects a single argument". Collapse repeated occurrences into one
-        // ';'-joined token so repeated and separated forms behave the same.
-        // System.CommandLine otherwise parses `--columns=` like a bare `--columns`; split the
-        // inline-empty spelling first so projection validation can distinguish the explicit value.
-        args = ExpandInlineEmptyListOption(args, ColumnsAliases);
-        args = ExpandInlineEmptyListOption(args, FieldsAliases);
-        args = MergeRepeatedListOption(args, SelectAliases, "-S");
-        args = MergeRepeatedListOption(args, ColumnsAliases, "--columns");
-        args = MergeRepeatedListOption(args, FieldsAliases, "--fields");
+        args = NormalizeListOptions(args);
         args = EscapeAtCategoryOptionValues(args, AtCategoryOptionAliases);
         args = EscapeAtCategoryPathValues(args);
         args = RewriteValuedPlatformForSearchCommands(args);
@@ -280,6 +271,20 @@ public static class ArgumentPreprocessor
         }
 
         return args;
+    }
+
+    internal static string[] NormalizeListOptions(string[] args)
+    {
+        // These options are single-valued (comma/semicolon-separated), so a natural `-S A -S B`
+        // otherwise errors with "expects a single argument". Collapse repeated occurrences into one
+        // ';'-joined token so repeated and separated forms behave the same.
+        // System.CommandLine otherwise parses `--columns=` like a bare `--columns`; split the
+        // inline-empty spelling first so projection validation can distinguish the explicit value.
+        args = ExpandInlineEmptyListOption(args, ColumnsAliases);
+        args = ExpandInlineEmptyListOption(args, FieldsAliases);
+        args = MergeRepeatedListOption(args, SelectAliases, "-S");
+        args = MergeRepeatedListOption(args, ColumnsAliases, "--columns");
+        return MergeRepeatedListOption(args, FieldsAliases, "--fields");
     }
 
     internal static int FindFirstPositionalArgument(

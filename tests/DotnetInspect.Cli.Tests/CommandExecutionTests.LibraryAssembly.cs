@@ -77,7 +77,7 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Library_FixedOverviewCountValidatesFieldProjection()
+    public async Task Library_FixedOverviewCountValidatesFieldsBeforeCardinality()
     {
         var invalid = await RunAppAsync(
             "library", TestAssemblyPath,
@@ -90,9 +90,10 @@ public partial class CommandExecutionTests
         Assert.Empty(invalid.Output);
         Assert.Contains("NoSuchField", invalid.Error);
 
-        Assert.Equal(0, valid.Exit);
-        Assert.Empty(valid.Error);
-        Assert.Contains("| Library Info | 1 |", valid.Output);
+        Assert.Equal(1, valid.Exit);
+        Assert.Empty(valid.Output);
+        Assert.Contains("Library Info", valid.Error);
+        Assert.Contains("scalar", valid.Error);
     }
 
     [Fact]
@@ -112,10 +113,10 @@ public partial class CommandExecutionTests
 
             Assert.Equal(1, libraryExit);
             Assert.Empty(libraryOutput);
-            Assert.Contains("exactly one", libraryError);
+            Assert.Contains("exactly", libraryError);
             Assert.Equal(1, packageExit);
             Assert.Empty(packageOutput);
-            Assert.Contains("exactly one", packageError);
+            Assert.Contains("exactly", packageError);
         }
         finally
         {
@@ -124,60 +125,19 @@ public partial class CommandExecutionTests
     }
 
     /// <summary>
-    /// Bare <c>-S</c> is a selection, so <c>--count</c> over it is well-defined (#3547). The
-    /// curated route carries that selection as a flag rather than as an include set, so this also
-    /// gates that the <c>--count</c> requirement reads the selection and not just the set.
+    /// Bare <c>-S</c> includes scalar Library Info, so the overview cannot be treated as a row
+    /// population merely because its renderer also emits inventory sections.
     /// </summary>
     [Fact]
-    public async Task Library_BareSelectCount_EmitsFixedOverviewMap()
+    public async Task Library_BareSelectCount_RejectsScalarOverview()
     {
         var (exit, output, error) = await RunAppAsync(
             "library", "System.Text.Json", "-S", "--count", "--tips", "q");
 
-        Assert.Equal(0, exit);
-        Assert.Empty(error);
-        Assert.Contains("| Section | Count |", output);
-
-        var expected = LibrarySections.CreatePipeline().BareSelectSectionNames;
-        Assert.True(expected.Length > 1, "The overview must name several sections for a map to be the right answer.");
-        foreach (var section in expected)
-            Assert.Contains($"| {section} |", output);
-    }
-
-    /// <summary>
-    /// The gate for <see cref="SectionPipeline{TModel}.BareSelectSectionNames"/>: the map has to
-    /// describe the render bare <c>-S</c> produces, not some adjacent set. Every section of that
-    /// pipeline renders rows for this assembly, so the two sets must match exactly - comparing the
-    /// map against the pipeline property instead would assert nothing, because that property is
-    /// what a wrong answer here would come from. The requested-but-empty case, where the map
-    /// legitimately carries a row the render does not, is covered by
-    /// <c>Package_BareSelectCount_EmitsFixedOverviewMapIncludingEmptySections</c>.
-    /// </summary>
-    [Fact]
-    public async Task Library_BareSelectCount_MapDescribesTheBareSelectRender()
-    {
-        var (renderExit, renderOutput, _) = await RunAppAsync(
-            "library", "System.Text.Json", "-S", "--tips", "q");
-        Assert.Equal(0, renderExit);
-
-        var rendered = renderOutput.ReplaceLineEndings("\n").Split('\n')
-            .Where(line => line.StartsWith("## ", StringComparison.Ordinal))
-            .Select(line => line[3..].Trim())
-            .ToList();
-        Assert.True(rendered.Count > 1, "The overview must render several sections for a map to be the right answer.");
-
-        var (countExit, countOutput, _) = await RunAppAsync(
-            "library", "System.Text.Json", "-S", "--count", "--tips", "q");
-        Assert.Equal(0, countExit);
-
-        var mapped = countOutput.ReplaceLineEndings("\n").Split('\n')
-            .Where(line => line.StartsWith("| ", StringComparison.Ordinal))
-            .Select(line => line.Split('|')[1].Trim())
-            .Where(name => name.Length > 0 && name != "Section" && !name.StartsWith('-'))
-            .ToList();
-
-        Assert.Equal(mapped.Distinct().Count(), mapped.Count);
-        Assert.Equal(rendered.Order(), mapped.Order());
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains("Library Info", error);
+        Assert.Contains("scalar", error);
     }
 
     [Fact]
@@ -256,6 +216,7 @@ public partial class CommandExecutionTests
             var (exit, output, error) = await RunAppAsync(
                 "library", "Test.Tool.dll", "--package", packagePath, "-S", "Library Info");
 
+            Assert.Empty(error);
             Assert.Equal(0, exit);
             Assert.Contains("# Test.Tool.dll", output);
             Assert.Contains("| Name | DotnetInspect.Cli.Tests |", output);
@@ -276,6 +237,7 @@ public partial class CommandExecutionTests
             var (exit, output, error) = await RunAppAsync(
                 "library", "Test.Tool.dll", "--package", packagePath, "-S", "Library Info");
 
+            Assert.Empty(error);
             Assert.Equal(0, exit);
             Assert.Contains("# Test.Tool.dll", output);
             Assert.Contains("| Name | DotnetInspect.Cli.Tests |", output);
@@ -2505,7 +2467,10 @@ public partial class CommandExecutionTests
         Assert.Contains("@Audit (category)", output);
         Assert.Contains("@Performance (category)", output);
         Assert.Contains(
-            "   ├─ References\n   │  ├─ Name (column)",
+            "├─ References [library/sections/references]",
+            output);
+        Assert.Contains(
+            "├─ Name (column) [library/sections/references/items/column/name]",
             output.ReplaceLineEndings("\n"));
         Assert.DoesNotContain("(opt-in)", output);
         Assert.DoesNotContain("(verbose)", output);

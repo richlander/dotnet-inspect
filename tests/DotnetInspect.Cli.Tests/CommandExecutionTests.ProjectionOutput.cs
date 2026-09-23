@@ -440,6 +440,7 @@ public partial class CommandExecutionTests
                 "implements",
                 "library",
                 "library coordinate",
+                "library query",
                 "member",
                 "package",
                 "package activity",
@@ -670,7 +671,7 @@ public partial class CommandExecutionTests
 
         AssertProjectedProperties(projected, ["name"]);
         AssertProjectedProperties(wildcard, ["name"]);
-        AssertProjectedProperties(allColumns, ["name", "kind"]);
+        AssertProjectedProperties(allColumns, ["name", "kind", "path"]);
         AssertProjectedProperties(overlapping, ["name"]);
 
         Assert.Equal(1, invalid.Exit);

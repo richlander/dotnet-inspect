@@ -937,8 +937,8 @@ public partial class CommandExecutionTests
             "-t", "JsonReader",
             "--rows", "2..", "--count", "--tips", "q");
 
-        Assert.Equal(0, alias.Exit);
         Assert.Empty(alias.Error);
+        Assert.Equal(0, alias.Exit);
         Assert.Equal("1", alias.Output.Trim());
         Assert.Equal(0, typeSugar.Exit);
         Assert.Empty(typeSugar.Error);
@@ -1470,8 +1470,8 @@ public partial class CommandExecutionTests
                 "--paths",
                 "--tips", "q");
 
-            Assert.Equal(0, alias.Exit);
             Assert.Empty(alias.Error);
+            Assert.Equal(0, alias.Exit);
             Assert.Equal("README.md", alias.Output.Trim());
             Assert.Equal(0, path.Exit);
             Assert.Empty(path.Error);
@@ -3752,7 +3752,7 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Package_MultiplePackages_FixedOverviewCountIncludesPackageFiles()
+    public async Task Package_MultiplePackages_FixedOverviewCountIncludesReadmeFiles()
     {
         var (firstPackage, firstDir) =
             CreateLocalReadmePackage(
@@ -3775,8 +3775,8 @@ public partial class CommandExecutionTests
 
             Assert.Equal(0, exit);
             Assert.Empty(error);
-            Assert.Contains("| Package nuspec file | 2 |", output);
             Assert.Contains("| Package README file | 2 |", output);
+            Assert.DoesNotContain("| Package nuspec file |", output);
         }
         finally
         {

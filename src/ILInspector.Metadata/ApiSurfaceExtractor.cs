@@ -764,14 +764,15 @@ public static partial class ApiSurfaceExtractor
         TypeResolutionCatalog catalog,
         IAssemblyBindingPolicy bindingPolicy,
         ApiSurfaceExtractionScope scope,
-        ApiSurfaceExtractionBounds bounds)
+        ApiSurfaceExtractionBounds bounds,
+        bool includeCompilerGenerated = false)
     {
         ArgumentNullException.ThrowIfNull(source);
         ArgumentNullException.ThrowIfNull(catalog);
         ArgumentNullException.ThrowIfNull(bindingPolicy);
         return ExtractBoundedCore(
             peReader, scope, bounds,
-            typesOnly: false, includeCompilerGenerated: false,
+            typesOnly: false, includeCompilerGenerated,
             source, catalog, bindingPolicy);
     }
 

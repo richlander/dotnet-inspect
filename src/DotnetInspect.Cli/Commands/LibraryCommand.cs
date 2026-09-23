@@ -163,7 +163,8 @@ public partial class LibraryCommand
                     cancellationToken)
                 .ConfigureAwait(false);
         }
-        if (source.Selector is SourceSelector.PackageSource
+        if (options.CoordinateRequest is null
+            && source.Selector is SourceSelector.PackageSource
             && (options.WorkspacePacket is not null
                 || options.NamesakeLibrary
                 || string.IsNullOrWhiteSpace(options.AssemblyName)
@@ -617,21 +618,6 @@ public partial class LibraryCommand
                 : [],
         };
 
-        if (!IsAllTfmPackageSelection(options)
-            && LibrarySectionCardinality.ValidateExactTerminals(
-                options.Select,
-                options.SelectDefault,
-                options.IncludeSections,
-                options.FixedOverview,
-                options.Verbosity,
-                options.Count,
-                options.Rows is not null,
-                options.Discover is not null) is { } cardinalityError)
-        {
-            CommandError.Write(cardinalityError);
-            return 1;
-        }
-
         if (options.JsonOutput
             && !options.Count
             && options.IncludeSections is { Count: > 0 }
@@ -901,6 +887,22 @@ public partial class LibraryCommand
                 options.Fields,
                 options.Columns))
         {
+            return 1;
+        }
+
+        if (options.CoordinateRequest is null
+            && !IsAllTfmPackageSelection(options)
+            && LibrarySectionCardinality.ValidateExactTerminals(
+                options.Select,
+                options.SelectDefault,
+                options.IncludeSections,
+                options.FixedOverview,
+                options.Verbosity,
+                options.Count,
+                options.Rows is not null,
+                options.Discover is not null) is { } cardinalityError)
+        {
+            CommandError.Write(cardinalityError);
             return 1;
         }
 
@@ -2551,7 +2553,7 @@ public partial class LibraryCommand
         return true;
     }
 
-    private static void ApplyLibraryEcosystemDependencies(
+    internal static void ApplyLibraryEcosystemDependencies(
         LibraryInspection inspection,
         LibraryInspectionSubject subject,
         bool wantsEcosystemDependencies,
@@ -2568,18 +2570,24 @@ public partial class LibraryCommand
         }
         if (subject.AssemblyReference is not { } assembly)
         {
-            CommandError.WriteWarning(
-                "Library ecosystem recognition is unavailable because the "
-                + "selected input is not an assembly.");
+            if (discloseEmptyDetailDiagnostics)
+            {
+                CommandError.WriteWarning(
+                    "Library ecosystem recognition is unavailable because the "
+                    + "selected input is not an assembly.");
+            }
             return;
         }
         if (!TryCreateExactLibrarySourceCoordinate(
                 assembly,
                 out ExactLibrarySourceCoordinate? source))
         {
-            CommandError.WriteWarning(
-                "Library ecosystem recognition is unavailable because the "
-                + "selected source does not have an exact Library coordinate.");
+            if (discloseEmptyDetailDiagnostics)
+            {
+                CommandError.WriteWarning(
+                    "Library ecosystem recognition is unavailable because the "
+                    + "selected source does not have an exact Library coordinate.");
+            }
             return;
         }
 
@@ -2670,7 +2678,7 @@ public partial class LibraryCommand
         return false;
     }
 
-    private static bool RequiresLibraryEcosystemDiagnosticDisclosure(
+    internal static bool RequiresLibraryEcosystemDiagnosticDisclosure(
         LibraryOptions options) =>
         options.IncludeSections is { } sections
         && sections.Contains(SectionNames.EcosystemDependencies)
@@ -4578,9 +4586,11 @@ public partial class LibraryCommand
         return ([selectedPath], extractPath, tempDir, nupkgPath, resolvedPackageName, resolvedPackageVersion);
     }
 
-    private sealed record ToolPayloadResolution(PackageExtractionResult? Result, string? Error);
+    internal sealed record ToolPayloadResolution(
+        PackageExtractionResult? Result,
+        string? Error);
 
-    private static async Task<ToolPayloadResolution> TryResolveToolPayloadPackageAsync(
+    internal static async Task<ToolPayloadResolution> TryResolveToolPayloadPackageAsync(
         PackageExtractionResult package,
         PackageReferenceTarget originalPackageTarget,
         NuGetSourceOptions? sourceOptions,

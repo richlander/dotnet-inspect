@@ -32,11 +32,8 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Type_SelectWithColumnNotShownAtVerbosity_ReturnsError()
+    public async Task Type_SelectWithSignatureColumn_RendersProjection()
     {
-        // Signature is valid in the static schema but does not render at the default
-        // verbosity. The active table shape has no matching column, so strict projection
-        // returns an error.
         var options = new TypeOptions
         {
             PlatformAssembly = "System.Text.Json",
@@ -45,11 +42,13 @@ public partial class CommandExecutionTests
             Columns = ["Signature"]
         };
 
-        var (exit, _, error) = await ConsoleCapture.RunAsync(
+        var (exit, output, error) = await ConsoleCapture.RunAsync(
             () => TypeCommand.ExecuteAsync(options));
 
-        Assert.Equal(1, exit);
-        Assert.Contains("No columns matched projection: Signature", error);
+        Assert.Equal(0, exit);
+        Assert.Contains("| Signature |", output);
+        Assert.DoesNotContain("not found", error);
+        Assert.DoesNotContain("no data", error);
     }
 
     [Fact]

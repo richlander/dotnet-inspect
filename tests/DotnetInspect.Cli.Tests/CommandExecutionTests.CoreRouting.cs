@@ -1497,7 +1497,7 @@ public partial class CommandExecutionTests
         [
             target,
             "-t",
-            "5",
+            target,
             "--all",
             "-S",
             "Type Info",

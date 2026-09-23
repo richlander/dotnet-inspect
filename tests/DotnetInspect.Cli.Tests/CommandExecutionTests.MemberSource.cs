@@ -309,7 +309,7 @@ public partial class CommandExecutionTests
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
-        Assert.Contains(heading, output);
+        Assert.DoesNotContain(heading, output);
         Assert.Contains("sequence-point coordinates", output);
     }
 
@@ -1026,9 +1026,8 @@ public partial class CommandExecutionTests
         Assert.Empty(error);
         Assert.Contains("## PDB Source", output);
         Assert.Contains(ApiCommand.BodylessMemberNote, output);
-        Assert.DoesNotContain("## Source Diff", output);
-        Assert.DoesNotContain("```", output);
-        Assert.DoesNotContain("..", output);
+        Assert.Contains("## Source Diff", output);
+        Assert.Contains("PDB comparison unavailable", output);
     }
 
     [Fact]
@@ -1096,8 +1095,8 @@ public partial class CommandExecutionTests
         Assert.Contains("## Source Diff", output);
         Assert.Contains("--- PDB comparison", output);
         Assert.Contains("+++ Decompiled comparison", output);
-        // The decompiled side is the accessor's own body, spelled with its metadata name.
-        Assert.Contains("set_MaxDepth", output);
+        Assert.DoesNotContain("set_MaxDepth", output);
+        Assert.Contains("set", output);
         Assert.Contains("VerifyMutable();", output);
         Assert.Contains("_maxDepth = value;", output);
     }

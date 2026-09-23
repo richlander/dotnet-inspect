@@ -643,7 +643,7 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Type_SingleType_TypeLimitDoesNotRestrictShapeMembers()
+    public async Task Type_SingleType_MatchingTypeFilterDoesNotRestrictShapeMembers()
     {
         var (exit, output, error) = await RunAppAsync(
             "type",
@@ -651,7 +651,7 @@ public partial class CommandExecutionTests
             "--platform",
             "System.Private.CoreLib",
             "-t",
-            "1",
+            "System.IO.MemoryStream",
             "--tips",
             "q");
 

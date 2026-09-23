@@ -33,8 +33,8 @@ public partial class CommandExecutionTests
             "library", "coordinate", "0x06000001+0x0",
             "--platform", "System.Text.Json", "--tips", "q");
 
-        Assert.Equal(0, exit);
         Assert.Empty(error);
+        Assert.Equal(0, exit);
         Assert.Contains("## Context: Source Location", output);
         Assert.Contains("| Field | Value |", output);
         Assert.Contains("| Method | System.HexConverter.FromChar |", output);
@@ -63,8 +63,8 @@ public partial class CommandExecutionTests
             "--tips",
             "q");
 
-        Assert.Equal(0, exit);
         Assert.Empty(error);
+        Assert.Equal(0, exit);
         Assert.Contains("## Context: Member", output);
         Assert.Contains(nameof(SemanticFactsFixture.AllSignals), output);
     }
@@ -206,8 +206,8 @@ public partial class CommandExecutionTests
                 "--tips",
                 "q");
 
-            Assert.Equal(0, exit);
             Assert.Empty(error);
+            Assert.Equal(0, exit);
             Assert.Contains("## Context: Member", output);
             Assert.Contains(nameof(SemanticFactsFixture.AllSignals), output);
         }
@@ -258,8 +258,8 @@ public partial class CommandExecutionTests
                 "--tips",
                 "q");
 
-            Assert.Equal(0, exit);
             Assert.Empty(error);
+            Assert.Equal(0, exit);
             Assert.Contains("# Alternate.dll (net11.0)", output);
             Assert.Contains("| Assembly | ILInspector.Metadata |", output);
             Assert.Contains(
@@ -1955,8 +1955,8 @@ public partial class CommandExecutionTests
             "library", "coordinate", "0x06000001+0x0",
             "--platform", "System.Text.Json", "-S", "Context: Member", "--tips", "q");
 
-        Assert.Equal(0, exit);
         Assert.Empty(error);
+        Assert.Equal(0, exit);
         Assert.Contains("## Context: Member", output);
         Assert.Contains("| Type | System.HexConverter |", output);
         Assert.Contains("| Type Kind | class |", output);

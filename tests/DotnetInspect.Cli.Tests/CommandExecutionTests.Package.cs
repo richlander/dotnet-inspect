@@ -550,7 +550,7 @@ public partial class CommandExecutionTests
     [InlineData(
         "Package.That.Must.Not.Resolve",
         "--tree",
-        "--tree requires exactly one tree-shaped section (-S Dependencies).")]
+        "--tree requires exactly '-S \"Dependency Hierarchy\"'.")]
     [InlineData(
         "Newtonsoft.Json@1.0.0..2.0.0",
         null,
@@ -872,7 +872,9 @@ public partial class CommandExecutionTests
             // A projection is a document-wide allow list. Tables that do not expose a requested
             // column contribute nothing; the request succeeds when another selected table does.
             var (normalExit, normalOutput, normalError) = await RunAppAsync(
-                "package", packagePath, "-v:n", "--columns", "TFM", "--tips", "q");
+                "package", packagePath,
+                "-S", "Package Info,Target Frameworks",
+                "--columns", "TFM", "--tips", "q");
 
             Assert.Equal(0, normalExit);
             Assert.Empty(normalError);
@@ -1506,13 +1508,17 @@ public partial class CommandExecutionTests
                 "--count", "--tips", "q");
 
             Assert.Equal(0, rendered.Exit);
-            Assert.Empty(rendered.Error);
+            Assert.Contains(
+                "Warning: ecosystem-dependency-recognition.",
+                rendered.Error);
             Assert.Contains("## Dependencies", rendered.Output);
             Assert.Contains("## Dependency Hierarchy", rendered.Output);
             Assert.Contains("test.dependency.shared", rendered.Output);
 
             Assert.Equal(0, counted.Exit);
-            Assert.Empty(counted.Error);
+            Assert.Contains(
+                "Warning: ecosystem-dependency-recognition.",
+                counted.Error);
             Assert.Contains("| Dependencies | 2 |", counted.Output);
             Assert.Contains("| Dependency Hierarchy | 4 |", counted.Output);
         }
@@ -1586,7 +1592,8 @@ public partial class CommandExecutionTests
         Assert.All(
             bareSections,
             section => Assert.Contains(section, output));
-        Assert.DoesNotContain("Dependencies", output);
+        Assert.DoesNotContain("\n├─ Dependencies", output);
+        Assert.DoesNotContain("\n├─ Dependency Hierarchy", output);
 
         var synthesized = await RunAppAsync(
             "package", "-D", "--schema", "-S",
@@ -2038,7 +2045,7 @@ public partial class CommandExecutionTests
 
             Assert.Equal(0, exit);
             Assert.Contains("## Package Info", output);
-            Assert.Contains("## Manifest", output);
+            Assert.DoesNotContain("## Manifest", output);
             // Package-growing sections stay out of the fixed overview...
             Assert.DoesNotContain("## Dependencies", output);
             Assert.DoesNotContain("## Target Frameworks", output);
@@ -2486,8 +2493,8 @@ public partial class CommandExecutionTests
                     row => row.GetProperty("section").GetString()!,
                     row => row.GetProperty("count").GetInt32(),
                     StringComparer.Ordinal);
-            Assert.Equal(2, counts["Package nuspec file"]);
             Assert.Equal(2, counts["Package README file"]);
+            Assert.DoesNotContain("Package nuspec file", counts.Keys);
         }
         finally
         {
@@ -3743,6 +3750,7 @@ public partial class CommandExecutionTests
                     "Version",
                     "Type",
                     "Package Size (compressed)",
+                    "Ecosystem Dependency Status",
                     "Built",
                     "Source",
                     "Authors",
@@ -3751,6 +3759,7 @@ public partial class CommandExecutionTests
                     "Version",
                     "Type",
                     "Package Size (compressed)",
+                    "Ecosystem Dependency Status",
                     "Built",
                     "Source",
                     "Authors",
@@ -3968,7 +3977,7 @@ public partial class CommandExecutionTests
                     row => row.GetProperty("section").GetString()!,
                     row => row.GetProperty("count").GetInt32(),
                     StringComparer.Ordinal);
-            Assert.Equal(2, counts["Package nuspec file"]);
+            Assert.Equal(2, counts["Package README file"]);
             Assert.Equal(6, counts["Signature"]);
         }
         finally
