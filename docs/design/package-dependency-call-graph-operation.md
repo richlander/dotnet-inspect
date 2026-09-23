@@ -187,10 +187,12 @@ The same live participant mapping classifies external-focus membership. A graph
 node uniquely owned by the focused root Package is a hub node, including nodes
 from another implementation assembly in that Package. A node uniquely owned by
 another admitted Package is external. Absent or ambiguous Package ownership is
-unknown. Classification uses exact participant identity when available. When
-exact identity is unavailable, a simple assembly name classifies ownership only
-when every matching participant belongs to one Package Root. Graph labels,
-route order, and detached display coordinates are not ownership evidence.
+unknown. Classification prefers the graph node's unambiguous resolved
+definition assembly identity. When definition identity is unavailable, an exact
+call-site assembly reference classifies the node only when the terminal
+type-resolution identity names the same assembly. A conflicting facade and
+terminal identity, simple assembly name, graph label, route order, or detached
+display coordinate does not establish ownership.
 
 ## Call-graph projection
 
@@ -303,7 +305,8 @@ Release gates cover:
     uniquely owned dependency Package node is external;
 11. a dependency boundary call enters the external-focused graph without
     retaining dependency-internal continuation, while an unknown endpoint
-    remains visibly unclassified;
+    remains visibly unclassified, including a facade reference whose forwarded
+    definition ownership is incomplete;
 12. route and graph evidence remain usable after source-operation and
    package-role cleanup;
 13. cleanup failure cannot return a success-shaped graph and remains
