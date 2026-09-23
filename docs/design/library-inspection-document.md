@@ -20,6 +20,12 @@ The successful content is one `LibraryDocument`. The document is singular
 because it describes one exact Library. Requested Type populations remain
 nested results inside that document; they do not create a `TypesDocument`.
 
+The Type population is a declaration population owned by that exact Library.
+It contains local Type definitions and AssemblyRef-terminated forwarded Type
+declarations advertised by the Library image. A forwarded declaration remains
+a forwarder row; Library inspection does not replace it with a target
+definition from another Library.
+
 This owner composes existing contracts without redefining them:
 
 - [Library ownership and borrowing](library-ownership-and-borrowing.md) owns
@@ -27,9 +33,16 @@ This owner composes existing contracts without redefining them:
   snapshots, and retirement.
 - [Library-Metadata correspondence](library-metadata-correspondence.md) owns
   owner-attested Library content and bounded Metadata evidence.
-- [Assembly inspection query](assembly-inspection-query.md) owns compact public
-  Type inventory membership, exact Count, Type rows, facets, and extraction
-  bounds.
+- [API and implementation population scope](api-population-scope.md) owns the
+  public-facing declaration default and explicit visibility widening.
+- [Type forwarding resolution](type-forwarding-resolution.md#detached-declaration-inventory)
+  owns detached single-image declaration discovery, structured Type names,
+  `Definition`, `Forwarder`, and `ModuleExport` kinds, public-surface facts,
+  and the rule that discovery does not bind forwarding targets.
+- [Assembly inspection query](assembly-inspection-query.md) owns the existing
+  compact definition-only API inventory and Count optimization. That
+  optimization does not define Library population membership when the exact
+  Library advertises forwarded declarations.
 - [Section cardinality](section-cardinality.md) owns scalar and inventory
   terminal semantics for resolved sections.
 - [Query-space composition](query-space-composition.md) owns population
@@ -267,6 +280,13 @@ Type kind and accessibility are initial facets. Namespace and other facets may
 be adopted only after their query semantics, cost, and producer evidence are
 owned.
 
+A declaration-kind facet distinguishes local definitions from forwarders.
+Type kind and definition-local accessibility apply only to definitions; a
+forwarder does not acquire either fact from its unresolved target. A Type-kind
+facet therefore selects definitions of that kind rather than silently binding
+forwarders or guessing their target kind. The public-surface facet can select
+both definitions and forwarders from the owner-issued declaration inventory.
+
 A facet selects a population before terminal execution. A homogeneous
 `Accessibility = Private` population does not require every rendered row to
 repeat `Private`. Multiple selected facet values remain a request-level set or
@@ -290,11 +310,32 @@ LibraryTypePopulationResult
 ```
 
 Count and Rows execute the same membership predicate. They cannot disagree
-about accessibility, kind, hidden/compiler-generated admission, Library
-snapshot, or completion.
+about declaration kind, public-surface or accessibility selection, Type kind,
+hidden/compiler-generated admission, Library snapshot, or completion.
 
 Count is exact or visibly non-successful. It never reports retained Rows,
 current page length, a prefix, or zero after failure.
+
+The initial Count preserves disjoint declaration evidence:
+
+```text
+LibraryTypePopulationCount
+  total declarations
+  definitions
+  forwarders
+  definition-kind Counts
+    classes
+    structs
+    interfaces
+    enums
+    delegates
+```
+
+`total declarations = definitions + forwarders`. Definition-kind Counts sum
+to `definitions`; they do not classify forwarders by opening or inferring from
+their targets. A definition-only Count kernel may be used only when the same
+single-image declaration evidence proves that no admitted forwarder changes
+the requested population.
 
 Rows contains one bounded ordered segment and either terminal completion or
 source continuation. Continuation is bound to the complete population
@@ -314,10 +355,23 @@ LibraryTypeShape
   stable Type identity
   display name
   namespace
-  kind
-  accessibility
+  declaration kind
+  definition Type kind, when locally defined
+  definition-local accessibility, when locally defined
+  public-surface fact
+  forwarding evidence, when forwarded
   requested Member Count, when requested
 ```
+
+Forwarding evidence is resource-free and owner-issued. It retains the
+structured Type name, ordered `ExportedType` occurrence chain, exact terminal
+`AssemblyReferenceIdentity`, and correspondence to the document's exact
+Library and MVID. It contains no target candidate, target bytes, opener,
+binding decision, or terminal Type definition.
+
+Member Count is not zero for a forwarder. The nested measurement is
+not-applicable or otherwise visibly non-successful until a separate exact-Type
+operation resolves a supplying definition.
 
 Intrinsic facet values remain available to structured consumers even when a
 renderer suppresses redundant columns for a homogeneous result group.
@@ -334,14 +388,28 @@ graphs.
 The Metadata path may:
 
 - read assembly identity and MVID once;
+- read the bounded detached declaration inventory from the borrowed Library
+  image without opening forwarding targets;
 - answer raw table Counts from table headers where that population owns those
   semantics;
-- scan lightweight Metadata flags for requested type-kind and accessibility
-  censuses;
+- scan lightweight Metadata flags for declaration-kind, public-surface,
+  definition-kind, and definition-local accessibility censuses;
 - share one membership predicate between Count and Rows;
 - retain stable Type row locators for requested ordering and continuation;
+- probe only requested forwarder Rows for their bounded intra-image
+  `ExportedType` occurrence chain and terminal assembly-reference identity;
 - decode names and row facts only for the requested Rows segment; and
-- compute requested nested Member Counts without materializing Member rows.
+- compute requested nested Member Counts for definitions without materializing
+  Member rows.
+
+It does not invoke a binding policy, acquire another Library, or follow a
+forwarder to a terminal definition. PlatformHouse and Metadata resolution own
+that later operation over an admitted multi-Library population.
+
+The initial Type population does not admit `ModuleExport` as a Definition or
+Forwarder. If one affects requested membership, the corresponding terminal is
+visibly unavailable for an unsupported declaration kind; the producer never
+silently drops or relabels it.
 
 Metadata-token ordering is naturally resumable. Alphabetical or other semantic
 ordering may require a bounded index or complete lightweight census before the
@@ -434,8 +502,10 @@ Adoption is staged through focused slices:
    Library inspection family. Preserve direct-envelope behavior through the
    new count-only plan; do not retain compatibility aliases solely for old
    names.
-3. Implement the first faceted Type Count and bounded Rows population over one
-   exact Library, including requested nested Member Count.
+3. Implement the first faceted Type declaration Count and bounded Rows
+   population over one exact Library. Include local definitions and forwarders,
+   retain forwarding evidence on requested Rows, and compute requested nested
+   Member Count only for definitions.
 4. Define the focused section/document composition, then lower direct,
    PackageHouse, and PlatformHouse CLI gestures to explicit plans while
    preserving not-yet-adopted legacy sections on their existing paths.
@@ -459,10 +529,17 @@ The design and implementation slices require Release gates for:
 - equivalent independently realized Libraries produce equal portable facts and
   population results for equivalent plans;
 - count-only Type census returns no retained Type rows;
+- a real forwarding facade Counts definitions and forwarders without opening a
+  target Library, and its declaration-kind Counts sum to total;
 - bounded Type Rows decode only requested row content and retain exact
   continuation;
 - Count equals the complete joined Rows population for the same binding;
 - accessibility and kind facet Counts agree with their Rows populations;
+- forwarder Rows retain structured names, ordered occurrence chains, exact
+  terminal assembly-reference identities, Library/MVID correspondence, and no
+  opener or target owner;
+- forwarders never receive inferred definition kind, accessibility, terminal
+  definition, or zero Member Count;
 - one request can return several requested Counts without executing
   unrequested Rows;
 - Type rows carry requested Member Count without retaining Member rows;
@@ -496,6 +573,16 @@ Use a real large Library such as installed `System.Private.CoreLib`:
 6. prove no Member rows, unrequested Type populations, or Analysis work were
    retained; and
 7. repeat through CLI and Browser once both hosts adopt the request.
+
+Use installed `System.Runtime` as the forwarding-facade boundary:
+
+1. request the complete public Type declaration Count;
+2. prove local definition and forwarder Counts sum to total;
+3. request bounded forwarder Rows and retain exact structured names,
+   `ExportedType` occurrence chains, and target assembly-reference identities;
+4. prove no target Library, target definition, opener, stream, or resolver
+   escapes or is required; and
+5. show that a requested Member Count on a forwarder is not reported as zero.
 
 The neighboring `System.Text.Json` scenario preserves the current useful
 shape:
@@ -537,5 +624,7 @@ This owner does not define:
 - Browser callback credit or transport batching;
 - available Share before a complete Workspace/request association exists;
 - exact-API or package-surface retirement without focused positive adoption;
-  or
+- cross-Library forwarding resolution, binding policy, terminal Type
+  definitions, or destination projection;
+- module-export population support; or
 - streams or lazy deferred execution inside completed envelopes.
