@@ -148,7 +148,13 @@ public static class DocumentationHouse
 
         ProvisionalOutcome[] provisional =
             new ProvisionalOutcome[requests.Count];
-        var batch = new CompiledXmlBatch(requests);
+        var batch = new CompiledXmlBatch(
+            [
+                .. requests.Select(
+                    request => new CompiledXmlBatchRequest(
+                        request,
+                        operationLease)),
+            ]);
         try
         {
             for (int index = 0; index < requests.Count; index++)
@@ -182,6 +188,187 @@ public static class DocumentationHouse
         }
         return ValueTask.FromResult<
             IReadOnlyList<DocumentationHouseOutcome>>(outcomes);
+    }
+
+    /// <summary>
+    /// Settles compiled or combined requests with one Library lease per
+    /// subject while scanning each selected compiled XML companion once.
+    /// </summary>
+    public static async ValueTask<
+        IReadOnlyList<DocumentationHouseOutcome>>
+        ExecuteManyAsync(
+            IReadOnlyList<DocumentationHouseRequest> requests,
+            IReadOnlyList<LibraryOperationLease> operationLeases,
+            CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(requests);
+        ArgumentNullException.ThrowIfNull(operationLeases);
+        if (requests.Count == 0)
+            throw new ArgumentException(
+                "At least one documentation request is required.",
+                nameof(requests));
+        if (requests.Count != operationLeases.Count)
+        {
+            throw new ArgumentException(
+                "Each documentation request requires one Library operation lease.",
+                nameof(operationLeases));
+        }
+        if (requests.Any(static request => request is null))
+        {
+            throw new ArgumentException(
+                "Documentation requests cannot contain null.",
+                nameof(requests));
+        }
+        if (operationLeases.Any(static lease => lease is null))
+        {
+            throw new ArgumentException(
+                "Documentation operation leases cannot contain null.",
+                nameof(operationLeases));
+        }
+        if (operationLeases.Distinct(
+                ReferenceEqualityComparer.Instance).Count()
+            != operationLeases.Count)
+        {
+            throw new ArgumentException(
+                "Batch documentation operation leases must be unique.",
+                nameof(operationLeases));
+        }
+        if (requests.Any(static request =>
+                !RequestsCompiledXml(request.Demand)))
+        {
+            throw new ArgumentException(
+                "Batch documentation settlement requires compiled XML demand.",
+                nameof(requests));
+        }
+
+        var houseOwnsLease =
+            Enumerable.Repeat(true, requests.Count).ToArray();
+        try
+        {
+            ProvisionalOutcome[] provisional =
+                new ProvisionalOutcome[requests.Count];
+            for (int index = 0; index < requests.Count; index++)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                DocumentationHouseRequest request = requests[index];
+                LibraryOperationLease operationLease =
+                    operationLeases[index];
+                provisional[index] =
+                    ValidateRequest(request, operationLease)!;
+            }
+            var batch = new CompiledXmlBatch(
+                [
+                    .. requests
+                        .Select(
+                            (request, index) => (
+                                Request: request,
+                                Operation: operationLeases[index],
+                                Validation: provisional[index]))
+                        .Where(static item => item.Validation is null)
+                        .Select(
+                            static item =>
+                                new CompiledXmlBatchRequest(
+                                    item.Request,
+                                    item.Operation)),
+                ]);
+            for (int index = 0; index < requests.Count; index++)
+            {
+                if (provisional[index] is null)
+                {
+                    provisional[index] = ExecuteCompiledCore(
+                        requests[index],
+                        operationLeases[index],
+                        cancellationToken,
+                        batch);
+                }
+            }
+
+            var outcomes =
+                new DocumentationHouseOutcome[requests.Count];
+            for (int index = 0; index < requests.Count; index++)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                DocumentationHouseRequest request = requests[index];
+                LibraryOperationLease operationLease =
+                    operationLeases[index];
+                if (provisional[index]
+                    is not CompletedOutcome completed)
+                {
+                    outcomes[index] = CompleteTopLevel(
+                        request,
+                        provisional[index],
+                        HouseSettlement());
+                    continue;
+                }
+
+                if (!RequestsAuthoredSource(request.Demand))
+                {
+                    outcomes[index] = Complete(
+                        request,
+                        completed.Attempt,
+                        authoredSourceAttempt: null,
+                        completed.Work,
+                        HouseSettlement());
+                    continue;
+                }
+
+                DocumentationAuthoredSourceChannelPlan? authoredPlan =
+                    request.Plan.AuthoredSource;
+                IDocumentationAuthoredSourceOperation? authoredOperation =
+                    authoredPlan?.Operation;
+                if (authoredPlan is null || authoredOperation is null)
+                {
+                    outcomes[index] = Complete(
+                        request,
+                        completed.Attempt,
+                        new DocumentationAuthoredSourceAttempt.Unavailable(
+                            DocumentationAuthoredSourceUnavailableKind
+                                .OperationUnavailable,
+                            outcome: null),
+                        completed.Work,
+                        HouseSettlement());
+                    continue;
+                }
+
+                var invocation =
+                    new DocumentationAuthoredSourceOperationInvocation(
+                        authoredPlan.Binding,
+                        authoredPlan.Limits,
+                        request.Plan.Deadline);
+                houseOwnsLease[index] = false;
+                DocumentationAuthoredSourceOperationOutcome authoredOutcome =
+                    await authoredOperation.InvokeAsync(
+                            invocation,
+                            operationLease,
+                            cancellationToken)
+                        .ConfigureAwait(false);
+                cancellationToken.ThrowIfCancellationRequested();
+                DocumentationAuthoredSourceAttempt authoredAttempt =
+                    MapAuthoredAttempt(invocation, authoredOutcome);
+                DocumentationHouseWorkCharge work = new(
+                    completed.Work.ContributionsObserved,
+                    completed.Work.CompiledXmlBytesObserved,
+                    completed.Work.ParsedCompiledXml,
+                    authoredOutcome.Work);
+                outcomes[index] = Complete(
+                    request,
+                    completed.Attempt,
+                    authoredAttempt,
+                    work,
+                    AuthoredSettlement(
+                        authoredOutcome.LeaseSettlement));
+            }
+
+            return outcomes;
+        }
+        finally
+        {
+            for (int index = 0; index < operationLeases.Count; index++)
+            {
+                if (houseOwnsLease[index])
+                    operationLeases[index].Dispose();
+            }
+        }
     }
 
     private static ProvisionalOutcome? ValidateRequest(
@@ -1084,13 +1271,13 @@ public static class DocumentationHouse
 
     private sealed class CompiledXmlBatch
     {
-        private readonly IReadOnlyList<DocumentationHouseRequest> _requests;
+        private readonly IReadOnlyList<CompiledXmlBatchRequest> _requests;
         private readonly Dictionary<
             BatchKey,
             CompiledXmlRead> _reads = [];
 
         internal CompiledXmlBatch(
-            IReadOnlyList<DocumentationHouseRequest> requests) =>
+            IReadOnlyList<CompiledXmlBatchRequest> requests) =>
             _requests = requests;
 
         internal CompiledXmlBatchRead Read(
@@ -1114,23 +1301,25 @@ public static class DocumentationHouse
             var identities = new List<XmlDocMemberIdentity>();
             var seen = new HashSet<string>(StringComparer.Ordinal);
             DateTimeOffset parseDeadline = DateTimeOffset.MinValue;
-            foreach (DocumentationHouseRequest request in _requests)
+            foreach (CompiledXmlBatchRequest paired in _requests)
             {
                 if (TryGetKey(
-                        request,
-                        operationLease,
+                        paired.Request,
+                        paired.OperationLease,
                         out BatchKey? requestKey)
                     && requestKey == key
                     && seen.Add(
-                        request.Subject.CompiledXmlIdentity.Value))
+                        paired.Request.Subject
+                            .CompiledXmlIdentity.Value))
                 {
                     identities.Add(
-                        request.Subject.CompiledXmlIdentity);
+                        paired.Request.Subject
+                            .CompiledXmlIdentity);
                 }
                 if (requestKey == key
-                    && request.Plan.Deadline > parseDeadline)
+                    && paired.Request.Plan.Deadline > parseDeadline)
                 {
-                    parseDeadline = request.Plan.Deadline;
+                    parseDeadline = paired.Request.Plan.Deadline;
                 }
             }
             CompiledXmlBatchRead performed = ReadCompiledXml(
@@ -1204,6 +1393,10 @@ public static class DocumentationHouse
             int MaximumCompiledXmlBytes,
             XmlDocumentationReadLimits XmlReadLimits);
     }
+
+    private sealed record CompiledXmlBatchRequest(
+        DocumentationHouseRequest Request,
+        LibraryOperationLease OperationLease);
 
     private abstract record ProvisionalOutcome(
         DocumentationHouseWorkCharge Work);
