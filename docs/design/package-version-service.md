@@ -10,31 +10,33 @@ of Package Version Selection. It is the design step for
 and 3; adoption by each consumer is a separate slice.
 
 Given one `PackageVersionSelectionRequest`, its declared discovery freshness,
-and the authorized sources for its package, the service returns one
-`PackageVersionDiscoveryResult` for selection, together with the freshness
-that result actually has: current, refreshed for this request, or a prior
-resolution served after a refresh could not complete. It is the only place
-that decides whether a request is answered from a prior resolution, from
-discovery, or from both, and therefore the only place that makes `Name` and
-`Name@latest` behave differently.
+and the `PackageSourceAuthorization` for its package, the service settles the
+request either from discovery or from a **prior settlement** it retained for
+the same request under the same authorization, and says which. It is the only
+place that decides between a prior settlement and discovery, and therefore the
+only place that makes `Name` and `Name@latest` behave differently.
 
 The service defines:
 
-- the prior-resolution store, its key, and its freshness evidence;
-- the decision between serving a prior resolution and discovering, driven by
+- the prior-settlement store, its key, its value, and its freshness evidence;
+- the decision between serving a prior settlement and discovering, driven by
   the request's declared freshness requirement;
 - the refresh budget, serve-prior-on-failure behavior, expiry jitter, and the
   per-invocation refresh cap; and
-- the freshness value stamped on the receipt, including the new served-prior
-  value.
+- the eviction of a prior whose coordinate no longer acquires.
 
 It consumes, and does not redefine, the request family and receipt of
-[version resolution](version-resolution.md), the read/write cache paths of
-`DotnetInspector.Cache.PersistentCache`, and `IPackageSourceClient` version
-discovery from the [Package Source Model](package-source-model.md). Source
-authorization, source-result adoption, selection semantics
-(`PackageVersionSelectionResolver`), and payload acquisition stay with their
-owners.
+[version resolution](version-resolution.md), the exact pinned-candidate path
+and settlement receipts of [PackageHouse](package-house.md), the read/write
+cache paths of `DotnetInspector.Cache.PersistentCache`, and `IPackageSourceClient`
+version discovery from the [Package Source Model](package-source-model.md).
+Source authorization, source-result adoption, selection semantics
+(`PackageVersionSelectionResolver`), listing operations, and payload
+acquisition stay with their owners.
+
+One claim transfers to version resolution: a new receipt arm, `Prior`,
+described below. This document names it; version resolution adopts it when
+the service is implemented.
 
 ## Basis
 
@@ -49,6 +51,15 @@ honors the principle that a prior resolution is preferred over blocking, and
 the one-second budget satisfies neither principle: it blocks, then discards
 the answer it was protecting.
 
+A prior cannot be served by replaying discovery. A `Resolved` receipt requires
+an authoritative `PackageVersionDiscoveryResult` whose candidates the current
+source generation issued; a stored snapshot cannot issue them. What a prior
+can be is what principle 1 already names: an advertised exact version that
+the product accepts as bound. Serving a prior therefore uses the exact
+pinned-candidate path, which authorizes one coordinate for the current
+generation without enumerating peer versions, and reports through a receipt
+arm that says no discovery was performed.
+
 The join point is `DotnetInspector.Packages`. `DotnetInspector.Cache` and
 `NuGetFetch` do not reference each other, and `Packages` already references
 both and hosts both paths.
@@ -58,84 +69,122 @@ both and hosts both paths.
 ### Inputs
 
 - A `PackageVersionSelectionRequest`. Its `Freshness` is the requirement:
-  `Current` permits a prior resolution; `RefreshedForRequest` (only
+  `Current` permits a prior settlement; `RefreshedForRequest` (only
   `AlwaysLatest`) forbids one.
 - A `PackageSourceAuthorization` for the package, issued by the Package
-  Source Model. The service discovers only through authorized sources.
+  Source Model. The service discovers only through, and serves priors only
+  for, exactly this authorization.
 - A `PackageVersionDiscoveryContract` (prerelease, unlisted, limit), owned by
   version resolution.
 - An operation context carrying the caller's cancellation and timeouts, and
   an invocation-scoped refresh budget (below).
 
-### Prior-resolution store
+### Prior-settlement store
 
-One store, adopted from the legacy path's `versions-v5` latest entries rather
-than duplicated. The key is the source key, the normalized package ID, and the
-prerelease policy. The value is the resolved version. The freshness evidence
-is the entry's write time; no separate expiry file exists. Listing entries
-(`listings:` keys) are outside this owner and remain with the legacy listing
-paths until they adopt the service.
+The store retains prior settlements, not discovery evidence.
+
+- **Key:** the ordered set of authorized source keys; the normalized package
+  ID; the request kind and its parameters (`LatestStable`,
+  `LatestPrerelease`, `Wildcard` with its normalized prefix, `Range` with its
+  range and address); and the discovery contract's prerelease and unlisted
+  policy. A request under a different authorization or contract is a
+  different key. There is no per-source entry and no aggregation rule: the
+  authorization set is part of the identity.
+- **Value:** the settled exact version and the source key that reported it.
+- **Freshness evidence:** the entry's write time. No separate expiry file.
+- **Category:** a new versioned `PersistentCache` category. The legacy
+  `versions-v5` latest entries are read as seed priors for `LatestStable` and
+  `LatestPrerelease` under a single-source authorization during step 3 of
+  adoption, then retire with the legacy path. `listings:` entries are outside
+  this owner and remain with the listing operations.
 
 ### Decision
 
 | Requirement | Prior entry | Result |
 | --- | --- | --- |
-| `RefreshedForRequest` | any | discover; on failure, fail visibly; stamp `RefreshedForRequest` |
-| `Current` | none | discover under the ordinary operation timeout; on failure, fail visibly; stamp `RefreshedForRequest` |
-| `Current` | within its window | serve it without discovery; stamp `Current` |
-| `Current` | past its window | serve it and refresh within the refresh budget; on success stamp `RefreshedForRequest`; on failure or budget exhaustion serve the prior and stamp `ServedPrior` with the entry's age |
+| `RefreshedForRequest` | any | discover; on failure, fail visibly; `Resolved` with `RefreshedForRequest` |
+| `Current` | none | discover under the ordinary operation timeout; on failure, fail visibly; `Resolved` with `RefreshedForRequest` |
+| `Current` | within its window | serve it without discovery; `Prior` with `Current` |
+| `Current` | past its window | serve it and refresh within the refresh budget; on success `Resolved` with `RefreshedForRequest` and the entry rewritten; on failure or budget exhaustion `Prior` with `ServedPrior` and the entry's age |
+
+Every successful discovery for a `Current`-requirement request writes or
+rewrites the entry. Discovery for `AlwaysLatest` also rewrites the entry for
+the corresponding `LatestStable` or `LatestPrerelease` key, so an explicit
+refresh benefits later bare requests.
 
 The window is the base TTL adjusted by a deterministic jitter derived from a
 hash of the key, within ±20 percent, so entries written together do not expire
 together. The base TTL remains one hour until a consumer's design changes it.
 
-The refresh budget is per invocation: at most N stale entries are refreshed
-synchronously (initial N is 8), each under a per-refresh time bound, and the
-remainder are served as `ServedPrior`. A consumer that must refresh everything
-uses `AlwaysLatest`, or the request-level always-check modifier that maps
-every unbound coordinate in the invocation to `AlwaysLatest`.
+The refresh budget is per invocation: at most N past-window entries are
+refreshed synchronously (initial N is 8), each under a per-refresh time bound,
+and the remainder are served as `ServedPrior`. A consumer that must refresh
+everything uses `AlwaysLatest`, or the request-level always-check modifier
+that maps every unbound coordinate in the invocation to `AlwaysLatest`.
 
-A served prior resolution is never labeled `Current`. `Current` means the
-entry is inside its window; `ServedPrior` means a refresh was attempted or
-skipped and the prior answer was used anyway.
+Offline mode is a consumer policy: with `DOTNET_INSPECT_OFFLINE`, every
+`Current`-requirement request with a prior entry is `Prior` with `ServedPrior`
+regardless of age, and every request without one fails visibly as today.
+
+### Serving a prior
+
+A served prior settles the selecting demand as an exact coordinate. The
+service asks the current source generation for the pinned candidate of the
+prior coordinate under the request's authorization; PackageHouse retains that
+candidate and coordinate exactly as it does for an exact demand. If pinned
+resolution or the later acquisition reports that the coordinate is absent
+from every authorized source, the entry is evicted and the request is settled
+by discovery as if no prior existed. That eviction is not a bound request
+degrading: the binding was the product's own prior, not a version the user
+supplied or accepted.
 
 ### Receipt
 
-`PackageVersionDiscoveryFreshness` gains `ServedPrior`. The receipt retains
-the freshness value and, for `ServedPrior`, the entry's age. Hosts disclose
-`ServedPrior` as one warning per invocation naming the count of packages
-served from prior resolutions; the per-package detail is available at
-diagnostic verbosity. The resolved version is disclosed in the result as
-today.
+Version resolution gains one receipt arm, `Prior`. It retains the exact
+request, the prior coordinate, the pinned candidate the current generation
+issued for it, the freshness (`Current` or `ServedPrior`), and for
+`ServedPrior` the entry's age. It retains no discovery result. PackageHouse's
+decision receipt accepts `Prior` for a selecting demand when its coordinate and
+candidate match the receipt, alongside the existing `Resolved` rule.
+
+`PackageVersionDiscoveryFreshness` gains `ServedPrior`. A served prior is never
+labeled `Current`: `Current` means the entry is inside its window;
+`ServedPrior` means a refresh was attempted or skipped and the prior answer
+was used anyway.
+
+Hosts disclose `ServedPrior` as one warning per invocation naming the count
+of packages served from prior settlements; the per-package detail, including
+age, is available at diagnostic verbosity. The resolved version is disclosed
+in the result as today.
 
 ### Failure
 
 Discovery failures keep their Package Source Model shape. The service adds no
 failure kind; it only decides whether a failure is terminal (no prior, or
-`RefreshedForRequest`) or absorbed into `ServedPrior`. Offline mode is a
-consumer policy: with `DOTNET_INSPECT_OFFLINE`, every `Current` request with a
-prior entry is `ServedPrior` regardless of age, and every request without one
-fails visibly as today.
+`RefreshedForRequest`) or absorbed into `ServedPrior`.
 
 ## Pathological cases and gates
 
-All run in the CLI suite's Release configuration through the source-scoped
-feed harness that already fakes feeds, refusals, and slow responses:
+The service has a public-consumer contract suite with a fake
+`IPackageSourceClient` that can refuse, delay, or answer, and a fake clock.
+The CLI cases run through the source-scoped feed harness in
+`SourceScopedRoutingTests`, which fakes one feed's versions and refusal
+status, writes local feeds, and seeds cache entries; it cannot inject delays,
+so timing cases stay in the contract suite. All run in Release.
 
-1. Expired entry, refusing source: served prior, one warning, exit 0,
-   `ServedPrior` on the receipt.
-2. Expired entry, slow source beyond the per-refresh bound: served prior;
-   the entry's age is reported.
-3. Expired entry, fast source: refreshed; `RefreshedForRequest`; the entry is
-   rewritten.
-4. No entry, failing source: visible failure, unchanged from today.
-5. `AlwaysLatest` with a fresh entry: discovery still happens; a refusing
-   source fails visibly.
-6. Jitter determinism: the same key yields the same window across processes.
-7. Refresh cap: with more stale entries than N, exactly N discoveries occur
-   and the rest are `ServedPrior`.
-8. `Current` label honesty: no path stamps `Current` on an answer whose entry
-   is past its window.
+| Case | Expected | Gate |
+| --- | --- | --- |
+| 1. Past-window entry, refusing source | `Prior`/`ServedPrior`, one warning, exit 0 | CLI harness |
+| 2. Past-window entry, source slower than the per-refresh bound | `Prior`/`ServedPrior` with age | contract suite (delay) |
+| 3. Past-window entry, fast source | `Resolved`/`RefreshedForRequest`; entry rewritten | CLI harness |
+| 4. No entry, failing source | visible failure, unchanged | CLI harness |
+| 5. `AlwaysLatest` with an in-window entry | discovery happens; refusing source fails visibly; entry rewritten on success | CLI harness |
+| 6. Jitter determinism | same key, same window across processes | contract suite |
+| 7. Refresh cap | with more past-window entries than N, exactly N discoveries, the rest `ServedPrior` | contract suite (fake clock) |
+| 8. `Current` label honesty | no path stamps `Current` on a past-window entry | contract suite |
+| 9. Prior coordinate absent from every source | entry evicted, discovery settles the request | CLI harness (local feed with the version removed) |
+| 10. Authorization change | a prior under one source set is a miss under another | contract suite |
+| 11. `Wildcard` and `Range` keys | a `LatestPrerelease` prior is never served to a `Wildcard` or `Range` request | contract suite |
 
 Motivating asset: the 44-member Microsoft.Extensions package set through
 `find IChatClient --extensions`, measured at 4.2 s on the hourly refresh
@@ -143,20 +192,25 @@ before this design, with the target under one second warm and no cliff.
 
 ## Adoption
 
-1. This document and the service with its contract suite (public consumer,
-   no friend access), including the `ServedPrior` receipt value.
-2. `PackageHouse` selecting demands adopt it. This is the primary CLI path;
-   `Name` and `Name@latest` become observable there. Corrective but breaking:
-   `Name` stops discovering on every request.
+1. This document; the service with its contract suite; the `Prior` receipt
+   arm and `ServedPrior` freshness value adopted by version resolution; the
+   decision-receipt rule extended in PackageHouse.
+2. `PackageHouse` selecting demands adopt it for `LatestStable` and
+   `LatestPrerelease`. This is the primary CLI path; `Name` and `Name@latest`
+   become observable there. Corrective but breaking: `Name` stops discovering
+   on every request. `Wildcard` and `Range` continue to discover until a
+   later slice adopts their keys.
 3. `PackageExtractor` latest resolution adopts it for `find`, the search
-   scopes, and unversioned `AssemblySetRequest` acquisition; its private
-   TTL check, `CachedVersionResolutionTimeout`, and cached-version error path
-   retire. Corrective but breaking: the one-second timeout error becomes a
+   scopes, and unversioned `AssemblySetRequest` acquisition; its private TTL
+   check, `CachedVersionResolutionTimeout`, and cached-version error path
+   retire, and the `versions-v5` latest entries are read as seeds then
+   retired. Corrective but breaking: the one-second timeout error becomes a
    served prior with a warning.
 4. The request-level always-check modifier (#8285 change 3) maps every
    unbound coordinate to `AlwaysLatest` through this service.
-5. #8271's default population consumes it with shipped advertised versions,
-   so first use is bound and later use is `Current` or `ServedPrior`.
+5. #8271's default population consumes it with shipped advertised versions
+   as pre-seeded priors, so first use is bound and later use is `Current` or
+   `ServedPrior`.
 
 Browser/Wasm: Inspect Web binds at advertisement and does not resolve
 unbound coordinates through this path today; adoption there is a separate
@@ -167,6 +221,7 @@ slice if Spotlight ever offers an unbound open.
 This design does not:
 
 - change selection semantics, listing rules, or range and wildcard behavior;
+- store or replay discovery evidence;
 - promise set-level coherence across coordinates;
 - change payload caching or acquisition;
 - define the always-check modifier's spelling; or
