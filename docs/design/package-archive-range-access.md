@@ -23,7 +23,9 @@ two questions with bounded transfers:
 
 The capability owns the byte-range transport rules, the ZIP structure reading
 shared with the local-folder source, the consistency rules across the several
-requests one archive read needs, and the typed outcomes. It consumes, and
+requests one archive read needs, and the typed outcomes; it places the first
+two in two host-neutral libraries below NuGetFetch (Library placement) and
+owns their contracts until a second consumer adopts them. It consumes, and
 does not redefine, the source client contract of
 [browser package sources](browser-package-sources.md#one-package-source-contract),
 the operation context and deadline mechanics of the
@@ -67,16 +69,16 @@ identity, the caller's operation context, and the caller's credential exactly
 as the full fetch does.
 
 Local-folder sources satisfy the capability trivially: the archive is a
-seekable file, and the same reader runs over it with no transport. The
+seekable file, and the same ZIP reader runs over it with no transport. The
 central-directory and local-header reading that `LocalPackageArchiveReader`
-implements today for the manifest becomes the shared reader; the local reader
-consumes it rather than keeping a private copy, and keeps projecting the
-reader's refusals into its own outcomes exactly as it does today.
+implements today for the manifest moves into the ZIP library below; the local
+reader consumes it rather than keeping a private copy, and keeps projecting
+the reader's refusals into its own outcomes exactly as it does today.
 
-The caller supplies the limits as a NuGetFetch-owned primitive record,
-`PackageArchiveReadLimits`: the archive total in bytes, the directory caps
+The caller supplies the limits as a primitive record owned by the ZIP
+library, `ZipReadLimits`: the archive total in bytes, the directory caps
 (entries and bytes), the per-entry expanded bound, and the entry-read slack
-described below (at most 64 KiB). NuGetFetch cannot reference
+described below (at most 64 KiB). Neither lower library can reference
 `PackagePayloadLimits`, which lives in `DotnetInspector.Packages`, and unlike
 the full fetch, whose limits that layer applies after the stream returns, a
 ranged read must know its bounds before each transfer; so the Packages layer
@@ -85,6 +87,39 @@ which `PackagePayloadLimits` has no concept of (its default is that layer's
 to set; the contract suite fixes the slack explicitly per case). Every
 refusal of a bound settles as `ResponseRejected`, the kind every existing
 NuGetFetch bound uses; `InvalidResponse` is reserved for malformed structure.
+
+### Library placement
+
+The capability is two host-neutral libraries below NuGetFetch and one
+adapter inside it. NuGetFetch depends on the ZIP library, which depends on
+the range library; neither lower library references NetworkAccess,
+InertText, or anything NuGet.
+
+- **`BinaryFetch`, range fetch over HTTP.** Owns byte access to one remote
+  representation: the random-access contract (length, read this range), the
+  HTTP implementation (`Range`, `206` versus `200`, `If-Range` with the
+  validator, agreement of totals across requests, the headers-hidden browser
+  mode), and the seekable-stream implementation for local files, so every
+  consumer sees one contract. Its outcomes are about the representation:
+  `RangeIgnored`, `RepresentationChanged`, and ordinary transport failures.
+  It knows nothing about ZIP. The consumer supplies a prepared `HttpClient`
+  and a request-preparation callback; NuGetFetch uses that callback for
+  credentials and its browser request options.
+- **`ZipFetch`, ZIP read over a random-access source, remote or local.** Owns
+  structure: the end-of-central-directory record, the central directory with
+  its caps, local headers, entry extent and clamping, bounded inflate, CRC,
+  and the Zip64 and compression-method refusals. Its outcomes are about the
+  archive: malformed, over a bound, unsupported. It knows nothing about HTTP;
+  remote and local are the same code over different sources.
+- **The NuGetFetch adapter** owns coordinates, flat-container URLs,
+  credentials, source identity, the non-ranged memory on the client
+  instance, and the mapping of both lower vocabularies into
+  `PackageArchiveReadResult<T>` under the rules in Outcomes.
+
+This document owns the two libraries' contracts as its implementation
+boundary until a second owner adopts them; `SymbolPackageDownloader`, which
+fetches whole `.snupkg` archives to extract one PDB, is the named second
+consumer and adopts both libraries in a later slice under its own design.
 
 The memory that a source ignored `Range` lives on the source client
 instance. The client's lifetime belongs to the host's composition, which the
@@ -111,10 +146,12 @@ on a `206` is the slice's length, never the archive's, and must equal the
 body length. The body must equal the requested length on every request
 except the tail request, where a shorter body is the whole archive and must
 equal the derived total. The record and its comment must end exactly at the
-end of the tail; trailing bytes after them, a `Content-Range` total that
-differs from the derived total, a `Content-Length` that differs from the
-body, a body length that matches neither rule, or a directory offset that
-does not lie before the record are `InvalidResponse`. An archive shorter than the tail request arrives whole;
+end of the tail; trailing bytes after them, a tail-request `Content-Range`
+total that differs from the derived total (on a later request that
+difference is `ArchiveChanged`, under the transport rules), a visible
+`Content-Range` range that does not match the request, a `Content-Length`
+that differs from the body, a body length that matches neither rule, or a
+directory offset that does not lie before the record are `InvalidResponse`. An archive shorter than the tail request arrives whole;
 the reader recognizes that by the derived total and needs no second request.
 
 The directory is bounded before it is parsed with the same caps the
@@ -230,10 +267,16 @@ three range-specific reasons owned here — `RangeIgnored` (a `200` to a ranged
 request), `ArchiveChanged` (validator or total changed between requests), and
 `ArchiveUnsupported` (Zip64, or a compression method other than stored and
 deflate). The first two mean "take the full fetch"; the third means the
-archive cannot be read by range at all. The existing `Unsupported` source
-failure keeps its meaning, that a client or source lacks an operation, and
-is not reused for per-archive conditions. The capability never turns a
-failure into an empty directory or a truncated entry.
+archive cannot be read by range at all. The adapter maps the lower
+vocabularies one to one: the range library's `RangeIgnored` and
+`RepresentationChanged` become `RangeIgnored` and `ArchiveChanged`, its
+transport failures become the ordinary source failures, and the ZIP
+library's malformed, over-a-bound, and unsupported outcomes become
+`InvalidResponse`, `ResponseRejected`, and `ArchiveUnsupported`. The
+existing `Unsupported` source failure keeps its meaning, that a client or
+source lacks an operation, and is not reused for per-archive conditions. The
+capability never turns a failure into an empty directory or a truncated
+entry.
 
 ## Boundary
 
@@ -270,7 +313,7 @@ All gates run in Release.
 | 3. Entry read | one ranged request; expanded bytes equal the original file; CRC checked | contract suite |
 | 4. `200` to a ranged request | `RangeIgnored`; no bytes retained; the same client instance does not range that source again | contract suite |
 | 5. Archive replaced between requests (validator differs, or `200` to `If-Range`) | `ArchiveChanged`; nothing retained | contract suite |
-| 6. `Content-Range` total disagrees with the derived total | `InvalidResponse` | contract suite |
+| 6. Tail-request `Content-Range` total disagrees with the derived total; a visible `Content-Range` range that does not match the request | `InvalidResponse` | contract suite |
 | 6a. `Content-Length` disagrees with the body; a non-tail body that differs from the requested length; a short tail body that differs from the derived total | `InvalidResponse` | contract suite |
 | 6b. A correct `206` whose `Content-Length` is the slice's length; a short tail body equal to the derived total (real asset: `Microsoft.NETCore.Platforms` 1.0.1, 17,876 bytes) | accepted | contract suite |
 | 7. Entry declared above the expanded bound (`ResponseRejected`); entry extent past the central-directory offset (`InvalidResponse`) | refused before any transfer | contract suite |
@@ -285,15 +328,17 @@ All gates run in Release.
 | 12. Operation ceiling during an entry read | terminal typed timeout, no partial content | contract suite |
 | 13. Motivating asset | `Microsoft.NETCore.App.Ref` 9.0.18 from nuget.org: directory in under 100 KB of transfer, `ref/net9.0/System.Runtime.dll` expanded and parseable by the metadata reader | Slow network gate, plus a preserved probe as design evidence |
 | 14. Local extra field longer than the directory declares, slack fixed at 0 | `Grpc.Net.Client` 2.80.0 (real asset, preserved as a fixture): first request short by the extra bytes, exactly one follow-up rechecked against the directory offset, CRC passes | contract suite |
-| 14a. Same asset with the Packages layer's default slack | no follow-up; CRC passes | lands with slice 2, where that layer sets the default; slice 1's contract suite has no such value to run against |
+| 14a. Same asset with the Packages layer's default slack | no follow-up; CRC passes | lands with slice 2 in `PackagePayloadAcquisitionTests`, where that layer sets the default; slice 1's contract suite has no such value to run against |
 | 15. Headers hidden (browser mode) | archive smaller than the tail read whole from the derived total; `206` matched by body length; validator rules where visible | contract suite (headers-hidden mode); end-to-end browser read `unverified` until the Inspect Web slice |
 
 ## Adoption
 
-1. This document; the capability, the shared archive reader (with
-   `LocalPackageArchiveReader` consuming it), the HTTP implementation on the
-   v3 and gallery clients, and the contract suite. No production consumer
-   changes behavior at this head; the CLI still fetches whole archives.
+1. This document; the `BinaryFetch` and `ZipFetch` libraries with their own
+   contract suites (the ZIP suite against a `ZipArchive` oracle, the range
+   suite against a fake handler), `LocalPackageArchiveReader` consuming the
+   ZIP library, the NuGetFetch adapter on the v3 and gallery clients, and
+   the capability's contract suite. No production consumer changes behavior
+   at this head; the CLI still fetches whole archives.
 2. The operation lease gains the ranged steps under the package source
    model's ownership, an `IPackageContent` over ranged access materializes
    only the entries a consumer opens, and `find` with the search scopes adopt
