@@ -1,3 +1,4 @@
+using Inspector.Text;
 using System.Collections.Immutable;
 
 using DotnetInspector.Presentation;
@@ -24,7 +25,7 @@ internal static class SourceTextDiffRenderer
                         "Status",
                         $"{MemberSourceDiffPresentationAdapter.BeforeLabel} and "
                         + $"{MemberSourceDiffPresentationAdapter.AfterLabel} are identical."),
-                    .. CreateSummaryFields(statistics),
+                    .. CreateSummaryFields(statistics, presentation.Characterization),
                 ]);
         }
 
@@ -35,11 +36,12 @@ internal static class SourceTextDiffRenderer
             : SourceDiffOutput.CreateSummary(
                 presentation.Analysis,
                 presentation.Diff,
-                CreateSummaryFields(statistics));
+                CreateSummaryFields(statistics, presentation.Characterization));
     }
 
     static ImmutableArray<MarkoutField> CreateSummaryFields(
-        MemberSourceDiffStatistics statistics)
+        MemberSourceDiffStatistics statistics,
+        TextDiffCharacterization? characterization)
         =>
         [
             new MarkoutField("Added lines", statistics.Added.ToString()),
@@ -56,5 +58,23 @@ internal static class SourceTextDiffRenderer
                 + $"{MemberSourceDiffPresentationAdapter.BeforeLabel} -> "
                 + $"{statistics.MovedAfter} "
                 + MemberSourceDiffPresentationAdapter.AfterLabel),
+        .. CharacterizationFields(characterization),
         ];
+
+    static IEnumerable<MarkoutField> CharacterizationFields(TextDiffCharacterization? characterization)
+    {
+        if (characterization is null)
+            yield break;
+
+        TextChange[] whitespace = [.. characterization.Regions
+            .SelectMany(region => region.Changes)
+            .Where(change => change.Outcome == TextChangeOutcome.WhitespaceOnly)];
+        yield return new MarkoutField(
+            "Whitespace-only lines",
+            $"{whitespace.Sum(change => change.Before.Count)} "
+            + $"{MemberSourceDiffPresentationAdapter.BeforeLabel} -> "
+            + $"{whitespace.Sum(change => change.After.Count)} "
+            + MemberSourceDiffPresentationAdapter.AfterLabel);
+        yield return new MarkoutField("Moved blocks", characterization.Moves.Length.ToString());
+    }
 }

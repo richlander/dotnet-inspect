@@ -109,6 +109,49 @@ public class SourceTextDiffRendererTests
         Assert.Equal("Status", Assert.Single(output.Fields).Key);
     }
 
+    [Fact]
+    public void Summary_ReportsWhitespaceOnlyLinesAndMovedBlocks()
+    {
+        MemberSourceDiffPresentation presentation = Presentation(
+            """
+            public void M()
+            {
+                one();
+
+                two();
+                first();
+                second();
+                a();
+                b();
+                c();
+            }
+            """,
+            """
+                public void M()
+                {
+                    one();
+                    two();
+                    a();
+                    b();
+                    c();
+                    first();
+                    second();
+                }
+            """);
+
+        SourceDiffOutput summary = SourceTextDiffRenderer.CreateOutput(presentation);
+        SourceDiffOutput detailed = SourceTextDiffRenderer.CreateOutput(presentation, detailed: true);
+
+        AssertField(
+            summary,
+            "Whitespace-only lines",
+            "1 PDB comparison -> 0 Decompiled comparison");
+        AssertField(summary, "Moved blocks", "1");
+        Assert.Contains("@@ whitespace-only: line breaks", detailed.Content);
+        Assert.Contains("@@ moved (1) to +", detailed.Content);
+        Assert.Contains("@@ moved (1) from -", detailed.Content);
+    }
+
     static MemberSourceDiffPresentation Presentation(
         string before,
         string after)

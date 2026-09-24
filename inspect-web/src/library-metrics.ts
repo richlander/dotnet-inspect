@@ -4,7 +4,8 @@ const TREEMAP_WIDTH = 900;
 const TREEMAP_HEIGHT = 360;
 const TREEMAP_LIMIT = 72;
 const RELATIONSHIP_WIDTH = 900;
-const RELATIONSHIP_HEIGHT = 320;
+const RELATIONSHIP_HEIGHT = 480;
+const RELATIONSHIP_LABEL_SPACE = 190;
 const RECIPROCAL_BEND_SEPARATION = 16;
 const RELATIONSHIP_COLORS = [
   "#b9aaee", "#7ed8dc", "#9cc8f1", "#e5b567", "#d98a70",
@@ -25,10 +26,8 @@ export interface LibraryMetricsOptions {
   escapeHtml: (value: unknown) => string;
 }
 
-function metricLabel(metric: string): string {
-  return metric
-    .replace(/([a-z])([A-Z])/g, "$1 $2")
-    .replace(/^./, character => character.toUpperCase());
+export interface LibraryMetricsInteractionActions {
+  activateType: (typeKey: string) => void;
 }
 
 function shortTypeName(typeId: string): string {
@@ -41,6 +40,14 @@ function shortTypeName(typeId: string): string {
 
 function formatNumber(value: number): string {
   return value.toLocaleString();
+}
+
+function formatCount(
+  value: number,
+  singular: string,
+  plural = `${singular}s`,
+): string {
+  return `${formatNumber(value)} ${value === 1 ? singular : plural}`;
 }
 
 interface TreemapItem {
@@ -163,18 +170,23 @@ function renderTreemap(
       / Math.max(1, rectangle.item.bodyCount);
     const lightness = 78 - Math.round(34 * density / maximumDensity);
     const label = shortTypeName(rectangle.item.typeDisplay);
-    const tooltip = `${rectangle.item.typeDisplay} · ${formatNumber(rectangle.item.bodyCount)} bodies · ${formatNumber(rectangle.item.instructionCount)} instructions · average complexity ${density.toFixed(1)}`;
+    const tooltip = `${rectangle.item.typeDisplay} · ${formatCount(rectangle.item.bodyCount, "body", "bodies")} · ${formatCount(rectangle.item.instructionCount, "instruction")} · average complexity ${density.toFixed(1)}`;
     const labelHtml = rectangle.width > 86 && rectangle.height > 28
       ? `<text class="metrics-treemap-label" x="${rectangle.x + 7}" y="${rectangle.y + 17}">${escapeHtml(label)}</text>`
       : "";
-    return `<g class="metrics-treemap-cell"><title>${escapeHtml(tooltip)}</title><rect x="${rectangle.x}" y="${rectangle.y}" width="${rectangle.width}" height="${rectangle.height}" fill="hsl(265 65% ${lightness}%)"></rect>${labelHtml}</g>`;
+    const aggregate = rectangle.item.typeKey === "other-types";
+    const interaction = aggregate
+      ? ` role="img" aria-label="${escapeHtml(tooltip)}"`
+      : ` data-metrics-type-key="${escapeHtml(rectangle.item.typeKey)}" tabindex="0" role="button" aria-label="${escapeHtml(`Open ${rectangle.item.typeDisplay}. ${tooltip}`)}"`;
+    return `<g class="metrics-treemap-cell" data-metrics-treemap-cell data-metrics-evidence="${escapeHtml(tooltip)}"${interaction}><title>${escapeHtml(tooltip)}</title><rect x="${rectangle.x}" y="${rectangle.y}" width="${rectangle.width}" height="${rectangle.height}" fill="hsl(265 65% ${lightness}%)"></rect>${labelHtml}</g>`;
   }).join("");
   const omittedNote = omitted.length
     ? ` Top ${TREEMAP_LIMIT} types are shown individually; ${formatNumber(omitted.length)} smaller types are grouped as Other types.`
     : "";
   return `<section class="document-section metrics-visual-section">
     <div class="metrics-visual-copy"><h2>Complexity Explorer</h2><p>This map shows the library's implementation shape. Area shows instruction volume; color shows average normal-flow complexity. It is structural evidence, not a quality score.</p></div>
-    <svg class="metrics-treemap" viewBox="0 0 ${TREEMAP_WIDTH} ${TREEMAP_HEIGHT}" role="img" aria-label="Complexity Explorer implementation treemap">${cells}</svg>
+    <svg class="metrics-treemap" viewBox="0 0 ${TREEMAP_WIDTH} ${TREEMAP_HEIGHT}" role="group" aria-label="Complexity Explorer implementation treemap">${cells}</svg>
+    <p class="metrics-treemap-evidence" data-metrics-treemap-evidence data-default-text="Hover or focus a type for implementation evidence. Select a type to open it.">Hover or focus a type for implementation evidence. Select a type to open it.</p>
     <p class="metrics-visual-caption">${formatNumber(source.length)} types · Scroll the page to inspect the map.${omittedNote}</p>
   </section>`;
 }
@@ -224,7 +236,7 @@ function renderRelationshipCrossing(
       32 + index * (RELATIONSHIP_WIDTH - 64) / Math.max(1, types.length - 1),
     ]),
   );
-  const baseline = RELATIONSHIP_HEIGHT - 58;
+  const baseline = RELATIONSHIP_HEIGHT - RELATIONSHIP_LABEL_SPACE;
   const arcs = edges.map((edge, index) => {
     const source = positions.get(edge.sourceTypeKey) ?? 0;
     const target = positions.get(edge.targetTypeKey) ?? 0;
@@ -239,18 +251,58 @@ function renderRelationshipCrossing(
       : (index % 4) * 10;
     const bend = 34 + Math.abs(target - source) * .36 + bendOffset;
     const color = RELATIONSHIP_COLORS[index % RELATIONSHIP_COLORS.length];
-    const tooltip = `${edge.sourceTypeDisplay} calls ${edge.targetTypeDisplay} at ${formatNumber(edge.callSiteCount)} retained sites`;
+    const tooltip = `${edge.sourceTypeDisplay} calls ${edge.targetTypeDisplay} at ${formatCount(edge.callSiteCount, "retained site")}`;
     return `<path class="metrics-relationship-edge" d="M ${source.toFixed(1)} ${baseline} C ${source.toFixed(1)} ${(baseline - bend).toFixed(1)}, ${target.toFixed(1)} ${(baseline - bend).toFixed(1)}, ${target.toFixed(1)} ${baseline}" stroke="${color}" stroke-width="${Math.min(8, 1.5 + Math.log2(edge.callSiteCount + 1))}"><title>${escapeHtml(tooltip)}</title></path>`;
   }).join("");
   const nodes = types.map(type => {
     const x = positions.get(type.typeKey) ?? 0;
-    return `<g class="metrics-relationship-node"><circle cx="${x.toFixed(1)}" cy="${baseline}" r="4"></circle><text x="${x.toFixed(1)}" y="${baseline + 17}" transform="rotate(52 ${x.toFixed(1)} ${baseline + 17})">${escapeHtml(shortTypeName(type.typeDisplay))}</text><title>${escapeHtml(type.typeDisplay)} · ${formatNumber(type.typeDegree)} connected types</title></g>`;
+    const onRight = x > RELATIONSHIP_WIDTH / 2;
+    const angle = onRight ? -52 : 52;
+    const anchor = onRight ? "end" : "start";
+    return `<g class="metrics-relationship-node"><circle cx="${x.toFixed(1)}" cy="${baseline}" r="4"></circle><text x="${x.toFixed(1)}" y="${baseline + 17}" text-anchor="${anchor}" transform="rotate(${angle} ${x.toFixed(1)} ${baseline + 17})">${escapeHtml(shortTypeName(type.typeDisplay))}</text><title>${escapeHtml(type.typeDisplay)} · ${formatNumber(type.typeDegree)} connected types</title></g>`;
   }).join("");
   return `<section class="document-section metrics-visual-section">
     <div class="metrics-visual-copy"><h2>Relationship Crossing</h2><p>The most entangled types are placed on one line; arcs reveal how often their implementations cross. Each color follows one retained relationship so dense crossings remain separable.</p></div>
     <svg class="metrics-relationship-crossing" viewBox="0 0 ${RELATIONSHIP_WIDTH} ${RELATIONSHIP_HEIGHT}" role="img" aria-label="Relationship Crossing diagram">${arcs}${nodes}</svg>
     <p class="metrics-visual-caption">${formatNumber(types.length)} most connected types · ${formatNumber(edges.length)} retained relationships · Hover an arc or type for evidence.</p>
   </section>`;
+}
+
+export function bindLibraryMetricsInteractions(
+  root: ParentNode,
+  actions: LibraryMetricsInteractionActions,
+): void {
+  const evidence = root.querySelector<HTMLElement>(
+    "[data-metrics-treemap-evidence]",
+  );
+  const defaultEvidence = evidence?.dataset.defaultText ?? "";
+  const showEvidence = (cell: SVGGElement) => {
+    if (evidence) evidence.textContent = cell.dataset.metricsEvidence ?? "";
+  };
+  const resetEvidence = () => {
+    if (evidence) evidence.textContent = defaultEvidence;
+  };
+
+  for (const cell of root.querySelectorAll<SVGGElement>(
+    "[data-metrics-treemap-cell]",
+  )) {
+    cell.addEventListener("pointerenter", () => showEvidence(cell));
+    cell.addEventListener("pointerleave", () => {
+      if (cell.ownerDocument.activeElement !== cell) resetEvidence();
+    });
+    cell.addEventListener("focus", () => showEvidence(cell));
+    cell.addEventListener("blur", resetEvidence);
+
+    const typeKey = cell.dataset.metricsTypeKey;
+    if (!typeKey) continue;
+    const activate = () => actions.activateType(typeKey);
+    cell.addEventListener("click", activate);
+    cell.addEventListener("keydown", event => {
+      if (event.key !== "Enter" && event.key !== " ") return;
+      event.preventDefault();
+      activate();
+    });
+  }
 }
 
 export function renderLibraryMetricsSurface(
@@ -281,15 +333,7 @@ export function renderLibraryMetricsSurface(
       content = `<section class="document-section empty-document"><span class="large-glyph">&#x25B3;</span><h2>${escapeHtml(status)}</h2><p>${escapeHtml(resolved.failure || "The Research document could not be produced.")}</p></section>`;
     } else {
       const population = resolved.population;
-      const distributions = resolved.distributions ?? [];
       status = `${(population?.completeProfileCount ?? 0).toLocaleString()} complete bodies`;
-      const rows = distributions.map(distribution => `<tr>
-        <th scope="row">${escapeHtml(metricLabel(distribution.metric))}</th>
-        <td>${distribution.minimum ?? "\u2014"}</td>
-        <td>${distribution.p50 ?? "\u2014"}</td>
-        <td>${distribution.p90 ?? "\u2014"}</td>
-        <td>${distribution.maximum ?? "\u2014"}</td>
-      </tr>`).join("");
       const coverageGap = population
         && population.profiledPhysicalEvidenceBodyCount
           < population.physicalEvidenceBodyCount;
@@ -315,7 +359,6 @@ export function renderLibraryMetricsSurface(
         ${renderRelationshipCrossing(resolved, escapeHtml)}
         <section class="document-section">
           <p>Compiled IL metrics for <strong>${escapeHtml(libraryName)}</strong>. These are structural implementation measures, not authored-source complexity.</p>
-          <details class="metrics-detail"><summary>Detailed distributions</summary><table class="metrics-table"><thead><tr><th>Metric</th><th>Min</th><th>P50</th><th>P90</th><th>Max</th></tr></thead><tbody>${rows}</tbody></table></details>
         </section>`;
     }
   }

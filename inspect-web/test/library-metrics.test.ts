@@ -103,6 +103,45 @@ test("renders the complexity and relationship visual evidence", () => {
   assert.match(html, /Example\.Core\.Store/);
 });
 
+test("keeps detailed distributions out of the website presentation", () => {
+  const html = render();
+
+  assert.doesNotMatch(html, /Detailed distributions|metrics-table/);
+  assert.match(html, /Compiled IL metrics for <strong>Example\.Core<\/strong>/);
+});
+
+test("treemap cells expose exact type activation and evidence semantics", () => {
+  const html = render();
+
+  assert.match(
+    html,
+    /data-metrics-type-key="Example\.Core\.Engine" tabindex="0" role="button"/,
+  );
+  assert.match(
+    html,
+    /data-metrics-evidence="Example\.Core\.Engine · 1 body · 12 instructions · average complexity 3\.0"/,
+  );
+  assert.match(html, /data-metrics-treemap-evidence/);
+});
+
+test("the grouped Other types cell is evidence-only", () => {
+  const typeSummaries = Array.from({ length: 74 }, (_, index) => ({
+    ...data.typeSummaries[0]!,
+    typeKey: `Example.Core.Type${index}`,
+    typeDisplay: `Example.Core.Type${index}`,
+    name: `Type${index}`,
+    instructionCount: 74 - index,
+  }));
+  const html = render({ data: { ...data, typeSummaries } });
+  const aggregate = html.match(
+    /<g class="metrics-treemap-cell"[^>]*data-metrics-evidence="Other types[^"]*"[^>]*>/,
+  );
+
+  assert.ok(aggregate);
+  assert.doesNotMatch(aggregate[0], /data-metrics-type-key|tabindex="0"/);
+  assert.match(aggregate[0], /role="img"/);
+});
+
 test("treemap rectangle area remains proportional to instruction volume", () => {
   const html = render({
     data: {
@@ -193,8 +232,8 @@ test("reciprocal relationships use distinct geometry independent of insertion la
   );
 
   assert.notEqual(
-    paths.get("Example.A calls Example.B at 1 retained sites"),
-    paths.get("Example.B calls Example.A at 1 retained sites"),
+    paths.get("Example.A calls Example.B at 1 retained site"),
+    paths.get("Example.B calls Example.A at 1 retained site"),
   );
 });
 

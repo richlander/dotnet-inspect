@@ -101,6 +101,21 @@ The Router confirms exact ordinal namespace membership before selecting this
 route. It does not use suffix or descendant matching, and broad inputs such as
 `System.Text` retain their existing Type-prefix browsing behavior.
 
+`find` uses the same exact namespace meaning after direct Type lookup misses:
+
+```bash
+dotnet-inspect find System.Text.Json.Nodes
+```
+
+It returns the public Types declared directly in
+`System.Text.Json.Nodes`, such as `JsonArray`, `JsonNode`, and `JsonObject`.
+It does not include Types from `System.Text.Json` or descendant namespaces.
+The rows use the `Namespace` match classification. In the default unscoped
+search, exact Platform prune evidence also admits the corresponding NuGet
+package, so equal package and Platform Type observations remain separate.
+Explicit source options remain authoritative; for example,
+`--platform System.Text.Json` does not add the package observation.
+
 ### Library namespace Type listings
 
 An exact Library can list its public Type declarations from one exact
@@ -205,7 +220,7 @@ stderr rather than mixed into structured output.
 | Query vocabulary | `vocabulary` | Product-owned stable values, operators, defaults, and applicability for rich queries. |
 | Ecosystem catalog | `ecosystem` | Product-configured ecosystem packs, namespace hints, core/tool packages, demos, and known Integration bindings without package acquisition. |
 | Library audit | `library` | Assembly identity, public key token, trim/AOT metadata, unsafe/interoperability signals, SourceLink, PDBs, references, resources, async methods, and body-shape search. |
-| API discovery | `type`, `member`, `find` | Type search, member tables, docs, overload selection, generics, direct calls/callers, source, decompiled C#, and IL. Unscoped `find` searches installed .NET Runtime, ASP.NET Core, and .NET Standard populations; add package APIs through explicit `--package`, restored `--project`, or patterned `--package-prefix` scope. |
+| API discovery | `type`, `member`, `find` | Type search, exact namespace discovery, member tables, docs, overload selection, generics, direct calls/callers, source, decompiled C#, and IL. Unscoped `find` searches installed Platform populations and adds exact prune-authorized package observations for namespace hits; add other package APIs through explicit `--package`, restored `--project`, or patterned `--package-prefix` scope. |
 | Package discovery | `package query` | Discover exact package IDs or terminal-star package-ID prefixes before inspecting a known package with `package`. |
 | API compatibility | `diff` | Package, platform, and library diffs with breaking/additive classification plus opt-in C#/IL, selected-member authored-source, complexity, and structural-cohort context. |
 | Timeline correlation | `timeline` | Correlate API or member-body Findings across a package version range, with evaluation and transition views. |

@@ -25,7 +25,16 @@ public sealed record PlatformNamespaceDiscoveryHit(
     string Namespace,
     PlatformTypeCatalogRouteTarget Target,
     PlatformPopulationMemberRole Role,
-    MetadataTypeDefinitionName Witness);
+    MetadataTypeDefinitionName Witness,
+    ImmutableArray<PlatformNamespaceDiscoveryDeclaration> Declarations);
+
+/// <summary>
+/// One detached public declaration observed in an exact Platform namespace.
+/// </summary>
+public sealed record PlatformNamespaceDiscoveryDeclaration(
+    MetadataTypeDefinitionName Type,
+    AssemblyTypeDeclarationKind DeclarationKind,
+    AssemblyTypeDefinitionKind? DefinitionKind);
 
 /// <summary>Typed terminal content for exact Platform namespace discovery.</summary>
 [JsonPolymorphic(TypeDiscriminatorPropertyName = "kind")]
@@ -87,15 +96,13 @@ public static class PlatformNamespaceDiscoveryInspection
             namesakeLibraries.Length,
             StringComparer.OrdinalIgnoreCase);
         var rankedHits =
-            new List<PlatformNamespaceDiscoveryHit>?[
+            new List<HitBuilder>?[
                 namesakeLibraries.Length];
         for (int index = 0; index < namesakeLibraries.Length; index++)
             namesakeRanks.Add(namesakeLibraries[index], index);
 
-        var hits =
-            ImmutableArray.CreateBuilder<PlatformNamespaceDiscoveryHit>();
-        var observedMembers =
-            new HashSet<PlatformPopulationMember>(
+        var buildersByMember =
+            new Dictionary<PlatformPopulationMember, HitBuilder>(
                 ReferenceEqualityComparer.Instance);
 
         foreach (PlatformTypeCatalogEntry entry in catalog.Entries)
@@ -116,25 +123,48 @@ public static class PlatformNamespaceDiscoveryInspection
                     "A Platform namespace candidate requires a managed assembly identity.");
             if (!namesakeRanks.TryGetValue(
                     assembly.Identity.Name,
-                    out int rank)
-                || !observedMembers.Add(entry.Member))
+                    out int rank))
             {
                 continue;
             }
 
-            (rankedHits[rank] ??= []).Add(
-                new(
+            if (!buildersByMember.TryGetValue(
+                    entry.Member,
+                    out HitBuilder? builder))
+            {
+                builder = new(
                     assembly.Identity.Name,
                     request.Namespace,
                     Snapshot(entry.Member.Target),
                     entry.Member.Role,
-                    entry.Name));
+                    entry.Name);
+                buildersByMember.Add(entry.Member, builder);
+                (rankedHits[rank] ??= []).Add(builder);
+            }
+            builder.Declarations.Add(
+                new(
+                    entry.Name,
+                    entry.Kind,
+                    entry.Declaration.DefinitionKind));
         }
 
-        foreach (List<PlatformNamespaceDiscoveryHit>? tier in rankedHits)
+        var hits =
+            ImmutableArray.CreateBuilder<PlatformNamespaceDiscoveryHit>();
+        foreach (List<HitBuilder>? tier in rankedHits)
         {
             if (tier is not null)
-                hits.AddRange(tier);
+            {
+                hits.AddRange(
+                    tier.Select(
+                        static builder =>
+                            new PlatformNamespaceDiscoveryHit(
+                                builder.Library,
+                                builder.Namespace,
+                                builder.Target,
+                                builder.Role,
+                                builder.Witness,
+                                builder.Declarations.ToImmutable())));
+            }
         }
 
         cancellationToken.ThrowIfCancellationRequested();
@@ -159,4 +189,17 @@ public static class PlatformNamespaceDiscoveryInspection
             target.Family,
             target.TargetFramework.ToString(),
             target.Version.Value);
+
+    private sealed record HitBuilder(
+        string Library,
+        string Namespace,
+        PlatformTypeCatalogRouteTarget Target,
+        PlatformPopulationMemberRole Role,
+        MetadataTypeDefinitionName Witness)
+    {
+        internal ImmutableArray<PlatformNamespaceDiscoveryDeclaration>.Builder
+            Declarations { get; } =
+                ImmutableArray.CreateBuilder<
+                    PlatformNamespaceDiscoveryDeclaration>();
+    }
 }
