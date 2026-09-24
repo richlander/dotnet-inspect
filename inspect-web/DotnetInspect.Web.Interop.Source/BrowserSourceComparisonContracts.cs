@@ -18,10 +18,17 @@ public sealed record BrowserSourceComparisonRequest(
     string AfterVersion,
     string Framework,
     string Assembly,
+    BrowserSourceComparisonEndpointRequest? Before,
+    BrowserSourceComparisonEndpointRequest? After);
+
+[JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
+public sealed record BrowserSourceComparisonEndpointRequest(
     string TypeIdentity,
-    string MemberName,
-    string SelectorKey,
-    int MetadataToken);
+    string StableSelector,
+    string CanonicalSignature,
+    string Fingerprint,
+    string TypeFullName,
+    string MemberName);
 
 public sealed record BrowserSourceComparisonResult(
     int Version,
