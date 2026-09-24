@@ -637,12 +637,14 @@ public sealed class PackageHouse
                             candidate,
                             authorization);
                 string rangedPackageId = candidate.Coordinate.PackageId;
-                PackageEntrySelector? rangedSelection =
+                PackageRangedRead? rangedRead =
                     payloadAcquisition.Access == PackagePayloadAccess.Ranged
-                        ? directory => SelectRangedEntries(
-                            request,
-                            rangedPackageId,
-                            directory)
+                        ? new PackageRangedRead(
+                            directory => SelectRangedEntries(
+                                request,
+                                rangedPackageId,
+                                directory),
+                            payloadAcquisition.RangedSizeCut)
                         : null;
                 ConfiguredPackagePayloadResult payloadResult =
                     await sourceOperation
@@ -653,7 +655,7 @@ public sealed class PackageHouse
                             limits: payloadAcquisition.Limits,
                             transferPolicy:
                                 payloadAcquisition.TransferPolicy,
-                            rangedSelection: rangedSelection)
+                            rangedRead: rangedRead)
                         .ConfigureAwait(false);
                 failures.AddRange(
                     AdaptFailures(request, payloadResult.Failures));

@@ -779,9 +779,12 @@ public sealed partial class ConfiguredPayloadAcquisitionTests : IDisposable
             source => new PayloadFeedHandler(
                 source, id, () => PackageContent(id, "HTTP package content"), requests));
         using var client = new HttpClient(new RejectNetworkHandler(new HttpClientHandler()));
+        // A credentialed authority has no durable identity, so its payload
+        // lives in caller-owned temporary storage until cleanup.
+        string config = WriteConfig([("first", FirstFeed, "*")], credentialedSource: "first");
         PackageExtractionOutcome outcome = await DesktopPackageExtractor.ExtractPinnedPackageAsync(
             client, id, Version,
-            sourceOptions: new NuGetSourceOptions { Sources = [FirstFeed] });
+            sourceOptions: new NuGetSourceOptions { ConfigFile = config });
 
         Assert.True(outcome.IsSuccess, outcome.ErrorMessage);
         PackageExtractionResult result = outcome.Result!;
@@ -811,6 +814,47 @@ public sealed partial class ConfiguredPayloadAcquisitionTests : IDisposable
 
         Assert.False(Directory.Exists(result.TempDir));
         Assert.False(Directory.Exists(result.ExtractPath));
+    }
+
+    /// <summary>
+    /// A credential-free HTTP authority is durable: the first pin downloads
+    /// and publishes to the authority store, the second is a cache hit with no
+    /// package request and no temporary root (docs/design/package-cache-policy.md).
+    /// </summary>
+    [Fact]
+    public async Task ExtractPinnedPackage_CredentialFreeHttpPinIsDurable()
+    {
+        string id = $"Pinned.Durable.{Guid.NewGuid():N}";
+        var requests = new ConcurrentQueue<string>();
+        CoreHttpClientFactory.SetPackageSourceHandlerForTesting(
+            source => new PayloadFeedHandler(
+                source, id, () => PackageContent(id, "durable content"), requests));
+        using var client = new HttpClient(new RejectNetworkHandler(new HttpClientHandler()));
+        var results = new List<PackageExtractionResult>();
+        try
+        {
+            for (int run = 0; run < 2; run++)
+            {
+                PackageExtractionOutcome outcome = await DesktopPackageExtractor.ExtractPinnedPackageAsync(
+                    client, id, Version,
+                    sourceOptions: new NuGetSourceOptions { Sources = [FirstFeed] });
+                Assert.True(outcome.IsSuccess, outcome.ErrorMessage);
+                results.Add(outcome.Result!);
+            }
+
+            Assert.All(results, result =>
+                Assert.StartsWith("authority-v1-", result.CacheScopeKey, StringComparison.Ordinal));
+            Assert.False(results[0].FromCache);
+            Assert.True(results[1].FromCache);
+            Assert.Equal("durable content", File.ReadAllText(
+                Path.Combine(results[1].ExtractPath, "README.md")));
+            Assert.Single(requests, request => request.EndsWith(".nupkg", StringComparison.Ordinal));
+        }
+        finally
+        {
+            foreach (PackageExtractionResult result in results)
+                DesktopPackageExtractor.Cleanup(result.TempDir);
+        }
     }
 
     [Fact]
@@ -1488,8 +1532,9 @@ public sealed partial class ConfiguredPayloadAcquisitionTests : IDisposable
             Assert.Empty(error);
         }
 
+        // The second run is a durable cache hit.
         Assert.Equal(
-            2,
+            1,
             requests.Count(request =>
                 request.EndsWith(".nupkg", StringComparison.Ordinal)));
     }
@@ -1823,7 +1868,9 @@ public sealed partial class ConfiguredPayloadAcquisitionTests : IDisposable
                         "--no-nuget-cache"]);
                 Assert.True(exit == 0, $"Exit {exit}: {error}");
                 Assert.Equal(Readme, output.Trim());
-                Assert.Equal(iteration, requests.Count(request =>
+                // The wrapper is served by a credential-free HTTP feed, so the
+                // second iteration reads it from the durable authority store.
+                Assert.Equal(1, requests.Count(request =>
                     request.EndsWith(".nupkg", StringComparison.Ordinal)));
                 Assert.Empty(Directory.EnumerateDirectories(temporaryRoot, "inspect-pkg*"));
 
@@ -1872,18 +1919,29 @@ public sealed partial class ConfiguredPayloadAcquisitionTests : IDisposable
         return reader.ReadToEnd();
     }
 
-    private string WriteConfig((string Name, string Source, string Pattern)[] sources)
+    private string WriteConfig(
+        (string Name, string Source, string Pattern)[] sources,
+        string? credentialedSource = null)
     {
         string path = Path.Combine(_root, $"sources-{Guid.NewGuid():N}.config");
-        new XDocument(new XElement("configuration",
+        var configuration = new XElement("configuration",
             new XElement("packageSources", new XElement("clear"),
                 sources.Select(source => new XElement("add",
                     new XAttribute("key", source.Name), new XAttribute("value", source.Source)))),
             new XElement("packageSourceMapping",
                 sources.Select(source => new XElement("packageSource",
                     new XAttribute("key", source.Name),
-                    new XElement("package", new XAttribute("pattern", source.Pattern)))))))
-            .Save(path);
+                    new XElement("package", new XAttribute("pattern", source.Pattern))))));
+        if (credentialedSource is not null)
+        {
+            // A configured credential keeps the authority process-local, with
+            // no durable cache identity (docs/design/package-cache-policy.md).
+            configuration.Add(new XElement("packageSourceCredentials",
+                new XElement(credentialedSource,
+                    new XElement("add", new XAttribute("key", "Username"), new XAttribute("value", "user")),
+                    new XElement("add", new XAttribute("key", "ClearTextPassword"), new XAttribute("value", "token")))));
+        }
+        new XDocument(configuration).Save(path);
         return path;
     }
 

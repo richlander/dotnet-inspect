@@ -30,3 +30,33 @@ public enum PackagePayloadAccess
 /// </summary>
 public delegate IReadOnlyList<string> PackageEntrySelector(
     IPackageContent directory);
+
+/// <summary>
+/// What a ranged acquisition reads and when it reads by range at all: the
+/// entry selector, and the size cut at or under which the archive is
+/// acquired complete and cached instead (docs/design/package-cache-policy.md).
+/// </summary>
+public sealed class PackageRangedRead
+{
+    /// <summary>The size cut hosts use unless they set another: 1 MB of archive.</summary>
+    public const long DefaultSizeCut = 1_000_000;
+
+    public PackageRangedRead(
+        PackageEntrySelector selectEntries,
+        long sizeCut = DefaultSizeCut)
+    {
+        ArgumentNullException.ThrowIfNull(selectEntries);
+        ArgumentOutOfRangeException.ThrowIfNegative(sizeCut);
+        SelectEntries = selectEntries;
+        SizeCut = sizeCut;
+    }
+
+    /// <summary>Chooses the entries to read from a directory-only view.</summary>
+    public PackageEntrySelector SelectEntries { get; }
+
+    /// <summary>
+    /// Archives whose advertised length is at or under this are acquired
+    /// complete; larger ones are read by range.
+    /// </summary>
+    public long SizeCut { get; }
+}

@@ -51,7 +51,8 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
             StringComparison.Ordinal);
         Assert.Contains("payload Ranged", result.Error, StringComparison.Ordinal);
         Assert.Contains("nothing was cached", result.Error, StringComparison.Ordinal);
-        Assert.Equal(0, feed.FullPackageResponses);
+        // The one complete response is the size probe, abandoned before its body.
+        Assert.Equal(1, feed.FullPackageResponses);
         Assert.True(feed.RangedResponses >= 2, $"ranged responses: {feed.RangedResponses}");
         Assert.True(
             feed.PackageBytesServed < assembly.Length + (1024 * 1024),
@@ -96,7 +97,8 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
         Assert.True(result.Exit == 0, result.Error);
         Assert.Contains("InvalidateMeasure", result.Output, StringComparison.Ordinal);
         Assert.Contains("payload Ranged", result.Error, StringComparison.Ordinal);
-        Assert.Equal(0, feed.FullPackageResponses);
+        // The one complete response is the size probe, abandoned before its body.
+        Assert.Equal(1, feed.FullPackageResponses);
         // Search reads the surface only: the whole ref/net10.0 folder (11
         // assemblies and their 11 documentation files) and none of lib/. The
         // archive interleaves other folders' documentation into that folder,
@@ -153,7 +155,8 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
             result.Output,
             StringComparison.Ordinal);
         Assert.Contains("payload Ranged", result.Error, StringComparison.Ordinal);
-        Assert.Equal(0, feed.FullPackageResponses);
+        // The one complete response is the size probe, abandoned before its body.
+        Assert.Equal(1, feed.FullPackageResponses);
     }
 
     /// <summary>
@@ -259,10 +262,14 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
             RangeItemHeaderValue? range = request.Headers.Range?.Ranges.SingleOrDefault();
             if (ignoreRange || range is null)
             {
+                // Count the bytes actually read: size first abandons a complete
+                // response before its body.
                 Interlocked.Increment(ref _fullPackageResponses);
-                Interlocked.Add(ref _packageBytesServed, package.Length);
                 HttpResponseMessage full = Respond(
-                    request, HttpStatusCode.OK, new ByteArrayContent(package));
+                    request,
+                    HttpStatusCode.OK,
+                    new StreamContent(new CountingStream(package, this)));
+                full.Content.Headers.ContentLength = package.Length;
                 full.Headers.ETag = new EntityTagHeaderValue(ETag);
                 return Task.FromResult(full);
             }
@@ -293,6 +300,39 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
             partial.Headers.ETag = new EntityTagHeaderValue(ETag);
             partial.Headers.AcceptRanges.Add("bytes");
             return Task.FromResult(partial);
+        }
+
+        internal void AddServed(int count) =>
+            Interlocked.Add(ref _packageBytesServed, count);
+
+        private sealed class CountingStream(byte[] bytes, RangeHonoringFeedHandler owner)
+            : MemoryStream(bytes, writable: false)
+        {
+            public override int Read(byte[] buffer, int offset, int count)
+            {
+                int read = base.Read(buffer, offset, count);
+                owner.AddServed(read);
+                return read;
+            }
+
+            public override int Read(Span<byte> buffer)
+            {
+                int read = base.Read(buffer);
+                owner.AddServed(read);
+                return read;
+            }
+
+            public override async ValueTask<int> ReadAsync(
+                Memory<byte> buffer, CancellationToken cancellationToken = default)
+            {
+                int read = await base.ReadAsync(buffer, cancellationToken);
+                owner.AddServed(read);
+                return read;
+            }
+
+            public override Task<int> ReadAsync(
+                byte[] buffer, int offset, int count, CancellationToken cancellationToken) =>
+                ReadAsync(buffer.AsMemory(offset, count), cancellationToken).AsTask();
         }
 
         private static HttpResponseMessage Respond(

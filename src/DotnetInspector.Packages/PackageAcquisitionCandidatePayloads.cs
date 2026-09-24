@@ -126,7 +126,7 @@ internal sealed class PackageAcquisitionCandidatePayloadAcquirer
         CancellationToken cancellationToken = default,
         IPackagePayloadTransferPolicy? transferPolicy = null,
         NuGetOperationContext? operationContext = null,
-        PackageEntrySelector? rangedSelection = null) =>
+        PackageRangedRead? rangedRead = null) =>
         AcquireAsync(
             candidate,
             createStore,
@@ -137,9 +137,9 @@ internal sealed class PackageAcquisitionCandidatePayloadAcquirer
             operationContext,
             failures: [],
             selectionUsesOriginalSources: false,
-            rangedSelection);
+            rangedRead);
 
-    /// <param name="rangedSelection">
+    /// <param name="rangedRead">
     /// When supplied, an authority whose client exposes
     /// <see cref="IPackageArchiveRangeSource"/> is read by range on a cache
     /// miss: the archive directory first, then only the entries this selector
@@ -159,7 +159,7 @@ internal sealed class PackageAcquisitionCandidatePayloadAcquirer
         NuGetOperationContext? operationContext,
         List<PackageAuthorityFailure> failures,
         bool selectionUsesOriginalSources,
-        PackageEntrySelector? rangedSelection = null)
+        PackageRangedRead? rangedRead = null)
     {
         ArgumentNullException.ThrowIfNull(candidate);
         ArgumentNullException.ThrowIfNull(createStore);
@@ -240,130 +240,151 @@ internal sealed class PackageAcquisitionCandidatePayloadAcquirer
             foreach (var (authority, client, store) in entries)
             {
                 operation.ThrowIfExpired();
-                if (rangedSelection is not null
-                    && client is IPackageArchiveRangeSource rangedSource)
+                // Size first: with ranged access on a source that can serve
+                // ranges, the complete fetch is abandoned before its body when
+                // the archive is above the cut, and the archive is read by
+                // range instead (docs/design/package-cache-policy.md).
+                IPackageArchiveRangeSource? rangedSource =
+                    rangedRead is not null
+                        ? client as IPackageArchiveRangeSource
+                        : null;
+                long? sizeGate = rangedSource is null ? null : rangedRead!.SizeCut;
+                bool nextAuthority = false;
+                while (!nextAuthority)
                 {
-                    RangedAttempt attempt = await TryAcquireRangedAsync(
-                        rangedSource,
-                        client,
-                        authority,
-                        candidate.Coordinate,
-                        rangedSelection,
-                        PackagePayloadAcquisition.ValidateLimits(limits),
-                        operation,
-                        log).ConfigureAwait(false);
-                    operation.ThrowIfExpired();
-                    RequireAuthority(client.Source, authority);
-                    switch (attempt.Outcome)
+                    nextAuthority = true;
+                    log?.Invoke(
+                        $"Acquiring {candidate.Coordinate.PackageId} "
+                        + $"{candidate.Coordinate.Version} from "
+                        + $"{PackageSourceDisplay.ForDiagnostics(authority.Source)}.");
+                    try
                     {
-                        case RangedOutcome.Acquired:
+                        PackageSourcePayloadResult result =
+                            await PackagePayloadAcquisition.AcquireAuthorizedAsync(
+                                client,
+                                candidate.Coordinate,
+                                store,
+                                operation,
+                                log,
+                                limits,
+                                transferPolicy,
+                                abandonAbove: sizeGate).ConfigureAwait(false);
+                        operation.ThrowIfExpired();
+                        RequireAuthority(client.Source, authority);
+                        if (result is PackageSourcePayloadResult.Oversized oversized)
+                        {
+                            log?.Invoke(
+                                $"{candidate.Coordinate.PackageId} {candidate.Coordinate.Version} "
+                                + $"is {oversized.AdvertisedLength} bytes, above the "
+                                + $"{rangedRead!.SizeCut}-byte cut; reading it by range.");
+                            sizeGate = null;
+                            RangedAttempt attempt = await TryAcquireRangedAsync(
+                                rangedSource!,
+                                client,
+                                authority,
+                                candidate.Coordinate,
+                                rangedRead!.SelectEntries,
+                                PackagePayloadAcquisition.ValidateLimits(limits),
+                                operation,
+                                log).ConfigureAwait(false);
+                            operation.ThrowIfExpired();
+                            RequireAuthority(client.Source, authority);
+                            switch (attempt.Outcome)
+                            {
+                                case RangedOutcome.Acquired:
+                                    return new(
+                                        authority,
+                                        client.Source,
+                                        attempt.Payload!,
+                                        failures,
+                                        notFoundAuthorities,
+                                        selectedAuthorities,
+                                        selectionUsesOriginalSources);
+                                case RangedOutcome.NotFound:
+                                    notFoundAuthorities.Add(authority);
+                                    break;
+                                case RangedOutcome.Failed:
+                                    // An expired operation ceiling surfaces through
+                                    // ThrowIfExpired above; a request-level failure
+                                    // leaves the next authority its turn.
+                                    failures.Add(attempt.Failure!);
+                                    break;
+                                case RangedOutcome.Fallback:
+                                    // The complete fetch, without the size gate.
+                                    nextAuthority = false;
+                                    break;
+                                default:
+                                    throw new ArgumentOutOfRangeException(
+                                        nameof(attempt));
+                            }
+                            continue;
+                        }
+                        if (result is PackageSourcePayloadResult.Acquired acquired)
+                        {
                             return new(
                                 authority,
                                 client.Source,
-                                attempt.Payload!,
+                                acquired.Payload,
                                 failures,
                                 notFoundAuthorities,
                                 selectedAuthorities,
                                 selectionUsesOriginalSources);
-                        case RangedOutcome.NotFound:
-                            notFoundAuthorities.Add(authority);
-                            continue;
-                        case RangedOutcome.Failed:
-                            // An expired operation ceiling surfaces through
-                            // ThrowIfExpired above; a request-level failure
-                            // leaves the next authority its turn.
-                            failures.Add(attempt.Failure!);
-                            continue;
-                        case RangedOutcome.Fallback:
-                            break;
-                        default:
-                            throw new ArgumentOutOfRangeException(
-                                nameof(attempt));
+                        }
+                        if (result is PackageSourcePayloadResult.Failed failed)
+                        {
+                            RequireAuthority(
+                                failed.Failure.Source,
+                                authority,
+                                client.Source);
+                            failures.Add(
+                                DescribePayloadFailure(
+                                    authority.Source,
+                                    failed.Failure));
+                        }
+                        else if (result is PackageSourcePayloadResult.Unavailable
+                                 unavailable)
+                        {
+                            if (unavailable.IsNotFound)
+                            {
+                                notFoundAuthorities.Add(authority);
+                            }
+                            else
+                            {
+                                failures.Add(new PackageAuthorityFailure(
+                                    PackageSourceDisplay.ForDiagnostics(
+                                        authority.Source),
+                                    PackageAuthorityFailureKind.ResponseRejected,
+                                    "The selected source did not supply a payload satisfying the package policy.")
+                                {
+                                    ResultSource = client.Source,
+                                });
+                            }
+                        }
                     }
-                }
-
-                log?.Invoke(
-                    $"Acquiring {candidate.Coordinate.PackageId} "
-                    + $"{candidate.Coordinate.Version} from "
-                    + $"{PackageSourceDisplay.ForDiagnostics(authority.Source)}.");
-                try
-                {
-                    PackageSourcePayloadResult result =
-                        await PackagePayloadAcquisition.AcquireAuthorizedAsync(
-                            client,
-                            candidate.Coordinate,
-                            store,
-                            operation,
-                            log,
-                            limits,
-                            transferPolicy).ConfigureAwait(false);
-                    operation.ThrowIfExpired();
-                    RequireAuthority(client.Source, authority);
-                    if (result is PackageSourcePayloadResult.Acquired acquired)
-                    {
-                        return new(
-                            authority,
-                            client.Source,
-                            acquired.Payload,
-                            failures,
-                            notFoundAuthorities,
-                            selectedAuthorities,
-                            selectionUsesOriginalSources);
-                    }
-                    if (result is PackageSourcePayloadResult.Failed failed)
+                    catch (PackageSourceStreamException exception)
                     {
                         RequireAuthority(
-                            failed.Failure.Source,
+                            exception.ResultSource,
                             authority,
                             client.Source);
-                        failures.Add(
-                            DescribePayloadFailure(
-                                authority.Source,
-                                failed.Failure));
-                    }
-                    else if (result is PackageSourcePayloadResult.Unavailable
-                             unavailable)
-                    {
-                        if (unavailable.IsNotFound)
+                        failures.Add(new PackageAuthorityFailure(
+                            PackageSourceDisplay.ForDiagnostics(authority.Source),
+                            ClassifySourceFailure(exception.Kind),
+                            exception.Message)
                         {
-                            notFoundAuthorities.Add(authority);
-                        }
-                        else
+                            ResultSource = exception.ResultSource,
+                            Timeout = exception.Timeout,
+                        });
+                        if (exception.Timeout?.Kind
+                            == PackageSourceTimeoutKind.Operation)
                         {
-                            failures.Add(new PackageAuthorityFailure(
-                                PackageSourceDisplay.ForDiagnostics(
-                                    authority.Source),
-                                PackageAuthorityFailureKind.ResponseRejected,
-                                "The selected source did not supply a payload satisfying the package policy.")
-                            {
-                                ResultSource = client.Source,
-                            });
+                            return new(
+                                null,
+                                null,
+                                null,
+                                failures,
+                                notFoundAuthorities);
                         }
-                    }
-                }
-                catch (PackageSourceStreamException exception)
-                {
-                    RequireAuthority(
-                        exception.ResultSource,
-                        authority,
-                        client.Source);
-                    failures.Add(new PackageAuthorityFailure(
-                        PackageSourceDisplay.ForDiagnostics(authority.Source),
-                        ClassifySourceFailure(exception.Kind),
-                        exception.Message)
-                    {
-                        ResultSource = exception.ResultSource,
-                        Timeout = exception.Timeout,
-                    });
-                    if (exception.Timeout?.Kind
-                        == PackageSourceTimeoutKind.Operation)
-                    {
-                        return new(
-                            null,
-                            null,
-                            null,
-                            failures,
-                            notFoundAuthorities);
                     }
                 }
             }
@@ -414,6 +435,7 @@ internal sealed class PackageAcquisitionCandidatePayloadAcquirer
     /// reader's 64 KiB maximum.
     /// </summary>
     internal const int RangedEntryReadSlack = 1024;
+
 
     /// <summary>
     /// The unselected bytes a ranged read transfers to join two selected

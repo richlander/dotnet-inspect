@@ -74,7 +74,8 @@ public sealed class PackageRangedRealizationTests
         // assemblies: the merge gap bridges the XML doc between them, and the
         // slack covers the longer local extra fields, so no follow-up.
         Assert.Equal(2, server.RangedRequests);
-        Assert.Equal(0, server.FullRequests);
+        // The one full request is the size probe, abandoned before its body.
+        Assert.Equal(1, server.FullRequests);
         Assert.Null(store.TryGetCached(PclStorage, PclStorageVersion, null));
         using (ZipArchive oracle = new(new MemoryStream(archive)))
         {
@@ -88,6 +89,54 @@ public sealed class PackageRangedRealizationTests
                 }
             }
         }
+    }
+
+    /// <summary>
+    /// Size first: an archive at or under the cut is acquired complete and
+    /// committed, with no ranged request; above it, the complete response is
+    /// abandoned before its body and the archive is read by range.
+    /// </summary>
+    [Fact]
+    public async Task SizeFirst_ArchiveAtOrUnderTheCut_IsAcquiredComplete()
+    {
+        byte[] archive = ReadPclStorage();
+        var server = new RangeFeed(PclStorage, PclStorageVersion, archive);
+        var store = new InMemoryPackageStore();
+        await using RangedEnvironment environment = RangedEnvironment.Create(server);
+
+        var acquired = Assert.IsType<PackageHouseSettlement.Acquired>(
+            await environment.RealizeAsync(
+                store,
+                PackagePayloadAccess.Ranged,
+                "net45",
+                sizeCut: archive.Length));
+
+        Assert.Equal(PackagePayloadOrigin.Download, acquired.Payload.Origin);
+        Assert.Equal(1, server.FullRequests);
+        Assert.Equal(0, server.RangedRequests);
+        Assert.NotNull(store.TryGetCached(
+            PclStorage,
+            PclStorageVersion,
+            [acquired.Payload.ProducerKey]));
+    }
+
+    [Fact]
+    public async Task SizeFirst_ArchiveAboveTheCut_AbandonsTheCompleteResponseAndReadsByRange()
+    {
+        byte[] archive = ReadPclStorage();
+        var server = new RangeFeed(PclStorage, PclStorageVersion, archive);
+        await using RangedEnvironment environment = RangedEnvironment.Create(server);
+
+        var acquired = Assert.IsType<PackageHouseSettlement.Acquired>(
+            await environment.RealizeAsync(
+                new InMemoryPackageStore(),
+                PackagePayloadAccess.Ranged,
+                "net45",
+                sizeCut: archive.Length - 1));
+
+        Assert.Equal(PackagePayloadOrigin.Ranged, acquired.Payload.Origin);
+        Assert.Equal(1, server.FullRequests);
+        Assert.Equal(2, server.RangedRequests);
     }
 
     /// <summary>
@@ -147,7 +196,9 @@ public sealed class PackageRangedRealizationTests
 
         Assert.Equal(PackagePayloadOrigin.Download, acquired.Payload.Origin);
         Assert.IsNotType<RangedPackageContent>(acquired.Payload.Content);
-        Assert.Equal(2, server.FullRequests);
+        // The size probe, the ignored range answered whole, and the complete
+        // fetch.
+        Assert.Equal(3, server.FullRequests);
         Assert.NotNull(store.TryGetCached(
             PclStorage,
             PclStorageVersion,
@@ -186,7 +237,8 @@ public sealed class PackageRangedRealizationTests
         Assert.IsType<PackageHouseResult.Settled>(acquired.Result);
         Assert.Equal(PackagePayloadOrigin.Download, acquired.Payload.Origin);
         Assert.True(server.RangedRequests >= 1);
-        Assert.Equal(1, server.FullRequests);
+        // The size probe, then the complete fetch the fallback takes.
+        Assert.Equal(2, server.FullRequests);
         Assert.NotNull(store.TryGetCached(
             PclStorage,
             PclStorageVersion,
@@ -223,7 +275,8 @@ public sealed class PackageRangedRealizationTests
                 {
                     Failure.Kind: PackageSourceFailureKind.AuthenticationRequired,
                 });
-        Assert.Equal(0, server.FullRequests);
+        // Only the size probe, abandoned; no complete fetch follows.
+        Assert.Equal(1, server.FullRequests);
     }
 
     /// <summary>
@@ -369,13 +422,17 @@ public sealed class PackageRangedRealizationTests
         public Task<PackageHouseSettlement> RealizeAsync(
             IPackageStore store,
             PackagePayloadAccess access,
-            string framework)
+            string framework,
+            long sizeCut = 0)
         {
+            // The real assets here are small, so the ranged gates set a zero
+            // size cut; size first itself is gated separately.
             var house = new PackageHouse(
                 Authorization,
                 new PackagePayloadAcquisitionPlan(
                     (_, _) => store,
-                    access: access));
+                    access: access,
+                    rangedSizeCut: sizeCut));
             var request = new PackageHouseRequest(
                 new PackageHouseDemand.Exact(
                     PackageSourceCoordinate.Create(PclStorage, PclStorageVersion)),

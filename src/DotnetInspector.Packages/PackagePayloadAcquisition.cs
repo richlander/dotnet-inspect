@@ -240,6 +240,13 @@ public abstract record PackageSourcePayloadResult
 
     public sealed record Failed(PackageSourceFailure Failure)
         : PackageSourcePayloadResult;
+
+    /// <summary>
+    /// The source advertised an archive above the caller's size gate; the
+    /// response was abandoned before its body.
+    /// </summary>
+    internal sealed record Oversized(long AdvertisedLength)
+        : PackageSourcePayloadResult;
 }
 
 /// <summary>
@@ -356,7 +363,8 @@ public static class PackagePayloadAcquisition
         NuGetOperationContext operation,
         Action<string>? log = null,
         PackagePayloadLimits? limits = null,
-        IPackagePayloadTransferPolicy? transferPolicy = null) =>
+        IPackagePayloadTransferPolicy? transferPolicy = null,
+        long? abandonAbove = null) =>
         AcquireTypedAsync(
             source,
             source.Source.Producer,
@@ -369,7 +377,8 @@ public static class PackagePayloadAcquisition
             transferPolicy,
             operation,
             probeCache: false,
-            admissionCancellationToken: operation.OperationToken);
+            admissionCancellationToken: operation.OperationToken,
+            abandonAbove: abandonAbove);
 
     internal static ValueTask<AcquiredPackageSourcePayload?> TryGetCachedAsync(
         PackageSourceCoordinate coordinate,
@@ -447,7 +456,8 @@ public static class PackagePayloadAcquisition
         IPackagePayloadTransferPolicy? transferPolicy,
         NuGetOperationContext? operationContext,
         bool probeCache = true,
-        CancellationToken admissionCancellationToken = default)
+        CancellationToken admissionCancellationToken = default,
+        long? abandonAbove = null)
     {
         ArgumentNullException.ThrowIfNull(source);
         ArgumentNullException.ThrowIfNull(producer);
@@ -502,6 +512,15 @@ public static class PackagePayloadAcquisition
             await payload.Content.DisposeAsync().ConfigureAwait(false);
             return new PackageSourcePayloadResult.Unavailable(
                 "The package source returned a payload that did not match the requested coordinate.");
+        }
+
+        if (abandonAbove is { } gate
+            && payload.AdvertisedLength is { } advertised
+            && advertised > gate)
+        {
+            // Size first: abandon the response before its body.
+            await payload.Content.DisposeAsync().ConfigureAwait(false);
+            return new PackageSourcePayloadResult.Oversized(advertised);
         }
 
         IPackageContent? content = await TryAdmitAsync(
