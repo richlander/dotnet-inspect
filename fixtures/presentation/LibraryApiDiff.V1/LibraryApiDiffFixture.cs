@@ -32,6 +32,14 @@ public class OtherHardChangedType
     public virtual int Second() => 2;
 }
 
+public sealed class MethodConstraintChange
+{
+    public void Apply<T>()
+        where T : Dependency.BeforeConstraint
+    {
+    }
+}
+
 public sealed class RemovedType
 {
     public int First() => 1;
