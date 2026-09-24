@@ -71,7 +71,14 @@ internal static class DirectLibraryInspectionCommand
                 new(
                     LibraryTypeAccessibility.Public,
                     new(),
-                    @namespace: options.TypeNamespace),
+                    @namespace: options.TypeNamespace,
+                    namespaceMatch:
+                        options.TypeNamespace?.StartsWith(
+                            ".",
+                            StringComparison.Ordinal)
+                            is true
+                                ? MetadataNamespaceMatch.Suffix
+                                : MetadataNamespaceMatch.Exact),
                 s_bounds);
         }
         catch (ArgumentException failure)

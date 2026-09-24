@@ -75,7 +75,9 @@ public sealed record LibraryTypeDeclarationRowsInspectionRequest
         bool includeForwarders = true,
         ApiTypeInventoryKinds definitionKinds =
             ApiTypeInventoryKinds.All,
-        string? @namespace = null)
+        string? @namespace = null,
+        MetadataNamespaceMatch namespaceMatch =
+            MetadataNamespaceMatch.Exact)
     {
         ArgumentOutOfRangeException.ThrowIfNegative(startOrdinal);
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(maximumRows);
@@ -131,6 +133,28 @@ public sealed record LibraryTypeDeclarationRowsInspectionRequest
                     + $"{MetadataSafetyPolicy.MaxTypeNameCharacters} "
                     + "characters.");
         }
+        if (!Enum.IsDefined(namespaceMatch))
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(namespaceMatch),
+                namespaceMatch,
+                "Unknown declaration namespace match.");
+        }
+        if (@namespace is null
+            && namespaceMatch is not MetadataNamespaceMatch.Exact)
+        {
+            throw new ArgumentException(
+                "An unqualified declaration Rows request cannot select a namespace match.",
+                nameof(namespaceMatch));
+        }
+        if (namespaceMatch is MetadataNamespaceMatch.Suffix
+            && (@namespace!.Length < 2
+                || @namespace[0] != '.'))
+        {
+            throw new ArgumentException(
+                "A declaration namespace suffix must start with '.' and contain a suffix.",
+                nameof(@namespace));
+        }
 
         StartOrdinal = startOrdinal;
         MaximumRows = maximumRows;
@@ -139,6 +163,7 @@ public sealed record LibraryTypeDeclarationRowsInspectionRequest
         IncludeForwarders = includeForwarders;
         DefinitionKinds = definitionKinds;
         Namespace = @namespace;
+        NamespaceMatch = namespaceMatch;
         ExpectedModuleVersionId = expectedModuleVersionId;
     }
 
@@ -149,6 +174,7 @@ public sealed record LibraryTypeDeclarationRowsInspectionRequest
     public bool IncludeForwarders { get; }
     public ApiTypeInventoryKinds DefinitionKinds { get; }
     public string? Namespace { get; }
+    public MetadataNamespaceMatch NamespaceMatch { get; }
     public Guid? ExpectedModuleVersionId { get; }
 
     internal bool Includes(AssemblyTypeDefinitionKind kind) =>
@@ -627,7 +653,8 @@ public static class LibraryTypeDeclarationInventoryInspection
                     declaration =>
                         (request.Namespace is null
                             || declaration.Name.IsInNamespace(
-                                request.Namespace))
+                                request.Namespace,
+                                request.NamespaceMatch))
                         && (declaration.Kind switch
                             {
                                 AssemblyTypeDeclarationKind.Definition =>

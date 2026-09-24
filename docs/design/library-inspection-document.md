@@ -194,7 +194,8 @@ LibraryTypePopulationRequest
     declaration kinds: definitions, forwarders, or both
     definition Type kinds: any non-empty subset when definitions are selected
     accessibility/public-surface selection
-    optional exact namespace
+    optional namespace selection
+      exact namespace or leading-dot suffix
   optional Count request
   optional Rows request
 
@@ -296,9 +297,9 @@ The initial path is:
 LibraryDocument / Types
 ```
 
-Type kind, accessibility, and exact namespace are initial facets. Other facets
-may be adopted only after their query semantics, cost, and producer evidence
-are owned.
+Type kind, accessibility, and namespace are initial facets. Other facets may
+be adopted only after their query semantics, cost, and producer evidence are
+owned.
 
 A declaration-kind facet distinguishes local definitions from forwarders and
 supports definitions-only, forwarders-only, or combined membership. Type kind
@@ -308,14 +309,25 @@ therefore selects definitions of that kind rather than silently binding
 forwarders or guessing their target kind. The public-surface facet can select
 both definitions and forwarders from the owner-issued declaration inventory.
 
-The namespace facet selects declarations whose owner-issued structured name
-has exactly the requested namespace under ordinal comparison. It is not a
-textual prefix or subtree query: `System.Text.Json` does not select
-`System.Text.Json.Nodes`. An absent selector means every namespace; an empty
-selector means the global namespace. Definitions and forwarders participate
-according to their declared namespace without target resolution. The facet
-does not infer which Library owns a namespace; Router, Spotlight, and `find`
-resolve source candidates before invoking one exact Library operation.
+The namespace facet has explicit exact and suffix modes. Exact mode selects
+declarations whose owner-issued structured name has exactly the requested
+namespace under ordinal comparison. It is not a textual prefix or subtree
+query: `System.Text.Json` does not select `System.Text.Json.Nodes`. An absent
+selector means every namespace; an empty exact selector means the global
+namespace.
+
+Suffix mode is selected by a leading-dot value such as `.Nodes` and exhaustively
+selects declarations whose namespace ends ordinally in that complete suffix.
+The leading dot is both the CLI operator marker and the namespace-segment
+boundary: `.Nodes` selects `World.Blue.Nodes` and `World.Green.Nodes`, but not
+`Nodes`, `World.Blue.MyNodes`, or `World.Blue.Nodes.More`. Suffix mode does not
+prepend the Library name and therefore does not expand `.Nodes` to
+`System.Text.Json.Nodes`.
+
+Definitions and forwarders participate in either mode according to their
+declared namespace without target resolution. The facet does not infer which
+Library owns a namespace; Router, Spotlight, and `find` resolve source
+candidates before invoking one exact Library operation.
 
 A facet selects a population before terminal execution. A homogeneous
 `Accessibility = Private` population does not require every rendered row to
@@ -375,9 +387,10 @@ definitions.
 
 Rows contains one bounded ordered segment and either terminal completion or
 source continuation. Continuation is bound to the complete population
-identity. Changing a facet, including exact namespace, ordering, Library
-generation, or row projection invalidates it. The opaque continuation carries
-the bounded exact namespace value rather than a probabilistic digest.
+identity. Changing a facet, including namespace text or match mode, ordering,
+Library generation, or row projection invalidates it. The opaque continuation
+carries the bounded namespace value and match mode rather than a probabilistic
+digest.
 
 The initial ordering is Metadata order: admitted `TypeDef` declarations in
 table order followed by admitted `ExportedType` declarations in table order.
@@ -589,12 +602,13 @@ Adoption is staged through focused slices:
    Unqualified Type inventory and Count include first-class definition and
    forwarder declarations; declaration-kind selections include or exclude
    them through the request facet rather than presentation-only filtering.
-5. Adopt exact namespace Count and Rows over one resolved Library, then lower
-   source-specific namesake discovery separately. Router and Spotlight may
-   stop at their source-policy match bound; `find` may continue to additional
-   Library observations. None filters already-rendered Type rows. The first
-   production adopter is the direct Library inspection envelope, whose exact
-   namespace option lowers into this facet without source discovery.
+5. Adopt exact and leading-dot suffix namespace Count and Rows over one
+   resolved Library, then lower source-specific namesake discovery separately.
+   Router and Spotlight may stop at their source-policy match bound; `find` may
+   continue to additional Library observations. None filters already-rendered
+   Type rows. The first production adopter is the direct Library inspection
+   envelope, whose namespace option lowers exact values and leading-dot suffix
+   values into the typed facet without source discovery.
 6. Expose one typed `BrowserLibraryInspectionRequest` through the #8347
    generated JSON-input facade and consume the same envelope in Inspect Web.
 7. Adopt additional Library facts and populations owner by owner, then retire
@@ -625,9 +639,12 @@ The design and implementation slices require Release gates for:
 - accessibility and kind facet Counts agree with their Rows populations;
 - exact namespace Count agrees with completely drained Rows, including
   forwarders, and returns no declarations from neighboring namespaces;
+- leading-dot suffix Count agrees with completely drained Rows across multiple
+  namespace roots and excludes the root-only, near-name, and descendant cases;
 - the empty namespace selects the global namespace while an absent namespace
   selector remains unqualified;
-- changing exact namespace rejects continuation reuse;
+- changing namespace text or exact-versus-suffix mode rejects continuation
+  reuse;
 - forwarder Rows retain structured names, ordered occurrence chains, exact
   terminal assembly-reference identities, Library/MVID correspondence, and no
   opener or target owner;

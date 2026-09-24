@@ -410,7 +410,7 @@ public static class InspectionCommandDefinitions
         var namespaceOption = new Option<string?>("--namespace")
         {
             Description =
-                "Select the exact namespace in a host-neutral Library inspection envelope",
+                "Select an exact namespace, or a leading-dot namespace suffix, in a host-neutral Library inspection envelope",
         };
         var metadataRootOption = new Option<string?>("--metadata-root")
         {

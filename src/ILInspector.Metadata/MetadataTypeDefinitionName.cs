@@ -6,6 +6,12 @@ using System.Text.Json.Serialization;
 
 namespace ILInspector.Metadata;
 
+public enum MetadataNamespaceMatch
+{
+    Exact,
+    Suffix,
+}
+
 /// <summary>Why a structured metadata type-definition name could not be created.</summary>
 public enum MetadataTypeNameRejectionKind
 {
@@ -233,12 +239,47 @@ public sealed class MetadataTypeDefinitionName : IEquatable<MetadataTypeDefiniti
     /// Tests exact namespace membership using metadata's ordinal identity.
     /// </summary>
     public bool IsInNamespace(string exactNamespace)
-    {
-        ArgumentNullException.ThrowIfNull(exactNamespace);
-        return string.Equals(
-            Namespace,
+        => IsInNamespace(
             exactNamespace,
-            StringComparison.Ordinal);
+            MetadataNamespaceMatch.Exact);
+
+    /// <summary>
+    /// Tests namespace membership using metadata's ordinal identity.
+    /// </summary>
+    public bool IsInNamespace(
+        string namespacePattern,
+        MetadataNamespaceMatch match)
+    {
+        ArgumentNullException.ThrowIfNull(namespacePattern);
+        if (!Enum.IsDefined(match))
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(match),
+                match,
+                "Unknown metadata namespace match.");
+        }
+        if (match is MetadataNamespaceMatch.Suffix
+            && (namespacePattern.Length < 2
+                || namespacePattern[0] != '.'))
+        {
+            throw new ArgumentException(
+                "A metadata namespace suffix must start with '.' and contain a suffix.",
+                nameof(namespacePattern));
+        }
+        return match switch
+        {
+            MetadataNamespaceMatch.Exact =>
+                string.Equals(
+                    Namespace,
+                    namespacePattern,
+                    StringComparison.Ordinal),
+            MetadataNamespaceMatch.Suffix =>
+                Namespace.EndsWith(
+                    namespacePattern,
+                    StringComparison.Ordinal),
+            _ => throw new InvalidOperationException(
+                "Unknown metadata namespace match."),
+        };
     }
 
     /// <summary>

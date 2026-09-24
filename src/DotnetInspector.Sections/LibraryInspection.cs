@@ -40,7 +40,7 @@ public sealed record LibraryTypeMemberCountRequest;
 public sealed record LibraryTypePopulationContinuation
 {
     private const int MaximumEncodedValueCharacters =
-        ((27
+        ((28
             + MetadataSafetyPolicy.MaxTypeNameCharacters * 3
             + 2)
         / 3)
@@ -110,7 +110,9 @@ public sealed record LibraryTypePopulationRequest
             LibraryTypeDeclarationSelection.DefinitionsAndForwarders,
         ApiTypeInventoryKinds definitionKinds =
             ApiTypeInventoryKinds.All,
-        string? @namespace = null)
+        string? @namespace = null,
+        MetadataNamespaceMatch namespaceMatch =
+            MetadataNamespaceMatch.Exact)
     {
         if (!Enum.IsDefined(accessibility))
         {
@@ -152,6 +154,28 @@ public sealed record LibraryTypePopulationRequest
                 "A Library Type namespace must contain well-formed Unicode text.",
                 nameof(@namespace));
         }
+        if (!Enum.IsDefined(namespaceMatch))
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(namespaceMatch),
+                namespaceMatch,
+                "Unknown Library Type namespace match.");
+        }
+        if (@namespace is null
+            && namespaceMatch is not MetadataNamespaceMatch.Exact)
+        {
+            throw new ArgumentException(
+                "An unqualified Library Type population cannot select a namespace match.",
+                nameof(namespaceMatch));
+        }
+        if (namespaceMatch is MetadataNamespaceMatch.Suffix
+            && (@namespace!.Length < 2
+                || @namespace[0] != '.'))
+        {
+            throw new ArgumentException(
+                "A Library Type namespace suffix must start with '.' and contain a suffix.",
+                nameof(@namespace));
+        }
 
         bool includesDefinitions =
             declarationSelection
@@ -191,6 +215,7 @@ public sealed record LibraryTypePopulationRequest
         DeclarationSelection = declarationSelection;
         DefinitionKinds = definitionKinds;
         Namespace = @namespace;
+        NamespaceMatch = namespaceMatch;
         Count = count;
         Rows = rows;
     }
@@ -199,6 +224,7 @@ public sealed record LibraryTypePopulationRequest
     public LibraryTypeDeclarationSelection DeclarationSelection { get; }
     public ApiTypeInventoryKinds DefinitionKinds { get; }
     public string? Namespace { get; }
+    public MetadataNamespaceMatch NamespaceMatch { get; }
     public LibraryTypePopulationCountRequest? Count { get; }
     public LibraryTypePopulationRowsRequest? Rows { get; }
 
@@ -298,7 +324,9 @@ public sealed record LibraryTypePopulationBinding(
     LibraryTypeAccessibility Accessibility,
     LibraryTypeDeclarationSelection DeclarationSelection,
     ApiTypeInventoryKinds DefinitionKinds,
-    string? Namespace);
+    string? Namespace,
+    MetadataNamespaceMatch NamespaceMatch =
+        MetadataNamespaceMatch.Exact);
 
 public enum LibraryTypePopulationCountUnavailableReason
 {

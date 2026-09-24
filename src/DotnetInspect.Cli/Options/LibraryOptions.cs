@@ -106,7 +106,7 @@ public record LibraryOptions : IProjectionOptions
     public string? TypeFilter { get; init; }
 
     /// <summary>
-    /// Exact namespace facet for the host-neutral Library Type population.
+    /// Namespace facet for the host-neutral Library Type population.
     /// </summary>
     public string? TypeNamespace { get; init; }
 

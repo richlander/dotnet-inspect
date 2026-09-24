@@ -15,8 +15,8 @@ namespace DotnetInspector.Sections;
 /// </summary>
 public static class LibraryInspectionOperation
 {
-    private const byte ContinuationVersion = 4;
-    private const int ContinuationHeaderLength = 27;
+    private const byte ContinuationVersion = 5;
+    private const int ContinuationHeaderLength = 28;
     private const string SharePath = "library-inspection/share";
     private const string ShareReason =
         "A complete portable Workspace scenario was not supplied.";
@@ -101,6 +101,7 @@ public static class LibraryInspectionOperation
                     request.Plan.Types.DeclarationSelection,
                     request.Plan.Types.DefinitionKinds,
                     request.Plan.Types.Namespace,
+                    request.Plan.Types.NamespaceMatch,
                     request.Plan.Bounds,
                     cancellationToken);
             diagnostics.AddRange(countDiagnostics);
@@ -254,7 +255,8 @@ public static class LibraryInspectionOperation
             request.Plan.Types.Accessibility,
             request.Plan.Types.DeclarationSelection,
             request.Plan.Types.DefinitionKinds,
-            request.Plan.Types.Namespace);
+            request.Plan.Types.Namespace,
+            request.Plan.Types.NamespaceMatch);
         var document = new LibraryDocument(
             portableIdentity,
             subject.ModuleVersionId,
@@ -320,6 +322,7 @@ public static class LibraryInspectionOperation
                                 population.DeclarationSelection,
                                 population.DefinitionKinds,
                                 population.Namespace,
+                                population.NamespaceMatch,
                                 request.Ordering,
                                 request.MemberCount is not null,
                                 next)
@@ -535,6 +538,7 @@ public static class LibraryInspectionOperation
             LibraryTypeDeclarationSelection selection,
             ApiTypeInventoryKinds definitionKinds,
             string? @namespace,
+            MetadataNamespaceMatch namespaceMatch,
             ApiSurfaceExtractionBounds bounds,
             CancellationToken cancellationToken)
     {
@@ -550,7 +554,9 @@ public static class LibraryInspectionOperation
         {
             cancellationToken.ThrowIfCancellationRequested();
             if (@namespace is not null
-                && !declaration.Name.IsInNamespace(@namespace))
+                && !declaration.Name.IsInNamespace(
+                    @namespace,
+                    namespaceMatch))
             {
                 continue;
             }
@@ -697,6 +703,8 @@ public static class LibraryInspectionOperation
                 payload.Namespace,
                 population.Namespace,
                 StringComparison.Ordinal)
+            || payload.NamespaceMatch
+                != population.NamespaceMatch
             || payload.Ordering != rows.Ordering
             || payload.IncludeMemberCount
                 != (rows.MemberCount is not null))
@@ -732,7 +740,9 @@ public static class LibraryInspectionOperation
                 definitionKinds:
                     population.DefinitionKinds,
                 @namespace:
-                    population.Namespace);
+                    population.Namespace,
+                namespaceMatch:
+                    population.NamespaceMatch);
     }
 
     private static LibraryTypePopulationRowsRejection?
@@ -754,6 +764,7 @@ public static class LibraryInspectionOperation
         LibraryTypeDeclarationSelection declarationSelection,
         ApiTypeInventoryKinds definitionKinds,
         string? @namespace,
+        MetadataNamespaceMatch namespaceMatch,
         LibraryTypePopulationOrdering ordering,
         bool includeMemberCount,
         int nextOrdinal)
@@ -780,8 +791,9 @@ public static class LibraryInspectionOperation
         payload[20] = checked((byte)ordering);
         payload[21] = includeMemberCount ? (byte)1 : (byte)0;
         payload[22] = @namespace is null ? (byte)0 : (byte)1;
+        payload[23] = checked((byte)namespaceMatch);
         BinaryPrimitives.WriteInt32LittleEndian(
-            payload.AsSpan(23, 4),
+            payload.AsSpan(24, 4),
             nextOrdinal);
         if (@namespace is not null)
         {
@@ -827,9 +839,11 @@ public static class LibraryInspectionOperation
             (ApiTypeInventoryKinds)bytes[19];
         var ordering =
             (LibraryTypePopulationOrdering)bytes[20];
+        var namespaceMatch =
+            (MetadataNamespaceMatch)bytes[23];
         int nextOrdinal =
             BinaryPrimitives.ReadInt32LittleEndian(
-                bytes.AsSpan(23, 4));
+                bytes.AsSpan(24, 4));
         string? @namespace = null;
         if (bytes[22] == 0)
         {
@@ -857,9 +871,17 @@ public static class LibraryInspectionOperation
         if (!Enum.IsDefined(accessibility)
             || !Enum.IsDefined(declarationSelection)
             || !Enum.IsDefined(ordering)
+            || !Enum.IsDefined(namespaceMatch)
             || !IsValidDefinitionKinds(
                 declarationSelection,
                 definitionKinds)
+            || (@namespace is null
+                && namespaceMatch
+                    is not MetadataNamespaceMatch.Exact)
+            || (namespaceMatch
+                    is MetadataNamespaceMatch.Suffix
+                && (@namespace!.Length < 2
+                    || @namespace[0] != '.'))
             || nextOrdinal < 0)
         {
             return false;
@@ -871,6 +893,7 @@ public static class LibraryInspectionOperation
             declarationSelection,
             definitionKinds,
             @namespace,
+            namespaceMatch,
             ordering,
             bytes[21] == 1,
             nextOrdinal);
@@ -926,6 +949,7 @@ public static class LibraryInspectionOperation
         LibraryTypeDeclarationSelection DeclarationSelection,
         ApiTypeInventoryKinds DefinitionKinds,
         string? Namespace,
+        MetadataNamespaceMatch NamespaceMatch,
         LibraryTypePopulationOrdering Ordering,
         bool IncludeMemberCount,
         int NextOrdinal);

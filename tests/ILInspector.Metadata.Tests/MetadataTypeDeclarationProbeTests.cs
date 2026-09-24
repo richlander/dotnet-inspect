@@ -33,6 +33,32 @@ public class MetadataTypeDeclarationProbeTests
     }
 
     [Fact]
+    public void StructuredName_MatchesNamespaceExactlyOrBySegmentSuffix()
+    {
+        MetadataTypeDefinitionName name =
+            Name("World.Blue.Nodes", "Foo");
+
+        Assert.True(name.IsInNamespace("World.Blue.Nodes"));
+        Assert.False(name.IsInNamespace("World.Green.Nodes"));
+        Assert.True(
+            name.IsInNamespace(
+                ".Nodes",
+                MetadataNamespaceMatch.Suffix));
+        Assert.Throws<ArgumentException>(
+            () => name.IsInNamespace(
+                "Nodes",
+                MetadataNamespaceMatch.Suffix));
+        Assert.False(
+            name.IsInNamespace(
+                ".Blue",
+                MetadataNamespaceMatch.Suffix));
+        Assert.False(
+            name.IsInNamespace(
+                ".nodes",
+                MetadataNamespaceMatch.Suffix));
+    }
+
+    [Fact]
     public void StructuredName_RejectsMissingNamespace()
     {
         var rejected = Assert.IsType<MetadataTypeDefinitionNameResult.Rejected>(

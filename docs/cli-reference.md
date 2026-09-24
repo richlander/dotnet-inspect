@@ -83,6 +83,30 @@ type names such as `string`, `int`, `DateTime`, and `Guid` resolve to
 `System.Private.CoreLib`. Use explicit commands and `--package`, `--platform`,
 or `--library` when you need a specific source.
 
+### Direct Library namespace populations
+
+The direct Library inspection envelope can qualify its public Type population
+by exact namespace:
+
+```bash
+dotnet-inspect library ./MyLibrary.dll --envelope \
+  --namespace System.Text.Json.Nodes
+```
+
+A leading dot selects an exhaustive namespace suffix within that same exact
+Library:
+
+```bash
+dotnet-inspect library ./MyLibrary.dll --envelope --namespace .Nodes
+```
+
+`.Nodes` matches Types declared in namespaces such as `World.Blue.Nodes` and
+`World.Green.Nodes`. It does not prepend the Library name, and it does not
+match `Nodes`, `World.Blue.MyNodes`, or `World.Blue.Nodes.More`. The envelope
+records whether the namespace match is `Exact` or `Suffix`; the mode is also
+part of continuation identity. Namesake source discovery belongs to Router,
+Spotlight, and `find`, not this direct-file operation.
+
 Use `-D --schema` to inspect the syntax-selected structural view without
 acquiring or loading the target. Package `--library` and `--all-libraries`
 queries expose their route-specific schemas before package resolution, while
