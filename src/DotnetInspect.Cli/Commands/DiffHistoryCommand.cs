@@ -158,7 +158,11 @@ internal static class DiffHistoryCommand
                 composition,
                 options.SourceOptions,
                 context.Logger.Log);
-            InspectionEnvelope<DiffHistoryOutcome> envelope =
+            (
+                InspectionEnvelope<DiffHistoryOutcome> envelope,
+                EvidenceInspectionEnvelope<
+                    DiffHistoryOutcome,
+                    PackageAcquisitionEvidence>? enriched) =
                 await InspectAsync(
                         options,
                         population,
@@ -175,47 +179,21 @@ internal static class DiffHistoryCommand
             bool hasError = envelope.Diagnostics.Any(static diagnostic =>
                 diagnostic.Severity
                     == InspectionDiagnosticSeverity.Error);
-            bool completeJson =
-                options.EnvelopeOutput
-                || options.JsonOutput
-                    && !HasHistoryPresentationProjection(options)
-                    && !options.Count;
-            if (completeJson)
-            {
-                if (options.Count)
-                    ProjectionAudit.MarkHonored(ProjectionAudit.Count);
-                if (!InspectionEnvelopeOutput.TryWrite(
-                        envelope,
-                        JsonContract,
-                        options.EnvelopeOutput,
-                        options.CompactJson))
-                {
-                    return 1;
-                }
-                return envelope.Content
-                    is DiffHistoryOutcome.Available
-                    && !hasError
-                        ? 0
-                        : 1;
-            }
-
-            if (envelope.Content
-                is not DiffHistorySectionAvailable available)
-            {
-                return 1;
-            }
-            if (options.Count)
-            {
-                int countResult =
-                    DiffHistoryOutput.WriteCount(available, options);
-                return countResult == 0 && !hasError ? 0 : 1;
-            }
-
-            int outputResult = DiffHistoryOutput.WriteProjected(
-                DiffHistoryOutput.Project(available),
+            int exitCode = WriteOrdinaryOutput(
                 options,
-                selectedSections);
-            return outputResult == 0 && !hasError ? 0 : 1;
+                selectedSections,
+                envelope,
+                hasError);
+#if DEBUG
+            if (enriched is not null
+                && !TryPublishEvidence(
+                    options.EvidenceEnvelopePath!,
+                    enriched))
+            {
+                exitCode = 1;
+            }
+#endif
+            return exitCode;
         }
         catch (Exception exception)
             when (exception is not OperationCanceledException)
@@ -223,6 +201,93 @@ internal static class DiffHistoryCommand
             CommandError.Write(exception);
             return 1;
         }
+    }
+
+#if DEBUG
+    static bool TryPublishEvidence(
+        string evidencePath,
+        EvidenceInspectionEnvelope<
+            DiffHistoryOutcome,
+            PackageAcquisitionEvidence> enriched)
+    {
+        if (!InspectionEnvelopeOutput.TrySerializeEvidence(
+                enriched,
+                JsonContract,
+                PackageAcquisitionEvidenceJsonContext.Default
+                    .PackageAcquisitionEvidence,
+                compactJson: false,
+                out byte[] payload,
+                out Exception? serializationError))
+        {
+            CommandError.Write(
+                $"Evidence envelope serialization failed for "
+                    + $"'{evidencePath}': "
+                    + serializationError!.Message);
+            return false;
+        }
+        if (!EvidenceEnvelopeOutput.TryPublish(
+                evidencePath,
+                payload,
+                out Exception? publicationError))
+        {
+            CommandError.Write(
+                $"Evidence envelope publication failed for "
+                    + $"'{evidencePath}': "
+                    + publicationError!.Message);
+            return false;
+        }
+        CommandError.WriteLine($"Evidence envelope: {evidencePath}");
+        return true;
+    }
+#endif
+
+    static int WriteOrdinaryOutput(
+        DiffOptions options,
+        HashSet<string> selectedSections,
+        InspectionEnvelope<DiffHistoryOutcome> envelope,
+        bool hasError)
+    {
+        bool completeJson =
+            options.EnvelopeOutput
+            || options.JsonOutput
+                && !HasHistoryPresentationProjection(options)
+                && !options.Count;
+        if (completeJson)
+        {
+            if (options.Count)
+                ProjectionAudit.MarkHonored(ProjectionAudit.Count);
+            if (!InspectionEnvelopeOutput.TryWrite(
+                    envelope,
+                    JsonContract,
+                    options.EnvelopeOutput,
+                    options.CompactJson))
+            {
+                return 1;
+            }
+            return envelope.Content
+                is DiffHistoryOutcome.Available
+                && !hasError
+                    ? 0
+                    : 1;
+        }
+
+        if (envelope.Content
+            is not DiffHistorySectionAvailable available)
+        {
+            return 1;
+        }
+        if (options.Count)
+        {
+            int countResult =
+                DiffHistoryOutput.WriteCount(available, options);
+            return countResult == 0 && !hasError ? 0 : 1;
+        }
+
+        int outputResult = DiffHistoryOutput.WriteProjected(
+            DiffHistoryOutput.Project(available),
+            options,
+            selectedSections);
+        return outputResult == 0 && !hasError ? 0 : 1;
     }
 
     static bool TryValidateMode(
@@ -464,7 +529,11 @@ internal static class DiffHistoryCommand
         return true;
     }
 
-    static async Task<InspectionEnvelope<DiffHistoryOutcome>> InspectAsync(
+    static async ValueTask<(
+        InspectionEnvelope<DiffHistoryOutcome> Inspection,
+        EvidenceInspectionEnvelope<
+            DiffHistoryOutcome,
+            PackageAcquisitionEvidence>? Evidence)> InspectAsync(
         DiffOptions options,
         PackageHouseVersionPopulationResult.Available population,
         DiffHistoryEvaluationPlan plan,
@@ -518,11 +587,29 @@ internal static class DiffHistoryCommand
                     $"diff-history:{type}:{member}",
                     $"{type}.{member}"),
                 replayContext: replayContext);
-            return await DiffHistoryInspection.InspectAnalysisAsync(
-                    new DiffHistoryAnalysisOperationRequest(
+            var analysisBuilder = new EvidenceInspectionBuilder<
+                DiffHistoryOutcome,
+                PackageAcquisitionEvidence>();
+            analysisBuilder.RequestEvidence(
+                options.EvidenceEnvelopePath is not null);
+            return await analysisBuilder.BuildAsync(
+                    (Request: new DiffHistoryAnalysisOperationRequest(
                         inspection,
                         count),
-                    executor,
+                    Executor: executor),
+                    static async (state, token) =>
+                        await DiffHistoryInspection.InspectAnalysisAsync(
+                                state.Request,
+                                state.Executor,
+                                token)
+                            .ConfigureAwait(false),
+                    static async (state, token) =>
+                        await DiffHistoryInspection
+                            .InspectAnalysisWithEvidenceAsync(
+                                state.Request,
+                                state.Executor,
+                                token)
+                            .ConfigureAwait(false),
                     cancellationToken)
                 .ConfigureAwait(false);
         }
@@ -554,11 +641,27 @@ internal static class DiffHistoryCommand
             member: member is null
                 ? null
                 : MemberTargetSelector.Parse(member));
-        return await DiffHistoryInspection.InspectApiAsync(
-                new DiffHistoryApiOperationRequest(
+        var builder = new EvidenceInspectionBuilder<
+            DiffHistoryOutcome,
+            PackageAcquisitionEvidence>();
+        builder.RequestEvidence(options.EvidenceEnvelopePath is not null);
+        return await builder.BuildAsync(
+                (Request: new DiffHistoryApiOperationRequest(
                     request,
                     count),
-                executor,
+                Executor: executor),
+                static async (state, token) =>
+                    await DiffHistoryInspection.InspectApiAsync(
+                            state.Request,
+                            state.Executor,
+                            token)
+                        .ConfigureAwait(false),
+                static async (state, token) =>
+                    await DiffHistoryInspection.InspectApiWithEvidenceAsync(
+                            state.Request,
+                            state.Executor,
+                            token)
+                        .ConfigureAwait(false),
                 cancellationToken)
             .ConfigureAwait(false);
     }

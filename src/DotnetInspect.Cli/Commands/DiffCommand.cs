@@ -4018,6 +4018,11 @@ public record DiffOptions : IProjectionOptions
     public string? Tfm { get; init; }
     public bool IncludeAll { get; init; }
     public bool History { get; init; }
+
+    /// <summary>
+    /// Debug-only destination for the complete enriched Diff History envelope.
+    /// </summary>
+    public string? EvidenceEnvelopePath { get; init; }
     public string[] At { get; init; } = [];
     public int? MaxProbes { get; init; }
     public int? SamplePercent { get; init; }

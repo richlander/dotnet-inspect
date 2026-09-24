@@ -84,6 +84,12 @@ It preserves the ordinary primary output, supports a distinct ordinary
 `--out` destination and paired baseline `--envelope`, and publishes the
 complete enriched frame atomically.
 
+Debug `diff --history` adopts `--evidence-envelope <path>` for
+`DiffHistoryOutcome` and `PackageAcquisitionEvidence`, which lists each House
+acquisition with its [package transfer receipt](package-transfer-receipt.md).
+It preserves the ordinary primary output and publishes the complete enriched
+frame atomically.
+
 `--depth` remains traversal, while `--rows` and
 `-n`/`--head`/`--tail` remain semantic relationship selection. Content retains
 both
