@@ -427,10 +427,9 @@ All gates run in Release.
    (#8285), and the legacy `PackageExtractor` latest path retires there.
 3. Inspect Web adopts the same content over the browser reader for package
    opens that today buffer the whole nupkg, under the browser-host rule above.
-4. The warm queue and the size-differentiated cache policy (#8386) decide
-   when a ranged read is followed by a complete download; owned by the
-   [package cache download queue](package-cache-download-queue.md), and
-   adopted before the second part of step 2.
+4. The [package cache policy](package-cache-policy.md) (#8386) decides which
+   archives are acquired complete and cached and which are read by range. It
+   is adopted before the second part of step 2.
 
 Total: four slices, the second in two parts; both hosts named; the retired
 path named.

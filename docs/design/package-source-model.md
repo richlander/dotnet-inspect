@@ -692,9 +692,10 @@ not share entries merely because NuGetFetch gives them one producer identity.
 Aliases already proven to be one authority may share. An authority without a
 credential-safe durable key can use only authority-scoped process-local cache
 state; it cannot fall back to a producer-keyed persistent entry. Local
-authorities and HTTP authorities without a configured credential or endpoint
-user information have such a key; the HTTP rule is owned by the
-[package cache download queue](package-cache-download-queue.md#durable-identity-for-credential-free-http-authorities).
+authorities have such a key. From adoption step 2 of the
+[package cache policy](package-cache-policy.md#durable-identity-for-credential-free-http-authorities),
+which owns the HTTP rule, HTTP authorities without a configured credential or
+endpoint user information have one too.
 
 The NuGet global packages folder is a payload cache, not a candidate source.
 Its `.nupkg.metadata.source` must resolve unambiguously to an authority
@@ -865,12 +866,14 @@ separately. The old `package-content-v5` family remains for unmigrated consumers
 and is never reinterpreted as this new namespace. Local global-packages reuse
 requires the metadata source to resolve to the same canonical local authority.
 
+HTTP authorities currently have no durable cache identity. From adoption step
+2 of the
+[package cache policy](package-cache-policy.md#durable-identity-for-credential-free-http-authorities),
 HTTP authorities without a configured credential or endpoint user information
-have a durable cache identity, derived from the canonical endpoint as the
-[package cache download queue](package-cache-download-queue.md#durable-identity-for-credential-free-http-authorities)
-owns it, and publish into `package-authority-content-v1` like local
-authorities. HTTP authorities with a configured credential have none. Their
-admitted payloads use authority-scoped temporary filesystem materialization,
+have one, derived from the canonical endpoint, and publish into
+`package-authority-content-v1` like local authorities. HTTP authorities without
+a durable identity use authority-scoped temporary filesystem materialization for
+their admitted payloads,
 retained until the extraction consumer calls the existing cleanup API. They do
 not read or write persistent payload or derived package-index entries. No HTTP
 authority reads NuGet global-packages entries. Temporary ownership is
@@ -1039,16 +1042,15 @@ The desktop CLI's first consumer is the exact-package search Root used by
 with ranged access. When the Root's compatible compile selection names an
 entry the ranged read did not materialize, it acquires the complete archive
 instead. Offline, it keeps the local package cache path, as the package
-command's offline branch does. HTTP authorities still have no durable cache
-identity, so their ranged content is read again by each invocation, as their
+command's offline branch does. Until HTTP authorities have a durable cache
+identity, their ranged content is read again by each invocation, as their
 complete payloads already are on this path. Before this adoption the search
 Root read the legacy producer-keyed cache, which the configured-authority
 path does not consult; a repeated online search of an HTTP package therefore
 costs a ranged read where it previously cost nothing after the first
-download. Filling a durable cache after a ranged read is
-the warm queue and cache policy of
-[#8386](https://github.com/richlander/dotnet-inspect/issues/8386), which also
-decides durable HTTP identity. Local-folder authorities do not expose the
+download. The [package cache policy](package-cache-policy.md) owns durable
+HTTP identity and which archives are cached rather than read by range.
+Local-folder authorities do not expose the
 capability at this head and keep complete acquisition with their durable
 store.
 
@@ -1241,7 +1243,8 @@ The Release gates
 `AuthorizationObservation_RetainsRegisteredAuthorityAndPartialFailure`,
 `AuthorizationFailuresFlowThroughPinnedAndVersionDiscovery`,
 `PackageSourceAuthorization_CredentialPathAuthoritiesHaveNoPersistentKey`,
-`PackageSourceAuthorization_HttpAuthorityWithoutStableIdHasNoPersistentKey`,
+`PackageSourceAuthorization_HttpAuthorityWithoutStableIdHasNoPersistentKey`
+(replaced at the package cache policy's adoption step 2),
 `SourceClassification_PlainDirectoryNeverConstructsHttpTransport`,
 `SourceClassification_FileUriNeverConstructsHttpTransport`,
 `SourceClassification_UnsupportedSchemeCreatesNoAuthorityOrRequest`,

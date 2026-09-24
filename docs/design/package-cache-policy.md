@@ -19,6 +19,7 @@ The claim has two parts:
 - **Size first.** A consumer that asks for ranged access learns the archive's
   size before transferring it: an archive at or under the size cut is
   acquired complete and cached; a larger one is read by range and not cached.
+  The CLI and Inspect Web apply the same rule.
 
 It consumes, and does not redefine, the ranged read of
 [package archive range access](package-archive-range-access.md), the lease
@@ -125,11 +126,69 @@ once.
 
 ## Host scope
 
-Size first is package-owned: the lease step decides, and any host that sets
-ranged access gets it. The CLI search Root sets it today. Inspect Web keeps
-packages in an in-memory store for one session; it adopts ranged access in
-the range-access design's Inspect Web slice, where this rule decides between
-a complete in-memory fetch and a ranged read by the same cut.
+Both hosts keep complete downloads, so size first is one package-owned rule
+for both. The CLI publishes them to the durable authority-scoped store.
+Inspect Web gets the same effect from the browser: nuget.org marks package
+archives `Cache-Control: max-age=86400`, and Inspect Web's requests do not
+opt out of the HTTP cache. A persistent Chromium profile, restarted between
+sessions, measured this on 2026-09-23 for `Avalonia` 12.1.2:
+
+| Session | Time | Bytes from the network |
+| --- | --- | --- |
+| first | 2,916 ms | 10.1 MB |
+| second, after a restart | 69 ms | 0 |
+| third, after a restart | 156 ms | 0 |
+
+After a day the browser revalidates with `Last-Modified`, which costs a
+request but not the archive. Ranged `206` responses do not get this reuse,
+which is a further reason to cache small archives complete.
+
+The browser can keep archives longer, in two steps that belong to the Inspect
+Web slice:
+
+- **Force the cache for archives.** A package version is immutable, so the
+  archive request can use the `force-cache` fetch mode. The browser then
+  serves a cached archive at any age without revalidating, and still evicts
+  under disk pressure. Version listings change and keep the default mode.
+- **An explicit browser package store.** The Cache API or the origin private
+  file system keeps archives until the user clears them. With
+  `navigator.storage.persist()`, the browser does not evict them. Such a
+  store is Inspect Web's counterpart to the CLI's authority-scoped durable
+  store.
+
+Inspect Web's browser requests also set `redirect: "error"` today, so a feed
+that redirects package downloads, as Azure Artifacts does with a `303` to its
+blob store, fails in the browser. That slice decides whether to follow such
+redirects.
+
+For archives above the cut, a browser probe on 2026-09-23 compared ranged
+reads with complete fetches. Headless Chromium fetched from nuget.org, with a
+fresh context per run and medians of seven runs. It replayed the ranged
+reader's request plan: the tail, merged spans with a 64 KiB gap, and six
+requests in flight.
+
+| Package | Archive | Complete | Ranged, preflighted | Ranged, preflight-free | Bytes moved, ranged |
+| --- | --- | --- | --- | --- | --- |
+| `Avalonia` 12.1.2 | 10.1 MB | 551 ms | 583 ms | 352 ms | 3.8 MB |
+| `Microsoft.CodeAnalysis.CSharp` 4.11.0 | 16.9 MB | 550 ms | 995 ms | 371 ms | 2.3 MB |
+| `Microsoft.Data.SqlClient` 5.2.2 | 13.2 MB | 598 ms | 382 ms | 205 ms | 0.3 MB |
+
+Ranged reads beat the complete fetch in the browser only when their requests
+need no CORS preflight. Chromium preflights a suffix range and any request
+carrying `If-Range`. It preflighted every span, because all six start before
+the first preflight is cached. nuget.org also serves browsers over HTTP/1.1,
+so each request in flight holds its own connection. A preflight-free read
+sends only `bytes=a-b` ranges. It takes the tail's position from the complete
+response's `Content-Length`, which size first has already read and nuget.org
+exposes. It omits `If-Range` and compares each response's validator with the
+first instead. The probe also found that nuget.org's `ETag` is unquoted, so an
+`If-Range` carrying it always returns the whole archive; only `Last-Modified`
+works as a validator there. How a browser sends ranged requests belongs to the
+[range-access browser host](package-archive-range-access.md#browser-host)
+rule, which its Inspect Web slice amends with these findings. The probe drove
+JavaScript `fetch`, not the wasm engine. .NET's `HttpClient` on wasm uses the
+same `fetch`, so the network behavior carries over, but wasm decompression
+cost is unmeasured until that slice.
 
 ## Pathological cases and gates
 
@@ -161,6 +220,9 @@ The existing assertion that an HTTP extraction result carries no
    table above.
 3. The remaining search scopes adopt ranged access, and with it size first,
    in the second part of range-access adoption step 2.
+4. Inspect Web adopts ranged access, and with it size first, in the
+   range-access design's Inspect Web slice, with preflight-free ranged
+   requests.
 
 ## Non-claims
 
