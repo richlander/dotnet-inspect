@@ -238,6 +238,69 @@ public sealed class MemberOverloadPopulationInspectionOperationTests
 
     [Fact]
     public async Task
+        BoundedRowsRetainOnlyTheRequestedSegment()
+    {
+        byte[] content =
+            await LibraryInspectionTestLibrary.RealSystemTextJsonAsync();
+        await using LibraryInspectionTestLibrary library =
+            await LibraryInspectionTestLibrary.CreateAsync(
+                content,
+                LibraryInspectionTestLibrary.Identity(content));
+
+        MemberOverloadShape probe =
+            Assert.Single(
+                Assert.IsType<MemberOverloadRowsOutcome.Read>(
+                        Available(
+                                Execute(
+                                    library,
+                                    "Serialize",
+                                    count: false,
+                                    new(maximumRows: 1)))
+                            .Overloads.Rows)
+                    .Items);
+        int oneRowCharacters =
+            probe.DisplaySignature.Length
+            + probe.CanonicalSignature.Length
+            + probe.Fingerprint.Length
+            + probe.Accessibility.Length;
+        ApiSurfaceExtractionBounds oneRowBounds =
+            Bounds(oneRowCharacters);
+
+        MemberOverloadRowsOutcome.Read bounded =
+            Assert.IsType<MemberOverloadRowsOutcome.Read>(
+                Available(
+                        Execute(
+                            library,
+                            "Serialize",
+                            count: false,
+                            new(maximumRows: 1),
+                            oneRowBounds))
+                    .Overloads.Rows);
+        Assert.Single(bounded.Items);
+        Assert.NotNull(bounded.Continuation);
+
+        MemberOverloadRowsOutcome.Incomplete exhaustive =
+            Assert.IsType<MemberOverloadRowsOutcome.Incomplete>(
+                Available(
+                        Execute(
+                            library,
+                            "Serialize",
+                            count: false,
+                            new(maximumRows: 15),
+                            oneRowBounds))
+                    .Overloads.Rows);
+        Assert.Equal(
+            MemberOverloadPopulationBound
+                .RetainedTextCharacters,
+            exhaustive.Bound);
+        Assert.Equal(oneRowCharacters, exhaustive.Limit);
+        Assert.True(exhaustive.Measured > exhaustive.Limit);
+
+        await library.RetireAsync();
+    }
+
+    [Fact]
+    public async Task
         MissingTypeAndMemberGroupAreTypedNonSuccess()
     {
         byte[] content =
@@ -321,4 +384,15 @@ public sealed class MemberOverloadPopulationInspectionOperationTests
                     @namespace,
                     [.. segments]))
             .Name;
+
+    private static ApiSurfaceExtractionBounds Bounds(
+        int maximumRetainedTextCharacters) =>
+        new(
+            maxTypes: 5_000,
+            maxMembers: 100_000,
+            maxInspectionFailures: 1_000,
+            maxTypeForwarders: 10_000,
+            maxMetadataRows: 1_000_000,
+            maxRetainedTextCharacters:
+                maximumRetainedTextCharacters);
 }
