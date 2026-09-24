@@ -60,6 +60,56 @@ public partial class CommandExecutionTests
             StringComparison.Ordinal);
     }
 
+    [Fact]
+    public async Task SectionSelection_PackagePreparseRejectsRepeatedMissingTargetWithoutStack()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "package",
+            "System.Text.Json",
+            "-S",
+            "Package Info",
+            "--section",
+            "--json",
+            "--offline");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains(
+            "--select requires at least one name.",
+            error,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            nameof(InvalidOperationException),
+            error,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "at DotnetInspect",
+            error,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task SectionSelection_RejectsSeparatorOnlyRepeatedTarget()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "library",
+            "System.Text.Json",
+            "-S",
+            "Library Info",
+            "--section",
+            ";",
+            "--offline",
+            "--tips",
+            "q");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains(
+            "--select requires at least one name.",
+            error,
+            StringComparison.Ordinal);
+    }
+
     [Theory]
     [InlineData("-S", "")]
     [InlineData("-s", ",")]

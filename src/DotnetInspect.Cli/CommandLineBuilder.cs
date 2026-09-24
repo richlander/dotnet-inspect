@@ -110,16 +110,20 @@ public static class CommandLineBuilder
         RootCommand rootCommand,
         out string? error)
     {
-        ParseResult rawParse = rootCommand.Parse(args);
+        string[] normalizedArgs =
+            ArgumentPreprocessor.NormalizeRepeatedSelect(args);
+        ParseResult rawParse = rootCommand.Parse(normalizedArgs);
         bool isImplicitPackageVersionCandidate =
             ArgumentPreprocessor.IsImplicitPackageCandidate(
-                args,
-                UsesImplicitVersionDirectionPresence(args, rootCommand));
-        string[] ownershipArgs = args;
+                normalizedArgs,
+                UsesImplicitVersionDirectionPresence(
+                    normalizedArgs,
+                    rootCommand));
+        string[] ownershipArgs = normalizedArgs;
         ParseResult ownershipParse = rawParse;
         if (isImplicitPackageVersionCandidate)
         {
-            ownershipArgs = [PackageCommand.Name, .. args];
+            ownershipArgs = [PackageCommand.Name, .. normalizedArgs];
             ownershipParse = rootCommand.Parse(ownershipArgs);
         }
 
@@ -281,6 +285,7 @@ public static class CommandLineBuilder
         string[] args,
         RootCommand rootCommand)
     {
+        args = ArgumentPreprocessor.NormalizeRepeatedSelect(args);
         if (args.Length == 0
             || !args[0].StartsWith('-')
             || !args.Any(static argument => argument is "--head" or "--tail"))

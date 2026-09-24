@@ -1312,6 +1312,12 @@ public class CommandLineTests
             (
                 ["package", "Foo", "-S", "Signals", "--section", ""],
                 ["package", "Foo", "-S", ""]),
+            (
+                ["package", "Foo", "-S", "Signals", "--section", ";"],
+                ["package", "Foo", "-S", ""]),
+            (
+                ["package", "Foo", "-S", "Signals", "--section", " , ; "],
+                ["package", "Foo", "-S", ""]),
         ];
 
         foreach (var (arguments, expected) in cases)
@@ -1324,6 +1330,34 @@ public class CommandLineTests
         var result = CommandLineBuilder.PreprocessArgs(["member", "Foo", "--columns", "Select", "--columns", "Signature"]);
 
         Assert.Equal(["member", "Foo", "--columns", "Select;Signature"], result);
+    }
+
+    [Fact]
+    public void PreprocessArgs_RepeatedSelectPreservesHeadShorthand()
+    {
+        string[] result = PreprocessAndApplyLineWindow(
+        [
+            "package",
+            "Foo",
+            "-S",
+            "Package Info",
+            "--section",
+            "Manifest",
+            "-5",
+        ]);
+
+        Assert.Equal(
+            [
+                "package",
+                "Foo",
+                "-S",
+                "Package Info;Manifest",
+                "-n",
+                "5",
+            ],
+            result);
+        Assert.Equal(5, CommandLineBuilder.HeadLines);
+        Assert.Null(CommandLineBuilder.TailLines);
     }
 
     [Theory]

@@ -249,14 +249,9 @@ public static class ArgumentPreprocessor
         // ';'-joined token so repeated and separated forms behave the same.
         // System.CommandLine otherwise parses `--columns=` like a bare `--columns`; split the
         // inline-empty spelling first so projection validation can distinguish the explicit value.
-        args = ExpandInlineEmptyListOption(args, SelectAliases);
+        args = NormalizeRepeatedSelect(args);
         args = ExpandInlineEmptyListOption(args, ColumnsAliases);
         args = ExpandInlineEmptyListOption(args, FieldsAliases);
-        args = MergeRepeatedListOption(
-            args,
-            SelectAliases,
-            "-S",
-            requireEveryValue: true);
         args = MergeRepeatedListOption(args, ColumnsAliases, "--columns");
         args = MergeRepeatedListOption(args, FieldsAliases, "--fields");
         args = EscapeAtCategoryOptionValues(args, AtCategoryOptionAliases);
@@ -285,6 +280,16 @@ public static class ArgumentPreprocessor
         }
 
         return args;
+    }
+
+    internal static string[] NormalizeRepeatedSelect(string[] args)
+    {
+        args = ExpandInlineEmptyListOption(args, SelectAliases);
+        return MergeRepeatedListOption(
+            args,
+            SelectAliases,
+            "-S",
+            requireEveryValue: true);
     }
 
     internal static int FindFirstPositionalArgument(
@@ -898,12 +903,20 @@ public static class ArgumentPreprocessor
                 value = args[++i];
             }
 
-            if (string.IsNullOrEmpty(value))
+            if (!ContainsListName(value))
                 return true;
         }
 
         return false;
     }
+
+    private static bool ContainsListName(string? value)
+        => !string.IsNullOrWhiteSpace(value)
+            && value.Split(
+                [',', ';'],
+                StringSplitOptions.RemoveEmptyEntries
+                    | StringSplitOptions.TrimEntries)
+                .Length > 0;
 
     private static string[] NormalizeInvalidRepeatedListOption(
         string[] args,
