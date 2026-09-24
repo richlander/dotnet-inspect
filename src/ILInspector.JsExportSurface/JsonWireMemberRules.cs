@@ -192,14 +192,75 @@ public static class JsonWireMemberRules
             : JsonWireMemberPresence.Absent;
     }
 
+    /// <summary>
+    /// Normalizes authentic Metadata evidence into the effective context
+    /// default consumed by wire-shape composition.
+    /// </summary>
+    public static JsonWireContextDefaultIgnoreCondition
+        GetContextDefaultIgnoreCondition(
+            JsonSourceGenerationDefaultIgnoreConditionEvidence evidence)
+    {
+        if (evidence.HasUnsupportedRow
+            || evidence.AttributeCount < 0
+            || evidence.AttributeCount > 1)
+        {
+            return JsonWireContextDefaultIgnoreCondition.Unsupported;
+        }
+
+        if (evidence.AttributeCount == 0)
+        {
+            return evidence.Value is null
+                ? JsonWireContextDefaultIgnoreCondition.Never
+                : JsonWireContextDefaultIgnoreCondition.Unsupported;
+        }
+
+        return evidence.Value switch
+        {
+            JsonWireIgnoreCondition.Never =>
+                JsonWireContextDefaultIgnoreCondition.Never,
+            JsonWireIgnoreCondition.WhenWritingNull =>
+                JsonWireContextDefaultIgnoreCondition.WhenWritingNull,
+            _ => JsonWireContextDefaultIgnoreCondition.Unsupported,
+        };
+    }
+
+    /// <summary>
+    /// Returns the owner-issued effective context default for one surfaced
+    /// type. A missing entry is the framework default used by hand-composed
+    /// declaration-only surfaces.
+    /// </summary>
+    public static JsonWireContextDefaultIgnoreCondition
+        GetContextDefaultIgnoreCondition(
+            JsExportSurface surface,
+            ApiType declaringType) =>
+        surface.ContextDefaultIgnoreConditions.TryGetValue(
+            declaringType,
+            out JsonWireContextDefaultIgnoreCondition condition)
+            ? condition
+            : JsonWireContextDefaultIgnoreCondition.Never;
+
+    /// <summary>
+    /// The member's effective authenticated presence after composing its
+    /// metadata with the serializer contexts that reached its declaring type.
+    /// </summary>
     public static JsonWireMemberPresence GetPresence(
+        JsExportSurface surface,
+        ApiType declaringType,
         ApiMember member,
         JsonWireDirection direction,
         ApiAssemblyIdentity? assemblyIdentity,
         IReadOnlyDictionary<ApiTypeReferenceIdentity, ApiType>
-            typesByScopedIdentity,
-        JsonWireIgnoreCondition defaultIgnoreCondition)
+            typesByScopedIdentity)
     {
+        JsonWireContextDefaultIgnoreCondition defaultIgnoreCondition =
+            GetContextDefaultIgnoreCondition(surface, declaringType);
+
+        if (defaultIgnoreCondition
+            == JsonWireContextDefaultIgnoreCondition.Unsupported)
+        {
+            return JsonWireMemberPresence.Unsupported;
+        }
+
         JsonWireMemberPresence presence = GetPresence(
             member,
             direction,
@@ -208,13 +269,14 @@ public static class JsonWireMemberRules
         if (presence != JsonWireMemberPresence.Present
             || direction != JsonWireDirection.Serialize
             || member.JsonIgnoreConditions.Count != 0
-            || defaultIgnoreCondition == JsonWireIgnoreCondition.Never)
+            || defaultIgnoreCondition
+                == JsonWireContextDefaultIgnoreCondition.Never)
         {
             return presence;
         }
 
         if (defaultIgnoreCondition
-            != JsonWireIgnoreCondition.WhenWritingNull)
+            != JsonWireContextDefaultIgnoreCondition.WhenWritingNull)
         {
             return JsonWireMemberPresence.Unsupported;
         }
@@ -229,6 +291,28 @@ public static class JsonWireMemberRules
                 null => JsonWireMemberPresence.Unsupported,
             };
     }
+
+    public static bool IsDirectionSensitive(
+        JsExportSurface surface,
+        ApiType declaringType,
+        ApiMember member,
+        ApiAssemblyIdentity? assemblyIdentity,
+        IReadOnlyDictionary<ApiTypeReferenceIdentity, ApiType>
+            typesByScopedIdentity) =>
+        GetPresence(
+            surface,
+            declaringType,
+            member,
+            JsonWireDirection.Serialize,
+            assemblyIdentity,
+            typesByScopedIdentity)
+        != GetPresence(
+            surface,
+            declaringType,
+            member,
+            JsonWireDirection.Deserialize,
+            assemblyIdentity,
+            typesByScopedIdentity);
 
     /// <summary>
     /// True when the member is present or conditionally present in at least one

@@ -469,6 +469,7 @@ static class DtsEmitter
                 StringComparer.Ordinal))
             EmitRecord(
                 sb,
+                surface,
                 record,
                 surface.Unions,
                 surface.WireDirections.TryGetValue(
@@ -493,6 +494,7 @@ static class DtsEmitter
         {
             EmitPolymorphicUnion(
                 sb,
+                surface,
                 union,
                 surface.Unions,
                 surface.AssemblyIdentity,
@@ -544,6 +546,7 @@ static class DtsEmitter
 
     static void EmitPolymorphicUnion(
         StringBuilder sb,
+        ILInspector.JsExportSurface.JsExportSurface surface,
         JsExportPolymorphicUnion union,
         IReadOnlyList<JsExportUnion> unions,
         ApiAssemblyIdentity? assemblyIdentity,
@@ -569,6 +572,7 @@ static class DtsEmitter
             ApiType caseType = @case.Definition;
             IReadOnlyList<(ApiMember Member, string ResolvedName)> members =
                 GetPolymorphicCaseMembers(
+                    surface,
                     root,
                     caseType,
                     discriminatorPropertyName,
@@ -592,6 +596,7 @@ static class DtsEmitter
                     $"{caseType.FullName}.{member.Name}";
                 JsonWireMemberPresence presence =
                     GetEffectiveMemberPresence(
+                        surface,
                         caseType,
                         member,
                         JsonWireDirection.Serialize,
@@ -677,6 +682,7 @@ static class DtsEmitter
 
     static IReadOnlyList<(ApiMember Member, string ResolvedName)>
         GetPolymorphicCaseMembers(
+            ILInspector.JsExportSurface.JsExportSurface surface,
             ApiType root,
             ApiType caseType,
             string discriminatorPropertyName,
@@ -691,8 +697,19 @@ static class DtsEmitter
                 caseType.FullName,
                 "polymorphic root and case naming policies differ");
         }
-        if (caseType.JsonDefaultIgnoreCondition
-                != root.JsonDefaultIgnoreCondition
+        JsonWireContextDefaultIgnoreCondition rootDefaultIgnoreCondition =
+            JsonWireMemberRules.GetContextDefaultIgnoreCondition(
+                surface,
+                root);
+        JsonWireContextDefaultIgnoreCondition caseDefaultIgnoreCondition =
+            JsonWireMemberRules.GetContextDefaultIgnoreCondition(
+                surface,
+                caseType);
+        if (rootDefaultIgnoreCondition
+                == JsonWireContextDefaultIgnoreCondition.Unsupported
+            || caseDefaultIgnoreCondition
+                == JsonWireContextDefaultIgnoreCondition.Unsupported
+            || caseDefaultIgnoreCondition != rootDefaultIgnoreCondition
             || caseType.JsonUseStringEnumConverter
                 != root.JsonUseStringEnumConverter)
         {
@@ -1330,6 +1347,7 @@ static class DtsEmitter
     /// </remarks>
     static void EmitRecord(
         StringBuilder sb,
+        ILInspector.JsExportSurface.JsExportSurface surface,
         ApiType record,
         IReadOnlyList<JsExportUnion> unions,
         JsonWireDirection directions,
@@ -1341,7 +1359,11 @@ static class DtsEmitter
         TypeScriptGenerationDiagnostics? diagnostics)
     {
         JsonWireNamingPolicy namingPolicy = record.JsonPropertyNamingPolicy ?? JsonWireNamingPolicy.None;
-        if (namingPolicy == JsonWireNamingPolicy.Unsupported)
+        if (namingPolicy == JsonWireNamingPolicy.Unsupported
+            || JsonWireMemberRules.GetContextDefaultIgnoreCondition(
+                    surface,
+                    record)
+                == JsonWireContextDefaultIgnoreCondition.Unsupported)
         {
             ReportUnsupportedContextOptions(record, diagnostics);
             EmitBlockedType(sb, declarationName);
@@ -1382,6 +1404,8 @@ static class DtsEmitter
         if (directions == JsonWireDirection.Both
             && record.Members.Any(member =>
                 JsonWireMemberRules.IsDirectionSensitive(
+                    surface,
+                    record,
                     member,
                     assemblyIdentity,
                     declaredTypesByScopedIdentity)))
@@ -1417,6 +1441,7 @@ static class DtsEmitter
             .Select(member => (
                 Member: member,
                 Presence: GetEffectiveMemberPresence(
+                    surface,
                     record,
                     member,
                     declarationDirection,
@@ -2227,6 +2252,7 @@ static class DtsEmitter
                     : JsonWireDirection.Deserialize;
             return type.Members
                 .Any(member => MemberUsesJsonValue(
+                    surface,
                     type,
                     member,
                     declarationDirection,
@@ -2249,6 +2275,7 @@ static class DtsEmitter
                         ?? JsonWireNamingPolicy.None;
                 return union.Cases.Any(@case =>
                     GetPolymorphicCaseMembers(
+                        surface,
                         root,
                         @case.Definition,
                         discriminatorPropertyName,
@@ -2256,6 +2283,7 @@ static class DtsEmitter
                         surface.AssemblyIdentity,
                         declaredTypesByScopedIdentity)
                     .Any(item => MemberUsesJsonValue(
+                        surface,
                         @case.Definition,
                         item.Member,
                         JsonWireDirection.Serialize,
@@ -2265,6 +2293,7 @@ static class DtsEmitter
     }
 
     static bool MemberUsesJsonValue(
+        ILInspector.JsExportSurface.JsExportSurface surface,
         ApiType declaringType,
         ApiMember member,
         JsonWireDirection direction,
@@ -2272,6 +2301,7 @@ static class DtsEmitter
         IReadOnlyDictionary<ApiTypeReferenceIdentity, ApiType>
             declaredTypesByScopedIdentity) =>
         GetEffectiveMemberPresence(
+            surface,
             declaringType,
             member,
             direction,
@@ -2288,6 +2318,7 @@ static class DtsEmitter
             member.SignatureModel?.ReturnTypeShape);
 
     static JsonWireMemberPresence GetEffectiveMemberPresence(
+        ILInspector.JsExportSurface.JsExportSurface surface,
         ApiType declaringType,
         ApiMember member,
         JsonWireDirection direction,
@@ -2295,11 +2326,12 @@ static class DtsEmitter
         IReadOnlyDictionary<ApiTypeReferenceIdentity, ApiType>
             declaredTypesByScopedIdentity) =>
         JsonWireMemberRules.GetPresence(
+            surface,
+            declaringType,
             member,
             direction,
             assemblyIdentity,
-            declaredTypesByScopedIdentity,
-            declaringType.JsonDefaultIgnoreCondition);
+            declaredTypesByScopedIdentity);
 
     static bool IsJsonElementPresentValue(ApiTypeShape? type) =>
         UnwrapNullableShape(type)?.Definition is { } identity
