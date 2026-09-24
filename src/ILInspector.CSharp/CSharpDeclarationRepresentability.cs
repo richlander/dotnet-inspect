@@ -486,7 +486,7 @@ public static class CSharpDeclarationRepresentability
         }
 
         string metadataName =
-            relationship.DeclarationName.ToString();
+            MetadataDeclarationText.RenderDeclarationName(relationship);
         if (metadataName != "op_Addition")
         {
             return Unavailable(
@@ -829,7 +829,9 @@ public static class CSharpDeclarationRepresentability
         var reservedNames = new HashSet<string>(StringComparer.Ordinal);
         for (int index = 0; index < parameters.Length; index++)
         {
-            string? name = parameters[index].Name?.ToString();
+            string? name =
+                MetadataDeclarationText.RenderParameterName(
+                    parameters[index]);
             if (name is not null
                 && IsCompilerPreservedIdentifier(name))
             {
@@ -883,7 +885,7 @@ public static class CSharpDeclarationRepresentability
 
     static bool IsVoid(MetadataTypeIdentity identity) =>
         identity is MetadataTypeIdentity.Primitive primitive
-        && primitive.Name.ToString() == "void";
+        && MetadataDeclarationText.RenderPrimitiveName(primitive) == "void";
 
     internal static bool IsSupportedAdditionSignature(
         MetadataMethodSignatureIdentity signature,
@@ -936,7 +938,8 @@ public static class CSharpDeclarationRepresentability
     static string? SpellPrimitive(
         MetadataTypeIdentity.Primitive primitive)
     {
-        string name = primitive.Name.ToString();
+        string name =
+            MetadataDeclarationText.RenderPrimitiveName(primitive);
         return PrimitiveTypeNames.TryToClrFullName(name, out _)
             ? name
             : null;
@@ -946,9 +949,11 @@ public static class CSharpDeclarationRepresentability
         MetadataNamedTypeIdentity definition,
         ImmutableArray<MetadataTypeIdentity> arguments)
     {
-        if (definition.Segments.IsDefaultOrEmpty
+        int segmentCount =
+            MetadataDeclarationText.GetSegmentCount(definition);
+        if (segmentCount == 0
             || definition.IntroducedGenericParameterCounts.IsDefault
-            || definition.Segments.Length !=
+            || segmentCount !=
                 definition.IntroducedGenericParameterCounts.Length
             || definition.IntroducedGenericParameterCounts.Any(
                 count => count < 0)
@@ -959,7 +964,8 @@ public static class CSharpDeclarationRepresentability
         }
 
         var builder = new System.Text.StringBuilder("global::");
-        string namespaceName = definition.Namespace.ToString();
+        string namespaceName =
+            MetadataDeclarationText.RenderNamespace(definition);
         if (namespaceName.Length > 0)
         {
             string[] namespaceSegments = namespaceName.Split('.');
@@ -977,14 +983,16 @@ public static class CSharpDeclarationRepresentability
 
         int argumentIndex = 0;
         for (int segmentIndex = 0;
-            segmentIndex < definition.Segments.Length;
+            segmentIndex < segmentCount;
             segmentIndex++)
         {
             if (segmentIndex > 0)
                 builder.Append('.');
 
             string metadataName =
-                definition.Segments[segmentIndex].ToString();
+                MetadataDeclarationText.RenderSegment(
+                    definition,
+                    segmentIndex);
             int tick = metadataName.LastIndexOf('`');
             int introduced =
                 definition.IntroducedGenericParameterCounts[segmentIndex];

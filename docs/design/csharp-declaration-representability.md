@@ -182,6 +182,11 @@ remain coordinates within the observation that issued them. Qualified names,
 simple names, rendered C#, row ordering, and value-equal Boolean flag sets are
 not join currencies.
 
+Metadata also owns the safe inert-text rendering needed to cross the enforced
+assembly-dependency boundary. CSharp applies identifier admission and spelling
+policy to those rendered strings; the rendering does not classify declarations
+or become semantic identity.
+
 An exact InterfaceImpl `Absent` result proves only the absence defined by its
 owner. It does not prove that the declaration owner is a class, that an
 interface is unreachable through another interface, or that no C# explicit
