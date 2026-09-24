@@ -189,7 +189,7 @@ The adoption state is explicit:
 | `-Q` emits the canonical query-resource path | Planned in #8417 |
 | Exact `explain <path>` describes the facet and route | Planned Resource Explanation query adoption |
 | The `Microsoft.Azure.SignalR` literal query emits whole-string rows | Implemented |
-| Global lexical search for `literal` finds the facet | Planned in #8424 |
+| Global similarity-ranked search for `literal` finds the facet | Planned in #8424 |
 
 ### Global catalog orientation
 
@@ -198,8 +198,9 @@ Package Query. An unfamiliar capability should also be discoverable without
 enumerating every command and running `-Q` repeatedly.
 
 [#8424](https://github.com/richlander/dotnet-inspect/issues/8424) owns a
-focused compact capability-catalog search. A search for `literal` consumes
-this composition's stable installed facts and should return at least:
+focused compact capability-catalog search. A similarity-ranked search for
+`literal` consumes this composition's stable installed facts and should
+return at least:
 
 ```text
 Kind: Query facet
@@ -211,11 +212,13 @@ Discover: package query -Q Packages
 
 Inspection Capability Composition supplies the searchable owner-issued
 identity, canonical query key, name, summary, relationships, path, route, and
-available consumer bindings. It does not define search matching, ordering,
-result Content, CLI spelling, or Browser interaction. The search owner must
-remain lexical, deterministic, resource-free, and network-free; it must not
-recover capability from parser help, rendered output, reflection, or
-source-code names.
+available consumer bindings. It does not define search-term projection,
+similarity ranking, ordering, result Content, CLI spelling, or Browser
+interaction. The search owner must reuse
+`ILInspector.MetadataPrimitives.StringDistance.Similarity`, remain
+deterministic, resource-free, and network-free, and must not recover
+capability from parser help, rendered output, reflection, or source-code
+names.
 
 Resource Explanation remains exact-path-only. Catalog search orients the user
 to an exact resource; `explain` then resolves that resource without adding
