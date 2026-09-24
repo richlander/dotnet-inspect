@@ -50,7 +50,7 @@ The four commands form one containment ladder:
 
 | Command | Subject | Children |
 | --- | --- | --- |
-| `package` | one package at one selected target | Libraries |
+| `package` | one package at one selected target | Libraries, or RID packages for a tool pointer package |
 | `library` | one exact Library | Type declarations |
 | `type` | one exact Type | Members |
 | `member` | one exact member name | Overload signatures |
@@ -63,6 +63,9 @@ one level to the next is supported only after its adopter provides both:
   package's Libraries); and
 - an exact next-command gesture that consumes that identity and resolves to
   the same child.
+
+A tool pointer package's rows lead to `package <id>` for each RID package
+rather than to `library`; that edge follows the same rule.
 
 A display name alone is not a sufficient identity. Until both exist for an
 edge, that adoption must not present its rows as copyable arguments.
@@ -101,9 +104,13 @@ edge, that adoption must not present its rows as copyable arguments.
   the public-facing default and explicit widening.
 - **Symbol search:** `find` owns pattern search, so non-exact `type` and
   `member` input has a home other than a listing.
+- **Tool packages:**
+  [Package Info tool measurements](package-info-tool-measurements.md#contract)
+  owns the tool Library population and the tool target-framework slices.
 - **Motivating assets:** System.Text.Json, Microsoft.Data.SqlClient 7.1.0,
-  SkiaSharp.NativeAssets.Linux, System.Private.CoreLib, Newtonsoft.Json, and
-  the platform `Timer` name collision. See [Evidence](#evidence).
+  SkiaSharp.NativeAssets.Linux, System.Private.CoreLib, Newtonsoft.Json,
+  Microsoft.TestPlatform.ObjectModel, dotnet-ef, dotnet-inspect and its RID
+  packages, and the platform `Timer` name collision. See [Evidence](#evidence).
 
 ## Non-claims
 
@@ -293,8 +300,9 @@ presentation.
    declaration population. Current listing paths remain.
 2. **Listing retirement:** after the positive CLI and Browser/Wasm gates in
    the Library proposal, retire the `type` listing context.
-3. **Package children:** compact and exhaustive views, with rows addressed
-   through the step 1 Library selector.
+3. **Package children:** compact and exhaustive views for library and tool
+   packages, with Library rows addressed through the step 1 Library selector
+   and tool pointer rows through `package <id>`.
 4. **Exact `type` and `member`:** exact resolution, removal of `member T`
    without a name, the member tree, and exhaustive `-v:n`/`-v:d` member
    inventories for `type`. The `member` part waits for the
