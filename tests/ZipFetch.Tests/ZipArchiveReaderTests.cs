@@ -281,6 +281,151 @@ public sealed class ZipArchiveReaderTests
         }
     }
 
+    // --- Batch entry reads -------------------------------------------------
+
+    [Fact]
+    public async Task Batch_AdjacentEntries_ShareOneRequest_InRequestedOrder()
+    {
+        byte[] a = Noise(50_000), b = Noise(50_001), c = Noise(50_002);
+        byte[] archive = Archive(
+            ("lib/a.dll", a), ("lib/b.dll", b), ("gap", Noise(400_000)), ("lib/c.dll", c), ("filler", Noise(200_000)));
+        var source = new CountingSource(new StreamRandomAccessSource(new MemoryStream(archive)));
+        ZipDirectory directory = await ZipArchiveReader.ReadDirectoryAsync(source, ZipReadLimits.Default, Token);
+        int before = source.Reads;
+
+        IReadOnlyList<byte[]> contents = await ZipArchiveReader.ReadEntriesAsync(
+            source,
+            directory,
+            [directory.Find("lib/c.dll")!, directory.Find("lib/a.dll")!, directory.Find("lib/b.dll")!],
+            ZipReadLimits.Default,
+            cancellationToken: Token);
+
+        Assert.Equal(c, contents[0]);
+        Assert.Equal(a, contents[1]);
+        Assert.Equal(b, contents[2]);
+        Assert.Equal(2, source.Reads - before); // a and b together, c alone
+    }
+
+    [Fact]
+    public async Task Batch_GapWithinTheMergeGap_IsBridged_OtherwiseNot()
+    {
+        byte[] archive = Archive(
+            ("lib/a.dll", Noise(40_000)), ("between", Noise(30_000)), ("lib/b.dll", Noise(40_001)),
+            ("filler", Noise(200_000)));
+        ZipEntry[] Selected(ZipDirectory directory) =>
+            [directory.Find("lib/a.dll")!, directory.Find("lib/b.dll")!];
+
+        var bridged = new CountingSource(new StreamRandomAccessSource(new MemoryStream(archive)));
+        ZipDirectory directory = await ZipArchiveReader.ReadDirectoryAsync(bridged, ZipReadLimits.Default, Token);
+        int before = bridged.Reads;
+        await ZipArchiveReader.ReadEntriesAsync(
+            bridged, directory, Selected(directory), new ZipReadLimits(entryMergeGap: 64 * 1024), cancellationToken: Token);
+        Assert.Equal(1, bridged.Reads - before);
+
+        var separate = new CountingSource(new StreamRandomAccessSource(new MemoryStream(archive)));
+        directory = await ZipArchiveReader.ReadDirectoryAsync(separate, ZipReadLimits.Default, Token);
+        before = separate.Reads;
+        await ZipArchiveReader.ReadEntriesAsync(
+            separate, directory, Selected(directory), new ZipReadLimits(entryMergeGap: 16 * 1024), cancellationToken: Token);
+        Assert.Equal(2, separate.Reads - before);
+    }
+
+    [Theory]
+    [InlineData(1)]
+    [InlineData(3)]
+    public async Task Batch_RequestsInFlight_AreBoundedByTheLimit(int concurrency)
+    {
+        var entries = new List<(string, byte[])>();
+        for (int index = 0; index < 6; index++)
+        {
+            entries.Add(($"lib/{index}.dll", Noise(20_000 + index)));
+            entries.Add(($"gap{index}", Noise(100_000 + index)));
+        }
+        byte[] archive = Archive([.. entries]);
+        var source = new CountingSource(new StreamRandomAccessSource(new MemoryStream(archive)));
+        ZipDirectory directory = await ZipArchiveReader.ReadDirectoryAsync(source, ZipReadLimits.Default, Token);
+        source.RangeDelay = TimeSpan.FromMilliseconds(40);
+        int before = source.Reads;
+
+        IReadOnlyList<byte[]> contents = await ZipArchiveReader.ReadEntriesAsync(
+            source,
+            directory,
+            [.. Enumerable.Range(0, 6).Select(index => directory.Find($"lib/{index}.dll")!)],
+            new ZipReadLimits(maxConcurrentReads: concurrency),
+            cancellationToken: Token);
+
+        Assert.Equal(6, source.Reads - before);
+        Assert.Equal(concurrency, source.MaxInFlight);
+        for (int index = 0; index < 6; index++)
+            Assert.Equal(20_000 + index, contents[index].Length);
+    }
+
+    [Fact]
+    public async Task Batch_DeclaredTotalAboveTheBound_IsOverBound_BeforeAnyTransfer()
+    {
+        byte[] archive = Archive(("a", Noise(30_000)), ("b", Noise(30_000)), ("filler", Noise(200_000)));
+        var source = new CountingSource(new StreamRandomAccessSource(new MemoryStream(archive)));
+        ZipDirectory directory = await ZipArchiveReader.ReadDirectoryAsync(source, ZipReadLimits.Default, Token);
+        int before = source.Reads;
+
+        ZipReadException refused = await Assert.ThrowsAsync<ZipReadException>(
+            () => ZipArchiveReader.ReadEntriesAsync(
+                source, directory, [directory.Find("a")!, directory.Find("b")!],
+                ZipReadLimits.Default, maxTotalExpandedBytes: 59_999, cancellationToken: Token));
+
+        Assert.Equal(ZipReadFailure.OverBound, refused.Failure);
+        Assert.Equal(0, source.Reads - before);
+    }
+
+    [Fact]
+    public async Task Batch_OneFailedRequest_FailsTheBatch()
+    {
+        byte[] archive = Archive(
+            ("a", Noise(30_000)), ("gap", Noise(200_000)), ("b", Noise(30_001)), ("filler", Noise(200_000)));
+        var source = new CountingSource(new StreamRandomAccessSource(new MemoryStream(archive)));
+        ZipDirectory directory = await ZipArchiveReader.ReadDirectoryAsync(source, ZipReadLimits.Default, Token);
+        source.FailAtOffset = directory.Find("b")!.LocalHeaderOffset;
+
+        RangeFetchException failed = await Assert.ThrowsAsync<RangeFetchException>(
+            () => ZipArchiveReader.ReadEntriesAsync(
+                source, directory, [directory.Find("a")!, directory.Find("b")!],
+                new ZipReadLimits(maxConcurrentReads: 2), cancellationToken: Token));
+
+        Assert.Equal(RangeFetchFailure.Transport, failed.Failure);
+    }
+
+    [Fact]
+    public async Task Batch_RealAsset_SlackZero_StillFollowsUpAndMatchesTheOracle()
+    {
+        byte[] archive = await File.ReadAllBytesAsync(FixturePath("pclstorage.1.0.2.nupkg"), Token);
+        var source = new CountingSource(new StreamRandomAccessSource(new MemoryStream(archive)));
+        var limits = new ZipReadLimits(entryReadSlack: 0, maxConcurrentReads: 4);
+        ZipDirectory directory = await ZipArchiveReader.ReadDirectoryAsync(source, limits, Token);
+        ZipEntry[] selected = [.. directory.Entries.Where(entry => entry.Name.StartsWith("lib/net45/", StringComparison.Ordinal))];
+        using var oracle = new ZipArchive(new MemoryStream(archive), ZipArchiveMode.Read);
+
+        IReadOnlyList<byte[]> contents = await ZipArchiveReader.ReadEntriesAsync(
+            source, directory, selected, limits, cancellationToken: Token);
+
+        for (int index = 0; index < selected.Length; index++)
+        {
+            using Stream expected = oracle.GetEntry(selected[index].Name)!.Open();
+            using var expectedBytes = new MemoryStream();
+            await expected.CopyToAsync(expectedBytes, Token);
+            Assert.Equal(expectedBytes.ToArray(), contents[index]);
+        }
+    }
+
+    [Fact]
+    public void Limits_RefuseAMergeGapOrConcurrencyOutsideTheirRange_AtConstruction()
+    {
+        Assert.Throws<ArgumentOutOfRangeException>(
+            () => new ZipReadLimits(entryMergeGap: ZipReadLimits.MaxEntryMergeGap + 1));
+        Assert.Throws<ArgumentOutOfRangeException>(() => new ZipReadLimits(maxConcurrentReads: 0));
+        Assert.Throws<ArgumentOutOfRangeException>(
+            () => new ZipReadLimits(maxConcurrentReads: ZipReadLimits.MaxConcurrentReadsLimit + 1));
+    }
+
     // --- Over HTTP, including headers hidden -------------------------------
 
     [Theory]
@@ -500,26 +645,57 @@ public sealed class ZipArchiveReaderTests
         PatchLocalField(archive, name, 22, value);
     }
 
-    /// <summary>Counts reads and records their extents so clamping can be asserted.</summary>
+    /// <summary>
+    /// Counts reads, records their extents so clamping can be asserted, and
+    /// records the most range reads in flight at once. Safe for concurrent reads.
+    /// </summary>
     private sealed class CountingSource(RandomAccessSource inner) : RandomAccessSource
     {
-        public int Reads { get; private set; }
+        private readonly object _gate = new();
+        private int _reads;
+        private int _inFlight;
+        private int _maxInFlight;
+
+        public int Reads => Volatile.Read(ref _reads);
+        public int MaxInFlight => Volatile.Read(ref _maxInFlight);
         public List<(long Start, long End, bool IsTail)> Ranges { get; } = [];
+        public TimeSpan RangeDelay { get; set; }
+        public long? FailAtOffset { get; set; }
 
         public override async ValueTask<ReadOnlyMemory<byte>> ReadTailAsync(int maxLength, CancellationToken cancellationToken)
         {
-            Reads++;
+            Interlocked.Increment(ref _reads);
             ReadOnlyMemory<byte> tail = await inner.ReadTailAsync(maxLength, cancellationToken);
             Length = inner.Length;
-            Ranges.Add((0, 0, true));
+            lock (_gate)
+                Ranges.Add((0, 0, true));
             return tail;
         }
 
         public override async ValueTask ReadRangeAsync(long offset, Memory<byte> destination, CancellationToken cancellationToken)
         {
-            Reads++;
-            Ranges.Add((offset, offset + destination.Length, false));
-            await inner.ReadRangeAsync(offset, destination, cancellationToken);
+            Interlocked.Increment(ref _reads);
+            lock (_gate)
+            {
+                Ranges.Add((offset, offset + destination.Length, false));
+                _maxInFlight = Math.Max(_maxInFlight, ++_inFlight);
+            }
+            try
+            {
+                if (RangeDelay > TimeSpan.Zero)
+                    await Task.Delay(RangeDelay, cancellationToken);
+                if (FailAtOffset == offset)
+                {
+                    throw new RangeFetchException(
+                        RangeFetchFailure.Transport, "injected failure", HttpStatusCode.ServiceUnavailable);
+                }
+                await inner.ReadRangeAsync(offset, destination, cancellationToken);
+            }
+            finally
+            {
+                lock (_gate)
+                    _inFlight--;
+            }
         }
 
         public override void ConfirmLength(long length)

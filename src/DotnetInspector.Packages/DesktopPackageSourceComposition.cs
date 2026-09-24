@@ -916,7 +916,7 @@ public sealed partial class DesktopPackageSourceComposition : IAsyncDisposable
         PackageSource source,
         bool isGallery) =>
         isGallery
-            ? HttpClientFactory.CreateCredentialFreeHandler()
+            ? HttpClientFactory.CreateCredentialFreeGalleryHandler(source.Url)
             : HttpClientFactory.CreateCredentialFreePackageSourceHandler(
                 source.Url);
 

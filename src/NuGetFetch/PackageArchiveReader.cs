@@ -81,6 +81,48 @@ public sealed class PackageArchiveReader : IAsyncDisposable
         }
     }
 
+    /// <summary>
+    /// Reads and expands several entries with as few ranged requests as their
+    /// placement and the limits' merge gap allow, up to the limits' request
+    /// concurrency, under a bound on their expansion together. Every entry is
+    /// checked before any transfer; the result is all the entries, in the
+    /// order requested, or one failure or refusal and no content. The token
+    /// rule is <see cref="ReadEntryAsync"/>'s.
+    /// </summary>
+    public async Task<PackageArchiveReadResult<IReadOnlyList<PackageArchiveEntryContent>>> ReadEntriesAsync(
+        IReadOnlyList<ZipEntry> entries,
+        long? maxTotalExpandedBytes = null,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(entries);
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        CancellationToken token = _session.ResolveInvocationToken(cancellationToken);
+        try
+        {
+            IReadOnlyList<byte[]> contents = await ZipArchiveReader.ReadEntriesAsync(
+                _source,
+                Directory,
+                entries,
+                Limits,
+                maxTotalExpandedBytes,
+                token).ConfigureAwait(false);
+            var results = new PackageArchiveEntryContent[entries.Count];
+            for (int i = 0; i < results.Length; i++)
+                results[i] = new PackageArchiveEntryContent(entries[i], contents[i]);
+            return new PackageArchiveReadResult<IReadOnlyList<PackageArchiveEntryContent>>(results);
+        }
+        catch (Exception exception)
+            when (_session.TryMap(
+                exception,
+                token,
+                out PackageArchiveReadResult<IReadOnlyList<PackageArchiveEntryContent>>? mapped))
+        {
+            // A failure that raced the caller's cancellation is cancellation.
+            token.ThrowIfCancellationRequested();
+            return mapped;
+        }
+    }
+
     public async ValueTask DisposeAsync()
     {
         if (_disposed)

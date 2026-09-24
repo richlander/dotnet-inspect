@@ -8,6 +8,7 @@ using DotnetInspector.Queries;
 using DotnetInspector.Services;
 using DotnetInspector.SourceSelection;
 using ILInspector.Metadata;
+using NuGetFetch;
 
 namespace DotnetInspect.Cli.Inspectors;
 
@@ -21,18 +22,21 @@ internal sealed class ConfiguredPackageSearchWorkspace : IAsyncDisposable
     readonly PackageArtifactRootCorrespondence _correspondence;
     readonly ArtifactRootGenerationReference _generation;
     readonly string _packageDisplay;
+    readonly SearchPackageStores _stores;
     bool _closed;
 
     ConfiguredPackageSearchWorkspace(
         InspectionWorkspace workspace,
         PackageArtifactRootCorrespondence correspondence,
         ArtifactRootGenerationReference generation,
-        string packageDisplay)
+        string packageDisplay,
+        SearchPackageStores stores)
     {
         _workspace = workspace;
         _correspondence = correspondence;
         _generation = generation;
         _packageDisplay = packageDisplay;
+        _stores = stores;
     }
 
     internal static bool IsEligible(
@@ -88,51 +92,52 @@ internal sealed class ConfiguredPackageSearchWorkspace : IAsyncDisposable
 
         var workspace = new InspectionWorkspace(
             workspacePlan ?? WorkspacePlan.Empty);
+        var stores = new SearchPackageStores();
         try
         {
             if (!InspectionGraphCommand.TryCreateMembers(
                     [packageSpec],
                     out WorkspaceMemberCoordinate[] members))
             {
-                await CloseAsync(workspace).ConfigureAwait(false);
+                await CloseAsync(workspace, stores).ConfigureAwait(false);
                 return null;
             }
 
-            WorkspacePackageRootAcquisitionOutcome acquisition =
-                await WorkspaceContextLoader.AcquirePackageRootAsync(
-                    new WorkspaceContextInput
-                    {
-                        Framework = targetFramework,
-                        Members = members,
-                    },
-                    new WorkspaceContextLoadOptions
-                    {
-                        HttpClient = httpClient,
-                        SourceAuthorization =
-                            new SourcePolicyPackageSourceAuthorization(
-                                request.SourceOptions),
-                        PackageStore = new FileSystemPackageStore(),
-                        UseVersionCache = false,
-                        Log = log,
-                    },
-                    cancellationToken).ConfigureAwait(false);
-            if (acquisition
-                is WorkspacePackageRootAcquisitionOutcome.Failed failed)
-            {
-                foreach (WorkspaceContextLoadFailure failure
-                    in failed.Failures)
+            if (members is not [WorkspaceMemberCoordinate.PackageMember
                 {
-                    CommandError.WriteWarning(
-                        $"Could not load package Root '{packageSpec}': "
-                        + $"{failure.Kind}: {failure.Message}");
-                }
-                await CloseAsync(workspace).ConfigureAwait(false);
+                    Version: not null,
+                } member])
+            {
+                CommandError.WriteWarning(
+                    $"Could not load package Root '{packageSpec}': "
+                    + "configured package search requires an exact version.");
+                await CloseAsync(workspace, stores).ConfigureAwait(false);
                 return null;
             }
 
-            PackageRootBinding binding =
-                ((WorkspacePackageRootAcquisitionOutcome.Acquired)acquisition)
-                    .Root;
+            (PackageRootBinding? acquired, PackagePayloadOrigin origin) =
+                DotnetInspector.Networking.HttpClientFactory.IsOffline
+                    ? await AcquireOfflineRootAsync(
+                        httpClient,
+                        members,
+                        packageSpec,
+                        request,
+                        targetFramework,
+                        log,
+                        cancellationToken).ConfigureAwait(false)
+                    : await AcquireRootAsync(
+                        httpClient,
+                        stores,
+                        member,
+                        request,
+                        targetFramework,
+                        log,
+                        cancellationToken).ConfigureAwait(false);
+            if (acquired is not { } binding)
+            {
+                await CloseAsync(workspace, stores).ConfigureAwait(false);
+                return null;
+            }
             WorkspaceScopeReadResult read =
                 await workspace.GetScopeSnapshotAsync().ConfigureAwait(false);
             if (read is WorkspaceScopeReadResult.Unavailable unavailable)
@@ -140,7 +145,7 @@ internal sealed class ConfiguredPackageSearchWorkspace : IAsyncDisposable
                 CommandError.WriteWarning(
                     $"Could not open package Root '{packageSpec}': "
                     + unavailable.RuntimeFailure);
-                await CloseAsync(workspace).ConfigureAwait(false);
+                await CloseAsync(workspace, stores).ConfigureAwait(false);
                 return null;
             }
 
@@ -158,7 +163,7 @@ internal sealed class ConfiguredPackageSearchWorkspace : IAsyncDisposable
                 CommandError.WriteWarning(
                     $"Could not commit package Root '{packageSpec}': "
                     + Describe(admission));
-                await CloseAsync(workspace).ConfigureAwait(false);
+                await CloseAsync(workspace, stores).ConfigureAwait(false);
                 return null;
             }
 
@@ -176,17 +181,19 @@ internal sealed class ConfiguredPackageSearchWorkspace : IAsyncDisposable
             log?.Invoke(
                 $"Using committed package Root for search: "
                 + $"{binding.Root.PackageId}@{binding.Root.PackageVersion} "
-                + $"({binding.Root.AssetSelection.Status}).");
+                + $"({binding.Root.AssetSelection.Status}; payload {origin}).");
             return new(
                 workspace,
                 correspondence,
                 ready.Generation,
-                $"{binding.Root.PackageId}@{binding.Root.PackageVersion}");
+                $"{binding.Root.PackageId}@{binding.Root.PackageVersion}",
+                stores);
         }
         catch (Exception failure)
         {
             await CloseAfterFailureAsync(workspace, failure)
                 .ConfigureAwait(false);
+            stores.Dispose();
             throw;
         }
     }
@@ -249,7 +256,208 @@ internal sealed class ConfiguredPackageSearchWorkspace : IAsyncDisposable
         if (_closed)
             return;
         _closed = true;
-        await CloseAsync(_workspace).ConfigureAwait(false);
+        await CloseAsync(_workspace, _stores).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Offline, configured-authority acquisition is unavailable (as it is for
+    /// the package command), so the Root comes from the local package cache
+    /// through the workspace loader.
+    /// </summary>
+    static async ValueTask<(PackageRootBinding? Binding, PackagePayloadOrigin Origin)>
+        AcquireOfflineRootAsync(
+            HttpClient httpClient,
+            WorkspaceMemberCoordinate[] members,
+            string packageSpec,
+            AssemblySetRequest request,
+            string targetFramework,
+            Action<string>? log,
+            CancellationToken cancellationToken)
+    {
+        WorkspacePackageRootAcquisitionOutcome acquisition =
+            await WorkspaceContextLoader.AcquirePackageRootAsync(
+                new WorkspaceContextInput
+                {
+                    Framework = targetFramework,
+                    Members = members,
+                },
+                new WorkspaceContextLoadOptions
+                {
+                    HttpClient = httpClient,
+                    SourceAuthorization =
+                        new SourcePolicyPackageSourceAuthorization(
+                            request.SourceOptions),
+                    PackageStore = new FileSystemPackageStore(),
+                    UseVersionCache = false,
+                    Log = log,
+                },
+                cancellationToken).ConfigureAwait(false);
+        if (acquisition
+            is WorkspacePackageRootAcquisitionOutcome.Failed failed)
+        {
+            foreach (WorkspaceContextLoadFailure failure
+                in failed.Failures)
+            {
+                CommandError.WriteWarning(
+                    $"Could not load package Root '{packageSpec}': "
+                    + $"{failure.Kind}: {failure.Message}");
+            }
+            return (null, default);
+        }
+
+        return (
+            ((WorkspacePackageRootAcquisitionOutcome.Acquired)acquisition).Root,
+            PackagePayloadOrigin.Cache);
+    }
+
+    /// <summary>
+    /// Acquires the exact package through the House with ranged access: an
+    /// authorized cache answers first, an uncached archive is read by range
+    /// for exactly the compile realization's selection, and a source that
+    /// cannot range falls back to the complete download. When the Root's own
+    /// compatible selection reaches past what the ranged read materialized,
+    /// the complete archive is acquired instead so the search stays whole.
+    /// </summary>
+    static async ValueTask<(PackageRootBinding? Binding, PackagePayloadOrigin Origin)>
+        AcquireRootAsync(
+            HttpClient httpClient,
+            SearchPackageStores stores,
+            WorkspaceMemberCoordinate.PackageMember member,
+            AssemblySetRequest request,
+            string targetFramework,
+            Action<string>? log,
+            CancellationToken cancellationToken)
+    {
+        PackageHouseTargetContext target;
+        try
+        {
+            target = PackageHouseTargetContext.Exact(targetFramework);
+        }
+        catch (ArgumentException ex)
+        {
+            CommandError.WriteWarning(
+                $"Could not load package Root '{member.PackageId}@{member.Version}': "
+                + ex.Message);
+            return (null, default);
+        }
+
+        await using var composition =
+            new DesktopPackageSourceComposition(httpClient.Timeout);
+        (PackageRootBinding? binding, AcquiredPackageSourcePayload? payload) =
+            await AcquireAndBindAsync(
+                composition,
+                stores,
+                member,
+                request,
+                target,
+                targetFramework,
+                log,
+                PackagePayloadAccess.Ranged,
+                cancellationToken).ConfigureAwait(false);
+        if (payload is null)
+            return (null, default);
+        if (payload.Content is RangedPackageContent ranged
+            && !CoversSelection(binding!.Root.AssetSelection, ranged))
+        {
+            log?.Invoke(
+                $"The ranged read of {member.PackageId}@{member.Version} did not "
+                + "materialize the Root's compile selection; acquiring the complete archive.");
+            (binding, payload) = await AcquireAndBindAsync(
+                composition,
+                stores,
+                member,
+                request,
+                target,
+                targetFramework,
+                log,
+                PackagePayloadAccess.Complete,
+                cancellationToken).ConfigureAwait(false);
+            if (payload is null)
+                return (null, default);
+        }
+
+        return (binding, payload.Origin);
+    }
+
+    static async Task<(PackageRootBinding? Binding, AcquiredPackageSourcePayload? Payload)>
+        AcquireAndBindAsync(
+            DesktopPackageSourceComposition composition,
+            SearchPackageStores stores,
+            WorkspaceMemberCoordinate.PackageMember member,
+            AssemblySetRequest request,
+            PackageHouseTargetContext target,
+            string targetFramework,
+            Action<string>? log,
+            PackagePayloadAccess access,
+            CancellationToken cancellationToken)
+    {
+        ConfiguredPackagePayloadResult result =
+            await composition.AcquirePinnedAsync(
+                member.PackageId,
+                member.Version!,
+                stores.GetStore,
+                request.SourceOptions,
+                log,
+                cancellationToken,
+                limits: PackagePayloadLimits.Default,
+                compileTargetContext: target,
+                access: access).ConfigureAwait(false);
+        if (result.Payload is not { } payload)
+        {
+            CommandError.WriteWarning(
+                $"Could not load package Root '{member.PackageId}@{member.Version}': "
+                + Describe(result));
+            return (null, null);
+        }
+
+        PackageRootBinding binding =
+            PackageRootBinding.CreateFromSourceWithCompatibleSelection(
+                payload,
+                targetFramework,
+                member.PackageId);
+        if (binding.Root.AssetSelection.Status
+                == PackageCompileAssetSelectionStatus.NoMatchingTargetFramework
+            && PackageAssetSelector.Select(payload.Content, targetFramework)
+                is PackageAssetSelection.Selected compatible)
+        {
+            // The requested framework has no exact compile selection; the
+            // compatible implementation universe is the selection target,
+            // while the acquired coordinate keeps the requested framework.
+            binding = PackageRootBinding.CreateFromSourceWithCompatibleSelection(
+                payload,
+                compatible.Universe.TargetFramework,
+                member.PackageId);
+        }
+        return (binding, payload);
+    }
+
+    static bool CoversSelection(
+        PackageCompileAssetSelection selection,
+        RangedPackageContent ranged) =>
+        !selection.IsSelected
+        || selection.Assets
+            .Concat(selection.ImplementationAssets)
+            .All(asset => ranged.IsMaterialized(asset.Path));
+
+    static string Describe(ConfiguredPackagePayloadResult result)
+    {
+        if (result.Failures.Count > 0)
+        {
+            return string.Join(
+                "; ",
+                result.Failures.Select(failure =>
+                    $"{failure.Kind}: {failure.Message}"));
+        }
+        if (result.NotFoundAuthorities.Count > 0)
+        {
+            return "the package was not found on "
+                + string.Join(
+                    ", ",
+                    result.NotFoundAuthorities.Select(authority =>
+                        PackageSourceDisplay.ForDiagnostics(authority.Source)))
+                + ".";
+        }
+        return "no configured package source supplied the package archive.";
     }
 
     static string Describe(WorkspaceScopeOperationResult result) =>
@@ -271,14 +479,25 @@ internal sealed class ConfiguredPackageSearchWorkspace : IAsyncDisposable
                 "Unsupported Workspace Scope result."),
         };
 
-    static async Task CloseAsync(InspectionWorkspace workspace)
+    static async Task CloseAsync(
+        InspectionWorkspace workspace,
+        SearchPackageStores stores)
     {
-        InspectionWorkspaceCloseReport report =
-            await workspace.CloseAsync().ConfigureAwait(false);
-        if (!report.ArtifactSessionCleanupFailures.IsEmpty)
+        try
         {
-            throw new AggregateException(
-                report.ArtifactSessionCleanupFailures);
+            InspectionWorkspaceCloseReport report =
+                await workspace.CloseAsync().ConfigureAwait(false);
+            if (!report.ArtifactSessionCleanupFailures.IsEmpty)
+            {
+                throw new AggregateException(
+                    report.ArtifactSessionCleanupFailures);
+            }
+        }
+        finally
+        {
+            // Temporary authority content stays readable until the
+            // Workspace that admitted it has closed.
+            stores.Dispose();
         }
     }
 
@@ -351,4 +570,39 @@ internal sealed class PackageSearchQuerySources
             : throw new InspectionQueryException(
                 $"No committed package asset corresponds to "
                 + $"'{subject.Identity.Name}'.");
+}
+
+/// <summary>
+/// One authority-scoped desktop store per configured authority for one
+/// search, and the temporary root that holds authorities without a durable
+/// cache identity. The root is deleted when the search closes.
+/// </summary>
+internal sealed class SearchPackageStores : IDisposable
+{
+    readonly Dictionary<ConfiguredPackageAuthority, IPackageStore> _stores =
+        new(ReferenceEqualityComparer.Instance);
+    string? _temporaryRoot;
+
+    internal IPackageStore GetStore(
+        ConfiguredPackageAuthority authority,
+        PackageProducerIdentity producer)
+    {
+        if (!_stores.TryGetValue(authority, out IPackageStore? store))
+        {
+            store = new AuthorityScopedFileSystemPackageStore(
+                authority,
+                producer,
+                () => _temporaryRoot ??=
+                    Directory.CreateTempSubdirectory("inspect-search").FullName);
+            _stores.Add(authority, store);
+        }
+        return store;
+    }
+
+    public void Dispose()
+    {
+        _stores.Clear();
+        DotnetInspector.Packages.PackageExtractor.Cleanup(_temporaryRoot);
+        _temporaryRoot = null;
+    }
 }
