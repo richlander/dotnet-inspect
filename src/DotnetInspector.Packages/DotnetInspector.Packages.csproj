@@ -32,6 +32,7 @@
   </ItemGroup>
 
   <ItemGroup>
+    <PackageReference Include="System.IO.Hashing" />
     <PackageReference Include="System.Security.Cryptography.ProtectedData" />
   </ItemGroup>
 

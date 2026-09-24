@@ -1,3 +1,4 @@
+using System.Buffers;
 using DotnetInspect.Cli.Models;
 using InertText;
 
@@ -17,6 +18,8 @@ public readonly record struct ProjectionDestination(
 
 internal static class ProjectionDestinationWriter
 {
+    private const int ExactTransferBufferSize = 64 * 1024;
+
     public static bool ValidateBeforeAcquisition(ProjectionDestination destination)
         => ValidateBeforeDestinationMutation(destination);
 
@@ -76,6 +79,64 @@ internal static class ProjectionDestinationWriter
             throw new InvalidOperationException("Exact projection bytes require an output path.");
 
         File.WriteAllBytes(destination.OutputPath!, output);
+    }
+
+    public static async Task WriteExactBytesAsync(
+        ProjectionDestination destination,
+        Stream input,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(input);
+        if (IsFile(destination))
+        {
+            WriteExactFile(
+                destination.OutputPath!,
+                input,
+                cancellationToken);
+            return;
+        }
+
+        Stream standardOutput = Console.OpenStandardOutput();
+        await input.CopyToAsync(
+                standardOutput,
+                ExactTransferBufferSize,
+                cancellationToken)
+            .ConfigureAwait(false);
+        await standardOutput.FlushAsync(cancellationToken)
+            .ConfigureAwait(false);
+    }
+
+    private static void WriteExactFile(
+        string outputPath,
+        Stream input,
+        CancellationToken cancellationToken)
+    {
+        byte[] buffer =
+            ArrayPool<byte>.Shared.Rent(ExactTransferBufferSize);
+        try
+        {
+            using var output = new FileStream(
+                outputPath,
+                FileMode.Create,
+                FileAccess.Write,
+                FileShare.None);
+            while (true)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                int read = input.Read(
+                    buffer,
+                    0,
+                    ExactTransferBufferSize);
+                if (read == 0)
+                    return;
+
+                output.Write(buffer, 0, read);
+            }
+        }
+        finally
+        {
+            ArrayPool<byte>.Shared.Return(buffer);
+        }
     }
 
     public static bool IsFile(ProjectionDestination destination)

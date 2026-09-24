@@ -1,3 +1,4 @@
+using System.Security.Cryptography;
 using System.IO.Compression;
 using DotnetInspector.Packages;
 
@@ -26,8 +27,82 @@ public sealed class InMemoryPackageContentTests
         using (stream)
         using (var output = new MemoryStream())
         {
+            Assert.True(stream.CanSeek);
+            Assert.Equal(0, stream.Read(Span<byte>.Empty));
             stream.CopyTo(output);
             Assert.Equal(expected, output.ToArray());
+        }
+    }
+
+    [Fact]
+    public void BoundedPullOpen_StreamsWithoutAnEntrySizedAllocation()
+    {
+        byte[] expected = new byte[4 * 1024 * 1024];
+        for (int index = 0; index < expected.Length; index++)
+            expected[index] = (byte)(index % 251);
+        byte[] expectedHash = SHA256.HashData(expected);
+        InMemoryPackageContent content = Content(expected);
+
+        long beforeRead = GC.GetAllocatedBytesForCurrentThread();
+        Assert.True(
+            ((IPackageHousePayloadSource)content).TryOpenPayloadRead(
+                "payload.bin",
+                expected.Length,
+                out Stream? stream));
+
+        long observed = 0;
+        byte[] actualHash;
+        using (stream)
+        using (IncrementalHash hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256))
+        {
+            byte[] buffer = new byte[4096];
+            while (true)
+            {
+                int read = stream.Read(buffer);
+                if (read == 0)
+                    break;
+
+                hash.AppendData(buffer, 0, read);
+                observed += read;
+            }
+
+            actualHash = hash.GetHashAndReset();
+        }
+
+        long readAllocation =
+            GC.GetAllocatedBytesForCurrentThread() - beforeRead;
+        Assert.True(
+            readAllocation < expected.Length / 2,
+            $"Pulling allocated {readAllocation:N0} bytes for a {expected.Length:N0}-byte entry.");
+        Assert.Equal(expected.LongLength, observed);
+        Assert.Equal(expectedHash, actualHash);
+    }
+
+    [Fact]
+    public void BoundedPullOpen_StreamsRealSystemTextJsonEntry()
+    {
+        byte[] archive = File.ReadAllBytes(
+            RealAsset(
+                "PackageAdmission",
+                "System.Text.Json.10.0.0.nupkg"));
+        var content = new InMemoryPackageContent(
+            archive,
+            fromCache: false,
+            producerKey: "nuget.org");
+
+        Assert.True(
+            ((IPackageHousePayloadSource)content).TryOpenPayloadRead(
+                "lib/net10.0/System.Text.Json.dll",
+                maxExpandedBytes: 1024 * 1024,
+                out Stream? stream));
+
+        using (stream)
+        using (FileStream expected = File.OpenRead(
+            RealAsset("PackageHouse", "System.Text.Json.dll")))
+        {
+            Assert.Equal(
+                SHA256.HashData(expected),
+                SHA256.HashData(stream));
         }
     }
 
@@ -89,6 +164,9 @@ public sealed class InMemoryPackageContentTests
             fromCache: false,
             producerKey: "bounded-entry-tests");
     }
+
+    static string RealAsset(params string[] segments) =>
+        Path.Combine([AppContext.BaseDirectory, "RealAssets", .. segments]);
 
     sealed class ThrowOnReadStream : Stream
     {
