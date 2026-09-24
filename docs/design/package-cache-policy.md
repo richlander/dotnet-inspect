@@ -19,8 +19,9 @@ The claim has three parts:
 - **Size first, for every package.** A consumer that asks for ranged access
   learns the archive's size before transferring it: an archive at or under
   the size cut is acquired complete and cached; a larger one is read by
-  range. Platform packs follow the same rule: reference packs fall under the
-  cut, runtime packs above it. The CLI and Inspect Web apply the same rule.
+  range. Platform packs follow the same rule; reference and runtime packs are
+  both above the cut and are read by range, with the entry cache keeping each
+  assembly a query uses. The CLI and Inspect Web apply the same rule.
 - **An entry cache for ranged reads.** Every entry a ranged read materializes
   is kept durably, with the archive's directory, so a later read of the same
   entry costs no request and a read of another entry skips the directory
@@ -60,12 +61,36 @@ invocation. It also needs cross-process mutable state for its wanted-list.
 Choosing by size before transferring gives each archive the cheaper of the
 two paths, with no background work.
 
+The cut sits where one extra round trip stops paying for itself. A ranged
+read costs about one more round trip than a complete download and saves
+every byte it does not select. Measured 2026-09-23 on 39 nuget.org packages
+from 0.35 to 17.3 MB, each three times, complete download against a ranged
+read of the highest target framework's assemblies; the three slower links
+are modeled from each package's measured requests and bytes:
+
+| Archive size | Ranged wins, measured here (about 40–60 MB/s) | 100 Mbps, 30 ms | 25 Mbps, 50 ms | 10 Mbps, 80 ms |
+| --- | --- | --- | --- | --- |
+| under 1 MB | 4 of 12 | 0 of 12 | 7 of 12 | 11 of 12 |
+| 1–2 MB | 4 of 6 | 5 of 6 | 6 of 6 | 6 of 6 |
+| 2–4 MB | 2 of 7 | 7 of 7 | 7 of 7 | 7 of 7 |
+| 4–8 MB | 5 of 7 | 7 of 7 | 7 of 7 | 7 of 7 |
+| 8–20 MB | 7 of 7 | 7 of 7 | 7 of 7 | 7 of 7 |
+
+The extra round trip is worth 0.38 MB of transfer at 100 Mbps and 0.10 MB
+at 10 Mbps. Fetching all 39 packages cold costs 15.0 s complete against
+7.3 s ranged at 100 Mbps, and 132.4 s against 38.9 s at 10 Mbps. Under 1 MB
+either path costs tens of milliseconds, and a complete archive keeps every
+file (documentation XML, the manifest, other frameworks) for later commands,
+so small archives are cached complete. On this very fast link, the ranged
+read lost for two 4 MB packages whose selection is most of the archive: the
+.NET Core 3.1 reference pack and `Microsoft.NETCore.App` 2.2.0. On every
+modeled link it won for both; adoption watches reference packs for an
+observable cost.
+
 Package sizes across one developer's NuGet global packages folder (1,696
-packages, 4.5 GB): median 0.2 MB, 90th percentile 7.0 MB, 95th 16.4 MB, 99th
-40.1 MB, largest 58 MB. Packages under 12 MB are 93.1% of packages and 33.3%
-of bytes; the packages above it are mostly native tool and runtime payloads
-(`runtime.*.ilcompiler`, `*.linux-x64` tool packages, browser-wasm runtime
-packs), where a query reads a small fraction of the archive.
+packages, 4.5 GB): median 0.2 MB, 90th percentile 7.0 MB, 99th 40.1 MB,
+largest 58 MB. Packages at or under 1 MB are 74.8% of packages and 6.7% of
+bytes.
 
 Runtime packs are the clearest case. Measured 2026-09-23 against nuget.org
 with the ranged reader's request plan, medians of five runs:
@@ -113,7 +138,7 @@ changes for credential-free HTTP authorities, not only the ranged consumer:
 | Package index cache | derived package indexes persist under the authority key |
 | Dependency-graph JSON evidence | the authority's `persistentCacheKey` field carries the key instead of `null` |
 | Extraction result `CacheScopeKey` | carries the key instead of `null` |
-| Package Version Service priors | unchanged: the service keeps identifying an HTTP authority by its endpoint, as its [store key](package-version-service.md) defines, so existing priors stay valid |
+| Package Version Service priors | kept on the endpoint: the service's source identity must check for an HTTP authority before the persistent key, which it reads first today, so the identity stays the endpoint its [store key](package-version-service.md) defines and existing priors stay valid |
 
 Platform packs acquired through the authority-scoped store become durably
 cached by this rule. Whether they are acquired complete or by range is the
@@ -121,37 +146,51 @@ size-first rule below.
 
 ### Size first
 
-A consumer that sets ranged access starts the ordinary complete acquisition
-from each authority in the existing order. When the response advertises an
-archive length above the size cut, the step abandons that response before
-reading its body and reads the archive by range instead, as the
+A consumer that sets ranged access consults, for each authority in the
+existing order, the complete store first and then the entry cache below.
+Either can answer without a request: a complete payload always, and the entry
+cache when it holds the archive's directory and every selected entry. A
+cached directory also records the archive's total length, so an archive the
+entry cache knows needs no size probe: its missing entries are read by range
+directly.
+
+Otherwise the step starts the ordinary complete acquisition. When the
+response advertises an archive length above the size cut, the step abandons
+that response before reading its body and reads the archive by range instead,
+as the
 [ranged payload realization](package-source-model.md#ranged-payload-realization)
 step does today, including its fallback to the complete fetch when the
 ranged read fails. Otherwise, including when no length is advertised, the
-complete acquisition proceeds and publishes to the authority's store. A
-cache hit answers first, as always, so a durably cached archive costs no
-request.
+complete acquisition proceeds and publishes to the authority's store.
 
-The size cut is 12 MB of archive and applies to every package, platform
+The size cut is 1 MB of archive and applies to every package, platform
 packs included. An archive at or under it costs one request the first time
-and none afterwards. An archive above it costs one abandoned request plus a
-ranged read of the entries not already in the entry cache.
+and none afterwards. An archive above it costs one abandoned request and the
+ranged read the first time; afterwards, only requests for entries not yet in
+the entry cache, and none when every selected entry is cached.
 
-The complete acquisition joins the process-local single-flight for its
-coordinate, so a consumer that falls back from ranged content to the
-complete archive in the same invocation never runs two transfers of it at
-once.
+The search Root's coverage fallback is sequential: it takes the complete
+archive only after the ranged read returns, so the two transfers never
+overlap.
 
 ### The entry cache
 
 A ranged read from an authority with a persistent key publishes what it
 fetched to a durable entry cache, keyed like the complete store by authority
-key and exact coordinate:
+key and exact coordinate, in its own versioned cache family,
+`package-authority-entries-v1`, registered for
+[versioned retirement](cache-concurrency.md#versioned-cache-retirement):
 
 - **The directory.** The archive's central directory, its derived total
   length, and its validator, published once.
-- **Each materialized entry.** Its expanded bytes, published under its
-  archive path.
+- **Each materialized entry.** Its expanded bytes, published under a file
+  name that is a digest of its exact archive path bytes. The archive path is
+  never used as a filesystem path: an entry name is untrusted package input
+  and reaches the disk only as data, as the
+  [threat model's archive rule](untrusted-data-threat-model.md#package-archives-use-traversal-aware-extraction)
+  requires. Names with `..`, rooted names, device names, and names that
+  differ only by case therefore get distinct, contained files, and a read
+  looks an entry up through the cached directory, never by name on disk.
 
 Each item is immutable and published by the same atomic rename that
 [cache concurrency](cache-concurrency.md) uses, so concurrent invocations
@@ -249,8 +288,9 @@ All gates run in Release.
 | 2. Configured credential, or user information in the endpoint | no persistent key | `PackageSourceAuthorization_CredentialPathAuthoritiesHaveNoPersistentKey`, extended |
 | 3. Version-service priors for an HTTP authority | identity is still the endpoint | `PackageVersionServiceTests`, extended |
 | 4. Search of an archive under the cut, then a second invocation | first: one complete request, published durably; second: cache hit, no package request | CLI harness, two invocations |
-| 5. Search of an archive over the cut, twice | first: one abandoned request, the ranged read, and the directory and entries published to the entry cache; second: one abandoned request and no other package request | CLI harness, two invocations |
-| 5a. A second query needing one more entry of the same archive | one abandoned request and one entry request; no tail or directory request | CLI harness |
+| 5. Search of an archive over the cut, twice | first: one abandoned request, the ranged read, and the directory and entries published to the entry cache; second: no package request | CLI harness, two invocations |
+| 5a. A second query needing one more entry of the same archive | one entry request; no abandoned, tail, or directory request | CLI harness |
+| 5e. Entries named with `..`, a rooted path, and two names that differ only by case | each published inside the entry cache under its digest; all three read back to their own content | contract suite |
 | 5b. A cached entry whose bytes no longer match the cached directory | discarded and read again | contract suite |
 | 5c. The archive changed since the directory was cached | `ArchiveChanged`; the coordinate's cached directory and entries are discarded; the complete fetch answers | contract suite |
 | 5d. An authority without a persistent key | nothing published to the entry cache | contract suite |
@@ -258,7 +298,7 @@ All gates run in Release.
 | 7. A consumer other than the search Root | `package ID@VERSION` from a credential-free HTTP feed, twice: the second is a cache hit | CLI harness, two invocations |
 | 8. Ranged content that does not cover the Root's selection, then the complete fallback | one complete transfer | CLI harness |
 | 9. Two invocations acquiring the same coordinate | one publication | existing cache-concurrency gates |
-| 10. Motivating assets | `Avalonia` 12.1.2: cold about the 0.26.0 cold time, warm about the 0.26.0 warm time. `Microsoft.NETCore.App.Runtime.linux-x64` 10.0.0, one assembly: cold about 0.1 s and 0.9 MB, warm no package transfer | preserved probe as design evidence |
+| 10. Motivating assets | `Avalonia` 12.1.2: cold about the ranged read of #8415, warm no package request. `Microsoft.NETCore.App.Runtime.linux-x64` 10.0.0, one assembly: cold about 0.1 s and 0.9 MB, warm no package request | preserved probe as design evidence |
 
 The existing assertion that an HTTP extraction result carries no
 `CacheScopeKey` (`ConfiguredPayloadAcquisitionTests`) changes with case 1.
@@ -274,8 +314,9 @@ The existing assertion that an HTTP extraction result carries no
 3. The remaining search scopes adopt ranged access, and with it size first,
    in the second part of range-access adoption step 2.
 4. The [package-backed platform](package-backed-platform-realization.md)
-   owner adopts ranged access for platform packs, so runtime packs are read by
-   range and reference packs stay complete. In the same step, platform packs
+   owner adopts ranged access for platform packs, so reference and runtime
+   packs are read by range, and records whether reference packs show an
+   observable cost against a complete download. In the same step, platform packs
    settle "latest" through the
    [Package Version Service](package-version-service.md) as other packages
    do. Both changes are claims of those owners, adopted under their designs.
