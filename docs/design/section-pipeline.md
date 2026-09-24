@@ -44,8 +44,7 @@ does not label sections as "opt-in".
 
 Categories are authored through `AddBaseCategory` and `AddCategory`.
 
-- Base categories define automatic verbosity, bare-`-S`, and flat discovery
-  scope.
+- Base categories define automatic verbosity and flat discovery scope.
 - Domain categories are explicit doors.
 - A section can belong to more than one category.
 - Membership is never inferred from a display-name prefix.

@@ -125,7 +125,7 @@ public sealed class InspectionGraphCommandTests
             ]);
 
         Assert.Empty(result.Errors);
-        Assert.Contains(
+        Assert.DoesNotContain(
             result.CommandResult.Command.Options,
             option => option.Name == "--where");
         Assert.DoesNotContain(
@@ -137,36 +137,54 @@ public sealed class InspectionGraphCommandTests
     }
 
     [Fact]
-    public void LibrariesCommand_LowersCanonicalGraphLibrariesIntent()
+    public void ClusterCommand_ExposesFocusedPairWithoutTraversal()
     {
-        Assert.True(
-            LibraryCallUseQueryOptions.TryParse(
-                ["Cluster=3"],
-                out LibraryCallUseQueryOptions query,
-                out OptionError error),
-            error.Message);
-        Assert.Equal(3, query.Plan.Cluster);
+        var result = CommandLineBuilder.CreateRootCommand().Parse(
+            [
+                "graph",
+                "cluster",
+                "3",
+                "--library",
+                FixtureCatalog.AnalysisCallerGraphCaller.AssemblyPath(),
+                "--library",
+                FixtureCatalog.AnalysisCallerGraphTarget.AssemblyPath(),
+            ]);
+
+        Assert.Empty(result.Errors);
+        Assert.DoesNotContain(
+            result.CommandResult.Command.Options,
+            option => option.Name == "--where");
+        Assert.DoesNotContain(
+            result.CommandResult.Command.Options,
+            option => option.Name is "--depth"
+                or "--direction"
+                or "--relationship");
+        Assert.Contains(
+            result.CommandResult.Command.Options,
+            option => option.Name == "--json");
+        Assert.Contains(
+            result.CommandResult.Command.Options,
+            option => option.Name == "--columns");
+        Assert.Contains(
+            result.CommandResult.Command.Options,
+            option => option.Name == "--fields");
+        Assert.Single(result.CommandResult.Command.Arguments);
+    }
+
+    [Fact]
+    public void ClusterCommand_LowersCanonicalGraphLibrariesIntent()
+    {
+        GraphLibrariesQueryPlan plan =
+            GraphLibrariesQuery.CreatePlan(3);
+
+        Assert.Equal(3, plan.Cluster);
         Assert.Equal(
             PortableQueryPayloadCodec.Encode(
                 GraphLibrariesQuery.CreateIntent(3),
                 TestContext.Current.CancellationToken),
             PortableQueryPayloadCodec.Encode(
-                query.Plan.Intent,
+                plan.Intent,
                 TestContext.Current.CancellationToken));
-    }
-
-    [Fact]
-    public void LibrariesCommand_RejectsUnsupportedStartsWithPredicate()
-    {
-        Assert.False(
-            LibraryCallUseQueryOptions.TryParse(
-                ["Cluster starts-with 3"],
-                out _,
-                out OptionError error));
-        Assert.Contains(
-            "supports only = predicates",
-            error.Message,
-            StringComparison.Ordinal);
     }
 
     [Fact]
@@ -183,6 +201,23 @@ public sealed class InspectionGraphCommandTests
                             .AssemblyPath(),
                     ])
                 .InvokeAsync());
+
+        Assert.Equal(1, captured.ExitCode);
+        Assert.Contains(
+            "Exactly two --library values are required.",
+            captured.Error);
+        Assert.DoesNotContain("Exception", captured.Error);
+    }
+
+    [Fact]
+    public async Task ClusterCommand_RequiresExactlyTwoLibraries()
+    {
+        var captured = await RunCliAsync(
+            "graph",
+            "cluster",
+            "1",
+            "--library",
+            FixtureCatalog.AnalysisCallerGraphCaller.AssemblyPath());
 
         Assert.Equal(1, captured.ExitCode);
         Assert.Contains(
@@ -215,6 +250,27 @@ public sealed class InspectionGraphCommandTests
         Assert.DoesNotContain("@All", captured.Output);
         Assert.DoesNotContain("@Default", captured.Output);
         Assert.DoesNotContain("@Hidden", captured.Output);
+        Assert.Empty(captured.Error);
+    }
+
+    [Fact]
+    public async Task ClusterCommand_DiscoversProjectionSchemasWithoutOrdinal()
+    {
+        var captured = await ConsoleCapture.RunAsync(
+            () => CommandLineBuilder.CreateRootCommand()
+                .Parse(
+                    [
+                        "graph",
+                        "cluster",
+                        "-D",
+                        "--schema",
+                    ])
+                .InvokeAsync());
+
+        Assert.Equal(0, captured.ExitCode);
+        Assert.Contains("Direct Use Clusters", captured.Output);
+        Assert.Contains("Call Sites", captured.Output);
+        Assert.Contains("Public Root Paths", captured.Output);
         Assert.Empty(captured.Error);
     }
 
@@ -286,8 +342,8 @@ public sealed class InspectionGraphCommandTests
         Assert.Equal(1, captured.ExitCode);
         Assert.Empty(captured.Output);
         Assert.Contains(
-            "'Public Root Paths' requires exactly one "
-                + "--where \"Cluster=<positive ordinal>\" predicate.",
+            "'Public Root Paths' requires "
+                + "'dotnet-inspect graph cluster <ordinal>'.",
             captured.Error);
         Assert.DoesNotContain("Library not found", captured.Error);
     }
@@ -295,7 +351,7 @@ public sealed class InspectionGraphCommandTests
     [Theory]
     [InlineData("Public*", "No sections match 'Public*'.")]
     [InlineData("Public*,Bogus", "Select value 'Bogus' not found.")]
-    public async Task LibrariesCommand_WildcardDoesNotSelectPublicRootPaths(
+    public async Task ClusterCommand_WildcardDoesNotSelectPublicRootPaths(
         string selector,
         string expectedError)
     {
@@ -304,7 +360,8 @@ public sealed class InspectionGraphCommandTests
                 .Parse(
                     [
                         "graph",
-                        "libraries",
+                        "cluster",
+                        "14",
                         "--library",
                         "missing-consumer.dll",
                         "--library",
@@ -323,22 +380,21 @@ public sealed class InspectionGraphCommandTests
     }
 
     [Fact]
-    public async Task LibrariesCommand_ProjectsPublicRootPaths()
+    public async Task ClusterCommand_ProjectsPublicRootPaths()
     {
         var captured = await ConsoleCapture.RunAsync(
             () => CommandLineBuilder.CreateRootCommand()
                 .Parse(
                     [
                         "graph",
-                        "libraries",
+                        "cluster",
+                        "14",
                         "--library",
                         FixtureCatalog.AnalysisCallerGraphCaller
                             .AssemblyPath(),
                         "--library",
                         FixtureCatalog.AnalysisCallerGraphTarget
                             .AssemblyPath(),
-                        "--where",
-                        "Cluster=14",
                         "-S",
                         "Public Root Paths",
                         "--json",
@@ -385,22 +441,21 @@ public sealed class InspectionGraphCommandTests
     }
 
     [Fact]
-    public async Task LibrariesCommand_PublicRootPathsDefaultOutputShowsPathEvidence()
+    public async Task ClusterCommand_PublicRootPathsDefaultOutputShowsPathEvidence()
     {
         var captured = await ConsoleCapture.RunAsync(
             () => CommandLineBuilder.CreateRootCommand()
                 .Parse(
                     [
                         "graph",
-                        "libraries",
+                        "cluster",
+                        "14",
                         "--library",
                         FixtureCatalog.AnalysisCallerGraphCaller
                             .AssemblyPath(),
                         "--library",
                         FixtureCatalog.AnalysisCallerGraphTarget
                             .AssemblyPath(),
-                        "--where",
-                        "Cluster=14",
                         "-S",
                         "Public Root Paths",
                     ])
@@ -428,22 +483,21 @@ public sealed class InspectionGraphCommandTests
     }
 
     [Fact]
-    public async Task LibrariesCommand_PublicRootPathsRespectAccessorVisibility()
+    public async Task ClusterCommand_PublicRootPathsRespectAccessorVisibility()
     {
         var captured = await ConsoleCapture.RunAsync(
             () => CommandLineBuilder.CreateRootCommand()
                 .Parse(
                     [
                         "graph",
-                        "libraries",
+                        "cluster",
+                        "15",
                         "--library",
                         FixtureCatalog.AnalysisCallerGraphCaller
                             .AssemblyPath(),
                         "--library",
                         FixtureCatalog.AnalysisCallerGraphTarget
                             .AssemblyPath(),
-                        "--where",
-                        "Cluster=15",
                         "-S",
                         "Public Root Paths",
                         "--jsonl",
@@ -461,22 +515,21 @@ public sealed class InspectionGraphCommandTests
     }
 
     [Fact]
-    public async Task LibrariesCommand_PublicRootPathsReportCompleteEmptyResult()
+    public async Task ClusterCommand_PublicRootPathsReportCompleteEmptyResult()
     {
         var captured = await ConsoleCapture.RunAsync(
             () => CommandLineBuilder.CreateRootCommand()
                 .Parse(
                     [
                         "graph",
-                        "libraries",
+                        "cluster",
+                        "16",
                         "--library",
                         FixtureCatalog.AnalysisCallerGraphCaller
                             .AssemblyPath(),
                         "--library",
                         FixtureCatalog.AnalysisCallerGraphTarget
                             .AssemblyPath(),
-                        "--where",
-                        "Cluster=16",
                         "-S",
                         "Public Root Paths",
                     ])
@@ -659,7 +712,7 @@ public sealed class InspectionGraphCommandTests
     }
 
     [Fact]
-    public async Task LibrariesCommand_ProjectsDirectUseClusters()
+    public async Task LibrariesCommand_DefaultsToDirectUseClusters()
     {
         var captured = await ConsoleCapture.RunAsync(
             () => CommandLineBuilder.CreateRootCommand()
@@ -673,8 +726,6 @@ public sealed class InspectionGraphCommandTests
                         "--library",
                         FixtureCatalog.AnalysisCallerGraphTarget
                             .AssemblyPath(),
-                        "-S",
-                        "Direct Use Clusters",
                         "--jsonl",
                     ])
                 .InvokeAsync());
@@ -710,22 +761,21 @@ public sealed class InspectionGraphCommandTests
     }
 
     [Fact]
-    public async Task LibrariesCommand_DrillsFromClusterIntoExactCalls()
+    public async Task ClusterCommand_DefaultsToExactCalls()
     {
         var captured = await ConsoleCapture.RunAsync(
             () => CommandLineBuilder.CreateRootCommand()
                 .Parse(
                     [
                         "graph",
-                        "libraries",
+                        "cluster",
+                        "3",
                         "--library",
                         FixtureCatalog.AnalysisCallerGraphCaller
                             .AssemblyPath(),
                         "--library",
                         FixtureCatalog.AnalysisCallerGraphTarget
                             .AssemblyPath(),
-                        "--where",
-                        "Cluster=3",
                         "--jsonl",
                     ])
                 .InvokeAsync());
@@ -773,18 +823,23 @@ public sealed class InspectionGraphCommandTests
                 .Parse(
                     [
                         "graph",
-                        "libraries",
+                        "cluster",
+                        "3",
                         "--library",
                         FixtureCatalog.AnalysisCallerGraphCaller
                             .AssemblyPath(),
                         "--library",
                         FixtureCatalog.AnalysisCallerGraphTarget
                             .AssemblyPath(),
-                        "--where",
-                        "Cluster=3",
                     ])
                 .InvokeAsync());
         Assert.Equal(0, human.ExitCode);
+        Assert.Contains("# Direct Use Cluster 3", human.Output);
+        Assert.Contains(
+            "Footprint: 2 source members, 1 provider type, "
+                + "1 target member, 1 extension method, "
+                + "and 3 physical call sites.",
+            human.Output);
         Assert.Contains(
             "| Source Member | Source Token | Target Member | Target Token | Call | Evidence Method | Evidence Token | IL Offset |",
             human.Output);
@@ -795,7 +850,7 @@ public sealed class InspectionGraphCommandTests
     }
 
     [Fact]
-    public async Task LibrariesCommand_ClusterUsesEvidenceTokenForIlHandoff()
+    public async Task ClusterCommand_UsesEvidenceTokenForIlHandoff()
     {
         string consumer =
             FixtureCatalog.AnalysisAsyncSiblingFriend.AssemblyPath();
@@ -807,13 +862,12 @@ public sealed class InspectionGraphCommandTests
                 .Parse(
                     [
                         "graph",
-                        "libraries",
+                        "cluster",
+                        "1",
                         "--library",
                         consumer,
                         "--library",
                         provider,
-                        "--where",
-                        "Cluster=1",
                         "--jsonl",
                     ])
                 .InvokeAsync());
@@ -856,7 +910,7 @@ public sealed class InspectionGraphCommandTests
     }
 
     [Fact]
-    public async Task LibrariesCommand_PublicRootPathsRetainPositiveIncompleteEvidence()
+    public async Task ClusterCommand_PublicRootPathsRetainPositiveIncompleteEvidence()
     {
         string consumer =
             FixtureCatalog.AnalysisAsyncSiblingFriend.AssemblyPath();
@@ -868,13 +922,12 @@ public sealed class InspectionGraphCommandTests
                 .Parse(
                     [
                         "graph",
-                        "libraries",
+                        "cluster",
+                        "1",
                         "--library",
                         consumer,
                         "--library",
                         provider,
-                        "--where",
-                        "Cluster=1",
                         "-S",
                         "Public Root Paths",
                         "--json",
@@ -904,22 +957,21 @@ public sealed class InspectionGraphCommandTests
     }
 
     [Fact]
-    public async Task LibrariesCommand_ClusterScopesEverySelectedSection()
+    public async Task ClusterCommand_ScopesEverySelectedSection()
     {
         var captured = await ConsoleCapture.RunAsync(
             () => CommandLineBuilder.CreateRootCommand()
                 .Parse(
                     [
                         "graph",
-                        "libraries",
+                        "cluster",
+                        "3",
                         "--library",
                         FixtureCatalog.AnalysisCallerGraphCaller
                             .AssemblyPath(),
                         "--library",
                         FixtureCatalog.AnalysisCallerGraphTarget
                             .AssemblyPath(),
-                        "--where",
-                        "Cluster=3",
                         "-S",
                         "*",
                         "--json",
@@ -957,22 +1009,21 @@ public sealed class InspectionGraphCommandTests
     }
 
     [Fact]
-    public async Task LibrariesCommand_RejectsUnavailableCluster()
+    public async Task ClusterCommand_RejectsUnavailableCluster()
     {
         var captured = await ConsoleCapture.RunAsync(
             () => CommandLineBuilder.CreateRootCommand()
                 .Parse(
                     [
                         "graph",
-                        "libraries",
+                        "cluster",
+                        "99",
                         "--library",
                         FixtureCatalog.AnalysisCallerGraphCaller
                             .AssemblyPath(),
                         "--library",
                         FixtureCatalog.AnalysisCallerGraphTarget
                             .AssemblyPath(),
-                        "--where",
-                        "Cluster=99",
                     ])
                 .InvokeAsync());
 
@@ -987,109 +1038,82 @@ public sealed class InspectionGraphCommandTests
     }
 
     [Fact]
-    public async Task LibrariesCommand_RejectsClusterDuringDiscovery()
+    public async Task ClusterCommand_RequiresOrdinalForExecution()
     {
         var captured = await ConsoleCapture.RunAsync(
             () => CommandLineBuilder.CreateRootCommand()
                 .Parse(
                     [
                         "graph",
-                        "libraries",
-                        "--where",
-                        "Cluster=1",
-                        "-D",
+                        "cluster",
                     ])
                 .InvokeAsync());
 
         Assert.Equal(1, captured.ExitCode);
         Assert.Empty(captured.Output);
         Assert.Contains(
-            "--where Cluster=... cannot be combined with -D/--discover.",
+            "A positive Direct-Use Cluster ordinal is required.",
             captured.Error);
-    }
-
-    [Fact]
-    public async Task LibrariesCommand_RejectsNonPositiveCluster()
-    {
-        var captured = await ConsoleCapture.RunAsync(
-            () => CommandLineBuilder.CreateRootCommand()
-                .Parse(
-                    [
-                        "graph",
-                        "libraries",
-                        "--where",
-                        "Cluster=0",
-                    ])
-                .InvokeAsync());
-
-        Assert.Equal(1, captured.ExitCode);
-        Assert.Empty(captured.Output);
         Assert.Contains(
-            "Field 'Cluster' requires a positive integer ordinal.",
+            "dotnet-inspect graph cluster --help",
             captured.Error);
     }
 
     [Theory]
-    [InlineData(
-        "Cluster!=3",
-        "Field 'Cluster' in graph libraries supports only = predicates.")]
-    [InlineData(
-        "Cluster=3",
-        "graph libraries accepts exactly one --where Cluster=... predicate.")]
-    public async Task LibrariesCommand_RejectsInvalidClusterPredicates(
-        string predicate,
-        string expected)
-    {
-        string[] arguments =
-            predicate == "Cluster=3"
-                ?
-                [
-                    "graph",
-                    "libraries",
-                    "--where",
-                    predicate,
-                    "--where",
-                    predicate,
-                ]
-                :
-                [
-                    "graph",
-                    "libraries",
-                    "--where",
-                    predicate,
-                ];
-        var captured = await ConsoleCapture.RunAsync(
-            () => CommandLineBuilder.CreateRootCommand()
-                .Parse(arguments)
-                .InvokeAsync());
-
-        Assert.Equal(1, captured.ExitCode);
-        Assert.Empty(captured.Output);
-        Assert.Contains(expected, captured.Error);
-    }
-
-    [Fact]
-    public async Task LibrariesCommand_RejectsUnsupportedWhereField()
+    [InlineData("0")]
+    [InlineData("-1")]
+    public async Task ClusterCommand_RejectsNonPositiveOrdinal(
+        string ordinal)
     {
         var captured = await ConsoleCapture.RunAsync(
             () => CommandLineBuilder.CreateRootCommand()
                 .Parse(
                     [
                         "graph",
-                        "libraries",
-                        "--where",
-                        "SourceMember=Run",
+                        "cluster",
+                        ordinal,
                     ])
                 .InvokeAsync());
 
         Assert.Equal(1, captured.ExitCode);
         Assert.Empty(captured.Output);
         Assert.Contains(
-            "Field 'SourceMember' is not queryable by graph libraries.",
+            "The Direct-Use Cluster ordinal must be positive.",
             captured.Error);
+    }
+
+    [Fact]
+    public void ClusterCommand_RejectsInvalidOrdinal()
+    {
+        var result =
+            CommandLineBuilder.CreateRootCommand()
+                .Parse(["graph", "cluster", "not-an-ordinal"]);
+
         Assert.Contains(
-            "Use --where \"Cluster=<positive ordinal>\".",
-            captured.Error);
+            result.Errors,
+            error => error.Message.Contains(
+                "not-an-ordinal",
+                StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void LibrariesCommand_RejectsRetiredWhereOption()
+    {
+        var result =
+            CommandLineBuilder.CreateRootCommand()
+                .Parse(
+                    [
+                        "graph",
+                        "libraries",
+                        "--where",
+                        "Cluster=3",
+                    ]);
+
+        Assert.Contains(
+            result.Errors,
+            error => error.Message.Contains(
+                "--where",
+                StringComparison.Ordinal));
     }
 
     [Fact]
@@ -1345,7 +1369,7 @@ public sealed class InspectionGraphCommandTests
     }
 
     [Fact]
-    public async Task LibrariesCommand_CountsExactCallSites()
+    public async Task LibrariesCommand_CountsDirectUseClustersByDefault()
     {
         var captured = await ConsoleCapture.RunAsync(
             () => CommandLineBuilder.CreateRootCommand()
@@ -1364,17 +1388,35 @@ public sealed class InspectionGraphCommandTests
                 .InvokeAsync());
 
         Assert.Equal(0, captured.ExitCode);
-        Assert.True(
-            int.Parse(captured.Output.Trim()) > 0);
+        Assert.Equal("17", captured.Output.Trim());
         Assert.Empty(captured.Error);
     }
 
     [Fact]
-    public async Task LibrariesCommand_AppliesOccurrenceRowWindowsToJsonLines()
+    public async Task ClusterCommand_CountsExactCallSitesByDefault()
     {
         var captured = await RunCliAsync(
             "graph",
-            "libraries",
+            "cluster",
+            "3",
+            "--library",
+            FixtureCatalog.AnalysisCallerGraphCaller.AssemblyPath(),
+            "--library",
+            FixtureCatalog.AnalysisCallerGraphTarget.AssemblyPath(),
+            "--count");
+
+        Assert.Equal(0, captured.ExitCode);
+        Assert.Equal("3", captured.Output.Trim());
+        Assert.Empty(captured.Error);
+    }
+
+    [Fact]
+    public async Task ClusterCommand_AppliesOccurrenceRowWindowsToJsonLines()
+    {
+        var captured = await RunCliAsync(
+            "graph",
+            "cluster",
+            "3",
             "--library",
             FixtureCatalog.AnalysisCallerGraphCaller.AssemblyPath(),
             "--library",
@@ -1455,12 +1497,13 @@ public sealed class InspectionGraphCommandTests
     }
 
     [Fact]
-    public async Task LibrariesCommand_SemanticTailSelectsTheSameCallSiteAcrossFormats()
+    public async Task ClusterCommand_SemanticTailSelectsTheSameCallSiteAcrossFormats()
     {
         string[] pair =
         [
             "graph",
-            "libraries",
+            "cluster",
+            "3",
             "--library",
             FixtureCatalog.AnalysisCallerGraphCaller.AssemblyPath(),
             "--library",
@@ -1609,7 +1652,7 @@ public sealed class InspectionGraphCommandTests
                 out LibraryCallUseSections.SemanticRowDeclaration?
                     defaultDeclaration));
         Assert.Same(
-            GraphLibrariesSectionRows.CallSites,
+            GraphLibrariesSectionRows.DirectUseClusters,
             defaultDeclaration!.Rows);
         Assert.False(
             LibraryCallUseSections.TryGetSemanticRows(
@@ -1837,7 +1880,7 @@ public sealed class InspectionGraphCommandTests
     }
 
     [Fact]
-    public async Task LibrariesCommand_StrictUnavailableWindowWithholdsOutput()
+    public async Task LibrariesCommand_StrictUnavailableDefaultWindowWithholdsOutput()
     {
         var captured = await RunCliAsync(
             "graph",
@@ -1853,8 +1896,8 @@ public sealed class InspectionGraphCommandTests
         Assert.Equal(1, captured.ExitCode);
         Assert.Empty(captured.Output);
         Assert.Contains(
-            "Library call-site row selection stage 1 requires call site 1000, "
-                + "but only ",
+            "Library direct-use cluster row selection stage 1 requires "
+                + "cluster 1000, but only ",
             captured.Error,
             StringComparison.Ordinal);
     }
@@ -1989,17 +2032,16 @@ public sealed class InspectionGraphCommandTests
     }
 
     [Fact]
-    public async Task LibrariesCommand_ClusterScopePrecedesSemanticWindow()
+    public async Task ClusterCommand_ClusterScopePrecedesSemanticWindow()
     {
         var captured = await RunCliAsync(
             "graph",
-            "libraries",
+            "cluster",
+            "3",
             "--library",
             FixtureCatalog.AnalysisCallerGraphCaller.AssemblyPath(),
             "--library",
             FixtureCatalog.AnalysisCallerGraphTarget.AssemblyPath(),
-            "--where",
-            "Cluster=3",
             "-S",
             LibraryCallUseSections.DirectUseClusters,
             "--rows",
@@ -2016,17 +2058,16 @@ public sealed class InspectionGraphCommandTests
     }
 
     [Fact]
-    public async Task LibrariesCommand_SummaryGroupingAndClusterScopePrecedeSemanticWindow()
+    public async Task ClusterCommand_SummaryGroupingAndClusterScopePrecedeSemanticWindow()
     {
         var captured = await RunCliAsync(
             "graph",
-            "libraries",
+            "cluster",
+            "3",
             "--library",
             FixtureCatalog.AnalysisCallerGraphCaller.AssemblyPath(),
             "--library",
             FixtureCatalog.AnalysisCallerGraphTarget.AssemblyPath(),
-            "--where",
-            "Cluster=3",
             "-S",
             LibraryCallUseSections.ConsumerUseSites,
             "-n",
@@ -2089,7 +2130,7 @@ public sealed class InspectionGraphCommandTests
             var defaultView = await Execute();
             var selectedView = await Execute(
                 "-S",
-                $"{LibraryCallUseCommand.ConsumerUseSitesSection};{LibraryCallUseCommand.ProviderApiTypesSection}");
+                LibraryCallUseSections.DirectUseClusters);
 
             Assert.Equal(0, defaultView.ExitCode);
             Assert.Equal(0, selectedView.ExitCode);

@@ -1021,7 +1021,7 @@ public class AuthoredSourceValidityTests
     /// </para>
     /// </summary>
     [Theory]
-    [InlineData("public record ForwarderSummaryRow(")]
+    [InlineData("public record ApiTypeForwarderRow(")]
     [InlineData("public class TypeView")]
     [InlineData("internal readonly ref struct Slice")]
     [InlineData("public sealed partial record struct Point(")]
