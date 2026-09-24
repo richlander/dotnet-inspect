@@ -1,6 +1,10 @@
 using ILInspector.CSharp;
 using ILInspector.DecompilerHarness;
 
+using System.Reflection;
+using System.Reflection.Emit;
+using System.Runtime.CompilerServices;
+
 namespace ILInspector.Decompiler.Tests;
 
 [Collection(ConsoleMutatorCollection.Name)]
@@ -201,6 +205,36 @@ public class ReturnToSenderTargetSelectionTests
         }
     }
 
+    [Fact]
+    public void DefersCompilerGeneratedEventRaiser()
+    {
+        string assemblyPath = CreateGeneratedEventRaiserFixture();
+        try
+        {
+            FidelityCheck.ReturnToSenderTargetSelection selection =
+                FidelityCheck.SelectReturnToSenderTargetPlan(
+                    [assemblyPath],
+                    cap: int.MaxValue);
+
+            FidelityCheck.ReturnToSenderTargetExclusion raiser =
+                Assert.Single(
+                    selection.Exclusions,
+                    exclusion => exclusion.Method == "raise_Changed");
+            Assert.Equal(
+                FidelityCheck.ReturnToSenderTargetExclusionReason
+                    .AccessorDeferred,
+                raiser.Reason);
+            Assert.Contains(
+                selection.Targets,
+                target => target.Method == "Good");
+            Assert.Equal(5, selection.DeclarationCandidateCount);
+        }
+        finally
+        {
+            FidelityCheckGeneratedFilterTests.DeleteFixture(assemblyPath);
+        }
+    }
+
     static string[] ExclusionSnapshot(
         FidelityCheck.ReturnToSenderTargetSelection selection)
         => selection.Exclusions
@@ -209,4 +243,76 @@ public class ReturnToSenderTargetSelectionTests
                 + $"{exclusion.Reason}:{exclusion.Producer}:"
                 + $"{exclusion.ExactOutcome?.GetType().Name}")
             .ToArray();
+
+    static string CreateGeneratedEventRaiserFixture()
+    {
+        string directory = Path.Combine(
+            Path.GetTempPath(),
+            $"rts-generated-raiser-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        string path = Path.Combine(directory, "GeneratedEventRaiser.dll");
+
+        var assembly = new PersistedAssemblyBuilder(
+            new AssemblyName("GeneratedEventRaiser"),
+            typeof(object).Assembly);
+        ModuleBuilder module =
+            assembly.DefineDynamicModule("GeneratedEventRaiser");
+        TypeBuilder type = module.DefineType(
+            "GeneratedEventRaiserFixture",
+            TypeAttributes.Public | TypeAttributes.Class);
+
+        MethodBuilder good = type.DefineMethod(
+            "Good",
+            MethodAttributes.Public | MethodAttributes.Static,
+            typeof(int),
+            Type.EmptyTypes);
+        ILGenerator goodBody = good.GetILGenerator();
+        goodBody.Emit(OpCodes.Ldc_I4_1);
+        goodBody.Emit(OpCodes.Ret);
+
+        EventBuilder changed = type.DefineEvent(
+            "Changed",
+            EventAttributes.None,
+            typeof(Action));
+        MethodBuilder add = DefineEventMethod(
+            type,
+            "add_Changed",
+            [typeof(Action)]);
+        MethodBuilder remove = DefineEventMethod(
+            type,
+            "remove_Changed",
+            [typeof(Action)]);
+        MethodBuilder raise = DefineEventMethod(
+            type,
+            "raise_Changed",
+            Type.EmptyTypes);
+        raise.SetCustomAttribute(
+            new CustomAttributeBuilder(
+                typeof(CompilerGeneratedAttribute).GetConstructor(
+                    Type.EmptyTypes)!,
+                []));
+        changed.SetAddOnMethod(add);
+        changed.SetRemoveOnMethod(remove);
+        changed.SetRaiseMethod(raise);
+
+        type.CreateType();
+        assembly.Save(path);
+        return path;
+    }
+
+    static MethodBuilder DefineEventMethod(
+        TypeBuilder type,
+        string name,
+        Type[] parameterTypes)
+    {
+        MethodBuilder method = type.DefineMethod(
+            name,
+            MethodAttributes.Public
+                | MethodAttributes.SpecialName
+                | MethodAttributes.HideBySig,
+            typeof(void),
+            parameterTypes);
+        method.GetILGenerator().Emit(OpCodes.Ret);
+        return method;
+    }
 }

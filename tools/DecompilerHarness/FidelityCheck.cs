@@ -341,7 +341,13 @@ static partial class FidelityCheck
             candidate.MethodHandle);
         bool mappedAccessor =
             targetApiEvidence.AccessorTokens.Contains(token);
-        if (!mappedAccessor
+        bool hasApiEntry =
+            targetApiEvidence.Index.TryGetValue(token, out var entry);
+        bool requiresMethodSemanticsDecision = mappedAccessor
+            || (hasApiEntry
+                && entry.Member.MethodSemantics is not
+                    ApiMethodSemanticsKind.None);
+        if (!requiresMethodSemanticsDecision
             && IsGeneratedMethod(
                 reader,
                 method,
@@ -378,12 +384,7 @@ static partial class FidelityCheck
                 producer,
                 exactOutcome);
 
-        bool hasApiEntry =
-            targetApiEvidence.Index.TryGetValue(token, out var entry);
-        if (mappedAccessor
-            || (hasApiEntry
-                && entry.Member.MethodSemantics is not
-                    ApiMethodSemanticsKind.None))
+        if (requiresMethodSemanticsDecision)
         {
             return new(
                 null,
