@@ -133,7 +133,8 @@ characteristic:
 The origin node receives the `focus` role. A row used by several paths remains
 one connector; the source-relative CallGraph row and occurrences remain
 singular. The external-call CLI maps the shared `exit` role to its existing
-`boundary` output token so user-visible output remains unchanged.
+`boundary` output token, and Inspect Web maps it to the existing `boundary`
+target kind, so user-visible output remains unchanged in both hosts.
 
 Every unclassified boundary also receives a targeted
 `queries.focus-scope-classification-incomplete` limit. This preserves the
@@ -201,7 +202,9 @@ Release gates cover:
 `InspectionGraphFocusProjectionTests` owns reusable topology parity.
 `MemberCallGraphSessionTests`, `PackageRoleMemberCallGraphQueryTests`, and
 `ExternalCallGraphCommandTests` own this adopter's classification,
-composition, and host-output parity.
+composition, and CLI-output parity.
+`DependencyCallGraphDocument_ProjectsDetachedBrowserGraph` owns the Inspect Web
+role-lowering parity.
 
 ## Non-claims
 

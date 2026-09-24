@@ -750,18 +750,23 @@ public sealed partial class BrowserEngineBoundaryTests
                     ((InspectionGraphMemberIdentity.CallGraph)
                         target.Identity).Member.Name switch
                     {
-                        "AddOptions" => "connector",
-                        "Get" => "boundary",
-                        "WriteLine" => "unclassified-boundary",
+                        "AddOptions" =>
+                            InspectionGraphFocusCatalog
+                                .ConnectorRole,
+                        "Get" =>
+                            InspectionGraphFocusCatalog.ExitRole,
+                        "WriteLine" =>
+                            InspectionGraphFocusCatalog
+                                .UnclassifiedBoundaryRole,
                         _ => throw new InvalidOperationException(
                             "Unexpected call-graph member."),
                     };
                 InspectionGraphTarget edgeTarget =
                     InspectionGraphTarget.Edge(edge.Id);
                 return new InspectionGraphCharacteristic(
-                    ExternalFocusedCallGraphInspectionCatalog.EdgeRole,
+                    InspectionGraphFocusCatalog.Role,
                     edgeTarget,
-                    new InspectionGraphValue.Token(role),
+                    new InspectionGraphValue.TokenSet([role]),
                     new InspectionGraphCharacteristicDerivation(
                         InspectionGraphCharacteristicDerivationKind
                             .Derived,
