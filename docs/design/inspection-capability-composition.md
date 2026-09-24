@@ -103,8 +103,123 @@ This design consumes those existing facts to demonstrate:
 - one Browser binding; and
 - one derived explanation and adoption graph.
 
-The adoption does not alter Package Query planning, acquisition, literal
-matching, evidence, rows, completion, sharing, or presentation.
+The route and binding adoption does not alter Package Query planning,
+acquisition, literal matching, evidence, result rows, completion, sharing, or
+ordinary result presentation. The later self-description adoption
+intentionally enriches query-discovery metadata with canonical resource links;
+it does not change query execution or result Content.
+
+## Agent discovery end to end
+
+Naming the production witness is insufficient. The completed adoption must
+demonstrate how an agent that knows the shallow shipped skill discovers
+`library-literal`, verifies its meaning, and executes it without a
+skill-maintained facet inventory.
+
+### Command-local discovery path
+
+The first required path uses the existing Package Query discovery gesture:
+
+```console
+dotnet-inspect package query -Q Packages
+```
+
+The effective Package Query registration supplies the `library-literal`
+discovery row. That row and its surrounding summary must disclose:
+
+- the canonical `library-literal` query key;
+- the `--where` host gesture and admitted operator;
+- the `decoded UTF-16 text` value domain and a copyable example;
+- `metadata-expensive` execution and its exact-target-framework requirement.
+
+The installed command already supplies those facts. After query-resource
+adoption, the same compact row additionally emits its canonical Resource
+Explanation path. Package-content acquisition and the route's other effects
+remain typed explanation facts rather than new hand-maintained `-Q` prose.
+
+The agent copies that emitted path into exact explanation:
+
+```console
+dotnet-inspect explain <library-literal-resource-path>
+```
+
+Explanation identifies the Package Query route, Package candidate
+qualification role, decoded string-literal matching semantics, required target
+context, acquisition and work consequences, result contract, and available
+CLI and Browser bindings. It does not acquire a package or execute the query.
+
+The agent can then construct the production request:
+
+```console
+dotnet-inspect package query Microsoft.Azure.SignalR \
+  --where "library-literal=https://" --tfm net8.0 \
+  -S "Literal Strings"
+```
+
+The result contains one semantic row per physical decoded `ldstr` occurrence
+and retains the complete string as the Literal value. Two operand matches
+inside one decoded string do not duplicate that occurrence. Equal complete
+strings at two distinct IL coordinates remain two rows.
+
+The installed production command currently returns rows including:
+
+```text
+Method Token  IL Offset  Literal
+0x0600007A    IL_0008    please check if you set the AzureAuthorityHosts properly in your TokenCredentialOptions, see "https://learn.microsoft.com/en-us/dotnet/api/azure.identity.azureauthorityhosts".
+0x060000EA    IL_0026    Endpoint scheme must be 'http://' or 'https://'
+0x060002E4    IL_000C    please check if you set the AzureAuthorityHosts properly in your TokenCredentialOptions, see "https://learn.microsoft.com/en-us/dotnet/api/azure.identity.azureauthorityhosts".
+```
+
+The first and third excerpts retain equal complete strings at separate method
+and IL coordinates. The middle excerpt retains surrounding text and both
+scheme spellings instead of extracting only the matching URL fragment.
+`CliLiteralStringQueryItemizesPhysicalUrlOccurrences` separately enforces that
+a retained string containing more than one `https://` operand still produces
+one physical-occurrence row.
+
+This path proves that the installed descriptor set, rather than remembered
+skill prose, teaches the agent the query key, context, cost, explanation
+resource, and runnable gesture.
+
+The adoption state is explicit:
+
+| Step | Current state |
+| --- | --- |
+| `package query -Q Packages` discovers `library-literal` | Implemented |
+| `-Q` emits the canonical query-resource path | Planned in #8417 |
+| Exact `explain <path>` describes the facet and route | Planned Resource Explanation query adoption |
+| The `Microsoft.Azure.SignalR` literal query emits whole-string rows | Implemented |
+| Global lexical search for `literal` finds the facet | Planned in #8424 |
+
+### Global catalog orientation
+
+The command-local path assumes the shallow skill has oriented the agent to
+Package Query. An unfamiliar capability should also be discoverable without
+enumerating every command and running `-Q` repeatedly.
+
+[#8424](https://github.com/richlander/dotnet-inspect/issues/8424) owns a
+focused compact capability-catalog search. A search for `literal` consumes
+this composition's stable installed facts and should return at least:
+
+```text
+Kind: Query facet
+Key: library-literal
+Route: Package Query
+Explain: <canonical resource path>
+Discover: package query -Q Packages
+```
+
+Inspection Capability Composition supplies the searchable owner-issued
+identity, canonical query key, name, summary, relationships, path, route, and
+available consumer bindings. It does not define search matching, ordering,
+result Content, CLI spelling, or Browser interaction. The search owner must
+remain lexical, deterministic, resource-free, and network-free; it must not
+recover capability from parser help, rendered output, reflection, or
+source-code names.
+
+Resource Explanation remains exact-path-only. Catalog search orients the user
+to an exact resource; `explain` then resolves that resource without adding
+fuzzy, prefix, wildcard, or natural-language resolution.
 
 ## Basis and authority map
 
@@ -507,6 +622,8 @@ The first implementation adoption must provide Release gates for:
   their registered binding objects and the same typed Package Query route;
 - Package Query structural and query projection without acquisition;
 - Resource Explanation projection from the composed graph;
+- an agent acceptance flow from Package Query `-Q`, through exact Resource
+  Explanation, to the real `library-literal=https://` CLI execution;
 - explicit orphan-route and missing-intended-binding adoption outcomes; and
 - ordinary Package Query execution without aggregate catalog construction.
 
@@ -556,8 +673,9 @@ counted path:
    composition.
 3. Adopt Package Query as the first complete witness using its existing CLI
    and Browser production callers and Query Space route.
-4. Project the adopted graph through Resource Explanation and derive the
-   applicable `-D` and `-Q` views.
+4. Project the adopted graph through Resource Explanation, derive the
+   applicable `-D` and `-Q` views, and supply the structured input consumed by
+   the focused catalog-search adoption in #8424.
 5. Adopt one operation-backed section route to prove subject-section and
    top-level-operation composition.
 6. Migrate remaining modern owners one focused owner at a time and retire
