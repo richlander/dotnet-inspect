@@ -130,7 +130,7 @@ public static class SourceResolver
             {
                 if (AssemblyHasType(path, remainder))
                 {
-                    RequestTelemetry.Breadcrumb(
+                    RouterDecisionLog.Record(
                         "qualified-type-split",
                         $"{name} -> platform={candidate}; type={remainder}");
                     return new LocalProbeResult(candidate, remainder, LocalSourceKind.Platform);
@@ -147,7 +147,7 @@ public static class SourceResolver
                     candidate,
                     sourceKeysForPackage(candidate)))
             {
-                RequestTelemetry.Breadcrumb(
+                RouterDecisionLog.Record(
                     "qualified-type-split",
                     $"{name} -> package-candidate-cache={candidate}; type={remainder}");
                 return new LocalProbeResult(candidate, remainder, LocalSourceKind.CachedPackage);
@@ -171,7 +171,7 @@ public static class SourceResolver
                         resolved.Candidate.Assembly.Identity.Name;
                     string exactTypeName =
                         resolved.Candidate.Type.ToMetadataFullName();
-                    RequestTelemetry.Breadcrumb(
+                    RouterDecisionLog.Record(
                         "qualified-type-split",
                         $"{name} -> platform={runtimeLibrary}; type={exactTypeName}");
                     return new LocalProbeResult(

@@ -1,3 +1,4 @@
+using DotnetInspect.Cli.CommandLine;
 using System.Collections.Concurrent;
 using System.IO.Compression;
 using System.Reflection.Metadata;
@@ -752,9 +753,7 @@ public sealed class MemberInspectionRouteCharacterizationTests : IDisposable
         Assert.Equal(0, tree.ExitCode);
         Assert.Empty(tree.Error);
 
-        var observations = new ConcurrentQueue<BreadcrumbObservation>();
-        using var subscription = BreadcrumbTelemetry.Subscribe(
-            new BreadcrumbObserver(observations));
+        using RouterDecisionLog.Capture decisions = RouterDecisionLog.Begin();
         var root = CommandLineBuilder.CreateRootCommand();
         var parsed = root.Parse(routedArgs);
         Assert.Empty(parsed.Errors);
@@ -770,8 +769,8 @@ public sealed class MemberInspectionRouteCharacterizationTests : IDisposable
         Assert.Empty(routed.Error);
 
         Assert.DoesNotContain(
-            observations,
-            observation => observation.Stage == "router-rewrite");
+            decisions.Decisions,
+            decision => decision.Stage == "router-rewrite");
 
         return new RouteObservation(
             "hidden-router",
@@ -1105,20 +1104,4 @@ public sealed class MemberInspectionRouteCharacterizationTests : IDisposable
         string Full,
         string Summary,
         string Focused);
-
-    private sealed class BreadcrumbObserver(
-        ConcurrentQueue<BreadcrumbObservation> observations)
-        : IObserver<BreadcrumbObservation>
-    {
-        public void OnCompleted()
-        {
-        }
-
-        public void OnError(Exception error)
-        {
-        }
-
-        public void OnNext(BreadcrumbObservation value)
-            => observations.Enqueue(value);
-    }
 }

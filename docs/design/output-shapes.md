@@ -443,7 +443,7 @@ Serialization never recaptures evidence or projects Share.
 | Markdown, plaintext, table, TSV, JSONL, tree, Mermaid, or name-only output | Reject competing primary presentations. | Retain the ordinary route's behavior. |
 | `--compact` | Change envelope JSON whitespace only. | Change attachment JSON whitespace; when paired, change both envelopes. |
 | `--share[=url\|packet]` | Preserve the adopting command's current output-channel and exit contract using this envelope's Share. | Preserve the same contract from the enriched value's Share. Package Dependencies retains its known scalar-stdout fast path until the coherent [existing-adopter migration](cli-workspace-sharing.md#status-and-gates); evidence transport does not partially migrate only its output channel. |
-| `--verbose`, `--trace`, `--info`, `--tips` | Retain their stderr-only role. | Retain their ordinary role; only the evidence option requests service evidence. |
+| `--verbose`, `--trace`, `--tips` | Retain their stderr-only role. | Retain their ordinary role; only the evidence option requests service evidence. |
 | Source, endpoints, subject, API scope, traversal, or other semantic inputs | Retain the operation owner's admission, authorization, and semantic meaning. | Retain the same meaning. |
 | `-S`, `-v`, row/query controls, or `--count` | Admit only when the operation binds their complete effect into its owner-issued service result; reject post-service shaping. | Retain ordinary shaping; semantic inputs still bind the service result. |
 | `--fields`, `--columns`, `--raw`, `--no-headers`, `--print`, `--value`, URL/path projections, or rendered-line clipping | Reject post-service presentation or projection requests. | Retain ordinary primary-output behavior without shaping the attachment. |
@@ -1452,9 +1452,9 @@ complete result records incrementally, including typed row failures, as
 described by the historical #4677 target. It remains pending focused L3
 payload-projection ownership and gates.
 
-Tool-authored companion sections still use the stream split: for example,
-`package X -S "Package README file" --print --info` writes the framed, encoded
-document to stdout and the `# Info` table to stderr.
+Tool-authored companion output still uses the stream split: for example,
+`package X -S "Package README file" --print` writes the framed, encoded
+document to stdout and any tips or diagnostics to stderr.
 
 Two consequences define the boundary:
 

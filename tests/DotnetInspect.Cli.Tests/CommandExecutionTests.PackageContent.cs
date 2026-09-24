@@ -2762,9 +2762,8 @@ public partial class CommandExecutionTests
     [Fact]
     public async Task Package_ReadmePrint_ReportsTheSelectedDocumentInThePayload()
     {
-        // The selected readme used to be reported through an InfoTracker side channel that only
-        // the bespoke readme printer wrote. The generic print projection carries the path in the
-        // payload instead, so provenance survives without a printer of its own.
+        // The generic print projection carries the selected readme's path in the payload, so
+        // provenance survives without a printer of its own.
         var (packagePath, tempDir) = CreateLocalReadmePackage("Test.BestReadme.Info", "README.md", "readme", "agents");
         try
         {

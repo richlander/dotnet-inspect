@@ -64,7 +64,6 @@ public class SharedOptions
     public Option<bool> Urls { get; } = new("--urls") { Description = "Project URL-bearing selected section rows to a URL list or JSONL rows" };
     public Option<bool> Paths { get; } = new("--paths") { Description = "Project path-bearing selected section rows to a path list or JSONL rows" };
     public Option<bool> JsonArray { get; } = new("--json-array") { Description = "With a shape projection, emit projected rows as one JSON array" };
-    public Option<bool> Info { get; } = new("--info") { Description = "Show operational metrics (output, time, HTTP, cache) on stderr" };
     public Option<string?> Tips { get; }
 
     // Discovery option
@@ -314,7 +313,6 @@ public class SharedOptions
         command.Options.Add(Verbose);
         command.Options.Add(Verbosity);
         command.Options.Add(Tips);
-        command.Options.Add(Info);
         command.Options.Add(Rows);
         AddLineSelectionOptionsTo(command);
 
