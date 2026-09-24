@@ -274,7 +274,9 @@ One logical-Member row binds a canonical name and member category to one
 non-empty exact declaration population. The grouping key must retain every
 owner-issued distinction needed for unambiguous drill-down. It must not merge
 ordinary declared Members with attached extensions merely because their
-display names match.
+display names match. Receiver classification is not part of logical-family
+identity: one declared family may contain both ordinary static and extension
+declarations.
 
 The row may carry requested nested measurements such as exact-overload Count.
 Those measurements describe its child population without constructing child
@@ -522,12 +524,31 @@ A logical-Member grouping key includes enough typed information to preserve:
 - Member category;
 - exact containing or receiver Type context;
 - declared versus attached-extension role; and
-- receiver classification where the declarations are uniform.
+- the exact child-population identity.
 
-If declarations with the same visible name differ in a way needed for
-selection, exact drill-down, or receiver semantics, they remain separate
-logical rows. A renderer may visually group them only as an additional
-projection.
+Receiver classification belongs to the exact child declarations. A logical
+row publishes the non-empty set of receiver forms present in its current child
+population, but that set is not its identity. For example, the declared
+`JsonSerializer.Deserialize` family contains both `static` and `extension`
+overloads and remains one logical row.
+
+The Type query binds `receiver` as a membership projection over exact child
+declarations before logical grouping:
+
+- `receiver = extension` retains extension declarations, then emits each
+  non-empty logical family with its filtered nested Count;
+- `receiver = static` or `receiver = this` behaves equivalently for that
+  exact form; and
+- `receiver != extension` retains ordinary static and instance declarations.
+
+The same logical-family identity may therefore appear under several selected
+row intents with different child-population bindings and nested Counts.
+Unqualified `JsonSerializer.Deserialize` has 40 overloads;
+`receiver = extension` has 15, and `receiver != extension` has 25.
+
+Other distinctions needed for exact drill-down remain in the owner-issued
+logical grouping key. A renderer may visually group distinct logical rows only
+as an additional projection.
 
 Attached extension logical rows:
 
@@ -537,10 +558,9 @@ Attached extension logical rows:
 - use `receiver = extension`; and
 - never merge with same-named ordinary static or instance families.
 
-Ordinary logical rows use `receiver = static` or `receiver = this` when every
-exact child has that classification. A future mixed-receiver family requires
-an owner-issued multi-value facet contract or separate logical rows; it must
-not choose one value by convention.
+An attached-extension family may itself contain only extension declarations,
+but that follows from its exact children rather than from a special scalar
+receiver field on logical-family identity.
 
 ## Member Overloads row space
 
@@ -871,6 +891,10 @@ The implementation must preserve at least:
 - a bounded overload Rows request attaches documentation only to returned
   exact rows;
 - same-named ordinary and attached-extension families remain distinct;
+- `JsonSerializer.Deserialize` remains one declared logical family containing
+  25 ordinary static and 15 extension overloads;
+- `receiver = extension` preserves that logical identity with nested Count 15,
+  while `receiver != extension` preserves it with nested Count 25;
 - ordinary static, instance, and extension exact rows are classified
   respectively as `static`, `this`, and `extension`;
 - an attached extension row retains receiver context and exact declaring
@@ -945,9 +969,13 @@ The implementation sequence must add Release gates proving:
   output-guarded method;
 - attached extensions retain receiver and declaring correspondence and never
   merge with same-named ordinary families;
-- `receiver = static | this | extension` is exhaustive for exact-overload rows
-  and source-applicable predicates affect producer work before row
-  materialization;
+- `JsonSerializer.Deserialize` remains one logical row over 25 ordinary static
+  and 15 extension declarations; receiver filtering selects exact children
+  before grouping and produces nested Counts 25 or 15 without changing the
+  logical identity;
+- `receiver = static | this | extension` is exhaustive for exact-overload rows,
+  and source-applicable receiver predicates affect producer work before
+  logical grouping or row materialization;
 - Type-subject documentation can complete without logical-Member-row
   documentation;
 - Count and default views invoke neither DocumentationHouse nor SourceHouse;
