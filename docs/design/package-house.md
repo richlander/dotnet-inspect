@@ -770,6 +770,17 @@ the legacy eager entry-opening contract. Filesystem content additionally
 requires a retained package archive: its declared entry size and CRC validate
 the extracted-file stream, while archive-less content is visibly unsupported.
 
+The first production consumer is exact-version online CLI export of one
+literal root `README.md` or `skills/**/SKILL.md` path to a file. The command
+acquires directly through the House filesystem store without invoking the
+legacy `PackageExtractor` route. A README copies progressively to the
+destination with the bounded exact-byte sink. A Skill decodes progressively
+into the existing containment-selected representation before that
+representation is written; it does not bypass Skill containment to preserve
+original bytes. Local archives, floating or range version selection, stdout,
+path globs and roles, partial document scopes, .NET tool-wrapper redirection,
+and other package files retain their existing paths in this slice.
+
 `PackageHouseExecutionTests.ExactPayloadRead_IsColdAndPullsFromTheHouseGeneration`
 gates cold start, pre-read cancellation, receipt association, and progressive
 copying.

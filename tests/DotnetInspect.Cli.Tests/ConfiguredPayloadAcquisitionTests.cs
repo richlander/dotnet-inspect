@@ -81,6 +81,114 @@ public sealed partial class ConfiguredPayloadAcquisitionTests : IDisposable
     }
 
     [Fact]
+    public async Task PackageCommand_ExactHouseDocumentExportsPreserveReadmeAndSkillSemantics()
+    {
+        string id = $"Pinned.Documents.{Guid.NewGuid():N}";
+        const string Readme = "House README payload.";
+        const string Skill = """
+            ---
+            name: demo
+            description: Demo package skill.
+            ---
+
+            # Demo
+            """;
+        byte[] archive = CreatePackage(
+            id,
+            Readme,
+            extraEntries:
+            [
+                ("skills/demo/SKILL.md", Encoding.UTF8.GetBytes(Skill)),
+            ]);
+        var requests = new ConcurrentQueue<string>();
+        CoreHttpClientFactory.SetPackageSourceHandlerForTesting(
+            source => new PayloadFeedHandler(
+                source,
+                id,
+                () => new ByteArrayContent(archive),
+                requests));
+        string readmePath = Path.Combine(_root, "README.md");
+        string skillPath = Path.Combine(_root, "SKILL.md");
+        string missingPath = Path.Combine(_root, "missing-SKILL.md");
+
+        var readme = await RunCommandAsync(
+            ["package", id, "--version", Version, "--source", FirstFeed,
+                "--path", "readme.md", "--content", "--out", readmePath,
+                "--tips", "q"]);
+        var skill = await RunCommandAsync(
+            ["package", $"{id}@{Version}", "--source", FirstFeed,
+                "--path", "skills/demo/SKILL.md", "--content", "--out",
+                skillPath, "--tips", "q"]);
+        var missing = await RunCommandAsync(
+            ["package", $"{id}@{Version}", "--source", FirstFeed,
+                "--path", "skills/missing/SKILL.md", "--content", "--out",
+                missingPath, "--tips", "q"]);
+
+        Assert.Equal(0, readme.Exit);
+        Assert.Empty(readme.Output);
+        Assert.Empty(readme.Error);
+        Assert.Equal(Readme, File.ReadAllText(readmePath));
+        Assert.Equal(0, skill.Exit);
+        Assert.Empty(skill.Output);
+        Assert.Empty(skill.Error);
+        Assert.Equal(Skill, File.ReadAllText(skillPath));
+        Assert.Equal(1, missing.Exit);
+        Assert.Empty(missing.Output);
+        Assert.Contains("found 0", missing.Error, StringComparison.Ordinal);
+        Assert.False(File.Exists(missingPath));
+        Assert.Equal(
+            1,
+            requests.Count(request =>
+                request.EndsWith(".nupkg", StringComparison.Ordinal)));
+    }
+
+    [Fact]
+    public async Task PackageCommand_ExactDocumentExportPreservesToolWrapperRedirect()
+    {
+        string wrapperId = $"Pinned.DocumentWrapper.{Guid.NewGuid():N}";
+        string payloadId = $"{wrapperId}.Payload";
+        string source = Path.Combine(_root, "document-wrapper-feed");
+        Directory.CreateDirectory(source);
+        File.WriteAllBytes(
+            Path.Combine(
+                source,
+                $"{wrapperId.ToLowerInvariant()}.{Version}.nupkg"),
+            CreatePackage(
+                wrapperId,
+                "wrapper README",
+                redirectId: payloadId,
+                nuspecContent: $"""
+                    <package><metadata>
+                      <id>{wrapperId}</id><version>{Version}</version>
+                      <authors>Payload tests</authors>
+                      <description>Tool wrapper</description>
+                      <readme>README.md</readme>
+                      <packageTypes>
+                        <packageType name="DotnetTool" />
+                      </packageTypes>
+                    </metadata></package>
+                    """));
+        File.WriteAllBytes(
+            Path.Combine(
+                source,
+                $"{payloadId.ToLowerInvariant()}.{Version}.nupkg"),
+            CreatePackage(
+                payloadId,
+                "redirected README"));
+        string readmePath = Path.Combine(_root, "redirected-README.md");
+
+        var result = await RunCommandAsync(
+            ["package", $"{wrapperId}@{Version}", "--source", source,
+                "--path", "README.md", "--content", "--out", readmePath,
+                "--tips", "q"]);
+
+        Assert.True(result.Exit == 0, $"Exit {result.Exit}: {result.Error}");
+        Assert.Empty(result.Output);
+        Assert.Empty(result.Error);
+        Assert.Equal("redirected README", File.ReadAllText(readmePath));
+    }
+
+    [Fact]
     public async Task PackageCommand_LayoutDoesNotValidatePackageInfoTarget()
     {
         string id = $"Pinned.Layout.{Guid.NewGuid():N}";
