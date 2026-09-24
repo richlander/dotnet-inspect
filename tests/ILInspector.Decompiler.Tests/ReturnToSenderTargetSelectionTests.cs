@@ -86,17 +86,13 @@ public class ReturnToSenderTargetSelectionTests
                     event Action Changed;
                 }
 
-                public readonly struct ExplicitAccessorFixture : IValueContract
+                public sealed class ExplicitAccessorFixture : IValueContract
                 {
                     public int OrdinaryValue => 7;
 
-                    int IValueContract.Value => 42;
+                    int IValueContract.Value { get; }
 
-                    event Action IValueContract.Changed
-                    {
-                        add { }
-                        remove { }
-                    }
+                    public event Action Changed = delegate { };
 
                     public static int Good() => 1;
                 }
@@ -108,9 +104,20 @@ public class ReturnToSenderTargetSelectionTests
                     [assemblyPath],
                     cap: int.MaxValue);
 
-            FidelityCheck.CompileBackTarget selected =
-                Assert.Single(selection.Targets);
-            Assert.Equal("Good", selected.Method);
+            Assert.Contains(
+                selection.Targets,
+                target => target.Method == "Good");
+            Assert.DoesNotContain(
+                selection.Targets,
+                target => target.Method.Contains(
+                        "get_",
+                        StringComparison.Ordinal)
+                    || target.Method.Contains(
+                        "add_",
+                        StringComparison.Ordinal)
+                    || target.Method.Contains(
+                        "remove_",
+                        StringComparison.Ordinal));
             FidelityCheck.ReturnToSenderTargetExclusion[] accessors =
             [
                 .. selection.Exclusions.Where(

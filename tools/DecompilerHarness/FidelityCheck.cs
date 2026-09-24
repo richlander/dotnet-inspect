@@ -337,7 +337,12 @@ static partial class FidelityCheck
         }
 
         var method = reader.GetMethodDefinition(candidate.MethodHandle);
-        if (IsGeneratedMethod(
+        int token = System.Reflection.Metadata.Ecma335.MetadataTokens.GetToken(
+            candidate.MethodHandle);
+        bool mappedAccessor =
+            targetApiEvidence.AccessorTokens.Contains(token);
+        if (!mappedAccessor
+            && IsGeneratedMethod(
                 reader,
                 method,
                 candidate.MethodName,
@@ -347,8 +352,6 @@ static partial class FidelityCheck
         declarationCandidate = true;
         MetadataMethodAddress address =
             MetadataMethodAddress.Create(reader, candidate.MethodHandle);
-        int token = System.Reflection.Metadata.Ecma335.MetadataTokens.GetToken(
-            candidate.MethodHandle);
         string stableIdentitySuffix = "generic-arity:"
             + method.GetGenericParameters().Count.ToString(
                 CultureInfo.InvariantCulture);
@@ -377,11 +380,9 @@ static partial class FidelityCheck
 
         bool hasApiEntry =
             targetApiEvidence.Index.TryGetValue(token, out var entry);
-        bool mappedAccessor =
-            targetApiEvidence.AccessorTokens.Contains(token);
-        if (hasApiEntry
-            && (mappedAccessor
-                || entry.Member.MethodSemantics is not
+        if (mappedAccessor
+            || (hasApiEntry
+                && entry.Member.MethodSemantics is not
                     ApiMethodSemanticsKind.None))
         {
             return new(
