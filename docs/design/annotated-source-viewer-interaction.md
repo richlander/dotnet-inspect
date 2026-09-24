@@ -180,10 +180,10 @@ relationship-presentation, node, or detail state.
 The modal is opened and dismissed through
 [Inspect Web Shell Interaction](inspect-web-shell-interaction.md). Those
 operations do not push or replace browser-history entries. Ordinary dismissal
-returns focus to the open request's shell-owned dismissal target. For an
-embedded-reader open, that target is the stable **Explore** control. Browser
-Back or Forward first dismisses the modal without applying ordinary focus
-return and then
+applies the open request's shell-owned dismissal focus effect. For an
+embedded-reader open, that effect focuses the stable **Explore** control.
+Browser Back or Forward first dismisses the modal without applying ordinary
+focus return and then
 [Inspect Web Navigation Consumer](inspect-web-navigation-consumer.md) performs
 the history navigation.
 
@@ -194,7 +194,7 @@ embedded Annotated Source reader. The request supplies:
 
 - one settled Annotated Source result associated with one exact
   product-issued member/body destination; and
-- one shell-admitted logical focus target issued by the caller's current
+- one shell-admitted dismissal focus effect issued by the caller's current
   destination lifetime.
 
 The destination/result association is the admission currency. The viewer does
@@ -216,21 +216,23 @@ typed failure, and retains useful focus. The viewer never substitutes another
 body or overload and never falls back to an embedded reader.
 
 Ordinary **Close**, backdrop activation, or final layered Escape dismissal
-returns through the caller-issued logical focus target. The Shell Interaction
-and Navigation Consumer owners resolve that target against the current
-renderer lifetime. While the issuing renderer remains current, dismissal may
-resolve the same logical opener. If Navigation Consumer replaces that
-destination renderer while the modal survives, it replaces the dismissal
-target with the newly mounted destination heading, or its existing persistent
-shell fallback when no heading is mounted. The request therefore carries a
-logical target resolved at dismissal rather than an element reference. This
-owner does not claim exact-opener restoration across full renderer
-replacement.
+applies the caller-issued focus effect. While the issuing renderer remains
+current, that effect focuses the exact opener when it is still present;
+otherwise it focuses that renderer's level-one destination heading. It never
+selects another declaration or same-name overload. The caller owns this
+resolution; the viewer only retains and invokes the admitted effect.
+
+If Navigation Consumer replaces the destination renderer while the modal
+survives, it replaces the effect with the newly mounted destination heading,
+or its existing persistent shell fallback when no heading is mounted. The
+request therefore carries behavior scoped to a destination lifetime rather
+than an element reference. This owner does not claim exact-opener restoration
+across full renderer replacement.
 
 Browser Back or Forward and committed destination navigation dismiss without
 ordinary focus return, as they do for embedded opening. A viewer-local refusal
 before navigation commitment retains the modal, reports the reason there, and
-keeps its original dismissal target. Once navigation is committed, every
+keeps its original dismissal focus effect. Once navigation is committed, every
 returned typed outcome follows Shell Interaction and Navigation Consumer: the
 modal remains closed, successful navigation focuses its destination, and a
 non-applied outcome focuses the surviving logical invoker or retained surface
@@ -245,8 +247,10 @@ body-bearing destination and stable declaration opener, then proves production
 drill-down and dismissal return with the pinned `System.Text.Json` package.
 That consumer either preserves its destination renderer lifetime while the
 modal is open or separately adopts a Navigation Consumer change before
-claiming exact-opener return across replacement. This owner does not define
-that caller's projection, availability UI, route state, or replacement policy.
+claiming exact-opener return across replacement. It also supplies the
+caller-owned same-lifetime effect that falls back from a removed exact opener
+to the current Type Explorer heading. This owner does not define that caller's
+projection, availability UI, route state, or replacement policy.
 
 ## Annotation sets
 
@@ -481,8 +485,8 @@ detail cannot consume Escape or receive restored focus through the overlay.
 
 Pointer activation of **Close** may dismiss the whole modal even while detail
 is open. It is not the keyboard Escape transition. The shell then restores
-focus through the current open request's ordinary-dismissal target: **Explore**
-for an embedded-reader open, or the caller-issued logical target for an
+focus through the current open request's ordinary-dismissal effect: **Explore**
+for an embedded-reader open, or the caller-issued focus effect for an
 external open.
 
 Focus is trapped inside the open modal by
@@ -655,11 +659,13 @@ Conformance requires:
   viewer-local destination refusal, returned typed navigation failure, and
   successful destination handoff;
 - shell-composition focus tests proving external ordinary dismissal resolves
-  the caller-issued logical target while its renderer remains current, uses the
-  replacement destination heading after Navigation Consumer replaces that
-  renderer, falls back to the persistent shell target when no heading is
-  mounted, never focuses a detached element, and is not applied for Back,
-  Forward, committed navigation, or modal replacement;
+  the exact opener while it remains present, falls back to the current
+  destination heading when that opener disappears within the same renderer
+  lifetime, uses the replacement destination heading after Navigation Consumer
+  replaces that renderer, falls back to the persistent shell target when no
+  heading is mounted, never substitutes another declaration or focuses a
+  detached element, and is not applied for Back, Forward, committed navigation,
+  or modal replacement;
 - hit tests covering pointer coordinates, keyboard activation, invocation
   precedence, discontinuous spans, deterministic tightest-node selection, and
   drag-selection non-activation;
