@@ -136,6 +136,27 @@ public abstract record InspectionGraphTypeIdentity
     }
 
     /// <summary>
+    /// One exact metadata type shape, including constructed signatures and
+    /// image-local scopes.
+    /// </summary>
+    public sealed record MetadataShape : InspectionGraphTypeIdentity
+    {
+        public MetadataShape(
+            AssemblyAcquisitionRegistration registration,
+            MetadataTypeIdentity type)
+        {
+            ArgumentNullException.ThrowIfNull(registration);
+            ArgumentNullException.ThrowIfNull(type);
+            Registration = registration;
+            Type = type;
+        }
+
+        public AssemblyAcquisitionRegistration Registration { get; }
+        public MetadataTypeIdentity Type { get; }
+        public override bool IsPortable => false;
+    }
+
+    /// <summary>
     /// One Integration Census Type interpreted within its exact participant.
     /// </summary>
     public sealed record CensusType : InspectionGraphTypeIdentity
@@ -286,6 +307,14 @@ public abstract record InspectionGraphSubject
         MetadataTypeDefinitionName type) =>
         ForType(
             new InspectionGraphTypeIdentity.AcquiredDefinition(
+                registration,
+                type));
+
+    public static InspectionGraphSubject ForMetadataTypeShape(
+        AssemblyAcquisitionRegistration registration,
+        MetadataTypeIdentity type) =>
+        ForType(
+            new InspectionGraphTypeIdentity.MetadataShape(
                 registration,
                 type));
 
