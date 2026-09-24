@@ -507,6 +507,10 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
             "q",
         ];
 
+        // Warm the durable authority store first, so both compared runs
+        // report the same acquisition origin.
+        var warm = await RunCommandAsync([.. common, "--json"]);
+        Assert.True(warm.Exit == 0, warm.Error);
         var contentResult = await RunCommandAsync([.. common, "--json"]);
         var envelopeResult = await RunCommandAsync(
             [.. common, "--envelope"]);

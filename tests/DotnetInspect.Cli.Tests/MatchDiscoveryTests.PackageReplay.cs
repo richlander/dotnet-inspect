@@ -943,6 +943,14 @@ public partial class MatchDiscoveryTests
                 "net10.0",
                 "--all",
             ];
+            // Credential-free HTTP payloads are durable, and every authorized
+            // cache answers before a cold fetch, so the payload discovery kept
+            // would mask the hazard. The widened run shows what a cold
+            // widened replay selects, so it runs against an empty cache.
+            NuGetCache.Initialize(
+                "dotnet-inspect-match-range-source-replay",
+                Path.Combine(root, "widened-cache"),
+                skipNuGetCache: true);
             var (widenedExit, _, widenedError) =
                 await RunCliAsync(
                     [
@@ -952,6 +960,10 @@ public partial class MatchDiscoveryTests
                         "--source",
                         sourceB,
                     ]);
+            NuGetCache.Initialize(
+                "dotnet-inspect-match-range-source-replay",
+                cacheRoot,
+                skipNuGetCache: true);
             string[] replaySourceArguments = useMapping
                 ? ["--nugetconfig", configPath]
                 : ["--source", sourceB, .. ConfigArguments()];
@@ -967,8 +979,9 @@ public partial class MatchDiscoveryTests
             Assert.Equal(0, replayExit);
             Assert.Empty(replayError);
             Assert.Equal(1, feed.PayloadRequests(sourceA, packageName, version));
-            // Selected discovery acquires once; its emitted exact replay acquires once more.
-            Assert.Equal(2, feed.PayloadRequests(sourceB, packageName, version));
+            // Selected discovery acquires once; its emitted exact replay reads
+            // that durable payload (docs/design/package-cache-policy.md).
+            Assert.Equal(1, feed.PayloadRequests(sourceB, packageName, version));
 
             string[] ConfigArguments() =>
                 useConfig ? ["--nugetconfig", configPath] : [];
@@ -1339,7 +1352,9 @@ public partial class MatchDiscoveryTests
             Assert.True(replayExit == 0, replayError);
             Assert.Empty(replayError);
             Assert.Equal("Exact", Parse(replayOutput).GetProperty("relation").GetString());
-            Assert.Equal(2, feed.PayloadRequests(feed.SourceB, packageName, version));
+            // The replay reads the durable payload discovery acquired
+            // (docs/design/package-cache-policy.md).
+            Assert.Equal(1, feed.PayloadRequests(feed.SourceB, packageName, version));
         }
         finally
         {

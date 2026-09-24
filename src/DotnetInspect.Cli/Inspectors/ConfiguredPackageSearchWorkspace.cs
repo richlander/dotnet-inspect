@@ -456,7 +456,8 @@ internal sealed class ConfiguredPackageSearchWorkspace : IAsyncDisposable
                 cancellationToken,
                 limits: PackagePayloadLimits.Default,
                 compileTargetContext: target,
-                access: access).ConfigureAwait(false);
+                access: access,
+                assetDemand: PackageAssetDemand.Surface).ConfigureAwait(false);
         if (result.Payload is not { } payload)
         {
             CommandError.WriteWarning(
@@ -483,16 +484,16 @@ internal sealed class ConfiguredPackageSearchWorkspace : IAsyncDisposable
                 compatible.Universe.TargetFramework,
                 member.PackageId);
         }
-        return (binding, payload);
+        // Search reads the public surface only: the Root admits no
+        // implementation role, so nothing beyond the surface folder is read.
+        return (binding.WithAssetDemand(PackageAssetDemand.Surface), payload);
     }
 
     static bool CoversSelection(
         PackageCompileAssetSelection selection,
         RangedPackageContent ranged) =>
         !selection.IsSelected
-        || selection.Assets
-            .Concat(selection.ImplementationAssets)
-            .All(asset => ranged.IsMaterialized(asset.Path));
+        || selection.Assets.All(asset => ranged.IsMaterialized(asset.Path));
 
     static string Describe(ConfiguredPackagePayloadResult result)
     {
