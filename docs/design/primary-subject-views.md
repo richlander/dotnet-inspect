@@ -14,9 +14,14 @@ current product behavior remains governed by its existing owner.
 This document owns one claim:
 
 > Each of `package`, `library`, `type`, and `member` names exactly one subject.
-> Its default presentation is a native Tree rooted at that subject: one compact
-> identity line followed by the child population that the subject's owner
-> issues. Facts about the subject itself are the opt-in Info view.
+> When that subject owns a natural child population, its default presentation
+> is a native Tree rooted at the subject: one compact identity line followed by
+> the child population that the subject's owner issues. Facts about the subject
+> itself are the opt-in Info view.
+
+An exact Member selected by ordinal or digest is the leaf case. It owns no
+child population, so its default remains the singular Signature view rather
+than an empty Tree or its MemberGroup's sibling population.
 
 The pattern has five obligations. An adopting command meets all of them:
 
@@ -27,12 +32,14 @@ The pattern has five obligations. An adopting command meets all of them:
    In particular, `type <Library>` and `member <Type>` fail and identify
    `library <Library>` and `type <Type>` as the corresponding subject
    inspections.
-2. **Native Tree by default.** The default `-v:m` presentation is the command's
-   native Tree: the subject's children, drawn from the host-neutral population
-   its owner issues, rooted beneath one compact subject identity line. A
-   command without that Tree shape develops it as part of adoption. Explicit
-   `--tree` selects the same projection; it changes presentation only and
-   never requests another population.
+2. **Native Tree for population subjects.** The default `-v:m` presentation
+   for a Package, Library, Type, or MemberGroup is the command's native Tree:
+   the subject's children, drawn from the host-neutral population its owner
+   issues, rooted beneath one compact subject identity line. A command without
+   that Tree shape develops it as part of adoption. Explicit `--tree` selects
+   the same projection; it changes presentation only and never requests
+   another population. An exact Member is a leaf subject and retains its
+   singular Signature default.
 
    The Tree may organize children as one or more owner-issued semantic groups
    (for example a Type's per-kind Member-group branches). It may also show
@@ -78,6 +85,7 @@ The four commands form one containment ladder:
 | `library` | one exact Library | Type declarations |
 | `type` | one exact Type | MemberGroups |
 | `member` | one exact MemberGroup | exact Member signatures |
+| `member` with ordinal or digest | one exact Member | none; default to Signature |
 
 The ladder is a target, not a claim that every edge works today. An edge from
 one level to the next is supported only after its adopter provides both:
@@ -299,9 +307,12 @@ dotnet-inspect.osx-arm64 0.26.0 (NuGet, DotNetCliTool v2, osx-arm64; command: do
 - **`member T` without a member name** is an error. It does not render the
   Type's Members or forward to `type T`; its message names `type T` as the
   command that shows a Type's Members.
-- **Member Tree:** the newly developed native Tree has an identity line with
-  the overload count, then one exact Member signature per overload. Explicit
-  `--tree` selects the same projection as the default invocation.
+- **Member Tree:** the newly developed native Tree for a bare-name MemberGroup
+  has an identity line with the overload count, then one exact Member signature
+  per overload. Explicit `--tree` selects the same projection as that default
+  invocation. An ordinal or digest selector instead resolves an exact Member
+  and retains its singular Signature default; `--tree` fails because that leaf
+  subject has no Tree shape.
 - **Member Info:** no named facts section exists for an exact member name.
   `member` adoption waits for its section owner to issue one (for example
   member kind, declaring type, overload count, and documentation summary).
@@ -343,10 +354,11 @@ changes and demonstrates the real production-host scenario. Host-neutral
 children populations serve both CLI and Browser/Wasm; the CLI tree is host
 presentation.
 
-1. **Exact `member`:** exact MemberGroup resolution, removal of `member T`
-   without a Member name, the native overload Tree, and exhaustive
-   `-v:n`/`-v:d` exact-Member inventories. Exact-Member Info waits for the
-   exact-Member facts section.
+1. **Exact `member`:** exact MemberGroup resolution for a bare Member name,
+   removal of `member T` without a Member name, the native overload Tree, and
+   exhaustive `-v:n`/`-v:d` exact-Member inventories. Ordinal or digest
+   selectors resolve exact Member leaf subjects and retain the Signature
+   default. Exact-Member Info waits for the exact-Member facts section.
 2. **Exact `type`:** retain the existing native Type Tree as the reference
    presentation, require exact Type resolution, and retire the Library-listing
    fallback from `type`.

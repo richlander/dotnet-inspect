@@ -842,6 +842,11 @@ Both are native Tree presentations: omitting an explicit format selects the
 same semantic projection as `--tree`. The presentation may collapse or
 decorate those rows but may not redefine their populations.
 
+An ordinal or digest Member selector instead resolves one exact
+`MemberDocument`. That leaf subject has no child population: its native default
+is the singular Signature view, and `--tree` fails rather than displaying
+siblings from its containing MemberGroup or an empty Tree.
+
 ### Contextual Resource Explanation (#8148)
 
 [Contextual Resource Explanation](contextual-resource-explanation.md) must
