@@ -1893,6 +1893,45 @@ public sealed class InspectionPlanningTests
     }
 
     [Fact]
+    public void TypeListingStructuralRouteDeclaresInventoryCardinality()
+    {
+        StructuralSchemaProjection projection =
+            StructuralViewRegistry.Project(
+                StructuralViewRegistry.Route(
+                    StructuralViewIdentity.Type,
+                    InspectionCatalogIdentity.ApiType));
+
+        Assert.False(
+            projection.SectionCardinalities?.ContainsKey(
+                SectionNames.ApiInfo));
+
+        foreach (string section in new[]
+                 {
+                     SectionNames.Classes,
+                     SectionNames.Structs,
+                     SectionNames.Interfaces,
+                     SectionNames.Enums,
+                     SectionNames.Delegates,
+                     SectionNames.TypeForwarders,
+                     SectionNames.InspectionFailures,
+                 })
+        {
+            SectionCardinalityDeclaration inventory =
+                Assert.IsType<SectionCardinalityDeclaration>(
+                    projection.SectionCardinalities?[section]);
+            Assert.Equal(
+                SectionSemanticShape.Inventory,
+                inventory.Shape);
+            Assert.Equal(
+                [
+                    SectionTerminalCapability.Rows,
+                    SectionTerminalCapability.Count,
+                ],
+                inventory.Terminals);
+        }
+    }
+
+    [Fact]
     public async Task CommandlessStructuralMode_UsesParsedAttachedValues()
     {
         string[] common =
