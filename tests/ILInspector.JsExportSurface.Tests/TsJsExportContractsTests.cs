@@ -47,6 +47,46 @@ public sealed class TsJsExportContractsTests
     }
 
     [Fact]
+    public void JsonOutputAttributeHasExactMetadataContract()
+    {
+        Type attribute = typeof(JsExportJsonOutputAttribute);
+        AttributeUsageAttribute usage =
+            Assert.Single(attribute.GetCustomAttributes<AttributeUsageAttribute>());
+        ConstructorInfo constructor = Assert.Single(
+            attribute.GetConstructors(BindingFlags.Public | BindingFlags.Instance));
+        ParameterInfo[] parameters = constructor.GetParameters();
+        PropertyInfo[] properties =
+        [
+            .. attribute
+                .GetProperties(BindingFlags.Public | BindingFlags.Instance)
+                .Where(property => property.DeclaringType == attribute),
+        ];
+
+        Assert.True(attribute.IsSealed);
+        Assert.Equal(typeof(Attribute), attribute.BaseType);
+        Assert.Equal(AttributeTargets.Class, usage.ValidOn);
+        Assert.True(usage.AllowMultiple);
+        Assert.False(usage.Inherited);
+        Assert.Equal(
+            [typeof(string), typeof(Type), typeof(bool)],
+            parameters.Select(parameter => parameter.ParameterType));
+        Assert.True(parameters[2].HasDefaultValue);
+        Assert.Equal(false, parameters[2].DefaultValue);
+        Assert.Equal(
+            [
+                nameof(JsExportJsonOutputAttribute.MethodName),
+                nameof(JsExportJsonOutputAttribute.WireType),
+                nameof(JsExportJsonOutputAttribute.DeferParsing),
+            ],
+            properties.Select(property => property.Name));
+        Assert.Equal(
+            [typeof(string), typeof(Type), typeof(bool)],
+            properties.Select(property => property.PropertyType));
+        Assert.All(properties, property => Assert.True(property.CanRead));
+        Assert.All(properties, property => Assert.False(property.CanWrite));
+    }
+
+    [Fact]
     public void RootAttributeHasExactMetadataContract()
     {
         Type attribute = typeof(JsExportRootAttribute);

@@ -28,6 +28,19 @@ public sealed class JsExportJsonInputAttribute(
     public Type WireType { get; } = wireType;
 }
 
+[AttributeUsage(
+    AttributeTargets.Class,
+    AllowMultiple = true,
+    Inherited = false)]
+public sealed class JsExportJsonOutputAttribute(
+    string methodName,
+    Type wireType) : Attribute
+{
+    public string MethodName { get; } = methodName;
+
+    public Type WireType { get; } = wireType;
+}
+
 [SupportedOSPlatform("browser")]
 [JsExportJsonInput(
     nameof(WrongContractExports.Echo),
@@ -37,6 +50,16 @@ public static partial class WrongContractExports
 {
     [JSExport]
     public static string Echo(string value) => value;
+}
+
+[SupportedOSPlatform("browser")]
+[JsExportJsonOutput(
+    nameof(WrongContractOutputExports.Echo),
+    typeof(string))]
+public static partial class WrongContractOutputExports
+{
+    [JSExport]
+    public static string Echo() => "";
 }
 
 [JsExportRoot(typeof(WrongContractExports))]
