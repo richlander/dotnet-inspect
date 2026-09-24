@@ -4,9 +4,11 @@ import test from "node:test";
 import { defaultTypeExplorerIntent } from "../src/type-explorer-route.ts";
 import {
   bindTypeExplorerView,
+  captureTypeExplorerViewportAnchor,
   canceledTypeExplorerView,
   renderTypeExplorerView,
   restoreTypeExplorerMemberSelection,
+  restoreTypeExplorerViewportAnchor,
   type TypeExplorerInspection,
   type TypeExplorerViewActions,
 } from "../src/type-explorer-view.ts";
@@ -288,6 +290,56 @@ test("Type Explorer reveals both panes and restores the initiating member focus"
   assert.equal(source.scrollCount, 1);
   assert.equal(outline.focusCount, 1);
   assert.equal(source.focusCount, 0);
+});
+
+test("Type Explorer restores the selected member's visual viewport anchor", () => {
+  class FakeElement {
+    scrollTop = 0;
+    top: number;
+
+    constructor(top: number) {
+      this.top = top;
+    }
+
+    getBoundingClientRect() {
+      return { top: this.top };
+    }
+  }
+
+  const outline = new FakeElement(20);
+  const source = new FakeElement(40);
+  const outlineTarget = new FakeElement(95);
+  const sourceTarget = new FakeElement(180);
+  const root = fakeDom.parentNode({
+    querySelector(selector: string) {
+      if (selector === ".type-explorer-outline") return outline;
+      if (selector === ".type-explorer-source pre") return source;
+      if (selector.startsWith(".type-explorer-outline "))
+        return outlineTarget;
+      if (selector.startsWith(".type-explorer-source "))
+        return sourceTarget;
+      return null;
+    },
+  });
+  const projection = inspection.document?.projection;
+  assert.ok(projection);
+  const anchor = captureTypeExplorerViewportAnchor(
+    root,
+    projection,
+    7);
+  assert.ok(anchor);
+  assert.equal(anchor.outlineOffsetTop, 75);
+  assert.equal(anchor.sourceOffsetTop, 140);
+
+  outline.scrollTop = 300;
+  source.scrollTop = 500;
+  outlineTarget.top = 45;
+  sourceTarget.top = 260;
+  assert.equal(
+    restoreTypeExplorerViewportAnchor(root, projection, anchor),
+    true);
+  assert.equal(outline.scrollTop, 250);
+  assert.equal(source.scrollTop, 580);
 });
 
 test("Type Explorer reports the pane that initiated member selection", () => {

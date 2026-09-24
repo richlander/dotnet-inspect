@@ -502,12 +502,16 @@ test.describe("published authored Source comparison transport", () => {
       const typeSourceUrl = applicationPage.url();
       await applicationPage.locator("#explore-source").click();
       await expect(applicationPage).toHaveURL(/\/type-explorer\?/u);
+      const typeExplorerHeading = applicationPage.getByRole("heading", {
+        level: 1,
+        name: /Type Explorer: .*Counter/u,
+      });
+      await expect(typeExplorerHeading).toBeFocused();
       await expect(
-        applicationPage.getByRole("heading", {
-          level: 1,
-          name: /Type Explorer: .*Counter/u,
-        }),
-      ).toBeFocused();
+        applicationPage.getByRole("region", { name: "Whole-Type C#" }),
+      ).toContainText("Counter", { timeout: 60_000 });
+      await applicationPage.reload();
+      await expect(typeExplorerHeading).toBeFocused({ timeout: 60_000 });
       await expect(
         applicationPage.getByRole("region", { name: "Whole-Type C#" }),
       ).toContainText("Counter", { timeout: 60_000 });
@@ -539,6 +543,33 @@ test.describe("published authored Source comparison transport", () => {
         .first();
       await buildValueOutline.click();
       await expect(selectedBody).toBeDisabled();
+      const selectedSourceOffset = async () =>
+        await applicationPage.evaluate(() => {
+          const source = document.querySelector<HTMLElement>(
+            ".type-explorer-source pre");
+          const selected = document.querySelector<HTMLElement>(
+            ".type-explorer-source [aria-current=\"true\"]");
+          if (source === null || selected === null)
+            throw new Error("Selected Type Explorer source declaration was not rendered.");
+          return selected.getBoundingClientRect().top
+            - source.getBoundingClientRect().top;
+        });
+      const buildValueOffset = await selectedSourceOffset();
+      const staticMembers = applicationPage.getByRole("radio", {
+        name: "Static",
+      });
+      const allMembers = applicationPage.getByRole("radio", {
+        name: "All",
+      });
+      await staticMembers.check();
+      await expect(
+        applicationPage.getByRole("region", { name: "Whole-Type C#" }),
+      ).toContainText("Counter", { timeout: 60_000 });
+      await expect(buildValueOutline).toHaveAttribute("aria-current", "true");
+      await expect.poll(async () =>
+        Math.abs(await selectedSourceOffset() - buildValueOffset))
+        .toBeLessThanOrEqual(2);
+      await allMembers.check();
       const instanceMembers = applicationPage.getByRole("radio", {
         name: "Instance",
       });
@@ -547,9 +578,6 @@ test.describe("published authored Source comparison transport", () => {
         applicationPage.locator(".type-explorer-failure"),
       ).toContainText("SelectedMemberHidden");
       await expect(selectedBody).toBeDisabled();
-      const allMembers = applicationPage.getByRole("radio", {
-        name: "All",
-      });
       await allMembers.check();
       await expect(
         applicationPage.getByRole("region", { name: "Whole-Type C#" }),
@@ -563,9 +591,6 @@ test.describe("published authored Source comparison transport", () => {
       await valueOutline.click();
       await expect(valueOutline).toHaveAttribute("aria-current", "true");
       await expect(valueOutline).toBeFocused();
-      const staticMembers = applicationPage.getByRole("radio", {
-        name: "Static",
-      });
       await staticMembers.check();
       await expect(
         applicationPage.locator(".type-explorer-failure"),

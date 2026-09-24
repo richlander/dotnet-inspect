@@ -278,6 +278,87 @@ export function restoreTypeExplorerMemberSelection(
   return true;
 }
 
+export interface TypeExplorerViewportAnchor {
+  readonly identity: TypeExplorerMemberIdentity;
+  readonly sourceOffsetTop: number | null;
+  readonly outlineOffsetTop: number | null;
+}
+
+function relativeTop(
+  container: HTMLElement | null,
+  target: HTMLElement | null,
+): number | null {
+  if (container === null || target === null) return null;
+  return target.getBoundingClientRect().top
+    - container.getBoundingClientRect().top;
+}
+
+export function captureTypeExplorerViewportAnchor(
+  root: ParentNode,
+  projection: TypeExplorerProjection,
+  declarationId: number,
+): TypeExplorerViewportAnchor | null {
+  const declaration = projection.declarations.find(candidate =>
+    candidate.declarationId === declarationId);
+  if (declaration === undefined) return null;
+  const selector =
+    `[data-type-explorer-declaration="${declaration.declarationId}"]`;
+  const outline = root.querySelector<HTMLElement>(".type-explorer-outline");
+  const source = root.querySelector<HTMLElement>(
+    ".type-explorer-source pre");
+  return {
+    identity: declaration.identity,
+    outlineOffsetTop: relativeTop(
+      outline,
+      root.querySelector<HTMLElement>(
+        `.type-explorer-outline ${selector}`)),
+    sourceOffsetTop: relativeTop(
+      source,
+      root.querySelector<HTMLElement>(
+        `.type-explorer-source ${selector}`)),
+  };
+}
+
+export function restoreTypeExplorerViewportAnchor(
+  root: ParentNode,
+  projection: TypeExplorerProjection,
+  anchor: TypeExplorerViewportAnchor,
+): boolean {
+  const declaration = projection.declarations.find(candidate =>
+    sameIdentity(candidate.identity, anchor.identity));
+  if (declaration === undefined) return false;
+  const selector =
+    `[data-type-explorer-declaration="${declaration.declarationId}"]`;
+  let restored = false;
+  for (const pane of [
+    {
+      container: root.querySelector<HTMLElement>(
+        ".type-explorer-outline"),
+      target: root.querySelector<HTMLElement>(
+        `.type-explorer-outline ${selector}`),
+      offsetTop: anchor.outlineOffsetTop,
+    },
+    {
+      container: root.querySelector<HTMLElement>(
+        ".type-explorer-source pre"),
+      target: root.querySelector<HTMLElement>(
+        `.type-explorer-source ${selector}`),
+      offsetTop: anchor.sourceOffsetTop,
+    },
+  ]) {
+    if (pane.container === null
+      || pane.target === null
+      || pane.offsetTop === null) {
+      continue;
+    }
+    const currentOffset = relativeTop(pane.container, pane.target);
+    if (currentOffset === null) continue;
+    pane.container.scrollTop += currentOffset - pane.offsetTop;
+    restored = true;
+  }
+  return restored;
+}
+
 function inspectionHtml(
   inspection: TypeExplorerInspection,
   intent: TypeExplorerIntent,

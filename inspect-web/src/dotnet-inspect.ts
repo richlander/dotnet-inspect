@@ -658,12 +658,15 @@ import {
 } from "./type-explorer-route.ts";
 import {
   bindTypeExplorerView,
+  captureTypeExplorerViewportAnchor,
   canceledTypeExplorerView,
   renderTypeExplorerView,
   restoreTypeExplorerMemberSelection,
+  restoreTypeExplorerViewportAnchor,
   type TypeExplorerInspection,
   type TypeExplorerProjection,
   type TypeExplorerSelectionPane,
+  type TypeExplorerViewportAnchor,
   type TypeExplorerViewState,
 } from "./type-explorer-view.ts";
 import type { BrowserBuildIdentity } from "./facades/inspect-web-host.d.ts";
@@ -3834,6 +3837,8 @@ let typeExplorerControlFocusPending: {
   readonly value: string;
   readonly focusGeneration: number;
 } | null = null;
+let typeExplorerViewportAnchorPending:
+  TypeExplorerViewportAnchor | null = null;
 let typeExplorerViewport = {
   sourceTop: 0,
   sourceLeft: 0,
@@ -4076,6 +4081,7 @@ if (state.typeExplorerOpen) {
   state.typeExplorerOpenedFromApp = routeHistory !== null;
   state.typeExplorerPredecessorEntryId =
     routeHistory?.predecessorEntryId ?? null;
+  typeExplorerHeadingFocusPending = true;
 }
 const diagnosticsOpen = isDiagnosticsPath(location.pathname);
 const productHomeDemosOpen = isProductHomeDemosPath(location.pathname);
@@ -14977,6 +14983,7 @@ function resetTypeExplorerRouteState() {
   typeExplorerOutlineOpen = false;
   typeExplorerMemberFocusPending = null;
   typeExplorerControlFocusPending = null;
+  typeExplorerViewportAnchorPending = null;
   typeExplorerViewport = {
     sourceTop: 0,
     sourceLeft: 0,
@@ -15017,6 +15024,7 @@ function openTypeExplorerRoute() {
   typeExplorerOutlineOpen = false;
   typeExplorerMemberFocusPending = null;
   typeExplorerControlFocusPending = null;
+  typeExplorerViewportAnchorPending = null;
   typeExplorerViewport = {
     sourceTop: 0,
     sourceLeft: 0,
@@ -15061,6 +15069,21 @@ function setTypeExplorerIntent(
   preserveMemberFocus = false,
 ) {
   if (!preserveMemberFocus) {
+    const projection = state.typeExplorerView.status === "ready"
+      ? state.typeExplorerView.inspection.document?.projection ?? null
+      : null;
+    const selectedDeclarationId =
+      state.typeExplorerIntent.selectedDeclarationId;
+    if (projection !== null && selectedDeclarationId !== null) {
+      typeExplorerViewportAnchorPending =
+        captureTypeExplorerViewportAnchor(
+          app,
+          projection,
+          selectedDeclarationId)
+        ?? typeExplorerViewportAnchorPending;
+    } else if (selectedDeclarationId === null) {
+      typeExplorerViewportAnchorPending = null;
+    }
     typeExplorerMemberFocusPending = null;
     typeExplorerControlFocusPending =
       document.activeElement instanceof HTMLInputElement
@@ -15075,6 +15098,7 @@ function setTypeExplorerIntent(
   if (!replaceTypeExplorerIntent(intent)) {
     typeExplorerMemberFocusPending = null;
     typeExplorerControlFocusPending = null;
+    typeExplorerViewportAnchorPending = null;
   }
 }
 
@@ -15366,6 +15390,7 @@ function renderTypeExplorerPage() {
     }),
     selectMember: (declaration, pane) => {
       typeExplorerControlFocusPending = null;
+      typeExplorerViewportAnchorPending = null;
       typeExplorerMemberFocusPending = {
         identity: declaration.identity,
         pane,
@@ -15395,6 +15420,17 @@ function renderTypeExplorerPage() {
   const projection = viewState.status === "ready"
     ? viewState.inspection.document?.projection ?? null
     : null;
+  const pendingViewportAnchor = typeExplorerViewportAnchorPending;
+  if (pendingViewportAnchor !== null && projection !== null) {
+    afterCurrentNavigationFrame(() => {
+      if (typeExplorerViewportAnchorPending !== pendingViewportAnchor) return;
+      typeExplorerViewportAnchorPending = null;
+      restoreTypeExplorerViewportAnchor(
+        app,
+        projection,
+        pendingViewportAnchor);
+    });
+  }
   if (pendingMemberFocus !== null && projection !== null) {
     afterCurrentNavigationFrame(() => {
       if (typeExplorerMemberFocusPending !== pendingMemberFocus) return;
@@ -21451,6 +21487,7 @@ window.addEventListener("popstate", () => {
     typeExplorerOutlineOpen = false;
     typeExplorerMemberFocusPending = null;
     typeExplorerControlFocusPending = null;
+    typeExplorerViewportAnchorPending = null;
     typeExplorerViewport = {
       sourceTop: 0,
       sourceLeft: 0,
@@ -21472,6 +21509,7 @@ window.addEventListener("popstate", () => {
     typeExplorerOutlineOpen = false;
     typeExplorerMemberFocusPending = null;
     typeExplorerControlFocusPending = null;
+    typeExplorerViewportAnchorPending = null;
     typeExplorerViewport = {
       sourceTop: 0,
       sourceLeft: 0,
