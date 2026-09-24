@@ -1,3 +1,6 @@
+using System.Reflection.Metadata;
+using System.Reflection.Metadata.Ecma335;
+using System.Reflection.PortableExecutable;
 using System.Text.Json;
 
 namespace ILInspector.Metadata.Tests;
@@ -199,6 +202,97 @@ public sealed class AssemblyTypeMemberGroupPopulationTests
             AssemblyTypeMemberReceiverKinds.Extension,
             property.ReceiverKinds);
         Assert.Equal(1, property.ExactMemberCount);
+    }
+
+    [Theory]
+    [InlineData(AssemblyTypeMemberGroupTerminal.Count)]
+    [InlineData(AssemblyTypeMemberGroupTerminal.Rows)]
+    public void ExtensionPropertyWithoutExactlyOneReceiverFails(
+        AssemblyTypeMemberGroupTerminal terminal)
+    {
+        string path = Path.Combine(
+            Path.GetTempPath(),
+            $"member-group-zero-receiver-{Guid.NewGuid():N}.dll");
+        try
+        {
+            byte[] image = File.ReadAllBytes(
+                typeof(MemberGroupExtensionReceiver).Assembly.Location);
+            using (var pe = new PEReader(
+                new MemoryStream(image, writable: false)))
+            {
+                MetadataReader reader = pe.GetMetadataReader();
+                TypeDefinition fixture = reader.GetTypeDefinition(
+                    Assert.Single(
+                        reader.TypeDefinitions,
+                        handle =>
+                        {
+                            TypeDefinition type =
+                                reader.GetTypeDefinition(handle);
+                            return reader.StringComparer.Equals(
+                                    type.Namespace,
+                                    "ILInspector.Metadata.Tests")
+                                && reader.StringComparer.Equals(
+                                    type.Name,
+                                    nameof(MemberGroupExtensionFixture));
+                        }));
+                TypeDefinition grouping = reader.GetTypeDefinition(
+                    Assert.Single(fixture.GetNestedTypes()));
+                TypeDefinition marker = reader.GetTypeDefinition(
+                    Assert.Single(grouping.GetNestedTypes()));
+                MethodDefinition receiver = reader.GetMethodDefinition(
+                    Assert.Single(
+                        marker.GetMethods(),
+                        handle => reader.StringComparer.Equals(
+                            reader.GetMethodDefinition(handle).Name,
+                            "<Extension>$")));
+                byte[] signature = reader.GetBlobBytes(receiver.Signature);
+                int entry = pe.PEHeaders.MetadataStartOffset
+                    + reader.GetHeapMetadataOffset(HeapIndex.Blob)
+                    + MetadataTokens.GetHeapOffset(receiver.Signature);
+
+                Assert.InRange(signature.Length, 3, 0x7f);
+                Assert.Equal(signature.Length, image[entry]);
+                image[entry] = 3;
+                image[entry + 1] = 0x00;
+                image[entry + 2] = 0x00;
+                image[entry + 3] = 0x01;
+            }
+            File.WriteAllBytes(path, image);
+
+            using AssemblyInspectionSession session =
+                AssemblyInspectionSession.Open(path);
+            TypeDefinitionToken token =
+                Assert.IsType<TypeDeclarationResult.Defined>(
+                        session.ProbeDeclaration(
+                            Name(
+                                "ILInspector.Metadata.Tests",
+                                nameof(MemberGroupExtensionReceiver))))
+                    .Definition;
+            AssemblyTypeMemberGroupPopulationOutcome outcome =
+                session.TypeMemberGroups(
+                    new(
+                        MetadataTypeDefinitionAddress.FromToken(
+                            session.ModuleVersionId(),
+                            token.Value),
+                        AssemblyTypeMemberGroupCategory.Property,
+                        AssemblyTypeMemberReceiverKinds.All,
+                        terminal,
+                        [],
+                        includeExactMemberCount:
+                            terminal
+                                == AssemblyTypeMemberGroupTerminal.Rows,
+                        maximumRetainedGroups: 100,
+                        maximumNameWorkBytes: 1_000_000,
+                        maximumRetainedTextCharacters: 10_000),
+                    TestContext.Current.CancellationToken);
+
+            Assert.IsType<
+                AssemblyTypeMemberGroupPopulationOutcome.Failed>(outcome);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
     }
 
     private static AssemblyTypeMemberGroupPopulationOutcome.Counted Count(

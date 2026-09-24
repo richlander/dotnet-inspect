@@ -353,8 +353,8 @@ public static partial class ApiSurfaceExtractor
                         out receiverDefinition))
             {
                 throw new BadImageFormatException(
-                    "An extension Member receiver signature exceeds "
-                        + "Metadata safety limits.");
+                    "An extension Member must have a decodable receiver "
+                        + "parameter.");
             }
             observe(
                 new(
@@ -592,11 +592,12 @@ public static partial class ApiSurfaceExtractor
                         reader,
                         marker,
                         reader.GetMethodDefinition(receiverMethodHandle),
-                        out receiver))
+                        out receiver,
+                        requireExactlyOneParameter: true))
                 {
                     throw new BadImageFormatException(
-                        "An extension-property receiver signature exceeds "
-                            + "Metadata safety limits.");
+                        "An extension-property marker must have exactly one "
+                            + "decodable receiver parameter.");
                 }
 
                 observe(

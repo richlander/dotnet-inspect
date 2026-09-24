@@ -834,7 +834,8 @@ public static partial class ApiSurfaceExtractor
         MetadataReader reader,
         TypeDefinition typeDef,
         MethodDefinition method,
-        out MetadataTypeDefinitionName? definition)
+        out MetadataTypeDefinitionName? definition,
+        bool requireExactlyOneParameter = false)
     {
         var context = GenericContext.ForMethod(reader, typeDef, method);
         ExtensionReceiverDefinitionProvider provider =
@@ -848,10 +849,13 @@ public static partial class ApiSurfaceExtractor
                 provider,
                 context,
                 fallbackReturn: null);
-        definition = decoded.Value.ParameterTypes.Length > 0
+        int parameterCount = decoded.Value.ParameterTypes.Length;
+        definition = parameterCount > 0
             ? decoded.Value.ParameterTypes[0]
             : null;
         return !decoded.IsDegraded
-            && !provider.HasRejectedMetadata;
+            && !provider.HasRejectedMetadata
+            && parameterCount > 0
+            && (!requireExactlyOneParameter || parameterCount == 1);
     }
 }
