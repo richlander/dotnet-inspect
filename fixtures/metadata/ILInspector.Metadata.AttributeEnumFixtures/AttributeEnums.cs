@@ -1,3 +1,5 @@
+using System.Text.Json.Serialization;
+
 namespace AttributeEnumFixtures;
 
 public enum Wide : long
@@ -19,3 +21,22 @@ public static class ProducerTruth
     public const long Positive = (long)Wide.Positive;
     public const byte NarrowValue = (byte)Narrow.Value;
 }
+
+public sealed record JsonOptionsPayload(string? Name);
+
+[JsonSerializable(typeof(JsonOptionsPayload))]
+public partial class AbsentJsonOptionsContext : JsonSerializerContext;
+
+[JsonSourceGenerationOptions]
+[JsonSerializable(typeof(JsonOptionsPayload))]
+public partial class DefaultJsonOptionsContext : JsonSerializerContext;
+
+[JsonSourceGenerationOptions(
+    DefaultIgnoreCondition = JsonIgnoreCondition.Never)]
+[JsonSerializable(typeof(JsonOptionsPayload))]
+public partial class ExplicitNeverJsonOptionsContext : JsonSerializerContext;
+
+[JsonSourceGenerationOptions(
+    DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull)]
+[JsonSerializable(typeof(JsonOptionsPayload))]
+public partial class WhenWritingNullJsonOptionsContext : JsonSerializerContext;

@@ -244,6 +244,14 @@ import {
   bindMemberFacts,
   renderMemberFacts,
 } from "./member-facts.ts";
+import {
+  bindImplementationProfileState,
+  createImplementationProfileCoordinator,
+  renderImplementationProfileState,
+  type ImplementationProfileFamilySelection,
+  type ImplementationProfileFamilyRequest,
+  type ImplementationProfileState,
+} from "./implementation-profiles.ts";
 import { createOperationAuthorityPage } from "./operation-authority.ts";
 import {
   createMetadataInspectionCoordinator,
@@ -746,6 +754,8 @@ let inspectLibraryApiDiff:
 let inspectCloneCandidates:
   EngineClient["analysis"]["queryCloneCandidates"];
 let inspectMemberFacts: EngineClient["analysis"]["queryMemberFacts"];
+let inspectPackageImplementationProfiles:
+  EngineClient["analysis"]["queryPackageImplementationProfiles"];
 let inspectPackageIntegrations:
   EngineClient["analysis"]["queryPackageIntegrations"];
 let inspectPackageOpportunities:
@@ -756,6 +766,8 @@ let inspectPackageLibraryMetrics:
   EngineClient["analysis"]["queryPackageLibraryMetrics"];
 let inspectPlatformLibraryMetrics:
   EngineClient["analysis"]["queryPlatformLibraryMetrics"];
+let inspectPlatformImplementationProfiles:
+  EngineClient["analysis"]["queryPlatformImplementationProfiles"];
 let inspectPlatformIntegrations:
   EngineClient["analysis"]["queryPlatformIntegrations"];
 let inspectPlatformOpportunities:
@@ -905,10 +917,14 @@ async function loadEngineModule() {
     ({
       queryCloneCandidates: inspectCloneCandidates,
       queryMemberFacts: inspectMemberFacts,
+      queryPackageImplementationProfiles:
+        inspectPackageImplementationProfiles,
       queryPackageIntegrations: inspectPackageIntegrations,
       queryPackageOpportunities: inspectPackageOpportunities,
       queryPackagePerformance: inspectPackagePerformance,
       queryPackageLibraryMetrics: inspectPackageLibraryMetrics,
+      queryPlatformImplementationProfiles:
+        inspectPlatformImplementationProfiles,
       queryPlatformLibraryMetrics: inspectPlatformLibraryMetrics,
       queryPlatformIntegrations: inspectPlatformIntegrations,
       queryPlatformOpportunities: inspectPlatformOpportunities,
@@ -1144,6 +1160,7 @@ const initialState = {
   memberAccessibilityFilter: "all",
   memberTraitFilter: "",
   memberTextFilter: "",
+  implementationProfiles: { status: "idle" as const },
   memberSource: { status: "idle" as const },
   memberAnnotated: null,
   memberAnnotatedLoading: false,
@@ -1308,6 +1325,7 @@ interface StateOverrides {
   } | null;
   queryNoticeRetryAction: RetryAction;
   selectedOverloadIndex: number | null;
+  implementationProfiles: ImplementationProfileState;
   memberSource: SourceResultState<BrowserMemberSource>;
   memberAnnotated: AnnotatedSourceResult | null;
   memberAnnotatedEmbedded: AnnotatedSourceSession | null;
@@ -3098,6 +3116,35 @@ async function deleteManagedRetainedWorkspace(
 const keybindings = createWorkbenchKeybindings();
 let keyboardHelpBindings = keybindings.bindingsFor();
 const operationAuthority = createOperationAuthorityPage();
+const implementationProfileWorkspaceGenerations =
+  new WeakMap<AppPackage, string>();
+const implementationProfiles = createImplementationProfileCoordinator({
+  state,
+  operationAuthority,
+  query: request => request.kind === "package"
+    ? inspectPackageImplementationProfiles(
+        request.packageId,
+        request.version,
+        request.targetFramework,
+        request.assemblyName,
+        request.typeDefinitionId,
+        [...request.stableSelectors])
+    : inspectPlatformImplementationProfiles(
+        request.targetFramework,
+        request.platformVersion,
+        request.assemblyFileName,
+        request.pack,
+        request.typeDefinitionId,
+        [...request.stableSelectors]),
+  describeError: errorMessage,
+  reportOperationDiagnostic: diagnostic => {
+    console.error(
+      "Implementation Profiles operation authority failure.",
+      diagnostic);
+    return undefined;
+  },
+  render: renderPreservingMemberFocus,
+});
 const sourceInspection = createSourceInspectionCoordinator({
   state,
   operationAuthority,
@@ -3654,6 +3701,10 @@ function applyView(view: WorkspaceView) {
       observeAsync(loadSelectedMemberSource(), "Loading member source");
     else if (section === "annotated")
       observeAsync(loadSelectedMemberAnnotatedSource(), "Loading annotated member source");
+    else if (section === "implementation-profiles")
+      observeAsync(
+        loadSelectedImplementationProfiles(),
+        "Loading implementation profiles");
     else if (section === "call-graph")
       observeAsync(loadSelectedMemberCallGraph(), "Loading the member call graph");
     else if (section === "facts")
@@ -6012,8 +6063,111 @@ function memberSourceHasConcreteOverload() {
 
 function memberSectionUsesWorkingSurface(section: MemberSection) {
   return section === "overview"
+    || section === "implementation-profiles"
     || section === "call-graph"
     || section === "facts";
+}
+
+function implementationProfileWorkspaceGeneration(pkg: AppPackage) {
+  const existing = implementationProfileWorkspaceGenerations.get(pkg);
+  if (existing) return existing;
+  const generation = crypto.randomUUID();
+  implementationProfileWorkspaceGenerations.set(pkg, generation);
+  return generation;
+}
+
+function implementationProfileTarget(): {
+  request: ImplementationProfileFamilyRequest;
+  selection: ImplementationProfileFamilySelection;
+} | null {
+  const pkg = state.package;
+  const type = selectedType();
+  const member = selectedMember(type);
+  if (!pkg
+    || !type
+    || !member
+    || state.rootKind === "library"
+    || member.kind !== "method"
+    || member.overloads.length < 2) {
+    return null;
+  }
+
+  const selectedOverloadIndex = state.selectedOverloadIndex;
+  const typeDefinitionId = type.definitionId;
+  const stableSelectors = member.overloads.map(
+    overload => overload.stableSelector);
+  const request: ImplementationProfileFamilyRequest =
+    pkg.isRuntimePack
+      ? (() => {
+          const row = platformLibraryForRequest(pkg, type.assemblyId);
+          return {
+            kind: "platform",
+            workspaceGeneration: implementationProfileWorkspaceGeneration(pkg),
+            targetFramework: pkg.activeFramework,
+            platformVersion: pkg.version,
+            pack: row.pack,
+            assemblyFileName: platformAssemblyRequest(row),
+            typeDefinitionId,
+            stableSelectors,
+          };
+        })()
+      : {
+          kind: "package",
+          workspaceGeneration: implementationProfileWorkspaceGeneration(pkg),
+          packageId: pkg.id,
+          version: pkg.version,
+          targetFramework: pkg.activeFramework,
+          assemblyName: type.assemblyId,
+          typeDefinitionId,
+          stableSelectors,
+        };
+  const selection: ImplementationProfileFamilySelection = {
+    typeDefinitionId,
+    display: `${typeDisplayName(type)}.${member.name}`,
+    members: member.overloads.map((overload, index) => ({
+      typeDefinitionId,
+      stableSelector: overload.stableSelector,
+      display: overload.signature,
+      bodyTokens: [
+        ...new Set([
+          ...(overload.metadataToken === null
+            ? []
+            : [overload.metadataToken]),
+          ...overload.bodySelectors.map(body => body.token),
+        ]),
+      ],
+      selected: selectedOverloadIndex === index,
+    })),
+    isCurrent: () =>
+      state.package === pkg
+      && selectedType()?.id === type.id
+      && selectedMember(selectedType())?.key === member.key
+      && state.memberSection === "implementation-profiles"
+      && state.selectedOverloadIndex === selectedOverloadIndex,
+  };
+  return { request, selection };
+}
+
+function loadSelectedImplementationProfiles(retry = false) {
+  const target = implementationProfileTarget();
+  if (!target) return Promise.resolve();
+  return retry
+    ? implementationProfiles.retry(target.request, target.selection)
+    : implementationProfiles.activate(target.request, target.selection);
+}
+
+function currentImplementationProfileState(): ImplementationProfileState {
+  const current = state.implementationProfiles;
+  if (current.status === "idle" || current.selection.isCurrent())
+    return current;
+  const target = implementationProfileTarget();
+  return target
+    ? {
+        status: "loading",
+        request: target.request,
+        selection: target.selection,
+      }
+    : { status: "idle" };
 }
 
 function currentSourceOperationKind() {
@@ -6061,6 +6215,10 @@ function loadMemberSectionContent(id: MemberSection) {
     observeAsync(loadSelectedMemberSource(), "Loading member source");
   else if (id === "annotated")
     observeAsync(loadSelectedMemberAnnotatedSource(), "Loading annotated member source");
+  else if (id === "implementation-profiles")
+    observeAsync(
+      loadSelectedImplementationProfiles(),
+      "Loading implementation profiles");
   else if (id === "call-graph")
     observeAsync(loadSelectedMemberCallGraph(), "Loading the member call graph");
   else if (id === "facts")
@@ -6093,6 +6251,7 @@ function openMemberGroup(key: string) {
     const retainedSection = state.memberSection;
     let selectedFirstOverload = false;
     if (state.memberSection !== "overview"
+      && state.memberSection !== "implementation-profiles"
       && group
       && group.overloads.length > 1
       && state.selectedOverloadIndex == null) {
@@ -6101,6 +6260,11 @@ function openMemberGroup(key: string) {
       selectedFirstOverload = true;
     }
     retainMemberSectionIfSupported(group);
+    if (state.memberSection === "implementation-profiles") {
+      const target = implementationProfileTarget();
+      if (!target || !implementationProfiles.hasActivated(target.request))
+        state.memberSection = "overview";
+    }
     if (selectedFirstOverload && state.memberSection !== retainedSection) {
       state.selectedOverloadIndex = null;
       state.selectedBodyTarget = null;
@@ -6162,13 +6326,15 @@ function openOverload(index: number) {
   loadMemberSectionContent(state.memberSection);
 }
 
-// Switch the open member's section (Overview / Call graph / Facts / Source / Annotated) and
-// kick off its lazy load. Shared by the scope-bar strip click and the 1—5 shortcut. If a
-// multi-overload member is still on its picker, resolve the first overload so the section
-// has content to show.
+// Switch the open member's section and kick off its lazy load. Shared by the scope-bar strip
+// click and the section shortcut. Family-level implementation profiles deliberately keep the
+// overload picker unresolved; overload-specific sections select the first overload as needed.
 function applyMemberSection(id: MemberSection) {
   const member = selectedMember(selectedType());
-  if (member && member.overloads.length > 1 && state.selectedOverloadIndex == null) {
+  if (id !== "implementation-profiles"
+    && member
+    && member.overloads.length > 1
+    && state.selectedOverloadIndex == null) {
     state.selectedOverloadIndex = 0;
     state.selectedBodyTarget = graphOnlyBodyTarget(member.overloads[0]);
   }
@@ -6221,7 +6387,10 @@ function selectMemberNavEntry(entry: MemberNavEntry, focusList: boolean) {
       } else {
         state.selectedOverloadIndex = null;
         clearMemberContentCache();
-        render();
+        if (state.memberSection === "implementation-profiles")
+          loadMemberSectionContent(state.memberSection);
+        else
+          render();
       }
     } else {
       openMemberGroup(entry.group.key);
@@ -6303,7 +6472,10 @@ function stepHorizontal(delta: number) {
   const type = selectedType();
   const member = state.lens === "api" ? selectedMember(type) : null;
   if (scope() === "member" && !member) return;
-  const overloadOpen = member && !(member.overloads.length > 1 && state.selectedOverloadIndex == null);
+  const overloadOpen = member
+    && (state.memberSection === "implementation-profiles"
+      || !(member.overloads.length > 1
+        && state.selectedOverloadIndex == null));
   if (overloadOpen) {
     const order = memberSectionsFor(member).map(([id]) => id);
     let index = order.indexOf(state.memberSection);
@@ -9300,7 +9472,9 @@ function renderMember(type: AppTypeSurface, member: AppMemberGroup) {
     && Number.isInteger(selectedOverloadIndex)
     && selectedOverloadIndex >= 0
     && selectedOverloadIndex < member.overloads.length;
-  if (member.overloads.length > 1 && !hasSelectedOverload) {
+  if (member.overloads.length > 1
+    && !hasSelectedOverload
+    && state.memberSection !== "implementation-profiles") {
     return `
       <section class="member-surface member-overload-surface" aria-labelledby="member-surface-title">
         <header class="api-surface-head member-surface-head">
@@ -9477,6 +9651,10 @@ function renderMember(type: AppTypeSurface, member: AppMemberGroup) {
     content = `<div data-call-graph-surface>${content}</div>`;
   } else if (state.memberSection === "facts") {
     content = renderMemberFacts(state);
+  } else if (state.memberSection === "implementation-profiles") {
+    content = renderImplementationProfileState(
+      currentImplementationProfileState(),
+      escapeHtml);
   } else if (state.memberSection === "annotated") {
     const destinationError = state.annotatedDestinationError
       ? `<div id="annotated-destination-error" class="graph-drill-error" role="alert">${escapeHtml(state.annotatedDestinationError)}</div>`
@@ -9503,7 +9681,11 @@ function renderMember(type: AppTypeSurface, member: AppMemberGroup) {
     <section class="member-surface" aria-labelledby="member-surface-title">
       <header class="api-surface-head member-surface-head">
         <h1 id="member-surface-title">${escapeHtml(member.name)}</h1>
-        <p>${escapeHtml(member.kind)} <span>· ${overloadIndex + 1} of ${member.overloads.length}</span></p>
+        <p>${escapeHtml(member.kind)} <span>· ${
+          state.memberSection === "implementation-profiles"
+            ? `${member.overloads.length} overloads`
+            : `${overloadIndex + 1} of ${member.overloads.length}`
+        }</span></p>
       </header>
       <div class="member-surface-scroll">${content}</div>
     </section>`;
@@ -10601,6 +10783,22 @@ function bindMemberFactsEvents() {
   });
 }
 
+function bindImplementationProfileEvents() {
+  bindImplementationProfileState(document, {
+    onRetry: () => {
+      observeAsync(
+        loadSelectedImplementationProfiles(true).finally(() => {
+          if (state.memberSection !== "implementation-profiles") return;
+          requestAnimationFrame(() =>
+            document.querySelector<HTMLElement>(
+              "#implementation-profile-retry, #implementation-profile-state-title")
+              ?.focus({ preventScroll: true }));
+        }),
+        "Retrying implementation profiles");
+    },
+  });
+}
+
 function bindAnnotatedSourceEvents() {
   bindAnnotatedSource(document, {
     onAction: applyAnnotatedSourceAction,
@@ -10681,6 +10879,7 @@ function bindEvents() {
   bindGraphSourceEvents();
   bindDocViewerEvents();
   bindMemberFactsEvents();
+  bindImplementationProfileEvents();
   bindAnnotatedSourceEvents();
   bindPackageViewEvents();
   bindLibrarySubjectNavEvents();
@@ -13183,10 +13382,16 @@ function loadSelectionData() {
   if (!state.selectedMemberKey) return undefined;
   const member = selectedMember(selectedType());
   if (!member) return undefined;
-  if (member.overloads.length > 1 && state.selectedOverloadIndex == null) return undefined;
+  if (member.overloads.length > 1
+    && state.selectedOverloadIndex == null
+    && state.memberSection !== "implementation-profiles") {
+    return undefined;
+  }
   switch (state.memberSection) {
     case "source": return loadSelectedMemberSource();
     case "annotated": return loadSelectedMemberAnnotatedSource();
+    case "implementation-profiles":
+      return loadSelectedImplementationProfiles();
     case "call-graph": return loadSelectedMemberCallGraph();
     case "facts": return loadSelectedMemberFactsSurface();
     case "overview": return loadSelectedMemberDocumentation();

@@ -580,6 +580,91 @@ public static partial class AnalysisExports
             BrowserAnalysisJsonContext.Default.BrowserLibraryMetrics);
     }
 
+    /// <summary>
+    /// Objective implementation profiles and exact overload relationships for
+    /// one public overload family in a package implementation Library.
+    /// </summary>
+    [JSExport]
+    public static async Task<string> QueryPackageImplementationProfiles(
+        string packageId,
+        string version,
+        string targetFramework,
+        string assemblyName,
+        string typeDefinitionId,
+        string[] stableSelectors)
+    {
+        BrowserImplementationProfiles profiles =
+            await PackageImplementationProfilesAsync(
+                packageId,
+                version,
+                targetFramework,
+                assemblyName,
+                typeDefinitionId,
+                stableSelectors);
+        return JsonSerializer.Serialize(
+            profiles,
+            BrowserAnalysisJsonContext.Default
+                .BrowserImplementationProfiles);
+    }
+
+    static async Task<BrowserImplementationProfiles>
+        PackageImplementationProfilesAsync(
+            string packageId,
+            string version,
+            string targetFramework,
+            string assemblyName,
+            string typeDefinitionId,
+            string[] stableSelectors)
+    {
+        var selection = new ImplementationProfileFamilySelection(
+            typeDefinitionId,
+            stableSelectors);
+        await using BrowserScopeLease<BrowserInspectionScope> scopeLease =
+            await BrowserPackageWorkspace.OpenScopeAsync(
+                packageId,
+                version,
+                targetFramework);
+        BrowserInspectionScope scope = scopeLease.Scope;
+        BrowserPackageCoordinate coordinate = scope.Coordinates[0];
+        BrowserCompileLibraryAvailability compileLibrary =
+            BrowserAnalysisWireProjection.Project(
+                BrowserCompileLibraryProjection.Project(coordinate.Selection));
+        if (!coordinate.Selection.IsSelected)
+        {
+            return BrowserImplementationProfileWireProjection.Unavailable(
+                compileLibrary.Status.ToString(),
+                $"The package has no selected compile library "
+                    + $"({compileLibrary.Status}).",
+                compileLibrary);
+        }
+
+        BrowserWorkspaceParticipant participant =
+            scope.LibraryParticipant(coordinate, assemblyName);
+        if (!scope.ImplementationParticipants.Contains(participant))
+        {
+            return BrowserImplementationProfileWireProjection.Unavailable(
+                "NoImplementationAssembly",
+                "The selected library has no managed implementation assembly.",
+                compileLibrary);
+        }
+
+        InspectionEnvelope<
+            AssemblyContextEntry<
+                AssemblyImplementationProfileFamilyInspection>>
+                inspection =
+                    scope.UseImplementationParticipant(
+                        participant,
+                        (group, selectedParticipant) =>
+                            ImplementationProfileFamilyInspectionOperation
+                                .Execute(
+                                    group,
+                                    selectedParticipant,
+                                    selection));
+        return BrowserImplementationProfileWireProjection.Project(
+            inspection,
+            compileLibrary);
+    }
+
     static async Task<BrowserLibraryMetrics> PackageLibraryMetricsAsync(
         string packageId,
         string version,

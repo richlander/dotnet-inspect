@@ -183,7 +183,7 @@ The package-use end-to-end plan remains three steps:
 1. this Analysis operation supplies exact bounded root-to-use-site witnesses;
 2. issue #7390 composes Metadata-issued public roots, pairwise direct-use
    destinations, provider grouping, and one shared typed result; and
-3. `graph libraries` and Browser/Wasm consume that same composition under
+3. `graph cluster` and Browser/Wasm consume that same composition under
    #6313.
 
 The later completed host boundary will use `InspectionEnvelope<TContent>`.
