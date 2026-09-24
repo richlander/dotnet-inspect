@@ -761,6 +761,31 @@ public static partial class AnalysisExports
                         available.Document.AsyncStateMachinePresence.PresentCount,
                         available.Document.AsyncStateMachinePresence.AbsentCount),
                     [
+                        .. available.Document.TypeSummaries.Select(
+                            summary => new BrowserLibraryMetricsType(
+                                LibraryMetricsTypeKey(summary.Type),
+                                summary.Type.ToQualifiedDisplayString(),
+                                summary.Type.Namespace,
+                                summary.Type.Name,
+                                summary.BodyCount,
+                                summary.InstructionCount,
+                                summary.ComplexityTotal,
+                                summary.LoopCount,
+                                summary.DirectCallCount,
+                                summary.AllocationCount)),
+                    ],
+                    [
+                        .. available.Document.EntangledRelationships.Select(
+                            relationship => new BrowserLibraryMetricsRelationship(
+                                LibraryMetricsTypeKey(relationship.Source),
+                                relationship.Source.ToQualifiedDisplayString(),
+                                LibraryMetricsTypeKey(relationship.Target),
+                                relationship.Target.ToQualifiedDisplayString(),
+                                relationship.CallSiteCount,
+                                relationship.SourceDegree,
+                                relationship.TargetDegree)),
+                    ],
+                    [
                         .. available.Document.Diagnostics.Select(
                             diagnostic => diagnostic.Message),
                     ],
@@ -785,6 +810,12 @@ public static partial class AnalysisExports
                 "Unknown Library Metrics result."),
         };
 
+    internal static string LibraryMetricsTypeKey(ILAnalysis.TypeRef type) =>
+        type.Resolution?.Type.ToEscapedFullName()
+            ?? (string.IsNullOrEmpty(type.Namespace)
+                ? type.Name
+                : $"{type.Namespace}.{type.Name}");
+
     static BrowserLibraryMetrics UnavailableLibraryMetrics(
         string outcome,
         string failure,
@@ -795,6 +826,8 @@ public static partial class AnalysisExports
             null,
             [],
             null,
+            [],
+            [],
             [],
             failure,
             compileLibrary);
