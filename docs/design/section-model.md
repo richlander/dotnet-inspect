@@ -113,7 +113,7 @@ implementation evidence for one selected overload.
 
 The `package query` command uses `@Query` as its sole base category. It composes
 the matched `Packages` rows with the `Query Summary` settlement row. Its
-ordinary adaptive output and bare-`-S` preset remain command-owned projections
+ordinary adaptive output and exact selections remain command-owned projections
 over that catalog rather than automatic verbosity presets.
 
 ### Domain categories
@@ -790,14 +790,9 @@ An explicit section or category selection overrides automatic base scope and
 verbosity. It does not bypass capability requirements: a request for
 network-bound content must still authorize the relevant capability.
 
-Bare `-S` is the compact network-free overview:
-
-```text
-Base union AND Fixed AND NetworkFree AND Effective
-```
-
-It is a stable candidate rule, not a promise that every target renders the
-same sections. A package without a README legitimately omits that section.
+`-S`, `-s`, `--select`, and `--section` require exactly one section, category,
+or wildcard argument. Omitting that argument is a parse error rather than an
+implicit overview request.
 
 ## Verbosity
 
@@ -929,9 +924,10 @@ The project command's current authored ownership is:
 | `@Project` | `Skills`, `Package README file` |
 
 `@Project` is the base category and composes the package-authored documents
-available from a restored project's direct dependencies. `Skills` remains the
-bare-`-S` high-value section. `Package README file` is explicit and unbounded;
-selecting `@Project` is the gesture that requests both document inventories.
+available from a restored project's direct dependencies. Exact `Skills`
+selection requests the focused high-value section. `Package README file` is
+explicit and unbounded; selecting `@Project` is the gesture that requests both
+document inventories.
 
 ## Vocabulary category map
 
@@ -945,8 +941,8 @@ The vocabulary command's current authored ownership is:
 
 `@Vocabulary` is the base category and composes the complete product-owned
 vocabulary document. `@API` and `@Decompiler` are domain doors over the
-vocabularies consumed by those query families. Bare output and bare `-S`
-retain the self-describing `Vocabulary Sections` index.
+vocabularies consumed by those query families. Bare output retains the
+self-describing `Vocabulary Sections` index.
 
 ## Ecosystem category map
 
@@ -966,9 +962,8 @@ single-member `@Integrations` category. Focus remains the only operation that
 changes the available section set.
 
 Ordinary output remains the route's `Ecosystems` or `Ecosystem Info` identity
-section. Bare `-S` and explicit `@Ecosystem` compose the route's full authored
-set in alphabetical order. Select `Integrations` directly for configured
-bindings.
+section. Explicit `@Ecosystem` composes the route's full authored set in
+alphabetical order. Select `Integrations` directly for configured bindings.
 
 ## Graph Library relationship category map
 
@@ -981,8 +976,8 @@ The `graph libraries` and `graph cluster` commands' authored ownership is:
 `@Libraries` is the base category and composes the four pair-wide projections
 in alphabetical section order. Ordinary `graph libraries` output is `Direct
 Use Clusters`; ordinary `graph cluster N` output is exact `Call Sites` for the
-focused component. Bare `-S` remains the `Consumer Use Sites` and `Provider API
-Types` summary pair.
+focused component. Select `Consumer Use Sites;Provider API Types` explicitly
+for the summary pair.
 
 `Public Root Paths` remains uncategorized and exact-name-only because it
 requires the focused route's positive cluster ordinal before acquisition.
@@ -1000,9 +995,9 @@ The `package query` command's authored ownership is:
 
 `@Query` is the base category and composes the complete query result in
 alphabetical section order. Ordinary output remains adaptive: it renders
-`Packages` when the query matched rows and `Query Summary` otherwise. Bare
-`-S` remains the non-adaptive `Packages` preset. Exact section selection
-remains non-adaptive.
+`Packages` when the query matched rows and `Query Summary` otherwise. Exact
+section selection remains non-adaptive; `-S Packages` retains the package
+result even when it is empty.
 
 The Package Query design continues to own result settlement, count semantics,
 and format restrictions. This document owns only the catalog composition.

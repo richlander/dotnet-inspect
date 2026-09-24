@@ -54,6 +54,14 @@ export type BrowserSourceDiffSide = "Before" | "After" | "Both" | number;
 
 export type BrowserSynchronousCompletionKind = "TaskWait" | "TaskResult" | "TaskAwaiterGetResult" | number;
 
+export type BrowserTypeExplorerAccessibility = "Unknown" | "Private" | "PrivateProtected" | "Protected" | "Internal" | "ProtectedInternal" | "Public" | number;
+
+export type BrowserTypeExplorerBodyMode = "Bodies" | "Skeleton" | "SelectedBody" | number;
+
+export type BrowserTypeExplorerOutcomeKind = "Available" | "Incomplete" | "Unavailable" | "Rejected" | number;
+
+export type BrowserTypeExplorerPlacement = "All" | "Instance" | "Static" | number;
+
 export type BrowserTypeSourceCancellationKind = "Requested" | "AlreadyRequested" | "NotActive" | number;
 
 export type BrowserTypeSourceFailureKind = "Expected" | "Unexpected" | number;
@@ -570,6 +578,117 @@ export interface BrowserSourceFactInstance {
   readonly instanceKey: number;
 }
 
+export interface BrowserTypeExplorerBody {
+  readonly bodyId: number;
+  readonly range: BrowserTypeExplorerRange;
+  readonly hasDrillDownDestination: boolean;
+}
+
+export interface BrowserTypeExplorerContribution {
+  readonly bodyId: number;
+  readonly role: string;
+  readonly range: BrowserTypeExplorerRange;
+}
+
+export interface BrowserTypeExplorerDeclaration {
+  readonly declarationId: number;
+  readonly identity: BrowserTypeExplorerMemberIdentity;
+  readonly declarationToken: number;
+  readonly kind: string;
+  readonly accessibility: string;
+  readonly placement: string;
+  readonly origin: string;
+  readonly supportsSelectedBody: boolean;
+  readonly range: BrowserTypeExplorerRange;
+  readonly regions: ReadonlyArray<BrowserTypeExplorerRegion>;
+  readonly bodies: ReadonlyArray<BrowserTypeExplorerBody>;
+  readonly contributions: ReadonlyArray<BrowserTypeExplorerContribution>;
+}
+
+export interface BrowserTypeExplorerDocument {
+  readonly typeNamespace: string;
+  readonly typeSegments: ReadonlyArray<string>;
+  readonly assemblyName: string;
+  readonly pdbSupplied: boolean;
+  readonly symbolSource: string;
+  readonly renderingPolicy: string;
+  readonly documentationCapability: string;
+  readonly contractRelationshipCapability: string;
+  readonly projection: BrowserTypeExplorerProjection | null;
+  readonly projectionFailure: BrowserTypeExplorerProjectionFailure | null;
+}
+
+export interface BrowserTypeExplorerInspection {
+  readonly outcome: BrowserTypeExplorerOutcomeKind;
+  readonly reason: string | null;
+  readonly bodyProjectionsAttempted: number;
+  readonly failedBodyIds: ReadonlyArray<number>;
+  readonly document: BrowserTypeExplorerDocument | null;
+  readonly share: InspectionShare;
+  readonly diagnostics: ReadonlyArray<InspectionDiagnostic>;
+}
+
+export interface BrowserTypeExplorerMemberIdentity {
+  readonly stableSelector: string;
+  readonly canonicalSignature: string;
+  readonly fingerprint: string;
+  readonly typeFullName: string;
+  readonly memberName: string;
+}
+
+export interface BrowserTypeExplorerProjection {
+  readonly revision: string;
+  readonly text: string;
+  readonly frameRegions: ReadonlyArray<BrowserTypeExplorerRegion>;
+  readonly frameContributions: ReadonlyArray<BrowserTypeExplorerContribution>;
+  readonly declarations: ReadonlyArray<BrowserTypeExplorerDeclaration>;
+  readonly diagnostics: ReadonlyArray<BrowserTypeExplorerProjectionDiagnostic>;
+}
+
+export interface BrowserTypeExplorerProjectionDiagnostic {
+  readonly kind: string;
+  readonly message: string;
+  readonly declarationId: number | null;
+  readonly bodyId: number | null;
+  readonly contributionRole: string | null;
+}
+
+export interface BrowserTypeExplorerProjectionFailure {
+  readonly kind: string;
+  readonly message: string;
+}
+
+export interface BrowserTypeExplorerRange {
+  readonly start: number;
+  readonly length: number;
+}
+
+export interface BrowserTypeExplorerRegion {
+  readonly role: string;
+  readonly range: BrowserTypeExplorerRange;
+}
+
+export interface BrowserTypeExplorerRequest {
+  readonly bodyMode: BrowserTypeExplorerBodyMode;
+  readonly selectedDeclarationId: number | null;
+  readonly documentRevision: string | null;
+  readonly placement: BrowserTypeExplorerPlacement;
+  readonly accessibilities: ReadonlyArray<BrowserTypeExplorerAccessibility>;
+  readonly includeGenerated: boolean;
+  readonly includeDocumentation: boolean;
+  readonly includeAttributes: boolean;
+}
+
+export interface BrowserTypeExplorerResult {
+  readonly version: number;
+  readonly kind: BrowserTypeSourceResultKind;
+  readonly value: BrowserTypeExplorerInspection | null;
+  readonly failureKind: BrowserTypeSourceFailureKind | null;
+  readonly error: string | null;
+  readonly diagnostic: string | null;
+  readonly reason: string | null;
+}
+
 export interface BrowserTypeSourceCancellation {
   readonly kind: BrowserTypeSourceCancellationKind;
   readonly reason: string | null;
@@ -657,6 +776,7 @@ type $ManagedExports = {
             readonly "CancelMemberSourceComparison.271973316": (operationId: string, reason: string) => string;
             readonly "CancelMethodBodyComparison.271973316": (operationId: string, reason: string) => string;
             readonly "CancelSourceQuery.19325221": () => void;
+            readonly "CancelTypeExplorerQuery.271973316": (operationId: string, reason: string) => string;
             readonly "CancelTypeSourceQuery.271973316": (operationId: string, reason: string) => string;
             readonly "QueryMemberAnnotatedSource.1135530322": (packageId: string, version: string, targetFramework: string, assemblyName: string, typeIdentity: string, typeQueryId: string, memberName: string, memberSignature: string, selectorKey: string, metadataToken: number, styleOptionsJson: string) => Promise<string>;
             readonly "QueryMemberFindingCensus.1135530322": (packageId: string, version: string, targetFramework: string, assemblyName: string, typeIdentity: string, typeQueryId: string, memberName: string, memberSignature: string, selectorKey: string, metadataToken: number, styleOptionsJson: string) => Promise<string>;
@@ -664,6 +784,7 @@ type $ManagedExports = {
             readonly "QueryMemberSourceComparison.451505237": (operationId: string, requestJson: string) => Promise<string>;
             readonly "QueryMethodBodyComparison.451505237": (operationId: string, requestJson: string) => Promise<string>;
             readonly "QueryMethodBodyComparisonTargets.642387634": (operationId: string, packageId: string, version: string, targetFramework: string, assemblyName: string, typeIdentity: string, memberName: string, selectorKey: string, metadataToken: number) => Promise<string>;
+            readonly "QueryTypeExplorer.335255791": (operationId: string, packageId: string, version: string, targetFramework: string, assemblyName: string, typeIdentity: string, styleOptionsJson: string, requestJson: string) => Promise<string>;
             readonly "QueryTypeMemberSource.641907440": (packageId: string, version: string, targetFramework: string, assemblyName: string, typeIdentity: string, memberName: string, selectorKey: string, metadataToken: number, styleOptionsJson: string) => Promise<string>;
             readonly "QueryTypeSource.335255791": (operationId: string, packageId: string, version: string, targetFramework: string, assemblyName: string, typeIdentity: string, styleOptionsJson: string, view: string) => Promise<string>;
           };
@@ -758,6 +879,18 @@ function $validateManagedExports(exports: unknown): asserts exports is $ManagedE
     value = $ownDataProperty(value, "Interop");
     value = $ownDataProperty(value, "Source");
     value = $ownDataProperty(value, "SourceExports");
+    value = $ownDataProperty(value, "CancelTypeExplorerQuery.271973316");
+    if (typeof value !== "function") {
+      throw new Error("Managed export \u0027DotnetInspect.Web.Interop.Source.SourceExports.CancelTypeExplorerQuery.271973316\u0027 is not callable.");
+    }
+  }
+  {
+    let value: unknown = exports;
+    value = $ownDataProperty(value, "DotnetInspect");
+    value = $ownDataProperty(value, "Web");
+    value = $ownDataProperty(value, "Interop");
+    value = $ownDataProperty(value, "Source");
+    value = $ownDataProperty(value, "SourceExports");
     value = $ownDataProperty(value, "CancelTypeSourceQuery.271973316");
     if (typeof value !== "function") {
       throw new Error("Managed export \u0027DotnetInspect.Web.Interop.Source.SourceExports.CancelTypeSourceQuery.271973316\u0027 is not callable.");
@@ -833,6 +966,18 @@ function $validateManagedExports(exports: unknown): asserts exports is $ManagedE
     value = $ownDataProperty(value, "QueryMethodBodyComparisonTargets.642387634");
     if (typeof value !== "function") {
       throw new Error("Managed export \u0027DotnetInspect.Web.Interop.Source.SourceExports.QueryMethodBodyComparisonTargets.642387634\u0027 is not callable.");
+    }
+  }
+  {
+    let value: unknown = exports;
+    value = $ownDataProperty(value, "DotnetInspect");
+    value = $ownDataProperty(value, "Web");
+    value = $ownDataProperty(value, "Interop");
+    value = $ownDataProperty(value, "Source");
+    value = $ownDataProperty(value, "SourceExports");
+    value = $ownDataProperty(value, "QueryTypeExplorer.335255791");
+    if (typeof value !== "function") {
+      throw new Error("Managed export \u0027DotnetInspect.Web.Interop.Source.SourceExports.QueryTypeExplorer.335255791\u0027 is not callable.");
     }
   }
   {
@@ -926,6 +1071,12 @@ export function cancelSourceQuery(): void {
   return $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Source"]["SourceExports"]["CancelSourceQuery.19325221"]();
 }
 
+export function cancelTypeExplorerQuery(operationId: string, reason: string): BrowserTypeSourceCancellation {
+  const $result = $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Source"]["SourceExports"]["CancelTypeExplorerQuery.271973316"](operationId, reason);
+  const $parsed: unknown = JSON.parse($result);
+  return $parsed as BrowserTypeSourceCancellation;
+}
+
 export function cancelTypeSourceQuery(operationId: string, reason: string): BrowserTypeSourceCancellation {
   const $result = $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Source"]["SourceExports"]["CancelTypeSourceQuery.271973316"](operationId, reason);
   const $parsed: unknown = JSON.parse($result);
@@ -965,6 +1116,12 @@ export async function queryMethodBodyComparisonTargets(operationId: string, pack
   const $result = await $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Source"]["SourceExports"]["QueryMethodBodyComparisonTargets.642387634"](operationId, packageId, version, targetFramework, assemblyName, typeIdentity, memberName, selectorKey, metadataToken);
   const $parsed: unknown = JSON.parse($result);
   return $parsed as BrowserMethodBodyTargetsResult;
+}
+
+export async function queryTypeExplorer(operationId: string, packageId: string, version: string, targetFramework: string, assemblyName: string, typeIdentity: string, styleOptionsJson: string, requestJson: BrowserTypeExplorerRequest): Promise<BrowserTypeExplorerResult> {
+  const $result = await $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Source"]["SourceExports"]["QueryTypeExplorer.335255791"](operationId, packageId, version, targetFramework, assemblyName, typeIdentity, styleOptionsJson, $serializeJsonInput(requestJson, "DotnetInspect.Web.Interop.Source.SourceExports.QueryTypeExplorer.335255791", "requestJson"));
+  const $parsed: unknown = JSON.parse($result);
+  return $parsed as BrowserTypeExplorerResult;
 }
 
 export async function queryTypeMemberSource(packageId: string, version: string, targetFramework: string, assemblyName: string, typeIdentity: string, memberName: string, selectorKey: string, metadataToken: number, styleOptionsJson: string): Promise<BrowserSource> {

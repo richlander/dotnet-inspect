@@ -137,9 +137,10 @@ all-cluster path search. Pair-wide `graph libraries -S "Public Root Paths"`
 fails with guidance to use the focused route.
 
 Omitting the section preserves the focused route's exact call-site default.
-Bare `-S` remains the existing two summary sections. The new section does not
-enter any automatic verbosity preset, and wildcard section selection does not
-opt into it; callers name `Public Root Paths` explicitly.
+Select `Consumer Use Sites;Provider API Types` explicitly for the two summary
+sections. The new section does not enter any automatic verbosity preset, and
+wildcard section selection does not opt into it; callers name
+`Public Root Paths` explicitly.
 
 Each retained witness lowers to one row containing:
 

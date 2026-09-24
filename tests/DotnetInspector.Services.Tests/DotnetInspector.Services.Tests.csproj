@@ -20,6 +20,9 @@
   </ItemGroup>
 
   <ItemGroup>
+    <None Include="../../fixtures/nugetfetch/pclstorage.1.0.2.nupkg"
+          Link="fixtures/nugetfetch/pclstorage.1.0.2.nupkg"
+          CopyToOutputDirectory="PreserveNewest" />
     <None Include="../../fixtures/services/signatures/*.nupkg"
           Link="Fixtures/Signatures/%(Filename)%(Extension)"
           CopyToOutputDirectory="PreserveNewest" />

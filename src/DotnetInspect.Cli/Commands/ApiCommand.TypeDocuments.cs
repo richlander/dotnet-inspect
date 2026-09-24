@@ -475,26 +475,42 @@ public partial class ApiCommand
                 && SectionNames.IncludesBodyMetrics(
                     GetRequestedMemberSections(type, renderOptions)))
             {
-                bool restrictImplementationProfiles =
-                    ApiMemberSectionPipelines
-                        .UsesDetailPipeline(renderOptions)
-                    || ApiMemberSectionPipelines
-                        .UsesOverloadInventoryPipeline(
-                            renderOptions);
-                ApiOutputFormatter.PopulateImplementationProfiles(
-                    view,
-                    restrictImplementationProfiles
-                        ? BuildFilteredTypeForBodyShapes(
-                            type,
-                            renderOptions)
-                        : type,
-                    TypeAnalysisIndex(),
-                            renderOptions is MemberOptions,
-                            restrictToModelMembers:
-                        restrictImplementationProfiles,
-                    selectedMethodToken:
-                        (renderOptions as MemberOptions)?
-                            .SelectedBodyMethodToken);
+                if (renderOptions is MemberOptions
+                    {
+                        ImplementationProfileFamilyInspection.Content:
+                            AssemblyContextEntry<
+                                AssemblyImplementationProfileFamilyInspection>
+                                .Available family
+                    })
+                {
+                    ApiOutputFormatter.PopulateImplementationProfiles(
+                        view,
+                        type,
+                        family.Value);
+                }
+                else
+                {
+                    bool restrictImplementationProfiles =
+                        ApiMemberSectionPipelines
+                            .UsesDetailPipeline(renderOptions)
+                        || ApiMemberSectionPipelines
+                            .UsesOverloadInventoryPipeline(
+                                renderOptions);
+                    ApiOutputFormatter.PopulateImplementationProfiles(
+                        view,
+                        restrictImplementationProfiles
+                            ? BuildFilteredTypeForBodyShapes(
+                                type,
+                                renderOptions)
+                            : type,
+                        TypeAnalysisIndex(),
+                                renderOptions is MemberOptions,
+                                restrictToModelMembers:
+                            restrictImplementationProfiles,
+                        selectedMethodToken:
+                            (renderOptions as MemberOptions)?
+                                .SelectedBodyMethodToken);
+                }
             }
         }
 

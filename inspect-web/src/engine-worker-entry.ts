@@ -19,6 +19,10 @@ import {
   registerEngineWorkerTypeSourceOperation,
   type EngineWorkerTypeSourceFacade,
 } from "./engine-worker-source.ts";
+import {
+  registerEngineWorkerTypeExplorerOperation,
+  type EngineWorkerTypeExplorerFacade,
+} from "./engine-worker-type-explorer.ts";
 import { registerEngineWorkerStartupOperations } from "./engine-worker-startup.ts";
 import {
   registerEngineWorkerOrdinaryOperations,
@@ -58,10 +62,19 @@ registerEngineWorkerStartupOperations(operations, {
     return (await import("/inspect-web-package.js")).listPackageQueryCatalog();
   },
 });
-let sourceFacade: EngineWorkerTypeSourceFacade | undefined;
+let sourceFacade:
+  (EngineWorkerTypeSourceFacade & EngineWorkerTypeExplorerFacade)
+  | undefined;
 registerEngineWorkerTypeSourceOperation(operations, () => {
   if (sourceFacade === undefined)
     throw new Error("Type Source facade is unavailable before Worker readiness.");
+  return sourceFacade;
+});
+registerEngineWorkerTypeExplorerOperation(operations, () => {
+  if (sourceFacade === undefined) {
+    throw new Error(
+      "Type Explorer facade is unavailable before Worker readiness.");
+  }
   return sourceFacade;
 });
 let packageQueryFacade: EngineWorkerPackageQueryFacade | undefined;

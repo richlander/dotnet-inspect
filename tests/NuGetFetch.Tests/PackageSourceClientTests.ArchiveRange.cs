@@ -52,7 +52,7 @@ public sealed partial class PackageSourceClientTests
         await Task.CompletedTask;
         Assert.Null(result.Failure);
         Assert.Null(result.Refusal);
-        return Assert.IsType<T>(result.Value);
+        return Assert.IsAssignableFrom<T>(result.Value);
     }
 
     [Fact]
@@ -85,6 +85,81 @@ public sealed partial class PackageSourceClientTests
         Assert.True(ranged.Length >= 2, "the tail and the entry are separate requests");
         Assert.All(ranged, index => Assert.NotNull(handler.Authentication[index]));
         Assert.True(handler.Headers[ranged[^1]].ContainsKey("If-Range"));
+    }
+
+    [Theory]
+    [InlineData(0, 4)] // the XML docs between the dlls keep all four apart
+    [InlineData(64 * 1024, 1)] // bridging them joins all four into one request
+    public async Task ArchiveRange_Batch_ReadsSelectedEntriesInMergedConcurrentRequests_WithValidator(
+        int mergeGap,
+        int expectedRequests)
+    {
+        byte[] archive = FixtureArchive();
+        var server = new RangeServer(archive) { ETag = "\"v1\"" };
+        var handler = new RecordingHandler { [ServiceIndex] = ServiceIndexWithFlatContainer };
+        handler.SetResponse(Package, server.Respond);
+        var source = new PackageSource("corporate", ServiceIndex, new PackageSourceCredential("user", "token"));
+        using IPackageSourceClient runtime = PackageSourceClientFactory.Create(source, handler);
+        var limits = new ZipReadLimits(entryReadSlack: 1024, entryMergeGap: mergeGap, maxConcurrentReads: 4);
+
+        await using PackageArchiveReader reader = await Opened(
+            await Ranged(runtime).OpenArchiveAsync(
+                "contoso", "1.0.0", limits, TestContext.Current.CancellationToken));
+        int afterOpen = server.Requests;
+        ZipEntry[] selected =
+        [
+            .. reader.Directory.Entries.Where(entry =>
+                (entry.Name.StartsWith("lib/net45/", StringComparison.Ordinal)
+                    || entry.Name.StartsWith("lib/sl5/", StringComparison.Ordinal))
+                && entry.Name.EndsWith(".dll", StringComparison.Ordinal)),
+        ];
+        IReadOnlyList<PackageArchiveEntryContent> contents = await Opened(
+            await reader.ReadEntriesAsync(selected, cancellationToken: TestContext.Current.CancellationToken));
+
+        using var oracle = new ZipArchive(new MemoryStream(archive), ZipArchiveMode.Read);
+        Assert.Equal(selected.Length, contents.Count);
+        for (int index = 0; index < selected.Length; index++)
+        {
+            Assert.Same(selected[index], contents[index].Entry);
+            using Stream expected = oracle.GetEntry(selected[index].Name)!.Open();
+            using var expectedBytes = new MemoryStream();
+            await expected.CopyToAsync(expectedBytes, TestContext.Current.CancellationToken);
+            Assert.Equal(expectedBytes.ToArray(), contents[index].Content.ToArray());
+        }
+        // Every ranged request carries the credential; each after the tail
+        // carries If-Range.
+        Assert.Equal(4, selected.Length);
+        Assert.Equal(expectedRequests, server.Requests - afterOpen);
+        int[] ranged = handler.Requested
+            .Select((url, index) => (url, index))
+            .Where(item => item.url.Equals(Package, StringComparison.OrdinalIgnoreCase))
+            .Select(item => item.index)
+            .ToArray();
+        Assert.All(ranged, index => Assert.NotNull(handler.Authentication[index]));
+        Assert.All(ranged.Skip(1), index => Assert.True(handler.Headers[index].ContainsKey("If-Range")));
+    }
+
+    [Fact]
+    public async Task ArchiveRange_Batch_ChangedValidator_IsArchiveChanged_WithNoContent()
+    {
+        byte[] archive = FixtureArchive();
+        var server = new RangeServer(archive) { ETag = "\"v1\"" };
+        var handler = new RecordingHandler { [ServiceIndex] = ServiceIndexWithFlatContainer };
+        handler.SetResponse(Package, server.Respond);
+        using IPackageSourceClient runtime = PackageSourceClientFactory.Create(
+            new PackageSource("feed", ServiceIndex), handler);
+
+        await using PackageArchiveReader reader = await Opened(
+            await Ranged(runtime).OpenArchiveAsync(
+                "contoso", "1.0.0", new ZipReadLimits(maxConcurrentReads: 4), TestContext.Current.CancellationToken));
+        server.ETag = "\"v2\"";
+        PackageArchiveReadResult<IReadOnlyList<PackageArchiveEntryContent>> result =
+            await reader.ReadEntriesAsync(
+                [.. reader.Directory.Entries.Where(entry => entry.Name.EndsWith(".dll", StringComparison.Ordinal))],
+                cancellationToken: TestContext.Current.CancellationToken);
+
+        Assert.Null(result.Value);
+        Assert.Equal(PackageArchiveReadRefusal.ArchiveChanged, result.Refusal);
     }
 
     [Fact]

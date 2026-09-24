@@ -172,7 +172,8 @@ public sealed partial class DesktopPackageSourceComposition
             PackagePayloadLimits? limits,
             IPackagePayloadTransferPolicy? transferPolicy,
             string? requiredProducerKey,
-            PackageHouseTargetContext? compileTargetContext = null)
+            PackageHouseTargetContext? compileTargetContext = null,
+            PackagePayloadAccess access = PackagePayloadAccess.Complete)
     {
         PackageHouseRequest request = CreateHouseRequest(
             new PackageHouseDemand.Exact(coordinate),
@@ -189,9 +190,30 @@ public sealed partial class DesktopPackageSourceComposition
                     createStore(authority, producer),
                 limits,
                 transferPolicy,
-                log),
+                log,
+                access),
             sourceOperation,
             requiredProducerKey);
+    }
+
+    /// <summary>
+    /// Ranged access is a Realize-time contract: the realization's selection
+    /// bounds the read, so a caller that supplies no compile target has asked
+    /// for an unbounded ranged read and is refused before any work starts.
+    /// </summary>
+    private static void RequireRealizationForRangedAccess(
+        PackagePayloadAccess access,
+        PackageHouseTargetContext? compileTargetContext)
+    {
+        if (!Enum.IsDefined(access))
+            throw new ArgumentOutOfRangeException(nameof(access));
+        if (access == PackagePayloadAccess.Ranged
+            && compileTargetContext is null)
+        {
+            throw new ArgumentException(
+                "Ranged payload access requires PackageHouse compile realization; supply a compile target context.",
+                nameof(access));
+        }
     }
 
     private Task<ConfiguredPackagePayloadResult>
@@ -206,7 +228,8 @@ public sealed partial class DesktopPackageSourceComposition
             PackageSourceOperationLease sourceOperation,
             PackagePayloadLimits? limits,
             IPackagePayloadTransferPolicy? transferPolicy,
-            PackageHouseTargetContext? compileTargetContext = null)
+            PackageHouseTargetContext? compileTargetContext = null,
+            PackagePayloadAccess access = PackagePayloadAccess.Complete)
     {
         PackageHouseRequest request = CreateHouseRequest(
             new PackageHouseDemand.Selecting(selection),
@@ -223,7 +246,8 @@ public sealed partial class DesktopPackageSourceComposition
                     createStore(authority, producer),
                 limits,
                 transferPolicy,
-                log),
+                log,
+                access),
             sourceOperation,
             requiredProducerKey: null);
     }

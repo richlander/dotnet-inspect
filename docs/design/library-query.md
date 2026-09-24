@@ -98,10 +98,10 @@ non-projectable because no canonical Workspace Share projection exists for an
 arbitrary local directory or installed pack.
 
 Ordinary output uses the single high-value `Libraries` section when matches
-exist and falls back to `Query Summary` when none do. Bare `-S` retains the
-`Libraries` section even when it is empty. Table, TSV, JSON Lines, projected
-JSON, typed content JSON, envelope JSON, field/column projection, and Count
-follow the existing output-shape rules.
+exist and falls back to `Query Summary` when none do. Exact `-S Libraries`
+retains the `Libraries` section even when it is empty. Table, TSV, JSON Lines,
+projected JSON, typed content JSON, envelope JSON, field/column projection, and
+Count follow the existing output-shape rules.
 
 ## Completion and failures
 
