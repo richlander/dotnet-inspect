@@ -161,6 +161,82 @@ public sealed class ResourceExplanationCommandTests : IDisposable
     }
 
     [Fact]
+    public async Task PackageQueryFacetPath_CanBePassedUnchangedToExplain()
+    {
+        var discovery = await RunAsync(
+            "package",
+            "query",
+            "-Q",
+            "Packages",
+            "--json");
+
+        Assert.Equal(0, discovery.ExitCode);
+        Assert.Empty(discovery.Error);
+        using JsonDocument discoveryDocument =
+            JsonDocument.Parse(discovery.Output);
+        JsonElement literal = discoveryDocument.RootElement
+            .GetProperty("sections")[0]
+            .GetProperty("facets")
+            .EnumerateArray()
+            .Single(element =>
+                element.GetProperty("name").GetString()
+                == "library-literal");
+        string path =
+            literal.GetProperty("resource_path").GetString()!;
+        Assert.Equal(
+            "package-query/query/facets/library-literal",
+            path);
+
+        var explanation = await RunAsync(
+            "explain",
+            path,
+            "--depth",
+            "2",
+            "--json");
+
+        Assert.Equal(0, explanation.ExitCode);
+        Assert.Empty(explanation.Error);
+        using JsonDocument explanationDocument =
+            JsonDocument.Parse(explanation.Output);
+        JsonElement root =
+            explanationDocument.RootElement
+                .GetProperty("resources")[0];
+        Assert.Equal(
+            "QueryFacet",
+            root.GetProperty("resource_kind").GetString());
+        Assert.Equal(
+            "library-literal",
+            root.GetProperty("details")
+                .GetProperty("key")
+                .GetString());
+        Assert.Contains(
+            explanationDocument.RootElement
+                .GetProperty("resources")
+                .EnumerateArray(),
+            resource =>
+                resource.GetProperty("resource_kind").GetString()
+                    == "ConsumerBinding");
+        Assert.Contains(
+            explanationDocument.RootElement
+                .GetProperty("relationships")
+                .EnumerateArray(),
+            relationship =>
+                relationship.GetProperty("relationship_kind").GetString()
+                    == "ExposedBy"
+                && relationship.GetProperty("target_path").GetString()
+                    == "package-query/bindings/cli");
+        Assert.Contains(
+            explanationDocument.RootElement
+                .GetProperty("relationships")
+                .EnumerateArray(),
+            relationship =>
+                relationship.GetProperty("relationship_kind").GetString()
+                    == "RequiredContext"
+                && relationship.GetProperty("target_path").GetString()
+                    == "package-query/query/facets/library-target");
+    }
+
+    [Fact]
     public async Task Json_UsesTheHostNeutralContentShape()
     {
         var result = await RunAsync(

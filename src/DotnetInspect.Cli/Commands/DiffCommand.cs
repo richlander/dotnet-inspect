@@ -2013,9 +2013,13 @@ public class DiffCommand
                 continue;
             }
             var candidate = AssemblyMemberSourcePairRequest.From(type, member);
-            if (candidate.Member != target.Anchor
+            AssemblyMemberSourcePairEndpointRequest endpoint =
+                candidate.Before
+                ?? throw new InvalidOperationException(
+                    "A same-member Source pair request has no Before endpoint.");
+            if (endpoint.Member != target.Anchor
                 || (request is not null
-                    && (!request.Type.Equals(candidate.Type) || request.Member != candidate.Member)))
+                    && request.Before != candidate.Before))
             {
                 unsupported = true;
             }
