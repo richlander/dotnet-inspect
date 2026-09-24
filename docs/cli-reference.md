@@ -1593,8 +1593,8 @@ With `--envelope`, `--depth` remains a traversal input and `--rows`,
 `-n`/`--head`/`--tail` remain semantic relationship selection. `--compact` is
 accepted. Competing formats, `--json`, Discover/schema/effective modes, `-S`,
 explicit `-v`, Count, fields/columns, presentation projections or decoration,
-and rendered-line clipping are rejected before acquisition. `--verbose`,
-`--info`, and `--tips` remain on stderr. `--share` retains its existing policy
+and rendered-line clipping are rejected before acquisition. `--verbose` and
+`--tips` remain on stderr. `--share` retains its existing policy
 and emits its optional URL or packet as the final stderr line. There is no
 `--evidence-envelope` support yet.
 

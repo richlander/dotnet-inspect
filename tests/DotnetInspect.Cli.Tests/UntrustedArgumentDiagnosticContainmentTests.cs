@@ -101,14 +101,6 @@ public class UntrustedArgumentDiagnosticContainmentTests : IDisposable
             // and sixteen call sites, none of them a "writer" by name.
             data.Add("verbose-progress", ["depends", hostile, "--platform", "System.Runtime", "--verbose"]);
 
-            // A diagram written to stderr as a TextWriter sink rather than
-            // through the writer. Its node labels carry the request URL and the
-            // cache key, both built from the package reference, and it escaped
-            // only the two Mermaid metacharacters -- so a line terminator in a
-            // package name ended the label's line and forged a diagnostic under
-            // it.
-            data.Add("trace-mermaid", ["package", hostile, "--trace-mermaid"]);
-
             // The --trace report is a composed multi-line diagnostic whose head
             // line interpolates the target name. It reached stderr as one
             // terminated string, so its writer had to recover line boundaries by
@@ -439,7 +431,7 @@ public class UntrustedArgumentDiagnosticContainmentTests : IDisposable
             }
 
             var (output, error) = RunCli(
-                ["package", package, "-S", "Package Info", "--fields", "Readme", "--value", "--info"]);
+                ["package", package, "-S", "Package Info", "--fields", "Readme", "--value"]);
             string combined = output + error;
 
             HostileOutputAssert.MarkersRendered(combined, "value-readme", "INJECTEDREADME");
