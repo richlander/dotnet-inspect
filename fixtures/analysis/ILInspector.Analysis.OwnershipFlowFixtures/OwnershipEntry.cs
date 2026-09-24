@@ -89,6 +89,36 @@ public static class Entry
         return buffer.Length;
     }
 
+    public static int RentAndReturnNamedCompoundThroughGenericHelper()
+    {
+        OwnershipToken[][] buffer =
+            ArrayPool<OwnershipToken[]>.Shared.Rent(16);
+        try
+        {
+            ReturnGenericArrays<OwnershipToken>(buffer);
+        }
+        finally
+        {
+            s_ownershipProbe++;
+        }
+        return buffer.Length;
+    }
+
+    public static int RentAndReturnNamedCompoundThroughNestedGenericHelpers()
+    {
+        OwnershipToken[][] buffer =
+            ArrayPool<OwnershipToken[]>.Shared.Rent(16);
+        try
+        {
+            ForwardGenericArrays<OwnershipToken>(buffer);
+        }
+        finally
+        {
+            s_ownershipProbe++;
+        }
+        return buffer.Length;
+    }
+
     public static int RentAndForwardToReturn()
     {
         byte[] buffer = ArrayPool<byte>.Shared.Rent(16);
@@ -725,6 +755,8 @@ public sealed class TrackedResource
 {
     public int Value;
 }
+
+public sealed class OwnershipToken;
 
 public delegate T BindingCallback<T>(T value);
 

@@ -102,9 +102,12 @@ Research carries the physical call site's method generic arguments across each
 forwarding step. Before selecting a typed terminal use, it substitutes the
 complete detached occurrence type into the definition-local resource domain.
 The substitution recurses through compound element and argument domains and
-composes across multiple generic forwarding steps. Missing exact argument
-evidence is incomplete, and a non-matching domain remains resource-neutral;
-neither becomes a typed terminal.
+composes across multiple generic forwarding steps. A compound wrapper's
+resolved assembly, definition, and forwarding identity is inherited evidence,
+not a second identity claim: Research compares it at the recursively
+substituted element that owns that identity. Missing exact argument evidence is
+incomplete, and a non-matching domain remains resource-neutral; neither becomes
+a typed terminal.
 
 A terminal `ResourceOwnershipPathWitness` contains the obligation, selected
 resource kind, ordered physical forwarding coordinates, typed sink outcome,
@@ -147,7 +150,8 @@ The focused gates establish:
 - repeated physical calls mapped to one logical edge retain distinct
   coordinates;
 - call-site method-generic substitution selects a matching typed release both
-  directly and across multiple forwarding steps;
+  directly and across multiple forwarding steps, including compound domains
+  whose element is defined in the inspected assembly;
 - same-simple-name assembly versions do not become one bound generic domain,
   and unavailable exact generic evidence remains incomplete;
 - one resource-kind identity bound to different resource arguments at one

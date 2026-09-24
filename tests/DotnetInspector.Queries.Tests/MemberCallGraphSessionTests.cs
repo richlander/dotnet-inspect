@@ -700,6 +700,16 @@ public sealed class MemberCallGraphSessionTests
         2,
         0)]
     [InlineData(
+        "RentAndReturnNamedCompoundThroughGenericHelper",
+        ResourceOwnershipPathOutcome.Released,
+        1,
+        0)]
+    [InlineData(
+        "RentAndReturnNamedCompoundThroughNestedGenericHelpers",
+        ResourceOwnershipPathOutcome.Released,
+        2,
+        0)]
+    [InlineData(
         "RentAndStoreThroughHelper",
         ResourceOwnershipPathOutcome.Stored,
         1,

@@ -602,12 +602,7 @@ public static class ResourceOwnershipPathFindings
         }
 
         if (!CurrentTypeShapeMatches(left.Type, right.Type)
-            || left.DefiningAssembly != right.DefiningAssembly
-            || left.DefinitionKind != right.DefinitionKind
-            || left.GenericScopeKind != right.GenericScopeKind
-            || left.Forwarding.Length != right.Forwarding.Length
-            || !left.Forwarding.Zip(right.Forwarding).All(pair =>
-                ForwardingHopsMatch(pair.First, pair.Second))
+            || !CurrentTypeIdentityMatches(left, right)
             || left.Arguments.Length != right.Arguments.Length
             || (left.Element is null) != (right.Element is null))
         {
@@ -632,6 +627,27 @@ public static class ResourceOwnershipPathFindings
                     pair.Second,
                     genericContext)));
         return Combine(matches);
+    }
+
+    static bool CurrentTypeIdentityMatches(
+        ResourceOccurrenceType left,
+        ResourceOccurrenceType right)
+    {
+        if (left.Type.Kind is
+                TypeRefKind.SzArray
+                or TypeRefKind.Array
+                or TypeRefKind.ByRef
+                or TypeRefKind.Pointer)
+        {
+            return true;
+        }
+
+        return left.DefiningAssembly == right.DefiningAssembly
+            && left.DefinitionKind == right.DefinitionKind
+            && left.GenericScopeKind == right.GenericScopeKind
+            && left.Forwarding.Length == right.Forwarding.Length
+            && left.Forwarding.Zip(right.Forwarding).All(pair =>
+                ForwardingHopsMatch(pair.First, pair.Second));
     }
 
     static bool CurrentTypeShapeMatches(TypeRef left, TypeRef right)
