@@ -48,6 +48,14 @@ public partial class LibraryCommand
                     ? new PackageLibraryTarget.Aggregate()
                     : new PackageLibraryTarget.Exact(
                         options.AssemblyName);
+        if (options.TypeNamespace is not null
+            && selection is PackageLibraryTarget.Aggregate)
+        {
+            CommandError.Write(
+                "library --namespace requires one exact Library. Name the "
+                    + "assembly within the package.");
+            return 1;
+        }
 
         InspectionOptions packageOptions =
             CreatePackageOptions(
@@ -95,6 +103,9 @@ public partial class LibraryCommand
                 selection is PackageLibraryTarget.Aggregate,
             NamesakeLibrary =
                 selection is PackageLibraryTarget.Namesake,
+            TypeNamespace = options.TypeNamespace,
+            IncludeNamespaceChildren =
+                options.IncludeNamespaceChildren,
             PackageLibrary = selection switch
             {
                 PackageLibraryTarget.Namesake => "",

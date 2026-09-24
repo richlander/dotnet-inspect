@@ -6,6 +6,13 @@ using System.Text.Json.Serialization;
 
 namespace ILInspector.Metadata;
 
+public enum MetadataNamespaceMatch
+{
+    Exact,
+    Suffix,
+    ExactOrDescendant,
+}
+
 /// <summary>Why a structured metadata type-definition name could not be created.</summary>
 public enum MetadataTypeNameRejectionKind
 {
@@ -228,6 +235,70 @@ public sealed class MetadataTypeDefinitionName : IEquatable<MetadataTypeDefiniti
 
     public string Namespace { get; }
     public ImmutableArray<string> Segments { get; }
+
+    /// <summary>
+    /// Tests exact namespace membership using metadata's ordinal identity.
+    /// </summary>
+    public bool IsInNamespace(string exactNamespace)
+        => IsInNamespace(
+            exactNamespace,
+            MetadataNamespaceMatch.Exact);
+
+    /// <summary>
+    /// Tests namespace membership using metadata's ordinal identity.
+    /// </summary>
+    public bool IsInNamespace(
+        string namespacePattern,
+        MetadataNamespaceMatch match)
+    {
+        ArgumentNullException.ThrowIfNull(namespacePattern);
+        if (!Enum.IsDefined(match))
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(match),
+                match,
+                "Unknown metadata namespace match.");
+        }
+        if (match is MetadataNamespaceMatch.Suffix
+            && (namespacePattern.Length < 2
+                || namespacePattern[0] != '.'))
+        {
+            throw new ArgumentException(
+                "A metadata namespace suffix must start with '.' and contain a suffix.",
+                nameof(namespacePattern));
+        }
+        if (match is MetadataNamespaceMatch.ExactOrDescendant
+            && namespacePattern.Length == 0)
+        {
+            throw new ArgumentException(
+                "A metadata namespace descendant root cannot be empty.",
+                nameof(namespacePattern));
+        }
+        return match switch
+        {
+            MetadataNamespaceMatch.Exact =>
+                string.Equals(
+                    Namespace,
+                    namespacePattern,
+                    StringComparison.Ordinal),
+            MetadataNamespaceMatch.Suffix =>
+                Namespace.EndsWith(
+                    namespacePattern,
+                    StringComparison.Ordinal),
+            MetadataNamespaceMatch.ExactOrDescendant =>
+                string.Equals(
+                    Namespace,
+                    namespacePattern,
+                    StringComparison.Ordinal)
+                || (Namespace.Length > namespacePattern.Length
+                    && Namespace.StartsWith(
+                        namespacePattern,
+                        StringComparison.Ordinal)
+                    && Namespace[namespacePattern.Length] == '.'),
+            _ => throw new InvalidOperationException(
+                "Unknown metadata namespace match."),
+        };
+    }
 
     /// <summary>
     /// Projects this lookup name to the dotted spelling used by metadata

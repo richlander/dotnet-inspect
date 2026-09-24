@@ -699,6 +699,56 @@ public sealed partial class BrowserEngineBoundaryTests
         return content.ToArray();
     }
 
+    static byte[] PackageWithDocuments(
+        string packageId,
+        string version,
+        string readme,
+        string skill)
+    {
+        using var content = new MemoryStream();
+        using (var archive = new ZipArchive(
+            content,
+            ZipArchiveMode.Create,
+            leaveOpen: true))
+        {
+            using (StreamWriter manifest = new(
+                archive.CreateEntry(
+                    $"{packageId}.nuspec",
+                    CompressionLevel.NoCompression).Open(),
+                Encoding.UTF8,
+                leaveOpen: false))
+            {
+                manifest.Write(Nuspec(packageId, version));
+            }
+
+            WritePackageText(
+                archive,
+                "README.md",
+                readme);
+            WritePackageText(
+                archive,
+                "skills/demo/SKILL.md",
+                skill);
+            WritePackageText(
+                archive,
+                "content/notes.txt",
+                "Not browsable.");
+        }
+
+        return content.ToArray();
+    }
+
+    static void WritePackageText(
+        ZipArchive archive,
+        string path,
+        string text)
+    {
+        using Stream entry = archive
+            .CreateEntry(path, CompressionLevel.Optimal)
+            .Open();
+        entry.Write(Encoding.UTF8.GetBytes(text));
+    }
+
     static string Nuspec(string packageId, string version) =>
         $"""
          <package>

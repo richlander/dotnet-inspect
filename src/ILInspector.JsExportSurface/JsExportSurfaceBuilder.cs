@@ -19,7 +19,7 @@ public static class JsExportSurfaceBuilder
         "serializer context options are unsupported";
     readonly record struct JsonWireContextOptions(
         JsonWireNamingPolicy NamingPolicy,
-        JsonWireIgnoreCondition DefaultIgnoreCondition,
+        JsonWireContextDefaultIgnoreCondition DefaultIgnoreCondition,
         bool UseStringEnumConverter);
 
     /// <summary>
@@ -209,6 +209,10 @@ public static class JsExportSurfaceBuilder
         var discovered = new HashSet<ApiType>();
         var optionsByType =
             new Dictionary<ApiType, HashSet<JsonWireContextOptions>>();
+        var contextDefaultIgnoreConditions =
+            new Dictionary<
+                ApiType,
+                JsonWireContextDefaultIgnoreCondition>();
         var registeredJsonTypeInfoGetterModes =
             new Dictionary<
                 JsonContextGetterIdentity,
@@ -309,7 +313,8 @@ public static class JsExportSurfaceBuilder
             var contextOptions = new JsonWireContextOptions(
                 type.JsonPropertyNamingPolicy
                     ?? JsonWireNamingPolicy.None,
-                type.JsonDefaultIgnoreCondition,
+                JsonWireMemberRules.GetContextDefaultIgnoreCondition(
+                    type.JsonDefaultIgnoreConditionEvidence),
                 type.JsonUseStringEnumConverter);
 
             foreach (ApiMember member in type.Members)
@@ -328,7 +333,9 @@ public static class JsExportSurfaceBuilder
                     type.JsonPropertyNamingPolicy
                         ?? JsonWireNamingPolicy.None;
                 bool hasUnsupportedContextOptions =
-                    policy == JsonWireNamingPolicy.Unsupported;
+                    policy == JsonWireNamingPolicy.Unsupported
+                    || contextOptions.DefaultIgnoreCondition
+                        == JsonWireContextDefaultIgnoreCondition.Unsupported;
                 ApiSignature? signature = member.SignatureModel;
                 IReadOnlyList<ApiTypeReferenceIdentity>? references =
                     signature?.ReturnTypeReferences;
@@ -564,12 +571,14 @@ public static class JsExportSurfaceBuilder
             }
 
             type.JsonPropertyNamingPolicy = options.Count == 1
+                && contextOptions.DefaultIgnoreCondition
+                    != JsonWireContextDefaultIgnoreCondition.Unsupported
                 ? contextOptions.NamingPolicy
                 : JsonWireNamingPolicy.Unsupported;
-            type.JsonDefaultIgnoreCondition =
+            contextDefaultIgnoreConditions[type] =
                 options.Count == 1
                     ? contextOptions.DefaultIgnoreCondition
-                    : JsonWireIgnoreCondition.Never;
+                    : JsonWireContextDefaultIgnoreCondition.Unsupported;
             type.JsonUseStringEnumConverter =
                 options.Count == 1
                     && contextOptions.UseStringEnumConverter;
@@ -751,6 +760,8 @@ public static class JsExportSurfaceBuilder
             ReferencedTypeDefinitions = referencedTypeDefinitions
                 ?? new Dictionary<ApiTypeReferenceIdentity, ApiType>(),
             WireDirections = wireDirections,
+            ContextDefaultIgnoreConditions =
+                contextDefaultIgnoreConditions,
         };
     }
 

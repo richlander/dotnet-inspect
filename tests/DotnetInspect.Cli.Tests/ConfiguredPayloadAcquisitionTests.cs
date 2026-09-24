@@ -81,6 +81,191 @@ public sealed partial class ConfiguredPayloadAcquisitionTests : IDisposable
     }
 
     [Fact]
+    public async Task PackageCommand_ExactHouseDocumentExportsPreserveReadmeAndSkillSemantics()
+    {
+        string id = $"Pinned.Documents.{Guid.NewGuid():N}";
+        const string Readme = "House README payload.";
+        const string Skill = """
+            ---
+            name: demo
+            description: Demo package skill.
+            ---
+
+            # Demo
+            """;
+        byte[] archive = CreatePackage(
+            id,
+            Readme,
+            extraEntries:
+            [
+                ("skills/demo/SKILL.md", Encoding.UTF8.GetBytes(Skill)),
+            ]);
+        var requests = new ConcurrentQueue<string>();
+        CoreHttpClientFactory.SetPackageSourceHandlerForTesting(
+            source => new PayloadFeedHandler(
+                source,
+                id,
+                () => new ByteArrayContent(archive),
+                requests));
+        string readmePath = Path.Combine(_root, "README.md");
+        string skillPath = Path.Combine(_root, "SKILL.md");
+        string missingPath = Path.Combine(_root, "missing-SKILL.md");
+
+        var readme = await RunCommandAsync(
+            ["package", id, "--version", Version, "--source", FirstFeed,
+                "--path", "readme.md", "--content", "--out", readmePath,
+                "--tips", "q"]);
+        var skill = await RunCommandAsync(
+            ["package", $"{id}@{Version}", "--source", FirstFeed,
+                "--path", "skills\\demo\\SKILL.md", "--content", "--out",
+                skillPath, "--tips", "q"]);
+        var missing = await RunCommandAsync(
+            ["package", $"{id}@{Version}", "--source", FirstFeed,
+                "--path", "skills/missing/SKILL.md", "--content", "--out",
+                missingPath, "--tips", "q"]);
+
+        Assert.Equal(0, readme.Exit);
+        Assert.Empty(readme.Output);
+        Assert.Empty(readme.Error);
+        Assert.Equal(Readme, File.ReadAllText(readmePath));
+        Assert.Equal(0, skill.Exit);
+        Assert.Empty(skill.Output);
+        Assert.Empty(skill.Error);
+        Assert.Equal(Skill, File.ReadAllText(skillPath));
+        Assert.Equal(1, missing.Exit);
+        Assert.Empty(missing.Output);
+        Assert.Contains("found 0", missing.Error, StringComparison.Ordinal);
+        Assert.False(File.Exists(missingPath));
+        Assert.Equal(
+            1,
+            requests.Count(request =>
+                request.EndsWith(".nupkg", StringComparison.Ordinal)));
+    }
+
+    [Fact]
+    public async Task PackageCommand_ExactDocumentExportPreservesTfmFiltering()
+    {
+        string id = $"Pinned.FilteredDocument.{Guid.NewGuid():N}";
+        byte[] archive = CreatePackage(
+            id,
+            "root README",
+            library: new byte[17]);
+        var requests = new ConcurrentQueue<string>();
+        CoreHttpClientFactory.SetPackageSourceHandlerForTesting(
+            source => new PayloadFeedHandler(
+                source,
+                id,
+                () => new ByteArrayContent(archive),
+                requests));
+        string outputPath = Path.Combine(_root, "tfm-README.md");
+
+        var result = await RunCommandAsync(
+            ["package", $"{id}@{Version}", "--source", FirstFeed,
+                "--path", "README.md", "--tfm", "net11.0",
+                "--content", "--out", outputPath, "--tips", "q"]);
+
+        Assert.Equal(1, result.Exit);
+        Assert.Empty(result.Output);
+        Assert.Contains("found 0", result.Error, StringComparison.Ordinal);
+        Assert.False(File.Exists(outputPath));
+        Assert.Equal(
+            1,
+            requests.Count(request =>
+                request.EndsWith(".nupkg", StringComparison.Ordinal)));
+    }
+
+    [Fact]
+    public async Task PackageCommand_ExactDocumentExportPreservesOfflineCacheOnlyBehavior()
+    {
+        string id = $"Pinned.OfflineDocument.{Guid.NewGuid():N}";
+        string source = Path.Combine(_root, "offline-document-feed");
+        WriteLocalPackage(source, id, "local feed README", hierarchical: false);
+        string outputPath = Path.Combine(_root, "offline-README.md");
+
+        bool wasOffline = CoreHttpClientFactory.IsOffline;
+        try
+        {
+            CoreHttpClientFactory.Initialize(
+                new HttpClientFactoryOptions { Offline = true });
+            CoreHttpClientFactory.ResetSharedForTesting();
+
+            var result = await RunCommandAsync(
+                ["package", $"{id}@{Version}", "--source", source,
+                    "--path", "README.md", "--content", "--out", outputPath,
+                    "--tips", "q"]);
+
+            Assert.Equal(1, result.Exit);
+            Assert.Empty(result.Output);
+            Assert.Contains(
+                $"Package '{id.ToLowerInvariant()}' version '{Version}' "
+                    + "is not available offline; no cached package was found.",
+                result.Error,
+                StringComparison.Ordinal);
+            Assert.False(File.Exists(outputPath));
+        }
+        finally
+        {
+            CoreHttpClientFactory.Initialize(
+                new HttpClientFactoryOptions { Offline = wasOffline });
+            CoreHttpClientFactory.ResetSharedForTesting();
+        }
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task PackageCommand_ExactDocumentExportPreservesToolWrapperRedirect(
+        bool declaresPackageType)
+    {
+        string wrapperId = $"Pinned.DocumentWrapper.{Guid.NewGuid():N}";
+        string payloadId = $"{wrapperId}.Payload";
+        string source = Path.Combine(_root, "document-wrapper-feed");
+        Directory.CreateDirectory(source);
+        string packageTypes = declaresPackageType
+            ? """
+                      <packageTypes>
+                        <packageType name="DotnetTool" />
+                      </packageTypes>
+              """
+            : "";
+        File.WriteAllBytes(
+            Path.Combine(
+                source,
+                $"{wrapperId.ToLowerInvariant()}.{Version}.nupkg"),
+            CreatePackage(
+                wrapperId,
+                "wrapper README",
+                redirectId: payloadId,
+                nuspecContent: $"""
+                    <package><metadata>
+                      <id>{wrapperId}</id><version>{Version}</version>
+                      <authors>Payload tests</authors>
+                      <description>Tool wrapper</description>
+                      <readme>README.md</readme>
+                      {packageTypes}
+                    </metadata></package>
+                    """));
+        File.WriteAllBytes(
+            Path.Combine(
+                source,
+                $"{payloadId.ToLowerInvariant()}.{Version}.nupkg"),
+            CreatePackage(
+                payloadId,
+                "redirected README"));
+        string readmePath = Path.Combine(_root, "redirected-README.md");
+
+        var result = await RunCommandAsync(
+            ["package", $"{wrapperId}@{Version}", "--source", source,
+                "--path", "README.md", "--content", "--out", readmePath,
+                "--tips", "q"]);
+
+        Assert.True(result.Exit == 0, $"Exit {result.Exit}: {result.Error}");
+        Assert.Empty(result.Output);
+        Assert.Empty(result.Error);
+        Assert.Equal("redirected README", File.ReadAllText(readmePath));
+    }
+
+    [Fact]
     public async Task PackageCommand_LayoutDoesNotValidatePackageInfoTarget()
     {
         string id = $"Pinned.Layout.{Guid.NewGuid():N}";
@@ -779,9 +964,12 @@ public sealed partial class ConfiguredPayloadAcquisitionTests : IDisposable
             source => new PayloadFeedHandler(
                 source, id, () => PackageContent(id, "HTTP package content"), requests));
         using var client = new HttpClient(new RejectNetworkHandler(new HttpClientHandler()));
+        // A credentialed authority has no durable identity, so its payload
+        // lives in caller-owned temporary storage until cleanup.
+        string config = WriteConfig([("first", FirstFeed, "*")], credentialedSource: "first");
         PackageExtractionOutcome outcome = await DesktopPackageExtractor.ExtractPinnedPackageAsync(
             client, id, Version,
-            sourceOptions: new NuGetSourceOptions { Sources = [FirstFeed] });
+            sourceOptions: new NuGetSourceOptions { ConfigFile = config });
 
         Assert.True(outcome.IsSuccess, outcome.ErrorMessage);
         PackageExtractionResult result = outcome.Result!;
@@ -811,6 +999,47 @@ public sealed partial class ConfiguredPayloadAcquisitionTests : IDisposable
 
         Assert.False(Directory.Exists(result.TempDir));
         Assert.False(Directory.Exists(result.ExtractPath));
+    }
+
+    /// <summary>
+    /// A credential-free HTTP authority is durable: the first pin downloads
+    /// and publishes to the authority store, the second is a cache hit with no
+    /// package request and no temporary root (docs/design/package-cache-policy.md).
+    /// </summary>
+    [Fact]
+    public async Task ExtractPinnedPackage_CredentialFreeHttpPinIsDurable()
+    {
+        string id = $"Pinned.Durable.{Guid.NewGuid():N}";
+        var requests = new ConcurrentQueue<string>();
+        CoreHttpClientFactory.SetPackageSourceHandlerForTesting(
+            source => new PayloadFeedHandler(
+                source, id, () => PackageContent(id, "durable content"), requests));
+        using var client = new HttpClient(new RejectNetworkHandler(new HttpClientHandler()));
+        var results = new List<PackageExtractionResult>();
+        try
+        {
+            for (int run = 0; run < 2; run++)
+            {
+                PackageExtractionOutcome outcome = await DesktopPackageExtractor.ExtractPinnedPackageAsync(
+                    client, id, Version,
+                    sourceOptions: new NuGetSourceOptions { Sources = [FirstFeed] });
+                Assert.True(outcome.IsSuccess, outcome.ErrorMessage);
+                results.Add(outcome.Result!);
+            }
+
+            Assert.All(results, result =>
+                Assert.StartsWith("authority-v1-", result.CacheScopeKey, StringComparison.Ordinal));
+            Assert.False(results[0].FromCache);
+            Assert.True(results[1].FromCache);
+            Assert.Equal("durable content", File.ReadAllText(
+                Path.Combine(results[1].ExtractPath, "README.md")));
+            Assert.Single(requests, request => request.EndsWith(".nupkg", StringComparison.Ordinal));
+        }
+        finally
+        {
+            foreach (PackageExtractionResult result in results)
+                DesktopPackageExtractor.Cleanup(result.TempDir);
+        }
     }
 
     [Fact]
@@ -1488,8 +1717,9 @@ public sealed partial class ConfiguredPayloadAcquisitionTests : IDisposable
             Assert.Empty(error);
         }
 
+        // The second run is a durable cache hit.
         Assert.Equal(
-            2,
+            1,
             requests.Count(request =>
                 request.EndsWith(".nupkg", StringComparison.Ordinal)));
     }
@@ -1823,7 +2053,9 @@ public sealed partial class ConfiguredPayloadAcquisitionTests : IDisposable
                         "--no-nuget-cache"]);
                 Assert.True(exit == 0, $"Exit {exit}: {error}");
                 Assert.Equal(Readme, output.Trim());
-                Assert.Equal(iteration, requests.Count(request =>
+                // The wrapper is served by a credential-free HTTP feed, so the
+                // second iteration reads it from the durable authority store.
+                Assert.Equal(1, requests.Count(request =>
                     request.EndsWith(".nupkg", StringComparison.Ordinal)));
                 Assert.Empty(Directory.EnumerateDirectories(temporaryRoot, "inspect-pkg*"));
 
@@ -1872,18 +2104,29 @@ public sealed partial class ConfiguredPayloadAcquisitionTests : IDisposable
         return reader.ReadToEnd();
     }
 
-    private string WriteConfig((string Name, string Source, string Pattern)[] sources)
+    private string WriteConfig(
+        (string Name, string Source, string Pattern)[] sources,
+        string? credentialedSource = null)
     {
         string path = Path.Combine(_root, $"sources-{Guid.NewGuid():N}.config");
-        new XDocument(new XElement("configuration",
+        var configuration = new XElement("configuration",
             new XElement("packageSources", new XElement("clear"),
                 sources.Select(source => new XElement("add",
                     new XAttribute("key", source.Name), new XAttribute("value", source.Source)))),
             new XElement("packageSourceMapping",
                 sources.Select(source => new XElement("packageSource",
                     new XAttribute("key", source.Name),
-                    new XElement("package", new XAttribute("pattern", source.Pattern)))))))
-            .Save(path);
+                    new XElement("package", new XAttribute("pattern", source.Pattern))))));
+        if (credentialedSource is not null)
+        {
+            // A configured credential keeps the authority process-local, with
+            // no durable cache identity (docs/design/package-cache-policy.md).
+            configuration.Add(new XElement("packageSourceCredentials",
+                new XElement(credentialedSource,
+                    new XElement("add", new XAttribute("key", "Username"), new XAttribute("value", "user")),
+                    new XElement("add", new XAttribute("key", "ClearTextPassword"), new XAttribute("value", "token")))));
+        }
+        new XDocument(configuration).Save(path);
         return path;
     }
 

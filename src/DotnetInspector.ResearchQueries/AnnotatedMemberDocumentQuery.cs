@@ -20,7 +20,7 @@ public sealed record AnnotatedMemberDocumentInput(
     AnnotationStage Stage = AnnotationStage.Raised,
     PrinterOptions? PrinterOptions = null,
     CallGraphCycleSearchOptions? CycleSearchOptions = null,
-    ArrayPoolOwnershipSearchOptions? OwnershipSearchOptions = null);
+    ResourceOwnershipSearchOptions? OwnershipSearchOptions = null);
 
 /// <summary>
 /// One physical call occurrence joined to both a stable graph edge row and a
@@ -164,7 +164,7 @@ public sealed record AnnotatedCallGraphOverlay(
     CallGraphProjection Projection,
     ImmutableArray<AnnotatedCallGraphOccurrence> Occurrences,
     AnnotatedCallGraphCycleInspection Cycles,
-    AnnotatedCallGraphOwnershipInspection Ownership,
+    ResourceOwnershipPathInspection Ownership,
     CatalogCallGraphDiagnostics Diagnostics);
 
 /// <summary>
@@ -233,11 +233,12 @@ public static class AnnotatedMemberDocumentQuery
                 graphView,
                 projection,
                 input.CycleSearchOptions);
-        AnnotatedCallGraphOwnershipInspection ownership =
-            ArrayPoolOwnershipPathFindings.Inspect(
+        ResourceOwnershipPathInspection ownership =
+            ResourceOwnershipPathFindings.Inspect(
                 graphView,
                 projection,
-                input.OwnershipSearchOptions);
+                input.OwnershipSearchOptions
+                    ?? ResourceOwnershipSearchOptions.ArrayPool);
         bool focusIsBudgetLimited =
             graphView.CalleeRoot.Status
                 is CallTreeStatus.DepthLimited

@@ -704,6 +704,26 @@ body:has(:not([hidden]) > [role="dialog"][aria-modal="true"])
   outline: 1px solid var(--shell-accent);
   outline-offset: 3px;
 }
+.subject-path-framework {
+  flex: none;
+  margin-left: 6px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--dim);
+  font: 500 11px var(--mono);
+  white-space: nowrap;
+  cursor: pointer;
+}
+.subject-path-framework:hover {
+  color: var(--text);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.subject-path-framework:focus-visible {
+  outline: 1px solid var(--shell-accent);
+  outline-offset: 3px;
+}
 .subject-path-qualifier {
   flex: 0 4 auto;
   min-width: 0;
@@ -1318,11 +1338,19 @@ kbd {
 }
 .metrics-treemap { min-height: 260px; }
 .metrics-treemap-cell rect { stroke: var(--bg); stroke-width: 2; }
+.metrics-treemap-cell[data-metrics-type-key] { cursor: pointer; }
+.metrics-treemap-cell[data-metrics-type-key]:is(:hover, :focus-visible) rect {
+  stroke: var(--accent); stroke-width: 4;
+}
 .metrics-treemap-label,
 .metrics-relationship-node text {
   fill: var(--text); font: 11px var(--mono); pointer-events: none;
 }
-.metrics-relationship-crossing { min-height: 230px; }
+.metrics-treemap-evidence {
+  min-height: 18px; margin: 10px 0 0; color: var(--muted);
+  font: 11px/1.5 var(--mono);
+}
+.metrics-relationship-crossing { min-height: 300px; }
 .metrics-relationship-edge {
   fill: none; opacity: .78; transition: opacity .15s ease, stroke-width .15s ease;
 }
@@ -1330,9 +1358,6 @@ kbd {
 .metrics-relationship-node circle { fill: var(--accent); stroke: var(--bg); stroke-width: 2; }
 .metrics-relationship-node text { fill: var(--muted); font-size: 10px; }
 .metrics-visual-caption { margin: 10px 0 0; color: var(--dim); font: 10px/1.5 var(--mono); }
-.metrics-detail { margin-top: 18px; border-top: 1px solid var(--line); padding-top: 12px; }
-.metrics-detail summary { color: var(--muted); cursor: pointer; font: 12px var(--mono); }
-.metrics-table { margin-top: 12px; }
 .metadata-surface-scroll > .metadata-shape-section { padding: 0; }
 .metadata-shape-section .section-title { min-height: 40px; margin: 0; padding: 0 16px; border-bottom: 1px solid var(--line); }
 .metadata-shape-section .fact-rows { border-top: 0; }
@@ -2851,6 +2876,28 @@ kbd {
   .workspace-occurrence > span { grid-column: 1 / -1; }
   .workspace-occurrence > small { grid-column: 1; }
   .workspace-view-details div { grid-template-columns: 80px minmax(0, 1fr); }
+}
+
+@media (max-width: 600px) {
+  .workbench:has(.targetbar .working-surface-actions #type-source-view) {
+    grid-template-rows: 42px 82px auto minmax(0, 1fr) 30px;
+  }
+  .targetbar:has(.working-surface-actions #type-source-view) {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: 41px 40px;
+    gap: 0;
+  }
+  .targetbar:has(.working-surface-actions #type-source-view)
+  .inspected-target {
+    width: 100%;
+    height: 41px;
+  }
+  .targetbar:has(.working-surface-actions #type-source-view)
+  .working-surface-actions {
+    width: 100%;
+    height: 40px;
+  }
 }
 
 @container title-navigation (max-width: 280px) {
@@ -5659,6 +5706,37 @@ button.library-api-diff-row[aria-current="true"] { background: var(--panel-raise
 .type-explorer-source-declaration.selected {
   outline: 1px solid var(--accent);
   background: var(--accent-soft);
+}
+.type-explorer-body-inspect {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  margin: 0 7px;
+  font-family: var(--font);
+  font-size: 11px;
+  user-select: none;
+}
+.type-explorer-body-inspect button {
+  padding: 2px 7px;
+  border: 1px solid var(--accent);
+  border-radius: 999px;
+  background: var(--accent-soft);
+  color: var(--text);
+  font: inherit;
+  cursor: pointer;
+}
+.type-explorer-body-inspect button:hover,
+.type-explorer-body-inspect button:focus-visible {
+  background: var(--panel-active);
+}
+.type-explorer-body-inspect button[aria-disabled="true"] {
+  cursor: progress;
+}
+.type-explorer-body-inspect-status { color: var(--muted); }
+.type-explorer-body-inspect-error {
+  max-width: 44ch;
+  color: var(--finding-allocation);
+  white-space: normal;
 }
 .type-explorer-status {
   display: flex;

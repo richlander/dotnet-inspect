@@ -95,6 +95,23 @@ public sealed record MemberCallGraphView(
     /// <summary>Whether ownership-flow production was requested.</summary>
     public bool OwnershipFlowAvailable { get; init; }
 
+    /// <summary>
+    /// Generic Resource Ownership summaries retained from the same focused
+    /// results that produced this graph layer.
+    /// </summary>
+    public ImmutableArray<Analysis.ResourceOwnershipMethodSummary>
+        ResourceOwnershipSummaries { get; init; } = [];
+
+    /// <summary>Whether generic Resource Ownership production was requested.</summary>
+    public bool ResourceOwnershipAvailable { get; init; }
+
+    /// <summary>
+    /// Whether every participating generic ownership Analysis result was
+    /// published without an operation-level limitation. Individual summaries
+    /// and flows retain independent local completeness.
+    /// </summary>
+    public bool ResourceOwnershipPublicationComplete { get; init; }
+
     public Analysis.CatalogCallGraphDiagnostics Diagnostics { get; init; } =
         Analysis.CatalogCallGraphDiagnostics.Empty;
 }
@@ -109,6 +126,12 @@ public sealed record MemberCallGraphOptions
     public Analysis.LibraryBodyAnalysisFeatures Features { get; init; } =
         Analysis.LibraryBodyAnalysisFeatures.MethodEvidence
         | Analysis.LibraryBodyAnalysisFeatures.Allocations;
+
+    /// <summary>
+    /// Admitted resource semantics for generic ownership summaries. Null keeps
+    /// Resource Occurrence and generic ownership production inactive.
+    /// </summary>
+    public Analysis.ResourceEffectAdmission? ResourceEffects { get; init; }
 
     internal void Validate()
     {
@@ -175,6 +198,7 @@ public sealed class MemberCallGraphSession : IDisposable
     readonly AssemblyContextParticipant _root;
     readonly int _memberToken;
     readonly MemberCallGraphOptions _options;
+    readonly IAssemblyBindingPolicy? _resourceBindingPolicy;
     readonly Dictionary<AssemblyAcquisitionRegistration, AnalysisBuildResult>
         _crossAnalyses = new(ReferenceEqualityComparer.Instance);
     readonly Dictionary<AssemblyImageIdentity, AnalysisBuildResult.Available>
@@ -211,6 +235,16 @@ public sealed class MemberCallGraphSession : IDisposable
         _group = group;
         _memberToken = memberToken;
         _options = options;
+        _resourceBindingPolicy =
+            options.ResourceEffects is null
+                ? null
+                : SourceRelativeAssemblyGroupBindingPolicy
+                    .CreateCanonicalizingParticipantSelections(
+                        group.Participants.Select(participant =>
+                            (
+                                group.CreateSnapshotBackedReference(
+                                    participant.Assembly),
+                                participant.BindingPolicy)));
         _group.RegisterOwnedResource(this);
     }
 
@@ -514,6 +548,18 @@ public sealed class MemberCallGraphSession : IDisposable
                 (_options.Features
                     & Analysis.LibraryBodyAnalysisFeatures.OwnershipFlow)
                 != 0,
+            ResourceOwnershipSummaries =
+            [
+                .. evidenceSources
+                    .SelectMany(item =>
+                        item.CallGraph.ResourceOwnershipSummaries),
+            ],
+            ResourceOwnershipAvailable =
+                _options.ResourceEffects is not null,
+            ResourceOwnershipPublicationComplete =
+                _options.ResourceEffects is not null
+                && evidenceSources.All(item =>
+                    item.CallGraph.ResourceOwnershipPublicationComplete),
             Diagnostics =
                 diagnostics
                 ?? Analysis.CatalogCallGraphDiagnostics.Empty,
@@ -620,18 +666,36 @@ public sealed class MemberCallGraphSession : IDisposable
                     IncrementBuildCount(buildKind);
                     try
                     {
+                        ResolvedAssemblyReference analysisAssembly =
+                            _options.ResourceEffects is null
+                                ? participant.Assembly
+                                : snapshot.RetainAssemblyReference(
+                                    participant.Assembly);
                         Analysis.LibraryBodyAnalysisExecution execution =
-                            Analysis.LibraryBodyAnalysisService.ExecuteImage(
-                                ParticipantName(participant),
-                                snapshot.Content,
-                                Analysis.LibraryBodyAnalysisRequest.Create(
-                                    _options.Features,
-                                    bodyScope),
-                                resolver: null);
+                            _options.ResourceEffects is { } resourceEffects
+                                ? Analysis.LibraryBodyAnalysisService.ExecuteImage(
+                                    ParticipantName(participant),
+                                    snapshot.Content,
+                                    Analysis.LibraryBodyAnalysisRequest
+                                        .CreateResourceOccurrences(
+                                            resourceEffects,
+                                            _options.Features,
+                                            bodyScope),
+                                    _resourceBindingPolicy!,
+                                    analysisAssembly)
+                                : Analysis.LibraryBodyAnalysisService.ExecuteImage(
+                                    ParticipantName(participant),
+                                    snapshot.Content,
+                                    Analysis.LibraryBodyAnalysisRequest.Create(
+                                        _options.Features,
+                                        bodyScope),
+                                    resolver: null);
                         ResolvedAssemblyReference assembly =
                             retainAssembly
-                                ? snapshot.RetainAssemblyReference(
-                                    participant.Assembly)
+                                ? _options.ResourceEffects is null
+                                    ? snapshot.RetainAssemblyReference(
+                                        participant.Assembly)
+                                    : analysisAssembly
                                 : participant.Assembly;
                         var available =
                             new AnalysisBuildResult.Available(
@@ -645,6 +709,7 @@ public sealed class MemberCallGraphSession : IDisposable
                                 imageIdentity,
                                 available);
                         }
+
                         return available;
                     }
                     catch (Exception ex)

@@ -173,14 +173,19 @@ public sealed partial class DesktopPackageSourceComposition
             IPackagePayloadTransferPolicy? transferPolicy,
             string? requiredProducerKey,
             PackageHouseTargetContext? compileTargetContext = null,
-            PackagePayloadAccess access = PackagePayloadAccess.Complete)
+            PackagePayloadAccess access = PackagePayloadAccess.Complete,
+            PackageAssetDemand assetDemand =
+                PackageAssetDemand.SurfaceAndImplementation,
+            IEnumerable<string>? implementationNames = null)
     {
         PackageHouseRequest request = CreateHouseRequest(
             new PackageHouseDemand.Exact(coordinate),
             compileTargetContext is null
                 ? PackageHouseOperationProfile.Acquire
                 : PackageHouseOperationProfile.Realize,
-            compileTargetContext);
+            compileTargetContext,
+            assetDemand,
+            implementationNames);
         return ExecuteAndProjectPayloadAsync(
             request,
             coordinate.PackageId,
@@ -292,7 +297,8 @@ public sealed partial class DesktopPackageSourceComposition
             sourceResult?.NotFoundAuthorities,
             sourceResult?.ReportingAuthorities,
             settlement.SelectionUsesOriginalSources,
-            settlement);
+            settlement,
+            sourceResult?.Transfer);
     }
 
     private Task<PackageHouseSettlement> ExecuteHouseAsync(
@@ -379,7 +385,10 @@ public sealed partial class DesktopPackageSourceComposition
     private PackageHouseRequest CreateHouseRequest(
         PackageHouseDemand demand,
         PackageHouseOperationProfile profile,
-        PackageHouseTargetContext? targetContext = null) =>
+        PackageHouseTargetContext? targetContext = null,
+        PackageAssetDemand assetDemand =
+            PackageAssetDemand.SurfaceAndImplementation,
+        IEnumerable<string>? implementationNames = null) =>
         new(
             demand,
             PackageHouseOperation.Create(
@@ -389,7 +398,9 @@ public sealed partial class DesktopPackageSourceComposition
             targetContext,
             profile == PackageHouseOperationProfile.Realize
                 ? PackageHouseAssetSelectionKind.Compile
-                : null);
+                : null,
+            assetDemand: assetDemand,
+            implementationNames: implementationNames);
 
     private static bool TryCreateSelectionRequest(
         string packageId,

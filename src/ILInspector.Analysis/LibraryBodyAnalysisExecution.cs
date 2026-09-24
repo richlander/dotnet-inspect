@@ -143,6 +143,28 @@ public sealed record LibraryResourceOccurrenceAnalysisResult(
 }
 
 /// <summary>
+/// Detached interprocedural ownership summaries produced from one Resource
+/// Occurrence and body-analysis generation.
+/// </summary>
+public sealed record LibraryResourceOwnershipAnalysisResult(
+    LibraryBodyAnalysisReceipt Receipt,
+    bool WasRequested,
+    ResourceEffectAdmissionReceipt? AdmissionReceipt,
+    ImmutableArray<ResourceOwnershipMethodSummary> Methods,
+    ImmutableArray<ResourceOccurrenceLimitation> Limitations)
+{
+    public bool IsComplete =>
+        WasRequested
+        && Limitations.IsEmpty
+        && Methods.All(method =>
+            method.IsComplete
+            && method.Acquisitions.All(
+                static flow => flow.IsComplete)
+            && method.Parameters.All(
+                static flow => flow.IsComplete));
+}
+
+/// <summary>
 /// Explicit focused results produced by one shared library-body Analysis
 /// execution.
 /// </summary>
@@ -201,6 +223,12 @@ public sealed class LibraryBodyAnalysisExecution
             plan.ResourceEffects?.Receipt,
             analysis.ResourceOccurrences?.Methods ?? [],
             analysis.ResourceOccurrences?.Limitations ?? []);
+        ResourceOwnership = new(
+            Receipt,
+            plan.IncludesResourceOccurrences,
+            plan.ResourceEffects?.Receipt,
+            analysis.ResourceOwnership?.Methods ?? [],
+            analysis.ResourceOwnership?.Limitations ?? []);
         ResourceLifecycle = new(
             Receipt,
             plan.IncludesResourceLifecycle,
@@ -239,9 +267,17 @@ public sealed class LibraryBodyAnalysisExecution
     public LibraryResourceOccurrenceAnalysisResult ResourceOccurrences
     { get; }
 
+    /// <summary>Focused interprocedural Resource Ownership summary.</summary>
+    public LibraryResourceOwnershipAnalysisResult ResourceOwnership
+    { get; }
+
     /// <summary>Focused root-bound Resource Lifecycle result.</summary>
     public LibraryResourceLifecycleAnalysisResult ResourceLifecycle
     { get; }
+
+    internal ImplementationMetricWorkBudgetSnapshot?
+        ImplementationMetricWork =>
+        _analysis.ImplementationMetricWork;
 
     internal bool HasMaterializedCompatibilityIndex =>
         _compatibilityIndex is not null;

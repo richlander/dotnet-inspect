@@ -689,7 +689,7 @@ internal sealed class PackageSourceSettlementGeneration
         Action<string>? log = null,
         PackagePayloadLimits? limits = null,
         IPackagePayloadTransferPolicy? transferPolicy = null,
-        PackageEntrySelector? rangedSelection = null)
+        PackageRangedRead? rangedRead = null)
     {
         return _payloadAcquirer.AcquireAsync(
             candidate,
@@ -699,7 +699,7 @@ internal sealed class PackageSourceSettlementGeneration
             operationContext.CancellationToken,
             transferPolicy,
             operationContext,
-            rangedSelection);
+            rangedRead);
     }
 
     internal Task<ConfiguredPackagePayloadResult>

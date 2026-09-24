@@ -733,6 +733,79 @@ acquisition receipt. Every terminal result after successful acquisition remains
 an `Acquired` settlement, including selection no-match, ambiguity, rejection,
 and operation timeout, so package shape and completed evidence are not lost.
 
+## Pull-based acquired payload reads
+
+An `Acquired` settlement may open one exact package entry as a cold, single-use
+read stream. This is an optional House capability for hosts that can consume
+bytes progressively. It is not part of the immutable House `Result`, an
+`InspectionEnvelope<TContent>`, or a resource-free receipt.
+
+Creating the stream binds it to the settlement's acquisition receipt and live
+content generation but performs no payload work. A first non-empty read opens
+the entry. Each sequential read produces no more expanded content than the
+caller's buffer requests, so the caller controls backpressure. Length and
+position are intentionally unavailable because probing stream metadata must
+not start production. Cancellation observed before the first read also leaves
+the stream cold.
+
+Reading through end of stream completes declared-size and checksum validation.
+A read may therefore surface decompression, size, or checksum failure. Early
+disposal means abandonment rather than successful completion. The caller owns
+and disposes the stream while the acquired payload generation remains live.
+
+The Browser/Wasm package store still retains the complete admitted `.nupkg` in
+memory, and a displayed document may ultimately remain resident in the pane.
+The bounded path avoids a second complete expanded-entry `byte[]`; it does not
+promise zero-copy acquisition. A CLI host can copy the same stream to stdout
+or a file with one bounded transfer buffer. A Browser host can decode
+progressively into its final resident representation.
+
+This capability belongs only to `PackageHouseSettlement.Acquired`. The legacy
+`PackageExtractor`, extracted-file, `PackageFileContent`, and Source paths gain
+no adapter and retain their current behavior. Host adoption must begin from a
+live House settlement rather than wrapping an already materialized `byte[]` or
+legacy file read in a stream. Package content that does not implement the
+internal House pull capability fails visibly; the House does not fall back to
+the legacy eager entry-opening contract. Filesystem content additionally
+requires a retained package archive: its declared entry size and CRC validate
+the extracted-file stream, while archive-less content is visibly unsupported.
+
+The first production consumer is exact-version online CLI export of one
+literal root `README.md` or `skills/**/SKILL.md` path to a file. The command
+acquires directly through the House filesystem store without invoking the
+legacy `PackageExtractor` route. A README copies progressively to the
+destination with the bounded exact-byte sink. A Skill decodes progressively
+into the existing containment-selected representation before that
+representation is written; it does not bypass Skill containment to preserve
+original bytes. Local archives, floating or range version selection, stdout,
+target-framework filters, path globs and roles, partial document scopes,
+.NET tool-wrapper redirection, and other package files retain their existing
+paths in this slice.
+
+The second production consumer is the Browser/Wasm viewer for exact root
+`README.md` and `skills/**/*.md` document-manifest entries. The managed export
+executes a focused House `Acquire` operation, opens the selected README or
+Skill through the settlement's pull stream, and incrementally decodes UTF-8
+through bounded pooled byte and character buffers. The admitted `.nupkg` and
+the final displayed string remain resident, but no second complete expanded
+entry `byte[]` is created. Root `PACKAGE.md` viewing retains its existing eager
+entry path in this slice, while the managed-to-TypeScript wire DTO and frontend
+call site remain unchanged.
+
+`PackageHouseExecutionTests.ExactPayloadRead_IsColdAndPullsFromTheHouseGeneration`
+gates cold start, pre-read cancellation, receipt association, and progressive
+copying.
+`InMemoryPackageContentTests.BoundedPullOpen_StreamsWithoutAnEntrySizedAllocation`
+gates the Browser/Wasm-relevant absence of an expanded-entry-sized allocation,
+`BoundedPullOpen_StreamsRealSystemTextJsonEntry` preserves the motivating
+nuget.org `System.Text.Json` package, and
+`PackageArchiveValidatorTests.CheckedPullRead_RejectsContentBeyondTheDeclaredLength`
+preserves lazy checked-read failure.
+`BrowserEngineBoundaryTests.PackageDocument_ReadmeAndSkillPullThroughHouseAcquisition`
+gates the production Browser route, multi-buffer UTF-8 decoding, Skill
+selection, cache reuse, package-only acquisition, and visible refusal of a
+non-manifest path.
+
 ## Shared version-settlement inspection
 
 For one exact or latest package demand, hosts consume one

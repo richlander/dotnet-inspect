@@ -14,7 +14,8 @@ public sealed class LibraryBodyAnalysisRequest
         IReadOnlySet<int>? bodyScope,
         Func<TypeRef, bool>? bodyTypeScope,
         ResourceEffectAdmission? resourceEffects,
-        bool includeResourceLifecycle)
+        bool includeResourceLifecycle,
+        ImplementationMetricAnalysisRequest? implementationMetrics)
     {
         ImmutableHashSet<int>? bodyScopeSnapshot =
             bodyScope?.ToImmutableHashSet();
@@ -23,12 +24,14 @@ public sealed class LibraryBodyAnalysisRequest
         BodyTypeScope = bodyTypeScope;
         ResourceEffects = resourceEffects;
         IncludesResourceLifecycle = includeResourceLifecycle;
+        ImplementationMetrics = implementationMetrics;
         Plan = LibraryBodyAnalysisPlan.Create(
             features,
             bodyScopeSnapshot,
             bodyTypeScope,
             resourceEffects,
-            includeResourceLifecycle);
+            includeResourceLifecycle,
+            implementationMetrics);
     }
 
     /// <summary>The features requested before prerequisite expansion.</summary>
@@ -55,6 +58,9 @@ public sealed class LibraryBodyAnalysisRequest
     /// </summary>
     public bool IncludesResourceLifecycle { get; }
 
+    internal ImplementationMetricAnalysisRequest? ImplementationMetrics
+    { get; }
+
     internal LibraryBodyAnalysisPlan Plan { get; }
 
     public static LibraryBodyAnalysisRequest Create(
@@ -66,7 +72,51 @@ public sealed class LibraryBodyAnalysisRequest
             bodyScope,
             bodyTypeScope,
             resourceEffects: null,
-            includeResourceLifecycle: false);
+            includeResourceLifecycle: false,
+            implementationMetrics: null);
+
+    /// <summary>
+    /// Selects the current complete implementation profile through the
+    /// parameterized metric-plan migration path.
+    /// </summary>
+    public static LibraryBodyAnalysisRequest
+        CreateCompleteImplementationProfile(
+            IReadOnlySet<int>? bodyScope = null,
+            Func<TypeRef, bool>? bodyTypeScope = null) =>
+        new(
+            LibraryBodyAnalysisFeatures.None,
+            bodyScope,
+            bodyTypeScope,
+            resourceEffects: null,
+            includeResourceLifecycle: false,
+            ImplementationMetricAnalysisRequest
+                .CompleteProfileCompatibility());
+
+    internal static LibraryBodyAnalysisRequest
+        CreateImplementationMetrics(
+            ImplementationMetricEvidenceKind evidence,
+            ImplementationMetricWorkLimits limits,
+            IReadOnlySet<int> bodyScope)
+    {
+        ArgumentNullException.ThrowIfNull(limits);
+        ArgumentNullException.ThrowIfNull(bodyScope);
+        if (bodyScope.Count == 0)
+        {
+            throw new ArgumentException(
+                "Implementation metric body scope cannot be empty.",
+                nameof(bodyScope));
+        }
+        return new(
+            LibraryBodyAnalysisFeatures.None,
+            bodyScope,
+            bodyTypeScope: null,
+            resourceEffects: null,
+            includeResourceLifecycle: false,
+            new ImplementationMetricAnalysisRequest(
+                evidence,
+                limits,
+                ImplementationMetricRequestOrigin.Explicit));
+    }
 
     /// <summary>
     /// Selects Resource Occurrence Analysis with explicit admitted effect
@@ -86,7 +136,8 @@ public sealed class LibraryBodyAnalysisRequest
             bodyScope,
             bodyTypeScope,
             resourceEffects,
-            includeResourceLifecycle: false);
+            includeResourceLifecycle: false,
+            implementationMetrics: null);
     }
 
     /// <summary>
@@ -106,6 +157,7 @@ public sealed class LibraryBodyAnalysisRequest
             bodyScope,
             bodyTypeScope,
             resourceEffects,
-            includeResourceLifecycle: true);
+            includeResourceLifecycle: true,
+            implementationMetrics: null);
     }
 }

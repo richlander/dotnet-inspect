@@ -381,11 +381,7 @@ public sealed class CliRowSelectionRouterIntegrationTests
     private static async Task<RouteInvocation> InvokeAsync(
         params string[] arguments)
     {
-        var observations =
-            new ConcurrentQueue<BreadcrumbObservation>();
-        using var subscription =
-            BreadcrumbTelemetry.Subscribe(
-                new BreadcrumbObserver(observations));
+        using RouterDecisionLog.Capture decisions = RouterDecisionLog.Begin();
         RootCommand root = CommandLineBuilder.CreateRootCommand();
         string[] processed =
             CommandLineBuilder.PreprocessArgs(arguments, root);
@@ -398,28 +394,12 @@ public sealed class CliRowSelectionRouterIntegrationTests
             captured.ExitCode,
             captured.Output,
             captured.Error,
-            [.. observations]);
+            decisions.Decisions);
     }
 
     private sealed record RouteInvocation(
         int ExitCode,
         string Output,
         string Error,
-        IReadOnlyList<BreadcrumbObservation> Observations);
-
-    private sealed class BreadcrumbObserver(
-        ConcurrentQueue<BreadcrumbObservation> observations)
-        : IObserver<BreadcrumbObservation>
-    {
-        public void OnCompleted()
-        {
-        }
-
-        public void OnError(Exception error)
-        {
-        }
-
-        public void OnNext(BreadcrumbObservation value) =>
-            observations.Enqueue(value);
-    }
+        IReadOnlyList<RouterDecision> Observations);
 }

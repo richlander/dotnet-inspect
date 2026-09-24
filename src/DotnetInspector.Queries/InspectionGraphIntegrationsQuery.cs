@@ -29,6 +29,12 @@ public static class InspectionGraphIntegrationsCatalog
     public static InspectionGraphEvidenceDescriptor ReferenceEvidence { get; } =
         new("metadata.assembly-reference", InspectionGraphOwner.Metadata);
 
+    public static InspectionGraphEvidenceDescriptor ExactReferenceEvidence
+    { get; } =
+        new(
+            "metadata.relation.assembly-reference",
+            InspectionGraphOwner.Metadata);
+
     public static InspectionGraphEvidenceDescriptor OpportunityEvidence
     { get; } =
         new("metadata.integration-opportunity", InspectionGraphOwner.Metadata);
@@ -156,7 +162,7 @@ public static class InspectionGraphIntegrationsCatalog
             ],
             InspectionGraphEndpointProjection.Exact,
             OccurrenceIdentity,
-            [ReferenceEvidence]);
+            [ReferenceEvidence, ExactReferenceEvidence]);
 
     public static InspectionGraphRelationshipDescriptor
         IntegrationOpportunity
@@ -238,6 +244,10 @@ public static class InspectionGraphIntegrationsCatalog
                     new ReferenceOccurrenceIdentity(
                         reference.SourceRegistration,
                         reference.Reference),
+                MetadataReferenceGraphEvidence reference =>
+                    new ExactReferenceOccurrenceIdentity(
+                        reference.Registration,
+                        reference.Evidence.MetadataToken),
                 InspectionGraphOpportunityEvidence opportunity =>
                     (
                         opportunity.SourceRegistration,
@@ -334,6 +344,36 @@ public static class InspectionGraphIntegrationsCatalog
                     _registration,
                     AssemblyReferenceIdentity.EquivalentComparer
                         .GetHashCode(_reference));
+        }
+
+        sealed class ExactReferenceOccurrenceIdentity :
+            IEquatable<ExactReferenceOccurrenceIdentity>
+        {
+            readonly AssemblyAcquisitionRegistration _registration;
+            readonly int _metadataToken;
+
+            internal ExactReferenceOccurrenceIdentity(
+                AssemblyAcquisitionRegistration registration,
+                int metadataToken)
+            {
+                _registration = registration;
+                _metadataToken = metadataToken;
+            }
+
+            public bool Equals(
+                ExactReferenceOccurrenceIdentity? other) =>
+                other is not null
+                && ReferenceEquals(
+                    _registration,
+                    other._registration)
+                && _metadataToken == other._metadataToken;
+
+            public override bool Equals(object? obj) =>
+                obj is ExactReferenceOccurrenceIdentity other
+                && Equals(other);
+
+            public override int GetHashCode() =>
+                HashCode.Combine(_registration, _metadataToken);
         }
 
     }

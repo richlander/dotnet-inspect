@@ -33,6 +33,57 @@ public class MetadataTypeDeclarationProbeTests
     }
 
     [Fact]
+    public void
+        StructuredName_MatchesExactSuffixOrExactAndDescendantNamespace()
+    {
+        MetadataTypeDefinitionName name =
+            Name("World.Blue.Nodes", "Foo");
+
+        Assert.True(name.IsInNamespace("World.Blue.Nodes"));
+        Assert.False(name.IsInNamespace("World.Green.Nodes"));
+        Assert.True(
+            name.IsInNamespace(
+                ".Nodes",
+                MetadataNamespaceMatch.Suffix));
+        Assert.Throws<ArgumentException>(
+            () => name.IsInNamespace(
+                "Nodes",
+                MetadataNamespaceMatch.Suffix));
+        Assert.False(
+            name.IsInNamespace(
+                ".Blue",
+                MetadataNamespaceMatch.Suffix));
+        Assert.False(
+            name.IsInNamespace(
+                ".nodes",
+                MetadataNamespaceMatch.Suffix));
+        Assert.True(
+            name.IsInNamespace(
+                "World.Blue",
+                MetadataNamespaceMatch.ExactOrDescendant));
+        Assert.True(
+            name.IsInNamespace(
+                "World.Blue.Nodes",
+                MetadataNamespaceMatch.ExactOrDescendant));
+        Assert.False(
+            name.IsInNamespace(
+                "World",
+                MetadataNamespaceMatch.Exact));
+        Assert.False(
+            name.IsInNamespace(
+                "World.Blue.Node",
+                MetadataNamespaceMatch.ExactOrDescendant));
+        Assert.False(
+            name.IsInNamespace(
+                "world.blue",
+                MetadataNamespaceMatch.ExactOrDescendant));
+        Assert.Throws<ArgumentException>(
+            () => name.IsInNamespace(
+                "",
+                MetadataNamespaceMatch.ExactOrDescendant));
+    }
+
+    [Fact]
     public void StructuredName_RejectsMissingNamespace()
     {
         var rejected = Assert.IsType<MetadataTypeDefinitionNameResult.Rejected>(

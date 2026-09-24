@@ -374,6 +374,25 @@ public sealed class BrowserTypeSourceOperationTests(ITestOutputHelper output)
                     0,
                     projection.Text.Length);
             });
+        BrowserTypeExplorerBodyDestination[] destinations =
+            [.. projection.Declarations
+                .SelectMany(static declaration => declaration.Bodies)
+                .Select(static body => body.Destination)
+                .OfType<BrowserTypeExplorerBodyDestination>()];
+        Assert.NotEmpty(destinations);
+        Assert.All(
+            destinations,
+            static destination =>
+            {
+                Assert.True(Guid.TryParse(
+                    destination.ModuleVersionId,
+                    out _));
+                Assert.Equal(
+                    0x06000000,
+                    destination.MetadataToken & 0xFF000000);
+                Assert.NotEmpty(destination.Member.StableSelector);
+                Assert.NotEmpty(destination.Member.CanonicalSignature);
+            });
 
         BrowserTypeExplorerResult skeleton = await QueryTypeExplorer(
             packageId,
@@ -414,6 +433,72 @@ public sealed class BrowserTypeSourceOperationTests(ITestOutputHelper output)
                     .Document!.Projection);
         Assert.Equal(projection.Revision, selectedProjection.Revision);
         Assert.NotEqual(skeletonProjection.Text, selectedProjection.Text);
+    }
+
+    // PR-fast: body destinations preserve physical accessor identity instead of
+    // substituting the enclosing property declaration.
+    [Fact]
+    public async Task TypeExplorer_ProjectsDistinctExactAccessorDestinations()
+    {
+        const string packageId = "Type.Explorer.Accessor.Destinations";
+        await RegisterTypeExplorerPackageAsync(packageId);
+        BrowserTypeExplorerProjection projection =
+            Assert.IsType<BrowserTypeExplorerProjection>(
+                AssertTypeExplorerDocument(
+                    await QueryTypeExplorer(
+                        packageId,
+                        new(
+                            BrowserTypeExplorerBodyMode.Bodies,
+                            SelectedDeclarationId: null,
+                            DocumentRevision: null,
+                            BrowserTypeExplorerPlacement.All,
+                            Enum.GetValues<BrowserTypeExplorerAccessibility>(),
+                            IncludeGenerated: false,
+                            IncludeDocumentation: true,
+                            IncludeAttributes: true),
+                        "System.Text.Json.JsonWriterOptions"))
+                    .Document!.Projection);
+        BrowserTypeExplorerDeclaration property =
+            projection.Declarations.First(static declaration =>
+                declaration.Bodies.Any(static body =>
+                    body.Role == "Getter"
+                    && body.Destination is not null)
+                && declaration.Bodies.Any(static body =>
+                    body.Role == "Setter"
+                    && body.Destination is not null));
+        BrowserTypeExplorerBody getter = Assert.Single(
+            property.Bodies,
+            static body => body.Role == "Getter");
+        BrowserTypeExplorerBody setter = Assert.Single(
+            property.Bodies,
+            static body => body.Role == "Setter");
+        BrowserTypeExplorerBodyDestination getterDestination =
+            Assert.IsType<BrowserTypeExplorerBodyDestination>(
+                getter.Destination);
+        BrowserTypeExplorerBodyDestination setterDestination =
+            Assert.IsType<BrowserTypeExplorerBodyDestination>(
+                setter.Destination);
+
+        Assert.StartsWith(
+            "get_",
+            getterDestination.Member.MemberName,
+            StringComparison.Ordinal);
+        Assert.StartsWith(
+            "set_",
+            setterDestination.Member.MemberName,
+            StringComparison.Ordinal);
+        Assert.NotEqual(
+            property.Identity.MemberName,
+            getterDestination.Member.MemberName);
+        Assert.NotEqual(
+            property.DeclarationToken,
+            getterDestination.MetadataToken);
+        Assert.NotEqual(
+            getterDestination.MetadataToken,
+            setterDestination.MetadataToken);
+        Assert.NotEqual(
+            getterDestination.Member.StableSelector,
+            setterDestination.Member.StableSelector);
     }
 
     // PR-fast: exact selected identity is never replaced by a visible approximation.
@@ -669,7 +754,8 @@ public sealed class BrowserTypeSourceOperationTests(ITestOutputHelper output)
 
     static async Task<BrowserTypeExplorerResult> QueryTypeExplorer(
         string packageId,
-        BrowserTypeExplorerRequest request)
+        BrowserTypeExplorerRequest request,
+        string typeIdentity = "System.Text.Json.JsonNamingPolicy")
     {
         string requestJson = JsonSerializer.Serialize(
             request,
@@ -680,7 +766,7 @@ public sealed class BrowserTypeSourceOperationTests(ITestOutputHelper output)
             "1.0.0",
             "net11.0",
             "System.Text.Json.dll",
-            "System.Text.Json.JsonNamingPolicy",
+            typeIdentity,
             "[]",
             requestJson);
         return JsonSerializer.Deserialize(

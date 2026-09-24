@@ -106,6 +106,16 @@ public static class InspectionCommandDefinitions
         var legendOption = new Option<bool>("--legend") { Description = "Show legend explaining change symbols" };
         var compactOption = new Option<bool>("--compact") { Description = "Minified complete Diff JSON (use with unprojected --json or --envelope)" };
 
+#if DEBUG
+        var evidenceEnvelopeOption =
+            new Option<string?>("--evidence-envelope")
+            {
+                Description =
+                    "Write the complete enriched Diff History envelope to a JSON sidecar",
+                Arity = ArgumentArity.ExactlyOne,
+            };
+#endif
+
         diffCommand.Arguments.Add(argsArg);
         diffCommand.Options.Add(packageOption);
         diffCommand.Options.Add(platformOption);
@@ -137,6 +147,28 @@ public static class InspectionCommandDefinitions
         diffCommand.Options.Add(findingOption);
         diffCommand.Options.Add(legendOption);
         diffCommand.Options.Add(compactOption);
+#if DEBUG
+        diffCommand.Options.Add(evidenceEnvelopeOption);
+        diffCommand.Validators.Add(result =>
+        {
+            if (result.GetResult(evidenceEnvelopeOption)
+                is not { Implicit: false })
+            {
+                return;
+            }
+            if (!result.GetValue(historyOption))
+            {
+                result.AddError(
+                    "--evidence-envelope is supported only by diff --history.");
+            }
+            if (result.GetResult(opts.Discover) is { Implicit: false }
+                || result.GetValue(opts.Schema))
+            {
+                result.AddError(
+                    "--evidence-envelope requires a Diff History inspection, not discovery or schema output.");
+            }
+        });
+#endif
         opts.AddCountOptionTo(diffCommand);
         opts.AddOutputOptionsTo(diffCommand);
         opts.AddNuGetOptionsTo(diffCommand);
@@ -280,6 +312,24 @@ public static class InspectionCommandDefinitions
                     {
                         SourceOptions = sourceOptions,
                     };
+#if DEBUG
+                    if (parseResult.GetResult(evidenceEnvelopeOption)
+                        is { Implicit: false })
+                    {
+                        if (!EvidenceEnvelopeOutput.TryResolvePath(
+                                parseResult.GetValue(evidenceEnvelopeOption)!,
+                                out string? evidencePath,
+                                out string? evidencePathError))
+                        {
+                            CommandError.Write(evidencePathError!);
+                            return 1;
+                        }
+                        options = options with
+                        {
+                            EvidenceEnvelopePath = evidencePath,
+                        };
+                    }
+#endif
                     var exitCode = await DiffCommand.ExecuteAsync(options, ct);
 
                     if (exitCode == 0)
@@ -357,6 +407,16 @@ public static class InspectionCommandDefinitions
         var asmTfmOption = new Option<string?>("--tfm") { Description = "Select a package library by TFM (e.g., net8.0; 'all' supports Markdown, JSON, and aggregate --count)" };
         var typeFilterOption = new Option<string?>("-t") { Description = "Filter Source Files rows by type glob/name (e.g., *Json*)" };
         typeFilterOption.Aliases.Add("--type");
+        var namespaceOption = new Option<string?>("--namespace")
+        {
+            Description =
+                "List public Types in an exact namespace, or in namespaces ending with a leading-dot suffix",
+        };
+        var namespaceChildrenOption = new Option<bool>("--children")
+        {
+            Description =
+                "With --namespace: include the named namespace and its descendants",
+        };
         var metadataRootOption = new Option<string?>("--metadata-root")
         {
             Description = "Metadata root for @Metadata sections: cli or r2r-manifest"
@@ -389,6 +449,8 @@ public static class InspectionCommandDefinitions
         assemblyCommand.Options.Add(asmVersionOption);
         assemblyCommand.Options.Add(asmTfmOption);
         assemblyCommand.Options.Add(typeFilterOption);
+        assemblyCommand.Options.Add(namespaceOption);
+        assemblyCommand.Options.Add(namespaceChildrenOption);
         assemblyCommand.Options.Add(metadataRootOption);
         assemblyCommand.Options.Add(detailsOption);
         assemblyCommand.Options.Add(opts.PreferRenderedUrls);
@@ -450,7 +512,9 @@ public static class InspectionCommandDefinitions
                     "--compact requires library --envelope.");
             }
             if (!result.GetValue(opts.Envelope))
+            {
                 return;
+            }
 
             if (result.GetResult(opts.Select)
                 is { Implicit: false })
@@ -806,6 +870,10 @@ public static class InspectionCommandDefinitions
                 Tfm = parseResult.GetValue(asmTfmOption),
                 IntegrationQuery = integrationQuery,
                 TypeFilter = typeFilter,
+                TypeNamespace =
+                    parseResult.GetValue(namespaceOption),
+                IncludeNamespaceChildren =
+                    parseResult.GetValue(namespaceChildrenOption),
                 MetadataRoot = metadataRoot,
                 PreferRenderedUrls = parseResult.GetValue(opts.PreferRenderedUrls),
                 JsonOutput = opts.ResolveFormat(parseResult) == OutputFormat.Json,

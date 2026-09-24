@@ -3,6 +3,7 @@ using System.Globalization;
 using ILInspector.Analysis;
 using ILInspector.Instructions;
 using ILInspector.Metadata;
+using ILInspector.MetadataPrimitives;
 using ILInspector.Research;
 using ILInspector.Decompiler;
 using Inspector.Findings;
@@ -1333,7 +1334,9 @@ public static class DiffOutputFormatter
         List<ImplementationDiffRow> rows,
         AssemblyMemberSourcePairResult pair)
     {
-        var anchor = pair.Request.Member;
+        MemberAnchor anchor = (pair.Request.Before ?? pair.Request.After
+            ?? throw new InvalidOperationException(
+                "A member Source pair request has no endpoint.")).Member;
         var subject = ResearchMemberIdentity.SubjectFromAnchor(
             anchor, $"{anchor.TypeFullName}.{anchor.MemberName}");
         if (pair.Status == AssemblyMemberSourcePairStatus.Compared
@@ -1399,6 +1402,7 @@ public static class DiffOutputFormatter
             {
                 Source: AssemblyMemberPdbSourceAttempt.Unavailable unavailable
             } => SourceInspectionState(unavailable.Inspection),
+            AssemblyMemberSourcePairEndpoint.Unrequested => "not requested",
             AssemblyMemberSourcePairEndpoint.NotFound missing =>
                 $"{missing.Failure.Kind}: {missing.Failure.Detail}",
             AssemblyMemberSourcePairEndpoint.Rejected rejected =>

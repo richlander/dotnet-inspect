@@ -83,6 +83,77 @@ type names such as `string`, `int`, `DateTime`, and `Guid` resolve to
 `System.Private.CoreLib`. Use explicit commands and `--package`, `--platform`,
 or `--library` when you need a specific source.
 
+After exact Type and Member lookup misses, a dotted Platform name may resolve
+as an exact namespace in its longest namesake Library. For example:
+
+```bash
+dotnet-inspect System.Text.Json.Nodes
+```
+
+is equivalent to:
+
+```bash
+dotnet-inspect library System.Text.Json \
+  --namespace System.Text.Json.Nodes
+```
+
+The Router confirms exact ordinal namespace membership before selecting this
+route. It does not use suffix or descendant matching, and broad inputs such as
+`System.Text` retain their existing Type-prefix browsing behavior.
+
+`find` uses the same exact namespace meaning after direct Type lookup misses:
+
+```bash
+dotnet-inspect find System.Text.Json.Nodes
+```
+
+It returns the public Types declared directly in
+`System.Text.Json.Nodes`, such as `JsonArray`, `JsonNode`, and `JsonObject`.
+It does not include Types from `System.Text.Json` or descendant namespaces.
+The rows use the `Namespace` match classification. In the default unscoped
+search, exact Platform prune evidence also admits the corresponding NuGet
+package, so equal package and Platform Type observations remain separate.
+Explicit source options remain authoritative; for example,
+`--platform System.Text.Json` does not add the package observation.
+
+### Library namespace Type listings
+
+An exact Library can list its public Type declarations from one exact
+namespace:
+
+```bash
+dotnet-inspect library System.Text.Json \
+  --namespace System.Text.Json.Nodes
+```
+
+Add `--children` to include the named namespace and all namespaces beneath its
+dot-segment boundary:
+
+```bash
+dotnet-inspect library System.Text.Json \
+  --namespace System.Text.Json \
+  --children
+```
+
+This includes Types from `System.Text.Json` and
+`System.Text.Json.Serialization`, but not `System.Text.Jsonish`.
+
+A leading dot selects an exhaustive namespace suffix within that same exact
+Library:
+
+```bash
+dotnet-inspect library ./MyLibrary.dll --namespace .Nodes
+```
+
+`.Nodes` matches Types declared in namespaces such as `World.Blue.Nodes` and
+`World.Green.Nodes`. It does not prepend the Library name, and it does not
+match `Nodes`, `World.Blue.MyNodes`, or `World.Blue.Nodes.More`. Markdown
+renders the matching declarations in Type tables without a separate count
+summary. `--envelope` exposes the same population's typed exact,
+exact-or-descendant, or suffix binding and continuation identity. Namesake
+source discovery belongs to Router, Spotlight, and `find`, not this
+exact-Library operation.
+
 Use `-D --schema` to inspect the syntax-selected structural view without
 acquiring or loading the target. Package `--library` and `--all-libraries`
 queries expose their route-specific schemas before package resolution, while
@@ -149,7 +220,7 @@ stderr rather than mixed into structured output.
 | Query vocabulary | `vocabulary` | Product-owned stable values, operators, defaults, and applicability for rich queries. |
 | Ecosystem catalog | `ecosystem` | Product-configured ecosystem packs, namespace hints, core/tool packages, demos, and known Integration bindings without package acquisition. |
 | Library audit | `library` | Assembly identity, public key token, trim/AOT metadata, unsafe/interoperability signals, SourceLink, PDBs, references, resources, async methods, and body-shape search. |
-| API discovery | `type`, `member`, `find` | Type search, member tables, docs, overload selection, generics, direct calls/callers, source, decompiled C#, and IL. Unscoped `find` searches installed .NET Runtime, ASP.NET Core, and .NET Standard populations; add package APIs through explicit `--package`, restored `--project`, or patterned `--package-prefix` scope. |
+| API discovery | `type`, `member`, `find` | Type search, exact namespace discovery, member tables, docs, overload selection, generics, direct calls/callers, source, decompiled C#, and IL. Unscoped `find` searches installed Platform populations and adds exact prune-authorized package observations for namespace hits; add other package APIs through explicit `--package`, restored `--project`, or patterned `--package-prefix` scope. |
 | Package discovery | `package query` | Discover exact package IDs or terminal-star package-ID prefixes before inspecting a known package with `package`. |
 | API compatibility | `diff` | Package, platform, and library diffs with breaking/additive classification plus opt-in C#/IL, selected-member authored-source, complexity, and structural-cohort context. |
 | Timeline correlation | `timeline` | Correlate API or member-body Findings across a package version range, with evaluation and transition views. |
@@ -513,6 +584,10 @@ dotnet-inspect package Newtonsoft.Json@13.0.4 \
   --layout --tfm net6.0 -n 1 --tail --json
 dotnet-inspect package Markout@0.35.2 \
   --path "skills/*/SKILL.md" -n 1 --tail --paths
+dotnet-inspect package Markout@0.35.2 \
+  --path skills/markout/SKILL.md --content --out skill.md
+dotnet-inspect package System.Text.Json --version 10.0.0 \
+  --path README.md --content --out README.md
 dotnet-inspect package Microsoft.Data.SqlClient@6.1.0 \
   --tfm net8.0 -S "Package files" --paths
 dotnet-inspect package Microsoft.Data.SqlClient@6.1.0 \
@@ -543,6 +618,16 @@ enumeration, optional exact directory-segment `--tfm` filtering, and optional
 `--path` filtering. Count, table, TSV, JSONL, JSON, `--value`, and `--paths`
 observe the same selected rows; `--roots` instead emits their ordered distinct
 top-level package roots. Add `--lines` only to clip rendered text.
+
+For an exact online package version, writing one literal root `README.md` or
+`skills/**/SKILL.md` path to `--out` acquires directly through the PackageHouse
+filesystem store rather than the legacy extraction route. README bytes copy
+progressively to the file. Skill documents retain their existing containment
+and link-normalization behavior, so the House stream is decoded into that
+final selected representation before the file is written. Local packages,
+floating or range version selection, stdout, target-framework filters, path
+globs and roles, scoped documents, .NET tool-wrapper redirection, and other
+package files retain their existing behavior.
 
 For one package with `--layout`, `-n`, `--tail`, and `--rows A..B` select
 complete sorted file paths after archive extraction and `--lib`, `--tools`, or
@@ -1579,8 +1664,8 @@ With `--envelope`, `--depth` remains a traversal input and `--rows`,
 `-n`/`--head`/`--tail` remain semantic relationship selection. `--compact` is
 accepted. Competing formats, `--json`, Discover/schema/effective modes, `-S`,
 explicit `-v`, Count, fields/columns, presentation projections or decoration,
-and rendered-line clipping are rejected before acquisition. `--verbose`,
-`--info`, and `--tips` remain on stderr. `--share` retains its existing policy
+and rendered-line clipping are rejected before acquisition. `--verbose` and
+`--tips` remain on stderr. `--share` retains its existing policy
 and emits its optional URL or packet as the final stderr line. There is no
 `--evidence-envelope` support yet.
 

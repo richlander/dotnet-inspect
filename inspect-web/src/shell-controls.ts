@@ -18,6 +18,7 @@ export interface WorkbenchShellBindingActions {
   onDismissPackageNotice: () => void;
   onNavigateBack: () => void;
   onNavigateForward: () => void;
+  onOpenPackageTargetFramework: () => void;
   onRetryNotice: () => void;
   onSearch: () => void;
 }
@@ -314,6 +315,10 @@ export function bindWorkbenchShell(
       if (Number.isInteger(index) && index >= 0)
         actions.onCopySubjectSegment(index);
     }));
+  root.querySelectorAll<HTMLElement>("[data-subject-framework]").forEach(button =>
+    button.addEventListener(
+      "click",
+      actions.onOpenPackageTargetFramework));
   const menuButton =
     root.querySelector<HTMLElement>("#application-menu-button");
   const menu = root.querySelector<HTMLElement>("#application-menu");

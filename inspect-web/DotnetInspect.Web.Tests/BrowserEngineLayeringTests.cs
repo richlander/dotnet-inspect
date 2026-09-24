@@ -466,6 +466,7 @@ public sealed class BrowserEngineLayeringTests
             "DotnetInspector.Queries.MemberCallGraphAcquisitionFailure+InvalidImage",
             "DotnetInspector.Queries.MemberCallGraphAcquisitionFailure+Rejected",
             "DotnetInspector.Queries.MemberCallGraphSession",
+            "DotnetInspector.Queries.MetadataRelationGraphAdapter",
             "DotnetInspector.Queries.PackageAssemblyRoleCorrespondence",
             "DotnetInspector.Queries.PackageInspectionAssemblyReference",
             "DotnetInspector.Sections.AssemblyPairCallUseInspection",
@@ -507,88 +508,6 @@ public sealed class BrowserEngineLayeringTests
             approved,
             banned,
             "Descriptor owner");
-    }
-
-    [Fact]
-    public void EveryPublicPathMethodOwnerIsBannedOrApprovedNonInspectionSurface()
-    {
-        IReadOnlyList<string> banned = BannedSymbols();
-        string[] approvedOwners =
-        [
-            "CSharpText.XmlDocText",
-            "DotnetInspector.Cache.PersistentCache",
-            "UntrustedDocuments.HardenedXml",
-            "DotnetInspector.Packages.FileSystemPackageContent",
-            "DotnetInspector.Packages.HttpRetryHelper",
-            "DotnetInspector.Packages.IPackageContent",
-            "DotnetInspector.Packages.IPackageContentEntryManifest",
-            "DotnetInspector.Packages.InMemoryPackageContent",
-            "DotnetInspector.Packages.NuGetCache",
-            // Package-relative entry paths, like the in-memory content
-            // (docs/design/package-source-model.md#ranged-payload-realization).
-            "DotnetInspector.Packages.RangedPackageContent",
-            "DotnetInspector.Packages.PackageCoordinateResolver",
-            "DotnetInspector.Packages.PackageExtractor",
-            "DotnetInspector.Packages.SymbolPackageDownloader",
-            // Operate on semantic product-resource paths, not filesystem paths.
-            "DotnetInspector.Sections.ResourceExplanationCatalog",
-            "DotnetInspector.Sections.ResourcePath",
-            // Operate on packet-local Workspace component paths.
-            "DotnetInspector.Queries.Definitions.WorkspaceContextComponentPath",
-            "DotnetInspector.Queries.Definitions.WorkspacePackageComponentEditor",
-            "DotnetInspector.Queries.Definitions.WorkspacePackageComponentPath",
-            // Constructs a PDB document selector, not a filesystem inspection entry point.
-            "DotnetInspector.Queries.AssemblyTypeSourceRequest",
-            "DotnetInspector.Services.DepsJsonParser",
-            "DotnetInspector.Services.GitHubUrlResolver",
-            "DotnetInspector.Services.LocalRepoSourceAcquisition",
-            "DotnetInspector.Services.NuspecParser",
-            "DotnetInspector.Services.PdbSourceHouse",
-            "DotnetInspector.Services.ProjectAssetsParser",
-            "DotnetInspector.Services.SignatureVerifier",
-            "ILInspector.Metadata.AssemblyResolutionProvenance",
-            "ILInspector.Metadata.ApiSurface",
-            "ILInspector.Metadata.ResolvedAssemblyReference",
-            "ILInspector.SourceLink.SourceLinkResolver",
-            "InertText.UrlRedaction",
-            "NuGetFetch.NuGetClient",
-            "NuGetFetch.PackageCache",
-            "NuGetFetch.PackageExtractor",
-            "NuGetFetch.PackageSignatureVerifier",
-            "NuGetFetch.SourceResolver",
-            "NuGetFetch.TfmResolver",
-        ];
-        HashSet<string> approved =
-            approvedOwners.ToHashSet(StringComparer.Ordinal);
-        Type[] owners =
-        [
-            .. ProductAssemblies
-                .SelectMany(assembly => assembly.GetExportedTypes())
-                .Distinct()
-                .Where(type =>
-                    type.GetMembers(
-                            BindingFlags.Public
-                            | BindingFlags.Instance
-                            | BindingFlags.Static
-                            | BindingFlags.DeclaredOnly)
-                        .OfType<MethodBase>()
-                        .Any(method =>
-                            !method.IsConstructor
-                            && !method.IsSpecialName
-                            && method.Name != "Deconstruct"
-                            && method.GetParameters().Any(parameter =>
-                                parameter.Name?.Contains(
-                                    "path",
-                                    StringComparison.OrdinalIgnoreCase)
-                                == true)))
-                .OrderBy(type => type.FullName, StringComparer.Ordinal),
-        ];
-
-        AssertGuardedOwners(
-            owners,
-            approved,
-            banned,
-            "Path-method owner");
     }
 
     [Fact]

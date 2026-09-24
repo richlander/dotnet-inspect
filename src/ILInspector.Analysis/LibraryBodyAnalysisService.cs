@@ -49,7 +49,8 @@ public static class LibraryBodyAnalysisService
                     imageReader,
                     plan,
                     resolver,
-                    rootSnapshot);
+                    rootSnapshot,
+                    bindingPolicy: null);
             }
         }
 
@@ -63,7 +64,8 @@ public static class LibraryBodyAnalysisService
             peReader,
             plan,
             resolver,
-            rootSnapshot: null);
+            rootSnapshot: null,
+            bindingPolicy: null);
     }
 
     /// <summary>
@@ -118,7 +120,49 @@ public static class LibraryBodyAnalysisService
             peReader,
             plan,
             resolver,
-            rootSnapshot);
+            rootSnapshot,
+            bindingPolicy: null);
+    }
+
+    /// <summary>
+    /// Executes Analysis over caller-provided immutable PE image content using
+    /// an existing binding-policy snapshot and its exact root descriptor.
+    /// </summary>
+    public static LibraryBodyAnalysisExecution ExecuteImage(
+        string sourceName,
+        ImmutableArray<byte> image,
+        LibraryBodyAnalysisRequest request,
+        IAssemblyBindingPolicy bindingPolicy,
+        ResolvedAssemblyReference rootAssembly)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(sourceName);
+        if (image.IsDefaultOrEmpty)
+        {
+            throw new ArgumentException(
+                "A prefetched PE image is required.",
+                nameof(image));
+        }
+        ArgumentNullException.ThrowIfNull(request);
+        ArgumentNullException.ThrowIfNull(bindingPolicy);
+        ArgumentNullException.ThrowIfNull(rootAssembly);
+
+        using var peReader = new PEReader(image);
+        MetadataReader reader = peReader.GetMetadataReader();
+        LibraryBodyRootSnapshot? rootSnapshot =
+            reader.IsAssembly && UsesReferenceResolution(request.Plan)
+                ? CreateRootSnapshot(
+                    sourceName,
+                    reader,
+                    image,
+                    rootAssembly)
+                : null;
+        return BuildFromReader(
+            sourceName,
+            peReader,
+            request.Plan,
+            resolver: null,
+            rootSnapshot,
+            bindingPolicy);
     }
 
     private static LibraryBodyAnalysisExecution BuildFromReader(
@@ -126,7 +170,8 @@ public static class LibraryBodyAnalysisService
         PEReader peReader,
         LibraryBodyAnalysisPlan plan,
         IAssemblyReferenceResolver? resolver,
-        LibraryBodyRootSnapshot? rootSnapshot)
+        LibraryBodyRootSnapshot? rootSnapshot,
+        IAssemblyBindingPolicy? bindingPolicy)
     {
         if (!peReader.HasMetadata)
         {
@@ -137,16 +182,26 @@ public static class LibraryBodyAnalysisService
         MetadataReader reader = peReader.GetMetadataReader();
         LibraryBodyModuleIdentity moduleIdentity =
             LibraryBodyModuleIdentity.FromImage(reader);
+        bool useReferenceResolution = UsesReferenceResolution(plan);
         IAssemblyReferenceResolver? analysisResolver =
-            UsesReferenceResolution(plan) ? resolver : null;
+            useReferenceResolution ? resolver : null;
+        IAssemblyBindingPolicy? analysisBindingPolicy =
+            useReferenceResolution ? bindingPolicy : null;
+        ImplementationMetricWorkBudget? implementationMetricWork =
+            ImplementationMetricWorkBudget.Create(
+                plan.ImplementationMetrics);
         using var builder = new LibraryBodyAnalysisBuilder(
             sourceName,
             reader,
             peReader,
             analysisResolver,
             analysisResolver is null
-                ? null
-                : rootSnapshot);
+                && analysisBindingPolicy is null
+                    ? null
+                    : rootSnapshot,
+            analysisBindingPolicy,
+            implementationMetricWork:
+                implementationMetricWork);
         LibraryBodyAnalysisResult analysis =
             builder.Build(plan);
         return new LibraryBodyAnalysisExecution(
@@ -266,6 +321,46 @@ public static class LibraryBodyAnalysisService
             AssemblyImageSnapshotResult.Ready ready =>
                 new LibraryBodyRootSnapshot(
                     assembly,
+                    ready.Snapshot),
+            AssemblyImageSnapshotResult.Rejected rejected =>
+                throw RootSnapshotFailure(sourceName, rejected.Failure),
+            _ => throw new InvalidOperationException(
+                "Unknown root-image acquisition result."),
+        };
+    }
+
+    private static LibraryBodyRootSnapshot CreateRootSnapshot(
+        string sourceName,
+        MetadataReader reader,
+        ImmutableArray<byte> image,
+        ResolvedAssemblyReference rootAssembly)
+    {
+        AssemblyReferenceIdentity imageIdentity =
+            AssemblyReferenceIdentity.FromAssemblyDefinition(reader);
+        if (!AssemblyReferenceIdentity.EquivalentComparer.Equals(
+                imageIdentity,
+                rootAssembly.Identity))
+        {
+            throw new ArgumentException(
+                "The root descriptor does not identify the provided image.",
+                nameof(rootAssembly));
+        }
+        if (image.Length
+            > AssemblyImageSnapshot.DefaultMaxRetainedImageBytes)
+        {
+            throw new InvalidOperationException(
+                "The root assembly exceeds the retained-image budget.");
+        }
+
+        AssemblyImageSnapshotResult result =
+            AssemblyImageSnapshot.FromRetainedContent(
+                rootAssembly,
+                image);
+        return result switch
+        {
+            AssemblyImageSnapshotResult.Ready ready =>
+                new LibraryBodyRootSnapshot(
+                    rootAssembly,
                     ready.Snapshot),
             AssemblyImageSnapshotResult.Rejected rejected =>
                 throw RootSnapshotFailure(sourceName, rejected.Failure),

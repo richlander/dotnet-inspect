@@ -57,6 +57,7 @@ public sealed class PackageArchiveReader : IAsyncDisposable
         ArgumentNullException.ThrowIfNull(entry);
         ObjectDisposedException.ThrowIf(_disposed, this);
         CancellationToken token = _session.ResolveInvocationToken(cancellationToken);
+        _session.BeginEntryReads();
         try
         {
             byte[] content = await ZipArchiveReader.ReadEntryAsync(
@@ -87,16 +88,20 @@ public sealed class PackageArchiveReader : IAsyncDisposable
     /// concurrency, under a bound on their expansion together. Every entry is
     /// checked before any transfer; the result is all the entries, in the
     /// order requested, or one failure or refusal and no content. The token
-    /// rule is <see cref="ReadEntryAsync"/>'s.
+    /// rule is <see cref="ReadEntryAsync"/>'s. <paramref name="entryMergeGap"/>
+    /// replaces the limits' merge gap for this read, up to
+    /// <see cref="ZipReadLimits.MaxEntryMergeGap"/>.
     /// </summary>
     public async Task<PackageArchiveReadResult<IReadOnlyList<PackageArchiveEntryContent>>> ReadEntriesAsync(
         IReadOnlyList<ZipEntry> entries,
         long? maxTotalExpandedBytes = null,
+        int? entryMergeGap = null,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(entries);
         ObjectDisposedException.ThrowIf(_disposed, this);
         CancellationToken token = _session.ResolveInvocationToken(cancellationToken);
+        _session.BeginEntryReads();
         try
         {
             IReadOnlyList<byte[]> contents = await ZipArchiveReader.ReadEntriesAsync(
@@ -105,6 +110,7 @@ public sealed class PackageArchiveReader : IAsyncDisposable
                 entries,
                 Limits,
                 maxTotalExpandedBytes,
+                entryMergeGap,
                 token).ConfigureAwait(false);
             var results = new PackageArchiveEntryContent[entries.Count];
             for (int i = 0; i < results.Length; i++)
@@ -166,7 +172,8 @@ internal static class PackageArchiveRangeAccess
         Func<NuGetOperationDeadline, Task<(string Url, PackageSourceCredential? Credential)>> resolveArchive,
         ZipReadLimits limits,
         CancellationToken cancellationToken,
-        NuGetOperationContext? operationContext)
+        NuGetOperationContext? operationContext,
+        PackageArchiveRequestLog? requestLog = null)
     {
         ArgumentNullException.ThrowIfNull(limits);
         if (memory.RangeIgnored)
@@ -190,7 +197,8 @@ internal static class PackageArchiveRangeAccess
             client,
             clientTimeout,
             context,
-            ownsContext);
+            ownsContext,
+            requestLog);
         HttpRangeSource? source = null;
         try
         {
@@ -245,7 +253,9 @@ internal sealed class PackageArchiveRangeSession : IDisposable
     private readonly NuGetOperationContext _context;
     private readonly bool _ownsContext;
     private readonly bool _isBrowser = OperatingSystem.IsBrowser();
+    private readonly PackageArchiveRequestLog? _requestLog;
     private PackageSourceCredential? _credential;
+    private volatile bool _readingEntries;
     private bool _disposed;
 
     public PackageArchiveRangeSession(
@@ -255,9 +265,11 @@ internal sealed class PackageArchiveRangeSession : IDisposable
         HttpClient client,
         TimeSpan clientTimeout,
         NuGetOperationContext context,
-        bool ownsContext)
+        bool ownsContext,
+        PackageArchiveRequestLog? requestLog = null)
     {
         _results = results;
+        _requestLog = requestLog;
         Coordinate = coordinate;
         _memory = memory;
         _client = client;
@@ -272,6 +284,9 @@ internal sealed class PackageArchiveRangeSession : IDisposable
     public void UseCredential(PackageSourceCredential? credential) => _credential = credential;
 
     public PackageSourceResultIdentity Source => _results.Source;
+
+    /// <summary>Every later request reads entry spans rather than the directory.</summary>
+    public void BeginEntryReads() => _readingEntries = true;
 
     public CancellationToken ResolveInvocationToken(CancellationToken cancellationToken) =>
         _context.ResolveInvocationToken(cancellationToken);
@@ -298,21 +313,33 @@ internal sealed class PackageArchiveRangeSession : IDisposable
                 deadline,
                 async requestToken =>
                 {
-                    HttpRequestMessage attempt = Clone(request);
-                    NuGetSourceRequest.ApplyCredential(attempt, _credential);
-                    NuGetHttpRequest.ConfigureBrowserRequest(attempt, _isBrowser);
-                    HttpResponseMessage sent = await _client.SendAsync(
-                        attempt,
-                        HttpCompletionOption.ResponseHeadersRead,
-                        requestToken).ConfigureAwait(false);
+                    PackageArchiveRequestLog.Entry? logged = BeginLogged(request);
+                    HttpResponseMessage sent;
                     try
                     {
+                        HttpRequestMessage attempt = Clone(request);
+                        NuGetSourceRequest.ApplyCredential(attempt, _credential);
+                        NuGetHttpRequest.ConfigureBrowserRequest(attempt, _isBrowser);
+                        sent = await _client.SendAsync(
+                            attempt,
+                            HttpCompletionOption.ResponseHeadersRead,
+                            requestToken).ConfigureAwait(false);
+                    }
+                    catch
+                    {
+                        logged?.Settle(PackageArchiveRequestOutcome.Failed, null);
+                        throw;
+                    }
+                    try
+                    {
+                        long? advertised = sent.Content.Headers.ContentLength;
                         // A transient status is a retryable failure here, as
                         // the full fetch's EnsureSuccessStatusCode makes it;
                         // every other status reaches the range source, which
                         // decides what 200, 206, and the rest mean.
                         if (IsTransientStatus(sent.StatusCode))
                         {
+                            logged?.Settle(PackageArchiveRequestOutcome.Failed, advertised);
                             throw new HttpRequestException(
                                 $"The package source answered a ranged request with status {(int)sent.StatusCode}.",
                                 inner: null,
@@ -322,10 +349,17 @@ internal sealed class PackageArchiveRangeSession : IDisposable
                         Stream body = await sent.Content
                             .ReadAsStreamAsync(requestToken)
                             .ConfigureAwait(false);
+                        if (logged is not null)
+                        {
+                            if (ClassifyStatus(sent.StatusCode, request) is { } settled)
+                                logged.Settle(settled, advertised);
+                            body = new PackageArchiveCountingStream(body, logged, advertised);
+                        }
                         return (body, (IDisposable)sent, sent);
                     }
                     catch
                     {
+                        logged?.Settle(PackageArchiveRequestOutcome.Failed, null);
                         sent.Dispose();
                         throw;
                     }
@@ -431,6 +465,47 @@ internal sealed class PackageArchiveRangeSession : IDisposable
     private PackageArchiveReadResult<T> Failed<T>(PackageSourceFailureKind kind)
         where T : class =>
         new(_results.FailedPackage(Coordinate, kind).Failure!);
+
+    private PackageArchiveRequestLog.Entry? BeginLogged(HttpRequestMessage request)
+    {
+        if (_requestLog is null)
+            return null;
+        System.Net.Http.Headers.RangeItemHeaderValue? range =
+            request.Headers.Range?.Ranges.FirstOrDefault();
+        long? start = range?.From;
+        long length = range is null
+            ? 0
+            : start is null
+                ? range.To ?? 0
+                : (range.To ?? start.Value) - start.Value + 1;
+        PackageArchiveRequestPurpose purpose = _readingEntries
+            ? PackageArchiveRequestPurpose.EntrySpan
+            : start is null
+                ? PackageArchiveRequestPurpose.DirectoryTail
+                : PackageArchiveRequestPurpose.DirectoryHead;
+        return _requestLog.Begin(purpose, start, length);
+    }
+
+    /// <summary>
+    /// The outcome a non-partial status settles at once; a partial response
+    /// settles when its body is disposed.
+    /// </summary>
+    private static PackageArchiveRequestOutcome? ClassifyStatus(
+        HttpStatusCode status,
+        HttpRequestMessage request) =>
+        status switch
+        {
+            HttpStatusCode.PartialContent => null,
+            // A 200 to a conditional request means the representation
+            // changed; the body is not read.
+            HttpStatusCode.OK when request.Headers.IfRange is not null =>
+                PackageArchiveRequestOutcome.Abandoned,
+            HttpStatusCode.OK => PackageArchiveRequestOutcome.RangeIgnored,
+            HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden =>
+                PackageArchiveRequestOutcome.Refused,
+            HttpStatusCode.NotFound => PackageArchiveRequestOutcome.NotFound,
+            _ => PackageArchiveRequestOutcome.Failed,
+        };
 
     /// <summary>The statuses the retry policy treats as transient when carried by an <see cref="HttpRequestException"/>.</summary>
     private static bool IsTransientStatus(HttpStatusCode status) =>

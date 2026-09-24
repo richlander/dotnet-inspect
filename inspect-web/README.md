@@ -61,6 +61,11 @@ artifact-neutral, role-unique identity only as a rejection carrier, so the
 workspace returns its typed failure instead of silently shortening the
 selected assembly set.
 
+The boundary is based on what the Browser host can bind and invoke, not on
+parameter names across referenced product assemblies. Desktop-only APIs and
+package-relative or other semantic resource paths do not require a Browser
+allow-list entry when the host does not consume them.
+
 ## How a workspace is opened
 
 1. **Settle an exact identity.**

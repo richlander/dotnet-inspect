@@ -51,6 +51,11 @@ public sealed class LibraryCallGraphAnalysisResult
             analysis.Methods.NonHeapNewObjOperandTokens;
         _declaredSources = analysis.Methods.DeclaredSources;
         OwnershipEvidence = analysis.OwnershipFlow.Methods;
+        ResourceOwnershipSummaries =
+            analysis.ResourceOwnership?.Methods ?? [];
+        ResourceOwnershipPublicationComplete =
+            analysis.ResourceOwnership is { } ownership
+            && ownership.Limitations.IsEmpty;
     }
 
     /// <summary>
@@ -83,6 +88,11 @@ public sealed class LibraryCallGraphAnalysisResult
 
     public ImmutableArray<ArrayPoolOwnershipMethodEvidence>
         OwnershipEvidence { get; }
+
+    public ImmutableArray<ResourceOwnershipMethodSummary>
+        ResourceOwnershipSummaries { get; }
+
+    public bool ResourceOwnershipPublicationComplete { get; }
 
     internal bool HasProjectedPhysicalDirectCalls =>
         !_physicalDirectCalls.IsDefault;

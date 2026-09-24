@@ -17,7 +17,7 @@ internal sealed class LibraryBodyReferenceMetadataResolver : IDisposable
 {
     readonly MetadataReader _reader;
     readonly TypeResolutionCatalog? _resolutionCatalog;
-    readonly AssemblyReferenceBindingPolicy? _bindingPolicy;
+    readonly IAssemblyBindingPolicy? _bindingPolicy;
     readonly ResolvedAssemblyReference? _rootAssembly;
     readonly Dictionary<
         AssemblyAcquisitionRegistration,
@@ -28,10 +28,12 @@ internal sealed class LibraryBodyReferenceMetadataResolver : IDisposable
         string path,
         MetadataReader reader,
         IAssemblyReferenceResolver? resolver,
-        LibraryBodyRootSnapshot? rootSnapshot)
+        LibraryBodyRootSnapshot? rootSnapshot,
+        IAssemblyBindingPolicy? bindingPolicy = null)
     {
         _reader = reader;
-        if (resolver is not null && reader.IsAssembly)
+        if ((resolver is not null || bindingPolicy is not null)
+            && reader.IsAssembly)
         {
             if (rootSnapshot is not null)
             {
@@ -48,7 +50,8 @@ internal sealed class LibraryBodyReferenceMetadataResolver : IDisposable
                         "LibraryBodyIndex"));
             }
             _bindingPolicy =
-                new AssemblyReferenceBindingPolicy(resolver);
+                bindingPolicy
+                ?? new AssemblyReferenceBindingPolicy(resolver!);
             _resolutionCatalog = new TypeResolutionCatalog();
             if (rootSnapshot is not null)
             {

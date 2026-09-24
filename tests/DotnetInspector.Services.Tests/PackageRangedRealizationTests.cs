@@ -12,10 +12,9 @@ namespace DotnetInspector.Services.Tests;
 /// the package source model's ranged step, owned by
 /// <c>docs/design/package-source-model.md#ranged-payload-realization</c>.
 /// </summary>
-public sealed class PackageRangedRealizationTests
+public sealed partial class PackageRangedRealizationTests
 {
     private const string Feed = "https://ranged.example/v3/index.json";
-    private const string Flat = "https://ranged.example/flat2/";
     private const string PclStorage = "PCLStorage";
     private const string PclStorageVersion = "1.0.2";
 
@@ -23,6 +22,13 @@ public sealed class PackageRangedRealizationTests
     [
         "lib/net45/PCLStorage.dll",
         "lib/net45/PCLStorage.Abstractions.dll",
+    ];
+
+    private static readonly string[] Net45Folder =
+    [
+        .. Net45Assemblies,
+        "lib/net45/PCLStorage.xml",
+        "lib/net45/PCLStorage.Abstractions.xml",
     ];
 
     /// <summary>
@@ -49,8 +55,10 @@ public sealed class PackageRangedRealizationTests
         Assert.IsType<PackageHouseResult.Settled>(acquired.Result);
         Assert.Equal(PackagePayloadOrigin.Ranged, acquired.Payload.Origin);
         var content = Assert.IsType<RangedPackageContent>(acquired.Payload.Content);
+        // The read fetches whole folders: the selected assemblies and the
+        // documentation beside them.
         Assert.Equal(
-            Net45Assemblies.Order(StringComparer.Ordinal),
+            Net45Folder.Order(StringComparer.Ordinal),
             content.MaterializedEntries.Order(StringComparer.Ordinal));
         var compile = Assert.IsType<PackageHouseRealizationReceipt.Compile>(
             acquired.Result.Evidence.Realization);
@@ -65,7 +73,8 @@ public sealed class PackageRangedRealizationTests
         // assemblies: the merge gap bridges the XML doc between them, and the
         // slack covers the longer local extra fields, so no follow-up.
         Assert.Equal(2, server.RangedRequests);
-        Assert.Equal(0, server.FullRequests);
+        // The one full request is the size probe, abandoned before its body.
+        Assert.Equal(1, server.FullRequests);
         Assert.Null(store.TryGetCached(PclStorage, PclStorageVersion, null));
         using (ZipArchive oracle = new(new MemoryStream(archive)))
         {
@@ -79,6 +88,296 @@ public sealed class PackageRangedRealizationTests
                 }
             }
         }
+    }
+
+    /// <summary>
+    /// Size first: an archive at or under the cut is acquired complete and
+    /// committed, with no ranged request; above it, the complete response is
+    /// abandoned before its body and the archive is read by range.
+    /// </summary>
+    [Fact]
+    public async Task SizeFirst_ArchiveAtOrUnderTheCut_IsAcquiredComplete()
+    {
+        byte[] archive = ReadPclStorage();
+        var server = new RangeFeed(PclStorage, PclStorageVersion, archive);
+        var store = new InMemoryPackageStore();
+        await using RangedEnvironment environment = RangedEnvironment.Create(server);
+
+        var acquired = Assert.IsType<PackageHouseSettlement.Acquired>(
+            await environment.RealizeAsync(
+                store,
+                PackagePayloadAccess.Ranged,
+                "net45",
+                sizeCut: archive.Length));
+
+        Assert.Equal(PackagePayloadOrigin.Download, acquired.Payload.Origin);
+        Assert.Equal(1, server.FullRequests);
+        Assert.Equal(0, server.RangedRequests);
+        Assert.NotNull(store.TryGetCached(
+            PclStorage,
+            PclStorageVersion,
+            [acquired.Payload.ProducerKey]));
+    }
+
+    [Fact]
+    public async Task SizeFirst_ArchiveAboveTheCut_AbandonsTheCompleteResponseAndReadsByRange()
+    {
+        byte[] archive = ReadPclStorage();
+        var server = new RangeFeed(PclStorage, PclStorageVersion, archive);
+        await using RangedEnvironment environment = RangedEnvironment.Create(server);
+
+        var acquired = Assert.IsType<PackageHouseSettlement.Acquired>(
+            await environment.RealizeAsync(
+                new InMemoryPackageStore(),
+                PackagePayloadAccess.Ranged,
+                "net45",
+                sizeCut: archive.Length - 1));
+
+        Assert.Equal(PackagePayloadOrigin.Ranged, acquired.Payload.Origin);
+        Assert.Equal(1, server.FullRequests);
+        Assert.Equal(2, server.RangedRequests);
+    }
+
+    /// <summary>
+    /// Size first: a complete response that advertises no length cannot be
+    /// judged against the cut, so it is taken complete, not abandoned.
+    /// </summary>
+    [Fact]
+    public async Task SizeFirst_NoAdvertisedLength_IsAcquiredComplete()
+    {
+        byte[] archive = ReadPclStorage();
+        var server = new RangeFeed(PclStorage, PclStorageVersion, archive) { OmitLength = true };
+        await using RangedEnvironment environment = RangedEnvironment.Create(server);
+
+        var acquired = Assert.IsType<PackageHouseSettlement.Acquired>(
+            await environment.RealizeAsync(
+                new InMemoryPackageStore(),
+                PackagePayloadAccess.Ranged,
+                "net45",
+                sizeCut: 1));
+
+        Assert.Equal(PackagePayloadOrigin.Download, acquired.Payload.Origin);
+        Assert.Equal(1, server.FullRequests);
+        Assert.Equal(0, server.RangedRequests);
+    }
+
+    /// <summary>
+    /// Entry cache: a second realization of the same selection reads the
+    /// cached directory and entries and makes no request.
+    /// </summary>
+    [Fact]
+    public async Task EntryCache_WarmReadOfTheSameSelection_MakesNoRequest()
+    {
+        byte[] archive = ReadPclStorage();
+        var store = new InMemoryPackageStore();
+        var cold = new RangeFeed(PclStorage, PclStorageVersion, archive);
+        await using (RangedEnvironment first = RangedEnvironment.Create(cold))
+        {
+            Assert.Equal(
+                PackagePayloadOrigin.Ranged,
+                Assert.IsType<PackageHouseSettlement.Acquired>(
+                    await first.RealizeAsync(store, PackagePayloadAccess.Ranged, "net45"))
+                    .Payload.Origin);
+        }
+
+        var warm = new RangeFeed(PclStorage, PclStorageVersion, archive);
+        await using RangedEnvironment environment = RangedEnvironment.Create(warm);
+        var acquired = Assert.IsType<PackageHouseSettlement.Acquired>(
+            await environment.RealizeAsync(store, PackagePayloadAccess.Ranged, "net45"));
+
+        Assert.Equal(PackagePayloadOrigin.Cache, acquired.Payload.Origin);
+        Assert.IsType<PackageHouseResult.Settled>(acquired.Result);
+        Assert.Equal(0, warm.RangedRequests + warm.FullRequests);
+        PackageTransferReceipt receipt = Transfer(acquired, PackagePayloadOrigin.Cache);
+        Assert.Equal(PackageTransferPath.EntryCache, receipt.Path);
+        Assert.Empty(receipt.Requests);
+        var content = Assert.IsType<RangedPackageContent>(acquired.Payload.Content);
+        Assert.Equal(
+            Net45Folder.Order(StringComparer.Ordinal),
+            content.MaterializedEntries.Order(StringComparer.Ordinal));
+    }
+
+    /// <summary>
+    /// Entry cache: a later read missing an entry reads only that entry by
+    /// range after the tail; the cached directory spares the size probe.
+    /// </summary>
+    [Fact]
+    public async Task EntryCache_WarmReadMissingAnEntry_ReadsOnlyThatEntry()
+    {
+        byte[] archive = ReadPclStorage();
+        var store = new InMemoryPackageStore();
+        await using (RangedEnvironment first = RangedEnvironment.Create(
+            new RangeFeed(PclStorage, PclStorageVersion, archive)))
+        {
+            Assert.IsType<PackageHouseSettlement.Acquired>(
+                await first.RealizeAsync(store, PackagePayloadAccess.Ranged, "net45"));
+        }
+        store.RemoveEntryForTesting(PclStorage, PclStorageVersion, "lib/net45/PCLStorage.xml");
+
+        var warm = new RangeFeed(PclStorage, PclStorageVersion, archive);
+        await using RangedEnvironment environment = RangedEnvironment.Create(warm);
+        var acquired = Assert.IsType<PackageHouseSettlement.Acquired>(
+            await environment.RealizeAsync(store, PackagePayloadAccess.Ranged, "net45"));
+
+        Assert.Equal(PackagePayloadOrigin.Ranged, acquired.Payload.Origin);
+        Assert.Equal(0, warm.FullRequests);
+        // The tail confirms the archive is unchanged, then the one missing
+        // entry; the other three come from the entry cache.
+        Assert.Equal(2, warm.RangedRequests);
+        // A cached directory spares the size probe: the receipt starts at the
+        // tail (docs/design/package-transfer-receipt.md).
+        PackageTransferReceipt receipt = Transfer(acquired, PackagePayloadOrigin.Ranged);
+        Assert.Equal(
+            [PackageTransferRequestPurpose.DirectoryTail, PackageTransferRequestPurpose.EntrySpan],
+            receipt.Requests.Select(request => request.Purpose));
+        Assert.Equal(
+            Net45Folder.Order(StringComparer.Ordinal),
+            Assert.IsType<RangedPackageContent>(acquired.Payload.Content)
+                .MaterializedEntries.Order(StringComparer.Ordinal));
+    }
+
+    /// <summary>
+    /// Entry cache: a cached entry or directory that fails its checks is kept
+    /// and bypassed, with a verbose diagnostic; the complete fetch answers and
+    /// publishes to the complete store, which answers later reads
+    /// (docs/design/package-cache-policy.md, case 5b).
+    /// </summary>
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task EntryCache_InvalidItem_TakesTheCompleteFetch(bool directory)
+    {
+        byte[] archive = ReadPclStorage();
+        var store = new InMemoryPackageStore();
+        await using (RangedEnvironment first = RangedEnvironment.Create(
+            new RangeFeed(PclStorage, PclStorageVersion, archive)))
+        {
+            Assert.IsType<PackageHouseSettlement.Acquired>(
+                await first.RealizeAsync(store, PackagePayloadAccess.Ranged, "net45"));
+        }
+        if (directory)
+            store.CorruptDirectoryForTesting(PclStorage, PclStorageVersion, [1, 2, 3]);
+        else
+            store.CorruptEntryForTesting(
+                PclStorage, PclStorageVersion, "lib/net45/PCLStorage.dll", [1, 2, 3]);
+
+        var warm = new RangeFeed(PclStorage, PclStorageVersion, archive);
+        await using RangedEnvironment environment = RangedEnvironment.Create(warm);
+        var acquired = Assert.IsType<PackageHouseSettlement.Acquired>(
+            await environment.RealizeAsync(store, PackagePayloadAccess.Ranged, "net45"));
+
+        Assert.Equal(PackagePayloadOrigin.Download, acquired.Payload.Origin);
+        Assert.Equal(1, warm.FullRequests);
+        Assert.Equal(0, warm.RangedRequests);
+        Assert.Contains(environment.Log, line => line.Contains("kept and bypassed", StringComparison.Ordinal));
+
+        // The invalid item is left in place.
+        IPackageEntryStore entries = store;
+        if (directory)
+        {
+            Assert.True(entries.TryReadDirectory(PclStorage, PclStorageVersion, out ReadOnlyMemory<byte> region, out _));
+            Assert.Equal(new byte[] { 1, 2, 3 }, region.ToArray());
+        }
+        else
+        {
+            Assert.True(entries.TryReadEntry(
+                PclStorage, PclStorageVersion, "lib/net45/PCLStorage.dll", out byte[] content));
+            Assert.Equal(new byte[] { 1, 2, 3 }, content);
+        }
+
+        await AssertLaterReadIsServedFromTheCompleteStoreAsync(store, archive);
+    }
+
+    private static async Task AssertLaterReadIsServedFromTheCompleteStoreAsync(
+        InMemoryPackageStore store,
+        byte[] archive)
+    {
+        var later = new RangeFeed(PclStorage, PclStorageVersion, archive);
+        await using RangedEnvironment environment = RangedEnvironment.Create(later);
+        var acquired = Assert.IsType<PackageHouseSettlement.Acquired>(
+            await environment.RealizeAsync(store, PackagePayloadAccess.Ranged, "net45"));
+
+        Assert.Equal(PackagePayloadOrigin.Cache, acquired.Payload.Origin);
+        Assert.Equal(0, later.FullRequests);
+        Assert.Equal(0, later.RangedRequests);
+    }
+
+    /// <summary>
+    /// Entry cache: when the archive changed since its directory was cached,
+    /// the fresh directory differs; the complete fetch answers with the whole
+    /// archive and publishes to the complete store, which answers later reads,
+    /// and no entry-cache item is replaced
+    /// (docs/design/package-cache-policy.md, case 5c).
+    /// </summary>
+    [Fact]
+    public async Task EntryCache_ChangedArchive_TakesTheCompleteFetch()
+    {
+        byte[] archive = ReadPclStorage();
+        var store = new InMemoryPackageStore();
+        await using (RangedEnvironment first = RangedEnvironment.Create(
+            new RangeFeed(PclStorage, PclStorageVersion, archive)))
+        {
+            Assert.IsType<PackageHouseSettlement.Acquired>(
+                await first.RealizeAsync(store, PackagePayloadAccess.Ranged, "net45"));
+        }
+
+        // The warm read is partial, and the coordinate was republished with
+        // an unrelated entry removed: a private feed or mirror that is not
+        // immutable.
+        store.RemoveEntryForTesting(PclStorage, PclStorageVersion, "lib/net45/PCLStorage.xml");
+        byte[] changed = Republish(archive, "lib/sl5/PCLStorage.xml");
+        var warm = new RangeFeed(PclStorage, PclStorageVersion, changed);
+        await using RangedEnvironment environment = RangedEnvironment.Create(warm);
+        var acquired = Assert.IsType<PackageHouseSettlement.Acquired>(
+            await environment.RealizeAsync(store, PackagePayloadAccess.Ranged, "net45"));
+
+        Assert.Equal(PackagePayloadOrigin.Download, acquired.Payload.Origin);
+        Assert.Equal(1, warm.FullRequests);
+        Assert.IsNotType<RangedPackageContent>(acquired.Payload.Content);
+        // The receipt records the tail that found the changed directory, then
+        // the complete transfer (docs/design/package-transfer-receipt.md).
+        PackageTransferReceipt receipt = Transfer(acquired, PackagePayloadOrigin.Download);
+        Assert.Equal(PackageTransferPath.RangedThenDownload, receipt.Path);
+        Assert.Equal(PackageTransferFallbackReason.ArchiveChanged, receipt.FallbackReason);
+        Assert.Equal(
+            [PackageTransferRequestPurpose.DirectoryTail, PackageTransferRequestPurpose.Complete],
+            receipt.Requests.Select(request => request.Purpose));
+        Assert.NotNull(store.TryGetCached(
+            PclStorage,
+            PclStorageVersion,
+            [acquired.Payload.ProducerKey]));
+
+        // The cached directory still describes the original archive, and the
+        // entry the changed read lacked was not published from it.
+        IPackageEntryStore entries = store;
+        Assert.True(entries.TryReadDirectory(PclStorage, PclStorageVersion, out ReadOnlyMemory<byte> region, out long length));
+        Assert.Equal(archive.Length, length);
+        Assert.NotNull(ZipFetch.ZipArchiveReader.ReadDirectoryFromRegion(
+                region, length, new ZipFetch.ZipReadLimits())
+            .Find("lib/sl5/PCLStorage.xml"));
+        Assert.False(entries.TryReadEntry(
+            PclStorage, PclStorageVersion, "lib/net45/PCLStorage.xml", out _));
+
+        await AssertLaterReadIsServedFromTheCompleteStoreAsync(store, changed);
+    }
+
+    private static byte[] Republish(byte[] archive, string removedEntry)
+    {
+        using var output = new MemoryStream();
+        using (var source = new ZipArchive(new MemoryStream(archive), ZipArchiveMode.Read))
+        using (var target = new ZipArchive(output, ZipArchiveMode.Create, leaveOpen: true))
+        {
+            foreach (ZipArchiveEntry entry in source.Entries)
+            {
+                if (entry.FullName == removedEntry)
+                    continue;
+                ZipArchiveEntry copy = target.CreateEntry(entry.FullName);
+                using Stream from = entry.Open();
+                using Stream to = copy.Open();
+                from.CopyTo(to);
+            }
+        }
+        return output.ToArray();
     }
 
     /// <summary>
@@ -138,7 +437,9 @@ public sealed class PackageRangedRealizationTests
 
         Assert.Equal(PackagePayloadOrigin.Download, acquired.Payload.Origin);
         Assert.IsNotType<RangedPackageContent>(acquired.Payload.Content);
-        Assert.Equal(2, server.FullRequests);
+        // The size probe, the ignored range answered whole, and the complete
+        // fetch.
+        Assert.Equal(3, server.FullRequests);
         Assert.NotNull(store.TryGetCached(
             PclStorage,
             PclStorageVersion,
@@ -177,7 +478,8 @@ public sealed class PackageRangedRealizationTests
         Assert.IsType<PackageHouseResult.Settled>(acquired.Result);
         Assert.Equal(PackagePayloadOrigin.Download, acquired.Payload.Origin);
         Assert.True(server.RangedRequests >= 1);
-        Assert.Equal(1, server.FullRequests);
+        // The size probe, then the complete fetch the fallback takes.
+        Assert.Equal(2, server.FullRequests);
         Assert.NotNull(store.TryGetCached(
             PclStorage,
             PclStorageVersion,
@@ -214,7 +516,8 @@ public sealed class PackageRangedRealizationTests
                 {
                     Failure.Kind: PackageSourceFailureKind.AuthenticationRequired,
                 });
-        Assert.Equal(0, server.FullRequests);
+        // Only the size probe, abandoned; no complete fetch follows.
+        Assert.Equal(1, server.FullRequests);
     }
 
     /// <summary>
@@ -325,12 +628,12 @@ public sealed class PackageRangedRealizationTests
 
     private sealed class RangedEnvironment : IAsyncDisposable
     {
-        private readonly IPackageSourceClient _client;
+        private readonly IDisposable _client;
 
         private RangedEnvironment(
             IPackageSourceAuthorization authorization,
             PackageSourceSettlementLease root,
-            IPackageSourceClient client)
+            IDisposable client)
         {
             Authorization = authorization;
             Root = root;
@@ -338,6 +641,8 @@ public sealed class PackageRangedRealizationTests
         }
 
         public IPackageSourceAuthorization Authorization { get; }
+
+        public ConcurrentQueue<string> Log { get; } = new();
 
         public PackageSourceSettlementLease Root { get; }
 
@@ -357,22 +662,72 @@ public sealed class PackageRangedRealizationTests
             return new(new Fixed(authorization), root, client);
         }
 
+        /// <summary>
+        /// Authorizes one source per feed, in order, each served by its own
+        /// feed at that feed's <see cref="RangeFeed.FeedUrl"/>.
+        /// </summary>
+        public static RangedEnvironment Create(params RangeFeed[] feeds)
+        {
+            PackageSourceAuthorization authorization =
+                PackageSourceAuthorization.Authorize(
+                    [.. feeds.Select((feed, index) =>
+                        new PackageSource($"ranged{index}", feed.FeedUrl))]);
+            var clients = new Dictionary<ConfiguredPackageAuthority, IPackageSourceClient>(
+                ReferenceEqualityComparer.Instance);
+            for (int i = 0; i < feeds.Length; i++)
+            {
+                ConfiguredPackageAuthority authority = authorization.Authorities[i];
+                clients[authority] = PackageSourceClientFactory.Create(
+                    authority.Source,
+                    authority.Association,
+                    feeds[i]);
+            }
+            PackageSourceSettlementLease root =
+                PackageSourceSettlementService.IssueLease(
+                    authority => clients[authority]);
+            return new(new Fixed(authorization), root, new ClientSet(clients.Values));
+        }
+
         public Task<PackageHouseSettlement> RealizeAsync(
             IPackageStore store,
             PackagePayloadAccess access,
-            string framework)
+            string framework,
+            long sizeCut = 0) =>
+            RealizeAsync(
+                store,
+                access,
+                framework,
+                sizeCut,
+                PclStorage,
+                PclStorageVersion);
+
+        public Task<PackageHouseSettlement> RealizeAsync(
+            IPackageStore store,
+            PackagePayloadAccess access,
+            string framework,
+            long sizeCut,
+            string packageId,
+            string version,
+            IEnumerable<string>? implementationNames = null,
+            PackageHouseAssetSelectionKind selection =
+                PackageHouseAssetSelectionKind.Compile)
         {
+            // The real assets here are small, so the ranged gates set a zero
+            // size cut; size first itself is gated separately.
             var house = new PackageHouse(
                 Authorization,
                 new PackagePayloadAcquisitionPlan(
                     (_, _) => store,
-                    access: access));
+                    access: access,
+                    log: Log.Enqueue,
+                    rangedSizeCut: sizeCut));
             var request = new PackageHouseRequest(
                 new PackageHouseDemand.Exact(
-                    PackageSourceCoordinate.Create(PclStorage, PclStorageVersion)),
+                    PackageSourceCoordinate.Create(packageId, version)),
                 PackageHouseOperation.Create(PackageHouseOperationProfile.Realize),
                 PackageHouseTargetContext.Exact(framework),
-                PackageHouseAssetSelectionKind.Compile);
+                selection,
+                implementationNames: implementationNames);
             return house.ExecuteAsync(
                 request,
                 Root.IssueOperationLease(
@@ -385,6 +740,16 @@ public sealed class PackageRangedRealizationTests
         {
             await Root.DisposeAsync();
             _client.Dispose();
+        }
+
+        private sealed class ClientSet(IEnumerable<IPackageSourceClient> clients)
+            : IDisposable
+        {
+            public void Dispose()
+            {
+                foreach (IPackageSourceClient client in clients)
+                    client.Dispose();
+            }
         }
 
         private sealed class Fixed(PackageSourceAuthorization authorization)
@@ -402,10 +767,20 @@ public sealed class PackageRangedRealizationTests
     private sealed class RangeFeed(string id, string version, byte[] archive)
         : HttpMessageHandler
     {
+        /// <summary>The host this feed answers as; distinct feeds are distinct sources.</summary>
+        public string Host { get; init; } = "ranged.example";
+
+        public string FeedUrl => $"https://{Host}/v3/index.json";
+
+        private string FlatUrl => $"https://{Host}/flat2/";
+
         private int _rangedRequests;
         private int _fullRequests;
 
         public bool IgnoreRange { get; init; }
+
+        /// <summary>Answer complete requests without a Content-Length.</summary>
+        public bool OmitLength { get; init; }
 
         /// <summary>A status every ranged request is answered with instead of 206.</summary>
         public HttpStatusCode? RangedStatus { get; init; }
@@ -425,17 +800,17 @@ public sealed class PackageRangedRealizationTests
         {
             string url = request.RequestUri!.AbsoluteUri;
             Requests.Enqueue($"{url} {request.Headers.Range}");
-            if (url == Feed)
+            if (url == FeedUrl)
             {
                 return Task.FromResult(Respond(request, HttpStatusCode.OK, new StringContent($$"""
                     {"version":"3.0.0","resources":[
-                      {"@id":"{{Flat}}","@type":"PackageBaseAddress/3.0.0"}
+                      {"@id":"{{FlatUrl}}","@type":"PackageBaseAddress/3.0.0"}
                     ]}
                     """)));
             }
 
             string lower = id.ToLowerInvariant();
-            if (url != $"{Flat}{lower}/{version}/{lower}.{version}.nupkg")
+            if (url != $"{FlatUrl}{lower}/{version}/{lower}.{version}.nupkg")
                 return Task.FromResult(Respond(request, HttpStatusCode.NotFound, new ByteArrayContent([])));
 
             RangeItemHeaderValue? range = request.Headers.Range?.Ranges.SingleOrDefault();
@@ -449,7 +824,9 @@ public sealed class PackageRangedRealizationTests
             {
                 Interlocked.Increment(ref _fullRequests);
                 HttpResponseMessage full = Respond(
-                    request, HttpStatusCode.OK, new ByteArrayContent(archive));
+                    request,
+                    HttpStatusCode.OK,
+                    OmitLength ? new UnknownLengthContent(archive) : new ByteArrayContent(archive));
                 full.Headers.ETag = new EntityTagHeaderValue("\"pcl\"");
                 return Task.FromResult(full);
             }
@@ -486,5 +863,25 @@ public sealed class PackageRangedRealizationTests
             HttpStatusCode status,
             HttpContent content) =>
             new(status) { Content = content, RequestMessage = request };
+    }
+
+    /// <summary>
+    /// A body with no Content-Length, as a chunked response has. The read
+    /// stream is created directly, because the base class would buffer the
+    /// body to create it and so learn its length.
+    /// </summary>
+    private sealed class UnknownLengthContent(byte[] bytes) : HttpContent
+    {
+        protected override Task SerializeToStreamAsync(Stream stream, TransportContext? context) =>
+            stream.WriteAsync(bytes).AsTask();
+
+        protected override Task<Stream> CreateContentReadStreamAsync() =>
+            Task.FromResult<Stream>(new MemoryStream(bytes, writable: false));
+
+        protected override bool TryComputeLength(out long length)
+        {
+            length = 0;
+            return false;
+        }
     }
 }

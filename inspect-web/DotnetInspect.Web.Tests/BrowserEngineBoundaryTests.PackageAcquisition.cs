@@ -127,6 +127,76 @@ public sealed partial class BrowserEngineBoundaryTests
     }
 
     [Fact]
+    public async Task PackageDocument_ReadmeAndSkillPullThroughHouseAcquisition()
+    {
+        string packageId = $"gallery.documents.{Guid.NewGuid():N}";
+        const string version = "1.2.3";
+        string readmeText =
+            "\uFEFF"
+            + new string('r', 64 * 1024)
+            + " Browser/Wasm \U0001F310";
+        const string skillText =
+            "# Inspect package\n\nRead progressively.";
+        var handler = new GalleryPackageHandler(
+            packageId,
+            version,
+            PackageWithDocuments(
+                packageId,
+                version,
+                readmeText,
+                skillText));
+        using IPackageSourceClient source = Gallery(handler);
+
+        BrowserPackageDocumentPayload readme =
+            await BrowserPackageWorkspace.ReadDocumentAsync(
+                packageId,
+                version,
+                "README.md",
+                source,
+                TimeSpan.FromSeconds(5),
+                TestContext.Current.CancellationToken);
+        BrowserPackageDocumentPayload skill =
+            await BrowserPackageWorkspace.ReadDocumentAsync(
+                packageId,
+                version,
+                "skills/demo/SKILL.md",
+                source,
+                TimeSpan.FromSeconds(5),
+                TestContext.Current.CancellationToken);
+        InvalidOperationException unavailable =
+            await Assert.ThrowsAsync<InvalidOperationException>(
+                () => BrowserPackageWorkspace.ReadDocumentAsync(
+                    packageId,
+                    version,
+                    "content/notes.txt",
+                    source,
+                    TimeSpan.FromSeconds(5),
+                    TestContext.Current.CancellationToken));
+
+        Assert.Equal(
+            new BrowserPackageDocumentPayload(
+                "readme",
+                "README.md",
+                "README.md",
+                readmeText),
+            readme);
+        Assert.Equal(
+            new BrowserPackageDocumentPayload(
+                "skill",
+                "demo",
+                "skills/demo/SKILL.md",
+                skillText),
+            skill);
+        Assert.Contains(
+            "is not a browsable document",
+            unavailable.Message,
+            StringComparison.Ordinal);
+        Assert.Equal(
+            [$"https://globalcdn.nuget.org/packages/{packageId}.{version}.nupkg"],
+            handler.Requested);
+    }
+
+    [Fact]
     public async Task PackageQueryContent_AcquiresThroughBrowserPackagePolicy()
     {
         string packageId = $"gallery.query.{Guid.NewGuid():N}";

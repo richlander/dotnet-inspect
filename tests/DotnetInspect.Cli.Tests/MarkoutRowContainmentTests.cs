@@ -232,11 +232,6 @@ public class MarkoutRowContainmentTests
         "ImplementerRow.Source",
         "ImplementsResultView.Description",
         "ImplementsResultView.Title",
-        "InfoView.Cache",
-        "InfoView.HTTP",
-        "InfoView.Output",
-        "InfoView.Readme",
-        "InfoView.Time",
         "InterfaceRow.Interface",
         "MatchBlockCorrespondenceRow.Kind",
         "MatchBlockCorrespondenceRow.RightBlocks",
@@ -367,11 +362,11 @@ public class MarkoutRowContainmentTests
     ];
 
     [Fact]
-    public void ResidualCensus_IsPinnedAt245MembersAcross50Types()
+    public void ResidualCensus_IsPinnedAt240MembersAcross49Types()
     {
-        Assert.Equal(245, NotSelfContaining.Length);
+        Assert.Equal(240, NotSelfContaining.Length);
         Assert.Equal(
-            50,
+            49,
             NotSelfContaining
                 .Select(entry => entry[..entry.IndexOf('.')])
                 .Distinct(StringComparer.Ordinal)

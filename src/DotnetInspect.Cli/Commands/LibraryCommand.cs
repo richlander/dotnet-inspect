@@ -164,6 +164,11 @@ public partial class LibraryCommand
                 .ConfigureAwait(false);
         }
         if (source.Selector is SourceSelector.PackageSource
+            && !LibraryNamespaceListingCommand.ValidateOptions(options))
+        {
+            return 1;
+        }
+        if (source.Selector is SourceSelector.PackageSource
             && (options.WorkspacePacket is not null
                 || options.NamesakeLibrary
                 || string.IsNullOrWhiteSpace(options.AssemblyName)
@@ -288,6 +293,9 @@ public partial class LibraryCommand
         InspectionTrace? trace,
         PackageExtractionResult? preResolvedPackage)
     {
+        if (!LibraryNamespaceListingCommand.ValidateOptions(options))
+            return 1;
+
         if (options.IntegrationQuery.HasFilter
             && (options.BodyKindQuery.HasFilter || options.PerformanceTriage.HasFilters
                 || options.PerformanceTriage.HasRanking
@@ -1032,6 +1040,14 @@ public partial class LibraryCommand
 
                 logger.Log($"Using platform runtime library: {framework} {version}");
 
+                if (options.TypeNamespace is not null)
+                {
+                    return await LibraryNamespaceListingCommand.ExecuteAsync(
+                        resolvedPath!,
+                        options,
+                        CancellationToken.None);
+                }
+
                 AssemblyResolutionProvenance inspectionProvenance =
                     AssemblyResolutionProvenance.Platform(
                         framework!,
@@ -1221,6 +1237,23 @@ public partial class LibraryCommand
                 tempDir = extractTempDir;
                 packageName = resolvedPackageName;
                 packageVersion = resolvedPackageVersion;
+
+                if (options.TypeNamespace is not null)
+                {
+                    if (assemblyPaths.Count != 1)
+                    {
+                        CommandError.Write(
+                            "library --namespace requires one exact "
+                                + "Library. Name the assembly within the "
+                                + "package.");
+                        return 1;
+                    }
+
+                    return await LibraryNamespaceListingCommand.ExecuteAsync(
+                        assemblyPaths[0],
+                        options,
+                        CancellationToken.None);
+                }
 
                 if (options.CoordinateRequest
                         is LibraryCoordinateRequest.FilePopulation
@@ -1516,6 +1549,14 @@ public partial class LibraryCommand
                 {
                     CommandError.Write($"File not found: {assemblyPath}");
                     return 1;
+                }
+
+                if (options.TypeNamespace is not null)
+                {
+                    return await LibraryNamespaceListingCommand.ExecuteAsync(
+                        assemblyPath,
+                        options,
+                        CancellationToken.None);
                 }
 
                 AssemblyResolutionProvenance inspectionProvenance =

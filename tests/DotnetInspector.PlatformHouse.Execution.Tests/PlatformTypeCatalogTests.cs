@@ -195,6 +195,18 @@ public partial class PlatformLibraryRealizationTests
                 typeof(
                     InspectionEnvelope<
                         PlatformTypeCatalogRouteOutcome>));
+            AssertResourceFree(
+                typeof(PlatformNamespaceDiscoveryRequest));
+            AssertResourceFree(
+                typeof(PlatformNamespaceDiscoveryHit));
+            AssertResourceFree(
+                typeof(PlatformNamespaceDiscoveryDeclaration));
+            AssertResourceFree(
+                typeof(PlatformNamespaceDiscoveryOutcome.Found));
+            AssertResourceFree(
+                typeof(
+                    InspectionEnvelope<
+                        PlatformNamespaceDiscoveryOutcome>));
             Assert.Throws<ArgumentException>(
                 () => new PlatformTypeCatalogRouteRequest(
                     "JsonSerializer.Serialize",
@@ -273,6 +285,80 @@ public partial class PlatformLibraryRealizationTests
             Assert.Equal(
                 resolvedRoute.Candidate,
                 roundTripResolved.Candidate);
+
+            InspectionEnvelope<PlatformNamespaceDiscoveryOutcome>
+                namespaceInspection =
+                PlatformNamespaceDiscoveryInspection.Execute(
+                    catalog,
+                    new("System.Text.Json.Nodes"),
+                    cancellationToken);
+            var foundNamespace = Assert.IsType<
+                PlatformNamespaceDiscoveryOutcome.Found>(
+                    namespaceInspection.Content);
+            PlatformNamespaceDiscoveryHit namespaceHit =
+                Assert.Single(foundNamespace.Hits);
+            Assert.Equal("System.Text.Json", namespaceHit.Library);
+            Assert.Equal(
+                "System.Text.Json.Nodes",
+                namespaceHit.Namespace);
+            Assert.Equal(
+                "System.Text.Json.Nodes",
+                namespaceHit.Witness.Namespace);
+            Assert.Contains(
+                namespaceHit.Declarations,
+                static declaration =>
+                    declaration.Type.ToMetadataFullName()
+                        == "System.Text.Json.Nodes.JsonArray"
+                    && declaration.DeclarationKind
+                        is AssemblyTypeDeclarationKind.Definition
+                    && declaration.DefinitionKind
+                        is AssemblyTypeDefinitionKind.Class);
+            Assert.All(
+                namespaceHit.Declarations,
+                static declaration =>
+                    Assert.Equal(
+                        "System.Text.Json.Nodes",
+                        declaration.Type.Namespace));
+            Assert.Equal(
+                catalog.Target.Family,
+                namespaceHit.Target.Family);
+            Assert.Equal(
+                catalog.Target.Version.Value,
+                namespaceHit.Target.Version);
+            Assert.Empty(namespaceInspection.Diagnostics);
+            Assert.IsType<InspectionShare.NonProjectable>(
+                namespaceInspection.Share);
+
+            string namespaceJson = JsonSerializer.Serialize(
+                namespaceInspection,
+                PlatformNamespaceDiscoveryInspectionJsonContext.Default
+                    .PlatformNamespaceDiscoveryInspectionEnvelope);
+            InspectionEnvelope<PlatformNamespaceDiscoveryOutcome>?
+                namespaceRoundTrip =
+                JsonSerializer.Deserialize(
+                    namespaceJson,
+                    PlatformNamespaceDiscoveryInspectionJsonContext.Default
+                        .PlatformNamespaceDiscoveryInspectionEnvelope);
+            Assert.NotNull(namespaceRoundTrip);
+            var roundTripNamespace = Assert.IsType<
+                PlatformNamespaceDiscoveryOutcome.Found>(
+                    namespaceRoundTrip.Content);
+            Assert.Equal(
+                foundNamespace.Request,
+                roundTripNamespace.Request);
+            Assert.Equal(
+                namespaceJson,
+                JsonSerializer.Serialize(
+                    namespaceRoundTrip,
+                    PlatformNamespaceDiscoveryInspectionJsonContext.Default
+                        .PlatformNamespaceDiscoveryInspectionEnvelope));
+
+            Assert.IsType<PlatformNamespaceDiscoveryOutcome.Missing>(
+                PlatformNamespaceDiscoveryInspection.Execute(
+                    catalog,
+                    new("System.Text"),
+                    cancellationToken)
+                .Content);
 
             Assert.Same(
                 jsonSerializer,

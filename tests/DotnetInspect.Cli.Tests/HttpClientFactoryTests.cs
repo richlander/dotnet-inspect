@@ -795,84 +795,6 @@ public class HttpClientFactoryTests : IDisposable
         Assert.Equal(0, transport.RequestCount);
     }
 
-    [Fact]
-    public void RequestMermaidDiagram_RendersObservedTrafficSequence()
-    {
-        using var diagram = RequestMermaidDiagram.Start();
-
-        using (RequestTelemetry.Scope("package Markout", "package versions"))
-        using (NetworkTelemetry.Scope(NetworkTrafficKind.PackageVersionList))
-        {
-            CacheTelemetry.Record("versions", "markout", CacheAccessResult.Miss);
-        }
-
-        using (NetworkTelemetry.Scope(NetworkTrafficKind.PackageSearch))
-        {
-            NetworkTelemetry.RecordRequestStarting(
-                new HttpRequestMessage(HttpMethod.Get, "https://azuresearch-usnc.nuget.org/query?q=packageid:markout"),
-                NetworkClientKinds.Shared);
-        }
-
-        using (NetworkTelemetry.Scope(NetworkTrafficKind.PackageDownload))
-        {
-            NetworkTelemetry.RecordRequestStarting(
-                new HttpRequestMessage(HttpMethod.Get, "https://api.nuget.org/v3-flatcontainer/markout/1.0.0/markout.1.0.0.nupkg?token=secret"),
-                NetworkClientKinds.Shared);
-        }
-
-        var mermaid = diagram.ToMermaid(CSharpText.CSharpIdentifier.ContainRenderedText);
-
-        Assert.Contains("flowchart TD", mermaid);
-        Assert.Contains("n0[\"dotnet-inspect\"]", mermaid);
-        Assert.Contains("cache miss<br/>versions markout", mermaid);
-        Assert.Contains("package-search<br/>GET https://azuresearch-usnc.nuget.org/query?REDACTED", mermaid);
-        Assert.Contains("package-download<br/>GET https://api.nuget.org/v3-flatcontainer/markout/1.0.0/markout.1.0.0.nupkg?REDACTED", mermaid);
-        Assert.DoesNotContain("token=", mermaid);
-        Assert.Contains("n0 --> n1", mermaid);
-        Assert.Contains("n1 --> n2", mermaid);
-        Assert.Contains("n2 --> n3", mermaid);
-        Assert.DoesNotContain("secret", mermaid);
-    }
-
-    [Fact]
-    public void CacheTelemetry_SymbolMissesIncludeExtensionInCategory()
-    {
-        using var diagram = RequestMermaidDiagram.Start();
-        var key = $"https://example.test/symbols/{Guid.NewGuid():N}.pdb";
-
-        DotnetInspector.Cache.PersistentCache.Set("symbol-misses", key, "403", extension: "forbidden");
-        _ = DotnetInspector.Cache.PersistentCache.TryGet("symbol-misses", key, extension: "forbidden");
-        _ = DotnetInspector.Cache.PersistentCache.TryGet("symbol-misses", key, extension: "miss");
-
-        var mermaid = diagram.ToMermaid(CSharpText.CSharpIdentifier.ContainRenderedText);
-
-        Assert.Contains("cache store<br/>symbol-misses/forbidden", mermaid);
-        Assert.Contains("cache miss<br/>symbol-misses/miss", mermaid);
-    }
-
-    [Fact]
-    public void RequestMermaidDiagram_CoalescesRepeatedCacheHitsButKeepsMisses()
-    {
-        using var diagram = RequestMermaidDiagram.Start();
-        using var scope = NetworkTelemetry.Scope(NetworkTrafficKind.PlatformResolution);
-        var category = $"platform-frameworks-{Guid.NewGuid():N}";
-        var key = $"installed-frameworks-{Guid.NewGuid():N}";
-
-        CacheTelemetry.Record(category, key, CacheAccessResult.Hit);
-        CacheTelemetry.Record(category, key, CacheAccessResult.Hit);
-        CacheTelemetry.Record(category, key, CacheAccessResult.Miss);
-        CacheTelemetry.Record(category, key, CacheAccessResult.Miss);
-        CacheTelemetry.Record(category, key, CacheAccessResult.Store);
-        CacheTelemetry.Record(category, key, CacheAccessResult.Hit);
-
-        var mermaid = diagram.ToMermaid(CSharpText.CSharpIdentifier.ContainRenderedText);
-        var label = $"{category} {key}";
-
-        Assert.Equal(1, CountOccurrences(mermaid, $"cache hit<br/>{label}"));
-        Assert.Equal(2, CountOccurrences(mermaid, $"cache miss<br/>{label}"));
-        Assert.Equal(1, CountOccurrences(mermaid, $"cache store<br/>{label}"));
-    }
-
     private static async Task<string> CaptureTrafficLogAsync(
         NetworkTrafficKind trafficKind,
         bool allowTrafficKind)
@@ -894,18 +816,6 @@ public class HttpClientFactoryTests : IDisposable
         }
 
         return error.ToString();
-    }
-
-    private static int CountOccurrences(string value, string substring)
-    {
-        var count = 0;
-        var index = 0;
-        while ((index = value.IndexOf(substring, index, StringComparison.Ordinal)) >= 0)
-        {
-            count++;
-            index += substring.Length;
-        }
-        return count;
     }
 
     private sealed class StubHttpMessageHandler : HttpMessageHandler

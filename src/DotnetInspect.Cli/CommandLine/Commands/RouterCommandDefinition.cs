@@ -6,6 +6,7 @@ using DotnetInspect.Cli.Inspectors;
 using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Output;
 using DotnetInspector.Packages;
+using DotnetInspector.Platforms;
 using DotnetInspector.Sections;
 using DotnetInspect.Cli.Planning;
 using DotnetInspector.Services;
@@ -143,7 +144,7 @@ public static class RouterCommandDefinition
                 CommandError.WriteBlankLine();
             }
 
-            RequestTelemetry.Breadcrumb("router-hit", string.Join(' ', tokens));
+            RouterDecisionLog.Record("router-hit", string.Join(' ', tokens));
             bool structuralDiscovery =
                 opts.IsDiscoveryMode(sourceParseResult)
                 && opts.ParseSchema(sourceParseResult);
@@ -162,7 +163,7 @@ public static class RouterCommandDefinition
                     CommandLineBuilder.PreprocessArgs(
                         structuralRewrite,
                         rootCommand);
-                RequestTelemetry.Breadcrumb(
+                RouterDecisionLog.Record(
                     "router-structural",
                     $"syntax: {string.Join(' ', structuralRewrite)}");
                 return await CommandLineBuilder.InvokeWithLineWindowAsync(
@@ -195,7 +196,7 @@ public static class RouterCommandDefinition
                     CommandLineBuilder.PreprocessArgs(
                         structuralRoute!.RewrittenTokens,
                         rootCommand);
-                RequestTelemetry.Breadcrumb(
+                RouterDecisionLog.Record(
                     "router-structural",
                     $"{structuralRoute.Route.Label}: "
                     + string.Join(' ', structuralTokens));
@@ -287,7 +288,7 @@ public static class RouterCommandDefinition
                                 Error = error,
                             }
                             : alternative)]);
-                RequestTelemetry.Breadcrumb(
+                RouterDecisionLog.Record(
                     "router-structural",
                     "alternatives: "
                     + string.Join(
@@ -329,7 +330,7 @@ public static class RouterCommandDefinition
                 sourceOptions,
                 rootCommand,
                 ct);
-            RequestTelemetry.Breadcrumb(
+            RouterDecisionLog.Record(
                 "router-rewrite",
                 $"{string.Join(' ', tokens)} -> {string.Join(' ', rewritten)}");
 
@@ -387,7 +388,7 @@ public static class RouterCommandDefinition
         {
             return false;
         }
-        RequestTelemetry.Breadcrumb(
+        RouterDecisionLog.Record(
             "router-row-selection",
             rowSelection.Outcome.ToString());
         return CliRowSelectionRouterPreflight.TryWriteFailure(rowSelection);
@@ -648,6 +649,44 @@ public static class RouterCommandDefinition
                                 CommandError.Write(
                                     $"Platform type lookup failed ({rejected.Rejection}).");
                                 return tokens;
+                            case PlatformTypeCatalogRouteOutcome.Missing:
+                                InspectionEnvelope<
+                                    PlatformNamespaceDiscoveryOutcome>
+                                    namespaceInspection =
+                                    PlatformNamespaceDiscoveryInspection
+                                        .Execute(
+                                            completed.Catalog,
+                                            new(target),
+                                            cancellationToken);
+                                switch (namespaceInspection.Content)
+                                {
+                                    case PlatformNamespaceDiscoveryOutcome
+                                        .Found found:
+                                        PlatformNamespaceDiscoveryHit hit =
+                                            found.Hits[0];
+                                        RouterDecisionLog.Record(
+                                            "platform-namespace",
+                                            $"{target} -> "
+                                                + $"library={hit.Library}; "
+                                                + $"namespace={hit.Namespace}");
+                                        return [
+                                            "library",
+                                            hit.Library,
+                                            "--namespace",
+                                            hit.Namespace,
+                                            "--framework",
+                                            PlatformFrameworkSpec(
+                                                hit.Target),
+                                            .. tail,
+                                        ];
+                                    case PlatformNamespaceDiscoveryOutcome
+                                        .Missing:
+                                        break;
+                                    default:
+                                        throw new InvalidOperationException(
+                                            "Unknown Platform namespace route outcome.");
+                                }
+                                break;
                         }
                         break;
                     case CliPlatformTypeCatalogOutcome.NotCompleted failure:
@@ -720,7 +759,7 @@ public static class RouterCommandDefinition
             if (memberSplit is { Probe.Kind: not SourceResolver.LocalSourceKind.Platform })
             {
                 var probe = memberSplit.Value.Probe;
-                RequestTelemetry.Breadcrumb(
+                RouterDecisionLog.Record(
                     "qualified-member",
                     $"{target} -> source={probe.SourceName}; type={probe.Remainder}; member={memberSplit.Value.MemberName}");
 
@@ -750,7 +789,7 @@ public static class RouterCommandDefinition
             if (memberSplit != null)
             {
                 var probe = memberSplit.Value.Probe;
-                RequestTelemetry.Breadcrumb(
+                RouterDecisionLog.Record(
                     "qualified-member",
                     $"{target} -> source={probe.SourceName}; type={probe.Remainder}; member={memberSplit.Value.MemberName}");
 
@@ -770,7 +809,7 @@ public static class RouterCommandDefinition
                     && !await IsExactPlatformTypeAsync(typeProbe, context);
                 if (!hasNonExactPlatformProbe)
                 {
-                    RequestTelemetry.Breadcrumb(
+                    RouterDecisionLog.Record(
                         "qualified-type",
                         $"{target} -> source={typeProbe.SourceName}; type={typeProbe.Remainder}");
 
@@ -1417,8 +1456,7 @@ public static class RouterCommandDefinition
                     resolved.Candidate.Type.ToMetadataFullName());
             string assemblyName =
                 resolved.Candidate.Assembly.Identity.Name;
-            string framework =
-                $"runtime@{resolved.Target.Version}";
+            string framework = PlatformFrameworkSpec(resolved.Target);
             return resolved.Request.MemberSelector is null
                 ? [
                     "type",
@@ -1441,6 +1479,18 @@ public static class RouterCommandDefinition
                     .. tail,
                 ];
         }
+
+        private static string PlatformFrameworkSpec(
+            PlatformTypeCatalogRouteTarget target) =>
+            target.Family switch
+            {
+                PlatformFamily.DotNetRuntime =>
+                    $"runtime@{target.Version}",
+                PlatformFamily.AspNetCore =>
+                    $"aspnetcore@{target.Version}",
+                _ => throw new InvalidOperationException(
+                    "Unknown Platform family."),
+            };
 
         private static string[] RouteExactGenericPlatformType(
             PlatformTypeLookupOutcome.Resolved resolved,

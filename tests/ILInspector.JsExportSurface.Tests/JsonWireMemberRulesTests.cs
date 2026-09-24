@@ -19,6 +19,182 @@ public sealed class JsonWireMemberRulesTests
             JsonIgnoreConditions = [.. conditions],
         };
 
+    [Theory]
+    [InlineData(
+        0,
+        null,
+        false,
+        JsonWireContextDefaultIgnoreCondition.Never)]
+    [InlineData(
+        1,
+        JsonWireIgnoreCondition.Never,
+        false,
+        JsonWireContextDefaultIgnoreCondition.Never)]
+    [InlineData(
+        1,
+        JsonWireIgnoreCondition.WhenWritingNull,
+        false,
+        JsonWireContextDefaultIgnoreCondition.WhenWritingNull)]
+    [InlineData(
+        2,
+        null,
+        false,
+        JsonWireContextDefaultIgnoreCondition.Unsupported)]
+    [InlineData(
+        1,
+        null,
+        true,
+        JsonWireContextDefaultIgnoreCondition.Unsupported)]
+    [InlineData(
+        1,
+        JsonWireIgnoreCondition.Always,
+        false,
+        JsonWireContextDefaultIgnoreCondition.Unsupported)]
+    [InlineData(
+        0,
+        JsonWireIgnoreCondition.Never,
+        false,
+        JsonWireContextDefaultIgnoreCondition.Unsupported)]
+    public void ContextDefaultIgnoreEvidenceIsNormalized(
+        int attributeCount,
+        JsonWireIgnoreCondition? value,
+        bool hasUnsupportedRow,
+        JsonWireContextDefaultIgnoreCondition expected)
+    {
+        var evidence =
+            new JsonSourceGenerationDefaultIgnoreConditionEvidence(
+                attributeCount,
+                value,
+                hasUnsupportedRow);
+
+        Assert.Equal(
+            expected,
+            JsonWireMemberRules.GetContextDefaultIgnoreCondition(
+                evidence));
+    }
+
+    [Theory]
+    [InlineData(
+        "string",
+        JsonWireMemberPresence.Conditional,
+        JsonWireMemberPresence.Present)]
+    [InlineData(
+        "int",
+        JsonWireMemberPresence.Present,
+        JsonWireMemberPresence.Present)]
+    [InlineData(
+        "T",
+        JsonWireMemberPresence.Unsupported,
+        JsonWireMemberPresence.Present)]
+    public void ContextWhenWritingNullComposesDirectionalPresence(
+        string returnType,
+        JsonWireMemberPresence serialized,
+        JsonWireMemberPresence deserialized)
+    {
+        var declaringType = new ApiType { Name = "Payload" };
+        ApiMember member = Property();
+        member.ReturnType = returnType;
+        var surface = new JsExportSurface
+        {
+            ContextDefaultIgnoreConditions =
+                new Dictionary<
+                    ApiType,
+                    JsonWireContextDefaultIgnoreCondition>
+                {
+                    [declaringType] =
+                        JsonWireContextDefaultIgnoreCondition.WhenWritingNull,
+                },
+        };
+        var typesByScopedIdentity =
+            new Dictionary<ApiTypeReferenceIdentity, ApiType>();
+
+        Assert.Equal(
+            serialized,
+            JsonWireMemberRules.GetPresence(
+                surface,
+                declaringType,
+                member,
+                JsonWireDirection.Serialize,
+                assemblyIdentity: null,
+                typesByScopedIdentity));
+        Assert.Equal(
+            deserialized,
+            JsonWireMemberRules.GetPresence(
+                surface,
+                declaringType,
+                member,
+                JsonWireDirection.Deserialize,
+                assemblyIdentity: null,
+                typesByScopedIdentity));
+        Assert.Equal(
+            serialized != deserialized,
+            JsonWireMemberRules.IsDirectionSensitive(
+                surface,
+                declaringType,
+                member,
+                assemblyIdentity: null,
+                typesByScopedIdentity));
+    }
+
+    [Fact]
+    public void ExplicitMemberConditionOverridesSupportedContextDefault()
+    {
+        var declaringType = new ApiType { Name = "Payload" };
+        ApiMember member = Property(JsonWireIgnoreCondition.Never);
+        member.ReturnType = "string";
+        var surface = new JsExportSurface
+        {
+            ContextDefaultIgnoreConditions =
+                new Dictionary<
+                    ApiType,
+                    JsonWireContextDefaultIgnoreCondition>
+                {
+                    [declaringType] =
+                        JsonWireContextDefaultIgnoreCondition.WhenWritingNull,
+                },
+        };
+        var typesByScopedIdentity =
+            new Dictionary<ApiTypeReferenceIdentity, ApiType>();
+
+        Assert.Equal(
+            JsonWireMemberPresence.Present,
+            JsonWireMemberRules.GetPresence(
+                surface,
+                declaringType,
+                member,
+                JsonWireDirection.Serialize,
+                assemblyIdentity: null,
+                typesByScopedIdentity));
+    }
+
+    [Fact]
+    public void UnsupportedContextCannotBeMaskedByMemberOverride()
+    {
+        var declaringType = new ApiType { Name = "Payload" };
+        ApiMember member = Property(JsonWireIgnoreCondition.Never);
+        var surface = new JsExportSurface
+        {
+            ContextDefaultIgnoreConditions =
+                new Dictionary<
+                    ApiType,
+                    JsonWireContextDefaultIgnoreCondition>
+                {
+                    [declaringType] =
+                        JsonWireContextDefaultIgnoreCondition.Unsupported,
+                },
+        };
+
+        Assert.Equal(
+            JsonWireMemberPresence.Unsupported,
+            JsonWireMemberRules.GetPresence(
+                surface,
+                declaringType,
+                member,
+                JsonWireDirection.Serialize,
+                assemblyIdentity: null,
+                new Dictionary<ApiTypeReferenceIdentity, ApiType>()));
+    }
+
     /// <summary>
     /// The directional table preserves value-dependent write presence instead
     /// of collapsing it into absence.

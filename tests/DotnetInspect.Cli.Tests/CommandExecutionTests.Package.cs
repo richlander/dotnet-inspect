@@ -1612,7 +1612,7 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Package_DependencyHierarchy_OutputFilePreservesWindowsAndInfo()
+    public async Task Package_DependencyHierarchy_OutputFilePreservesWindows()
     {
         var (packagePath, tempDir) = CreateLocalDependencyPackage();
         var outputPath = Path.Combine(tempDir, "dependencies.md");
@@ -1656,38 +1656,6 @@ public partial class CommandExecutionTests
                     File.ReadAllBytes(outputPath).AsSpan().StartsWith(
                         new byte[] { 0xEF, 0xBB, 0xBF }));
             }
-
-            var infoBaseline = await RunAppInDirectoryAsync(
-                tempDir,
-                "package", packagePath, "-S", "Dependency Hierarchy",
-                "--tree", "--tfm", "net9.0", "--source", tempDir,
-                "--info");
-            var infoRedirected = await RunAppInDirectoryAsync(
-                tempDir,
-                "package", packagePath, "-S", "Dependency Hierarchy",
-                "--tree", "--tfm", "net9.0", "--source", tempDir,
-                "--info", "--out", outputPath);
-
-            Assert.Equal(0, infoBaseline.Exit);
-            Assert.Equal(infoBaseline.Exit, infoRedirected.Exit);
-            Assert.Empty(infoRedirected.Output);
-            var infoWritten = File.ReadAllText(outputPath);
-            Assert.Equal(
-                infoBaseline.Output.ReplaceLineEndings("\n"),
-                infoWritten);
-            Assert.DoesNotContain('\r', infoWritten);
-
-            static string OutputMetric(string error) =>
-                SplitOutputLines(error).Single(line =>
-                    line.StartsWith("| Output |", StringComparison.Ordinal));
-
-            Assert.Equal(
-                $"| Output | {CacheOutputFormatter.FormatSize(infoWritten.Length)} |",
-                OutputMetric(infoRedirected.Error));
-            Assert.DoesNotContain(
-                "| Output | 0 B |",
-                infoRedirected.Error,
-                StringComparison.Ordinal);
         }
         finally
         {

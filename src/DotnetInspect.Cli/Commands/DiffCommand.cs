@@ -2013,9 +2013,13 @@ public class DiffCommand
                 continue;
             }
             var candidate = AssemblyMemberSourcePairRequest.From(type, member);
-            if (candidate.Member != target.Anchor
+            AssemblyMemberSourcePairEndpointRequest endpoint =
+                candidate.Before
+                ?? throw new InvalidOperationException(
+                    "A same-member Source pair request has no Before endpoint.");
+            if (endpoint.Member != target.Anchor
                 || (request is not null
-                    && (!request.Type.Equals(candidate.Type) || request.Member != candidate.Member)))
+                    && request.Before != candidate.Before))
             {
                 unsupported = true;
             }
@@ -4018,6 +4022,11 @@ public record DiffOptions : IProjectionOptions
     public string? Tfm { get; init; }
     public bool IncludeAll { get; init; }
     public bool History { get; init; }
+
+    /// <summary>
+    /// Debug-only destination for the complete enriched Diff History envelope.
+    /// </summary>
+    public string? EvidenceEnvelopePath { get; init; }
     public string[] At { get; init; } = [];
     public int? MaxProbes { get; init; }
     public int? SamplePercent { get; init; }

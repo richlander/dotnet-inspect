@@ -297,7 +297,10 @@ import {
   type IntegrationMode,
 } from "./integration-inspector.ts";
 import { renderLibraryAnalysisSurface } from "./library-analysis.ts";
-import { renderLibraryMetricsSurface } from "./library-metrics.ts";
+import {
+  bindLibraryMetricsInteractions,
+  renderLibraryMetricsSurface,
+} from "./library-metrics.ts";
 import {
   captureMemberFocus,
   createMemberFocusRestorer,
@@ -663,6 +666,11 @@ import {
   renderTypeExplorerView,
   restoreTypeExplorerMemberSelection,
   restoreTypeExplorerViewportAnchor,
+  type TypeExplorerBody,
+  type TypeExplorerBodyDestination,
+  type TypeExplorerBodyInspectionState,
+  type TypeExplorerBodyRole,
+  type TypeExplorerDeclaration,
   type TypeExplorerInspection,
   type TypeExplorerProjection,
   type TypeExplorerSelectionPane,
@@ -3824,8 +3832,18 @@ const navigationSequence = {
 };
 let typeExplorerOperationId: string | null = null;
 let typeExplorerLoadSequence = 0;
+let typeExplorerBodyRequestSequence = 0;
+let typeExplorerRendererGeneration = 0;
 let typeExplorerHeadingFocusPending = false;
 let typeExplorerOutlineOpen = false;
+let typeExplorerBodyInspection: TypeExplorerBodyInspectionState = {
+  status: "idle",
+};
+let typeExplorerBodyFocusPending: {
+  readonly revision: string;
+  readonly bodyId: number;
+  readonly rendererGeneration: number;
+} | null = null;
 let typeExplorerMemberFocusPending: {
   readonly identity: TypeExplorerMemberIdentity;
   readonly pane: TypeExplorerSelectionPane;
@@ -3844,6 +3862,16 @@ let typeExplorerViewport = {
   sourceLeft: 0,
   outlineTop: 0,
 };
+type AnnotatedSourceModalOrigin =
+  | { readonly kind: "embedded" }
+  | {
+      readonly kind: "type-explorer";
+      readonly revision: string;
+      readonly declarationId: number;
+      readonly bodyId: number;
+      readonly rendererGeneration: number;
+    };
+let annotatedSourceModalOrigin: AnnotatedSourceModalOrigin | null = null;
 
 function currentPackageQueryHandoff() {
   return packageQueryHandoffNavigationSeq !== null
@@ -7111,9 +7139,9 @@ function renderCore(options: { synchronizeUrl?: boolean }) {
     activeScope === "member" && state.memberSection === "call-graph";
   const subjectPath = currentInspectedSubjectPath();
   const subjectPathLabel = subjectPath.map(segment =>
-    segment.qualifier
-      ? `${segment.label} · ${segment.qualifier}`
-      : segment.label).join(" > ");
+    [segment.label, segment.targetFramework, segment.qualifier]
+      .filter(Boolean)
+      .join(" · ")).join(" > ");
   const contentFrameEnabled = activeScope !== "workspace";
   const contentNavigationLabel =
     activeScope === "package"
@@ -7496,6 +7524,7 @@ interface SubjectPathSegment {
   label: string;
   copyable: boolean;
   qualifier?: string;
+  targetFramework?: string;
 }
 
 function inspectedSubjectPath(
@@ -7518,6 +7547,9 @@ function inspectedSubjectPath(
             ? activeLibrarySubjectName()
             : packageDisplayName(pkg),
         copyable: true,
+        ...(state.rootKind === "package"
+          ? { targetFramework: pkg.activeFramework }
+          : {}),
       }]
     : [];
   if (state.atPackageRoot
@@ -7580,10 +7612,13 @@ function renderInspectedSubjectPath(
     const content = segment.copyable
       ? `<button type="button" class="subject-path-segment${root}${current}" data-subject-copy="${index}" title="Copy ${label}" aria-label="Copy ${escapeHtml(segment.kind)} name ${label}">${label}</button>`
       : `<span class="subject-path-segment${root}${current}">${label}</span>`;
+    const targetFramework = segment.targetFramework
+      ? `<button type="button" class="subject-path-framework" data-subject-framework="${escapeHtml(segment.targetFramework)}" title="Change target framework" aria-label="Target framework ${escapeHtml(segment.targetFramework)}. Change target framework for ${label}">· ${escapeHtml(segment.targetFramework)}</button>`
+      : "";
     const qualifier = segment.qualifier
       ? `<span class="subject-path-qualifier" aria-label="Defining Library ${escapeHtml(segment.qualifier)}">· ${escapeHtml(segment.qualifier)}</span>`
       : "";
-    return `${separator}${content}${qualifier}`;
+    return `${separator}${content}${targetFramework}${qualifier}`;
   }).join("");
 }
 
@@ -8587,6 +8622,24 @@ function renderPackageLibraryMetrics() {
     data: state.packageLibraryMetrics,
     escapeHtml,
   });
+}
+
+function activateLibraryMetricsType(typeKey: string) {
+  const pkg = state.package;
+  const library = selectedLibrary();
+  if (!pkg || !library) return;
+  const matches = pkg.types.filter(type =>
+    !type.graphOnly
+    && libraryKey(type) === library.id
+    && typeIdentifierOf(type) === typeKey);
+  const target = matches.length === 1 ? matches[0] : undefined;
+  if (!target) {
+    showToast(matches.length === 0
+      ? "That Type is not loaded in the selected Library."
+      : "That Type identity is ambiguous in the selected Library.");
+    return;
+  }
+  navigateToType(target);
 }
 
 async function loadPackagePerformance() {
@@ -9806,6 +9859,9 @@ function renderAnnotatedSourceModal() {
     return renderAnnotatedSourceModalPure({
       result: state.memberAnnotated,
       session: state.memberAnnotatedModal,
+      ...(state.annotatedDestinationError
+        ? { message: state.annotatedDestinationError }
+        : {}),
       escapeHtml,
       highlightCSharp: annotatedSourceHighlighter,
     });
@@ -10598,6 +10654,34 @@ function renderAndFocusAnnotated(
   scheduleAnnotatedFocus(target, surface, preventScroll);
 }
 
+function openTypeExplorerAnnotatedSourceModal(
+  request: TypeExplorerBodyOpenRequest,
+) {
+  graphExplorer.close(false);
+  if (!state.memberAnnotated
+    || !typeExplorerBodyRequestIsCurrent(request)) {
+    return;
+  }
+  invalidateMemberDestinationWork(state);
+  state.annotatedDestinationError = "";
+  const model = createAnnotatedSourceViewerModel(state.memberAnnotated);
+  const opened = openModalSession(model, createEmbeddedSession(model));
+  state.memberAnnotatedEmbedded = null;
+  state.memberAnnotatedModal = opened.modal;
+  annotatedSourceModalOrigin = {
+    kind: "type-explorer",
+    revision: request.revision,
+    declarationId: request.declarationId,
+    bodyId: request.bodyId,
+    rendererGeneration: typeExplorerRendererGeneration,
+  };
+  syncFindingSelectionFromAnnotatedSession(opened.modal);
+  spotlight.reset();
+  sourceInspection.clearGraphSource();
+  documentInspection.clear();
+  renderAndFocusAnnotated(opened.focus);
+}
+
 function openAnnotatedSourceModal() {
   graphExplorer.close(false);
   if (!state.memberAnnotated) return;
@@ -10609,6 +10693,7 @@ function openAnnotatedSourceModal() {
   const opened = openModalSession(model, embedded);
   state.memberAnnotatedEmbedded = opened.embedded;
   state.memberAnnotatedModal = opened.modal;
+  annotatedSourceModalOrigin = { kind: "embedded" };
   syncFindingSelectionFromAnnotatedSession(opened.modal);
   spotlight.reset();
   sourceInspection.clearGraphSource();
@@ -10616,8 +10701,51 @@ function openAnnotatedSourceModal() {
   renderAndFocusAnnotated(opened.focus);
 }
 
+function scheduleTypeExplorerDismissalFocus(
+  origin: Extract<
+    AnnotatedSourceModalOrigin,
+    { readonly kind: "type-explorer" }
+  >,
+) {
+  afterCurrentNavigationFrame(() => {
+    if (origin.rendererGeneration === typeExplorerRendererGeneration
+      && state.typeExplorerOpen) {
+      const projection = state.typeExplorerView.status === "ready"
+        ? state.typeExplorerView.inspection.document?.projection ?? null
+        : null;
+      if (projection?.revision === origin.revision
+        && projection.declarations.some(declaration =>
+          declaration.declarationId === origin.declarationId
+          && declaration.bodies.some(body =>
+            body.bodyId === origin.bodyId
+            && body.destination !== null))) {
+        const opener = document.querySelector<HTMLElement>(
+          `[data-type-explorer-inspect-body="${origin.bodyId}"]`);
+        if (opener !== null) {
+          opener.focus({ preventScroll: true });
+          return;
+        }
+      }
+      const heading =
+        document.querySelector<HTMLElement>("#type-explorer-title");
+      if (heading !== null) {
+        heading.focus({ preventScroll: true });
+        return;
+      }
+    }
+    const heading = document.querySelector<HTMLElement>("h1");
+    if (heading !== null) {
+      heading.focus({ preventScroll: true });
+      return;
+    }
+    document.querySelector<HTMLElement>(".brand")
+      ?.focus({ preventScroll: true });
+  });
+}
+
 function dismissAnnotatedSourceModal(restoreExploreFocus: boolean) {
   if (!state.memberAnnotated || !state.memberAnnotatedModal) return false;
+  const origin = annotatedSourceModalOrigin ?? { kind: "embedded" };
   let model: AnnotatedSourceViewerModel;
   try {
     model = createAnnotatedSourceViewerModel(state.memberAnnotated);
@@ -10625,14 +10753,30 @@ function dismissAnnotatedSourceModal(restoreExploreFocus: boolean) {
     if (!(error instanceof TypeError)) throw error;
     state.memberAnnotatedEmbedded = null;
     state.memberAnnotatedModal = null;
-    if (restoreExploreFocus) {
+    annotatedSourceModalOrigin = null;
+    if (restoreExploreFocus && origin.kind === "type-explorer") {
+      render();
+      scheduleTypeExplorerDismissalFocus(origin);
+    } else if (restoreExploreFocus) {
       renderAndFocusAnnotated("#annotated-source-rejection-title", "embedded");
+    }
+    return true;
+  }
+  if (origin.kind === "type-explorer") {
+    dismissModalSession(model, state.memberAnnotatedModal);
+    state.memberAnnotatedEmbedded = null;
+    state.memberAnnotatedModal = null;
+    annotatedSourceModalOrigin = null;
+    if (restoreExploreFocus) {
+      render();
+      scheduleTypeExplorerDismissalFocus(origin);
     }
     return true;
   }
   state.memberAnnotatedEmbedded =
     dismissModalSession(model, state.memberAnnotatedModal);
   state.memberAnnotatedModal = null;
+  annotatedSourceModalOrigin = null;
   syncFindingSelectionFromAnnotatedSession(state.memberAnnotatedEmbedded);
   if (restoreExploreFocus) renderAndFocusAnnotated({ kind: "explore" }, "embedded");
   return true;
@@ -10764,16 +10908,25 @@ function applyAnnotatedSourceAction(action: AnnotatedSourceAction) {
       if (!destination) return;
       invalidateMemberDestinationWork(state);
       state.annotatedDestinationError = "";
+      const origin = annotatedSourceModalOrigin;
+      const failureSurface =
+        origin?.kind === "type-explorer" ? "retained" : "annotated";
       const binding =
         callGraphTargetBinding(
           destination.target,
           action.destination,
-          "annotated")
+          failureSurface)
         ?? blockedCallGraphNodeBinding(
           destination.target,
           "the exact target is unavailable in the current workspace",
-          "annotated");
+          failureSurface);
+      if (binding.blocked) {
+        binding.onSelect();
+        return;
+      }
       dismissAnnotatedSourceModal(false);
+      if (origin?.kind === "type-explorer")
+        resetTypeExplorerRouteState();
       binding.onSelect();
       return;
     }
@@ -10783,16 +10936,25 @@ function applyAnnotatedSourceAction(action: AnnotatedSourceAction) {
       if (!relationship) return;
       invalidateMemberDestinationWork(state);
       state.annotatedDestinationError = "";
+      const origin = annotatedSourceModalOrigin;
+      const failureSurface =
+        origin?.kind === "type-explorer" ? "retained" : "annotated";
       const binding =
         callGraphTargetBinding(
           relationship.target,
           action.destination,
-          "annotated")
+          failureSurface)
         ?? blockedCallGraphNodeBinding(
           relationship.target,
           "the exact target is unavailable in the current workspace",
-          "annotated");
+          failureSurface);
+      if (binding.blocked) {
+        binding.onSelect();
+        return;
+      }
       dismissAnnotatedSourceModal(false);
+      if (origin?.kind === "type-explorer")
+        resetTypeExplorerRouteState();
       binding.onSelect();
       return;
     }
@@ -10802,16 +10964,25 @@ function applyAnnotatedSourceAction(action: AnnotatedSourceAction) {
       if (!evidence) return;
       invalidateMemberDestinationWork(state);
       state.annotatedDestinationError = "";
+      const origin = annotatedSourceModalOrigin;
+      const failureSurface =
+        origin?.kind === "type-explorer" ? "retained" : "annotated";
       const binding =
         callGraphTargetBinding(
           evidence.target,
           action.destination,
-          "annotated")
+          failureSurface)
         ?? blockedCallGraphNodeBinding(
           evidence.target,
           "the exact callee is unavailable in the current workspace",
-          "annotated");
+          failureSurface);
+      if (binding.blocked) {
+        binding.onSelect();
+        return;
+      }
       dismissAnnotatedSourceModal(false);
+      if (origin?.kind === "type-explorer")
+        resetTypeExplorerRouteState();
       binding.onSelect();
       return;
     }
@@ -10866,6 +11037,7 @@ function openFindingInstanceFromFacts(receipt: string, instanceKey: number) {
   });
   state.memberAnnotatedEmbedded = opened.embedded;
   state.memberAnnotatedModal = modal;
+  annotatedSourceModalOrigin = { kind: "embedded" };
   state.memberSection = "annotated";
   contentFramePane = "detail";
   renderAndFocusAnnotated("#annotated-detail-title", "modal", true);
@@ -10905,6 +11077,14 @@ const workbenchShellActions: WorkbenchShellBindingActions = {
     const segment = currentInspectedSubjectPath()[index];
     if (segment?.copyable)
       void copyText(segment.label, `${segment.kind} name copied`);
+  },
+  onOpenPackageTargetFramework: () => {
+    contentFramePane = "navigation";
+    state.workspaceSubjectOpen = false;
+    state.atPackageRoot = true;
+    state.atLibraryRoot = false;
+    render();
+    afterCurrentNavigationFrame(() => focusContentNavigation(document));
   },
   onDismissNotice: dismissQueryNotice,
   onDismissPackageNotice: () => {
@@ -10980,6 +11160,9 @@ function bindEvents() {
   bindPackageComparisonControls();
   bindCompareEvents();
   bindLibraryControlsEvents();
+  bindLibraryMetricsInteractions(document, {
+    activateType: activateLibraryMetricsType,
+  });
   workbenchShellBinding =
     bindWorkbenchShell(document, workbenchShellActions);
   bindGraphBack(document, graphBackActions);
@@ -14972,8 +15155,16 @@ function cancelTypeExplorerLoad(
     cancelTypeExplorerInspection(operationId, reason);
 }
 
+function resetTypeExplorerBodyInspection() {
+  typeExplorerBodyRequestSequence++;
+  typeExplorerBodyInspection = { status: "idle" };
+  typeExplorerBodyFocusPending = null;
+}
+
 function resetTypeExplorerRouteState() {
   cancelTypeExplorerLoad("disposed");
+  resetTypeExplorerBodyInspection();
+  typeExplorerRendererGeneration++;
   state.typeExplorerOpen = false;
   state.typeExplorerOpenedFromApp = false;
   state.typeExplorerPredecessorEntryId = null;
@@ -15013,6 +15204,8 @@ function openTypeExplorerRoute() {
     return;
   }
   clearNavigationError();
+  typeExplorerRendererGeneration++;
+  resetTypeExplorerBodyInspection();
   state.typeExplorerOpen = true;
   state.typeExplorerOpenedFromApp = true;
   state.typeExplorerPredecessorEntryId = predecessorEntryId;
@@ -15056,6 +15249,7 @@ function replaceTypeExplorerIntent(intent: TypeExplorerIntent) {
     showToast("Type Explorer could not update its route.");
     return false;
   }
+  resetTypeExplorerBodyInspection();
   state.typeExplorerIntent = intent;
   state.typeExplorerIntentError = "";
   state.typeExplorerView = { status: "loading" };
@@ -15150,6 +15344,20 @@ function requireTypeExplorerOrigin(
   throw new Error(`Type Explorer returned invalid origin '${value}'.`);
 }
 
+function requireTypeExplorerBodyRole(
+  value: string,
+): TypeExplorerBodyRole {
+  if (value === "Method"
+    || value === "Getter"
+    || value === "Setter"
+    || value === "Init"
+    || value === "Adder"
+    || value === "Remover") {
+    return value;
+  }
+  throw new Error(`Type Explorer returned invalid body role '${value}'.`);
+}
+
 function mapTypeExplorerProjection(
   projection: BrowserTypeExplorerProjection,
 ): TypeExplorerProjection {
@@ -15171,6 +15379,12 @@ function mapTypeExplorerProjection(
       origin: requireTypeExplorerOrigin(declaration.origin),
       supportsSelectedBody: declaration.supportsSelectedBody,
       range: declaration.range,
+      bodies: declaration.bodies.map(body => ({
+        bodyId: body.bodyId,
+        role: requireTypeExplorerBodyRole(body.role),
+        range: body.range,
+        destination: body.destination,
+      })),
     })),
   };
 }
@@ -15211,6 +15425,151 @@ function mapTypeExplorerInspection(
       message: diagnostic.summary,
     })),
   };
+}
+
+interface TypeExplorerBodyOpenRequest {
+  readonly revision: string;
+  readonly declarationId: number;
+  readonly bodyId: number;
+  readonly destination: TypeExplorerBodyDestination;
+}
+
+function sameTypeExplorerBodyDestination(
+  left: TypeExplorerBodyDestination | null,
+  right: TypeExplorerBodyDestination,
+): boolean {
+  return left !== null
+    && left.moduleVersionId === right.moduleVersionId
+    && left.metadataToken === right.metadataToken
+    && left.member.stableSelector === right.member.stableSelector
+    && left.member.canonicalSignature === right.member.canonicalSignature
+    && left.member.fingerprint === right.member.fingerprint
+    && left.member.typeFullName === right.member.typeFullName
+    && left.member.memberName === right.member.memberName;
+}
+
+function typeExplorerBodyRequestIsCurrent(
+  request: TypeExplorerBodyOpenRequest,
+): boolean {
+  if (!state.typeExplorerOpen
+    || state.typeExplorerView.status !== "ready") {
+    return false;
+  }
+  const projection =
+    state.typeExplorerView.inspection.document?.projection ?? null;
+  if (projection === null || projection.revision !== request.revision)
+    return false;
+  const declaration = projection.declarations.find(candidate =>
+    candidate.declarationId === request.declarationId);
+  const body = declaration?.bodies.find(candidate =>
+    candidate.bodyId === request.bodyId);
+  return body !== undefined
+    && sameTypeExplorerBodyDestination(body.destination, request.destination);
+}
+
+function typeExplorerBodyRequestSignature(
+  request: TypeExplorerBodyOpenRequest,
+): string {
+  const pkg = currentPackage();
+  const type = selectedType();
+  return memberRequestKey([
+    "type-explorer",
+    pkg.id,
+    pkg.version,
+    pkg.activeFramework,
+    type?.assembly ?? "",
+    type?.queryId ?? type?.id ?? "",
+    type?.definitionId ?? type?.id ?? "",
+    request.revision,
+    String(request.declarationId),
+    String(request.bodyId),
+    request.destination.moduleVersionId,
+    request.destination.member.stableSelector,
+    request.destination.member.canonicalSignature,
+    request.destination.member.fingerprint,
+    String(request.destination.metadataToken),
+  ], state.taste);
+}
+
+function focusTypeExplorerBodyAfterRender(
+  request: Pick<
+    TypeExplorerBodyOpenRequest,
+    "revision" | "bodyId"
+  >,
+) {
+  typeExplorerBodyFocusPending = {
+    ...request,
+    rendererGeneration: typeExplorerRendererGeneration,
+  };
+}
+
+async function inspectTypeExplorerBody(
+  declaration: TypeExplorerDeclaration,
+  body: TypeExplorerBody,
+) {
+  if (body.destination === null
+    || state.typeExplorerView.status !== "ready") {
+    return;
+  }
+  const projection =
+    state.typeExplorerView.inspection.document?.projection ?? null;
+  if (projection === null) return;
+  const request: TypeExplorerBodyOpenRequest = {
+    revision: projection.revision,
+    declarationId: declaration.declarationId,
+    bodyId: body.bodyId,
+    destination: body.destination,
+  };
+  if (!typeExplorerBodyRequestIsCurrent(request)) return;
+  const type = selectedType();
+  if (!type) return;
+  const pkg = currentPackage();
+  const sequence = ++typeExplorerBodyRequestSequence;
+  const signature = typeExplorerBodyRequestSignature(request);
+  typeExplorerBodyInspection = {
+    status: "loading",
+    bodyId: body.bodyId,
+  };
+  focusTypeExplorerBodyAfterRender(request);
+  render({ synchronizeUrl: false });
+  await memberDetailInspection.loadFindingCensus({
+    signature,
+    packageId: pkg.id,
+    version: pkg.version,
+    framework: pkg.activeFramework,
+    assembly: type.assembly,
+    typeIdentity: type.definitionId ?? type.id,
+    type: type.queryId ?? type.id,
+    member: request.destination.member.memberName,
+    memberSignature: request.destination.member.canonicalSignature,
+    selectorKey: request.destination.member.stableSelector,
+    metadataToken: request.destination.metadataToken,
+    taste: JSON.stringify(state.taste),
+    embeddedSession: false,
+    isCurrent: () =>
+      sequence === typeExplorerBodyRequestSequence
+      && typeExplorerBodyRequestIsCurrent(request),
+  });
+  if (sequence !== typeExplorerBodyRequestSequence
+    || !typeExplorerBodyRequestIsCurrent(request)
+    || state.memberAnnotatedKey !== signature) {
+    return;
+  }
+  if (state.memberAnnotated === null
+    || state.memberFindingInteraction === null) {
+    typeExplorerBodyInspection = {
+      status: "failed",
+      bodyId: body.bodyId,
+      error: state.memberAnnotatedError
+        || "Annotated Source did not return a settled result.",
+    };
+    focusTypeExplorerBodyAfterRender(request);
+    render({ synchronizeUrl: false });
+    return;
+  }
+  typeExplorerBodyInspection = { status: "idle" };
+  typeExplorerBodyFocusPending = null;
+  openTypeExplorerAnnotatedSourceModal(request);
 }
 
 async function loadTypeExplorer() {
@@ -15327,6 +15686,11 @@ function renderTypeExplorerPage() {
         value: document.activeElement.value,
       }
     : null;
+  const focusedInspectBodyId =
+    document.activeElement instanceof HTMLButtonElement
+    && document.activeElement.dataset.typeExplorerInspectBody !== undefined
+      ? Number(document.activeElement.dataset.typeExplorerInspectBody)
+      : null;
   const type = selectedType();
   const pkg = state.package;
   const viewState: TypeExplorerViewState = state.typeExplorerIntentError
@@ -15341,10 +15705,15 @@ function renderTypeExplorerPage() {
       : "No package is active.",
     intent: state.typeExplorerIntent,
     state: viewState,
+    bodyInspection: typeExplorerBodyInspection,
     outlineOpen: typeExplorerOutlineOpen,
     escapeHtml,
     highlightCSharp,
-  });
+  }) + renderAnnotatedSourceModal();
+  if (state.memberAnnotatedModal !== null) {
+    app.querySelector<HTMLElement>(".type-explorer-route")
+      ?.setAttribute("inert", "");
+  }
   bindTypeExplorerView(app, viewState, {
     close: closeTypeExplorerRoute,
     retry: () => {
@@ -15406,7 +15775,12 @@ function renderTypeExplorerPage() {
         selectedDeclarationId: declaration.declarationId,
       }, true);
     },
+    inspectBody: (declaration, body) =>
+      observeAsync(
+        inspectTypeExplorerBody(declaration, body),
+        "Inspecting a Type Explorer body"),
   });
+  bindAnnotatedSourceEvents();
   const source = app.querySelector<HTMLElement>(".type-explorer-source pre");
   if (source !== null) {
     source.scrollTop = typeExplorerViewport.sourceTop;
@@ -15467,6 +15841,29 @@ function renderTypeExplorerPage() {
       }
     });
   }
+  const pendingBodyFocus = typeExplorerBodyFocusPending;
+  const bodyFocusId = pendingBodyFocus?.bodyId ?? focusedInspectBodyId;
+  const bodyFocusAllowed = state.memberAnnotatedModal === null
+    && bodyFocusId !== null
+    && (pendingBodyFocus === null
+      || (pendingBodyFocus.rendererGeneration
+          === typeExplorerRendererGeneration
+        && projection?.revision === pendingBodyFocus.revision));
+  if (bodyFocusAllowed) {
+    afterCurrentNavigationFrame(() => {
+      if (pendingBodyFocus !== null
+        && typeExplorerBodyFocusPending !== pendingBodyFocus) {
+        return;
+      }
+      typeExplorerBodyFocusPending = null;
+      document.querySelector<HTMLElement>(
+        `[data-type-explorer-inspect-body="${bodyFocusId}"]`)
+        ?.focus({ preventScroll: true });
+    });
+  } else if (pendingBodyFocus !== null
+    && state.memberAnnotatedModal === null) {
+    typeExplorerBodyFocusPending = null;
+  }
   if (typeExplorerHeadingFocusPending || headingHadFocus) {
     typeExplorerHeadingFocusPending = false;
     afterCurrentNavigationFrame(() =>
@@ -15490,6 +15887,11 @@ function renderTypeExplorerPage() {
     && state.engineReady) {
     state.typeExplorerView = { status: "loading" };
     observeAsync(loadTypeExplorer(), "Loading Type Explorer");
+  }
+  if (state.memberAnnotatedModal?.relationshipPresentation === "Diagram") {
+    observeAsync(
+      renderAnnotatedRelationshipDiagram(),
+      "Rendering Annotated Source relationships");
   }
 }
 
@@ -17181,7 +17583,7 @@ function callGraphNodeBinding(
 }
 
 type CallGraphTargetDestination = "default" | "member" | "source";
-type GraphNavigationFailureSurface = "call-graph" | "annotated";
+type GraphNavigationFailureSurface = "call-graph" | "annotated" | "retained";
 
 function callGraphTargetBinding(
   target: InspectedCallGraphTarget,
@@ -17476,10 +17878,20 @@ function blockedCallGraphNodeBinding(
     label: `Cannot open ${target.typeFullName}.${target.memberName}: ${reason}`,
     blocked: true,
     onSelect: () => {
-      if (failureSurface === "annotated") {
+      if (state.memberAnnotatedModal !== null) {
         state.annotatedDestinationError =
           `Could not open ${target.typeFullName}.${target.memberName}: ${reason}.`;
-        renderAndFocusAnnotated({ kind: "explore" }, "embedded");
+        renderAndFocusAnnotated(
+          "#annotated-destination-error",
+          "modal",
+          true);
+        return;
+      }
+      const message =
+        `Could not open ${target.typeFullName}.${target.memberName}: ${reason}.`;
+      if (showGraphNavigationFailureOutsideCallGraph(
+        message,
+        failureSurface)) {
         return;
       }
       invalidateGraphMemberNavigation();
@@ -17953,13 +18365,38 @@ function showGraphMemberNavigationError(
   state.graphMemberNavigationTitle = "";
   const message =
     `Could not open ${target.typeFullName}.${target.memberName}: ${reason}`;
-  if (failureSurface === "annotated") {
-    state.annotatedDestinationError = message;
-    renderAndFocusAnnotated({ kind: "explore" }, "embedded");
+  if (showGraphNavigationFailureOutsideCallGraph(message, failureSurface)) {
     return;
   }
   state.graphMemberNavigationError = message;
   render();
+}
+
+function showGraphNavigationFailureOutsideCallGraph(
+  message: string,
+  failureSurface: GraphNavigationFailureSurface,
+): boolean {
+  switch (failureSurface) {
+    case "call-graph":
+      return false;
+    case "annotated":
+      state.annotatedDestinationError = message;
+      renderAndFocusAnnotated({ kind: "explore" }, "embedded");
+      return true;
+    case "retained":
+      showRetainedGraphNavigationError(message);
+      return true;
+    default:
+      return assertNever(
+        failureSurface,
+        "graph navigation failure surface");
+  }
+}
+
+function showRetainedGraphNavigationError(message: string) {
+  appendQueryNotice(message);
+  render();
+  afterCurrentNavigationFrame(() => focusLevelOneHeading());
 }
 
 async function restorePendingGraphMember() {
@@ -18192,10 +18629,9 @@ async function navigateOrDrillPlatform(
       const message = runtimeResult.failureMessage
         || state.runtimePackError
         || `Could not load platform assembly ${node.assembly}.`;
-      if (failureSurface === "annotated") {
-        state.annotatedDestinationError = message;
-        renderAndFocusAnnotated({ kind: "explore" }, "embedded");
-      } else {
+      if (!showGraphNavigationFailureOutsideCallGraph(
+        message,
+        failureSurface)) {
         state.platformDrillError = message;
         renderPreservingMemberFocus(preservedFocus);
         await renderMermaidCallGraph();
@@ -18244,10 +18680,9 @@ async function navigateOrDrillPlatform(
       const message = runtimeResult.failureMessage
         || state.runtimePackError
         || `Could not load platform assembly ${node.assembly}.`;
-      if (failureSurface === "annotated") {
-        state.annotatedDestinationError = message;
-        renderAndFocusAnnotated({ kind: "explore" }, "embedded");
-      } else {
+      if (!showGraphNavigationFailureOutsideCallGraph(
+        message,
+        failureSurface)) {
         state.platformDrillError = message;
         renderPreservingMemberFocus(preservedFocus);
         await renderMermaidCallGraph();
@@ -18378,9 +18813,9 @@ async function showPlatformTargetError(
   state.platformDrillLoading = false;
   const message =
     `Could not open ${node.typeFullName}.${node.memberName}: ${reason}.`;
-  if (failureSurface === "annotated") {
-    state.annotatedDestinationError = message;
-    renderAndFocusAnnotated({ kind: "explore" }, "embedded");
+  if (showGraphNavigationFailureOutsideCallGraph(
+    message,
+    failureSurface)) {
     return;
   }
   state.platformDrillError = message;
@@ -21474,6 +21909,8 @@ window.addEventListener("popstate", () => {
   const navigationSeq = navigationSequence.begin();
   const typeExplorerDestination = isTypeExplorerPath(location.pathname);
   if (typeExplorerDestination) {
+    if (!state.typeExplorerOpen) typeExplorerRendererGeneration++;
+    resetTypeExplorerBodyInspection();
     const intent = decodeTypeExplorerIntent(
       new URL(location.href).searchParams.get("te"));
     state.typeExplorerOpen = true;
@@ -21499,6 +21936,8 @@ window.addEventListener("popstate", () => {
       state.typeExplorerOpenedFromApp
       && isTypeExplorerPredecessor(history.state, predecessorEntryId);
     cancelTypeExplorerLoad("disposed");
+    resetTypeExplorerBodyInspection();
+    typeExplorerRendererGeneration++;
     state.typeExplorerOpen = false;
     state.typeExplorerOpenedFromApp = false;
     state.typeExplorerPredecessorEntryId = null;

@@ -6,6 +6,15 @@ This document is the normative owner for stateless library-body Analysis
 execution, tracked by
 [#7553](https://github.com/richlander/dotnet-inspect/issues/7553).
 
+The selective implementation-metric extension is tracked by
+[#8450](https://github.com/richlander/dotnet-inspect/issues/8450) as the
+Analysis-owned second step of
+[#8445](https://github.com/richlander/dotnet-inspect/issues/8445).
+It replaces complete-profile overproduction with an explicit metric-evidence
+request, an owner-issued prerequisite plan, and an actual work-participation
+receipt. The existing complete implementation profile remains a compatibility
+projection during migration.
+
 The initial adoption moved immutable-image execution behind
 `LibraryBodyAnalysisService`, moved the Workspace-backed method and
 optimization-opportunity queries onto that boundary, and moved
@@ -133,6 +142,12 @@ normalized internal plan may expand prerequisite features or evidence scope.
 The execution publication records the effective features, shared diagnostics,
 and whether it covers the full method-evidence population.
 
+Parameterized implementation-metric evidence follows the same request
+boundary as Resource Occurrence Analysis. It does not become another
+`LibraryBodyAnalysisFeatures` bit. The request records exact metric evidence
+separately from compatibility features so omission means "do not run", not
+"produce the complete profile".
+
 The publication may aggregate several explicitly named result values so one
 command can reuse one acquisition. It is not a universal result algebra,
 producer registry, type-keyed bag, or semantic facade. Producer result types
@@ -223,6 +238,490 @@ owner-issued resolver may preserve its own cancellation behavior. Adding
 cooperative cancellation inside CPU producers requires a focused Analysis
 execution change with producer-owned evidence.
 
+## Selective implementation metric Analysis
+
+### Owner extension and exact claim
+
+**Library Body Analysis Execution** additionally owns:
+
+> Given one exact assembly input, one non-empty implementation-metric evidence
+> request, one explicit body scope, and explicit work bounds, normalize only
+> the semantic and execution prerequisites required by that evidence, execute
+> each participating per-body stage at most once per physical body and each
+> population stage once per execution, and publish detached typed evidence
+> with authoritative requested/effective scope and actual work-participation
+> receipts.
+
+This extension owns selection and coordination, not the metric algorithms.
+`MethodCallAnalysis`, `MethodSafetyAnalysis`,
+`MethodImplementationProfileAnalysis`, `BodySignalAnalysis`, control-flow
+construction, declared-source resolution, and their other focused owners keep
+their existing factual definitions. The execution owner decides whether each
+owner participates and arranges shared prerequisites.
+
+The extension does not make `MethodImplementationProfile` the request model.
+That type is one complete compatibility projection over finer owner-issued
+evidence. It also does not make each profile property a separately scheduled
+producer. Public evidence kinds align with useful consumer facts; executable
+work stages align with meaningful avoidable cost.
+
+### Conventional basis and deliberate boundary
+
+The design transfers four existing repository precedents:
+
+- parameterized Resource Occurrence requests prove that evidence whose meaning
+  includes caller-supplied selection belongs beside, not inside, the coarse
+  feature enum;
+- `LibraryBodyAnalysisPlan` already distinguishes requested and effective
+  physical scope while declared-source resolvers own authenticated expansion;
+- focused result migrations preserve one shared execution without making
+  `LibraryBodyAnalysisExecution` a semantic result bag; and
+- lazy allocation fanout in `LibraryOptimizationAnalysisResult` proves that an
+  existing complete result can defer an expensive enrichment until a consumer
+  explicitly selects it.
+
+The deliberate addition is an actual participation receipt. Existing plans and
+feature flags describe permission and normalized intent, but cannot prove that
+a stage started. Unlike a compiler pass manager, this design does not register
+arbitrary producers or discover dependencies dynamically. The evidence and
+work vocabularies are closed, reviewed Analysis contracts because their names
+become observable cost and completeness claims.
+
+### Request shape
+
+`LibraryBodyAnalysisRequest` gains an optional, immutable
+`ImplementationMetricAnalysisRequest`. The existing body token and type scope
+remain on the outer request so one service invocation can share exact scope
+with other selected Analysis producers.
+
+Conceptually:
+
+```text
+LibraryBodyAnalysisRequest
+  compatibility features
+  requested body-token or type scope
+  optional ImplementationMetricAnalysisRequest
+    non-empty requested evidence kinds
+    physical-body and encoded-IL work bounds
+
+-> LibraryBodyAnalysisPlan
+     requested metric evidence
+     effective metric evidence
+     effective metric work stages and prerequisite reasons
+     requested physical scope
+     expanded physical scope and attribution reasons
+
+-> one LibraryBodyAnalysisExecution
+     LibraryImplementationMetricAnalysisResult
+       typed per-body evidence outcomes
+       relationship evidence
+       evidence and scope receipt
+       actual work-participation receipt
+```
+
+A dedicated constructor such as `CreateImplementationMetrics` validates the
+non-empty evidence set, known evidence kinds, positive bounds, and ordinary
+body-scope invariants. It may also carry unrelated compatibility features when
+a production consumer deliberately shares one execution. Analysis receives
+the exact requested evidence set, not the MemberMetricsInspect authorization
+ceiling that the Query owner has already resolved.
+
+Convenience requests expand before plan construction to a named, versioned
+evidence set. There is no implicit "all" when the evidence set is omitted or
+empty. A `CompleteProfileV1` convenience names the evidence required by the
+current `MethodImplementationProfile`; later evidence additions do not
+silently increase its cost.
+
+The temporary `ImplementationProfiles` compatibility feature has no caller
+budget to preserve. While that flag exists, normalization uses a named
+`LegacyUnbounded` metric budget and records the compatibility origin. Every
+new `CreateImplementationMetrics` caller supplies finite positive bounds.
+Removing the final compatibility caller removes `LegacyUnbounded`; it is not a
+general public convenience.
+
+The initial work bounds are:
+
+- the maximum number of effective physical managed bodies; and
+- the maximum total encoded IL bytes admitted for metric execution;
+- the maximum number of physical bodies probed while authenticating
+  declared-source and generated-body attribution; and
+- the maximum encoded IL bytes decoded by those attribution probes.
+
+Attribution-probe work is charged before each owner-required acquisition or
+decode. Scope expansion then applies the physical result-body bound. Result
+body size is charged after body acquisition and before metric-body decode or a
+topic producer starts. Attribution exhaustion marks physical scope incomplete;
+result-body exhaustion marks the deterministic metadata-ordered remainder
+budget-exhausted. Both retain already completed evidence rather than returning
+a successful empty result or retrying without bounds.
+
+### Evidence vocabulary
+
+The initial closed evidence vocabulary is:
+
+| Evidence kind | Published fact | Minimum owned prerequisite |
+| --- | --- | --- |
+| Body size | Encoded IL byte count | Managed body acquisition |
+| Instruction shape | Instruction and distinct opcode counts | Canonical method context |
+| Control flow | Blocks, branches, switches, loops, and ordinary-flow complexity | Canonical method context |
+| Exception regions | Catch, filter, finally, and fault counts | Managed body acquisition |
+| Locals | Declared local count and decode completeness | Local-signature decode |
+| Direct calls | Invocation and distinct-target counts | Canonical method context and metric call collection |
+| Sibling overload relationships | Exact relationship rows and incoming/outgoing counts | Direct calls and family relationship projection |
+| Allocation count | The current implementation-profile allocation count | Canonical context and allocation-signal collection |
+| Allocation occurrences | Owner-issued allocation sites, shapes, escape, and multiplicity | Canonical context and allocation-occurrence collection |
+| Throw count | The current implementation-profile throw count | Canonical context and body-signal collection |
+| Unsafe presence | The current implementation-profile unsafe judgment | Selected declaration, local, opcode, and call safety evidence |
+| Direct Reflection calls | The current implementation-profile Reflection count | Metric call collection and target classification |
+| Async | The current implementation-profile async judgment | Declared-source and async-body attribution |
+
+Evidence-kind names describe stable result facts. They do not expose source
+class names or promise that every kind has an independently avoidable machine
+instruction.
+
+Allocation count does not select escape-classified `AllocationOccurrence`
+rows. Allocation-occurrence evidence explicitly selects that existing focused
+producer and can derive a count without also requesting the cheaper count
+kind. `CompleteProfileV1` selects the current allocation count, not allocation
+occurrences, because that preserves the existing profile meaning and cost.
+Unsafe presence does not select all `UnsafetyOccurrence` rows. Those richer
+safety rows retain their existing explicit request and owner-issued result
+contract.
+
+Declared-source and generated-body attribution are mandatory result
+correspondence, not optional metric evidence. Every metric result identifies
+the logical declared method and the physical evidence method when that
+relationship is authenticated. Requesting the Async evidence kind controls
+publication of the async metric; it does not let a caller omit the
+correspondence required to interpret every other logical metric.
+
+### Evidence and work prerequisite normalization
+
+The plan preserves three different concepts:
+
+```text
+requested evidence
+  -> semantic evidence prerequisites
+  -> effective evidence
+  -> executable work prerequisites
+  -> effective work stages
+```
+
+A semantic evidence prerequisite is another public evidence result required to
+make the requested result meaningful. Sibling overload relationships, for
+example, add direct-call evidence to the effective set. The result records
+that edge.
+
+An executable work prerequisite is internal work required by an existing
+owner contract. Direct calls currently consume the canonical
+`MethodBodyAnalysisContext`; that context includes decoded instructions,
+blocks, loop regions, exception regions, and decoded locals. Selecting direct
+calls therefore participates in the canonical-context stage, but it does not
+add Instruction shape, Control flow, Exception regions, or Locals to the
+effective evidence set and does not publish those metric cells.
+
+The initial work-stage vocabulary is:
+
+- physical-scope and declared-source metadata attribution;
+- declared-source body probing;
+- managed body acquisition;
+- local-signature decode;
+- canonical method-context construction;
+- metric direct-call collection and target classification;
+- allocation-signal collection;
+- allocation-occurrence collection;
+- body-signal collection;
+- safety collection; and
+- sibling-relationship projection.
+
+These are behavioral cost boundaries used by receipts and gates, not a generic
+producer registry. New stages are additive only when a new claim needs to
+distinguish avoidable work.
+
+Body size and exception-region counts read the acquired managed body without
+constructing `MethodBodyAnalysisContext`. Locals may decode the local signature
+without constructing the instruction and control-flow context. Instruction
+shape and every result whose current owner consumes
+`MethodBodyAnalysisContext` share exactly one canonical context per physical
+body.
+
+Declared-source attribution may use its owner's separate body probe and
+instruction decoder before the effective metric body population is known. That
+work is neither canonical metric context construction nor free metadata
+enumeration. It has its own budget, stage participation, tokens, charged bytes,
+completion, and diagnostics.
+
+Metric direct-call collection uses the narrow projection needed by the
+effective metric evidence. Optional call value flow, optimization receiver
+sources, local-throw qualification, allocation multiplicity, and unsafe-call
+projection participate only when requested metric evidence or another
+co-running Analysis feature needs them. In particular, sibling relationships
+do not select allocation occurrence classification merely because the current
+general `MethodEvidence` path supplies an allocation multiplicity callback.
+
+No fine-grained metric request normalizes to the opaque
+`LibraryBodyAnalysisFeatures.MethodEvidence` feature. The implementation may
+share the same underlying context or call traversal with co-running features,
+but it gates each optional topic projection by the union of the exact requests
+that need it.
+
+### Scope and attribution
+
+The result distinguishes:
+
+- caller-requested body tokens or full/type-filtered scope;
+- directly admitted physical managed bodies;
+- physical bodies added for authenticated async or lifted-source evidence;
+- effective physical bodies after expansion and work bounds; and
+- declared methods that have no managed physical body.
+
+Existing `LibraryBodyDeclaredSourceResolver` and
+`LibraryBodyAsyncSourceResolver` remain the owners of authenticated expansion
+and attribution. Metric selection makes their scope expansion eligible even
+when the coarse `MethodEvidence` feature is absent. The metric result retains
+each expansion edge with its physical token, declared owner token when known,
+and owner-issued reason.
+
+If attribution probing exhausts its bound or fails before the owner can prove
+scope closure, the result retains every authenticated edge found so far and
+marks physical scope incomplete. It does not claim that omitted generated
+bodies do not exist. `MemberMetricsInspect` may use the retained values for
+non-authoritative decoration but cannot issue an authoritative Count, Top, or
+complete-family relationship result from that scope.
+
+The execution receipt proves exact Analysis scope; it does not prove that a
+caller supplied a complete overload family. `MemberMetricsInspect` establishes
+that population fact from its Member subject and `Overloads` receipt before
+requesting sibling relationships, then verifies that the Analysis scope
+receipt corresponds to that population.
+
+### Execution and actual participation
+
+`LibraryMethodAnalysisRunner` is split into conditionally entered stages while
+retaining one metadata-ordered per-method lifecycle. A stage is created only
+when at least one effective metric kind or co-running feature requires it.
+Shared stages execute once and distribute their typed facts to the selected
+topic owners.
+
+The runner no longer treats `includeMethodEvidence` as permission to create
+all method-evidence scaffolding. In particular:
+
+- body-header evidence completes before canonical context construction;
+- `MethodAllocationFacts` is not created for body size, exception regions,
+  calls, or sibling relationships unless selected allocation or optimization
+  work requires it;
+- local safety inspection and unsafety occurrence collection run only for
+  selected safety evidence or another explicit safety consumer;
+- `BodySignalAnalysis` runs only for selected signal evidence or another
+  explicit signal consumer;
+- call collection runs only for selected call-derived evidence or another
+  explicit call consumer; and
+- complete-profile projection consumes already published metric evidence
+  rather than triggering another body pass.
+
+Recoverable failure is stage-local where its prerequisites allow it. A
+successful body acquisition may publish body size and exception-region counts
+even when instruction decoding later fails. A failed call classification does
+not erase completed structural evidence. Every dependent evidence outcome
+retains the same diagnostic or a typed prerequisite-failure reason.
+
+An existing topic producer may publish a usable partial value without exposing
+whether its internal recoverable path completed. Entry and exit instrumentation
+cannot manufacture that missing evidence. Such a value is
+`Incomplete(ProducerCompletionUnverified)` until its owning producer publishes
+a typed completion or limitation outcome. In particular, body-signal and
+allocation-occurrence evidence require focused owner amendments before
+MemberMetricsInspect may treat them as authoritative.
+
+Those owner amendments define only their producer-local completion boundary.
+They do not move signal or allocation algorithms into Library Body Analysis
+Execution. A recoverable failure inside one producer must retain its partial
+typed value and owner-issued limitation without erasing independently completed
+metric evidence.
+
+Parallel scheduling may remain an implementation choice, but publication
+order, scope accounting, work charging, and participation counts remain
+metadata-stable.
+
+### Participation and scope receipt
+
+`LibraryImplementationMetricAnalysisResult` publishes an Analysis-issued
+receipt containing:
+
+- the requested and effective evidence sets;
+- semantic and work prerequisite edges with owner-issued reasons;
+- the requested, directly admitted, expanded, and effective physical scopes;
+- scope-expansion edges and diagnostics;
+- configured and consumed attribution-probe and metric-body work bounds;
+- actual work-stage participation; and
+- per-evidence available, incomplete, unavailable, failed, and
+  budget-exhausted counts.
+
+Actual participation is recorded at the execution point where a work stage
+starts, not copied from `LibraryBodyAnalysisPlan`. Each participating stage
+records the evidence or co-running feature causes, attempted physical-body
+count, completed count, and unavailable or failed count. An effective stage
+that has no eligible managed body remains visible as selected-but-not-started;
+it is not falsely reported as participating.
+
+The receipt therefore distinguishes:
+
+- requested evidence from evidence added by semantic prerequisites;
+- planned stages from stages that actually executed;
+- shared stages from metric-specific topic projections; and
+- absent work from work that ran but produced incomplete or failed evidence.
+
+Tests and downstream operations use actual participation to prove minimum
+work. `LibraryBodyAnalysisReceipt.Features` remains the compatibility feature
+receipt and is insufficient for that claim.
+
+### Focused result
+
+`LibraryImplementationMetricAnalysisResult` is one closed, owner-typed result,
+not an open result bag. It contains:
+
+- the common execution receipt association;
+- the implementation-metric participation and scope receipt;
+- the declared-method roster needed for logical coverage;
+- physical-body rows with logical and evidence identities;
+- named optional evidence outcomes for the closed evidence vocabulary;
+- exact sibling-overload relationships when requested; and
+- Analysis diagnostics and typed limitations.
+
+Each named evidence outcome is one of:
+
+- available, with a complete typed value;
+- incomplete, with a usable value and owner-issued reasons;
+- unavailable, with a reason such as no managed body, scope exclusion, or
+  unsatisfied prerequisite;
+- failed, with the recoverable Analysis diagnostic; or
+- budget exhausted, naming the exhausted bound.
+
+Omission means not requested. It is never projected as zero, false, or an
+available empty relationship set. The complete physical population remains
+distinguishable from the declared logical population so bodyless methods and
+generated bodies do not disappear.
+
+`ProducerCompletionUnverified` is an incomplete reason, never an available
+complete value. A downstream predicate, authoritative Count, semantic Top, or
+complete-family result cannot treat it as complete evidence. A decoration may
+display the value only while preserving its incomplete state.
+
+Publishing an unrequested metric result remains constant-cost. The execution
+may retain shared operation-local facts until all selected focused results are
+constructed, then releases reader-bound state before returning.
+
+### Complete-profile compatibility and retirement
+
+During migration,
+`LibraryBodyAnalysisFeatures.ImplementationProfiles` normalizes to the named
+`CompleteProfileV1` metric request. The plan records that compatibility origin,
+and the focused metric result remains the only body evidence source.
+
+`LibraryImplementationProfileAnalysisResult` becomes an adapter over
+`LibraryImplementationMetricAnalysisResult`. It preserves:
+
+- every current `MethodImplementationProfile` field and meaning;
+- exact overload relationships;
+- logical and physical identities;
+- incompleteness reasons and population coverage;
+- generated-framework classification;
+- current ordering and diagnostics; and
+- existing CLI and Inspect Web exact-family output plus Library Metrics'
+  `Complexity Explorer` and `Relationship Crossing` document.
+
+The adapter performs no body acquisition, instruction decode, call scan,
+safety scan, signal scan, or scope expansion. Compatibility parity is required
+before any existing caller moves. Production callers then replace the feature
+bit with `CreateImplementationMetrics(CompleteProfileV1, ...)`; the enum value
+and compatibility normalization are removed after the final caller migrates.
+
+The adapter preserves the current profile's `IsComplete` and existing
+diagnostic behavior even when the focused result additionally marks a
+producer's completion unverified. Newly surfaced producer limitations remain
+additive focused-result evidence until the producer's owning design explicitly
+approves a compatibility projection change.
+
+The first selective caller is the host-neutral `MemberMetricsInspect`
+operation from #8445. It requests the Query-derived evidence set directly and
+consumes the focused metric result, not the complete-profile adapter.
+Its initial compact capability needs Body size and Sibling overload
+relationships. Capability discovery advertises each broader evidence kind only
+after that kind's owner can issue the completion and limitation evidence
+required by this contract.
+
+### Pathological cases
+
+The contract includes:
+
+- a bodyless overload, which remains in the declared roster with unavailable
+  body evidence and consumes no IL budget;
+- a valid managed body whose instruction stream is malformed, which may retain
+  completed size and exception-region evidence while context-dependent
+  evidence fails;
+- a lifted-source attribution probe that exhausts its separate body or byte
+  bound, which retains authenticated mappings but marks physical scope
+  incomplete;
+- an async or lifted body added by authenticated scope expansion, whose
+  physical token, declared owner, expansion reason, and charged work remain
+  visible;
+- an Async-only request, which performs attribution but does not construct the
+  canonical method context;
+- a sibling-relationship request over an incomplete family, which Analysis
+  executes over its exact supplied scope but which MemberMetricsInspect rejects
+  as non-authoritative using its population receipt;
+- a bound exhausted after earlier metadata-ordered bodies completed, which
+  preserves their evidence and marks every omitted body budget-exhausted;
+- a signal or allocation producer that returns partial evidence after an
+  internal recoverable failure, which remains usable but
+  completion-unverified until its owner supplies a limitation;
+- a selected stage with no eligible managed body, which is recorded as planned
+  but not participating; and
+- a shared execution where another feature requires broader work, whose stage
+  receipt records both causes rather than attributing that work to metrics
+  alone.
+
+### Platform and trust boundary
+
+Selective metric Analysis retains the existing SRM-only, inspected-code-inert,
+NativeAOT-compatible execution boundary. It reads the caller's exact immutable
+image, never loads or executes the inspected assembly, opens no network
+resource, and returns no reader-bound state.
+
+Body and IL bounds contain work induced by untrusted package or repository
+content after the host has acquired the image. They do not claim to bound
+image acquisition, metadata table enumeration required to establish exact
+scope, or another explicitly co-running Analysis feature. Malformed metadata,
+body decode, and resolver failures remain visible typed evidence; no broad
+fallback converts them to zero metrics or a successful empty result.
+
+### Production adoption for #8450
+
+The counted implementation path is:
+
+1. Add the validated parameterized request, closed evidence vocabulary,
+   versioned `CompleteProfileV1` set, work bounds, and prerequisite plan.
+2. Publish charged physical scope/source attribution and header-only body size
+   and exception-region evidence without constructing the canonical method
+   context.
+3. Gate canonical context, call, signal, safety, allocation, and relationship
+   stages by their effective causes and publish actual participation.
+4. Add producer-owned completion and limitation outcomes where current signal
+   or allocation producers cannot prove whether partial evidence is complete.
+5. Publish per-body typed outcomes and per-evidence coverage in
+   `LibraryImplementationMetricAnalysisResult`.
+6. Adapt the complete implementation profile from the focused result and
+   migrate `AssemblyContextImplementationProfileFamilyQuery` and
+   `AssemblyContextLibraryMetricsQuery`, preserving their existing CLI and
+   Inspect Web consumers.
+7. Retire the monolithic feature bit after remaining complete-profile callers
+   move, then let #8445 adopt the selective result through
+   `MemberMetricsInspect`.
+
+Each slice is independently coherent and reaches an existing production
+consumer or the next named host-neutral consumer. No unused generic execution
+substrate lands ahead of adoption.
+
 ## Consumer-led adoption
 
 The library section system is the first deliberate result-type consumer. It
@@ -238,6 +737,7 @@ shared semantic input.
 | 3 | Library Top Leverage and member call-graph composition | `LibraryLeverageAnalysisResult` for ranking and `LibraryCallGraphAnalysisResult` for detached local/catalog graph evidence |
 | 4 | Library Resource Triage section under #6731 | `LibraryResourceLifecycleAnalysisResult`, consuming `ResourceOccurrenceAnalysisResult` from #6730 |
 | 5 | API/member sections, Timeline, Research, JavaScript export, and remaining CLI adapters | Bespoke owner results selected by each consumer; no mechanical aggregate substitution |
+| 6 | Exact-family and Library Metrics profiles, then MemberMetricsInspect | Selective `LibraryImplementationMetricAnalysisResult` plus the temporary complete-profile adapter |
 
 Every slice:
 
@@ -309,6 +809,17 @@ body-scope qualification, recoverable diagnostics, and unavailable-body
 classification so Research can later decide whether a whole-library report is
 available.
 
+The selective implementation-metric slice replaces that result's monolithic
+producer input without changing its public complete-profile projection.
+`AssemblyContextImplementationProfileFamilyQuery` is the compatibility
+production witness because both the CLI and Inspect Web already consume its
+completed envelope. `AssemblyContextLibraryMetricsQuery` is the full-library
+witness: it continues to accept one `LibraryBodyAnalysisExecution` so Research
+can compose the adapted profiles with the same execution's call graph for
+`Complexity Explorer` and `Relationship Crossing`. `MemberMetricsInspect` is
+the first caller that bypasses the complete adapter and proves evidence-level
+work selection.
+
 The pathological graph cases remain explicit: bodiless declarations may still
 be selected as roots, async and lifted calls retain physical evidence
 coordinates while ranking declared sources, same-module `ModuleRef` calls
@@ -326,6 +837,56 @@ consumer. No service substrate, producer registry, universal request, generic
 result, or type-keyed result bag lands for hypothetical later adoption.
 
 ## Demo
+
+The selective demonstration uses the .NET 11 RC1
+`System.Text.StringBuilder.AppendFormat` overload family.
+
+The first request asks only for body size:
+
+```text
+requested evidence: BodySize
+effective evidence: BodySize
+participating work:
+  physical scope/source metadata attribution
+  managed body acquisition
+conditional, separately charged work:
+  source-attribution body probes
+absent work:
+  canonical method context
+  direct calls and target classification
+  allocation signals
+  allocation occurrences
+  body signals
+  safety
+  sibling relationships
+```
+
+It returns one logical correspondence for each selected overload, every
+authenticated physical body and generated-body attribution, encoded IL size
+where a managed body is available, and explicit bodyless or failed outcomes.
+
+The decoration request adds exact sibling relationships:
+
+```text
+requested evidence: BodySize, SiblingOverloadRelationships
+effective evidence: BodySize, DirectCalls,
+                    SiblingOverloadRelationships
+additional participating work:
+  canonical method context
+  metric direct-call collection and target classification
+  sibling-relationship projection
+still absent:
+  allocation-signal, body-signal, and safety topic projections
+```
+
+The current complete request remains available as `CompleteProfileV1`. It must
+produce the same 15 logical overloads, 16 physical profiles, profile values,
+relationship rows, order, coverage, and diagnostics as the existing
+exact-family result. Measurements compare all three requests over the same
+immutable CoreLib image; the compact requests must show less actual producer
+participation, and body-size-only must demonstrate lower median latency than
+the complete profile. The measurement is reproducible design evidence, not a
+fixed cross-machine timing threshold.
 
 The Optimization Opportunities production query changes from accepting the
 compatibility index:
@@ -422,6 +983,58 @@ Each result-type migration additionally gates:
 - no public result type lands without its adopting production section or
   query.
 
+The selective implementation-metric migration additionally gates:
+
+- request construction rejects empty evidence, unknown evidence, and
+  non-positive bounds;
+- body-size-only and exception-region-only requests do not construct
+  `MethodBodyAnalysisContext`;
+- locals-only requests do not decode selected metric bodies or build control
+  flow; any owner-required attribution decode is separately charged and
+  reported;
+- Async-only requests perform source attribution without constructing the
+  canonical method context;
+- sibling relationships add direct-call evidence and execute one canonical
+  context and one metric call traversal per admitted physical body;
+- sibling relationships do not create allocation facts or run body-signal or
+  safety topic projections;
+- allocation-count-only requests do not collect allocation occurrences, while
+  allocation-occurrence requests reuse the existing focused allocation result;
+- several context-dependent metrics reuse one canonical context per physical
+  body;
+- generated and async scope expansion remains attributable when the coarse
+  `MethodEvidence` feature is absent;
+- attribution probes respect their separate body and byte bounds, and
+  exhaustion marks physical scope incomplete without claiming closure;
+- actual stage participation is recorded from execution and can differ from a
+  selected-but-not-started stage;
+- co-running feature work records its separate cause rather than appearing as
+  metric-required work;
+- malformed instruction decoding retains already completed header evidence and
+  marks dependent evidence failed;
+- an internal recoverable signal or allocation failure publishes a partial
+  value with an owner-issued limitation, or remains
+  completion-unverified until that owner contract lands;
+- body and encoded-IL budget exhaustion retains prior evidence and marks
+  omitted bodies explicitly;
+- per-evidence coverage distinguishes not requested, bodyless, scope-excluded,
+  failed, incomplete, and budget-exhausted outcomes;
+- the complete-profile adapter performs no second body or topic-producer pass;
+- `CompleteProfileV1` matches every existing profile field, relationship,
+  order, coverage row, existing diagnostic, and logical/physical identity;
+  new focused limitations do not silently alter compatibility output; and
+- CLI and Inspect Web exact-family output plus the Library Metrics
+  `Complexity Explorer` and `Relationship Crossing` document remain unchanged
+  while their production queries move to the new request.
+
+The compact-path performance probe records attribution probe bodies and bytes,
+effective metric bodies, charged metric IL bytes, actual participating stages,
+elapsed time, and allocated bytes for body-size-only,
+body-size-plus-relationships, and `CompleteProfileV1` over the same
+`StringBuilder.AppendFormat` image. CI gates semantic participation and parity;
+the timing/allocation comparison remains reproducible non-CI evidence until
+measurements justify a stable threshold.
+
 The typed migrations are gated by
 `LibraryBodyAnalysisExecutionTests`,
 `ImplementationProfilesQueryTests`,
@@ -439,13 +1052,29 @@ call-graph migration adds
 `MemberCallGraphSessionTests`, and the catalog call-graph and definition
 resolution suites.
 
+All selective implementation-metric properties remain **unverified** in this
+design-only slice.
+
 ## Non-claims
 
 - No `AnalysisHouse`.
 - No dependency-injection framework or service locator.
-- No change to Analysis algorithms or evidence.
+- No change to factual metric algorithms. Producer completion and limitation
+  evidence is an additive owner contract where current partial paths are
+  opaque.
 - No asynchronous or concurrent producer execution contract beyond existing
   behavior.
 - No path identity, file-stability, or persistent-cache claim.
 - No requirement to decompose every result-local lookup or projection before
   the first section migrates.
+- No redesign of `MethodInstructions`, `BlockGraph`, loop analysis, or the
+  canonical `MethodBodyAnalysisContext`. A later split needs its own owner
+  change and evidence.
+- No promise that instruction shape avoids control-flow construction while the
+  canonical context owns both.
+- No generic metric algebra, producer dependency graph, type-keyed result bag,
+  or reflection-based scheduling.
+- No universal complexity, audit-risk, or overload-primary score.
+- No change to Reflection or Unsafe Accessor classification semantics.
+- No claim that output row limits reduce Analysis work when evidence semantics
+  require the complete candidate population.

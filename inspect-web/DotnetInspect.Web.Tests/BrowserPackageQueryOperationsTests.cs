@@ -20,6 +20,32 @@ public sealed class PackageQueryOperationCollection;
 public sealed class BrowserPackageQueryOperationsTests
 {
     [Fact]
+    public void ProductionBindingUsesTheRegisteredPackageQueryRoute()
+    {
+        InspectionCapabilityCatalog catalog =
+            InspectionCapabilityCatalog.Create(
+                [
+                    PackageQueryCapability.ProductModule,
+                    PackageQueryCapabilityBinding.Module,
+                ]);
+
+        Assert.Same(
+            PackageQueryCapability.Route,
+            PackageQueryCapabilityBinding.Binding.Route);
+        Assert.Same(
+            PackageQueryCapabilityBinding.Binding,
+            Assert.Single(catalog.Bindings));
+        Assert.Equal(
+            InspectionConsumerKind.Cli,
+            Assert.Single(catalog.AdoptionGaps).ConsumerKind);
+        Assert.Contains(
+            PackageQueryCapabilityBinding.Binding.ExposedQueryTerms,
+            identity =>
+                identity
+                == "package-query.term.library-literal");
+    }
+
+    [Fact]
     public void LibraryLiteralPlan_UsesNormalPlanAndComposesWithOrdinaryTerms()
     {
         const string literal = " \r\nmarker ";
