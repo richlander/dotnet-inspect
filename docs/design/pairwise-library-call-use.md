@@ -281,16 +281,16 @@ summary grouping.
 edge list. It does not fabricate assembly-level `call` edges or package-level
 call semantics.
 
-The default human view summarizes source-member, target-member, and call-site
-counts per observed direction, then shows the directed source and target member
-pair, call kind, evidence method, and physical IL offset. The evidence method
-remains visible even when it equals the attributed source method so generated-
-body locations cannot appear to belong to the declared method. Structured
-formats retain the exact occurrence rows, including full assembly identities,
-source and target MVIDs and method tokens, and the evidence method MVID and
-token. For the default or exact Call Sites view, row windows apply once before
-human summaries and call-site table rendering. Counts operate on the same
-windowed occurrences, not unique methods.
+The focused `graph cluster N` human view summarizes source-member,
+target-member, and call-site counts per observed direction, then shows the
+directed source and target member pair, call kind, evidence method, and physical
+IL offset. The evidence method remains visible even when it equals the
+attributed source method so generated-body locations cannot appear to belong
+to the declared method. Structured formats retain the exact occurrence rows,
+including full assembly identities, source and target MVIDs and method tokens,
+and the evidence method MVID and token. For the focused default or exact Call
+Sites view, row windows apply once before human summaries and call-site table
+rendering. Counts operate on the same windowed occurrences, not unique methods.
 
 The command exposes five sections:
 
@@ -310,23 +310,25 @@ document or table view for the selected shape, but it does not construct a
 parallel list of rendered column labels. No host-specific rendering exception
 is approved for this command.
 
-Omitting `-S` preserves the exact call-site view. Bare `-S` selects the two
-summary sections; an exact section name selects one projection, and normal
-section discovery describes their schemas without acquiring the libraries.
-Tabular streams require one selected section, while Markdown and JSON may
-carry several.
+Omitting `-S` on `graph libraries` selects pair-wide `Direct Use Clusters`;
+omitting it on `graph cluster N` selects exact `Call Sites` for that focused
+component. Bare `-S` selects the two summary sections; an exact section name
+selects one projection, and normal section discovery describes their schemas
+without acquiring the libraries. Tabular streams require one selected section,
+while Markdown and JSON may carry several.
 
-The default and exact `Call Sites`, exact `Consumer Use Sites`, exact `Provider
-API Types`, and exact `Direct Use Clusters` views apply semantic row windows to
-their typed vectors after optional cluster scoping. Summary windows run only
-after groups are formed. A selected summary row retains counts for its complete
-group; limiting summary rows does not change the group's underlying occurrence
-set. Summary `Call Site Rows` values are one-based references to the effective
-call-site output, matching `--rows`; the typed projection continues to retain
-zero-based indexes into the result array. `--count` counts selected rows after
-that window. Bare `-S`, `Public Root Paths`, wildcard, category, and
-multi-section selections retain rendered-line selection because they do not
-declare one row schema.
+The default and exact `Direct Use Clusters` views, the focused default and
+exact `Call Sites` views, and exact `Consumer Use Sites` or `Provider API
+Types` views apply semantic row windows to their typed vectors. On the focused
+route, the cluster operation scopes the pair before call-site or summary row
+selection. Summary windows run only after groups are formed. A selected summary
+row retains counts for its complete group; limiting summary rows does not
+change the group's underlying occurrence set. Summary `Call Site Rows` values
+are one-based references to the effective call-site output, matching `--rows`;
+the typed projection continues to retain zero-based indexes into the result
+array. `--count` counts selected rows after that window. Bare `-S`, `Public
+Root Paths`, wildcard, category, and multi-section selections retain
+rendered-line selection because they do not declare one row schema.
 
 `GraphLibrariesQuery` owns one QuerySpace descriptor covering all five stable
 row-set identities. The four semantic row sets expose executable Head, Tail,
