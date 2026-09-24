@@ -259,8 +259,8 @@ static class RetirementReport
             input.Identity,
             "resource-triage-jsonl",
             identity,
-            $"{legacyLines.Length} rows | {Fingerprint(legacyLines)}",
-            $"{genericLines.Length} rows | {Fingerprint(genericLines)}",
+            CommandSummary(legacyLines),
+            CommandSummary(genericLines),
             equal
                 ? "Parity"
                 : shippedCompatibilityChange
@@ -896,6 +896,10 @@ static class RetirementReport
             System.Security.Cryptography.SHA256.HashData(content))
             .ToLowerInvariant();
     }
+
+    static string CommandSummary(IReadOnlyList<string> lines) =>
+        $"{lines.Count} records | sha256:{Fingerprint(lines)} | "
+        + string.Join(" || ", lines);
 
     static string SerializeRow(LedgerRow row)
     {
