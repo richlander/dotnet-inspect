@@ -453,6 +453,71 @@ public partial class CommandExecutionTests
 
     [Fact]
     public async Task
+        Library_ExactPackageNamespaceRendersMarkdownTypeTables()
+    {
+        var (packagePath, tempDir) = CreateLocalLibPackage();
+        try
+        {
+            var (exit, output, error) = await RunAppAsync(
+                "library",
+                "Latest.One.dll",
+                "--package",
+                packagePath,
+                "--tfm",
+                "net10.0",
+                "--namespace",
+                "DotnetInspect.Cli.Tests",
+                "--tips",
+                "q");
+
+            Assert.Equal(0, exit);
+            Assert.Empty(error);
+            Assert.Contains(
+                "`DotnetInspect.Cli.Tests.CommandExecutionTests`",
+                output,
+                StringComparison.Ordinal);
+            Assert.DoesNotContain(
+                "## Library Info",
+                output,
+                StringComparison.Ordinal);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task
+        Library_PackageNamespaceRequiresExactLibraryBeforeAcquisition()
+    {
+        string missingPackagePath = Path.Combine(
+            Path.GetTempPath(),
+            $"dotnet-inspect-missing-{Guid.NewGuid():N}.nupkg");
+
+        var (exit, output, error) = await RunAppAsync(
+            "library",
+            "--package",
+            missingPackagePath,
+            "--namespace",
+            "DotnetInspect.Cli.Tests",
+            "--tips",
+            "q");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains(
+            "requires one exact Library",
+            error,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "not found",
+            error,
+            StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task
         Library_NamespaceMarkdownRejectsProjectionControls()
     {
         var (exit, output, error) = await RunAppAsync(
@@ -470,6 +535,37 @@ public partial class CommandExecutionTests
             "complete Markdown Type listing",
             error,
             StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task
+        Library_PackageNamespaceRejectsProjectionBeforeAcquisition()
+    {
+        string missingPackagePath = Path.Combine(
+            Path.GetTempPath(),
+            $"dotnet-inspect-missing-{Guid.NewGuid():N}.nupkg");
+
+        var (exit, output, error) = await RunAppAsync(
+            "library",
+            "Missing.dll",
+            "--package",
+            missingPackagePath,
+            "--namespace",
+            "DotnetInspect.Cli.Tests",
+            "--json",
+            "--tips",
+            "q");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains(
+            "complete Markdown Type listing",
+            error,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "not found",
+            error,
+            StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]

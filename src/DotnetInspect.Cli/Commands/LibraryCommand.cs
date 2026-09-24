@@ -164,6 +164,11 @@ public partial class LibraryCommand
                 .ConfigureAwait(false);
         }
         if (source.Selector is SourceSelector.PackageSource
+            && !LibraryNamespaceListingCommand.ValidateOptions(options))
+        {
+            return 1;
+        }
+        if (source.Selector is SourceSelector.PackageSource
             && (options.WorkspacePacket is not null
                 || options.NamesakeLibrary
                 || string.IsNullOrWhiteSpace(options.AssemblyName)
