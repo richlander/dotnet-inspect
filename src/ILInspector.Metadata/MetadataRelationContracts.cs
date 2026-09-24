@@ -235,6 +235,7 @@ public sealed record MetadataHierarchyRelationEvidence(
 public sealed record MetadataExtensionRelationEvidence(
     MetadataTypeDefinitionAddress DeclaringType,
     MetadataTypeDefinitionName DeclaringTypeName,
+    MetadataTypeDefinitionAddress ReceiverContextType,
     int DeclarationMetadataToken,
     MetadataMethodAddress ReceiverDeclarationMethod,
     MemberAnchor Member,

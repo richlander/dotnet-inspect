@@ -349,6 +349,8 @@ public static class MetadataRelationGraphAdapter
                 moduleVersionId is null
                 || evidence.DeclaringType.ModuleVersionId
                     != moduleVersionId
+                || evidence.ReceiverContextType.ModuleVersionId
+                    != moduleVersionId
                 || evidence.ReceiverDeclarationMethod.ModuleVersionId
                     != moduleVersionId)
             || result.Signatures.Evidence.Any(evidence =>
@@ -481,7 +483,7 @@ public static class MetadataRelationGraphAdapter
                         evidence.Receiver,
                         GenericContext(
                             evidence.Receiver,
-                            evidence.DeclaringType,
+                            evidence.ReceiverContextType,
                             evidence.ReceiverDeclarationMethod)),
                     new MetadataExtensionGraphEvidence(
                         source.Registration,

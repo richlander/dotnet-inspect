@@ -108,6 +108,9 @@ internal static partial class MetadataRelationInspection
                             reader,
                             extension.DeclaringTypeHandle),
                         extension.DeclaringTypeDefinition,
+                        MetadataTypeDefinitionAddress.FromHandle(
+                            reader,
+                            extension.ReceiverContextTypeHandle),
                         extension.DeclarationMetadataToken,
                         MetadataMethodAddress.Create(
                             reader,

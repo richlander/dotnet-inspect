@@ -99,6 +99,64 @@ public sealed class MetadataRelationGraphAdapterTests
     }
 
     [Fact]
+    public void GenericExtensionPropertyReceiversRetainExactTypeContext()
+    {
+        string path =
+            typeof(TestExtensions.DualScopeExtensions).Assembly.Location;
+        using AssemblyInspectionSession session =
+            AssemblyInspectionSession.Open(path);
+        var available =
+            Assert.IsType<MetadataRelationInspectionOutcome.Available>(
+                session.Relations(
+                    new(
+                        [MetadataRelationFamily.Extensions],
+                        MetadataOperationPolicy.Unbounded),
+                    TestContext.Current.CancellationToken));
+        ResolvedAssemblyReference assembly =
+            Resolved(path, available.Result.Receipt.Assembly!);
+
+        MetadataRelationGraphProjection projection =
+            MetadataRelationGraphAdapter.Project(
+                assembly,
+                available.Result);
+
+        InspectionGraphOccurrence referenceItems =
+            ExtensionProperty(projection, "ReferenceItems");
+        InspectionGraphOccurrence valueItems =
+            ExtensionProperty(projection, "ValueItems");
+        var referenceEvidence =
+            Assert.IsType<MetadataExtensionGraphEvidence>(
+                referenceItems.Evidence).Evidence;
+        var valueEvidence =
+            Assert.IsType<MetadataExtensionGraphEvidence>(
+                valueItems.Evidence).Evidence;
+        Assert.NotEqual(
+            referenceEvidence.ReceiverContextType,
+            valueEvidence.ReceiverContextType);
+        Assert.Equal(
+            referenceEvidence.DeclaringType,
+            valueEvidence.DeclaringType);
+
+        var referenceTarget =
+            Assert.IsType<InspectionGraphTypeIdentity.MetadataShape>(
+                Assert.IsType<InspectionGraphSubject.TypeSubject>(
+                    referenceItems.TargetSubject).Identity);
+        var valueTarget =
+            Assert.IsType<InspectionGraphTypeIdentity.MetadataShape>(
+                Assert.IsType<InspectionGraphSubject.TypeSubject>(
+                    valueItems.TargetSubject).Identity);
+        Assert.NotEqual(referenceTarget, valueTarget);
+        Assert.Equal(
+            referenceEvidence.ReceiverContextType,
+            referenceTarget.GenericContext?.DeclaringType);
+        Assert.Equal(
+            valueEvidence.ReceiverContextType,
+            valueTarget.GenericContext?.DeclaringType);
+        Assert.Null(referenceTarget.GenericContext?.DeclaringMethod);
+        Assert.Null(valueTarget.GenericContext?.DeclaringMethod);
+    }
+
+    [Fact]
     public void SignatureProjectionRetainsExactShapeCoverageAndBinding()
     {
         var assemblyIdentity = new AssemblyReferenceIdentity(
@@ -745,6 +803,26 @@ public sealed class MetadataRelationGraphAdapterTests
             ParameterIndex: null,
             shape);
     }
+
+    private static InspectionGraphOccurrence ExtensionProperty(
+        MetadataRelationGraphProjection projection,
+        string memberName) =>
+        Assert.Single(
+            projection.Occurrences,
+            occurrence =>
+                ReferenceEquals(
+                    occurrence.Relationship,
+                    MetadataRelationGraphCatalog.Extension)
+                && occurrence.SourceSubject
+                    is InspectionGraphSubject.MemberSubject
+                    {
+                        Identity:
+                            InspectionGraphMemberIdentity.AcquiredApi
+                            {
+                                Member.MemberName: var actualName,
+                            },
+                    }
+                && actualName == memberName);
 
     private static ResolvedAssemblyReference Resolved(
         string path,
