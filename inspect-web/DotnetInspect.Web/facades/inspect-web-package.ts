@@ -1140,17 +1140,17 @@ export interface CompiledDocumentationSource {
 }
 
 export interface CompiledDocumentationSourceEvidence {
-  readonly source: CompiledDocumentationSource;
+  readonly source?: CompiledDocumentationSource;
   readonly kind: CompiledDocumentationSourceEvidenceKind;
 }
 
 export interface CompiledDocumentationSourceRejection {
-  readonly source: CompiledDocumentationSource;
+  readonly source?: CompiledDocumentationSource;
   readonly reason: CompiledDocumentationSourceRejectionKind;
 }
 
 export interface CompiledDocumentationSubject {
-  readonly assembly: CompiledDocumentationAssemblyIdentity;
+  readonly assembly?: CompiledDocumentationAssemblyIdentity;
   readonly documentationId?: string;
 }
 
@@ -1166,17 +1166,17 @@ export interface DocumentationQueryExceptionFieldEvidence {
 }
 
 export interface DocumentationQueryFieldSettlement {
-  readonly summary: DocumentationQueryTextFieldEvidence;
-  readonly remarks: DocumentationQueryTextFieldEvidence;
-  readonly returns: DocumentationQueryTextFieldEvidence;
+  readonly summary?: DocumentationQueryTextFieldEvidence;
+  readonly remarks?: DocumentationQueryTextFieldEvidence;
+  readonly returns?: DocumentationQueryTextFieldEvidence;
   readonly parameters: ReadonlyArray<DocumentationQueryParameterField>;
-  readonly exceptions: DocumentationQueryExceptionFieldEvidence;
-  readonly samples: DocumentationQuerySampleFieldEvidence;
+  readonly exceptions?: DocumentationQueryExceptionFieldEvidence;
+  readonly samples?: DocumentationQuerySampleFieldEvidence;
 }
 
 export interface DocumentationQueryParameterField {
   readonly name?: string;
-  readonly evidence: DocumentationQueryTextFieldEvidence;
+  readonly evidence?: DocumentationQueryTextFieldEvidence;
 }
 
 export interface DocumentationQuerySampleFieldContribution {
@@ -1208,82 +1208,82 @@ export interface Absent {
 export interface Ambiguous {
   readonly kind: "ambiguous";
   readonly reason: AuthoredDocumentationAmbiguityReason;
-  readonly observation: AuthoredDocumentationObservation | null;
+  readonly observation?: AuthoredDocumentationObservation;
 }
 
 export interface Available {
   readonly kind: "available";
-  readonly documentation: CompiledDocumentationEntry;
+  readonly documentation?: CompiledDocumentationEntry;
 }
 
 export interface Failed {
   readonly kind: "failed";
   readonly reason: AuthoredDocumentationFailureReason;
-  readonly observation: AuthoredDocumentationObservation | null;
+  readonly observation?: AuthoredDocumentationObservation;
 }
 
 export interface Incomplete {
   readonly kind: "incomplete";
   readonly reason: AuthoredDocumentationIncompleteReason;
-  readonly observation: AuthoredDocumentationObservation | null;
+  readonly observation?: AuthoredDocumentationObservation;
 }
 
 export interface Rejected {
   readonly kind: "rejected";
   readonly reason: AuthoredDocumentationRejectionReason;
-  readonly observation: AuthoredDocumentationObservation | null;
+  readonly observation?: AuthoredDocumentationObservation;
 }
 
 export interface Unavailable {
   readonly kind: "unavailable";
   readonly reason: AuthoredDocumentationUnavailableReason;
-  readonly observation: AuthoredDocumentationObservation | null;
+  readonly observation?: AuthoredDocumentationObservation;
 }
 
 export type AuthoredDocumentationOutcome = Available | Absent | Unavailable | Ambiguous | Rejected | Failed | Incomplete;
 
 export interface ContentAccessFailed {
   readonly kind: "contentAccessFailed";
-  readonly subject: CompiledDocumentationSubject;
-  readonly source: CompiledDocumentationSource;
+  readonly subject?: CompiledDocumentationSubject;
+  readonly source?: CompiledDocumentationSource;
 }
 
 export interface ContributionsRejected {
   readonly kind: "contributionsRejected";
-  readonly subject: CompiledDocumentationSubject;
+  readonly subject?: CompiledDocumentationSubject;
   readonly rejections: ReadonlyArray<CompiledDocumentationSourceRejection>;
   readonly rejectionsTruncated?: boolean;
 }
 
 export interface MalformedOrUnreadableDocument {
   readonly kind: "malformedOrUnreadableDocument";
-  readonly subject: CompiledDocumentationSubject;
-  readonly source: CompiledDocumentationSource;
+  readonly subject?: CompiledDocumentationSubject;
+  readonly source?: CompiledDocumentationSource;
 }
 
 export interface RequestRejected {
   readonly kind: "requestRejected";
-  readonly subject: CompiledDocumentationSubject;
+  readonly subject?: CompiledDocumentationSubject;
   readonly reason: CompiledDocumentationRequestRejectionKind;
 }
 
 export interface type_09ed4ff7 {
   readonly kind: "ambiguous";
-  readonly subject: CompiledDocumentationSubject;
+  readonly subject?: CompiledDocumentationSubject;
   readonly candidates: ReadonlyArray<CompiledDocumentationSource>;
   readonly candidatesTruncated?: boolean;
 }
 
 export interface type_b58c2bef {
   readonly kind: "available";
-  readonly subject: CompiledDocumentationSubject;
-  readonly source: CompiledDocumentationSource;
-  readonly documentation: CompiledDocumentationEntry;
+  readonly subject?: CompiledDocumentationSubject;
+  readonly source?: CompiledDocumentationSource;
+  readonly documentation?: CompiledDocumentationEntry;
 }
 
 export interface type_c09463af {
   readonly kind: "incomplete";
-  readonly subject: CompiledDocumentationSubject;
+  readonly subject?: CompiledDocumentationSubject;
   readonly reason: CompiledDocumentationIncompleteReason;
   readonly sources: ReadonlyArray<CompiledDocumentationSourceEvidence>;
   readonly sourcesTruncated?: boolean;
@@ -1291,14 +1291,14 @@ export interface type_c09463af {
 
 export interface type_d6f98266 {
   readonly kind: "unavailable";
-  readonly subject: CompiledDocumentationSubject;
+  readonly subject?: CompiledDocumentationSubject;
   readonly sources: ReadonlyArray<CompiledDocumentationSourceEvidence>;
   readonly sourcesTruncated?: boolean;
 }
 
 export interface type_fabd3005 {
   readonly kind: "absent";
-  readonly subject: CompiledDocumentationSubject;
+  readonly subject?: CompiledDocumentationSubject;
   readonly sources: ReadonlyArray<CompiledDocumentationSourceEvidence>;
   readonly sourcesTruncated?: boolean;
 }
@@ -1307,28 +1307,28 @@ export type CompiledDocumentationOutcome = type_b58c2bef | type_fabd3005 | type_
 
 export interface Completed {
   readonly kind: "completed";
-  readonly subject: CompiledDocumentationSubject;
-  readonly compiledXml: CompiledDocumentationOutcome | null;
-  readonly authoredSource: AuthoredDocumentationOutcome | null;
-  readonly fields: DocumentationQueryFieldSettlement;
+  readonly subject?: CompiledDocumentationSubject;
+  readonly compiledXml?: CompiledDocumentationOutcome;
+  readonly authoredSource?: AuthoredDocumentationOutcome;
+  readonly fields?: DocumentationQueryFieldSettlement;
 }
 
 export interface type_0808982e {
   readonly kind: "failed";
-  readonly subject: CompiledDocumentationSubject;
+  readonly subject?: CompiledDocumentationSubject;
   readonly reason: DocumentationQueryFailureReason;
-  readonly source: CompiledDocumentationSource;
+  readonly source?: CompiledDocumentationSource;
 }
 
 export interface type_29dfca00 {
   readonly kind: "incomplete";
-  readonly subject: CompiledDocumentationSubject;
+  readonly subject?: CompiledDocumentationSubject;
   readonly reason: CompiledDocumentationIncompleteReason;
 }
 
 export interface type_4486029c {
   readonly kind: "requestRejected";
-  readonly subject: CompiledDocumentationSubject;
+  readonly subject?: CompiledDocumentationSubject;
   readonly reason: DocumentationQueryRequestRejectionReason;
 }
 
