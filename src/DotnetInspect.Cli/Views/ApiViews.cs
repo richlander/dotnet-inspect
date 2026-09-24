@@ -773,9 +773,9 @@ public class CliApiSurface
     [JsonIgnore]
     public ApiInfoSection? ApiInfo { get; set; }
 
-    // Type forwarder inventory grouped by target assembly.
+    // One row per Type declaration advertised as a forwarder.
     [MarkoutSection(Name = "Type Forwarders")]
-    public List<ForwarderSummaryRow>? TypeForwarders { get; set; }
+    public List<ApiTypeForwarderRow>? TypeForwarders { get; set; }
 
     [MarkoutSection(Name = "Inspection Failures")]
     public List<ApiInspectionFailureRow>? InspectionFailures { get; set; }
@@ -847,9 +847,31 @@ public record TypeSummaryRow(
 }
 
 [MarkoutSerializable]
-public record ForwarderSummaryRow(
-    [property: MarkoutPropertyName("Target Library")] string TargetLibrary,
-    string Types);
+public record ApiTypeForwarderRow(
+    InertString TypeText,
+    InertString TargetAssemblyText)
+{
+    public ApiTypeForwarderRow(
+        string type,
+        string targetAssembly)
+        : this(
+            MarkoutInline.CodeText(ApiViewText.Field(type)),
+            ApiViewText.Field(targetAssembly))
+    {
+    }
+
+    [MarkoutIgnore, JsonIgnore]
+    public InertString TypeText { get; init; } = TypeText;
+
+    public string Type => TypeText.ToString();
+
+    [MarkoutIgnore, JsonIgnore]
+    public InertString TargetAssemblyText { get; init; } =
+        TargetAssemblyText;
+
+    [MarkoutPropertyName("Target Assembly")]
+    public string TargetAssembly => TargetAssemblyText.ToString();
+}
 
 [MarkoutSerializable]
 public record ApiInspectionFailureRow(
@@ -1434,7 +1456,7 @@ public partial class TypeViewContext : MarkoutSerializerContext
 [MarkoutContext(typeof(TypeSourceFileRow))]
 [MarkoutContext(typeof(MemberSourceLocationRow))]
 [MarkoutContext(typeof(TypeSummaryRow))]
-[MarkoutContext(typeof(ForwarderSummaryRow))]
+[MarkoutContext(typeof(ApiTypeForwarderRow))]
 [MarkoutContext(typeof(MemberRow))]
 [MarkoutContext(typeof(MemberSignatureRow))]
 [MarkoutContext(typeof(MethodAttributeRow))]

@@ -1,4 +1,5 @@
 using System.Reflection;
+using System.Text;
 using System.Text.Json;
 
 using DotnetInspector.Libraries;
@@ -77,6 +78,47 @@ public sealed class LibraryInspectionOperationTests
 
     [Fact]
     public async Task
+        GenericDefinitionWithoutArityMarkerRetainsTypeParameterDisplay()
+    {
+        byte[] content =
+            await LibraryInspectionTestLibrary.RealSystemTextJsonAsync();
+        byte[] original = Encoding.UTF8.GetBytes("JsonConverter`1");
+        byte[] replacement = Encoding.UTF8.GetBytes("JsonConverterXX");
+        Assert.Equal(original.Length, replacement.Length);
+        int offset = content.AsSpan().IndexOf(original);
+        Assert.True(offset >= 0);
+        Assert.Equal(
+            -1,
+            content.AsSpan(offset + original.Length).IndexOf(original));
+        replacement.CopyTo(content, offset);
+
+        await using LibraryInspectionTestLibrary library =
+            await LibraryInspectionTestLibrary.CreateAsync(
+                content,
+                LibraryInspectionTestLibrary.Identity(content));
+        LibraryDocument document = Document(
+            Execute(
+                library,
+                count: false,
+                new(
+                    maximumRows: 5_000,
+                    memberCount: new())));
+        LibraryTypePopulationRowsOutcome.Read rows =
+            Assert.IsType<LibraryTypePopulationRowsOutcome.Read>(
+                document.Types.Rows);
+
+        Assert.Contains(
+            rows.Items,
+            row =>
+                row.DisplayName.ToString()
+                    == "System.Text.Json.Serialization.JsonConverterXX<T>");
+
+        await library.RetireAsync();
+        AssertDetachedContract();
+    }
+
+    [Fact]
+    public async Task
         RealSystemTextJson_BoundedRowsDrainToCountWithRequestedMemberCounts()
     {
         byte[] content =
@@ -127,6 +169,16 @@ public sealed class LibraryInspectionOperationTests
             rows.Count,
             rows.Select(static row => row.Identity).Distinct().Count());
         Assert.All(rows, static row => Assert.True(row.IsPublicSurface));
+        Assert.Equal(
+            "System.Text.Json.Serialization.JsonConverter<T>",
+            rows.Single(
+                    row =>
+                        row.Identity
+                            == Name(
+                                "System.Text.Json.Serialization",
+                                "JsonConverter`1"))
+                .DisplayName
+                .ToString());
         Assert.Equal(
             16,
             Assert.IsType<LibraryTypeMemberCountOutcome.Counted>(

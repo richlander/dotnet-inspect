@@ -5,49 +5,49 @@ using DotnetInspector.Packages;
 using DotnetInspect.Cli.Commands;
 using DotnetInspect.Cli.Options;
 using DotnetInspector.Services;
-using ILInspector.Metadata;
-using System.Reflection.PortableExecutable;
 
 namespace DotnetInspect.Cli.Tests;
 
 public partial class CommandExecutionTests
 {
     [Fact]
-    public async Task Type_ListingDefaultCount_MatchesMetadataInventory()
+    public async Task Type_ListingDefaultCount_MatchesDrainedRows()
     {
-        string path = typeof(object).Assembly.Location;
-        using var stream = File.OpenRead(path);
-        using var reader = new PEReader(stream);
-        var counted = Assert.IsType<
-            ApiTypeInventoryCountResult.Counted>(
-                ApiSurfaceExtractor.CountSummaryTypes(reader));
-
         var (exit, output, error) = await RunAppAsync(
             "type",
             "--platform",
-            "System.Private.CoreLib",
+            "System.Text.Json",
             "--count",
             "--tips",
             "q");
+        var (rowsExit, rowsOutput, rowsError) =
+            await RunAppAsync(
+                "type",
+                "--platform",
+                "System.Text.Json",
+                "--tips",
+                "q");
 
         Assert.Equal(0, exit);
+        Assert.Equal(0, rowsExit);
         Assert.Empty(error);
+        Assert.Empty(rowsError);
         Assert.Equal(
-            counted.Count.Total.ToString(
+            int.Parse(
+                output.Trim(),
                 CultureInfo.InvariantCulture),
-            output.Trim());
+            rowsOutput
+                .Split('\n')
+                .Count(
+                    static line =>
+                        line.StartsWith(
+                            "| `",
+                            StringComparison.Ordinal)));
     }
 
     [Fact]
-    public async Task Type_ListingKindCount_MatchesMetadataInventory()
+    public async Task Type_ListingKindCount_MatchesDrainedRows()
     {
-        string path = typeof(object).Assembly.Location;
-        using var stream = File.OpenRead(path);
-        using var reader = new PEReader(stream);
-        var counted = Assert.IsType<
-            ApiTypeInventoryCountResult.Counted>(
-                ApiSurfaceExtractor.CountSummaryTypes(reader));
-
         var (exit, output, error) = await RunAppAsync(
             "type",
             "--platform",
@@ -57,13 +57,78 @@ public partial class CommandExecutionTests
             "--count",
             "--tips",
             "q");
+        var (rowsExit, rowsOutput, rowsError) =
+            await RunAppAsync(
+                "type",
+                "--platform",
+                "System.Private.CoreLib",
+                "-S",
+                SectionNames.Classes,
+                "--tips",
+                "q");
 
         Assert.Equal(0, exit);
+        Assert.Equal(0, rowsExit);
         Assert.Empty(error);
+        Assert.Empty(rowsError);
         Assert.Equal(
-            counted.Count.Classes.ToString(
+            int.Parse(
+                output.Trim(),
                 CultureInfo.InvariantCulture),
-            output.Trim());
+            rowsOutput
+                .Split('\n')
+                .Count(
+                    static line =>
+                        line.StartsWith(
+                            "| `",
+                            StringComparison.Ordinal)));
+    }
+
+    [Fact]
+    public async Task Type_Listing_NormalOmitsVerboseSurfaceInventories()
+    {
+        var normal = await RunAppAsync(
+            "type",
+            "--platform",
+            "System.Text.Json",
+            "-v:n",
+            "--tips",
+            "q");
+        var selected = await RunAppAsync(
+            "type",
+            "--platform",
+            "System.Text.Json",
+            "-v:n",
+            "-S",
+            SectionNames.Classes,
+            "--tips",
+            "q");
+
+        Assert.Equal(0, normal.Exit);
+        Assert.Empty(normal.Error);
+        Assert.Contains(
+            "# System.Text.Json",
+            normal.Output,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "## Classes",
+            normal.Output,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "| `",
+            normal.Output,
+            StringComparison.Ordinal);
+
+        Assert.Equal(0, selected.Exit);
+        Assert.Empty(selected.Error);
+        Assert.Contains(
+            "## Classes",
+            selected.Output,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "| `",
+            selected.Output,
+            StringComparison.Ordinal);
     }
 
     /// <summary>
@@ -855,9 +920,9 @@ public partial class CommandExecutionTests
     }
 
     [Theory]
-    [InlineData("--table", "Target Library", "Kind    Type")]
-    [InlineData("--tsv", "target_library\ttypes", "kind\ttype")]
-    [InlineData("--jsonl", "\"target_library\":", "\"kind\":")]
+    [InlineData("--table", "Type", "Kind    Type")]
+    [InlineData("--tsv", "type\ttarget_assembly", "kind\ttype")]
+    [InlineData("--jsonl", "\"type\":", "\"kind\":")]
     public async Task Type_Listing_MixedSurfaceProjectsForwardersInTabularFormats(
         string format,
         string expected,
@@ -875,7 +940,7 @@ public partial class CommandExecutionTests
 
         Assert.Contains(expected, output, StringComparison.Ordinal);
         Assert.DoesNotContain(unexpected, output, StringComparison.Ordinal);
-        Assert.DoesNotContain(
+        Assert.Contains(
             "System.Drawing.ColorConverter",
             output,
             StringComparison.Ordinal);
@@ -892,7 +957,7 @@ public partial class CommandExecutionTests
             SectionNames.TypeForwarders,
             "--table",
             "--columns",
-            "Target Library",
+            "Target Assembly",
             "--rows",
             "1",
             "--tips",
@@ -900,8 +965,228 @@ public partial class CommandExecutionTests
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
-        Assert.Contains("Target Library", output, StringComparison.Ordinal);
+        Assert.Contains("Target Assembly", output, StringComparison.Ordinal);
         Assert.Contains("System.Runtime", output, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Type_Listing_FacadeCountAndRowsShareForwarderPopulation()
+    {
+        var (countExit, countOutput, countError) =
+            await RunAppAsync(
+                "type",
+                "--platform",
+                "System.Xml",
+                "-S",
+                SectionNames.TypeForwarders,
+                "--count",
+                "--tips",
+                "q");
+        var (rowsExit, rowsOutput, rowsError) =
+            await RunAppAsync(
+                "type",
+                "--platform",
+                "System.Xml",
+                "-S",
+                SectionNames.TypeForwarders,
+                "--tips",
+                "q");
+
+        Assert.Equal(0, countExit);
+        Assert.Equal(0, rowsExit);
+        Assert.Empty(countError);
+        Assert.Empty(rowsError);
+        int count =
+            int.Parse(
+                countOutput.Trim(),
+                CultureInfo.InvariantCulture);
+        int rows =
+            rowsOutput
+                .Split('\n')
+                .Count(
+                    static line =>
+                        line.StartsWith(
+                            "| `",
+                            StringComparison.Ordinal));
+        Assert.True(count > 100);
+        Assert.Equal(count, rows);
+        Assert.Contains(
+            "`System.Xml.XmlReader`",
+            rowsOutput,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "System.Xml.ReaderWriter, Version=",
+            rowsOutput,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "| Members |",
+            rowsOutput,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task
+        Type_Listing_FacadeExcludedModesKeepCountAndRowsOnSamePopulation()
+    {
+        var detailedCount = await RunAppAsync(
+            "type",
+            "--platform",
+            "System.Xml",
+            "-v:d",
+            "-S",
+            SectionNames.Classes,
+            "--count",
+            "--tips",
+            "q");
+        var detailedRows = await RunAppAsync(
+            "type",
+            "--platform",
+            "System.Xml",
+            "-v:d",
+            "-S",
+            SectionNames.Classes,
+            "--tips",
+            "q");
+        var tableCount = await RunAppAsync(
+            "type",
+            "--platform",
+            "System.Xml",
+            "-S",
+            SectionNames.Classes,
+            "--count",
+            "--table",
+            "--tips",
+            "q");
+        var tableRows = await RunAppAsync(
+            "type",
+            "--platform",
+            "System.Xml",
+            "-S",
+            SectionNames.Classes,
+            "--table",
+            "--tips",
+            "q");
+
+        Assert.Equal(0, detailedCount.Exit);
+        Assert.Equal(0, detailedRows.Exit);
+        Assert.Equal(0, tableCount.Exit);
+        Assert.Equal(0, tableRows.Exit);
+        Assert.Empty(detailedCount.Error);
+        Assert.Empty(detailedRows.Error);
+        Assert.Empty(tableCount.Error);
+        Assert.Empty(tableRows.Error);
+
+        int expected =
+            int.Parse(
+                detailedCount.Output.Trim(),
+                CultureInfo.InvariantCulture);
+        Assert.True(expected > 0);
+        Assert.Equal(
+            expected,
+            detailedRows.Output
+                .Split('\n')
+                .Count(
+                    static line =>
+                        line.StartsWith(
+                            "| `",
+                            StringComparison.Ordinal)));
+        Assert.Equal(
+            expected,
+            int.Parse(
+                tableCount.Output.Trim(),
+                CultureInfo.InvariantCulture));
+        Assert.Equal(
+            expected,
+            tableRows.Output
+                .Split(
+                    '\n',
+                    StringSplitOptions.RemoveEmptyEntries)
+                .Length - 1);
+    }
+
+    [Fact]
+    public async Task Type_Listing_FacadeDefaultIncludesForwarders()
+    {
+        var (defaultExit, defaultOutput, defaultError) =
+            await RunAppAsync(
+                "type",
+                "--platform",
+                "System.Xml",
+                "--count",
+                "--tips",
+                "q");
+        var (forwarderExit, forwarderOutput, forwarderError) =
+            await RunAppAsync(
+                "type",
+                "--platform",
+                "System.Xml",
+                "-S",
+                SectionNames.TypeForwarders,
+                "--count",
+                "--tips",
+                "q");
+        var (rowsExit, rowsOutput, rowsError) =
+            await RunAppAsync(
+                "type",
+                "--platform",
+                "System.Xml",
+                "--tips",
+                "q");
+
+        Assert.Equal(0, defaultExit);
+        Assert.Equal(0, forwarderExit);
+        Assert.Equal(0, rowsExit);
+        Assert.Empty(defaultError);
+        Assert.Empty(forwarderError);
+        Assert.Empty(rowsError);
+        Assert.Equal(forwarderOutput.Trim(), defaultOutput.Trim());
+        Assert.Contains(
+            "## Type Forwarders",
+            rowsOutput,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "`System.Xml.XmlReader`",
+            rowsOutput,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Type_Listing_CoreLibDrainsMultipleRowSegments()
+    {
+        var (countExit, countOutput, countError) =
+            await RunAppAsync(
+                "type",
+                "--platform",
+                "System.Private.CoreLib",
+                "--count",
+                "--tips",
+                "q");
+        var (rowsExit, rowsOutput, rowsError) =
+            await RunAppAsync(
+                "type",
+                "--platform",
+                "System.Private.CoreLib",
+                "--tips",
+                "q");
+
+        Assert.Equal(0, countExit);
+        Assert.Equal(0, rowsExit);
+        Assert.Empty(countError);
+        Assert.Empty(rowsError);
+        int count =
+            int.Parse(
+                countOutput.Trim(),
+                CultureInfo.InvariantCulture);
+        int rows =
+            rowsOutput
+                .Split('\n')
+                .Count(
+                    static line =>
+                        line.StartsWith(
+                            "| `",
+                            StringComparison.Ordinal));
+        Assert.True(count > 256);
+        Assert.Equal(count, rows);
     }
 
     [Fact]

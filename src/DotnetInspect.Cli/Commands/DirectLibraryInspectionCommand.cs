@@ -1,10 +1,6 @@
-using System.Runtime.ExceptionServices;
-
 using DotnetInspect.Cli.CommandLine;
 using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Output;
-using DotnetInspector.Libraries;
-using DotnetInspector.Queries;
 using DotnetInspector.Sections;
 using DotnetInspector.SourceSelection;
 using ILInspector.Metadata;
@@ -13,9 +9,6 @@ namespace DotnetInspect.Cli.Commands;
 
 internal static class DirectLibraryInspectionCommand
 {
-    private const long MaxAssemblyImageBytes =
-        512L * 1024 * 1024;
-
     private static readonly ApiSurfaceExtractionBounds s_bounds =
         new(
             maxTypes: 5_000,
@@ -71,187 +64,19 @@ internal static class DirectLibraryInspectionCommand
             return 1;
         }
 
-        AssemblyDescriptorSelectionResult selection;
-        try
-        {
-            selection = ResolvedAssemblyReference.SelectFromPath(
+        var plan = new LibraryInspectionPlan(
+            new(
+                LibraryTypeAccessibility.Public,
+                new()),
+            s_bounds);
+        InspectionEnvelope<LibraryInspectionOutcome>? result =
+            await ExactLibraryInspectionExecutor.ExecuteAsync(
                 source.AssemblyName,
-                AssemblyResolutionProvenance.Local(
-                    "direct Library inspection"));
-        }
-        catch (Exception failure)
-            when (failure is IOException
-                or UnauthorizedAccessException)
-        {
-            CommandError.Write(
-                "The direct Library file could not be read.");
+                "direct Library inspection",
+                session => session.Execute(plan, cancellationToken),
+                cancellationToken);
+        if (result is null)
             return 1;
-        }
-        if (selection
-            is not AssemblyDescriptorSelectionResult.Ready ready)
-        {
-            WriteSelectionFailure(selection);
-            return 1;
-        }
-
-        InspectionEnvelope<LibraryInspectionOutcome>? result = null;
-        string? terminalFailure = null;
-        ExceptionDispatchInfo? primaryFailure = null;
-        List<string> cleanupFailures = [];
-        var workspace = new InspectionWorkspace();
-        AssemblyContextGroup? group = null;
-        AssemblyContextLibraryAdapterResult.Completed? completed =
-            null;
-        try
-        {
-            var participant = new AssemblyContextParticipant(
-                ready.Reference,
-                NoResolverAssemblyBindingPolicy.Instance);
-            group = workspace.CreateAssemblyContextGroup(
-                [participant],
-                new AssemblyContextGroupOptions
-                {
-                    MaxRetainedImageBytes =
-                        MaxAssemblyImageBytes,
-                });
-            AssemblyContextLibraryAdapterResult materialization =
-                await AssemblyContextLibraryAdapter.MaterializeAsync(
-                        group,
-                        participant,
-                        AssemblyContextLibraryRole.ApiOnly,
-                        new AssemblyContextLibraryMaterializationLimits(
-                            MaxAssemblyImageBytes,
-                            MaxAssemblyImageBytes),
-                        cancellationToken)
-                    .ConfigureAwait(false);
-            if (materialization
-                is not AssemblyContextLibraryAdapterResult.Completed
-                    available)
-            {
-                terminalFailure = Describe(materialization);
-                if (materialization
-                    is AssemblyContextLibraryAdapterResult.Terminal
-                        terminal
-                    && terminal.CleanupFailures.Count > 0)
-                {
-                    cleanupFailures.Add(
-                        "Direct Library realization reported one or "
-                            + "more cleanup failures.");
-                }
-            }
-            else
-            {
-                completed = available;
-                LibraryOperationLeaseIssueOutcome issued =
-                    available.Owner.IssueOperationLease(
-                        available.Reference);
-                if (issued
-                    is not LibraryOperationLeaseIssueOutcome.Issued
-                        operation)
-                {
-                    terminalFailure =
-                        "The direct Library owner could not issue the "
-                            + "inspection operation lease.";
-                }
-                else
-                {
-                    var plan = new LibraryInspectionPlan(
-                        new(
-                            LibraryTypeAccessibility.Public,
-                            new()),
-                        s_bounds);
-                    var request = new LibraryInspectionRequest(
-                        available.Reference,
-                        plan);
-                    result = LibraryInspectionOperation.Execute(
-                        request,
-                        operation.Lease,
-                        cancellationToken);
-                }
-            }
-        }
-        catch (Exception failure)
-        {
-            primaryFailure = ExceptionDispatchInfo.Capture(failure);
-        }
-        finally
-        {
-            if (completed is not null)
-            {
-                try
-                {
-                    await completed.Owner.DisposeAsync()
-                        .ConfigureAwait(false);
-                }
-                catch
-                {
-                    cleanupFailures.Add(
-                        "The direct Library owner could not retire.");
-                }
-                if (completed.Owner.CleanupFailures.Count > 0
-                    || completed.Owner.ReleaseFailures.Count > 0)
-                {
-                    cleanupFailures.Add(
-                        "The direct Library owner reported one or more "
-                            + "content release failures.");
-                }
-
-                try
-                {
-                    await completed.Artifacts.DisposeAsync()
-                        .ConfigureAwait(false);
-                }
-                catch
-                {
-                    cleanupFailures.Add(
-                        "The adjacent Artifact session could not retire.");
-                }
-                if (completed.Artifacts.CleanupFailures.Count > 0)
-                {
-                    cleanupFailures.Add(
-                        "The adjacent Artifact session reported one or "
-                            + "more cleanup failures.");
-                }
-            }
-
-            try
-            {
-                group?.Dispose();
-            }
-            catch
-            {
-                cleanupFailures.Add(
-                    "The ephemeral assembly group could not retire.");
-            }
-
-            try
-            {
-                await workspace.DisposeAsync().ConfigureAwait(false);
-            }
-            catch
-            {
-                cleanupFailures.Add(
-                    "The ephemeral inspection Workspace could not retire.");
-            }
-        }
-
-        if (primaryFailure is not null)
-        {
-            foreach (string failure in cleanupFailures)
-                CommandError.Write(failure);
-            primaryFailure.Throw();
-        }
-        if (cleanupFailures.Count > 0)
-        {
-            foreach (string failure in cleanupFailures)
-                CommandError.Write(failure);
-            return 1;
-        }
-        if (terminalFailure is not null)
-        {
-            CommandError.Write(terminalFailure);
-            return 1;
-        }
 
         return WriteEnvelope(
             result
@@ -310,48 +135,4 @@ internal static class DirectLibraryInspectionCommand
         || options.SelectDefault
         || options.IncludeSections is not null;
 
-    private static void WriteSelectionFailure(
-        AssemblyDescriptorSelectionResult selection)
-    {
-        switch (selection)
-        {
-            case AssemblyDescriptorSelectionResult.Descriptorless:
-                CommandError.Write(
-                    "The selected Library is not a managed assembly.");
-                break;
-            case AssemblyDescriptorSelectionResult.Rejected rejected:
-                CommandError.Write(
-                    "The selected Library could not be admitted as a "
-                        + "managed assembly.",
-                    [$"Admission kind: {rejected.Failure.Kind}"]);
-                break;
-            default:
-                throw new InvalidOperationException(
-                    "Unknown direct Library descriptor selection result.");
-        }
-    }
-
-    private static string Describe(
-        AssemblyContextLibraryAdapterResult result) =>
-        result switch
-        {
-            AssemblyContextLibraryAdapterResult.SnapshotRejected
-                rejected =>
-                "The selected Library image could not be captured "
-                    + $"({rejected.Failure.Kind}).",
-            AssemblyContextLibraryAdapterResult.Incomplete incomplete =>
-                "The selected Library image exceeds the direct inspection "
-                    + $"limit of {incomplete.MaxCapturedImageBytes} bytes.",
-            AssemblyContextLibraryAdapterResult.ArtifactNotPublished =>
-                "The selected Library image could not be published to "
-                    + "the ephemeral Artifact generation.",
-            AssemblyContextLibraryAdapterResult.MetadataNotProjected =>
-                "The selected Library image could not be projected as "
-                    + "managed Metadata.",
-            AssemblyContextLibraryAdapterResult.PortablePdbRejected =>
-                "The direct Library inspection rejected an unexpected "
-                    + "Portable PDB companion.",
-            _ => throw new InvalidOperationException(
-                "Unknown direct Library realization result."),
-        };
 }
