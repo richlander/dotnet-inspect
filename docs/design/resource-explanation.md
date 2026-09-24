@@ -50,12 +50,14 @@ dotnet-inspect has several introspection surfaces with different jobs:
 | `-D` | Which structural resources are available here? |
 | `-Q` | Which query capabilities does this route expose? |
 | `vocabulary` | Which stable values may I supply? |
-| `explain` | What exactly is this one product resource, and how is it related to other resources? |
+| `explain <search text>` | Which installed product resources might match this text? |
+| `explain <resource path>` | What exactly is this one product resource, and how is it related to other resources? |
 | Inspection commands | What does this subject contain or do? |
 
-`explain` is not a more verbose form of every command. It is the semantic
-drill-down over installed product contracts. The compact surfaces remain the
-efficient way to orient, list, and select; explanation resolves one exact
+The top-level `explain` facade is not a more verbose form of every command. Its
+search branch orients; exact Resource Explanation is the semantic drill-down
+over one installed product contract. The compact surfaces remain the efficient
+way to list and select within a known route; exact explanation resolves one
 resource and composes the detail already issued by its owners.
 
 The intended agent loop is:
@@ -303,7 +305,10 @@ owned by Query Space.
 
 Explanation accepts one exact canonical path or registered alias. It does not
 add wildcard, glob, prefix, fuzzy, or natural-language selection. Those
-orientation jobs remain with compact discovery.
+orientation jobs remain with compact discovery and Capability Catalog Search.
+The top-level `explain` facade may dispatch an operand classified as search
+text to that separate operation, but the Resource Explanation resolver never
+receives or interprets the search text.
 
 Resolution has three outcomes:
 
@@ -618,6 +623,17 @@ dotnet-inspect explain vocabularies/csharp.body-kinds
 CLI parsing produces one typed `ResourcePath` and one resolved traversal
 request. The command obtains the completed explanation envelope before
 presenting its Content and diagnostics.
+
+The top-level `explain` facade also accepts reusable inspection references and
+capability-search text under
+[Contextual Resource Explanation](contextual-resource-explanation.md).
+Exact registered paths and aliases select this operation first. After
+reusable-reference shape recognition, any remaining canonical multi-segment
+`ResourcePath` also selects this operation and preserves its exact unknown
+outcome. An unregistered canonical single segment such as `literal`, or a
+noncanonical slash-bearing value such as `https://`, selects capability search
+because `ResourcePath` grammar alone is intentionally broader than the
+facade's exact-path discriminator.
 
 Human output lowers the Document through a typed Markout view. `--json`
 serializes the same Content contract with source-generated metadata; the final
