@@ -26,9 +26,17 @@ The pattern has five obligations. An adopting command meets all of them:
    view: the subject's children, drawn from the host-neutral population its
    owner issues, rendered as one or more of that owner's children sections
    (for example a type's per-kind member sections). It may also show context
-   the owner attaches to the subject, such as a base type, implemented
-   interfaces, or extension members declared elsewhere. That context is
-   labeled as context and is never counted as children.
+   the owner attaches to the subject, such as a base type or implemented
+   interfaces. That context is labeled as context and is never counted as
+   children. Whether a related declaration is a child or context is the
+   population owner's decision, not the presentation's.
+
+   Some children stand in a special relationship to the subject: a forwarded
+   Type declaration in a Library, or an attached extension Member of a Type
+   that another Type declares. These remain children and count toward the
+   population, but every presentation and format distinguishes them from
+   ordinary children by their owner-issued row kind. The tree marks or groups
+   them, and Markdown, JSON, and row formats carry the row kind.
 3. **Info is opt-in.** Facts about the subject are one explicitly named
    subject-facts section, selected with `-S <section>`. It answers "what is
    this subject?" and does not re-render the children population. Whether
@@ -89,12 +97,18 @@ edge, that adoption must not present its rows as copyable arguments.
 - **Default renderer:**
   [Rendering model](rendering-model.md#native-type-and-source-defaults) owns
   default presentation. The existing exact-type tree is the reference shape
-  for the compact view: per-kind member sections, collapsed overloads, and
-  labeled context (`Inherits`, `Implements`, `Extension Methods`).
+  for the compact view: per-kind member sections, collapsed overloads,
+  labeled context (`Inherits`, `Implements`), and a distinguished group of
+  attached extension Members (`Extension Methods`).
 - **Library children:**
   [Library inspection documents and populations](library-inspection-document.md)
   owns the Library Type declaration population, including first-class
   forwarders, public-surface selection, and exact Count and Rows.
+- **Type and Member children:** the proposed
+  [Type and Member inspection documents](https://github.com/richlander/dotnet-inspect/pull/8432)
+  own the Type `Members` and Member `Overloads` populations, including
+  attached extension rows that keep their receiver attachment separate from
+  their declaring identity.
 - **Package target:**
   [Traversal target-framework policy](traversal-target-framework-policy.md#traversal-and-selection-are-different-policies)
   separates package-local selection from traversal; package children use the
@@ -261,7 +275,9 @@ dotnet-inspect.osx-arm64 0.26.0 (NuGet, DotNetCliTool v2, osx-arm64; command: do
 - **Exact resolution:** ambiguous input fails with a candidate list, and each
   candidate is spelled as input that resolves uniquely. Pattern, prefix, and
   missing-name input fails with tips for `find` and `library`.
-- **`member T` without a member name** fails with a tip for `type T`.
+- **`member T` without a member name** is an error. It does not render the
+  Type's Members or forward to `type T`; its message names `type T` as the
+  command that shows a Type's Members.
 - **Member tree:** an identity line with the overload count, then one
   signature per overload.
 - **Member Info:** no named facts section exists for an exact member name.
@@ -288,7 +304,7 @@ Observed with production dotnet-inspect 0.26.0 on 2026-09-23, unless noted:
 | dotnet-inspect.osx-arm64 0.26.0 | `DotnetToolRidPackage`; `DotNetCliTool Version="2"` with an `executable` runner; `tools/any/osx-arm64/` holds a 118 MB native executable and no DLLs | No selected target; the missing managed Libraries are stated |
 | platform `Timer` | `type Timer` silently renders `System.Threading.Timer` | Obligation 1 requires a visible ambiguity failure |
 | `member JsonSerializer` | Renders member-group tables duplicating `type` | Two commands render one subject's children |
-| `type JsonElement --platform System.Text.Json` | Tree shows `Inherits`, `Properties`, `Methods`, and `Extension Methods` declared on `JsonSerializer` | The compact view has several children sections plus labeled context |
+| `type JsonElement --platform System.Text.Json` | Tree shows `Inherits`, `Properties`, `Methods`, and `Extension Methods` declared on `JsonSerializer`; `-S "Member Index" --count` is 62, including the five `extension:Deserialize:N` rows | Several children sections plus labeled context; attached extensions are counted children with a distinct row kind |
 | Microsoft.TestPlatform.ObjectModel 18.10.1 | Three Libraries for net8.0; `library` silently renders `Microsoft.TestPlatform.CoreUtilities.dll` | Obligation 1 requires Library subject resolution |
 
 The 97 and 1,447 figures come from the Library Type Count and Rows work in
@@ -332,7 +348,9 @@ against that adoption's motivating assets:
   `library System.Text.Json --namespace System.Text.Json.Nodes`;
 - obligations 2 and 3: default (`-v:m`) output and the explicitly named
   facts section for each adopted command, with context never counted as
-  children;
+  children, and with forwarder rows (System.Text.Json) and attached extension
+  rows (`JsonElement`'s five `JsonSerializer.Deserialize` extensions) counted
+  as children and distinguished by row kind in every format;
 - obligation 4: at `-v:m`, a tree's grouped or collapsed counts sum to the
   population Count, forwarders included; at `-v:n` and `-v:d`, every format
   lists every child, for System.Text.Json and System.Private.CoreLib;

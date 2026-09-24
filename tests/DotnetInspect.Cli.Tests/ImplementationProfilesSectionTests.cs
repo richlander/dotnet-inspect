@@ -8,6 +8,8 @@ using DotnetInspect.Cli.Views;
 using DotnetInspector.Fixtures;
 using DotnetInspector.Packages;
 using DotnetInspector.Queries;
+using DotnetInspector.Sections;
+using DotnetInspector.Services;
 using ILInspector.Analysis;
 using ILInspector.Metadata;
 using ILInspector.Research;
@@ -214,7 +216,6 @@ public class MetricSectionTests
                     FixtureCatalog.AnalysisCallerLoop.AssemblyPath(),
                 MemberFilter =
                     ["Analyze"],
-                IncludeAll = true,
                 IncludeSections =
                     [SectionNames.MemberMetrics],
                 TipLevel = TipLevel.Quiet,
@@ -228,6 +229,145 @@ public class MetricSectionTests
         Assert.Contains("Analyze(int, int)", result.Output);
         Assert.Contains("Analyze(string)", result.Output);
         Assert.DoesNotContain("Other(int)", result.Output);
+    }
+
+    [Fact]
+    public void
+        MemberImplementationProfileFamilySelection_PreservesFallbackShapes()
+    {
+        string assemblyPath =
+            FixtureCatalog.AnalysisCallerLoop.AssemblyPath();
+        ApiSurface surface =
+            AssemblyReader.ExtractApiSurface(assemblyPath)
+            ?? throw new InvalidOperationException(
+                "Could not extract implementation-profile fixture API.");
+        ApiType type = Assert.Single(
+            surface.Types,
+            type => type.FullName
+                == "ILInspector.Analysis.ImplementationProfileFixtures."
+                    + "ImplementationProfileSample");
+        var familyOptions = new MemberOptions
+        {
+            MemberFilter = ["Analyze"],
+            IncludeSections = [SectionNames.MemberMetrics],
+        };
+
+        Assert.True(
+            MemberCommand.TryCreateImplementationProfileFamilySelection(
+                type,
+                familyOptions,
+                out ImplementationProfileFamilySelection? selection));
+        Assert.NotNull(selection);
+        Assert.Equal(
+            type.Members.Count(member =>
+                member.Name == "Analyze"
+                && member.Kind is "method" or "extension-method"),
+            selection.StableSelectors.Length);
+
+        Assert.False(
+            MemberCommand.TryCreateImplementationProfileFamilySelection(
+                type,
+                familyOptions with { IncludeAll = true },
+                out _));
+        Assert.False(
+            MemberCommand.TryCreateImplementationProfileFamilySelection(
+                type,
+                familyOptions with { OverloadIndex = 1 },
+                out _));
+        Assert.False(
+            MemberCommand.TryCreateImplementationProfileFamilySelection(
+                type,
+                familyOptions with
+                {
+                    KindFilter =
+                        new HashSet<string>(
+                            ["method"],
+                            StringComparer.OrdinalIgnoreCase),
+                },
+                out _));
+        Assert.False(
+            MemberCommand.TryCreateImplementationProfileFamilySelection(
+                type,
+                familyOptions with { MemberFilter = ["Value"] },
+                out _));
+    }
+
+    [Fact]
+    public async Task
+        AttachedMemberImplementationProfileFamily_SkipsCompatibilityAnalysis()
+    {
+        string assemblyPath =
+            FixtureCatalog.AnalysisCallerLoop.AssemblyPath();
+        ApiSurface surface =
+            AssemblyReader.ExtractApiSurface(assemblyPath)
+            ?? throw new InvalidOperationException(
+                "Could not extract implementation-profile fixture API.");
+        ApiType type = Assert.Single(
+            surface.Types,
+            type => type.FullName
+                == "ILInspector.Analysis.ImplementationProfileFixtures."
+                    + "ImplementationProfileSample");
+        var options = new MemberOptions
+        {
+            MemberFilter = ["Analyze"],
+            IncludeSections = [SectionNames.MemberMetrics],
+            DllPath = "/does/not/exist.dll",
+            TipLevel = TipLevel.Quiet,
+            Verbosity = Verbosity.Minimal,
+            MarkdownExplicitlySet = true,
+            FormatExplicitlySet = true,
+        };
+        Assert.True(
+            MemberCommand.TryCreateImplementationProfileFamilySelection(
+                type,
+                options,
+                out ImplementationProfileFamilySelection? selection));
+
+        var assembly =
+            ResolvedAssemblyReference.CreateFromPath(
+                assemblyPath,
+                AssemblyResolutionProvenance.Local(
+                    "CLI family profile test"));
+        var participant =
+            new AssemblyContextParticipant(
+                assembly,
+                new AssemblyDependencyResolver(
+                    new AssemblyDependencyResolutionOptions(
+                        assemblyPath)));
+        await using var workspace = new InspectionWorkspace();
+        using AssemblyContextGroup group =
+            workspace.CreateAssemblyContextGroup([participant]);
+        InspectionEnvelope<
+            AssemblyContextEntry<
+                AssemblyImplementationProfileFamilyInspection>>
+            inspection =
+                ImplementationProfileFamilyInspectionOperation.Execute(
+                    group,
+                    participant,
+                    selection);
+        Assert.IsType<
+            AssemblyContextEntry<
+                AssemblyImplementationProfileFamilyInspection>.Available>(
+                    inspection.Content);
+
+        using var output = new StringWriter();
+        int exitCode = await ApiCommand.WriteTypeOutputAsync(
+            type,
+            foundIn: assemblyPath,
+            packageName: null,
+            packageVersion: null,
+            apiSource: null,
+            selectedTfm: null,
+            options with
+            {
+                ImplementationProfileFamilyInspection = inspection,
+            },
+            output);
+
+        Assert.Equal(0, exitCode);
+        Assert.Contains("## Member Metrics", output.ToString());
+        Assert.Contains("Analyze(int, int)", output.ToString());
+        Assert.DoesNotContain("Other(int)", output.ToString());
     }
 
     [Fact]
