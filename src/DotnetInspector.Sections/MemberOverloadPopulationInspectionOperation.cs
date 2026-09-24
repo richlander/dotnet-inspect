@@ -230,6 +230,11 @@ public static class MemberOverloadPopulationInspectionOperation
                         .MaxRetainedTextCharacters,
                     measured);
             }
+            else if (read.RowsFailed)
+            {
+                rows = new MemberOverloadRowsOutcome.Failed(
+                    MemberOverloadRowsFailure.MalformedMetadata);
+            }
             else
             {
                 ImmutableArray<MemberOverloadShape> items =

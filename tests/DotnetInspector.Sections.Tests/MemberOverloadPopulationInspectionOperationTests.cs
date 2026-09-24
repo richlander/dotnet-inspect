@@ -1,3 +1,8 @@
+using System.Reflection;
+using System.Reflection.Metadata;
+using System.Reflection.Metadata.Ecma335;
+using System.Reflection.PortableExecutable;
+
 using ILInspector.Metadata;
 
 namespace DotnetInspector.Sections.Tests;
@@ -341,6 +346,77 @@ public sealed class MemberOverloadPopulationInspectionOperationTests
         await library.RetireAsync();
     }
 
+    [Fact]
+    public async Task
+        MalformedSelectedRowPreservesIndependentCount()
+    {
+        byte[] content =
+            BuildMethodGroupImage(
+                "M",
+                DeepMethodSignature());
+        await using LibraryInspectionTestLibrary library =
+            await LibraryInspectionTestLibrary.CreateAsync(
+                content,
+                LibraryInspectionTestLibrary.Identity(content));
+
+        MemberOverloadPopulationContent result =
+            Available(
+                Execute(
+                    library,
+                    "M",
+                    count: true,
+                    new(maximumRows: 1),
+                    declaringType: Name("N", "C")));
+
+        Assert.Equal(
+            1,
+            Assert.IsType<MemberOverloadCountOutcome.Counted>(
+                    result.Overloads.Count)
+                .Value);
+        Assert.Equal(
+            MemberOverloadRowsFailure.MalformedMetadata,
+            Assert.IsType<MemberOverloadRowsOutcome.Failed>(
+                    result.Overloads.Rows)
+                .Reason);
+
+        await library.RetireAsync();
+    }
+
+    [Theory]
+    [InlineData(".ctor")]
+    [InlineData(".cctor")]
+    [InlineData("op_Addition")]
+    [InlineData("IFoo.M")]
+    public async Task
+        OrdinaryMethodCategoryRejectsOtherMetadataCategories(
+            string metadataName)
+    {
+        byte[] content =
+            BuildMethodGroupImage(
+                metadataName,
+                VoidMethodSignature());
+        await using LibraryInspectionTestLibrary library =
+            await LibraryInspectionTestLibrary.CreateAsync(
+                content,
+                LibraryInspectionTestLibrary.Identity(content));
+
+        Assert.Equal(
+            MemberOverloadPopulationInspectionRejection
+                .MemberGroupNotFound,
+            Assert.IsType<
+                    MemberOverloadPopulationInspectionOutcome.Rejected>(
+                    Execute(
+                        library,
+                        metadataName,
+                        count: true,
+                        rows: null,
+                        declaringType: Name("N", "C"))
+                        .Content)
+                .Reason);
+
+        await library.RetireAsync();
+    }
+
     private static InspectionEnvelope<
         MemberOverloadPopulationInspectionOutcome> Execute(
             LibraryInspectionTestLibrary library,
@@ -395,4 +471,76 @@ public sealed class MemberOverloadPopulationInspectionOperationTests
             maxMetadataRows: 1_000_000,
             maxRetainedTextCharacters:
                 maximumRetainedTextCharacters);
+
+    private static byte[] BuildMethodGroupImage(
+        string methodName,
+        BlobBuilder signature)
+    {
+        var metadata = new MetadataBuilder();
+        metadata.AddModule(
+            0,
+            metadata.GetOrAddString("Synthetic.dll"),
+            metadata.GetOrAddGuid(Guid.NewGuid()),
+            default,
+            default);
+        metadata.AddAssembly(
+            metadata.GetOrAddString("Synthetic"),
+            new Version(1, 0, 0, 0),
+            default,
+            default,
+            default,
+            default);
+        metadata.AddTypeDefinition(
+            TypeAttributes.NotPublic,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        metadata.AddTypeDefinition(
+            TypeAttributes.Public,
+            metadata.GetOrAddString("N"),
+            metadata.GetOrAddString("C"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        metadata.AddMethodDefinition(
+            MethodAttributes.Public | MethodAttributes.Static,
+            MethodImplAttributes.IL,
+            metadata.GetOrAddString(methodName),
+            metadata.GetOrAddBlob(signature),
+            bodyOffset: -1,
+            parameterList: MetadataTokens.ParameterHandle(1));
+
+        var pe = new ManagedPEBuilder(
+            PEHeaderBuilder.CreateLibraryHeader(),
+            new MetadataRootBuilder(
+                metadata,
+                suppressValidation: true),
+            new BlobBuilder(),
+            flags: CorFlags.ILOnly);
+        var image = new BlobBuilder();
+        pe.Serialize(image);
+        return image.ToArray();
+    }
+
+    private static BlobBuilder VoidMethodSignature()
+    {
+        var signature = new BlobBuilder();
+        signature.WriteByte(0x00);
+        signature.WriteByte(0x00);
+        signature.WriteByte(0x01);
+        return signature;
+    }
+
+    private static BlobBuilder DeepMethodSignature()
+    {
+        var signature = new BlobBuilder();
+        signature.WriteByte(0x00);
+        signature.WriteByte(0x00);
+        for (int index = 0; index < 100_000; index++)
+            signature.WriteByte(0x1d);
+        signature.WriteByte(0x08);
+        return signature;
+    }
 }

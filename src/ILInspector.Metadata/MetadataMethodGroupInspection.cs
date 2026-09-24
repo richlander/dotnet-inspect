@@ -40,7 +40,8 @@ public abstract record MetadataMethodGroupInspectionOutcome
         ImmutableArray<MetadataMethodGroupRow> Rows,
         int? NextOrdinal,
         bool ContinuationOutOfRange = false,
-        long? IncompleteRetainedTextCharacters = null)
+        long? IncompleteRetainedTextCharacters = null,
+        bool RowsFailed = false)
         : MetadataMethodGroupInspectionOutcome;
 
     public sealed record TypeNotFound
@@ -118,6 +119,7 @@ internal static class MetadataMethodGroupInspection
                         reader.GetString(method.Name),
                         methodName,
                         StringComparison.Ordinal)
+                    || !IsOrdinaryMethodName(methodName)
                     || !IsPublic(method.Attributes))
                 {
                     continue;
@@ -170,17 +172,35 @@ internal static class MetadataMethodGroupInspection
                     && AttributeReader.HasExtensionAttribute(
                         reader,
                         method.GetCustomAttributes());
-                MetadataMethodDeclaration declaration =
-                    MetadataDeclarationQuery.GetMethod(
-                        reader,
-                        type,
-                        method);
-                MemberAnchor anchor =
-                    ApiMemberIdentity.CreateMethodAnchor(
-                        reader,
-                        typeHandle,
-                        method,
-                        extension);
+                MetadataMethodDeclaration declaration;
+                MemberAnchor anchor;
+                try
+                {
+                    declaration =
+                        MetadataDeclarationQuery.GetMethod(
+                            reader,
+                            type,
+                            method);
+                    anchor =
+                        ApiMemberIdentity.CreateMethodAnchor(
+                            reader,
+                            typeHandle,
+                            method,
+                            extension);
+                }
+                catch (Exception exception) when (
+                    exception is BadImageFormatException
+                        or ArgumentOutOfRangeException
+                        or OverflowException)
+                {
+                    return new MetadataMethodGroupInspectionOutcome.Read(
+                        declaringType,
+                        MetadataTokens.GetToken(typeHandle),
+                        matches.Count,
+                        [],
+                        NextOrdinal: null,
+                        RowsFailed: true);
+                }
                 string displaySignature = MetadataDeclarationQuery
                     .GetMethodSignatureText(declaration);
                 retainedTextCharacters = checked(
@@ -271,4 +291,9 @@ internal static class MetadataMethodGroupInspection
     private static bool IsPublic(MethodAttributes attributes) =>
         (attributes & MethodAttributes.MemberAccessMask)
             is MethodAttributes.Public;
+
+    private static bool IsOrdinaryMethodName(string name) =>
+        name is not ".ctor" and not ".cctor"
+        && !name.StartsWith("op_", StringComparison.Ordinal)
+        && !name.Contains('.', StringComparison.Ordinal);
 }
