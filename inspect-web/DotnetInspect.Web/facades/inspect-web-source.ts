@@ -580,8 +580,15 @@ export interface BrowserSourceFactInstance {
 
 export interface BrowserTypeExplorerBody {
   readonly bodyId: number;
+  readonly role: string;
   readonly range: BrowserTypeExplorerRange;
-  readonly hasDrillDownDestination: boolean;
+  readonly destination: BrowserTypeExplorerBodyDestination | null;
+}
+
+export interface BrowserTypeExplorerBodyDestination {
+  readonly moduleVersionId: string;
+  readonly member: BrowserTypeExplorerMemberIdentity;
+  readonly metadataToken: number;
 }
 
 export interface BrowserTypeExplorerContribution {
@@ -1135,4 +1142,3 @@ export async function queryTypeSource(operationId: string, packageId: string, ve
   const $parsed: unknown = JSON.parse($result);
   return $parsed as BrowserTypeSourceResult;
 }
-

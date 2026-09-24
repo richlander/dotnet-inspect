@@ -167,10 +167,16 @@ public sealed record BrowserTypeExplorerRegion(
     string Role,
     BrowserTypeExplorerRange Range);
 
+public sealed record BrowserTypeExplorerBodyDestination(
+    string ModuleVersionId,
+    BrowserTypeExplorerMemberIdentity Member,
+    int MetadataToken);
+
 public sealed record BrowserTypeExplorerBody(
     int BodyId,
+    string Role,
     BrowserTypeExplorerRange Range,
-    bool HasDrillDownDestination);
+    BrowserTypeExplorerBodyDestination? Destination);
 
 public sealed record BrowserTypeExplorerContribution(
     int BodyId,
@@ -309,7 +315,7 @@ internal static class BrowserTypeExplorerAdapter
         BrowserTypeExplorerProjection? projection = outcome switch
         {
             CSharpTypeProjectionOutcome.Projected projected =>
-                AdaptProjection(projected.Projection),
+                AdaptProjection(document, projected.Projection),
             _ => null,
         };
         BrowserTypeExplorerProjectionFailure? failure = outcome switch
@@ -332,13 +338,15 @@ internal static class BrowserTypeExplorerAdapter
     }
 
     private static BrowserTypeExplorerProjection AdaptProjection(
+        CSharpTypeDocument document,
         CSharpTypeDocumentProjection projection) =>
         new(
             projection.Revision.Sha256,
             projection.Text,
             [.. projection.FrameRegions.Select(AdaptRegion)],
             [.. projection.FrameContributions.Select(AdaptContribution)],
-            [.. projection.Declarations.Select(AdaptDeclaration)],
+            [.. projection.Declarations.Select(
+                declaration => AdaptDeclaration(document, declaration))],
             [.. projection.Diagnostics.Select(static diagnostic =>
                 new BrowserTypeExplorerProjectionDiagnostic(
                     diagnostic.Kind.ToString(),
@@ -348,6 +356,7 @@ internal static class BrowserTypeExplorerAdapter
                     diagnostic.ContributionRole?.ToString()))]);
 
     private static BrowserTypeExplorerDeclaration AdaptDeclaration(
+        CSharpTypeDocument document,
         CSharpTypeProjectedDeclaration declaration) =>
         new(
             declaration.DeclarationId,
@@ -360,12 +369,33 @@ internal static class BrowserTypeExplorerAdapter
             declaration.SupportsSelectedBody,
             AdaptRange(declaration.Range),
             [.. declaration.Regions.Select(AdaptRegion)],
-            [.. declaration.Bodies.Select(static body =>
-                new BrowserTypeExplorerBody(
-                    body.BodyId,
-                    AdaptRange(body.Range),
-                    body.HasDrillDownDestination))],
+            [.. declaration.Bodies.Select(
+                body => AdaptBody(document, body))],
             [.. declaration.Contributions.Select(AdaptContribution)]);
+
+    private static BrowserTypeExplorerBody AdaptBody(
+        CSharpTypeDocument document,
+        CSharpTypeProjectedBody body)
+    {
+        CSharpTypePhysicalBody physicalBody = document.Bodies[body.BodyId];
+        BrowserTypeExplorerBodyDestination? destination = null;
+        if (body.HasDrillDownDestination
+            && physicalBody.HasManagedBody
+            && physicalBody.Outcome == CSharpTypeBodyOutcome.Available)
+        {
+            CSharpTypePhysicalArtifact artifact =
+                document.Artifacts[physicalBody.ArtifactId];
+            destination = new(
+                physicalBody.Address.ModuleVersionId.ToString("D"),
+                BrowserTypeExplorerMemberIdentity.From(artifact.Anchor),
+                physicalBody.Address.Token);
+        }
+        return new(
+            body.BodyId,
+            physicalBody.Role.ToString(),
+            AdaptRange(body.Range),
+            destination);
+    }
 
     private static BrowserTypeExplorerRegion AdaptRegion(
         CSharpTypeProjectedRegion region) =>

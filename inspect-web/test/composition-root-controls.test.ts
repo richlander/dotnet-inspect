@@ -1804,7 +1804,7 @@ test("annotated source owns its rendered control bindings", () => {
     annotatedSourceModule,
     /export function bindAnnotatedSource\([\s\S]*\[data-annotated-action\][\s\S]*\[data-annotated-source-start\][\s\S]*#annotated-source-backdrop[\s\S]*#annotated-source-modal/);
   for (const [identifier, count] of [
-    ["bindAnnotatedSourceEvents", 2],
+    ["bindAnnotatedSourceEvents", 3],
     ["bindAnnotatedSource", 2],
   ] as const) {
     assert.equal(
