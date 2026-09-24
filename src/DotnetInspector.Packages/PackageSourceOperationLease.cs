@@ -273,7 +273,7 @@ public sealed class PackageSourceOperationLease : IDisposable
         return ManifestCoreAsync(StartWork(), candidate);
     }
 
-    /// <param name="rangedSelection">
+    /// <param name="rangedRead">
     /// When supplied, a cache miss on an authority whose client can serve
     /// byte ranges is answered by reading the archive directory and only the
     /// entries this selector chooses, retained as
@@ -287,12 +287,12 @@ public sealed class PackageSourceOperationLease : IDisposable
         Action<string>? log = null,
         PackagePayloadLimits? limits = null,
         IPackagePayloadTransferPolicy? transferPolicy = null,
-        PackageEntrySelector? rangedSelection = null)
+        PackageRangedRead? rangedRead = null)
     {
         ArgumentNullException.ThrowIfNull(candidate);
         ArgumentNullException.ThrowIfNull(createStore);
         return PayloadCoreAsync(
-            StartWork(), candidate, createStore, log, limits, transferPolicy, rangedSelection);
+            StartWork(), candidate, createStore, log, limits, transferPolicy, rangedRead);
     }
 
     public void Dispose()
@@ -489,11 +489,11 @@ public sealed class PackageSourceOperationLease : IDisposable
         Func<ConfiguredPackageAuthority, PackageProducerIdentity, IPackageStore> createStore,
         Action<string>? log, PackagePayloadLimits? limits,
         IPackagePayloadTransferPolicy? transferPolicy,
-        PackageEntrySelector? rangedSelection)
+        PackageRangedRead? rangedRead)
     {
         using (work)
             return await work.Generation.AcquireCandidatePayloadAsync(
                 candidate, createStore, work.Context, log, limits,
-                transferPolicy, rangedSelection).ConfigureAwait(false);
+                transferPolicy, rangedRead).ConfigureAwait(false);
     }
 }
