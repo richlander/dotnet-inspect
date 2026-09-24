@@ -2,7 +2,7 @@
 
 ## Status and ownership
 
-Issue [#4852][issue-4852] defines this proposed
+Issue [#4852][issue-4852] defines this
 `ILInspector.CSharp` contract. This document is its sole normative owner.
 
 The exact claim is:
@@ -13,14 +13,12 @@ The exact claim is:
 > unavailability. It does not reopen metadata, reconstruct relationships from
 > display text or flags, or publish a partial declaration.
 
-This proposal does not describe current product support. The first
-implementation depends on the ordinary MethodDef declaration evidence in
-[#7886][issue-7886] and the containing TypeDef declaration evidence in
-[#8348][issue-8348]. It also depends on [#8399][issue-8399] retaining the exact
-local declaration-owner TypeDef address on each MethodImpl occurrence.
-MethodImpl relationship evidence from [#7887][issue-7887] and InterfaceImpl
-association evidence from [#7897][issue-7897] are already available supporting
-inputs.
+The first product slice implements the canonical static explicit-interface
+operator path. It consumes the ordinary MethodDef evidence from
+[#7886][issue-7886], containing TypeDef evidence from [#8348][issue-8348], the
+exact local declaration-owner address from [#8399][issue-8399], MethodImpl
+relationship evidence from [#7887][issue-7887], and InterfaceImpl association
+evidence from [#7897][issue-7897].
 
 ## Consumer and adoption
 
@@ -152,6 +150,11 @@ context, lease, callback that can reopen evidence, or mutable budget. Metadata
 coordinates may remain as detached evidence and body bindings, but they do not
 become semantic cross-session identity.
 
+The public post is capture-only: callers provide one live declaration session
+to the CSharp producer, and only the resulting detached graph is publicly
+consumable. This prevents unrelated observations from being assembled into a
+success-shaped post with value-equal coordinates.
+
 ## Composition and join invariants
 
 The MethodImpl result is consumed as a whole. A body with multiple physical
@@ -217,6 +220,8 @@ preserves:
 - the selected declaration category;
 - the exact accepted identifier and type spellings or structured spelling
   plans;
+- the structured containing-type, explicit-interface-owner, and method
+  signature identities behind those spellings;
 - accessibility and declaration modifiers;
 - generic arity, parameters, return/value type, and required constraints;
 - explicit-interface owner identity and member category when applicable;
@@ -244,18 +249,31 @@ spelling, and later declaration forms.
 
 ## Initial implementation boundary
 
-The first implementation is a method-like proof slice after
-[#7886][issue-7886] and [#8348][issue-8348] land. It may cover:
+The first implementation is a method-like proof slice for one directly
+associated static explicit-interface `op_Addition` operator:
 
-- ordinary methods and constructors with complete posted MethodDef facts;
-- operators and conversions with authenticated candidate, signature, and
-  language-profile evidence; and
-- directly associated explicit-interface methods or operators whose complete
-  MethodImpl and InterfaceImpl evidence is posted.
+- the MethodImpl declaration owner is locally resolved and its separately
+  posted TypeDef is an interface with the same structured definition identity;
+- exactly one physical MethodImpl and one exact InterfaceImpl association
+  participate;
+- the declaration is an authenticated two-operand `op_Addition` with a
+  non-void return, a containing-type operand, plain complete parameter
+  evidence, and a C# 11-or-later profile; and
+- the accepted immutable request carries qualified type spellings, parameter
+  spellings, exact body binding, and enough information to render a complete
+  stub declaration without reopening metadata.
 
-It must return `Unavailable` rather than infer through an unresolved external
-declaration, missing declaration-owner TypeDef post, missing interface
-reachability, incomplete containing shape, or another unposted prerequisite.
+Multiple complete physical MethodImpl or InterfaceImpl occurrences produce a
+stable language refusal because one C# declaration cannot preserve that
+multiplicity. Rejected, absent, unresolved, mismatched, or unposted evidence
+produces `Unavailable` atomically. Method-like categories and type shapes
+outside this first proof boundary also remain `Unavailable`; the implementation
+does not misstate an unimplemented but potentially valid C# form as a language
+impossibility.
+
+Ordinary methods, constructors, conversions, checked operators, generic
+method-like declarations, and broader explicit-interface methods remain later
+expansions of this same contract.
 
 Properties, indexers, events, and accessor-level requests remain outside the
 first slice. They require the complete MethodSemantics work in
