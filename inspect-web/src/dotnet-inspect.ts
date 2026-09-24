@@ -10882,7 +10882,7 @@ function applyAnnotatedSourceAction(action: AnnotatedSourceAction) {
       state.annotatedDestinationError = "";
       const origin = annotatedSourceModalOrigin;
       const failureSurface =
-        origin?.kind === "type-explorer" ? "call-graph" : "annotated";
+        origin?.kind === "type-explorer" ? "retained" : "annotated";
       const binding =
         callGraphTargetBinding(
           destination.target,
@@ -10910,7 +10910,7 @@ function applyAnnotatedSourceAction(action: AnnotatedSourceAction) {
       state.annotatedDestinationError = "";
       const origin = annotatedSourceModalOrigin;
       const failureSurface =
-        origin?.kind === "type-explorer" ? "call-graph" : "annotated";
+        origin?.kind === "type-explorer" ? "retained" : "annotated";
       const binding =
         callGraphTargetBinding(
           relationship.target,
@@ -10938,7 +10938,7 @@ function applyAnnotatedSourceAction(action: AnnotatedSourceAction) {
       state.annotatedDestinationError = "";
       const origin = annotatedSourceModalOrigin;
       const failureSurface =
-        origin?.kind === "type-explorer" ? "call-graph" : "annotated";
+        origin?.kind === "type-explorer" ? "retained" : "annotated";
       const binding =
         callGraphTargetBinding(
           evidence.target,
@@ -17544,7 +17544,7 @@ function callGraphNodeBinding(
 }
 
 type CallGraphTargetDestination = "default" | "member" | "source";
-type GraphNavigationFailureSurface = "call-graph" | "annotated";
+type GraphNavigationFailureSurface = "call-graph" | "annotated" | "retained";
 
 function callGraphTargetBinding(
   target: InspectedCallGraphTarget,
@@ -17852,6 +17852,11 @@ function blockedCallGraphNodeBinding(
         state.annotatedDestinationError =
           `Could not open ${target.typeFullName}.${target.memberName}: ${reason}.`;
         renderAndFocusAnnotated({ kind: "explore" }, "embedded");
+        return;
+      }
+      if (failureSurface === "retained") {
+        showRetainedGraphNavigationError(
+          `Could not open ${target.typeFullName}.${target.memberName}: ${reason}.`);
         return;
       }
       invalidateGraphMemberNavigation();
@@ -18330,8 +18335,18 @@ function showGraphMemberNavigationError(
     renderAndFocusAnnotated({ kind: "explore" }, "embedded");
     return;
   }
+  if (failureSurface === "retained") {
+    showRetainedGraphNavigationError(message);
+    return;
+  }
   state.graphMemberNavigationError = message;
   render();
+}
+
+function showRetainedGraphNavigationError(message: string) {
+  appendQueryNotice(message);
+  render();
+  afterCurrentNavigationFrame(() => focusLevelOneHeading());
 }
 
 async function restorePendingGraphMember() {

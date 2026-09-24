@@ -2096,15 +2096,23 @@ test("Annotated Source destination actions use typed graph routes and exact sect
 
   assert.match(
     appSource,
-    /case "destination-open":[\s\S]*model\.invocationDestinations\[action\.destinationIndex\][\s\S]*origin\?\.kind === "type-explorer" \? "call-graph" : "annotated"[\s\S]*callGraphTargetBinding\([\s\S]*destination\.target,[\s\S]*action\.destination,[\s\S]*failureSurface\)[\s\S]*if \(binding\.blocked\) \{[\s\S]*binding\.onSelect\(\);[\s\S]*return;[\s\S]*dismissAnnotatedSourceModal\(false\);[\s\S]*resetTypeExplorerRouteState\(\);[\s\S]*binding\.onSelect\(\)/,
+    /case "destination-open":[\s\S]*model\.invocationDestinations\[action\.destinationIndex\][\s\S]*origin\?\.kind === "type-explorer" \? "retained" : "annotated"[\s\S]*callGraphTargetBinding\([\s\S]*destination\.target,[\s\S]*action\.destination,[\s\S]*failureSurface\)[\s\S]*if \(binding\.blocked\) \{[\s\S]*binding\.onSelect\(\);[\s\S]*return;[\s\S]*dismissAnnotatedSourceModal\(false\);[\s\S]*resetTypeExplorerRouteState\(\);[\s\S]*binding\.onSelect\(\)/,
   );
   assert.match(
     appSource,
-    /case "relationship-destination-open":[\s\S]*model\.callRelationships\[action\.relationshipIndex\][\s\S]*origin\?\.kind === "type-explorer" \? "call-graph" : "annotated"[\s\S]*callGraphTargetBinding\([\s\S]*relationship\.target,[\s\S]*action\.destination,[\s\S]*failureSurface\)[\s\S]*if \(binding\.blocked\) \{[\s\S]*binding\.onSelect\(\);[\s\S]*return;[\s\S]*dismissAnnotatedSourceModal\(false\);[\s\S]*resetTypeExplorerRouteState\(\);[\s\S]*binding\.onSelect\(\)/,
+    /case "relationship-destination-open":[\s\S]*model\.callRelationships\[action\.relationshipIndex\][\s\S]*origin\?\.kind === "type-explorer" \? "retained" : "annotated"[\s\S]*callGraphTargetBinding\([\s\S]*relationship\.target,[\s\S]*action\.destination,[\s\S]*failureSurface\)[\s\S]*if \(binding\.blocked\) \{[\s\S]*binding\.onSelect\(\);[\s\S]*return;[\s\S]*dismissAnnotatedSourceModal\(false\);[\s\S]*resetTypeExplorerRouteState\(\);[\s\S]*binding\.onSelect\(\)/,
   );
   assert.match(
     appSource,
-    /case "finding-evidence-open":[\s\S]*model\.findingEvidenceByFactId\.get\(action\.factId\)[\s\S]*origin\?\.kind === "type-explorer" \? "call-graph" : "annotated"[\s\S]*callGraphTargetBinding\([\s\S]*evidence\.target,[\s\S]*action\.destination,[\s\S]*failureSurface\)[\s\S]*if \(binding\.blocked\) \{[\s\S]*binding\.onSelect\(\);[\s\S]*return;[\s\S]*dismissAnnotatedSourceModal\(false\);[\s\S]*resetTypeExplorerRouteState\(\);[\s\S]*binding\.onSelect\(\)/,
+    /case "finding-evidence-open":[\s\S]*model\.findingEvidenceByFactId\.get\(action\.factId\)[\s\S]*origin\?\.kind === "type-explorer" \? "retained" : "annotated"[\s\S]*callGraphTargetBinding\([\s\S]*evidence\.target,[\s\S]*action\.destination,[\s\S]*failureSurface\)[\s\S]*if \(binding\.blocked\) \{[\s\S]*binding\.onSelect\(\);[\s\S]*return;[\s\S]*dismissAnnotatedSourceModal\(false\);[\s\S]*resetTypeExplorerRouteState\(\);[\s\S]*binding\.onSelect\(\)/,
+  );
+  assert.match(
+    appSource,
+    /if \(failureSurface === "retained"\) \{\s*showRetainedGraphNavigationError\(message\);\s*return;\s*\}/,
+  );
+  assert.match(
+    appSource,
+    /function showRetainedGraphNavigationError\(message: string\) \{\s*appendQueryNotice\(message\);\s*render\(\);\s*afterCurrentNavigationFrame\(\(\) => focusLevelOneHeading\(\)\);\s*\}/,
   );
   assert.match(
     appSource,
