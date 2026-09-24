@@ -1004,12 +1004,26 @@ and returns them as ranged content.
   a 64 KiB merge gap and six requests in flight. For `Avalonia` 12.1.2 at
   `net10.0` that is 7 requests instead of 22, for 163 KB more transfer; the
   167 reference assemblies of a .NET reference pack are one request.
-- **Refusals fall back on the same authority.** `RangeIgnored`,
-  `ArchiveChanged`, and `ArchiveUnsupported` make the step acquire the
-  complete archive from that authority, exactly as without a selection. A
-  not-found answer counts the authority as not found; any other failure is
-  the ordinary attributed failure, and the next authority is tried. An
-  expired operation ceiling remains terminal.
+- **A ranged read falls back to the complete fetch on the same authority.**
+  The ranged read is an optimization, so a source that cannot serve it well
+  still serves the whole archive: the three refusals (`RangeIgnored`,
+  `ArchiveChanged`, `ArchiveUnsupported`) and every failure except three make
+  the step acquire the complete archive from that authority, exactly as
+  without a selection. That includes an error status to a ranged request
+  (`416`, `400`, `501`), a malformed partial response, and an expired
+  request deadline; the complete path validates the archive on its own. The
+  three exceptions are those the complete fetch would answer the same way:
+  not-found counts the authority as not found, and a refused credential or a
+  payload-limit rejection is the ordinary attributed failure, after which
+  the next authority is tried. An expired operation ceiling remains
+  terminal.
+- **Feeds.** Redirects are followed by the source client's redirect handler,
+  which carries `Range` and `If-Range` to the target. Azure Artifacts
+  answers a package request with a `303` to its blob store, which serves
+  ranges with an `ETag`; the public `dnceng` `dotnet-public` feed served
+  `Newtonsoft.Json` 13.0.3 by range end to end (1 of 24 entries, 5
+  requests, 2026-09-24). Local-folder sources do not expose the capability
+  and are acquired complete.
 
 The PackageHouse supplies the selection and bounds it. A host sets ranged
 access on its `PackagePayloadAcquisitionPlan`; ranged access requires a
@@ -1045,7 +1059,12 @@ in one request with no follow-up and commits nothing
 [range-access gate 14a](package-archive-range-access.md#pathological-cases-and-gates)),
 unselected entries refuse visibly
 (`RangedContent_UnmaterializedEntryIsVisible`), `RangeIgnored` falls back to the
-complete fetch on the same authority, an authorized cache still answers first,
+complete fetch on the same authority, as do a range error status and a
+malformed partial response
+(`RangedRealize_RangeErrorOrMalformedPartial_FallsBackToComplete`), a refused
+credential does not fall back
+(`RangedRealize_AuthenticationRefused_DoesNotFallBack`), an authorized cache
+still answers first,
 an `Acquire` with ranged access is refused, and the limits mapping. The CLI
 consumer's gates are in `ConfiguredPayloadAcquisitionTests`: the real
 `Avalonia` 12.1.2 archive searched for `net10.0` transfers its directory and
