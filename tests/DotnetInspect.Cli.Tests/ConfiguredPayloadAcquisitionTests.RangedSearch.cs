@@ -11,8 +11,9 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
 {
     /// <summary>
     /// The exact-package search Root is realized from a ranged read: the
-    /// archive directory and the selected compile assembly only, never the
-    /// large entry beside it, and nothing is committed to a cache.
+    /// archive directory and the selected compile folder only, never the
+    /// large entry beside it. The entries are kept in the entry cache, so a
+    /// second search makes no package request.
     /// </summary>
     [Fact]
     public async Task SearchCommand_RangedRead_TransfersOnlyTheSelectedAssembly()
@@ -31,18 +32,19 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
         var feed = new RangeHonoringFeedHandler(FirstFeed, id, package);
         UseFeed(feed);
 
-        var result = await RunCommandAsync(
-            [
-                "find",
-                $".{MemberSearchServiceTests.SearchTargetMemberName}",
-                "--package", $"{id}@{Version}",
-                "--tfm", "net11.0",
-                "--source", FirstFeed,
-                "--all",
-                "--json",
-                "--verbose",
-                "--tips", "q",
-            ]);
+        string[] find =
+        [
+            "find",
+            $".{MemberSearchServiceTests.SearchTargetMemberName}",
+            "--package", $"{id}@{Version}",
+            "--tfm", "net11.0",
+            "--source", FirstFeed,
+            "--all",
+            "--json",
+            "--verbose",
+            "--tips", "q",
+        ];
+        var result = await RunCommandAsync(find);
 
         Assert.True(result.Exit == 0, result.Error);
         Assert.Contains(
@@ -50,19 +52,36 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
             result.Output,
             StringComparison.Ordinal);
         Assert.Contains("payload Ranged", result.Error, StringComparison.Ordinal);
-        Assert.Contains("nothing was cached", result.Error, StringComparison.Ordinal);
-        Assert.Equal(0, feed.FullPackageResponses);
+        // The feed is a credential-free HTTP authority, so the ranged entries
+        // are durable (docs/design/package-cache-policy.md).
+        Assert.Contains("kept in the entry cache", result.Error, StringComparison.Ordinal);
+        // The one complete response is the size probe, abandoned before its body.
+        Assert.Equal(1, feed.FullPackageResponses);
         Assert.True(feed.RangedResponses >= 2, $"ranged responses: {feed.RangedResponses}");
         Assert.True(
             feed.PackageBytesServed < assembly.Length + (1024 * 1024),
             $"served {feed.PackageBytesServed} of {package.Length} package bytes");
+
+        // The same search again answers from the entry cache with no package
+        // request of either kind.
+        int ranged = feed.RangedResponses;
+        long served = feed.PackageBytesServed;
+        var warm = await RunCommandAsync(find);
+
+        Assert.True(warm.Exit == 0, warm.Error);
+        Assert.Equal(result.Output, warm.Output);
+        Assert.Contains("from the entry cache", warm.Error, StringComparison.Ordinal);
+        Assert.Contains("no request", warm.Error, StringComparison.Ordinal);
+        Assert.Equal(1, feed.FullPackageResponses);
+        Assert.Equal(ranged, feed.RangedResponses);
+        Assert.Equal(served, feed.PackageBytesServed);
     }
 
     /// <summary>
     /// The real Avalonia 12.1.2 archive (10.1 MB: net8.0 and net10.0 reference
     /// and implementation assemblies, XML docs, analyzers, designer tools)
-    /// searched for net10.0 transfers the directory and the 22 net10.0
-    /// reference and implementation assemblies only: 3.6 MB compressed.
+    /// searched for net10.0 transfers the directory and the ref/net10.0
+    /// folder only: about 2.2 MB, in the tail request and three spans.
     /// </summary>
     [Fact]
     public async Task SearchCommand_RangedRead_RealAvaloniaArchive()
@@ -96,10 +115,21 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
         Assert.True(result.Exit == 0, result.Error);
         Assert.Contains("InvalidateMeasure", result.Output, StringComparison.Ordinal);
         Assert.Contains("payload Ranged", result.Error, StringComparison.Ordinal);
-        Assert.Equal(0, feed.FullPackageResponses);
+        // The one complete response is the size probe, abandoned before its body.
+        Assert.Equal(1, feed.FullPackageResponses);
+        // Search reads the surface only: the whole ref/net10.0 folder (11
+        // assemblies and their 11 documentation files) and none of lib/. The
+        // archive interleaves other folders' documentation into that folder,
+        // so it is three spans, sent together after the tail.
         Assert.Contains("22 of 121 entries", result.Error, StringComparison.Ordinal);
+        Assert.True(4 == feed.RangedResponses, string.Join("; ", feed.Ranges));
+        const long RefFolderStart = 5_688_854;
+        const long RefFolderEnd = 8_330_000;
+        Assert.All(
+            feed.Ranges.Skip(1),
+            range => Assert.InRange(long.Parse(range.Split('-')[0]), RefFolderStart, RefFolderEnd));
         Assert.True(
-            feed.PackageBytesServed < package.Length * 2 / 5,
+            feed.PackageBytesServed < 2_500_000,
             $"served {feed.PackageBytesServed} of {package.Length} package bytes");
     }
 
@@ -143,7 +173,8 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
             result.Output,
             StringComparison.Ordinal);
         Assert.Contains("payload Ranged", result.Error, StringComparison.Ordinal);
-        Assert.Equal(0, feed.FullPackageResponses);
+        // The one complete response is the size probe, abandoned before its body.
+        Assert.Equal(1, feed.FullPackageResponses);
     }
 
     /// <summary>
@@ -221,6 +252,8 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
 
         public ConcurrentQueue<string> Requests { get; } = new();
 
+        public ConcurrentQueue<string> Ranges { get; } = new();
+
         protected override Task<HttpResponseMessage> SendAsync(
             HttpRequestMessage request,
             CancellationToken cancellationToken)
@@ -247,10 +280,14 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
             RangeItemHeaderValue? range = request.Headers.Range?.Ranges.SingleOrDefault();
             if (ignoreRange || range is null)
             {
+                // Count the bytes actually read: size first abandons a complete
+                // response before its body.
                 Interlocked.Increment(ref _fullPackageResponses);
-                Interlocked.Add(ref _packageBytesServed, package.Length);
                 HttpResponseMessage full = Respond(
-                    request, HttpStatusCode.OK, new ByteArrayContent(package));
+                    request,
+                    HttpStatusCode.OK,
+                    new StreamContent(new CountingStream(package, this)));
+                full.Content.Headers.ContentLength = package.Length;
                 full.Headers.ETag = new EntityTagHeaderValue(ETag);
                 return Task.FromResult(full);
             }
@@ -270,6 +307,7 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
             }
 
             int length = checked((int)(end - start + 1));
+            Ranges.Enqueue($"{start}-{end}");
             Interlocked.Increment(ref _rangedResponses);
             Interlocked.Add(ref _packageBytesServed, length);
             var content = new ByteArrayContent(package, (int)start, length);
@@ -280,6 +318,39 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
             partial.Headers.ETag = new EntityTagHeaderValue(ETag);
             partial.Headers.AcceptRanges.Add("bytes");
             return Task.FromResult(partial);
+        }
+
+        internal void AddServed(int count) =>
+            Interlocked.Add(ref _packageBytesServed, count);
+
+        private sealed class CountingStream(byte[] bytes, RangeHonoringFeedHandler owner)
+            : MemoryStream(bytes, writable: false)
+        {
+            public override int Read(byte[] buffer, int offset, int count)
+            {
+                int read = base.Read(buffer, offset, count);
+                owner.AddServed(read);
+                return read;
+            }
+
+            public override int Read(Span<byte> buffer)
+            {
+                int read = base.Read(buffer);
+                owner.AddServed(read);
+                return read;
+            }
+
+            public override async ValueTask<int> ReadAsync(
+                Memory<byte> buffer, CancellationToken cancellationToken = default)
+            {
+                int read = await base.ReadAsync(buffer, cancellationToken);
+                owner.AddServed(read);
+                return read;
+            }
+
+            public override Task<int> ReadAsync(
+                byte[] buffer, int offset, int count, CancellationToken cancellationToken) =>
+                ReadAsync(buffer.AsMemory(offset, count), cancellationToken).AsTask();
         }
 
         private static HttpResponseMessage Respond(

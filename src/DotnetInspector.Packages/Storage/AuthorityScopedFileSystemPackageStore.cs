@@ -10,7 +10,8 @@ namespace DotnetInspector.Packages;
 /// </summary>
 public sealed class AuthorityScopedFileSystemPackageStore :
     IPackageStore,
-    IPreparedPackageStore
+    IPreparedPackageStore,
+    IPackageEntryStore
 {
     private readonly ConfiguredPackageAuthority _authority;
     private readonly PackageProducerIdentity _producer;
@@ -65,8 +66,9 @@ public sealed class AuthorityScopedFileSystemPackageStore :
             yield return OpenContent(slot, requiresArchiveTreeMatch: true);
         }
 
-        // No durable HTTP authority identity exists in this slice. Producer
-        // equality cannot authorize a NuGet global-packages replica.
+        // Only a local authority can match a NuGet global-packages replica's
+        // recorded source; a durable HTTP authority never does, and producer
+        // equality cannot authorize one.
         if (_authority.PersistentCacheKey is not null
             && NuGetCache.UsesGlobalPackages)
         {
@@ -210,6 +212,132 @@ public sealed class AuthorityScopedFileSystemPackageStore :
         if (!create && !_temporaryCacheRoot.IsValueCreated)
             return null;
         return Path.Combine(_temporaryCacheRoot.Value, packageName, version);
+    }
+
+    bool IPackageEntryStore.KeepsEntries =>
+        _authority.PersistentCacheKey is not null;
+
+    bool IPackageEntryStore.TryReadDirectory(
+        string packageId,
+        string version,
+        out ReadOnlyMemory<byte> region,
+        out long archiveLength)
+    {
+        region = default;
+        archiveLength = 0;
+        if (EntryRoot(packageId, version) is not { } root
+            || !TryReadAll(Path.Combine(root, "directory"), out byte[] bytes)
+            || bytes.Length < sizeof(long))
+        {
+            return false;
+        }
+
+        archiveLength = BitConverter.ToInt64(bytes, 0);
+        region = bytes.AsMemory(sizeof(long));
+        return true;
+    }
+
+    void IPackageEntryStore.PublishDirectory(
+        string packageId,
+        string version,
+        ReadOnlyMemory<byte> region,
+        long archiveLength)
+    {
+        if (EntryRoot(packageId, version) is not { } root)
+            return;
+        var bytes = new byte[sizeof(long) + region.Length];
+        BitConverter.TryWriteBytes(bytes, archiveLength);
+        region.Span.CopyTo(bytes.AsSpan(sizeof(long)));
+        PublishImmutable(Path.Combine(root, "directory"), bytes);
+    }
+
+    bool IPackageEntryStore.TryReadEntry(
+        string packageId,
+        string version,
+        string entryPath,
+        out byte[] content)
+    {
+        content = [];
+        return EntryRoot(packageId, version) is { } root
+            && TryReadAll(
+                Path.Combine(root, "entries", PackageEntryStoreNames.EntryFileName(entryPath)),
+                out content);
+    }
+
+    void IPackageEntryStore.PublishEntry(
+        string packageId,
+        string version,
+        string entryPath,
+        ReadOnlyMemory<byte> content)
+    {
+        if (EntryRoot(packageId, version) is not { } root)
+            return;
+        PublishImmutable(
+            Path.Combine(root, "entries", PackageEntryStoreNames.EntryFileName(entryPath)),
+            content);
+    }
+
+    private string? EntryRoot(string packageId, string version)
+    {
+        if (_authority.PersistentCacheKey is not { } key)
+            return null;
+        NuGetCache.ValidatePathComponent(packageId, "package name");
+        NuGetCache.ValidatePathComponent(version, "version");
+        NuGetCache.ValidatePathComponent(key, "authority key");
+        return Path.Combine(
+            PersistentCache.GetCategoryPath(PackageEntryStoreNames.Category),
+            packageId.ToLowerInvariant(),
+            version.ToLowerInvariant(),
+            key);
+    }
+
+    private static bool TryReadAll(string path, out byte[] bytes)
+    {
+        try
+        {
+            bytes = File.ReadAllBytes(path);
+            return true;
+        }
+        catch (Exception exception) when (
+            exception is IOException or UnauthorizedAccessException)
+        {
+            bytes = [];
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// Publishes an immutable file by a move that refuses to overwrite: a
+    /// concurrent publisher of the same item wrote the same bytes, so losing
+    /// the race is success. An existing item is never replaced.
+    /// </summary>
+    private static void PublishImmutable(string path, ReadOnlyMemory<byte> bytes)
+    {
+        string temporary = $"{path}.{Guid.NewGuid():N}.tmp";
+        try
+        {
+            Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+            using (FileStream stream = File.Create(temporary))
+                stream.Write(bytes.Span);
+            File.Move(temporary, path, overwrite: false);
+        }
+        catch (Exception exception) when (
+            exception is IOException or UnauthorizedAccessException)
+        {
+            // Lost race or unwritable cache: the cache is an optimization.
+        }
+        finally
+        {
+            try
+            {
+                if (File.Exists(temporary))
+                    File.Delete(temporary);
+            }
+            catch (Exception exception) when (
+                exception is IOException or UnauthorizedAccessException)
+            {
+            }
+        }
     }
 
     private string GetMarkerContent(string packageName, string version) =>
