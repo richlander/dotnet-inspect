@@ -83,6 +83,24 @@ type names such as `string`, `int`, `DateTime`, and `Guid` resolve to
 `System.Private.CoreLib`. Use explicit commands and `--package`, `--platform`,
 or `--library` when you need a specific source.
 
+After exact Type and Member lookup misses, a dotted Platform name may resolve
+as an exact namespace in its longest namesake Library. For example:
+
+```bash
+dotnet-inspect System.Text.Json.Nodes
+```
+
+is equivalent to:
+
+```bash
+dotnet-inspect library System.Text.Json \
+  --namespace System.Text.Json.Nodes
+```
+
+The Router confirms exact ordinal namespace membership before selecting this
+route. It does not use suffix or descendant matching, and broad inputs such as
+`System.Text` retain their existing Type-prefix browsing behavior.
+
 ### Library namespace Type listings
 
 An exact Library can list its public Type declarations from one exact

@@ -20,6 +20,22 @@ public sealed class LibraryInspectionOperationTests
             maxRetainedTextCharacters: 20_000_000);
 
     [Fact]
+    public void
+        NamespaceDiscoveryNamesakeCandidatesAreLongestFirstAndBounded()
+    {
+        Assert.Equal(
+            ["System.Text.Json", "System.Text"],
+            LibraryNamespaceDiscovery.NamesakeLibraryCandidates(
+                "System.Text.Json.Nodes"));
+        Assert.Empty(
+            LibraryNamespaceDiscovery.NamesakeLibraryCandidates(
+                "System.Text"));
+        Assert.Empty(
+            LibraryNamespaceDiscovery.NamesakeLibraryCandidates(
+                "System..Text"));
+    }
+
+    [Fact]
     public async Task
         RealSystemTextJson_ReturnsDetachedPublicTypeCountAndSettlesLease()
     {
@@ -256,6 +272,19 @@ public sealed class LibraryInspectionOperationTests
             row =>
                 row.Identity
                     == Name("System.Text.Json", "JsonDocument"));
+
+        LibraryDocument probe = Document(
+            Execute(
+                library,
+                LibraryNamespaceDiscovery.CreateProbePlan(
+                    Namespace,
+                    s_bounds)));
+        LibraryTypePopulationRowsOutcome.Read probeRows =
+            Assert.IsType<LibraryTypePopulationRowsOutcome.Read>(
+                LibraryNamespaceDiscovery.ProbeRows(
+                    probe,
+                    Namespace));
+        Assert.Single(probeRows.Items);
 
         LibraryTypePopulationRowsOutcome.Read unqualified =
             Assert.IsType<LibraryTypePopulationRowsOutcome.Read>(
@@ -1881,6 +1910,14 @@ public sealed class LibraryInspectionOperationTests
                         LibraryTypeAccessibility.Public,
                         new()),
                     bounds)),
+            library.IssueOperation(),
+            TestContext.Current.CancellationToken);
+
+    private static InspectionEnvelope<LibraryInspectionOutcome> Execute(
+        LibraryInspectionTestLibrary library,
+        LibraryInspectionPlan plan) =>
+        LibraryInspectionOperation.Execute(
+            new(library.Reference, plan),
             library.IssueOperation(),
             TestContext.Current.CancellationToken);
 
