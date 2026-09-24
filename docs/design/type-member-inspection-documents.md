@@ -844,8 +844,10 @@ decorate those rows but may not redefine their populations.
 
 An ordinal or digest Member selector instead resolves one exact
 `MemberDocument`. That leaf subject has no child population: its native default
-is the singular Signature view, and `--tree` fails rather than displaying
-siblings from its containing MemberGroup or an empty Tree.
+is the singular Signature view, and bare `--tree` fails rather than displaying
+siblings from its containing MemberGroup or an empty Tree. An explicitly
+selected view such as Call Graph may still supply its own admitted Tree shape;
+Tree eligibility follows the effective selected shape.
 
 ### Contextual Resource Explanation (#8148)
 

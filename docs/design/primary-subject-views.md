@@ -311,8 +311,10 @@ dotnet-inspect.osx-arm64 0.26.0 (NuGet, DotNetCliTool v2, osx-arm64; command: do
   has an identity line with the overload count, then one exact Member signature
   per overload. Explicit `--tree` selects the same projection as that default
   invocation. An ordinal or digest selector instead resolves an exact Member
-  and retains its singular Signature default; `--tree` fails because that leaf
-  subject has no Tree shape.
+  and retains its singular Signature default. Bare `--tree` fails because that
+  leaf subject has no Tree shape; an explicitly selected view such as Call
+  Graph may supply its own admitted Tree shape under the existing output-shape
+  rules.
 - **Member Info:** no named facts section exists for an exact member name.
   `member` adoption waits for its section owner to issue one (for example
   member kind, declaring type, overload count, and documentation summary).
