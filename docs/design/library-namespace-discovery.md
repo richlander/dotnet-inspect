@@ -56,21 +56,28 @@ One returned row confirms the candidate. An empty complete row segment is a
 miss. Unavailable, rejected, incomplete, or failed Library outcomes remain
 visible non-success and do not become a miss.
 
-The probe is existence evidence only. Find requests and drains the ordinary
-Library Type Rows population after a hit when it needs result rows.
+The probe is existence evidence only. `PackageNamespaceDiscoveryInspection`
+adapts each namesake assembly in a retained package realization to an exact
+Library, requests the same public exact-namespace population, and returns its
+complete bounded declaration rows. This preserves package coordinate, selected
+asset, Library identity, and namespace evidence without reopening or loading
+the inspected assembly.
 
 The Platform probe reuses the already completed Platform Type catalog. It
 matches public definitions and forwarders by ordinal exact namespace and exact
 namesake assembly identity, retaining the catalog's family, target framework,
-version, and population role. It performs no second platform-pack acquisition.
+version, population role, and complete matching declaration sequence. It
+performs no second platform-pack acquisition.
 
 ## Envelope and evidence
 
-The host-neutral Platform operation returns an
-`InspectionEnvelope<PlatformNamespaceDiscoveryOutcome>`. Namesake selection is
-a fixed bounded composition step rather than a user-selectable row query, so it
-does not define another QuerySpace. Find drains matching Type rows through the
-existing Library population QuerySpace.
+The host-neutral Platform and package operations return
+`InspectionEnvelope<PlatformNamespaceDiscoveryOutcome>` and
+`InspectionEnvelope<PackageNamespaceDiscoveryOutcome>`, respectively.
+Namesake selection is a fixed bounded composition step rather than a
+user-selectable row query, so it does not define another QuerySpace. The
+package operation obtains matching Type rows through the existing Library
+population contract.
 
 A host flow that performs network acquisition additionally exposes a Debug
 `EvidenceInspectionEnvelope<TContent, TEvidence>` containing its ordered
@@ -86,8 +93,8 @@ The shared contract does not select sources or multiplicity:
 - Router preserves exact Type and Member precedence, requests Platform
   candidates from the same target-bound catalog, and accepts the first
   confirmed namesake hit.
-- Find preserves direct Type matches and may retain more than one confirmed
-  source hit.
+- Find preserves direct Type matches, classifies exact namespace rows as
+  `Namespace`, and retains every confirmed source observation.
 - Spotlight accepts the first namesake tier while preserving distinct eligible
   source observations at that tier.
 
@@ -95,6 +102,13 @@ Platform catalog names are eligible Platform requests in all three hosts.
 Prune-inventory names are eligible in Platform and package space for Find and
 Spotlight, while Router remains Platform-only. Equal Platform and package
 observations do not collapse.
+
+For unscoped Find, established direct Type lookup retains precedence. After a
+direct miss, the completed PlatformHouse catalog supplies Platform namespace
+observations. Exact entries in the selected installed Platform prune inventory
+authorize namesake package coordinates; Find realizes those packages through
+PackageHouse and publishes their Library rows before the corresponding Platform
+rows. Missing prune data does not imply package absence.
 
 ## Non-goals
 

@@ -200,6 +200,8 @@ public partial class PlatformLibraryRealizationTests
             AssertResourceFree(
                 typeof(PlatformNamespaceDiscoveryHit));
             AssertResourceFree(
+                typeof(PlatformNamespaceDiscoveryDeclaration));
+            AssertResourceFree(
                 typeof(PlatformNamespaceDiscoveryOutcome.Found));
             AssertResourceFree(
                 typeof(
@@ -302,6 +304,21 @@ public partial class PlatformLibraryRealizationTests
             Assert.Equal(
                 "System.Text.Json.Nodes",
                 namespaceHit.Witness.Namespace);
+            Assert.Contains(
+                namespaceHit.Declarations,
+                static declaration =>
+                    declaration.Type.ToMetadataFullName()
+                        == "System.Text.Json.Nodes.JsonArray"
+                    && declaration.DeclarationKind
+                        is AssemblyTypeDeclarationKind.Definition
+                    && declaration.DefinitionKind
+                        is AssemblyTypeDefinitionKind.Class);
+            Assert.All(
+                namespaceHit.Declarations,
+                static declaration =>
+                    Assert.Equal(
+                        "System.Text.Json.Nodes",
+                        declaration.Type.Namespace));
             Assert.Equal(
                 catalog.Target.Family,
                 namespaceHit.Target.Family);
@@ -330,8 +347,11 @@ public partial class PlatformLibraryRealizationTests
                 foundNamespace.Request,
                 roundTripNamespace.Request);
             Assert.Equal(
-                foundNamespace.Hits,
-                roundTripNamespace.Hits);
+                namespaceJson,
+                JsonSerializer.Serialize(
+                    namespaceRoundTrip,
+                    PlatformNamespaceDiscoveryInspectionJsonContext.Default
+                        .PlatformNamespaceDiscoveryInspectionEnvelope));
 
             Assert.IsType<PlatformNamespaceDiscoveryOutcome.Missing>(
                 PlatformNamespaceDiscoveryInspection.Execute(
