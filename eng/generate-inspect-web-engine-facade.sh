@@ -135,6 +135,7 @@ fi
   --context "$context_type" \
   --assembly-search-path "$source_assembly_directory" \
   --runtime-module ./runtime-loader.js \
+  --warnings-as-errors \
   --output "$context_output"
 
 expected_artifacts="$(printf '%s\n' "${context_artifacts[@]}" | sort)"
@@ -169,6 +170,7 @@ for index in "${!context_artifacts[@]}"; do
     "$root_assembly" \
     --assembly-search-path "$source_assembly_directory" \
     --runtime-module ./runtime-loader.js \
+    --warnings-as-errors \
     --output "$scratch/direct/$artifact"
   if ! cmp "$context_output/$artifact" "$scratch/direct/$artifact"; then
     echo "The JsExportRoot recipe differs from direct generation for $artifact." >&2
