@@ -43,8 +43,9 @@ moves between files.
 
 Today, a moved block renders as a removal in one place and an addition in
 another, with nothing to connect them. A reviewer has to find the pair by eye.
-If the block was also re-indented, for example by being wrapped in a new `if`,
-no move is detected at all, because the line contents differ.
+If a relocated block was also re-indented, for example by being wrapped in a
+new `if` at its destination, no move is detected at all, because the line
+contents differ.
 
 The matcher already detects exact moved blocks, and `AnalysisDiff<T>` already
 carries `Moved` placement. What's missing is a typed identity that links the two
@@ -52,10 +53,53 @@ ends, plus whitespace-insensitive detection.
 
 ### Motivating assets
 
-To be recorded before the design locks, from a real nuget.org package whose
-member diff shows a relocated block. S1 retains it as pinned-package evidence,
-and the pathological cases below become deterministic `Inspector.Text`
-fixtures.
+**Relocated blocks, PDB versus decompiled.** In Newtonsoft.Json 13.0.3,
+`JsonConvert.ToString(object?)` (SourceLink commit
+`0a2e291c0d9c0c7675d445703e51750363a549ef`, `Src/Newtonsoft.Json/JsonConvert.cs`)
+gets its `switch` cases back in IL case-value order, not source order:
+
+```bash
+dnx dotnet-inspect -y -- member Newtonsoft.Json.JsonConvert \
+  --package Newtonsoft.Json@13.0.3 "ToString:17" -S "Source Diff" -v:d
+```
+
+```diff
+-                case PrimitiveTypeCode.String:
+-                    return ToString((string)value);
+                 case PrimitiveTypeCode.Char:
+ ...
++                case PrimitiveTypeCode.Uri:
++                    return ToString((Uri)value);
++                case PrimitiveTypeCode.String:
++                    return ToString((string)value);
+```
+
+Three 2-line blocks (`String`, `Decimal`, and `Uri`) move unchanged, but
+today they render as unrelated removals and additions.
+
+**Re-indented in place, cross-version.** In Polly.Extensions 8.5.2 → 8.6.0,
+`TelemetryListenerImpl.MeterEvent` (App-vNext/Polly
+[`3fb0897`](https://github.com/App-vNext/Polly/commit/3fb089717fb63c52b51d66a378cdad08b3f6335f),
+`src/Polly.Extensions/Telemetry/TelemetryListenerImpl.cs`) changes two guards
+of the form `if (!X.Enabled) { return; }` followed by a block into
+`if (X.Enabled) { block }`. The 5-line and 7-line blocks gain four spaces of
+indentation and are otherwise byte-identical:
+
+```bash
+dnx dotnet-inspect -y -- diff --package Polly.Extensions@8.5.2..8.6.0 \
+  -S "Implementation Diff" --pdb-source --all \
+  -t Polly.Telemetry.TelemetryListenerImpl -m MeterEvent -v:d
+```
+
+git's `--color-moved-ws=allow-indentation-change` marks these blocks as moved.
+Relative to the unchanged lines around them, though, they never move: they
+are re-indented where they stand. This design therefore separates
+*relocation* from *re-indentation*. A block that keeps its order relative to
+the anchors is a whitespace-only change under the whitespace characterization,
+not a move. Only a block that crosses anchors is a move.
+
+S1 retains both members as pinned-package evidence. The pathological cases
+below become deterministic `Inspector.Text` fixtures.
 
 ## Moves
 
@@ -144,8 +188,16 @@ unmatched on both sides. That pass commits maximal blocks that are:
 - contain at least one non-whitespace character.
 
 Ties resolve by length and then by position, as in the exact pass. Each
-committed line becomes a `Moved` correspondence with `Changed` content, which
-records that its text isn't identical.
+committed line becomes a correspondence with `Changed` content, which records
+that its text isn't identical.
+
+The pass decides placement from the anchors. A committed block is `Stable`
+when the anchors before it on the Before side are exactly the anchors before
+it on the After side, meaning it was re-indented in place. Otherwise it
+crossed at least one anchor and is `Moved`. A `Stable` block stays inside its
+region as content that differs whitespace-only, so the whitespace
+characterization's splitter can issue it as a `WhitespaceOnly` change. Only
+`Moved` blocks become moves.
 
 Other producers' `Moved` correspondences are consumed as issued.
 `TextFindings.Compare`, which feeds the cross-version member source pair
@@ -197,7 +249,9 @@ Each row becomes an S1 Release test in `tests/Inspector.Text.Tests`, using
 | --- | --- | --- |
 | Block moved down | `A B x y z` → `x y z A B` (one line per letter) | one move, id 1, `A B` from Before 0–1 to After 3–4, `Unchanged`; the removal comes first |
 | Block moved up | `x y z A B` → `A B x y z` | one move, id 1, assigned at the addition, which comes first |
-| Moved and re-indented | `A` / `B` moved and wrapped: `if (c) {` / `␠␠A` / `␠␠B` / `}` | one move, `WhitespaceOnly`, `Indentation`; the `if` and brace lines are ordinary `Changed` changes |
+| Relocated and re-indented | `A B x y` → `x y if (c) {` / `␠␠A` / `␠␠B` / `}` | one move across the anchors `x y`, `WhitespaceOnly`, `Indentation`; the `if` and brace lines are ordinary `Changed` changes |
+| Re-indented in place (Polly `MeterEvent`) | guard `if (!e) {` / `return;` / `}` / `A` / `B` → `if (e) {` / `␠␠A` / `␠␠B` / `}` | no move: `A B` keeps its anchor order, so it is a `Stable` whitespace-only block inside a `Changed` region |
+| Relocated case blocks (Newtonsoft `JsonConvert.ToString`) | `case String` pair moved after the other cases | a move, `Unchanged`, with ids in change-sequence order for each relocated pair |
 | Moved and edited | `A` / `B` moved, and `B` became `B2` | no move under `TextFindings`; ordinary removal and addition |
 | Single-line move | `A x y` → `x y A` | no move (below the two-line minimum) |
 | Blank lines moved | two blank lines relocated | no move; whitespace-only regions |
