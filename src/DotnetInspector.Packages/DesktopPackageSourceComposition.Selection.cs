@@ -23,7 +23,8 @@ public sealed partial class DesktopPackageSourceComposition
         NuGetOperationContext? operationContext = null,
         PackagePayloadLimits? limits = null,
         IPackagePayloadTransferPolicy? transferPolicy = null,
-        PackageHouseTargetContext? compileTargetContext = null)
+        PackageHouseTargetContext? compileTargetContext = null,
+        PackagePayloadAccess access = PackagePayloadAccess.Complete)
     {
         ArgumentNullException.ThrowIfNull(createStore);
         if (compileTargetContext is not null
@@ -33,6 +34,7 @@ public sealed partial class DesktopPackageSourceComposition
                 "PackageHouse compile realization cannot use a legacy operation context.",
                 nameof(operationContext));
         }
+        RequireRealizationForRangedAccess(access, compileTargetContext);
         if (operationContext is not null)
         {
             return PackageSourceSettlementCompatibility.RunAsync(
@@ -92,7 +94,8 @@ public sealed partial class DesktopPackageSourceComposition
                     sourceOperation,
                     limits,
                     transferPolicy,
-                    compileTargetContext);
+                    compileTargetContext,
+                    access);
             sourceOperation = null;
             return execution;
         }

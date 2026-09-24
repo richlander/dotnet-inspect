@@ -303,6 +303,14 @@ public sealed class PackageHouse
                 throw new InvalidOperationException(
                     "An Acquire or Realize operation requires an authority-scoped package store capability.");
             }
+            if (request.Operation.Profile
+                    == PackageHouseOperationProfile.Acquire
+                && _payloadAcquisition?.Access
+                    == PackagePayloadAccess.Ranged)
+            {
+                throw new InvalidOperationException(
+                    "Ranged payload access requires a Realize operation; an Acquire operation selects no assets to bound the read.");
+            }
             if (sourceOperation.RequestTimeout
                     != request.Operation.RequestTimeout
                 || sourceOperation.OperationTimeout
@@ -628,6 +636,14 @@ public sealed class PackageHouse
                         && AuthoritiesMatch(
                             candidate,
                             authorization);
+                string rangedPackageId = candidate.Coordinate.PackageId;
+                PackageEntrySelector? rangedSelection =
+                    payloadAcquisition.Access == PackagePayloadAccess.Ranged
+                        ? directory => SelectRangedEntries(
+                            request,
+                            rangedPackageId,
+                            directory)
+                        : null;
                 ConfiguredPackagePayloadResult payloadResult =
                     await sourceOperation
                         .AcquireCandidatePayloadAsync(
@@ -636,7 +652,8 @@ public sealed class PackageHouse
                             log: payloadAcquisition.Log,
                             limits: payloadAcquisition.Limits,
                             transferPolicy:
-                                payloadAcquisition.TransferPolicy)
+                                payloadAcquisition.TransferPolicy,
+                            rangedSelection: rangedSelection)
                         .ConfigureAwait(false);
                 failures.AddRange(
                     AdaptFailures(request, payloadResult.Failures));
@@ -1307,6 +1324,61 @@ public sealed class PackageHouse
                     failure)),
         ];
 
+    private static PackageCompileAssetSelectionPolicy CompilePolicy(
+        PackageHouseRequest request) =>
+        request.TargetContext?.RequestedFramework is null
+            ? PackageCompileAssetSelectionPolicy.HighestAvailable
+            : PackageCompileAssetSelectionPolicy.ExplicitTarget;
+
+    /// <summary>
+    /// The entries a ranged acquisition materializes: exactly what this
+    /// request's realization selects over the archive directory, so the
+    /// retained content can answer the realization it was read for. A
+    /// runtime request without an exact framework selects nothing here and is
+    /// visibly rejected after acquisition, as it is for complete access.
+    /// </summary>
+    private static IReadOnlyList<string> SelectRangedEntries(
+        PackageHouseRequest request,
+        string packageId,
+        IPackageContent directory)
+    {
+        switch (request.AssetSelection)
+        {
+            case PackageHouseAssetSelectionKind.Compile:
+                PackageCompileAssetSelection compile =
+                    PackageCompileAssetSelector.Evaluate(
+                        directory,
+                        packageId,
+                        CompilePolicy(request),
+                        request.TargetContext?.RequestedFramework,
+                        request.TargetContext?.RuntimeIdentifier).Selection;
+                return
+                [
+                    .. compile.Assets
+                        .Select(static asset => asset.Path)
+                        .Concat(
+                            compile.ImplementationAssets
+                                .Select(static asset => asset.Path))
+                        .Distinct(StringComparer.Ordinal),
+                ];
+            case PackageHouseAssetSelectionKind.Runtime:
+                if (request.TargetContext?.RequestedFramework is not { } framework)
+                    return [];
+                return PackageAssetSelector.Evaluate(
+                        directory,
+                        framework,
+                        request.TargetContext.RuntimeIdentifier).Selection
+                    is PackageAssetSelection.Selected selected
+                        ? [.. selected.Universe.Assets.Select(static asset => asset.EntryPath)]
+                        : [];
+            default:
+                throw new ArgumentOutOfRangeException(
+                    nameof(request),
+                    request.AssetSelection,
+                    "A ranged Realize operation requires a known asset-selection kind.");
+        }
+    }
+
     private static PackageHouseRealizationReceipt CreateRealization(
         PackageHouseRequest request,
         PackageHouseAcquisitionReceipt acquisition,
@@ -1319,9 +1391,7 @@ public sealed class PackageHouse
                     PackageCompileAssetSelector.Evaluate(
                         content,
                         acquisition.Candidate.Coordinate.PackageId,
-                        request.TargetContext?.RequestedFramework is null
-                            ? PackageCompileAssetSelectionPolicy.HighestAvailable
-                            : PackageCompileAssetSelectionPolicy.ExplicitTarget,
+                        CompilePolicy(request),
                         request.TargetContext?.RequestedFramework,
                         request.TargetContext?.RuntimeIdentifier)),
             PackageHouseAssetSelectionKind.Runtime =>
