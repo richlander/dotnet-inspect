@@ -2108,12 +2108,49 @@ test("Annotated Source destination actions use typed graph routes and exact sect
   );
   assert.match(
     appSource,
-    /if \(failureSurface === "retained"\) \{\s*showRetainedGraphNavigationError\(message\);\s*return;\s*\}/,
+    /function showGraphNavigationFailureOutsideCallGraph\([\s\S]*switch \(failureSurface\) \{[\s\S]*case "call-graph":[\s\S]*return false;[\s\S]*case "annotated":[\s\S]*renderAndFocusAnnotated\(\{ kind: "explore" \}, "embedded"\);[\s\S]*case "retained":[\s\S]*showRetainedGraphNavigationError\(message\);[\s\S]*assertNever\([\s\S]*"graph navigation failure surface"\)/,
   );
   assert.match(
     appSource,
     /function showRetainedGraphNavigationError\(message: string\) \{\s*appendQueryNotice\(message\);\s*render\(\);\s*afterCurrentNavigationFrame\(\(\) => focusLevelOneHeading\(\)\);\s*\}/,
   );
+  const blockedGraphBinding =
+    /function blockedCallGraphNodeBinding\([\s\S]*?\n\}/
+      .exec(appSource)?.[0] ?? "";
+  assert.match(
+    blockedGraphBinding,
+    /showGraphNavigationFailureOutsideCallGraph\(\s*message,\s*failureSurface\)/,
+  );
+  assert.match(blockedGraphBinding, /invalidateGraphMemberNavigation\(\)/);
+  const graphMemberFailure =
+    /function showGraphMemberNavigationError\([\s\S]*?\n\}/
+      .exec(appSource)?.[0] ?? "";
+  assert.match(
+    graphMemberFailure,
+    /showGraphNavigationFailureOutsideCallGraph\(message, failureSurface\)/,
+  );
+  assert.match(
+    graphMemberFailure,
+    /state\.graphMemberNavigationError = message/,
+  );
+  const platformNavigation =
+    /async function navigateOrDrillPlatform\([\s\S]*?\n\}/
+      .exec(appSource)?.[0] ?? "";
+  assert.equal(
+    platformNavigation.match(
+      /showGraphNavigationFailureOutsideCallGraph\(/g)?.length,
+    2,
+  );
+  assert.match(platformNavigation, /state\.platformDrillError = message/);
+  assert.match(platformNavigation, /await renderMermaidCallGraph\(\)/);
+  const platformFailure =
+    /async function showPlatformTargetError\([\s\S]*?\n\}/
+      .exec(appSource)?.[0] ?? "";
+  assert.match(
+    platformFailure,
+    /showGraphNavigationFailureOutsideCallGraph\(\s*message,\s*failureSurface\)/,
+  );
+  assert.match(platformFailure, /state\.platformDrillError = message/);
   assert.match(
     appSource,
     /const loadedSection = destination === "source" \? "source" : "overview"/,

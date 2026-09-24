@@ -17848,15 +17848,11 @@ function blockedCallGraphNodeBinding(
           true);
         return;
       }
-      if (failureSurface === "annotated") {
-        state.annotatedDestinationError =
-          `Could not open ${target.typeFullName}.${target.memberName}: ${reason}.`;
-        renderAndFocusAnnotated({ kind: "explore" }, "embedded");
-        return;
-      }
-      if (failureSurface === "retained") {
-        showRetainedGraphNavigationError(
-          `Could not open ${target.typeFullName}.${target.memberName}: ${reason}.`);
+      const message =
+        `Could not open ${target.typeFullName}.${target.memberName}: ${reason}.`;
+      if (showGraphNavigationFailureOutsideCallGraph(
+        message,
+        failureSurface)) {
         return;
       }
       invalidateGraphMemberNavigation();
@@ -18330,17 +18326,32 @@ function showGraphMemberNavigationError(
   state.graphMemberNavigationTitle = "";
   const message =
     `Could not open ${target.typeFullName}.${target.memberName}: ${reason}`;
-  if (failureSurface === "annotated") {
-    state.annotatedDestinationError = message;
-    renderAndFocusAnnotated({ kind: "explore" }, "embedded");
-    return;
-  }
-  if (failureSurface === "retained") {
-    showRetainedGraphNavigationError(message);
+  if (showGraphNavigationFailureOutsideCallGraph(message, failureSurface)) {
     return;
   }
   state.graphMemberNavigationError = message;
   render();
+}
+
+function showGraphNavigationFailureOutsideCallGraph(
+  message: string,
+  failureSurface: GraphNavigationFailureSurface,
+): boolean {
+  switch (failureSurface) {
+    case "call-graph":
+      return false;
+    case "annotated":
+      state.annotatedDestinationError = message;
+      renderAndFocusAnnotated({ kind: "explore" }, "embedded");
+      return true;
+    case "retained":
+      showRetainedGraphNavigationError(message);
+      return true;
+    default:
+      return assertNever(
+        failureSurface,
+        "graph navigation failure surface");
+  }
 }
 
 function showRetainedGraphNavigationError(message: string) {
@@ -18579,10 +18590,9 @@ async function navigateOrDrillPlatform(
       const message = runtimeResult.failureMessage
         || state.runtimePackError
         || `Could not load platform assembly ${node.assembly}.`;
-      if (failureSurface === "annotated") {
-        state.annotatedDestinationError = message;
-        renderAndFocusAnnotated({ kind: "explore" }, "embedded");
-      } else {
+      if (!showGraphNavigationFailureOutsideCallGraph(
+        message,
+        failureSurface)) {
         state.platformDrillError = message;
         renderPreservingMemberFocus(preservedFocus);
         await renderMermaidCallGraph();
@@ -18631,10 +18641,9 @@ async function navigateOrDrillPlatform(
       const message = runtimeResult.failureMessage
         || state.runtimePackError
         || `Could not load platform assembly ${node.assembly}.`;
-      if (failureSurface === "annotated") {
-        state.annotatedDestinationError = message;
-        renderAndFocusAnnotated({ kind: "explore" }, "embedded");
-      } else {
+      if (!showGraphNavigationFailureOutsideCallGraph(
+        message,
+        failureSurface)) {
         state.platformDrillError = message;
         renderPreservingMemberFocus(preservedFocus);
         await renderMermaidCallGraph();
@@ -18765,9 +18774,9 @@ async function showPlatformTargetError(
   state.platformDrillLoading = false;
   const message =
     `Could not open ${node.typeFullName}.${node.memberName}: ${reason}.`;
-  if (failureSurface === "annotated") {
-    state.annotatedDestinationError = message;
-    renderAndFocusAnnotated({ kind: "explore" }, "embedded");
+  if (showGraphNavigationFailureOutsideCallGraph(
+    message,
+    failureSurface)) {
     return;
   }
   state.platformDrillError = message;
