@@ -1,4 +1,5 @@
 using System.Diagnostics.CodeAnalysis;
+using System.IO.Compression;
 using System.Security.Cryptography;
 
 namespace DotnetInspector.Packages;
@@ -21,10 +22,13 @@ namespace DotnetInspector.Packages;
 public sealed class FileSystemPackageContent :
     IPackageContent,
     IPackageContentEntryManifest,
-    IPackageContentDigestSource
+    IPackageContentDigestSource,
+    IPackageHousePayloadSource
 {
     private readonly string _root;
     private readonly PackageContentGenerationIdentity _generationIdentity = new();
+    private Dictionary<string, PackageArchiveEntryValidation>?
+        _archiveEntries;
 
     public FileSystemPackageContent(
         string rootPath,
@@ -163,6 +167,110 @@ public sealed class FileSystemPackageContent :
             throw new InvalidDataException("Package entry exceeds the configured byte limit.");
 
         stream = file.OpenRead();
+        return true;
+    }
+
+    bool IPackageHousePayloadSource.TryOpenPayloadRead(
+        string relativePath,
+        long maxExpandedBytes,
+        [NotNullWhen(true)] out Stream? stream)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(relativePath);
+        ArgumentOutOfRangeException.ThrowIfNegative(maxExpandedBytes);
+        string path = ResolveEntryPath(relativePath);
+        if (NupkgPath is null || !File.Exists(NupkgPath))
+        {
+            throw new NotSupportedException(
+                "Filesystem PackageHouse payload reads require a retained package archive.");
+        }
+
+        Dictionary<string, PackageArchiveEntryValidation>? entries =
+            Volatile.Read(ref _archiveEntries);
+        PackageArchiveEntryValidation entry;
+        if (entries is null)
+        {
+            if (!TryReadArchiveEntry(
+                    relativePath,
+                    out entry))
+            {
+                stream = null;
+                return false;
+            }
+        }
+        else if (!entries.TryGetValue(relativePath, out entry))
+        {
+            stream = null;
+            return false;
+        }
+        if (entry.ExpandedLength > (ulong)maxExpandedBytes)
+        {
+            throw new InvalidDataException(
+                "Package entry exceeds the configured byte limit.");
+        }
+
+        var file = new FileInfo(path);
+        if (!file.Exists)
+        {
+            stream = null;
+            return false;
+        }
+        if ((ulong)file.Length != entry.ExpandedLength)
+        {
+            throw new InvalidDataException(
+                "Extracted package entry does not match its declared size.");
+        }
+
+        Stream content = file.OpenRead();
+        try
+        {
+            stream = new PackageArchiveEntryReadStream(
+                content,
+                entry.ExpandedLength,
+                entry.Crc32,
+                maxExpandedBytes);
+            return true;
+        }
+        catch
+        {
+            content.Dispose();
+            throw;
+        }
+    }
+
+    internal void RememberArchiveEntries(
+        PackageArchivePayload archive)
+    {
+        ArgumentNullException.ThrowIfNull(archive);
+        Dictionary<string, PackageArchiveEntryValidation> entries =
+            archive.CreateEntryValidationIndex();
+        Interlocked.CompareExchange(
+            ref _archiveEntries,
+            entries,
+            comparand: null);
+    }
+
+    private bool TryReadArchiveEntry(
+        string relativePath,
+        out PackageArchiveEntryValidation validation)
+    {
+        using FileStream package = File.OpenRead(NupkgPath!);
+        using var archive = new ZipArchive(
+            package,
+            ZipArchiveMode.Read);
+        ZipArchiveEntry? entry = archive.GetEntry(relativePath)
+            ?? archive.Entries.FirstOrDefault(candidate =>
+                candidate.FullName.Equals(
+                    relativePath,
+                    StringComparison.OrdinalIgnoreCase));
+        if (entry is null)
+        {
+            validation = default;
+            return false;
+        }
+
+        validation = new PackageArchiveEntryValidation(
+            checked((ulong)entry.Length),
+            entry.Crc32);
         return true;
     }
 

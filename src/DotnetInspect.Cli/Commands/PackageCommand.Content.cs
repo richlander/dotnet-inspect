@@ -22,6 +22,7 @@ using InertText;
 using Inspector.Findings;
 using Markout;
 using System.Buffers;
+using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
 using System.Text;
 
@@ -75,6 +76,15 @@ public partial class PackageCommand
         var destination = PackagePayloadDestination(options);
         if (!ProjectionDestinationWriter.ValidateBeforeAcquisition(destination))
             return 1;
+
+        int? houseResult =
+            await TryWriteLiteralHouseDocumentExportAsync(
+                    targets,
+                    options,
+                    context)
+                .ConfigureAwait(false);
+        if (houseResult is { } exitCode)
+            return exitCode;
 
         var results = new List<PackageFileContentSet>();
         bool unaryPayload = RequiresUnaryPackageContent(options);
@@ -232,6 +242,200 @@ public partial class PackageCommand
             if (!ownershipTransferred)
                 CleanupPackageExtraction(resolution);
         }
+    }
+
+    private static bool TryCreateLiteralHouseDocumentExport(
+        IReadOnlyList<PackageReferenceTarget> targets,
+        InspectionOptions options,
+        [NotNullWhen(true)] out PackageReferenceTarget? target,
+        [NotNullWhen(true)] out string? pinnedVersion,
+        [NotNullWhen(true)] out string? documentPath,
+        out bool isSkill)
+    {
+        target = null;
+        pinnedVersion = null;
+        documentPath = null;
+        isSkill = false;
+        string[] selectors = PathSelectors(options);
+        if (targets is not [var selectedTarget]
+            || selectedTarget.IsLocalFile
+            || DotnetInspector.Networking.HttpClientFactory.IsOffline
+            || options.ForceLatest
+            || !RequiresUnaryPackageContent(options)
+            || !HasUnstructuredOutputPath(options)
+            || options.ContentScope != PackageFileContentScope.Full
+            || options.Rows is not null
+            || !string.IsNullOrWhiteSpace(options.Tfm)
+            || !options.ShowContent
+            || selectors is not [var selectedPath]
+            || selectedPath.Contains('*')
+            || selectedPath.Contains('?')
+            || !PackageExtractor.TryNormalizePackageVersion(
+                selectedTarget.Version,
+                out string normalizedVersion))
+        {
+            return false;
+        }
+
+        string normalizedSelectedPath = selectedPath.Replace('\\', '/');
+        isSkill = PackageFileFamily.IsSkillDocumentPath(
+            normalizedSelectedPath);
+        if (!isSkill
+            && !normalizedSelectedPath.Equals(
+                "README.md",
+                StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        target = selectedTarget;
+        pinnedVersion = normalizedVersion;
+        documentPath = normalizedSelectedPath;
+        return true;
+    }
+
+    private static async Task<int?>
+        TryWriteLiteralHouseDocumentExportAsync(
+            IReadOnlyList<PackageReferenceTarget> targets,
+            InspectionOptions options,
+            CommandContext context)
+    {
+        if (!TryCreateLiteralHouseDocumentExport(
+                targets,
+                options,
+                out PackageReferenceTarget? target,
+                out string? pinnedVersion,
+                out string? documentPath,
+                out bool isSkill))
+        {
+            return null;
+        }
+
+        return await WriteLiteralHouseDocumentExportAsync(
+                target,
+                pinnedVersion,
+                documentPath,
+                isSkill,
+                options,
+                context)
+            .ConfigureAwait(false);
+    }
+
+    private static async Task<int?> WriteLiteralHouseDocumentExportAsync(
+        PackageReferenceTarget target,
+        string pinnedVersion,
+        string documentPath,
+        bool isSkill,
+        InspectionOptions options,
+        CommandContext context)
+    {
+        var destination = PackagePayloadDestination(
+            options,
+            resolvedSkillPayload: isSkill);
+        if (!ProjectionDestinationWriter.ValidateBeforeDestinationMutation(
+                destination))
+        {
+            return 1;
+        }
+
+        await using DesktopPackageSourceComposition composition =
+            context.CreatePackageSourceComposition();
+        var store = new FileSystemPackageStore();
+        ConfiguredPackagePayloadResult result =
+            await composition.AcquirePinnedAsync(
+                    target.PackageName,
+                    pinnedVersion,
+                    (_, _) => store,
+                    options.SourceOptions,
+                    context.Logger.Log)
+                .ConfigureAwait(false);
+        if (result.HouseSettlement
+                is not PackageHouseSettlement.Acquired settlement)
+        {
+            return null;
+        }
+
+        if (MayRequireLegacyToolWrapperHandling(settlement.Payload.Content))
+        {
+            return null;
+        }
+
+        if (settlement.Payload.Content
+                is not IPackageContentEntryManifest manifest)
+        {
+            return null;
+        }
+
+        PackageContentEntry[] matchingEntries =
+        [
+            .. manifest.EnumerateEntriesWithLengths()
+                .Where(entry => entry.Path.Equals(
+                    documentPath,
+                    StringComparison.OrdinalIgnoreCase))
+                .Take(2),
+        ];
+        if (matchingEntries is not [var matchingEntry])
+        {
+            CommandError.Write(
+                "--content --out requires exactly one selected package "
+                + $"content file; found {matchingEntries.Length}.");
+            return 1;
+        }
+        documentPath = matchingEntry.Path;
+        long expandedLength = matchingEntry.Length;
+
+        await using PackageHousePayloadRead input =
+            settlement.OpenPayloadRead(
+                documentPath,
+                expandedLength);
+        if (!isSkill)
+        {
+            await ProjectionDestinationWriter.WriteExactBytesAsync(
+                    destination,
+                    input)
+                .ConfigureAwait(false);
+            return 0;
+        }
+
+        var file = new PackageFileContent(
+            target.PackageName,
+            pinnedVersion,
+            documentPath,
+            expandedLength,
+            Found: true,
+            Content: string.Empty);
+        PackageFileContent content = ReadPackageSkillContent(
+            input,
+            file,
+            normalizeGithubLinksToRaw: !options.PreferRenderedUrls);
+        ContainmentDiagnosticOutput.Write(content.SelectedContent);
+        WritePackageFileExport(content, destination);
+        return 0;
+    }
+
+    private static bool MayRequireLegacyToolWrapperHandling(
+        IPackageContent content)
+    {
+        bool hasToolSettings = false;
+        foreach (string entry in content.EnumerateEntries())
+        {
+            if (entry.EndsWith(
+                    ".dll",
+                    StringComparison.OrdinalIgnoreCase)
+                && !entry.EndsWith(
+                    ".resources.dll",
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                return false;
+            }
+
+            int fileNameStart = entry.LastIndexOfAny('/', '\\') + 1;
+            hasToolSettings |= entry.AsSpan(fileNameStart).Equals(
+                "DotnetToolSettings.xml",
+                StringComparison.OrdinalIgnoreCase);
+        }
+
+        return hasToolSettings;
     }
 
     private static void CleanupPackageExtraction(
@@ -1110,21 +1314,15 @@ public partial class PackageCommand
             out int sourceLineOffset);
         if (PackageFileFamily.IsSkillDocument(file))
         {
-            ContainmentSelectedText selected = AgentSkillDocument.PrepareForOutput(
-                file.Path,
-                content,
-                sourceLineOffset,
-                normalizeGithubLinksToRaw);
-            return new PackageFileContent(
+            return PreparePackageSkillContent(
                 packageName,
                 version,
                 file.Path,
+                content,
+                sourceLineOffset,
                 file.Size,
-                Found: true,
-                selected.ToString(),
                 file.IsReadme,
-                ExactContent: null,
-                SelectedContent: selected);
+                normalizeGithubLinksToRaw);
         }
 
         if (normalizeGithubLinksToRaw)
@@ -1139,6 +1337,54 @@ public partial class PackageCommand
             content,
             file.IsReadme,
             includeExactContent ? exactContent : null);
+    }
+
+    private static PackageFileContent ReadPackageSkillContent(
+        Stream input,
+        PackageFileContent file,
+        bool normalizeGithubLinksToRaw)
+    {
+        string sourceContent = ReadText(input);
+        string content = MarkdownContent.ApplyScope(
+            sourceContent,
+            PackageFileContentScope.Full,
+            out int sourceLineOffset);
+        return PreparePackageSkillContent(
+            file.Package,
+            file.Version,
+            file.Path,
+            content,
+            sourceLineOffset,
+            file.Size,
+            file.IsReadme,
+            normalizeGithubLinksToRaw);
+    }
+
+    private static PackageFileContent PreparePackageSkillContent(
+        string packageName,
+        string version,
+        string path,
+        string content,
+        int sourceLineOffset,
+        long size,
+        bool isReadme,
+        bool normalizeGithubLinksToRaw)
+    {
+        ContainmentSelectedText selected = AgentSkillDocument.PrepareForOutput(
+            path,
+            content,
+            sourceLineOffset,
+            normalizeGithubLinksToRaw);
+        return new PackageFileContent(
+            packageName,
+            version,
+            path,
+            size,
+            Found: true,
+            selected.ToString(),
+            isReadme,
+            ExactContent: null,
+            SelectedContent: selected);
     }
 
     /// <summary>
@@ -1163,10 +1409,16 @@ public partial class PackageCommand
     private static string ReadText(byte[] content)
     {
         using var stream = new MemoryStream(content, writable: false);
+        return ReadText(stream);
+    }
+
+    private static string ReadText(Stream content)
+    {
         using var reader = new StreamReader(
-            stream,
+            content,
             Encoding.UTF8,
-            detectEncodingFromByteOrderMarks: true);
+            detectEncodingFromByteOrderMarks: true,
+            leaveOpen: true);
         return reader.ReadToEnd();
     }
 
