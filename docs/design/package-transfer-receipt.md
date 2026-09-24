@@ -119,8 +119,8 @@ input: the receipt is owner-issued, not reconstructed from ambient events.
 
 `PackageHouseAcquisitionReceipt` carries the transfer receipt beside the
 origin it already records. Its origin and the receipt's path agree: `Cache`
-with `Cache`, `Download` with `Download` or `RangedThenDownload`, and
-`Ranged` with `Ranged`.
+with `Cache` or `EntryCache`, `Download` with `Download` or
+`RangedThenDownload`, and `Ranged` with `Ranged`.
 
 Every acquisition through the House has a receipt. Legacy acquisition paths
 that bypass the House, such as the platform pack service, issue none; their

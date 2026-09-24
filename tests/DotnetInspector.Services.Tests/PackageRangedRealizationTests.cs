@@ -334,6 +334,14 @@ public sealed partial class PackageRangedRealizationTests
         Assert.Equal(PackagePayloadOrigin.Download, acquired.Payload.Origin);
         Assert.Equal(1, warm.FullRequests);
         Assert.IsNotType<RangedPackageContent>(acquired.Payload.Content);
+        // The receipt records the tail that found the changed directory, then
+        // the complete transfer (docs/design/package-transfer-receipt.md).
+        PackageTransferReceipt receipt = Transfer(acquired, PackagePayloadOrigin.Download);
+        Assert.Equal(PackageTransferPath.RangedThenDownload, receipt.Path);
+        Assert.Equal(PackageTransferFallbackReason.ArchiveChanged, receipt.FallbackReason);
+        Assert.Equal(
+            [PackageTransferRequestPurpose.DirectoryTail, PackageTransferRequestPurpose.Complete],
+            receipt.Requests.Select(request => request.Purpose));
         Assert.NotNull(store.TryGetCached(
             PclStorage,
             PclStorageVersion,
