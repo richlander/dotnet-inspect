@@ -512,6 +512,23 @@ public partial class PackageCommand
                 workspaceLoadOptions).ConfigureAwait(false);
         }
 
+        if (options.ShowContent && packageArgs.Length == 1)
+        {
+            PackageReferenceTarget houseTarget =
+                options.DeclaredPackageTarget
+                ?? PackageExtractor.ParsePackageTarget(
+                    packageArgs[0],
+                    explicitVersion);
+            int? houseResult =
+                await TryWriteLiteralHouseDocumentExportAsync(
+                        [houseTarget],
+                        options,
+                        context)
+                    .ConfigureAwait(false);
+            if (houseResult is { } exitCode)
+                return exitCode;
+        }
+
         InspectionOptions producerOptions = CreateProducerOptions(
             options,
             userVerbosity,

@@ -91,7 +91,7 @@ public sealed class ConfiguredPackagePayloadResult
     internal IReadOnlyList<ConfiguredPackageAuthority>? ReportingAuthorities
         { get; }
     internal bool SelectionUsesOriginalSources { get; }
-    internal PackageHouseSettlement? HouseSettlement { get; }
+    public PackageHouseSettlement? HouseSettlement { get; }
 }
 
 /// <summary>
