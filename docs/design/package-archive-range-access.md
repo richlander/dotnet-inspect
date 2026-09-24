@@ -355,11 +355,9 @@ the archive directory with its validator kind; per-entry expanded content;
 Non-claims:
 
 - when a consumer reads by range and when it fetches the whole archive, and
-  the size-differentiated cache policy (#8386, later slices);
-- the background completion of a surgical read into the cache (the warm
-  queue, #8386);
-- caching of directories or entries between invocations: a ranged read
-  populates no persistent store at this head;
+  the caching of directories and entries between invocations, which the
+  [package cache policy](package-cache-policy.md) owns; the reader itself
+  populates no persistent store;
 - symbol packages and any archive other than the package's nupkg, as uses of
   this capability (the two libraries' contracts are archive-agnostic, and a
   later consumer such as the symbol-package downloader adopts them under its

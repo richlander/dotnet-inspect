@@ -58,8 +58,13 @@ On a fast link it exits no sooner than a complete download: the ranged read
 and then the download, about 0.8 s against 0.73 s. On a slow link the
 download does not finish before exit, so it restarts from zero in every
 invocation. It also needs cross-process mutable state for its wanted-list.
-Choosing by size before transferring gives each archive the cheaper of the
-two paths, with no background work.
+Choosing by size before transferring takes one of the two paths per
+archive, with no background work. Learning the size costs a probe: the step
+reads the complete response's advertised length and abandons that response
+for an archive over the cut, which costs one more round trip and, over
+HTTP/1.1, a new connection for the ranged read that follows. The tables below
+measure the ranged read alone, so above the cut its cold cost is one round
+trip higher than they show.
 
 A ranged read costs about one more round trip than a complete download and
 saves every byte it does not select, so where the two cross depends on the
@@ -214,10 +219,14 @@ defines it: the tail read, which usually carries the whole directory, then
 the missing entries. The reader is unchanged; the entry cache adds no
 operation to it. The step then compares the fresh directory, total length,
 and validator with the cached ones. When they agree, it publishes the new
-entries beside the cached ones. When they differ, the archive changed: the
-coordinate's cached directory and entries are discarded, and the fresh
-directory and entries are published in their place. A warm read missing an
-entry therefore costs the tail round trip plus the entry requests.
+entries beside the cached ones. When they differ, the archive changed, and
+the step takes the complete fetch, as range access means by
+`ArchiveChanged`: the complete payload answers the read with the full
+selection and publishes to the authority-scoped store, which answers before
+the entry cache from then on. Entry-cache items are never replaced. A warm
+read missing an entry therefore costs the tail round trip plus the entry
+requests; only a republished archive, which nuget.org never serves, costs a
+complete transfer.
 
 A complete payload in the durable store answers before the entry cache, as
 the cache-first rule already orders them. Authorities without a persistent
@@ -306,13 +315,13 @@ All gates run in Release.
 | 5a. A second query needing one more entry of the same archive | the tail request and one entry request; no abandoned request | CLI harness |
 | 5e. Entries named with `..`, a rooted path, and two names that differ only by case | each published inside the entry cache under its digest; all three read back to their own content | contract suite |
 | 5b. A cached entry whose bytes no longer match the cached directory | discarded and read again | contract suite |
-| 5c. The archive changed since the directory was cached | the fresh directory differs from the cached one; the coordinate's cached directory and entries are replaced by the fresh ones | contract suite |
+| 5c. The archive changed since the directory was cached | the fresh directory differs from the cached one; one complete transfer answers the read with the full selection and publishes to the complete store; later reads are served from the complete store; no entry-cache item is replaced | contract suite |
 | 5d. An authority without a persistent key | nothing published to the entry cache | contract suite |
 | 6. No advertised length | complete acquisition | contract suite |
 | 7. A consumer other than the search Root | `package ID@VERSION` from a credential-free HTTP feed, twice: the second is a cache hit | CLI harness, two invocations |
 | 8. Ranged content that does not cover the Root's selection, then the complete fallback | one complete transfer | CLI harness |
 | 9. Two invocations acquiring the same coordinate | one publication | existing cache-concurrency gates |
-| 10. Motivating assets | `Avalonia` 12.1.2: cold about the ranged read of #8415, warm no package request. `Microsoft.NETCore.App.Runtime.linux-x64` 10.0.0, one assembly: cold about 0.1 s and 0.9 MB, warm no package request | preserved probe as design evidence |
+| 10. Motivating assets | `Avalonia` 12.1.2: cold about the ranged read of #8415 plus the size probe, warm no package request. `Microsoft.NETCore.App.Runtime.linux-x64` 10.0.0, one assembly: cold about 0.1 s and 0.9 MB, warm no package request | preserved probe as design evidence |
 
 The existing assertion that an HTTP extraction result carries no
 `CacheScopeKey` (`ConfiguredPayloadAcquisitionTests`) changes with case 1.
