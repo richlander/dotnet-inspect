@@ -80,10 +80,11 @@ Occurrence. It reuses the retained `MethodBodyAnalysisContext`, resolved
 effects, and existing direct-call evidence. Research never decodes a body,
 runs reaching definitions, resolves effects, or runs Resource Lifecycle.
 Resource-effect resolution routes in-group selections through lazy
-snapshot-backed participant descriptors, including designated selections
-returned by a participant policy, while preserving each participant's
-source-relative policy for external dependencies. Summary production
-therefore does not reacquire a participant source.
+snapshot-backed participant descriptors, including every active and shadow
+candidate in ambiguous or designated selections returned by a participant
+policy, while preserving each participant's source-relative policy for
+external dependencies. Summary production therefore does not reacquire a
+participant source.
 
 ## Research composition contract
 

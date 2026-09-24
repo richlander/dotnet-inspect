@@ -97,6 +97,90 @@ public class SourceRelativeAssemblyGroupBindingPolicyTests
         Assert.Same(external, selectedExternal.Assembly);
     }
 
+    [Theory]
+    [InlineData("ambiguous")]
+    [InlineData("shadow")]
+    [InlineData("composition")]
+    public void Select_CanonicalizingParticipantsReplacesEveryCandidateArm(
+        string arm)
+    {
+        var owner = NamedDescriptor("Owner");
+        string candidatePath =
+            FixtureCatalog.ServicesRouteLearningConsumer.AssemblyPath();
+        ResolvedAssemblyReference first = Descriptor(
+            candidatePath,
+            AssemblyResolutionProvenance.Designated(
+                "first canonical participant"));
+        ResolvedAssemblyReference second = Descriptor(
+            candidatePath,
+            AssemblyResolutionProvenance.Designated(
+                "second canonical participant"));
+        ResolvedAssemblyReference firstCanonical =
+            Assert.IsType<AssemblyImageSnapshotResult.Ready>(
+                AssemblyImageSnapshot.FromRetainedContent(
+                    first,
+                    [.. File.ReadAllBytes(candidatePath)]))
+                .Snapshot
+                .RetainAssemblyReference(first);
+        ResolvedAssemblyReference secondCanonical =
+            Assert.IsType<AssemblyImageSnapshotResult.Ready>(
+                AssemblyImageSnapshot.FromRetainedContent(
+                    second,
+                    [.. File.ReadAllBytes(candidatePath)]))
+                .Snapshot
+                .RetainAssemblyReference(second);
+        var selecting = new SelectionPolicy(_ => arm switch
+        {
+            "ambiguous" =>
+                AssemblyBindingSelection.Multiple([first, second]),
+            "shadow" =>
+                AssemblyBindingCandidateDomain.Create(
+                    [first, second]).Finalize([first]),
+            "composition" =>
+                AssemblyBindingSelection.RequireComposition(
+                    AssemblyBindingCandidateDomain.Create([first, second])),
+            _ => throw new ArgumentOutOfRangeException(nameof(arm)),
+        });
+        var group = SourceRelativeAssemblyGroupBindingPolicy
+            .CreateCanonicalizingParticipantSelections(
+                [
+                    (owner, (IAssemblyBindingPolicy)selecting),
+                    (firstCanonical, selecting),
+                    (secondCanonical, selecting),
+                ]);
+
+        AssemblyBindingSelection selection =
+            group.Select(
+                Request(
+                    NamedDescriptor("Skewed"),
+                    owner)).Selection;
+
+        if (arm == "ambiguous")
+        {
+            Assert.Equal(
+                [firstCanonical, secondCanonical],
+                Assert.IsType<AssemblyBindingSelection.Ambiguous>(selection)
+                    .Assemblies);
+        }
+        else if (arm == "shadow")
+        {
+            var selected =
+                Assert.IsType<AssemblyBindingSelection.Selected>(selection);
+            Assert.Same(firstCanonical, selected.Assembly);
+            Assert.Same(
+                secondCanonical,
+                Assert.Single(selected.ShadowedAssemblies));
+        }
+        else
+        {
+            Assert.Equal(
+                [firstCanonical, secondCanonical],
+                Assert.IsType<
+                    AssemblyBindingSelection.CompositionRequired>(selection)
+                    .Domain.Candidates);
+        }
+    }
+
     [Fact]
     public void Select_NestedGroupPreservesDelegatedContinuation()
     {

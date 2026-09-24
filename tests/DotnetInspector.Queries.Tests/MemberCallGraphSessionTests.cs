@@ -757,6 +757,95 @@ public sealed class MemberCallGraphSessionTests
             graph.BuildCounts);
     }
 
+    [Fact]
+    public async Task ResourceEffectsReuseAmbiguousParticipantSnapshots()
+    {
+        int root = MemberToken(
+            CallerPath,
+            "Entry",
+            "UseEcho");
+        await using (GraphContext baseline =
+            GraphContext.CreateWithAmbiguousDesignatedParticipants(
+                [1, 2],
+                CallerPath,
+                TargetPath,
+                TargetPath))
+        {
+            using var baselineGraph = new MemberCallGraphSession(
+                baseline.Group,
+                baseline.Sources[0].Assembly,
+                root,
+                new MemberCallGraphOptions
+                {
+                    Features =
+                        Analysis.LibraryBodyAnalysisFeatures.MethodEvidence
+                        | Analysis.LibraryBodyAnalysisFeatures.OwnershipFlow,
+                });
+
+            _ = baselineGraph.Callees();
+            Assert.Equal(
+                [1, 0, 0],
+                baseline.Sources.Select(participant => participant.OpenCount));
+            _ = baselineGraph.Callers();
+            Assert.Equal(
+                [1, 0, 0],
+                baseline.Sources.Select(participant => participant.OpenCount));
+            _ = baselineGraph.CrossLibrary();
+            Assert.Equal(
+                [1, 1, 2],
+                baseline.Sources.Select(participant => participant.OpenCount));
+        }
+
+        await using GraphContext context =
+            GraphContext.CreateWithAmbiguousDesignatedParticipants(
+                [1, 2],
+                CallerPath,
+                TargetPath,
+                TargetPath);
+        using var graph = new MemberCallGraphSession(
+            context.Group,
+            context.Sources[0].Assembly,
+            root,
+            new MemberCallGraphOptions
+            {
+                Features =
+                    Analysis.LibraryBodyAnalysisFeatures.MethodEvidence
+                    | Analysis.LibraryBodyAnalysisFeatures.OwnershipFlow,
+                ResourceEffects = CrossParticipantAcquisition(),
+            });
+
+        Assert.Equal(
+            [0, 0, 0],
+            context.Sources.Select(participant => participant.OpenCount));
+
+        MemberCallGraphView callees = graph.Callees();
+        Analysis.ResourceOwnershipMethodSummary rootSummary =
+            Assert.Single(
+                callees.ResourceOwnershipSummaries,
+                summary => summary.Method.MetadataToken == root);
+
+        Assert.True(rootSummary.IsComplete);
+        Assert.False(callees.ResourceOwnershipPublicationComplete);
+        Assert.Equal(
+            [1, 1, 1],
+            context.Sources.Select(participant => participant.OpenCount));
+
+        _ = graph.Callers();
+
+        Assert.Equal(
+            [1, 1, 1],
+            context.Sources.Select(participant => participant.OpenCount));
+
+        _ = graph.CrossLibrary();
+
+        Assert.Equal(
+            [1, 1, 2],
+            context.Sources.Select(participant => participant.OpenCount));
+        Assert.Equal(
+            new MemberCallGraphBuildCounts(1, 1, 1),
+            graph.BuildCounts);
+    }
+
     [Theory]
     [InlineData(
         "RentAndForwardToReturn",
@@ -2792,7 +2881,8 @@ public sealed class MemberCallGraphSessionTests
                 streamOnly: false,
                 failingIndex: null,
                 equivalentIdentityIndex: null,
-                designatedIndex: null,
+                designatedIndexes: null,
+                ambiguousTargetIndexes: null,
                 paths);
 
         internal static GraphContext CreateStreamOnly(
@@ -2801,7 +2891,8 @@ public sealed class MemberCallGraphSessionTests
                 streamOnly: true,
                 failingIndex: null,
                 equivalentIdentityIndex: null,
-                designatedIndex: null,
+                designatedIndexes: null,
+                ambiguousTargetIndexes: null,
                 paths);
 
         internal static GraphContext CreateWithFailingParticipant(
@@ -2810,7 +2901,8 @@ public sealed class MemberCallGraphSessionTests
                 streamOnly: false,
                 failingIndex: 1,
                 equivalentIdentityIndex: null,
-                designatedIndex: null,
+                designatedIndexes: null,
+                ambiguousTargetIndexes: null,
                 paths);
 
         internal static GraphContext CreateWithEquivalentIdentity(
@@ -2820,24 +2912,46 @@ public sealed class MemberCallGraphSessionTests
                 streamOnly: false,
                 failingIndex: null,
                 equivalentIdentityIndex,
-                designatedIndex: null,
+                designatedIndexes: null,
+                ambiguousTargetIndexes: null,
                 paths);
 
         internal static GraphContext CreateWithDesignatedParticipant(
             int designatedIndex,
             params string[] paths) =>
+            CreateWithDesignatedParticipants(
+                [designatedIndex],
+                paths);
+
+        internal static GraphContext CreateWithDesignatedParticipants(
+            IReadOnlyList<int> designatedIndexes,
+            params string[] paths) =>
             CreateCore(
                 streamOnly: false,
                 failingIndex: null,
                 equivalentIdentityIndex: null,
-                designatedIndex,
+                designatedIndexes,
+                ambiguousTargetIndexes: null,
+                paths);
+
+        internal static GraphContext
+            CreateWithAmbiguousDesignatedParticipants(
+                IReadOnlyList<int> targetIndexes,
+                params string[] paths) =>
+            CreateCore(
+                streamOnly: true,
+                failingIndex: null,
+                equivalentIdentityIndex: null,
+                designatedIndexes: targetIndexes,
+                ambiguousTargetIndexes: targetIndexes,
                 paths);
 
         static GraphContext CreateCore(
             bool streamOnly,
             int? failingIndex,
             int? equivalentIdentityIndex,
-            int? designatedIndex,
+            IReadOnlyList<int>? designatedIndexes,
+            IReadOnlyList<int>? ambiguousTargetIndexes,
             params string[] paths)
         {
             TestSource[] sources = paths
@@ -2847,7 +2961,7 @@ public sealed class MemberCallGraphSessionTests
                         streamOnly,
                         failingIndex == index,
                         equivalentIdentityIndex == index,
-                        designatedIndex == index))
+                        designatedIndexes?.Contains(index) == true))
                 .ToArray();
             var policy =
                 new SourceRelativeAssemblyGroupBindingPolicy(
@@ -2862,13 +2976,22 @@ public sealed class MemberCallGraphSessionTests
                                     AllowPlatformAssemblyVersionRollForward =
                                         true,
                                 }))));
+            IAssemblyBindingPolicy callerPolicy =
+                ambiguousTargetIndexes is null
+                    ? policy
+                    : new AmbiguousTargetBindingPolicy(
+                        policy,
+                        [
+                            .. ambiguousTargetIndexes.Select(
+                                index => sources[index].Assembly),
+                        ]);
             var workspace = new InspectionWorkspace();
             AssemblyContextGroup group =
                 workspace.CreateAssemblyContextGroup(
                     sources.Select(
-                        source => new AssemblyContextParticipant(
+                        (source, index) => new AssemblyContextParticipant(
                             source.Assembly,
-                            policy)));
+                            index == 0 ? callerPolicy : policy)));
             return new(workspace, group, sources);
         }
 
@@ -2967,6 +3090,33 @@ public sealed class MemberCallGraphSessionTests
 
             AssemblyBindingSelection SelectCore() =>
                 AssemblyBindingSelection.NotFound();
+        }
+    }
+
+    sealed class AmbiguousTargetBindingPolicy(
+        IAssemblyBindingPolicy inner,
+        ImmutableArray<ResolvedAssemblyReference> targets)
+        : IAssemblyBindingPolicy
+    {
+        public AssemblyBindingPolicyVersion Version => inner.Version;
+
+        public AssemblyBindingSelectionSnapshot Select(
+            AssemblyBindingRequest request)
+        {
+            if (request.Target
+                    is AssemblyBindingTarget.AssemblyReference reference
+                && targets.Any(target =>
+                string.Equals(
+                    target.Identity.Name,
+                    reference.Identity.Name,
+                    StringComparison.OrdinalIgnoreCase)))
+            {
+                return new(
+                    Version,
+                    AssemblyBindingSelection.Multiple(targets));
+            }
+
+            return inner.Select(request);
         }
     }
 }
