@@ -198,20 +198,39 @@ internal sealed class LibraryBodyLiftedSourceOwnerResolver
                 liftedIdentity.Name,
                 liftedIdentity.DeclaringType,
                 liftedMethod.Signature);
-        LiftedOwnerGroupEvidence ownerGroup =
-            LiftedOwnerGroup(
-                ownerType,
-                ownerName,
-                directlySelectedBody
-                    ? null
-                    : ownerMethodScope,
-                cacheScopedGroup);
         LiftedSourceOwnerResolution resolution =
-            ownerGroup.Resolve(
+            LiftedSourceOwnerResolution.None;
+        MethodDefinitionHandle ownerHandle = default;
+        bool ownerIsTopLevelEntryPoint = false;
+        var key = new LiftedOwnerGroupKey(
+            ownerType,
+            ownerName);
+        if (_scopeExpansionLiftedOwnerGroups.TryGetValue(
+                key,
+                out Lazy<LiftedOwnerGroupEvidence>?
+                    retainedGroup))
+        {
+            resolution = retainedGroup.Value
+                .ResolveRetained(
+                    liftedToken,
+                    member,
+                    out ownerHandle,
+                    out ownerIsTopLevelEntryPoint);
+        }
+        if (resolution == LiftedSourceOwnerResolution.None)
+        {
+            LiftedOwnerGroupEvidence ownerGroup =
+                LiftedOwnerGroup(
+                    key,
+                    ownerMethodScope,
+                    directlySelectedBody,
+                    cacheScopedGroup);
+            resolution = ownerGroup.Resolve(
                 liftedToken,
                 member,
-                out MethodDefinitionHandle ownerHandle,
-                out bool ownerIsTopLevelEntryPoint);
+                out ownerHandle,
+                out ownerIsTopLevelEntryPoint);
+        }
         if (resolution != LiftedSourceOwnerResolution.Resolved)
         {
             return resolution;
@@ -329,13 +348,21 @@ internal sealed class LibraryBodyLiftedSourceOwnerResolver
     }
 
     LiftedOwnerGroupEvidence LiftedOwnerGroup(
-        TypeDefinitionHandle ownerType,
-        string ownerName,
+        LiftedOwnerGroupKey key,
         IReadOnlySet<int>? ownerMethodScope,
+        bool directlySelectedBody,
         bool cacheScopedGroup)
     {
-        var key = new LiftedOwnerGroupKey(ownerType, ownerName);
-        if (ownerMethodScope is not null)
+        if (cacheScopedGroup
+            && _scopeExpansionLiftedOwnerGroups.TryGetValue(
+                key,
+                out Lazy<LiftedOwnerGroupEvidence>?
+                    scopedGroup))
+        {
+            return scopedGroup.Value;
+        }
+        if (ownerMethodScope is not null
+            && !directlySelectedBody)
         {
             if (cacheScopedGroup)
             {
@@ -1256,6 +1283,31 @@ internal sealed class LibraryBodyLiftedSourceOwnerResolver
             int definitionToken,
             MethodReferenceKey member,
             out MethodDefinitionHandle owner,
+            out bool topLevel) =>
+            Resolve(
+                definitionToken,
+                member,
+                throwOnWorkLimit: true,
+                out owner,
+                out topLevel);
+
+        public LiftedSourceOwnerResolution ResolveRetained(
+            int definitionToken,
+            MethodReferenceKey member,
+            out MethodDefinitionHandle owner,
+            out bool topLevel) =>
+            Resolve(
+                definitionToken,
+                member,
+                throwOnWorkLimit: false,
+                out owner,
+                out topLevel);
+
+        LiftedSourceOwnerResolution Resolve(
+            int definitionToken,
+            MethodReferenceKey member,
+            bool throwOnWorkLimit,
+            out MethodDefinitionHandle owner,
             out bool topLevel)
         {
             owner = default;
@@ -1284,7 +1336,9 @@ internal sealed class LibraryBodyLiftedSourceOwnerResolver
                 owner = memberReference.Owner;
                 found = true;
             }
-            if (!found && WorkLimit is { } workLimit)
+            if (!found
+                && throwOnWorkLimit
+                && WorkLimit is { } workLimit)
             {
                 throw new ImplementationMetricWorkLimitExceededException(
                     workLimit.Limit,

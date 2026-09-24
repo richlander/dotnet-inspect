@@ -558,6 +558,61 @@ public sealed class LibraryBodyAnalysisExecutionTests
     }
 
     [Fact]
+    public void
+        MetricWorkBounds_DirectBodyUsesRetainedScopedMapping()
+    {
+        Type fixture = typeof(MixedGeneratedOverloadFixtures);
+        string path = fixture.Assembly.Location;
+        int ownerToken = fixture.GetMethods(
+                BindingFlags.Public
+                | BindingFlags.Static)
+            .Single(method =>
+                method.Name == "Handle"
+                && method.GetParameters()[2].ParameterType
+                    == typeof(string))
+            .MetadataToken;
+        int bodyToken = fixture.GetMethods(
+                BindingFlags.NonPublic
+                | BindingFlags.Static)
+            .Single(method => method.Name.Contains(
+                "g__AuthoredCore|",
+                StringComparison.Ordinal))
+            .MetadataToken;
+        var limits = new ImplementationMetricWorkLimits(
+            maximumPhysicalBodies: 100,
+            maximumEncodedIlBytes: long.MaxValue,
+            maximumAttributionProbeBodies: 1,
+            maximumAttributionProbeIlBytes: long.MaxValue);
+
+        LibraryBodyAnalysisExecution execution =
+            LibraryBodyAnalysisService.ExecutePath(
+                path,
+                LibraryBodyAnalysisRequest
+                    .CreateImplementationMetrics(
+                        ImplementationMetricAnalysisRequest
+                            .CompleteProfileV1,
+                        limits,
+                        new HashSet<int>
+                        {
+                            ownerToken,
+                            bodyToken,
+                        }));
+
+        ImplementationMetricWorkBudgetSnapshot work =
+            Assert.IsType<ImplementationMetricWorkBudgetSnapshot>(
+                execution.ImplementationMetricWork);
+        Assert.Equal(
+            ImplementationMetricWorkLimitKind
+                .AttributionProbeBodies,
+            work.AttributionExhaustedLimit);
+        Assert.Contains(
+            execution.ImplementationProfiles.Profiles,
+            profile =>
+                profile.EvidenceMethod.MetadataToken == bodyToken
+                && profile.Method.MetadataToken == ownerToken);
+    }
+
+    [Fact]
     public void ExecutePath_PublishesFocusedResultsWithOneReceipt()
     {
         LibraryBodyAnalysisExecution execution =
