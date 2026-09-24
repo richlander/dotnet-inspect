@@ -60,6 +60,8 @@ internal sealed class LibraryBodyLiftedSourceOwnerResolver
     readonly LibraryBodyAsyncSourceResolver
         _asyncSourceResolver;
     readonly Action<MethodDefinitionHandle>? _methodBodyReferenceIndexed;
+    readonly ImplementationMetricWorkBudget?
+        _implementationMetricWork;
     readonly ConcurrentDictionary<
         TypeDefinitionHandle,
         Lazy<IReadOnlyDictionary<string, ImmutableArray<MethodDefinitionHandle>>>>
@@ -76,6 +78,10 @@ internal sealed class LibraryBodyLiftedSourceOwnerResolver
         LiftedOwnerGroupKey,
         Lazy<LiftedOwnerGroupEvidence>>
         _liftedOwnerGroups = new();
+    readonly ConcurrentDictionary<
+        LiftedOwnerGroupKey,
+        Lazy<LiftedOwnerGroupEvidence>>
+        _scopeExpansionLiftedOwnerGroups = new();
     readonly Lazy<IReadOnlyDictionary<
         LiftedOwnerGroupKey,
         ImmutableArray<MethodDefinitionHandle>>>
@@ -86,7 +92,9 @@ internal sealed class LibraryBodyLiftedSourceOwnerResolver
         LibraryBodyPrimaryMetadataResolver primaryMetadataResolver,
         LibraryBodyMethodReferenceResolver methodReferenceResolver,
         LibraryBodyAsyncSourceResolver asyncSourceResolver,
-        Action<MethodDefinitionHandle>? methodBodyReferenceIndexed = null)
+        Action<MethodDefinitionHandle>? methodBodyReferenceIndexed = null,
+        ImplementationMetricWorkBudget?
+            implementationMetricWork = null)
     {
         _reader = reader;
         _peReader = peReader;
@@ -94,6 +102,8 @@ internal sealed class LibraryBodyLiftedSourceOwnerResolver
         _methodReferenceResolver = methodReferenceResolver;
         _asyncSourceResolver = asyncSourceResolver;
         _methodBodyReferenceIndexed = methodBodyReferenceIndexed;
+        _implementationMetricWork =
+            implementationMetricWork;
         _liftedMethodsByOwner = new(
             BuildLiftedMethodsByOwner,
             LazyThreadSafetyMode.ExecutionAndPublication);
@@ -117,6 +127,25 @@ internal sealed class LibraryBodyLiftedSourceOwnerResolver
             directlySelectedBody)
             == LiftedSourceOwnerResolution.Resolved;
 
+    internal bool TryResolveForScopeExpansion(
+        MethodDefinitionHandle liftedHandle,
+        MethodDefinition liftedMethod,
+        MethodIdentity liftedIdentity,
+        out AuthenticatedSourceOwner sourceOwner,
+        IReadOnlySet<int>? ownerMethodScope,
+        Func<TypeRef, bool>? ownerTypeScope,
+        bool directlySelectedBody) =>
+        Resolve(
+            liftedHandle,
+            liftedMethod,
+            liftedIdentity,
+            out sourceOwner,
+            ownerMethodScope,
+            ownerTypeScope,
+            directlySelectedBody,
+            cacheScopedGroup: true)
+            == LiftedSourceOwnerResolution.Resolved;
+
     internal LiftedSourceOwnerResolution Resolve(
         MethodDefinitionHandle liftedHandle,
         MethodDefinition liftedMethod,
@@ -124,7 +153,8 @@ internal sealed class LibraryBodyLiftedSourceOwnerResolver
         out AuthenticatedSourceOwner sourceOwner,
         IReadOnlySet<int>? ownerMethodScope = null,
         Func<TypeRef, bool>? ownerTypeScope = null,
-        bool directlySelectedBody = false)
+        bool directlySelectedBody = false,
+        bool cacheScopedGroup = false)
     {
         sourceOwner = default;
         if (!TryGetLiftedOwnerGroup(
@@ -168,19 +198,39 @@ internal sealed class LibraryBodyLiftedSourceOwnerResolver
                 liftedIdentity.Name,
                 liftedIdentity.DeclaringType,
                 liftedMethod.Signature);
-        LiftedOwnerGroupEvidence ownerGroup =
-            LiftedOwnerGroup(
-                ownerType,
-                ownerName,
-                directlySelectedBody
-                    ? null
-                    : ownerMethodScope);
         LiftedSourceOwnerResolution resolution =
-            ownerGroup.Resolve(
+            LiftedSourceOwnerResolution.None;
+        MethodDefinitionHandle ownerHandle = default;
+        bool ownerIsTopLevelEntryPoint = false;
+        var key = new LiftedOwnerGroupKey(
+            ownerType,
+            ownerName);
+        if (_scopeExpansionLiftedOwnerGroups.TryGetValue(
+                key,
+                out Lazy<LiftedOwnerGroupEvidence>?
+                    retainedGroup))
+        {
+            resolution = retainedGroup.Value
+                .ResolveRetained(
+                    liftedToken,
+                    member,
+                    out ownerHandle,
+                    out ownerIsTopLevelEntryPoint);
+        }
+        if (resolution == LiftedSourceOwnerResolution.None)
+        {
+            LiftedOwnerGroupEvidence ownerGroup =
+                LiftedOwnerGroup(
+                    key,
+                    ownerMethodScope,
+                    directlySelectedBody,
+                    cacheScopedGroup);
+            resolution = ownerGroup.Resolve(
                 liftedToken,
                 member,
-                out MethodDefinitionHandle ownerHandle,
-                out bool ownerIsTopLevelEntryPoint);
+                out ownerHandle,
+                out ownerIsTopLevelEntryPoint);
+        }
         if (resolution != LiftedSourceOwnerResolution.Resolved)
         {
             return resolution;
@@ -298,13 +348,36 @@ internal sealed class LibraryBodyLiftedSourceOwnerResolver
     }
 
     LiftedOwnerGroupEvidence LiftedOwnerGroup(
-        TypeDefinitionHandle ownerType,
-        string ownerName,
-        IReadOnlySet<int>? ownerMethodScope)
+        LiftedOwnerGroupKey key,
+        IReadOnlySet<int>? ownerMethodScope,
+        bool directlySelectedBody,
+        bool cacheScopedGroup)
     {
-        var key = new LiftedOwnerGroupKey(ownerType, ownerName);
-        if (ownerMethodScope is not null)
+        if (cacheScopedGroup
+            && _scopeExpansionLiftedOwnerGroups.TryGetValue(
+                key,
+                out Lazy<LiftedOwnerGroupEvidence>?
+                    scopedGroup))
         {
+            return scopedGroup.Value;
+        }
+        if (ownerMethodScope is not null
+            && !directlySelectedBody)
+        {
+            if (cacheScopedGroup)
+            {
+                return _scopeExpansionLiftedOwnerGroups
+                    .GetOrAdd(
+                        key,
+                        group => new Lazy<
+                            LiftedOwnerGroupEvidence>(
+                            () => BuildLiftedOwnerGroup(
+                                group,
+                                ownerMethodScope),
+                            LazyThreadSafetyMode
+                                .ExecutionAndPublication))
+                    .Value;
+            }
             return BuildLiftedOwnerGroup(
                 key,
                 ownerMethodScope);
@@ -369,95 +442,103 @@ internal sealed class LibraryBodyLiftedSourceOwnerResolver
         var topLevelOwners =
             new Dictionary<MethodDefinitionHandle, bool>();
         int relationshipCount = 0;
-
-        foreach (MethodDefinitionHandle ownerHandle in owners)
+        ImplementationMetricWorkLimitExceededException?
+            workLimit = null;
+        try
         {
-            if (ownerMethodScope is not null
-                && !ownerMethodScope.Contains(
-                    MetadataTokens.GetToken(ownerHandle)))
+            foreach (MethodDefinitionHandle ownerHandle in owners)
             {
-                continue;
-            }
-            MethodDefinitionHandle executionHandle = ownerHandle;
-            TopLevelExecutionMethod execution = default;
-            bool topLevel = group.OwnerName == "<Main>$"
-                && TryGetTopLevelExecutionMethod(
-                    ownerHandle,
-                    out execution);
-            topLevelOwners.Add(ownerHandle, topLevel);
-            if (topLevel)
-            {
+                if (ownerMethodScope is not null
+                    && !ownerMethodScope.Contains(
+                        MetadataTokens.GetToken(ownerHandle)))
+                {
+                    continue;
+                }
+                MethodDefinitionHandle executionHandle = ownerHandle;
+                TopLevelExecutionMethod execution = default;
+                bool topLevel = group.OwnerName == "<Main>$"
+                    && TryGetTopLevelExecutionMethod(
+                        ownerHandle,
+                        out execution);
+                topLevelOwners.Add(ownerHandle, topLevel);
+                if (topLevel)
+                {
+                    AddReachableLiftedMethods(
+                        ownerHandle,
+                        MethodBodyReferences(execution.Method),
+                        candidates,
+                        reachableOwners,
+                        pending,
+                        ref relationshipCount);
+                    continue;
+                }
+
                 AddReachableLiftedMethods(
                     ownerHandle,
-                    MethodBodyReferences(execution.Method),
+                    MethodBodyReferences(executionHandle),
                     candidates,
                     reachableOwners,
                     pending,
                     ref relationshipCount);
-                continue;
+                MethodDefinition ownerMethod =
+                    _reader.GetMethodDefinition(ownerHandle);
+                if (_asyncSourceResolver
+                    .TryResolveStateMachineExecutionMethod(
+                        ownerHandle,
+                        ownerMethod,
+                        out MethodDefinitionHandle moveNextHandle))
+                {
+                    AddReachableStateMachineMethods(
+                        ownerHandle,
+                        moveNextHandle,
+                        candidates,
+                        reachableOwners,
+                        pending,
+                        ref relationshipCount);
+                }
             }
 
-            AddReachableLiftedMethods(
-                ownerHandle,
-                MethodBodyReferences(executionHandle),
-                candidates,
-                reachableOwners,
-                pending,
-                ref relationshipCount);
-            MethodDefinition ownerMethod =
-                _reader.GetMethodDefinition(ownerHandle);
-            if (_asyncSourceResolver
-                .TryResolveStateMachineExecutionMethod(
-                    ownerHandle,
-                    ownerMethod,
-                    out MethodDefinitionHandle moveNextHandle))
+            int visited = 0;
+            while (pending.TryDequeue(
+                out (
+                    MethodDefinitionHandle Body,
+                    MethodDefinitionHandle Owner) current))
             {
-                AddReachableStateMachineMethods(
-                    ownerHandle,
-                    moveNextHandle,
+                if (++visited > MetadataSafetyPolicy.MaxRelationshipNodes)
+                {
+                    throw new BadImageFormatException(
+                        "Lifted-method ownership exceeds the metadata "
+                        + "relationship node budget.");
+                }
+
+                AddReachableLiftedMethods(
+                    current.Owner,
+                    MethodBodyReferences(current.Body),
                     candidates,
                     reachableOwners,
                     pending,
                     ref relationshipCount);
+                MethodDefinition bodyMethod =
+                    _reader.GetMethodDefinition(current.Body);
+                if (_asyncSourceResolver
+                    .TryResolveStateMachineExecutionMethod(
+                        current.Body,
+                        bodyMethod,
+                        out MethodDefinitionHandle moveNextHandle))
+                {
+                    AddReachableStateMachineMethods(
+                        current.Owner,
+                        moveNextHandle,
+                        candidates,
+                        reachableOwners,
+                        pending,
+                        ref relationshipCount);
+                }
             }
         }
-
-        int visited = 0;
-        while (pending.TryDequeue(
-            out (
-                MethodDefinitionHandle Body,
-                MethodDefinitionHandle Owner) current))
+        catch (ImplementationMetricWorkLimitExceededException ex)
         {
-            if (++visited > MetadataSafetyPolicy.MaxRelationshipNodes)
-            {
-                throw new BadImageFormatException(
-                    "Lifted-method ownership exceeds the metadata "
-                    + "relationship node budget.");
-            }
-
-            AddReachableLiftedMethods(
-                current.Owner,
-                MethodBodyReferences(current.Body),
-                candidates,
-                reachableOwners,
-                pending,
-                ref relationshipCount);
-            MethodDefinition bodyMethod =
-                _reader.GetMethodDefinition(current.Body);
-            if (_asyncSourceResolver
-                .TryResolveStateMachineExecutionMethod(
-                    current.Body,
-                    bodyMethod,
-                    out MethodDefinitionHandle moveNextHandle))
-            {
-                AddReachableStateMachineMethods(
-                    current.Owner,
-                    moveNextHandle,
-                    candidates,
-                    reachableOwners,
-                    pending,
-                    ref relationshipCount);
-            }
+            workLimit = ex;
         }
 
         void AddReachableStateMachineMethods(
@@ -541,6 +622,8 @@ internal sealed class LibraryBodyLiftedSourceOwnerResolver
                     reachableOwners,
                     pending,
                     ref relationshipCount);
+                var referencedMethods =
+                    new HashSet<MethodDefinitionHandle>();
                 foreach (int token in references.ReferencedDefinitions)
                 {
                     EntityHandle handle =
@@ -556,7 +639,7 @@ internal sealed class LibraryBodyLiftedSourceOwnerResolver
                             referenced).GetDeclaringType()
                         == stateMachineType)
                     {
-                        pendingMethods.Enqueue(referenced);
+                        referencedMethods.Add(referenced);
                     }
                 }
                 foreach (MethodReferenceKey member
@@ -568,8 +651,15 @@ internal sealed class LibraryBodyLiftedSourceOwnerResolver
                                 MethodDefinitionHandle>.Builder? methods)
                         && methods.Count == 1)
                     {
-                        pendingMethods.Enqueue(methods[0]);
+                        referencedMethods.Add(methods[0]);
                     }
+                }
+                foreach (MethodDefinitionHandle referenced
+                    in referencedMethods.OrderBy(
+                        static handle =>
+                            MetadataTokens.GetToken(handle)))
+                {
+                    pendingMethods.Enqueue(referenced);
                 }
             }
         }
@@ -588,6 +678,7 @@ internal sealed class LibraryBodyLiftedSourceOwnerResolver
                     topLevelOwners[owner]);
             }
         }
+        evidence.WorkLimit = workLimit;
         return evidence;
     }
 
@@ -626,7 +717,10 @@ internal sealed class LibraryBodyLiftedSourceOwnerResolver
             referenced.UnionWith(bodies);
         }
 
-        foreach (MethodDefinitionHandle body in referenced)
+        foreach (MethodDefinitionHandle body
+            in referenced.OrderBy(
+                static handle =>
+                    MetadataTokens.GetToken(handle)))
         {
             if (!reachableOwners.TryGetValue(
                     body,
@@ -936,8 +1030,16 @@ internal sealed class LibraryBodyLiftedSourceOwnerResolver
                 null);
         }
 
+        int methodToken = MetadataTokens.GetToken(methodHandle);
+        _implementationMetricWork
+            ?.ReserveAttributionProbeBody(methodToken);
         MethodBodyBlock body =
             _peReader.GetMethodBody(method.RelativeVirtualAddress);
+        byte[] il = body.GetILBytes() ?? [];
+        _implementationMetricWork
+            ?.ReserveAttributionProbeIlBytes(
+                methodToken,
+                il.Length);
         var calledDefinitions = new HashSet<int>();
         var referencedDefinitions = new HashSet<int>();
         var referencedMembers = new HashSet<MethodReferenceKey>(
@@ -951,8 +1053,7 @@ internal sealed class LibraryBodyLiftedSourceOwnerResolver
             method.GetDeclaringType());
         GenericScope scope =
             _primaryMetadataResolver.CreateScope(ownerType, method);
-        foreach (var instruction in InstructionDecoder.Decode(
-            body.GetILBytes() ?? []))
+        foreach (var instruction in InstructionDecoder.Decode(il))
         {
             bool call = instruction.OpCode
                 is ILOpCode.Call or ILOpCode.Callvirt;
@@ -1164,6 +1265,10 @@ internal sealed class LibraryBodyLiftedSourceOwnerResolver
         readonly Dictionary<MethodDefinitionHandle, bool>
             _topLevelOwners = [];
 
+        internal ImplementationMetricWorkLimitExceededException?
+            WorkLimit
+        { get; set; }
+
         public void Add(
             LiftedMethodCandidate candidate,
             MethodDefinitionHandle owner,
@@ -1177,6 +1282,31 @@ internal sealed class LibraryBodyLiftedSourceOwnerResolver
         public LiftedSourceOwnerResolution Resolve(
             int definitionToken,
             MethodReferenceKey member,
+            out MethodDefinitionHandle owner,
+            out bool topLevel) =>
+            Resolve(
+                definitionToken,
+                member,
+                throwOnWorkLimit: true,
+                out owner,
+                out topLevel);
+
+        public LiftedSourceOwnerResolution ResolveRetained(
+            int definitionToken,
+            MethodReferenceKey member,
+            out MethodDefinitionHandle owner,
+            out bool topLevel) =>
+            Resolve(
+                definitionToken,
+                member,
+                throwOnWorkLimit: false,
+                out owner,
+                out topLevel);
+
+        LiftedSourceOwnerResolution Resolve(
+            int definitionToken,
+            MethodReferenceKey member,
+            bool throwOnWorkLimit,
             out MethodDefinitionHandle owner,
             out bool topLevel)
         {
@@ -1205,6 +1335,14 @@ internal sealed class LibraryBodyLiftedSourceOwnerResolver
                 }
                 owner = memberReference.Owner;
                 found = true;
+            }
+            if (!found
+                && throwOnWorkLimit
+                && WorkLimit is { } workLimit)
+            {
+                throw new ImplementationMetricWorkLimitExceededException(
+                    workLimit.Limit,
+                    workLimit.MethodToken);
             }
             if (!found)
                 return LiftedSourceOwnerResolution.None;
