@@ -416,6 +416,16 @@ internal sealed class PackageAcquisitionCandidatePayloadAcquirer
     internal const int RangedEntryReadSlack = 1024;
 
     /// <summary>
+    /// The unselected bytes a ranged read transfers to join two selected
+    /// entries into one request. At 64 KiB the `Avalonia` 12.1.2 `net10.0`
+    /// selection takes 7 requests instead of 22 for 163 KB more transfer.
+    /// </summary>
+    internal const int RangedEntryMergeGap = 64 * 1024;
+
+    /// <summary>The ranged requests one acquisition keeps in flight at once.</summary>
+    internal const int RangedConcurrentReads = 6;
+
+    /// <summary>
     /// The archive library's bounds for a ranged read, mapped from the
     /// payload limits: the archive total, the entry count, the aggregate
     /// expanded bound, the library's default directory cap, and
@@ -427,7 +437,9 @@ internal sealed class PackageAcquisitionCandidatePayloadAcquirer
             maxEntryCount: limits.MaxEntryCount,
             maxDirectoryBytes: ZipReadLimits.Default.MaxDirectoryBytes,
             maxExpandedBytes: limits.MaxExpandedBytes,
-            entryReadSlack: RangedEntryReadSlack);
+            entryReadSlack: RangedEntryReadSlack,
+            entryMergeGap: RangedEntryMergeGap,
+            maxConcurrentReads: RangedConcurrentReads);
 
     private static async Task<RangedAttempt> TryAcquireRangedAsync(
         IPackageArchiveRangeSource rangedSource,
@@ -502,28 +514,24 @@ internal sealed class PackageAcquisitionCandidatePayloadAcquirer
 
             var materialized = new Dictionary<string, ReadOnlyMemory<byte>>(
                 StringComparer.Ordinal);
-            long remaining = limits.MaxExpandedBytes;
-            foreach (ZipEntry entry in targets)
+            operation.ThrowIfExpired();
+            PackageArchiveReadResult<IReadOnlyList<PackageArchiveEntryContent>> read =
+                await reader.ReadEntriesAsync(
+                    targets,
+                    maxTotalExpandedBytes: limits.MaxExpandedBytes,
+                    operation.CancellationToken).ConfigureAwait(false);
+            if (read.Value is not { } contents)
             {
-                operation.ThrowIfExpired();
-                PackageArchiveReadResult<PackageArchiveEntryContent> read =
-                    await reader.ReadEntryAsync(
-                        entry,
-                        maxExpandedBytes: remaining,
-                        operation.CancellationToken).ConfigureAwait(false);
-                if (read.Value is not { } content)
-                {
-                    return ClassifyRanged(
-                        read.Refusal,
-                        read.Failure,
-                        authority,
-                        client,
-                        $"reading entry '{entry.Name}'",
-                        log);
-                }
-                materialized[entry.Name] = content.Content;
-                remaining -= content.Content.Length;
+                return ClassifyRanged(
+                    read.Refusal,
+                    read.Failure,
+                    authority,
+                    client,
+                    $"reading {targets.Count} selected entries",
+                    log);
             }
+            foreach (PackageArchiveEntryContent content in contents)
+                materialized[content.Entry.Name] = content.Content;
 
             RangedPackageContent retained = directory.WithMaterialized(materialized);
             log?.Invoke(

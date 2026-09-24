@@ -28,11 +28,12 @@ public sealed class PackageRangedRealizationTests
     /// <summary>
     /// Design gate 14a: PCLStorage 1.0.2 (real asset; its local extra fields
     /// are longer than its central records) realized for net45 by range with
-    /// the Packages layer's slack reads each selected assembly in exactly one
-    /// request, retains only those entries, and commits nothing.
+    /// the Packages layer's slack and merge gap reads both selected
+    /// assemblies in one request with no follow-up, retains only those
+    /// entries, and commits nothing.
     /// </summary>
     [Fact]
-    public async Task RangedRealize_RealAsset_ReadsEachSelectedEntryInOneRequest()
+    public async Task RangedRealize_RealAsset_ReadsTheSelectedEntriesInOneRequest()
     {
         byte[] archive = ReadPclStorage();
         var server = new RangeFeed(PclStorage, PclStorageVersion, archive);
@@ -60,9 +61,10 @@ public sealed class PackageRangedRealizationTests
                 .Order(StringComparer.Ordinal));
         Assert.Same(content.GenerationIdentity, compile.Receipt.Generation);
 
-        // One tail read for the directory, then one request per selected
-        // entry: the slack covers the longer local extra fields.
-        Assert.Equal(1 + Net45Assemblies.Length, server.RangedRequests);
+        // One tail read for the directory, then one request for both
+        // assemblies: the merge gap bridges the XML doc between them, and the
+        // slack covers the longer local extra fields, so no follow-up.
+        Assert.Equal(2, server.RangedRequests);
         Assert.Equal(0, server.FullRequests);
         Assert.Null(store.TryGetCached(PclStorage, PclStorageVersion, null));
         using (ZipArchive oracle = new(new MemoryStream(archive)))
@@ -208,7 +210,8 @@ public sealed class PackageRangedRealizationTests
 
     /// <summary>
     /// The Packages layer maps its payload limits into the archive reader's
-    /// bounds and chooses a one-KiB entry-read slack.
+    /// bounds and chooses a one-KiB entry-read slack, a 64 KiB merge gap, and
+    /// six requests in flight.
     /// </summary>
     [Fact]
     public void RangedLimits_MapThePayloadLimits()
@@ -227,6 +230,8 @@ public sealed class PackageRangedRealizationTests
         Assert.Equal(321, mapped.MaxEntryCount);
         Assert.Equal(7_000_000, mapped.MaxExpandedBytes);
         Assert.Equal(1024, mapped.EntryReadSlack);
+        Assert.Equal(64 * 1024, mapped.EntryMergeGap);
+        Assert.Equal(6, mapped.MaxConcurrentReads);
         Assert.Equal(
             ZipFetch.ZipReadLimits.Default.MaxDirectoryBytes,
             mapped.MaxDirectoryBytes);

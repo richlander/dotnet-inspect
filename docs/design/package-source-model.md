@@ -992,6 +992,11 @@ and returns them as ranged content.
   13.0.3: none), so each entry still costs one request, while the reader's
   64 KiB maximum would add over a megabyte across the 22 entries of the
   `Avalonia` read below.
+- **Requests.** The selected entries are one
+  [batch read](package-archive-range-access.md#reading-several-entries) with
+  a 64 KiB merge gap and six requests in flight. For `Avalonia` 12.1.2 at
+  `net10.0` that is 7 requests instead of 22, for 163 KB more transfer; the
+  167 reference assemblies of a .NET reference pack are one request.
 - **Refusals fall back on the same authority.** `RangeIgnored`,
   `ArchiveChanged`, and `ArchiveUnsupported` make the step acquire the
   complete archive from that authority, exactly as without a selection. A
@@ -1027,9 +1032,9 @@ capability at this head and keep complete acquisition with their durable
 store.
 
 `PackageRangedRealizationTests` gates the lease and House contract: the real
-asset `PCLStorage` 1.0.2 realized for `net45` reads one request per selected
-entry and commits nothing
-(`RangedRealize_RealAsset_ReadsEachSelectedEntryInOneRequest`, which is
+asset `PCLStorage` 1.0.2 realized for `net45` reads both selected assemblies
+in one request with no follow-up and commits nothing
+(`RangedRealize_RealAsset_ReadsTheSelectedEntriesInOneRequest`, which is
 [range-access gate 14a](package-archive-range-access.md#pathological-cases-and-gates)),
 unselected entries refuse visibly
 (`RangedContent_UnmaterializedEntryIsVisible`), `RangeIgnored` falls back to the
