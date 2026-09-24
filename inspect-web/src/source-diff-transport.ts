@@ -98,19 +98,19 @@ export interface BrowserSourceComparisonEndpoint {
   readonly revision: string | null;
 }
 
-export interface BrowserSourceDiffCapacity {
+interface BrowserSourceDiffCapacity {
   readonly dimension: CapacityDimension;
   readonly limit: number;
   readonly actual: number;
 }
 
-export interface BrowserSourceDiffSequence {
+interface BrowserSourceDiffSequence {
   readonly label: string | null;
   readonly lines: ReadonlyArray<string>;
   readonly finalLineTerminator: Terminator;
 }
 
-export interface BrowserSourceDiffRelation {
+interface BrowserSourceDiffRelation {
   readonly kind: RelationKind;
   readonly beforeCoordinates: ReadonlyArray<number>;
   readonly afterCoordinates: ReadonlyArray<number>;
@@ -118,7 +118,7 @@ export interface BrowserSourceDiffRelation {
   readonly placement: PlacementKind | null;
 }
 
-export interface BrowserSourceDiffStatistics {
+interface BrowserSourceDiffStatistics {
   readonly added: number;
   readonly removed: number;
   readonly changedBefore: number;
@@ -127,7 +127,7 @@ export interface BrowserSourceDiffStatistics {
   readonly movedAfter: number;
 }
 
-export interface BrowserSourceDiffRange {
+interface BrowserSourceDiffRange {
   readonly start: number;
   readonly count: number;
 }
@@ -138,12 +138,12 @@ export interface BrowserSourceDiffSpan {
   readonly count: number;
 }
 
-export interface BrowserSourceDiffInnerMapping {
+interface BrowserSourceDiffInnerMapping {
   readonly before: BrowserSourceDiffSpan;
   readonly after: BrowserSourceDiffSpan;
 }
 
-export interface BrowserSourceDiffAnnotation {
+interface BrowserSourceDiffAnnotation {
   readonly text: string;
   readonly severity: Severity;
   readonly targetKind: TargetKind;
