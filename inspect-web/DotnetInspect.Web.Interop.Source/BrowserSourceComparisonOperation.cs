@@ -5,6 +5,8 @@ using DotnetInspector.Queries;
 using DotnetInspector.Sections;
 using DotnetInspect.Web;
 using DotnetInspect.Web.Interop.Source;
+using ILInspector.Metadata;
+using ILInspector.MetadataPrimitives;
 using NuGet.Versioning;
 using TsJsExport;
 
@@ -78,14 +80,6 @@ public static partial class SourceExports
                             string>.Succeeded(
                                 new BrowserSourceComparisonProjectionResult.TooComplex(
                                     error.Capacity));
-                    }
-                    catch (SourceComparisonUnavailableException error)
-                    {
-                        return new BrowserManagedOperationBodyResult<
-                            BrowserSourceComparisonProjectionResult,
-                            string,
-                            string>.Failed(
-                            error.Message, error.ToString());
                     }
                     catch (Exception error) when (error is ArgumentException or JsonException)
                     {
@@ -164,36 +158,27 @@ public static partial class SourceExports
     static async Task<BrowserSourceComparison> QueryMemberSourceComparisonCore(
         BrowserSourceComparisonRequest request, CancellationToken cancellationToken)
     {
-        await using BrowserMemberResolution.ScopedResolution before =
-            await BrowserMemberResolution.ImplementationMemberAsync(
-                request.PackageId, request.BeforeVersion, request.Framework, request.Assembly,
-                request.TypeIdentity, request.MemberName, request.SelectorKey, request.MetadataToken,
-                cancellationToken);
-        if (before.Member.Member.MetadataToken != before.Member.BodyToken)
-        {
-            throw new SourceComparisonUnavailableException(
-                "Source comparison requires a whole method declaration, not an accessor body.");
-        }
-
-        AssemblyMemberSourceRequest selected = AssemblyMemberSourceRequest.From(
-            before.Member.Type, before.Member.Member);
-        var pairRequest = new AssemblyMemberSourcePairRequest(selected.Type, selected.Member);
-
+        await using BrowserScopeLease<BrowserInspectionScope> beforeLease =
+            await BrowserPackageWorkspace.OpenScopeAsync(
+                request.PackageId, request.BeforeVersion, request.Framework, cancellationToken);
         await using BrowserScopeLease<BrowserInspectionScope> afterLease =
             await BrowserPackageWorkspace.OpenScopeAsync(
                 request.PackageId, request.AfterVersion, request.Framework, cancellationToken);
+        BrowserInspectionScope beforeScope = beforeLease.Scope;
         BrowserInspectionScope afterScope = afterLease.Scope;
-        BrowserPackageCoordinate afterCoordinate = afterScope.Coordinates[0];
-        BrowserWorkspaceParticipant after = afterScope.ImplementationParticipant(
-            afterScope.SurfaceParticipant(
-                afterCoordinate, afterCoordinate.CompileAsset(request.Assembly)));
+        SourceComparisonEndpointInput before = ResolveEndpoint(
+            beforeScope, request.Assembly, request.Before);
+        SourceComparisonEndpointInput after = ResolveEndpoint(
+            afterScope, request.Assembly, request.After);
+        var pairRequest = new AssemblyMemberSourcePairRequest(
+            before.Request, after.Request);
 
         InspectionEnvelope<AssemblyMemberSourcePairResult> inspection =
-            await before.Scope.UseImplementationParticipant(
-                before.ImplementationParticipant,
+            await beforeScope.UseImplementationParticipant(
+                before.Participant,
                 (beforeGroup, beforeParticipant) =>
                     afterScope.UseImplementationParticipant(
-                        after,
+                        after.Participant,
                         (afterGroup, afterParticipant) =>
                             MemberSourcePairInspection.ExecuteAsync(
                                 beforeGroup,
@@ -208,8 +193,38 @@ public static partial class SourceExports
         return BrowserSourceComparisonProjection.Project(
             request,
             inspection.Content,
-            before.ImplementationParticipant,
-            after);
+            before.Participant,
+            after.Participant);
+    }
+
+    static SourceComparisonEndpointInput ResolveEndpoint(
+        BrowserInspectionScope scope,
+        string assembly,
+        BrowserSourceComparisonEndpointRequest? request)
+    {
+        BrowserPackageCoordinate coordinate = scope.Coordinates[0];
+        BrowserWorkspaceParticipant surface = scope.SurfaceParticipant(
+            coordinate, coordinate.CompileAsset(assembly));
+        BrowserWorkspaceParticipant implementation =
+            scope.ImplementationParticipant(surface);
+        if (request is null)
+            return new(implementation, null);
+
+        MetadataTypeDefinitionName type =
+            MetadataTypeDefinitionName.ParseSerialized(request.TypeIdentity)
+                is MetadataTypeDefinitionNameResult.Valid valid
+                    ? valid.Name
+                    : throw new ArgumentException(
+                        "Source comparison requires an exact metadata Type identity.");
+        var anchor = new MemberAnchor(
+            request.StableSelector,
+            request.CanonicalSignature,
+            request.Fingerprint,
+            request.TypeFullName,
+            request.MemberName);
+        return new(
+            implementation,
+            new(type, anchor));
     }
 
     static void ValidateSourceComparisonRequest(BrowserSourceComparisonRequest request)
@@ -217,17 +232,30 @@ public static partial class SourceExports
         ArgumentException.ThrowIfNullOrWhiteSpace(request.PackageId);
         ArgumentException.ThrowIfNullOrWhiteSpace(request.Framework);
         ArgumentException.ThrowIfNullOrWhiteSpace(request.Assembly);
-        ArgumentException.ThrowIfNullOrWhiteSpace(request.TypeIdentity);
-        ArgumentException.ThrowIfNullOrWhiteSpace(request.MemberName);
-        ArgumentException.ThrowIfNullOrWhiteSpace(request.SelectorKey);
         if (!NuGetVersion.TryParse(request.BeforeVersion, out _)
             || !NuGetVersion.TryParse(request.AfterVersion, out _))
             throw new ArgumentException("Source comparison requires two exact package versions.");
-        if ((request.MetadataToken & unchecked((int)0xff000000)) != 0x06000000
-            || (request.MetadataToken & 0x00ffffff) == 0)
-            throw new ArgumentException("Source comparison requires a selected MethodDef.");
+        if (request.Before is null && request.After is null)
+            throw new ArgumentException(
+                "Source comparison requires at least one endpoint member.");
+        ValidateEndpoint(request.Before);
+        ValidateEndpoint(request.After);
     }
 
-    sealed class SourceComparisonUnavailableException(string message)
-        : InvalidOperationException(message);
+    static void ValidateEndpoint(
+        BrowserSourceComparisonEndpointRequest? request)
+    {
+        if (request is null)
+            return;
+        ArgumentException.ThrowIfNullOrWhiteSpace(request.TypeIdentity);
+        ArgumentException.ThrowIfNullOrWhiteSpace(request.StableSelector);
+        ArgumentException.ThrowIfNullOrWhiteSpace(request.CanonicalSignature);
+        ArgumentException.ThrowIfNullOrWhiteSpace(request.Fingerprint);
+        ArgumentException.ThrowIfNullOrWhiteSpace(request.TypeFullName);
+        ArgumentException.ThrowIfNullOrWhiteSpace(request.MemberName);
+    }
+
+    sealed record SourceComparisonEndpointInput(
+        BrowserWorkspaceParticipant Participant,
+        AssemblyMemberSourcePairEndpointRequest? Request);
 }

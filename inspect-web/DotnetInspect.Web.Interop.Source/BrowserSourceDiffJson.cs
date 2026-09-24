@@ -68,9 +68,16 @@ internal static class BrowserSourceDiffJson
         yield return request.AfterVersion;
         yield return request.Framework;
         yield return request.Assembly;
-        yield return request.TypeIdentity;
-        yield return request.MemberName;
-        yield return request.SelectorKey;
+        foreach (BrowserSourceComparisonEndpointRequest? endpoint in
+            new[] { request.Before, request.After })
+        {
+            yield return endpoint?.TypeIdentity;
+            yield return endpoint?.StableSelector;
+            yield return endpoint?.CanonicalSignature;
+            yield return endpoint?.Fingerprint;
+            yield return endpoint?.TypeFullName;
+            yield return endpoint?.MemberName;
+        }
         yield return comparison.Status;
         yield return comparison.Failure;
         yield return comparison.Diff?.Before.Label;
