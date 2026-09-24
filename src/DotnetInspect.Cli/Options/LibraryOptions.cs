@@ -105,6 +105,11 @@ public record LibraryOptions : IProjectionOptions
     /// </summary>
     public string? TypeFilter { get; init; }
 
+    /// <summary>
+    /// Exact namespace facet for the host-neutral Library Type population.
+    /// </summary>
+    public string? TypeNamespace { get; init; }
+
     /// <summary>The typed request admitted by the Library Coordinate child.</summary>
     internal LibraryCoordinateRequest? CoordinateRequest { get; init; }
 

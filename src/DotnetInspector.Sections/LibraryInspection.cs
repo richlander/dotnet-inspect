@@ -39,9 +39,17 @@ public sealed record LibraryTypeMemberCountRequest;
 /// </summary>
 public sealed record LibraryTypePopulationContinuation
 {
+    private const int MaximumEncodedValueCharacters =
+        ((27
+            + MetadataSafetyPolicy.MaxTypeNameCharacters * 3
+            + 2)
+        / 3)
+        * 4;
+
     public LibraryTypePopulationContinuation(InertString value)
     {
-        if (value.IsEmpty || value.Length > 256)
+        if (value.IsEmpty
+            || value.Length > MaximumEncodedValueCharacters)
         {
             throw new ArgumentException(
                 "A Library Type continuation must contain a bounded value.",
@@ -101,7 +109,8 @@ public sealed record LibraryTypePopulationRequest
         LibraryTypeDeclarationSelection declarationSelection =
             LibraryTypeDeclarationSelection.DefinitionsAndForwarders,
         ApiTypeInventoryKinds definitionKinds =
-            ApiTypeInventoryKinds.All)
+            ApiTypeInventoryKinds.All,
+        string? @namespace = null)
     {
         if (!Enum.IsDefined(accessibility))
         {
@@ -125,6 +134,23 @@ public sealed record LibraryTypePopulationRequest
                 nameof(definitionKinds),
                 definitionKinds,
                 "Unknown Library Type definition-kind selection.");
+        }
+        if (@namespace?.Length
+            > MetadataSafetyPolicy.MaxTypeNameCharacters)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(@namespace),
+                @namespace.Length,
+                $"A Library Type namespace cannot exceed "
+                    + $"{MetadataSafetyPolicy.MaxTypeNameCharacters} "
+                    + "characters.");
+        }
+        if (@namespace is not null
+            && !IsWellFormedUtf16(@namespace))
+        {
+            throw new ArgumentException(
+                "A Library Type namespace must contain well-formed Unicode text.",
+                nameof(@namespace));
         }
 
         bool includesDefinitions =
@@ -164,6 +190,7 @@ public sealed record LibraryTypePopulationRequest
         Accessibility = accessibility;
         DeclarationSelection = declarationSelection;
         DefinitionKinds = definitionKinds;
+        Namespace = @namespace;
         Count = count;
         Rows = rows;
     }
@@ -171,8 +198,27 @@ public sealed record LibraryTypePopulationRequest
     public LibraryTypeAccessibility Accessibility { get; }
     public LibraryTypeDeclarationSelection DeclarationSelection { get; }
     public ApiTypeInventoryKinds DefinitionKinds { get; }
+    public string? Namespace { get; }
     public LibraryTypePopulationCountRequest? Count { get; }
     public LibraryTypePopulationRowsRequest? Rows { get; }
+
+    private static bool IsWellFormedUtf16(string value)
+    {
+        for (int index = 0; index < value.Length; index++)
+        {
+            char current = value[index];
+            if (!char.IsSurrogate(current))
+                continue;
+            if (!char.IsHighSurrogate(current)
+                || index + 1 >= value.Length
+                || !char.IsLowSurrogate(value[++index]))
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
 }
 
 /// <summary>
@@ -251,7 +297,8 @@ public sealed record LibraryTypePopulationBinding(
     Guid ModuleVersionId,
     LibraryTypeAccessibility Accessibility,
     LibraryTypeDeclarationSelection DeclarationSelection,
-    ApiTypeInventoryKinds DefinitionKinds);
+    ApiTypeInventoryKinds DefinitionKinds,
+    string? Namespace);
 
 public enum LibraryTypePopulationCountUnavailableReason
 {
