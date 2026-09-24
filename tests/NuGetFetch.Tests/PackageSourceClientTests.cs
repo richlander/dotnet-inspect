@@ -534,19 +534,24 @@ public sealed partial class PackageSourceClientTests
             CancellationToken cancellationToken)
         {
             string url = request.RequestUri!.AbsoluteUri;
-            Requested.Add(url);
-            Authentication.Add(
-                request.Headers.Authorization?.Parameter);
-            Headers.Add(
-                request.Headers.ToDictionary(
-                    header => header.Key,
-                    header => header.Value.ToArray(),
-                    StringComparer.OrdinalIgnoreCase));
-            if (_responses.TryGetValue(
-                    url,
-                    out Func<HttpRequestMessage, HttpResponseMessage>? response))
+            // Ranged batch reads send concurrently; recording and scripted
+            // responses stay serialized so their order and counts hold.
+            lock (Requested)
             {
-                return Task.FromResult(response(request));
+                Requested.Add(url);
+                Authentication.Add(
+                    request.Headers.Authorization?.Parameter);
+                Headers.Add(
+                    request.Headers.ToDictionary(
+                        header => header.Key,
+                        header => header.Value.ToArray(),
+                        StringComparer.OrdinalIgnoreCase));
+                if (_responses.TryGetValue(
+                        url,
+                        out Func<HttpRequestMessage, HttpResponseMessage>? response))
+                {
+                    return Task.FromResult(response(request));
+                }
             }
 
             string? route = _routes.Keys.FirstOrDefault(

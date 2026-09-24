@@ -287,6 +287,20 @@ public static class HttpClientFactory
         return new UserAgentHandler(handler, UserAgent);
     }
 
+    /// <summary>
+    /// Creates the owned credential-free handler chain for the NuGet.org
+    /// gallery authority. It is the shared credential-free chain; the
+    /// package-source test override replaces it as it replaces every other
+    /// configured package-source transport.
+    /// </summary>
+    public static HttpMessageHandler CreateCredentialFreeGalleryHandler(
+        string sourceUrl)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(sourceUrl);
+        return _packageSourceHandlerOverride?.Invoke(sourceUrl)
+            ?? CreateCredentialFreeHandler();
+    }
+
     internal static void SetPackageSourceHandlerForTesting(
         Func<string, HttpMessageHandler>? factory) =>
         _packageSourceHandlerOverride = factory;
