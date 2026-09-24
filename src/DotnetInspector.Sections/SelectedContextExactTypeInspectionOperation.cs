@@ -107,6 +107,26 @@ public static class SelectedContextExactTypeInspectionOperation
             WorkspaceRealizationOperationLease authority,
             WorkspaceDeclarationContext context,
             SelectedContextExactTypeInspectionRequest request,
+            ApiSurfaceScope scope)
+    {
+        if (!Enum.IsDefined(scope))
+            throw new ArgumentOutOfRangeException(nameof(scope));
+        return ExecuteCore(
+            authority,
+            context,
+            request,
+            projectionLimits: null,
+            activation: null,
+            facet: null,
+            scope,
+            liveTargetConsumer: null);
+    }
+
+    public static InspectionEnvelope<SelectedContextExactTypeInspectionResult>
+        Execute(
+            WorkspaceRealizationOperationLease authority,
+            WorkspaceDeclarationContext context,
+            SelectedContextExactTypeInspectionRequest request,
             ApiSurfaceProjectionLimits projectionLimits)
     {
         ArgumentNullException.ThrowIfNull(projectionLimits);
@@ -136,6 +156,43 @@ public static class SelectedContextExactTypeInspectionOperation
             facet,
             scope,
             liveTargetConsumer: null);
+
+    public static InspectionEnvelope<SelectedContextExactTypeInspectionResult>
+        Execute(
+            InspectionWorkspace workspace,
+            CompleteWorkspaceActivation activation,
+            SelectedContextExactTypeInspectionRequest request,
+            ViewFacetId? facet = null,
+            ApiSurfaceScope scope =
+                ApiSurfaceScope.PublicWithNonPublicTypes) =>
+        ExecuteActivation(
+            workspace,
+            activation,
+            request,
+            facet,
+            scope,
+            liveTargetConsumer: null);
+
+    public static InspectionEnvelope<SelectedContextExactTypeInspectionResult>
+        ExecuteWithLiveTarget(
+            WorkspaceRealizationOperationLease authority,
+            WorkspaceDeclarationContext context,
+            SelectedContextExactTypeInspectionRequest request,
+            Action<SelectedContextExactTypeLiveTarget> liveTargetConsumer,
+            ApiSurfaceScope scope =
+                ApiSurfaceScope.PublicWithNonPublicTypes)
+    {
+        ArgumentNullException.ThrowIfNull(liveTargetConsumer);
+        return ExecuteCore(
+            authority,
+            context,
+            request,
+            projectionLimits: null,
+            activation: null,
+            facet: null,
+            scope,
+            liveTargetConsumer);
+    }
 
     public static InspectionEnvelope<SelectedContextExactTypeInspectionResult>
         ExecuteWithLiveTarget(

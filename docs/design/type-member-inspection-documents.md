@@ -6,7 +6,7 @@ This document is the normative design for **Type and Member Inspection
 Documents**, tracked by
 [#8430](https://github.com/richlander/dotnet-inspect/issues/8430).
 
-The design is proposed. The current product already has exact-Type resolution,
+The design is specified. The current product already has exact-Type resolution,
 Member inventories, DocumentationHouse queries, SourceHouse-backed source
 operations, and host-neutral envelopes, but CLI and Inspect Web still compose
 parts of those results independently.
@@ -770,7 +770,16 @@ conflict, ambiguity, unsupported declaration kinds, continuation mismatch, and
 partial completion. Harnesses must invoke product-owned subject, House, and
 QuerySpace construction rather than manufacture a repaired aggregate.
 
-All properties remain **unverified** in this design-only slice.
+The Type producer core gates
+`TypeInspection_JsonElementMembersShareRowsCountAndReceiverFacet`,
+`TypeInspection_SubjectNonSuccessDoesNotBecomeEmptyRows`,
+`TypeInspectionEnvelope_CarriesNoLiveAuthorityOrContent`, and
+`TypeInspectionMembersQueryTests` verify the step-2 Type request, document,
+Member population, receiver facet, QuerySpace route, exact attachment and
+declaration correspondence, Count/Rows agreement, selection semantics,
+resource-free handoff, and the pinned `JsonElement` 62/5/57 witness. The
+Member, House-composition, section, host-adoption, and retirement properties
+remain **unverified** until their owning slices land.
 
 ## Non-claims
 
