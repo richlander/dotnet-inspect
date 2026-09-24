@@ -538,30 +538,58 @@ public sealed record TextDiffCharacterization(
 
     /// <summary>
     /// Cuts the region texts at the pieces, recomputes each free piece's outcome from its cut
-    /// texts, joins identical pieces to a free neighbor, and merges adjacent free pieces with the
-    /// same outcome so every non-moved change is maximal.
+    /// texts, and repeats three repairs until none applies: an identical piece joins a free
+    /// neighbor; an identical piece whose neighbors are move ends is split into its Before and
+    /// After lines, placed on opposite sides of an adjacent move end (every move end has lines on
+    /// one side only, so one part can always cross it); and adjacent free pieces with the same
+    /// outcome merge, so every non-moved change is maximal.
     /// </summary>
     static ImmutableArray<TextChange> IssueChanges(RegionContext context, List<Piece> pieces)
     {
-        var free = new List<Piece>(pieces);
-        while (true)
+        var current = new List<Piece>(pieces);
+        int limit = 16 * (pieces.Count + 4);
+        for (int step = 0; step < limit; step++)
         {
-            List<(Piece Piece, TextPairCharacterization Characterization)> evaluated = Evaluate(context, free);
-            int merge = FindMerge(evaluated);
-            if (merge < 0)
-                return [.. evaluated.Select(item => ToChange(item.Piece, item.Characterization))];
+            List<(Piece Piece, TextPairCharacterization Characterization)> evaluated = Evaluate(context, current);
+            (Repair repair, int index) = FindRepair(evaluated);
+            switch (repair)
+            {
+                case Repair.None:
+                    return [.. evaluated.Select(item => ToChange(item.Piece, item.Characterization))];
 
-            Piece left = free[merge];
-            Piece right = free[merge + 1];
-            free[merge] = new Piece(
-                new TextLineRange(left.Before.Start, left.Before.Count + right.Before.Count),
-                new TextLineRange(left.After.Start, left.After.Count + right.After.Count),
-                -1);
-            free.RemoveAt(merge + 1);
+                case Repair.Merge:
+                {
+                    Piece left = current[index];
+                    Piece right = current[index + 1];
+                    current[index] = new Piece(
+                        new TextLineRange(left.Before.Start, left.Before.Count + right.Before.Count),
+                        new TextLineRange(left.After.Start, left.After.Count + right.After.Count),
+                        -1);
+                    current.RemoveAt(index + 1);
+                    break;
+                }
+
+                case Repair.Cross:
+                    current = CrossMoveEnd(current, index);
+                    break;
+            }
+
+            Renumber(current, context);
         }
+
+        throw new InvalidOperationException(
+            "Partitioning a changed region into homogeneous changes did not converge.");
     }
 
-    static int FindMerge(List<(Piece Piece, TextPairCharacterization Characterization)> evaluated)
+    enum Repair
+    {
+        None,
+        Merge,
+        Cross,
+    }
+
+    static (Repair Repair, int Index) FindRepair(
+        List<(Piece Piece, TextPairCharacterization Characterization)> evaluated)
     {
         for (int index = 0; index < evaluated.Count; index++)
         {
@@ -572,13 +600,11 @@ public sealed record TextDiffCharacterization(
             }
 
             if (index + 1 < evaluated.Count && evaluated[index + 1].Piece.Move < 0)
-                return index;
+                return (Repair.Merge, index);
             if (index > 0 && evaluated[index - 1].Piece.Move < 0)
-                return index - 1;
+                return (Repair.Merge, index - 1);
 
-            throw new ArgumentException(
-                "A region holds identical text between move ends that the producer left unmatched.",
-                "diff");
+            return (Repair.Cross, index);
         }
 
         for (int index = 0; index + 1 < evaluated.Count; index++)
@@ -587,11 +613,68 @@ public sealed record TextDiffCharacterization(
                 && evaluated[index + 1].Piece.Move < 0
                 && evaluated[index].Characterization.Outcome == evaluated[index + 1].Characterization.Outcome)
             {
-                return index;
+                return (Repair.Merge, index);
             }
         }
 
-        return -1;
+        return (Repair.None, -1);
+    }
+
+    /// <summary>
+    /// Splits the identical free piece at <paramref name="index"/> into its Before-only and
+    /// After-only parts and moves one part across an adjacent move end. A move end holds lines on
+    /// one side only, so the part whose side it lacks can cross it without breaking order.
+    /// </summary>
+    static List<Piece> CrossMoveEnd(List<Piece> pieces, int index)
+    {
+        Piece piece = pieces[index];
+        var beforePart = new Piece(piece.Before, new TextLineRange(piece.After.Start, 0), -1);
+        var afterPart = new Piece(new TextLineRange(piece.Before.End, 0), piece.After, -1);
+        var result = new List<Piece>(pieces);
+        result.RemoveAt(index);
+
+        if (index > 0)
+        {
+            // Cross the left neighbor: a Before-only part passes an addition end; an After-only
+            // part passes a removal end.
+            Piece left = result[index - 1];
+            bool leftIsAddition = left.Before.Count == 0;
+            Piece crossing = leftIsAddition ? beforePart : afterPart;
+            Piece staying = leftIsAddition ? afterPart : beforePart;
+            result.Insert(index, staying);
+            result.Insert(index - 1, crossing);
+        }
+        else
+        {
+            // Cross the right neighbor in the same way.
+            Piece right = result[0];
+            bool rightIsAddition = right.Before.Count == 0;
+            Piece crossing = rightIsAddition ? beforePart : afterPart;
+            Piece staying = rightIsAddition ? afterPart : beforePart;
+            result.Insert(1, crossing);
+            result.Insert(0, staying);
+        }
+
+        result.RemoveAll(part => part.Move < 0 && part.Before.Count == 0 && part.After.Count == 0);
+        return result;
+    }
+
+    /// <summary>Recomputes the start of every zero-line side from the running cursor.</summary>
+    static void Renumber(List<Piece> pieces, RegionContext context)
+    {
+        int before = context.Before.Start;
+        int after = context.After.Start;
+        for (int index = 0; index < pieces.Count; index++)
+        {
+            Piece piece = pieces[index];
+            pieces[index] = piece with
+            {
+                Before = piece.Before.Count == 0 ? new TextLineRange(before, 0) : piece.Before,
+                After = piece.After.Count == 0 ? new TextLineRange(after, 0) : piece.After,
+            };
+            before += piece.Before.Count;
+            after += piece.After.Count;
+        }
     }
 
     static List<(Piece Piece, TextPairCharacterization Characterization)> Evaluate(

@@ -317,7 +317,10 @@ Each change receives exactly one outcome:
 | `Moved` | The change is exactly one end of a move, as [Text move characterization](text-move-characterization.md) defines it. Movement is never whitespace. |
 
 A change whose texts are ordinal-equal is never issued alone. It joins a
-neighboring change, and the outcome of the joined change is recomputed.
+neighboring change, and the outcome of the joined change is recomputed. When
+both of its neighbors are move ends, it is split into its Before lines and its
+After lines, placed on opposite sides of an adjacent move end. A move end holds
+lines on one side only, so one part can always cross it.
 
 Each region first receives a deterministic *region outcome* from its own
 texts. It is `WhitespaceOnly` when the region texts differ whitespace-only and

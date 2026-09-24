@@ -344,6 +344,65 @@ public class TextDiffCharacterizationTests
     }
 
     [Fact]
+    public void AdjacentEndsOfDifferentMoves_AreSeparateMovedChanges()
+    {
+        var result = Characterize(
+            "A\nB\nC\nD\nx1\nx2\nx3\ny1\ny2\ny3\n",
+            "x1\nx2\nx3\nA\nB\ny1\ny2\ny3\nC\nD\n");
+
+        Assert.Equal(2, result.Moves.Length);
+        TextChange[] first = result.Regions[0].Changes.ToArray();
+        Assert.Equal(2, first.Length);
+        Assert.All(first, change => Assert.Equal(TextChangeOutcome.Moved, change.Outcome));
+        Assert.NotEqual(first[0].MoveId, first[1].MoveId);
+    }
+
+    [Fact]
+    public void AmbiguousSource_ChoosesDeterministically()
+    {
+        const string before = "A\nB\nx\ny\nz\nA\nB\nw\n";
+        const string after = "x\ny\nz\nA\nB\nw\nA\nB\n";
+
+        var first = Characterize(before, after);
+        var second = Characterize(before, after);
+
+        Assert.Equal(first.Moves.Select(move => (move.Before, move.After)), second.Moves.Select(move => (move.Before, move.After)));
+    }
+
+    [Fact]
+    public void SwappedLines_WithAMovedIssuingProducer_AreMovedChanges()
+    {
+        var diff = new AnalysisDiff<string>(
+            ["a", "b"],
+            ["b", "a"],
+            [
+                new AnalysisDiffRelation.Correspondence([1], [0], AnalysisDiffContentKind.Unchanged, AnalysisDiffPlacementKind.Stable),
+                new AnalysisDiffRelation.Correspondence([0], [1], AnalysisDiffContentKind.Unchanged, AnalysisDiffPlacementKind.Moved),
+            ]);
+
+        TextDiffCharacterization result = TextDiffCharacterization.Create(diff, "a\nb", "b\na");
+        TextDiffCharacterizationValidator.Validate(result, diff, "a\nb", "b\na");
+
+        Assert.Equal(TextDocumentOutcome.Changed, result.Summary);
+        Assert.Single(result.Moves);
+        Assert.All(
+            result.Regions.SelectMany(region => region.Changes),
+            change => Assert.Equal(TextChangeOutcome.Moved, change.Outcome));
+    }
+
+    [Fact]
+    public void IdenticalPieceBetweenMoveEnds_IsSplitAcrossAMoveEnd()
+    {
+        // Round 1 review repro: the greedy partition paired identical free lines between two move
+        // ends; the characterizer must place them on opposite sides of a move end instead.
+        var result = Characterize(
+            "}\nfoo(a,  b);\nfoo(a, b);\n    }\n}\n}\n\nreturn;",
+            "\nreturn;\n}\n}\n    }\nfoo(a, b);\nfoo(a,  b);");
+
+        Assert.Equal(2, result.Moves.Length);
+    }
+
+    [Fact]
     public void BracesOnly_IsAMove()
         => Assert.Single(Characterize("}\n}\nx\ny\nz\n", "x\ny\nz\n}\n}\n").Moves);
 
@@ -380,11 +439,17 @@ public class TextDiffCharacterizationTests
 
         var result = Characterize(before, after);
 
-        Assert.NotEmpty(result.Moves);
-        Assert.Contains(
-            result.Moves,
-            move => move.Content == TextMoveContent.Unchanged
-                && Lines(before, move.Before).Any(line => line.Contains("PrimitiveTypeCode.String", StringComparison.Ordinal)));
+        // Exactly the String, Decimal, and Uri case pairs relocate, each unchanged.
+        Assert.Equal([1, 2, 3], result.Moves.Select(move => move.Id));
+        Assert.All(result.Moves, move =>
+        {
+            Assert.Equal(TextMoveContent.Unchanged, move.Content);
+            Assert.Equal(2, move.Before.Count);
+        });
+        string[] relocated = [.. result.Moves.Select(move => Lines(before, move.Before).First().Trim())];
+        Assert.Equivalent(
+            new[] { "case PrimitiveTypeCode.String:", "case PrimitiveTypeCode.Decimal:", "case PrimitiveTypeCode.Uri:" },
+            relocated);
     }
 
     // ---- Exhaustive small-text sweep ----
@@ -414,6 +479,39 @@ public class TextDiffCharacterizationTests
                 TextDiffCharacterizationValidator.Validate(result, diff, before, after);
             }
         }
+    }
+
+    [Fact]
+    public void PermutationSweep_EveryCharacterizationValidates()
+    {
+        // Moves need two-line blocks, which the three-line sweep can't form; permutations of a
+        // C#-shaped body with duplicated braces, re-indented blocks, and blank lines reach the
+        // partition's move-end orderings.
+        string[] lines =
+        [
+            "}", "foo(a,  b);", "foo(a, b);", "    }", "}", "\t}", "", "return;", "    foo(a, b);",
+        ];
+        var random = new Random(8448);
+        for (int iteration = 0; iteration < 4000; iteration++)
+        {
+            string[] before = Shuffle(lines, random).Take(random.Next(2, lines.Length + 1)).ToArray();
+            string[] after = Shuffle(before, random);
+            if (random.Next(3) == 0)
+                after = [.. after.Select(line => random.Next(4) == 0 ? "  " + line : line)];
+
+            string beforeText = string.Join(random.Next(2) == 0 ? "\n" : "\r\n", before) + (random.Next(2) == 0 ? "\n" : "");
+            string afterText = string.Join("\n", after) + (random.Next(2) == 0 ? "\n" : "");
+            AnalysisDiff<string> diff = TextFindings.CreateAnalysisDiff(beforeText, afterText, Subject);
+            TextDiffCharacterization result = TextDiffCharacterization.Create(diff, beforeText, afterText);
+            TextDiffCharacterizationValidator.Validate(result, diff, beforeText, afterText);
+        }
+    }
+
+    static string[] Shuffle(string[] items, Random random)
+    {
+        string[] copy = [.. items];
+        random.Shuffle(copy);
+        return copy;
     }
 
     static IEnumerable<string[]> Sequences(string[] alphabet, int maxLength)

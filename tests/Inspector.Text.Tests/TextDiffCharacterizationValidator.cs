@@ -57,6 +57,44 @@ static class TextDiffCharacterizationValidator
 
         Require(characterization.Regions.Length == expectedRegions.Count, "region count differs");
 
+        // Moves come from the diff: maximal runs of Moved correspondences, contiguous and in
+        // order on both sides, that hold at least one non-whitespace character.
+        var movedRuns = new List<(int B0, int BN, int A0, int AN)>();
+        foreach (var relation in diff.Relations
+            .OfType<AnalysisDiffRelation.Correspondence>()
+            .Where(relation => relation.Placement == AnalysisDiffPlacementKind.Moved)
+            .OrderBy(relation => relation.BeforeCoordinates.Min()))
+        {
+            int b0 = relation.BeforeCoordinates.Min();
+            int a0 = relation.AfterCoordinates.Min();
+            int bn = relation.BeforeCoordinates.Length;
+            int an = relation.AfterCoordinates.Length;
+            if (movedRuns.Count > 0
+                && movedRuns[^1].B0 + movedRuns[^1].BN == b0
+                && movedRuns[^1].A0 + movedRuns[^1].AN == a0)
+            {
+                var last = movedRuns[^1];
+                movedRuns[^1] = (last.B0, last.BN + bn, last.A0, last.AN + an);
+            }
+            else
+            {
+                movedRuns.Add((b0, bn, a0, an));
+            }
+        }
+
+        var expectedMoves = movedRuns
+            .Where(run =>
+                Enumerable.Range(run.B0, run.BN).Any(line => Strip(before.Content(line)).Length > 0)
+                || Enumerable.Range(run.A0, run.AN).Any(line => Strip(after.Content(line)).Length > 0))
+            .Select(run => (Before: new TextLineRange(run.B0, run.BN), After: new TextLineRange(run.A0, run.AN)))
+            .OrderBy(run => run.Before.Start)
+            .ToList();
+        var issuedMoves = characterization.Moves
+            .Select(move => (move.Before, move.After))
+            .OrderBy(run => run.Before.Start)
+            .ToList();
+        Require(expectedMoves.SequenceEqual(issuedMoves), "moves are exactly the diff's moved runs with content");
+
         var moveEndsBefore = characterization.Moves.ToDictionary(move => move.Id, move => move.Before);
         var moveEndsAfter = characterization.Moves.ToDictionary(move => move.Id, move => move.After);
         var seenMoveIds = new List<int>();
