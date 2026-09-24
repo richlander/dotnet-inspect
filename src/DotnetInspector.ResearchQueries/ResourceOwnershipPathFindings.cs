@@ -444,15 +444,19 @@ public static class ResourceOwnershipPathFindings
             ResourceOwnershipMethodSummary[] exact =
             [
                 .. node.GraphEvidence
-                    .Where(evidence =>
-                        evidence.Storage.Kind
-                            == GraphNodeStorageKind.Definition)
-                    .SelectMany(graphEvidence =>
+                    .Select(static evidence =>
+                        evidence.DefinitionStorage
+                        ?? (evidence.Storage.Kind
+                                == GraphNodeStorageKind.Definition
+                            ? evidence.Storage
+                            : null))
+                    .OfType<GraphNodeStorageKey>()
+                    .SelectMany(storage =>
                         graphView.ResourceOwnershipSummaries.Where(summary =>
                             summary.Method.ModuleVersionId
-                                == graphEvidence.Storage.ModuleVersionId
+                                == storage.ModuleVersionId
                             && summary.Method.MetadataToken
-                                == graphEvidence.Storage.MethodToken))
+                                == storage.MethodToken))
                     .Distinct(),
             ];
             if (exact.Length == 1)

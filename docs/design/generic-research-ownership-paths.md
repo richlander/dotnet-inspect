@@ -95,10 +95,10 @@ For each selected resource kind, Research carries:
 - path-local summary completeness.
 
 At each forwarding step, Research resolves exactly one callee definition body
-using the graph node's physical definition storage and then selects the
-incoming-parameter flow named by the forwarding use. It never borrows a
-same-shaped body from another image. Missing or ambiguous definition evidence
-is incomplete.
+using the graph evidence's exact `DefinitionStorage`, or primary storage when
+that storage is itself a definition, and then selects the incoming-parameter
+flow named by the forwarding use. It never borrows a same-shaped body from
+another image. Missing or ambiguous definition evidence is incomplete.
 
 Research carries the physical call site's method generic arguments across each
 forwarding step. Before selecting a typed terminal use, it substitutes the

@@ -671,6 +671,28 @@ public sealed class MemberCallGraphSessionTests
             graph.BuildCounts);
         Assert.Equal(1, context.Sources[0].OpenCount);
         Assert.Equal(0, context.Sources[1].OpenCount);
+
+        MemberCallGraphView crossLibraryView = graph.CrossLibrary();
+        var crossLibrary =
+            Assert.IsType<AnnotatedMemberDocumentResult.Complete>(
+                AnnotatedMemberDocumentQuery.Execute(
+                    new AnnotatedMemberDocumentInput(
+                        source,
+                        crossLibraryView)));
+        Finding<ResourceOwnershipPathWitness> crossLibraryFinding =
+            Assert.Single(
+                crossLibrary.Document.CallGraph.Ownership.Findings);
+        Assert.Equal(finding.Key, crossLibraryFinding.Key);
+        Assert.Equal(
+            ResourceOwnershipPathOutcome.Released,
+            crossLibraryFinding.Payload.Outcome);
+        Assert.True(crossLibraryFinding.Payload.IsComplete);
+        Assert.Equal(
+            new MemberCallGraphBuildCounts(1, 1, 1),
+            graph.BuildCounts);
+        Assert.All(
+            context.Sources,
+            participant => Assert.Equal(1, participant.OpenCount));
     }
 
     [Theory]
