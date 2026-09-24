@@ -27,7 +27,8 @@ public sealed class PackagePayloadAcquisitionPlan
         PackagePayloadLimits? limits = null,
         IPackagePayloadTransferPolicy? transferPolicy = null,
         Action<string>? log = null,
-        PackagePayloadAccess access = PackagePayloadAccess.Complete)
+        PackagePayloadAccess access = PackagePayloadAccess.Complete,
+        long rangedSizeCut = PackageRangedRead.DefaultSizeCut)
     {
         ArgumentNullException.ThrowIfNull(getStore);
         if (!Enum.IsDefined(access))
@@ -37,6 +38,8 @@ public sealed class PackagePayloadAcquisitionPlan
         TransferPolicy = transferPolicy;
         Log = log;
         Access = access;
+        ArgumentOutOfRangeException.ThrowIfNegative(rangedSizeCut);
+        RangedSizeCut = rangedSizeCut;
     }
 
     public PackagePayloadLimits? Limits { get; }
@@ -50,6 +53,12 @@ public sealed class PackagePayloadAcquisitionPlan
     /// requires a Realize operation, whose selection bounds the read.
     /// </summary>
     public PackagePayloadAccess Access { get; }
+
+    /// <summary>
+    /// Under ranged access, archives at or under this advertised length are
+    /// acquired complete and cached; larger ones are read by range.
+    /// </summary>
+    public long RangedSizeCut { get; }
 
     /// <summary>
     /// Gets the caller-owned store for one authority and producer.

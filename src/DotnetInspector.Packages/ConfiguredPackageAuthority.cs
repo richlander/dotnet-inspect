@@ -223,11 +223,26 @@ internal sealed class ConfiguredPackageAuthorityKey :
         [NotNullWhen(true)] out string? value)
     {
         value = null;
-        if (source.Credential is not null
-            || LocalIdentity is not { } local)
+        if (source.Credential is not null)
             return false;
+        if (LocalIdentity is { } local)
+        {
+            value = $"local:{local.PersistentValue}";
+            return true;
+        }
 
-        value = $"local:{local.PersistentValue}";
-        return true;
+        // A credential-free HTTP authority is durable too
+        // (docs/design/package-cache-policy.md). The key is a digest of the
+        // canonical endpoint, so path- and query-distinct endpoints stay
+        // distinct and no endpoint text reaches a path.
+        if (Kind == ConfiguredPackageAuthorityKind.Http
+            && HttpEndpoint is { } endpoint
+            && string.IsNullOrEmpty(endpoint.UserInfo))
+        {
+            value = $"http:{_value}";
+            return true;
+        }
+
+        return false;
     }
 }
