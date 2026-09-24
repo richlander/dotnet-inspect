@@ -10,4 +10,5 @@ public sealed record SectionQueryKey(
     string ValueKind,
     ImmutableArray<string> Values,
     string Example,
-    string? ExecutionClass = null);
+    string? ExecutionClass = null,
+    string? ResourcePath = null);

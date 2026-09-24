@@ -97,6 +97,39 @@ public class PackageQueryCliTests
             "metadata",
             PackageQueryOptions.QueryKeys.Single(key =>
                 key.Name == PackageQuery.ReferencesTermKey).ExecutionClass);
+        Assert.Equal(
+            PackageQueryCapabilityResourcePaths
+                .QueryFacet(PackageQuery.LibraryLiteralTermKey)
+                .Value,
+            PackageQueryOptions.QueryKeys.Single(key =>
+                key.Name == PackageQuery.LibraryLiteralTermKey)
+                .ResourcePath);
+    }
+
+    [Fact]
+    public void ProductionBindingUsesTheRegisteredPackageQueryRoute()
+    {
+        InspectionCapabilityCatalog catalog =
+            InspectionCapabilityCatalog.Create(
+                [
+                    PackageQueryCapability.ProductModule,
+                    PackageQueryCommandCapability.Module,
+                ]);
+
+        Assert.Same(
+            PackageQueryCapability.Route,
+            PackageQueryCommandCapability.Binding.Route);
+        Assert.Same(
+            PackageQueryCommandCapability.Binding,
+            Assert.Single(catalog.Bindings));
+        Assert.Equal(
+            InspectionConsumerKind.Browser,
+            Assert.Single(catalog.AdoptionGaps).ConsumerKind);
+        Assert.Contains(
+            PackageQueryCommandCapability.Binding.ExposedQueryTerms,
+            identity =>
+                identity
+                == "package-query.term.library-literal");
     }
 
     [Fact]

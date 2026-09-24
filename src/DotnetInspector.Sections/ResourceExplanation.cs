@@ -9,6 +9,9 @@ public enum ResourceExplanationOwner
 {
     ResourceExplanation,
     SchemaQuery,
+    InspectionCapabilityComposition,
+    QuerySpace,
+    Consumer,
 }
 
 [JsonConverter(typeof(JsonStringEnumConverter<ResourceExplanationResourceKind>))]
@@ -19,6 +22,11 @@ public enum ResourceExplanationResourceKind
     StructuralCategory,
     StructuralSection,
     StructuralItem,
+    InspectionDocument,
+    HostNeutralRoute,
+    QuerySpace,
+    QueryFacet,
+    ConsumerBinding,
 }
 
 [JsonConverter(typeof(JsonStringEnumConverter<ResourceExplanationNavigationCollectionKind>))]
@@ -38,6 +46,13 @@ public enum ResourceExplanationRelationshipKind
     CollectionMember,
     CategoryMember,
     StructuralItem,
+    Produces,
+    Route,
+    QuerySurface,
+    QueryFacet,
+    ConsumerBinding,
+    Invokes,
+    RequiredContext,
 }
 
 [JsonConverter(typeof(JsonStringEnumConverter<ResourceExplanationCompleteness>))]
@@ -177,6 +192,9 @@ public sealed class ResourcePathJsonConverter : JsonConverter<ResourcePath>
 [JsonDerivedType(
     typeof(ResourceExplanationIdentity.Structural),
     "structural")]
+[JsonDerivedType(
+    typeof(ResourceExplanationIdentity.Capability),
+    "capability")]
 public abstract record ResourceExplanationIdentity
 {
     private ResourceExplanationIdentity()
@@ -293,6 +311,33 @@ public abstract record ResourceExplanationIdentity
         public override ResourceExplanationOwner Owner =>
             ResourceExplanationOwner.SchemaQuery;
     }
+
+    public sealed record Capability : ResourceExplanationIdentity
+    {
+        public Capability(InspectionCapabilityResourceIdentity resource)
+        {
+            Resource = resource
+                ?? throw new ArgumentNullException(nameof(resource));
+        }
+
+        public InspectionCapabilityResourceIdentity Resource { get; }
+
+        public override ResourceExplanationOwner Owner =>
+            Resource.Kind switch
+            {
+                InspectionCapabilityResourceKind.Document
+                    or InspectionCapabilityResourceKind.Route =>
+                    ResourceExplanationOwner
+                        .InspectionCapabilityComposition,
+                InspectionCapabilityResourceKind.QuerySpace
+                    or InspectionCapabilityResourceKind.QueryFacet =>
+                    ResourceExplanationOwner.QuerySpace,
+                InspectionCapabilityResourceKind.ConsumerBinding =>
+                    ResourceExplanationOwner.Consumer,
+                _ => throw new InvalidOperationException(
+                    "Unknown inspection capability resource kind."),
+            };
+    }
 }
 
 public sealed record StructuralResourcePathRegistration
@@ -307,6 +352,63 @@ public sealed record StructuralResourcePathRegistration
     }
 
     public DiscoveryResourceIdentity Identity { get; }
+
+    public ResourcePath Path { get; }
+}
+
+public enum InspectionCapabilityResourceKind
+{
+    Document,
+    Route,
+    QuerySpace,
+    QueryFacet,
+    ConsumerBinding,
+}
+
+public sealed record InspectionCapabilityResourceIdentity
+{
+    public InspectionCapabilityResourceIdentity(
+        InspectionCapabilityResourceKind kind,
+        string identity,
+        string? parentIdentity = null)
+    {
+        if (!Enum.IsDefined(kind))
+            throw new ArgumentOutOfRangeException(nameof(kind));
+        ArgumentException.ThrowIfNullOrWhiteSpace(identity);
+        if (parentIdentity is not null)
+            ArgumentException.ThrowIfNullOrWhiteSpace(parentIdentity);
+        if ((kind == InspectionCapabilityResourceKind.QueryFacet)
+            != (parentIdentity is not null))
+        {
+            throw new ArgumentException(
+                "Only query-facet identities require a parent query-space "
+                + "identity.",
+                nameof(parentIdentity));
+        }
+        Kind = kind;
+        Identity = identity;
+        ParentIdentity = parentIdentity;
+    }
+
+    public InspectionCapabilityResourceKind Kind { get; }
+
+    public string Identity { get; }
+
+    public string? ParentIdentity { get; }
+}
+
+public sealed record InspectionCapabilityResourcePathRegistration
+{
+    public InspectionCapabilityResourcePathRegistration(
+        InspectionCapabilityResourceIdentity identity,
+        ResourcePath path)
+    {
+        Identity = identity
+            ?? throw new ArgumentNullException(nameof(identity));
+        Path = path ?? throw new ArgumentNullException(nameof(path));
+    }
+
+    public InspectionCapabilityResourceIdentity Identity { get; }
 
     public ResourcePath Path { get; }
 }
@@ -327,6 +429,21 @@ public sealed record StructuralResourcePathRegistration
 [JsonDerivedType(
     typeof(ResourceExplanationDetail.StructuralItemDetails),
     "structuralItem")]
+[JsonDerivedType(
+    typeof(ResourceExplanationDetail.InspectionDocumentDetails),
+    "inspectionDocument")]
+[JsonDerivedType(
+    typeof(ResourceExplanationDetail.HostNeutralRouteDetails),
+    "hostNeutralRoute")]
+[JsonDerivedType(
+    typeof(ResourceExplanationDetail.QuerySpaceDetails),
+    "querySpace")]
+[JsonDerivedType(
+    typeof(ResourceExplanationDetail.QueryFacetDetails),
+    "queryFacet")]
+[JsonDerivedType(
+    typeof(ResourceExplanationDetail.ConsumerBindingDetails),
+    "consumerBinding")]
 public abstract record ResourceExplanationDetail
 {
     private ResourceExplanationDetail()
@@ -428,6 +545,192 @@ public abstract record ResourceExplanationDetail
         public string ItemKind { get; }
     }
 
+    public sealed record InspectionDocumentDetails :
+        ResourceExplanationDetail
+    {
+        public InspectionDocumentDetails(
+            string identity,
+            string name,
+            string summary,
+            string resultContract)
+        {
+            ArgumentException.ThrowIfNullOrWhiteSpace(identity);
+            ArgumentException.ThrowIfNullOrWhiteSpace(name);
+            ArgumentException.ThrowIfNullOrWhiteSpace(summary);
+            ArgumentException.ThrowIfNullOrWhiteSpace(resultContract);
+            Identity = identity;
+            Name = name;
+            Summary = summary;
+            ResultContract = resultContract;
+        }
+
+        public string Identity { get; }
+
+        public override string Name { get; }
+
+        public string Summary { get; }
+
+        public string ResultContract { get; }
+    }
+
+    public sealed record HostNeutralRouteDetails :
+        ResourceExplanationDetail
+    {
+        public HostNeutralRouteDetails(
+            string identity,
+            string name,
+            string summary,
+            string subjectRole,
+            string resultGrain,
+            string profile,
+            string resultContract)
+        {
+            ArgumentException.ThrowIfNullOrWhiteSpace(identity);
+            ArgumentException.ThrowIfNullOrWhiteSpace(name);
+            ArgumentException.ThrowIfNullOrWhiteSpace(summary);
+            ArgumentException.ThrowIfNullOrWhiteSpace(subjectRole);
+            ArgumentException.ThrowIfNullOrWhiteSpace(resultGrain);
+            ArgumentException.ThrowIfNullOrWhiteSpace(profile);
+            ArgumentException.ThrowIfNullOrWhiteSpace(resultContract);
+            Identity = identity;
+            Name = name;
+            Summary = summary;
+            SubjectRole = subjectRole;
+            ResultGrain = resultGrain;
+            Profile = profile;
+            ResultContract = resultContract;
+        }
+
+        public string Identity { get; }
+
+        public override string Name { get; }
+
+        public string Summary { get; }
+
+        public string SubjectRole { get; }
+
+        public string ResultGrain { get; }
+
+        public string Profile { get; }
+
+        public string ResultContract { get; }
+    }
+
+    public sealed record QuerySpaceDetails :
+        ResourceExplanationDetail
+    {
+        public QuerySpaceDetails(
+            string identity,
+            string name,
+            string summary,
+            int facetCount)
+        {
+            ArgumentException.ThrowIfNullOrWhiteSpace(identity);
+            ArgumentException.ThrowIfNullOrWhiteSpace(name);
+            ArgumentException.ThrowIfNullOrWhiteSpace(summary);
+            ArgumentOutOfRangeException.ThrowIfNegative(facetCount);
+            Identity = identity;
+            Name = name;
+            Summary = summary;
+            FacetCount = facetCount;
+        }
+
+        public string Identity { get; }
+
+        public override string Name { get; }
+
+        public string Summary { get; }
+
+        public int FacetCount { get; }
+    }
+
+    public sealed record QueryFacetDetails :
+        ResourceExplanationDetail
+    {
+        public QueryFacetDetails(
+            string identity,
+            string key,
+            string name,
+            string summary,
+            IEnumerable<string> operators,
+            string valueKind,
+            IEnumerable<string> values,
+            IEnumerable<string> effects)
+        {
+            ArgumentException.ThrowIfNullOrWhiteSpace(identity);
+            ArgumentException.ThrowIfNullOrWhiteSpace(key);
+            ArgumentException.ThrowIfNullOrWhiteSpace(name);
+            ArgumentException.ThrowIfNullOrWhiteSpace(summary);
+            ArgumentException.ThrowIfNullOrWhiteSpace(valueKind);
+            Identity = identity;
+            Key = key;
+            Name = name;
+            Summary = summary;
+            Operators = NormalizeValues(operators, nameof(operators));
+            ValueKind = valueKind;
+            Values = NormalizeValues(values, nameof(values));
+            Effects = NormalizeValues(effects, nameof(effects));
+        }
+
+        public string Identity { get; }
+
+        public string Key { get; }
+
+        public override string Name { get; }
+
+        public string Summary { get; }
+
+        public ImmutableArray<string> Operators { get; }
+
+        public string ValueKind { get; }
+
+        public ImmutableArray<string> Values { get; }
+
+        public ImmutableArray<string> Effects { get; }
+    }
+
+    public sealed record ConsumerBindingDetails :
+        ResourceExplanationDetail
+    {
+        public ConsumerBindingDetails(
+            string identity,
+            string name,
+            string summary,
+            InspectionConsumerKind consumerKind,
+            string gesture,
+            int exposedFacetCount)
+        {
+            ArgumentException.ThrowIfNullOrWhiteSpace(identity);
+            ArgumentException.ThrowIfNullOrWhiteSpace(name);
+            ArgumentException.ThrowIfNullOrWhiteSpace(summary);
+            if (!Enum.IsDefined(consumerKind))
+            {
+                throw new ArgumentOutOfRangeException(
+                    nameof(consumerKind));
+            }
+            ArgumentException.ThrowIfNullOrWhiteSpace(gesture);
+            ArgumentOutOfRangeException.ThrowIfNegative(exposedFacetCount);
+            Identity = identity;
+            Name = name;
+            Summary = summary;
+            ConsumerKind = consumerKind;
+            Gesture = gesture;
+            ExposedFacetCount = exposedFacetCount;
+        }
+
+        public string Identity { get; }
+
+        public override string Name { get; }
+
+        public string Summary { get; }
+
+        public InspectionConsumerKind ConsumerKind { get; }
+
+        public string Gesture { get; }
+
+        public int ExposedFacetCount { get; }
+    }
+
     private static ImmutableArray<DiscoveryOutputMode> NormalizeOutputModes(
         ImmutableArray<DiscoveryOutputMode> outputModes)
     {
@@ -438,6 +741,29 @@ public abstract record ResourceExplanationDetail
             throw new ArgumentException(
                 "Explanation output modes must be unique.",
                 nameof(outputModes));
+        }
+        return normalized;
+    }
+
+    private static ImmutableArray<string> NormalizeValues(
+        IEnumerable<string> values,
+        string parameterName)
+    {
+        ArgumentNullException.ThrowIfNull(values);
+        ImmutableArray<string> normalized =
+        [
+            .. values.Select(value =>
+            {
+                ArgumentException.ThrowIfNullOrWhiteSpace(value);
+                return value;
+            }),
+        ];
+        if (normalized.Distinct(StringComparer.Ordinal).Count()
+            != normalized.Length)
+        {
+            throw new ArgumentException(
+                "Explanation values must be unique.",
+                parameterName);
         }
         return normalized;
     }
@@ -507,6 +833,46 @@ public sealed record ResourceExplanationResource
                 },
                 ResourceExplanationResourceKind.StructuralItem,
                 ResourceExplanationDetail.StructuralItemDetails) => true,
+            (
+                ResourceExplanationIdentity.Capability
+                {
+                    Resource.Kind:
+                        InspectionCapabilityResourceKind.Document,
+                },
+                ResourceExplanationResourceKind.InspectionDocument,
+                ResourceExplanationDetail.InspectionDocumentDetails) => true,
+            (
+                ResourceExplanationIdentity.Capability
+                {
+                    Resource.Kind:
+                        InspectionCapabilityResourceKind.Route,
+                },
+                ResourceExplanationResourceKind.HostNeutralRoute,
+                ResourceExplanationDetail.HostNeutralRouteDetails) => true,
+            (
+                ResourceExplanationIdentity.Capability
+                {
+                    Resource.Kind:
+                        InspectionCapabilityResourceKind.QuerySpace,
+                },
+                ResourceExplanationResourceKind.QuerySpace,
+                ResourceExplanationDetail.QuerySpaceDetails) => true,
+            (
+                ResourceExplanationIdentity.Capability
+                {
+                    Resource.Kind:
+                        InspectionCapabilityResourceKind.QueryFacet,
+                },
+                ResourceExplanationResourceKind.QueryFacet,
+                ResourceExplanationDetail.QueryFacetDetails) => true,
+            (
+                ResourceExplanationIdentity.Capability
+                {
+                    Resource.Kind:
+                        InspectionCapabilityResourceKind.ConsumerBinding,
+                },
+                ResourceExplanationResourceKind.ConsumerBinding,
+                ResourceExplanationDetail.ConsumerBindingDetails) => true,
             _ => false,
         };
         if (!valid)

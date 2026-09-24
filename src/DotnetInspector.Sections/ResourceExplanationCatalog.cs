@@ -1,4 +1,7 @@
 using System.Collections.Immutable;
+using QuerySpace;
+using QuerySpace.Composition;
+using QuerySpace.Operations;
 
 namespace DotnetInspector.Sections;
 
@@ -468,6 +471,275 @@ public sealed class ResourceExplanationCatalog
         return Create(resources, relationships);
     }
 
+    public static ResourceExplanationCatalog CreateCapabilities(
+        InspectionCapabilityCatalog catalog,
+        IEnumerable<InspectionCapabilityResourcePathRegistration>
+            registrations)
+    {
+        ArgumentNullException.ThrowIfNull(catalog);
+        ArgumentNullException.ThrowIfNull(registrations);
+
+        ImmutableArray<InspectionCapabilityResourcePathRegistration>
+            registrationArray = [.. registrations];
+        IReadOnlyDictionary<
+            InspectionCapabilityResourceIdentity,
+            ResourcePath> paths =
+                IndexCapabilityPaths(registrationArray);
+        var resources = new List<ResourceExplanationResource>();
+        var relationships =
+            new List<ResourceExplanationRelationship>();
+        var identities =
+            new Dictionary<
+                InspectionCapabilityResourceIdentity,
+                ResourceExplanationIdentity.Capability>();
+
+        foreach (InspectionDocumentRegistration document
+                 in catalog.Documents)
+        {
+            InspectionCapabilityResourceIdentity resourceIdentity =
+                DocumentIdentity(document);
+            AddCapabilityResource(
+                resources,
+                identities,
+                paths,
+                resourceIdentity,
+                ResourceExplanationResourceKind.InspectionDocument,
+                new ResourceExplanationDetail.InspectionDocumentDetails(
+                    document.Descriptor.Identity,
+                    document.Descriptor.Name,
+                    document.Descriptor.Summary,
+                    document.Descriptor.ResultContract));
+        }
+
+        foreach (InspectionRouteRegistration route in catalog.Routes)
+        {
+            QuerySpaceOperationScopeDescriptor operation =
+                route.QuerySpace.Descriptor.Operation;
+            InspectionCapabilityResourceIdentity resourceIdentity =
+                RouteIdentity(route);
+            AddCapabilityResource(
+                resources,
+                identities,
+                paths,
+                resourceIdentity,
+                ResourceExplanationResourceKind.HostNeutralRoute,
+                new ResourceExplanationDetail.HostNeutralRouteDetails(
+                    route.Descriptor.Identity,
+                    route.Descriptor.Name,
+                    route.Descriptor.Summary,
+                    operation.SubjectRole,
+                    operation.ResultGrain,
+                    operation.Profile,
+                    route.Document.Descriptor.ResultContract));
+        }
+
+        QuerySpaceBinding[] querySpaces =
+        [
+            .. catalog.Routes
+                .Select(static route => route.QuerySpace)
+                .DistinctBy(
+                    static querySpace =>
+                        querySpace.Descriptor.Identity,
+                    StringComparer.Ordinal),
+        ];
+        foreach (QuerySpaceBinding querySpace in querySpaces)
+        {
+            InspectionCapabilityResourceIdentity resourceIdentity =
+                QuerySpaceIdentity(querySpace);
+            AddCapabilityResource(
+                resources,
+                identities,
+                paths,
+                resourceIdentity,
+                ResourceExplanationResourceKind.QuerySpace,
+                new ResourceExplanationDetail.QuerySpaceDetails(
+                    querySpace.Descriptor.Identity,
+                    querySpace.Descriptor.Operation.Operation,
+                    "The effective executable Query Space for this route.",
+                    querySpace.Descriptor.Operation.Terms.Count));
+
+            foreach (QuerySpaceOperationTermDescriptor term
+                     in querySpace.Descriptor.Operation.Terms)
+            {
+                InspectionCapabilityResourceIdentity termIdentity =
+                    QueryFacetIdentity(querySpace, term);
+                AddCapabilityResource(
+                    resources,
+                    identities,
+                    paths,
+                    termIdentity,
+                    ResourceExplanationResourceKind.QueryFacet,
+                    new ResourceExplanationDetail.QueryFacetDetails(
+                        term.Identity,
+                        term.Key,
+                        term.Label,
+                        term.Summary,
+                        term.Operators.Select(
+                            PortableQueryModel.TextOf),
+                        term.ValueKind,
+                        term.Values,
+                        term.Effects.Select(static effect =>
+                            $"{effect.Kind}: {effect.Identity}")));
+            }
+        }
+
+        foreach (InspectionConsumerBinding binding in catalog.Bindings)
+        {
+            InspectionCapabilityResourceIdentity resourceIdentity =
+                ConsumerBindingIdentity(binding);
+            AddCapabilityResource(
+                resources,
+                identities,
+                paths,
+                resourceIdentity,
+                ResourceExplanationResourceKind.ConsumerBinding,
+                new ResourceExplanationDetail.ConsumerBindingDetails(
+                    binding.Descriptor.Identity,
+                    binding.Descriptor.Owner,
+                    $"A production {binding.Descriptor.Kind} binding for "
+                    + $"'{binding.Route.Descriptor.Name}'.",
+                    binding.Descriptor.Kind,
+                    binding.Descriptor.Gesture,
+                    binding.ExposedQueryTerms.Length));
+        }
+
+        int expectedResourceCount =
+            catalog.Documents.Length
+            + catalog.Routes.Length
+            + querySpaces.Length
+            + querySpaces.Sum(static querySpace =>
+                querySpace.Descriptor.Operation.Terms.Count)
+            + catalog.Bindings.Length;
+        if (paths.Count != expectedResourceCount)
+        {
+            throw new ArgumentException(
+                "Every composed inspection capability resource must have "
+                + "exactly one canonical Resource Explanation path.",
+                nameof(registrations));
+        }
+
+        foreach (InspectionRouteRegistration route in catalog.Routes)
+        {
+            ResourceExplanationIdentity.Capability routeIdentity =
+                identities[RouteIdentity(route)];
+            ResourceExplanationIdentity.Capability documentIdentity =
+                identities[DocumentIdentity(route.Document)];
+            ResourceExplanationIdentity.Capability querySpaceIdentity =
+                identities[QuerySpaceIdentity(route.QuerySpace)];
+            AddRelationship(
+                relationships,
+                routeIdentity,
+                ResourceExplanationRelationshipKind.Produces,
+                documentIdentity,
+                paths[DocumentIdentity(route.Document)]);
+            AddRelationship(
+                relationships,
+                routeIdentity,
+                ResourceExplanationRelationshipKind.QuerySurface,
+                querySpaceIdentity,
+                paths[QuerySpaceIdentity(route.QuerySpace)]);
+            AddRelationship(
+                relationships,
+                documentIdentity,
+                ResourceExplanationRelationshipKind.Route,
+                routeIdentity,
+                paths[RouteIdentity(route)]);
+
+            foreach (QuerySpaceOperationTermDescriptor term
+                     in route.QuerySpace.Descriptor.Operation.Terms)
+            {
+                ResourceExplanationIdentity.Capability facetIdentity =
+                    identities[QueryFacetIdentity(
+                        route.QuerySpace,
+                        term)];
+                AddRelationship(
+                    relationships,
+                    querySpaceIdentity,
+                    ResourceExplanationRelationshipKind.QueryFacet,
+                    facetIdentity,
+                    paths[QueryFacetIdentity(
+                        route.QuerySpace,
+                        term)]);
+                AddRelationship(
+                    relationships,
+                    facetIdentity,
+                    ResourceExplanationRelationshipKind.Route,
+                    routeIdentity,
+                    paths[RouteIdentity(route)]);
+            }
+
+            foreach (InspectionQueryTermRelationship termRelationship
+                     in route.QueryTermRelationships)
+            {
+                QuerySpaceOperationTermDescriptor source =
+                    route.QuerySpace.Descriptor.Operation.Terms.Single(
+                        term => term.Identity
+                            == termRelationship.SourceTerm);
+                QuerySpaceOperationTermDescriptor target =
+                    route.QuerySpace.Descriptor.Operation.Terms.Single(
+                        term => term.Identity
+                            == termRelationship.TargetTerm);
+                AddRelationship(
+                    relationships,
+                    identities[QueryFacetIdentity(
+                        route.QuerySpace,
+                        source)],
+                    termRelationship.Kind switch
+                    {
+                        InspectionQueryTermRelationshipKind
+                            .RequiredContext =>
+                            ResourceExplanationRelationshipKind
+                                .RequiredContext,
+                        _ => throw new InvalidOperationException(
+                            "Unknown query-term relationship kind."),
+                    },
+                    identities[QueryFacetIdentity(
+                        route.QuerySpace,
+                        target)],
+                    paths[QueryFacetIdentity(
+                        route.QuerySpace,
+                        target)]);
+            }
+        }
+
+        foreach (InspectionConsumerBinding binding in catalog.Bindings)
+        {
+            ResourceExplanationIdentity.Capability bindingIdentity =
+                identities[ConsumerBindingIdentity(binding)];
+            ResourceExplanationIdentity.Capability routeIdentity =
+                identities[RouteIdentity(binding.Route)];
+            AddRelationship(
+                relationships,
+                bindingIdentity,
+                ResourceExplanationRelationshipKind.Invokes,
+                routeIdentity,
+                paths[RouteIdentity(binding.Route)]);
+            AddRelationship(
+                relationships,
+                routeIdentity,
+                ResourceExplanationRelationshipKind.ConsumerBinding,
+                bindingIdentity,
+                paths[ConsumerBindingIdentity(binding)]);
+        }
+
+        return Create(resources, relationships);
+    }
+
+    public static ResourceExplanationCatalog Combine(
+        params ResourceExplanationCatalog[] catalogs)
+    {
+        ArgumentNullException.ThrowIfNull(catalogs);
+        if (catalogs.Length == 0)
+        {
+            throw new ArgumentException(
+                "At least one Resource Explanation catalog is required.",
+                nameof(catalogs));
+        }
+        return Create(
+            catalogs.SelectMany(static catalog => catalog.Resources),
+            catalogs.SelectMany(static catalog => catalog.Relationships));
+    }
+
     public ResourcePathResolution Resolve(string requestedPath)
     {
         if (!ResourcePath.TryCreate(
@@ -479,6 +751,7 @@ public sealed class ResourceExplanationCatalog
                 requestedPath,
                 error!);
         }
+
         if (_resourcesByPath.TryGetValue(
                 path!.Value,
                 out ResourceExplanationResource? resource))
@@ -505,6 +778,112 @@ public sealed class ResourceExplanationCatalog
             requestedPath,
             suggestions);
     }
+
+    private static IReadOnlyDictionary<
+        InspectionCapabilityResourceIdentity,
+        ResourcePath> IndexCapabilityPaths(
+            IEnumerable<InspectionCapabilityResourcePathRegistration>
+                registrations)
+    {
+        var paths =
+            new Dictionary<
+                InspectionCapabilityResourceIdentity,
+                ResourcePath>();
+        var identitiesByPath =
+            new Dictionary<
+                string,
+                InspectionCapabilityResourceIdentity>(
+                StringComparer.OrdinalIgnoreCase);
+        foreach (InspectionCapabilityResourcePathRegistration registration
+                 in registrations)
+        {
+            if (!paths.TryAdd(
+                    registration.Identity,
+                    registration.Path))
+            {
+                throw new ArgumentException(
+                    "An inspection capability resource has more than one "
+                    + "path registration.",
+                    nameof(registrations));
+            }
+            if (!identitiesByPath.TryAdd(
+                    registration.Path.Value,
+                    registration.Identity))
+            {
+                throw new ArgumentException(
+                    "Inspection capability paths must be unique "
+                    + "case-insensitively.",
+                    nameof(registrations));
+            }
+        }
+        return paths;
+    }
+
+    private static void AddCapabilityResource(
+        ICollection<ResourceExplanationResource> resources,
+        IDictionary<
+            InspectionCapabilityResourceIdentity,
+            ResourceExplanationIdentity.Capability> identities,
+        IReadOnlyDictionary<
+            InspectionCapabilityResourceIdentity,
+            ResourcePath> paths,
+        InspectionCapabilityResourceIdentity resourceIdentity,
+        ResourceExplanationResourceKind resourceKind,
+        ResourceExplanationDetail details)
+    {
+        if (!paths.TryGetValue(
+                resourceIdentity,
+                out ResourcePath? path))
+        {
+            throw new ArgumentException(
+                $"Inspection capability resource "
+                + $"'{resourceIdentity.Identity}' has no canonical path.",
+                nameof(paths));
+        }
+        var identity =
+            new ResourceExplanationIdentity.Capability(
+                resourceIdentity);
+        identities.Add(resourceIdentity, identity);
+        resources.Add(
+            new(
+                path,
+                identity,
+                resourceKind,
+                details));
+    }
+
+    internal static InspectionCapabilityResourceIdentity DocumentIdentity(
+        InspectionDocumentRegistration document) =>
+        new(
+            InspectionCapabilityResourceKind.Document,
+            document.Descriptor.Identity);
+
+    internal static InspectionCapabilityResourceIdentity RouteIdentity(
+        InspectionRouteRegistration route) =>
+        new(
+            InspectionCapabilityResourceKind.Route,
+            route.Descriptor.Identity);
+
+    internal static InspectionCapabilityResourceIdentity QuerySpaceIdentity(
+        QuerySpaceBinding querySpace) =>
+        new(
+            InspectionCapabilityResourceKind.QuerySpace,
+            querySpace.Descriptor.Identity);
+
+    internal static InspectionCapabilityResourceIdentity QueryFacetIdentity(
+        QuerySpaceBinding querySpace,
+        QuerySpaceOperationTermDescriptor term) =>
+        new(
+            InspectionCapabilityResourceKind.QueryFacet,
+            term.Identity,
+            querySpace.Descriptor.Identity);
+
+    internal static InspectionCapabilityResourceIdentity
+        ConsumerBindingIdentity(
+            InspectionConsumerBinding binding) =>
+        new(
+            InspectionCapabilityResourceKind.ConsumerBinding,
+            binding.Descriptor.Identity);
 
     public InspectionEnvelope<ResourceExplanationDocument> Explain(
         ResourcePathResolution.Resolved resolved,

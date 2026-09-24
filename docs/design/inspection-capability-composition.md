@@ -6,9 +6,10 @@ This document is the normative design for **Inspection Capability
 Composition**, tracked by
 [#8417](https://github.com/richlander/dotnet-inspect/issues/8417).
 
-The pattern is proposed. Its first production adoption will compose the
-existing Package Query document, Query Space route, and CLI and Browser
-bindings without changing Package Query behavior.
+The pattern is implemented for its first bounded production adoption. Package
+Query now composes its existing document, executable Query Space, typed route,
+and real CLI and Browser bindings without changing Package Query behavior.
+Remaining modern owners adopt the same substrate one focused owner at a time.
 
 ## Owner and exact claim
 
@@ -597,11 +598,13 @@ single-threaded Browser/Wasm. It must contain no metadata readers, streams,
 package payloads, Workspace leases, credentials, executable inspected code, or
 inspected-assembly types.
 
-These are target implementation properties, not evidence about the current
-design-only slice. They are **unverified** until the substrate and first-adopter
-Release gates named below exist and pass. Each adopting owner continues to
-inherit the platform contract of its existing operation; this pattern does not
-certify an otherwise unsupported operation for Browser/Wasm or NativeAOT.
+The Package Query adoption keeps the descriptor graph resource-free and uses
+the existing Browser production route. Its Release construction and Browser
+binding gates verify that bounded adoption. NativeAOT and single-threaded Wasm
+remain **unverified** until their existing product gates exercise this
+substrate. Each adopting owner continues to inherit the platform contract of
+its existing operation; this pattern does not certify an otherwise unsupported
+operation for Browser/Wasm or NativeAOT.
 
 All artifact-authored descriptive text consumed by an adopted descriptor
 retains the containment contract of its owner. Capability composition does not
@@ -655,14 +658,16 @@ Release gates must execute the real CLI and Browser entrypoints through the
 binding-owned typed execution path. A descriptor registered beside a handler
 or export that directly bypasses that binding does not satisfy adoption.
 
-The first implementation must also name the exact Browser/Wasm and NativeAOT
-gates that exercise the new substrate before claiming those target properties.
-They remain **unverified** in this design slice.
+The first implementation uses
+`dotnet run --project inspect-web/DotnetInspect.Web.Tests -c Release` for the
+Browser-managed binding and
+`dotnet run --project tests/DotnetInspector.Sections.Tests -c Release` for
+resource-free catalog construction. NativeAOT and single-threaded Wasm remain
+**unverified** until their existing product gates exercise the new substrate.
 
-The design requires catalog construction to accept only explicit modules and
-to expose no assembly-scan or CLR-type-discovery entrypoint. That
-implementation property is also **unverified** until #8417 records its
-absence-claim coverage and the corresponding gate. This design makes no
+Catalog construction accepts only caller-supplied modules and exposes no
+assembly-scan or CLR-type-discovery entrypoint. Construction tests provide
+partial gate coverage for that bounded API shape. This design makes no
 repository-wide claim that unrelated components contain no reflection.
 
 ## Non-claims
