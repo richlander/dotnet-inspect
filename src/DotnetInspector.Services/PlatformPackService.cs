@@ -70,38 +70,6 @@ public static class PlatformPackService
     }
 
     /// <summary>
-    /// Prefix-to-pack bias: determines which pack most likely contains an assembly.
-    /// Most-specific prefixes first.
-    ///
-    /// Aspnetcore-only Microsoft.* prefixes: AspNetCore, Extensions, JSInterop, Net.
-    /// Everything else Microsoft.* (CSharp, VisualBasic, Win32) is in runtime.
-    /// System.* is overwhelmingly runtime (4 exceptions live in aspnetcore but
-    /// those are rare enough that biasing to runtime is correct).
-    /// </summary>
-    private static readonly (string Prefix, string ShortName)[] PackBias =
-    [
-        ("Microsoft.AspNetCore.", "aspnetcore"),
-        ("Microsoft.Extensions.", "aspnetcore"),
-        ("Microsoft.JSInterop.", "aspnetcore"),
-        ("Microsoft.Net.", "aspnetcore"),
-        ("Microsoft.", "runtime"),
-        ("System.", "runtime"),
-    ];
-
-    /// <summary>
-    /// Returns the framework short name most likely to contain the assembly, or null.
-    /// </summary>
-    internal static string? GetBiasedPack(string assemblyName)
-    {
-        foreach (var (prefix, shortName) in PackBias)
-        {
-            if (assemblyName.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
-                return shortName;
-        }
-        return null;
-    }
-
-    /// <summary>
     /// Returns true if the assembly exists in the given pack directory.
     /// </summary>
     public static bool ContainsAssembly(string packDir, string assemblyName)
@@ -176,30 +144,29 @@ public static class PlatformPackService
     }
 
     /// <summary>
-    /// Builds a prioritized list of pack requests for a platform assembly.
-    /// The biased pack comes first and gets the explicit version; others get latest.
+    /// The reference-pack request for one named framework, such as
+    /// <c>runtime</c>, <c>aspnetcore@10.0.1</c>, or <c>netstandard</c>. The
+    /// version comes from the spec's <c>@</c> suffix, else from
+    /// <paramref name="platformVersion"/>, else latest. Returns null for a
+    /// framework with no reference pack.
     /// </summary>
-    public static List<PackRequest> BuildPackRequests(string assemblyName, string? explicitVersion)
+    internal static PackRequest? PackRequestFor(string frameworkSpec, string? platformVersion)
     {
-        var biased = GetBiasedPack(assemblyName);
-        List<PackRequest> requests = [];
-
-        // Biased pack first
-        if (biased != null && PlatformResolver.FrameworkMappings.TryGetValue(biased, out var biasedPackName))
+        ArgumentException.ThrowIfNullOrWhiteSpace(frameworkSpec);
+        string name = frameworkSpec;
+        string? version = null;
+        int at = frameworkSpec.LastIndexOf('@');
+        if (at > 0)
         {
-            requests.Add(new PackRequest(biasedPackName, explicitVersion));
+            name = frameworkSpec[..at];
+            version = frameworkSpec[(at + 1)..];
         }
-
-        // Remaining packs at latest
-        foreach (var (shortName, packName) in PlatformResolver.FrameworkMappings)
-        {
-            if (shortName != biased)
-            {
-                requests.Add(new PackRequest(packName));
-            }
-        }
-
-        return requests;
+        version = string.IsNullOrWhiteSpace(version)
+            ? (string.IsNullOrWhiteSpace(platformVersion) ? null : platformVersion)
+            : version;
+        return PlatformResolver.FrameworkMappings.TryGetValue(name, out string? packName)
+            ? new PackRequest(packName, version)
+            : null;
     }
 
     private static async Task<PackResult?> ResolveAndDownloadAsync(
