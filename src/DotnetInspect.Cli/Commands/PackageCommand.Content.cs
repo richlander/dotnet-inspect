@@ -264,6 +264,7 @@ public partial class PackageCommand
             || !HasUnstructuredOutputPath(options)
             || options.ContentScope != PackageFileContentScope.Full
             || options.Rows is not null
+            || !string.IsNullOrWhiteSpace(options.Tfm)
             || !options.ShowContent
             || selectors is not [var selectedPath]
             || selectedPath.Contains('*')
@@ -275,9 +276,11 @@ public partial class PackageCommand
             return false;
         }
 
-        isSkill = PackageFileFamily.IsSkillDocumentPath(selectedPath);
+        string normalizedSelectedPath = selectedPath.Replace('\\', '/');
+        isSkill = PackageFileFamily.IsSkillDocumentPath(
+            normalizedSelectedPath);
         if (!isSkill
-            && !selectedPath.Equals(
+            && !normalizedSelectedPath.Equals(
                 "README.md",
                 StringComparison.OrdinalIgnoreCase))
         {
@@ -286,7 +289,7 @@ public partial class PackageCommand
 
         target = selectedTarget;
         pinnedVersion = normalizedVersion;
-        documentPath = selectedPath;
+        documentPath = normalizedSelectedPath;
         return true;
     }
 

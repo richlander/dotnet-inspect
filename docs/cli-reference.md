@@ -513,7 +513,7 @@ dotnet-inspect package Newtonsoft.Json@13.0.4 \
 dotnet-inspect package Markout@0.35.2 \
   --path "skills/*/SKILL.md" -n 1 --tail --paths
 dotnet-inspect package Markout@0.35.2 \
-  --path skills/dotnet/SKILL.md --content --out skill.md
+  --path skills/markout/SKILL.md --content --out skill.md
 dotnet-inspect package System.Text.Json --version 10.0.0 \
   --path README.md --content --out README.md
 dotnet-inspect package Microsoft.Data.SqlClient@6.1.0 \
@@ -553,9 +553,9 @@ filesystem store rather than the legacy extraction route. README bytes copy
 progressively to the file. Skill documents retain their existing containment
 and link-normalization behavior, so the House stream is decoded into that
 final selected representation before the file is written. Local packages,
-floating or range version selection, stdout, path globs and roles, scoped
-documents, .NET tool-wrapper redirection, and other package files retain their
-existing behavior.
+floating or range version selection, stdout, target-framework filters, path
+globs and roles, scoped documents, .NET tool-wrapper redirection, and other
+package files retain their existing behavior.
 
 For one package with `--layout`, `-n`, `--tail`, and `--rows A..B` select
 complete sorted file paths after archive extraction and `--lib`, `--tools`, or

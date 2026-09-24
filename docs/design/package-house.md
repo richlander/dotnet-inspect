@@ -778,8 +778,9 @@ destination with the bounded exact-byte sink. A Skill decodes progressively
 into the existing containment-selected representation before that
 representation is written; it does not bypass Skill containment to preserve
 original bytes. Local archives, floating or range version selection, stdout,
-path globs and roles, partial document scopes, .NET tool-wrapper redirection,
-and other package files retain their existing paths in this slice.
+target-framework filters, path globs and roles, partial document scopes,
+.NET tool-wrapper redirection, and other package files retain their existing
+paths in this slice.
 
 `PackageHouseExecutionTests.ExactPayloadRead_IsColdAndPullsFromTheHouseGeneration`
 gates cold start, pre-read cancellation, receipt association, and progressive

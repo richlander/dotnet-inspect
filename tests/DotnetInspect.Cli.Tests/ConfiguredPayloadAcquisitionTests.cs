@@ -117,7 +117,7 @@ public sealed partial class ConfiguredPayloadAcquisitionTests : IDisposable
                 "--tips", "q"]);
         var skill = await RunCommandAsync(
             ["package", $"{id}@{Version}", "--source", FirstFeed,
-                "--path", "skills/demo/SKILL.md", "--content", "--out",
+                "--path", "skills\\demo\\SKILL.md", "--content", "--out",
                 skillPath, "--tips", "q"]);
         var missing = await RunCommandAsync(
             ["package", $"{id}@{Version}", "--source", FirstFeed,
@@ -136,6 +136,38 @@ public sealed partial class ConfiguredPayloadAcquisitionTests : IDisposable
         Assert.Empty(missing.Output);
         Assert.Contains("found 0", missing.Error, StringComparison.Ordinal);
         Assert.False(File.Exists(missingPath));
+        Assert.Equal(
+            1,
+            requests.Count(request =>
+                request.EndsWith(".nupkg", StringComparison.Ordinal)));
+    }
+
+    [Fact]
+    public async Task PackageCommand_ExactDocumentExportPreservesTfmFiltering()
+    {
+        string id = $"Pinned.FilteredDocument.{Guid.NewGuid():N}";
+        byte[] archive = CreatePackage(
+            id,
+            "root README",
+            library: new byte[17]);
+        var requests = new ConcurrentQueue<string>();
+        CoreHttpClientFactory.SetPackageSourceHandlerForTesting(
+            source => new PayloadFeedHandler(
+                source,
+                id,
+                () => new ByteArrayContent(archive),
+                requests));
+        string outputPath = Path.Combine(_root, "tfm-README.md");
+
+        var result = await RunCommandAsync(
+            ["package", $"{id}@{Version}", "--source", FirstFeed,
+                "--path", "README.md", "--tfm", "net11.0",
+                "--content", "--out", outputPath, "--tips", "q"]);
+
+        Assert.Equal(1, result.Exit);
+        Assert.Empty(result.Output);
+        Assert.Contains("found 0", result.Error, StringComparison.Ordinal);
+        Assert.False(File.Exists(outputPath));
         Assert.Equal(
             1,
             requests.Count(request =>
