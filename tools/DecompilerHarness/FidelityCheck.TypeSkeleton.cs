@@ -1221,9 +1221,13 @@ static partial class FidelityCheck
 
     static Dictionary<int, (ApiType Type, ApiMember Member)> CreateTargetApiIndex(
         PEReader pe)
-        => CreateTargetApiEvidence(pe).Index;
+        => CreateTargetApiEvidence(
+            pe,
+            includeCompilerGenerated: false).Index;
 
-    static TargetApiEvidence CreateTargetApiEvidence(PEReader pe)
+    static TargetApiEvidence CreateTargetApiEvidence(
+        PEReader pe,
+        bool includeCompilerGenerated)
     {
         var index = new Dictionary<int, (ApiType Type, ApiMember Member)>();
         var accessorTokens = new HashSet<int>();
@@ -1231,12 +1235,10 @@ static partial class FidelityCheck
         // index the whole surface — otherwise internal/private targets
         // silently miss the migration and retain the legacy signature
         // emitter this change replaces (#3062 review).
-        // Generated accessors must retain their MethodSemantics evidence until
-        // the selector applies its own generated-method policy.
         foreach (var type in ApiSurfaceExtractor.Extract(
                      pe,
                      includeAll: true,
-                     includeCompilerGenerated: true).Types)
+                     includeCompilerGenerated: includeCompilerGenerated).Types)
         {
             foreach (var member in type.Members)
             {

@@ -1,8 +1,11 @@
 using ILInspector.CSharp;
+using ILInspector.Decompiler.Pipeline;
 using ILInspector.DecompilerHarness;
 
 using System.Reflection;
 using System.Reflection.Emit;
+using System.Reflection.Metadata;
+using System.Reflection.PortableExecutable;
 using System.Runtime.CompilerServices;
 
 namespace ILInspector.Decompiler.Tests;
@@ -230,6 +233,50 @@ public class ReturnToSenderTargetSelectionTests
                 selection.Targets,
                 target => target.Method == "Good");
             Assert.Equal(5, selection.DeclarationCandidateCount);
+        }
+        finally
+        {
+            FidelityCheckGeneratedFilterTests.DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void LegacyMemberIndexExcludesCompilerGeneratedHelpers()
+    {
+        string assemblyPath =
+            FidelityCheckGeneratedFilterTests.CompileFixture("""
+                public static class GeneratedHelperFixture
+                {
+                    public static int Good(int value)
+                    {
+                        return Local(value);
+
+                        static int Local(int input) => input + 1;
+                    }
+                }
+                """);
+        try
+        {
+            using var pe = new PEReader(File.OpenRead(assemblyPath));
+            MetadataReader reader = pe.GetMetadataReader();
+            TypeDefinition type = reader.GetTypeDefinition(Assert.Single(
+                reader.TypeDefinitions,
+                handle => reader.GetString(
+                    reader.GetTypeDefinition(handle).Name)
+                    == "GeneratedHelperFixture"));
+            MethodDefinitionHandle generated = Assert.Single(
+                type.GetMethods(),
+                handle => reader.GetString(
+                        reader.GetMethodDefinition(handle).Name)
+                    .StartsWith("<Good>g__Local", StringComparison.Ordinal));
+            using var source = MetadataSource.Open(assemblyPath);
+
+            Assert.Null(FidelityCheck.TryRenderTargetMember(
+                pe,
+                source,
+                generated,
+                targeted: false,
+                isPrimaryConstructor: false));
         }
         finally
         {

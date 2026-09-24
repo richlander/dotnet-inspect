@@ -243,8 +243,12 @@ static partial class FidelityCheck
             using var source = MetadataSource.Open(assemblyPath, context: metadata);
             RegisterSourceContext(source, metadata);
             var reader = source.Reader;
+            // Preserve generated MethodSemantics until this selector applies
+            // its own generated-method policy.
             TargetApiEvidence targetApiEvidence =
-                CreateTargetApiEvidence(source.Pe);
+                CreateTargetApiEvidence(
+                    source.Pe,
+                    includeCompilerGenerated: true);
             using var declarations =
                 new ReturnToSenderDeclarationSession(assemblyPath);
             var decisions =
