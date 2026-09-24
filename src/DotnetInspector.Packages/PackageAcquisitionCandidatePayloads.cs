@@ -19,7 +19,8 @@ public sealed class ConfiguredPackagePayloadResult
         IReadOnlyList<ConfiguredPackageAuthority>? notFoundAuthorities = null,
         IReadOnlyList<ConfiguredPackageAuthority>? reportingAuthorities = null,
         bool selectionUsesOriginalSources = false,
-        PackageHouseSettlement? houseSettlement = null)
+        PackageHouseSettlement? houseSettlement = null,
+        PackageTransferReceipt? transfer = null)
     {
         if ((authority is null) != (source is null)
             || (authority is null) != (payload is null))
@@ -61,6 +62,18 @@ public sealed class ConfiguredPackagePayloadResult
                 "A configured payload House settlement must retain the exact acquired payload.",
                 nameof(houseSettlement));
         }
+        if ((payload is null) != (transfer is null))
+        {
+            throw new ArgumentException(
+                "An acquired configured payload, and only one, carries its transfer receipt.",
+                nameof(transfer));
+        }
+        if (payload is not null && !transfer!.AgreesWith(payload.Origin))
+        {
+            throw new ArgumentException(
+                "The transfer receipt's path must agree with the payload origin.",
+                nameof(transfer));
+        }
         if (payload is null
             && houseSettlement is PackageHouseSettlement.Acquired)
         {
@@ -81,6 +94,7 @@ public sealed class ConfiguredPackagePayloadResult
                 [.. reportingAuthorities]);
         SelectionUsesOriginalSources = selectionUsesOriginalSources;
         HouseSettlement = houseSettlement;
+        Transfer = transfer;
     }
 
     public ConfiguredPackageAuthority? Authority { get; }
@@ -92,6 +106,12 @@ public sealed class ConfiguredPackagePayloadResult
         { get; }
     internal bool SelectionUsesOriginalSources { get; }
     public PackageHouseSettlement? HouseSettlement { get; }
+
+    /// <summary>
+    /// What the acquisition step transferred to settle <see cref="Payload"/>;
+    /// present exactly when a payload is.
+    /// </summary>
+    public PackageTransferReceipt? Transfer { get; }
 }
 
 /// <summary>
@@ -180,6 +200,7 @@ internal sealed class PackageAcquisitionCandidatePayloadAcquirer
             operation,
             cancellationToken);
         var notFoundAuthorities = new List<ConfiguredPackageAuthority>();
+        var transfer = new PackageTransferRecorder();
         try
         {
             operation.ThrowIfExpired();
@@ -233,25 +254,37 @@ internal sealed class PackageAcquisitionCandidatePayloadAcquirer
                         failures,
                         reportingAuthorities: selectedAuthorities,
                         selectionUsesOriginalSources:
-                            selectionUsesOriginalSources);
+                            selectionUsesOriginalSources,
+                        transfer: PackageTransferReceipt.Cache);
                 }
             }
 
             foreach (var (authority, client, store) in entries)
             {
                 operation.ThrowIfExpired();
+                PackageTransferFallbackReason? fallback = null;
                 if (rangedSelection is not null
                     && client is IPackageArchiveRangeSource rangedSource)
                 {
-                    RangedAttempt attempt = await TryAcquireRangedAsync(
-                        rangedSource,
-                        client,
-                        authority,
-                        candidate.Coordinate,
-                        rangedSelection,
-                        PackagePayloadAcquisition.ValidateLimits(limits),
-                        operation,
-                        log).ConfigureAwait(false);
+                    var requestLog = new PackageArchiveRequestLog();
+                    RangedAttempt attempt;
+                    try
+                    {
+                        attempt = await TryAcquireRangedAsync(
+                            rangedSource,
+                            client,
+                            authority,
+                            candidate.Coordinate,
+                            rangedSelection,
+                            PackagePayloadAcquisition.ValidateLimits(limits),
+                            operation,
+                            log,
+                            requestLog).ConfigureAwait(false);
+                    }
+                    finally
+                    {
+                        transfer.AddRanged(requestLog);
+                    }
                     operation.ThrowIfExpired();
                     RequireAuthority(client.Source, authority);
                     switch (attempt.Outcome)
@@ -264,7 +297,9 @@ internal sealed class PackageAcquisitionCandidatePayloadAcquirer
                                 failures,
                                 notFoundAuthorities,
                                 selectedAuthorities,
-                                selectionUsesOriginalSources);
+                                selectionUsesOriginalSources,
+                                transfer: transfer.Issue(
+                                    PackageTransferPath.Ranged));
                         case RangedOutcome.NotFound:
                             notFoundAuthorities.Add(authority);
                             continue;
@@ -275,6 +310,7 @@ internal sealed class PackageAcquisitionCandidatePayloadAcquirer
                             failures.Add(attempt.Failure!);
                             continue;
                         case RangedOutcome.Fallback:
+                            fallback = attempt.Fallback;
                             break;
                         default:
                             throw new ArgumentOutOfRangeException(
@@ -296,7 +332,8 @@ internal sealed class PackageAcquisitionCandidatePayloadAcquirer
                             operation,
                             log,
                             limits,
-                            transferPolicy).ConfigureAwait(false);
+                            transferPolicy,
+                            transfer).ConfigureAwait(false);
                     operation.ThrowIfExpired();
                     RequireAuthority(client.Source, authority);
                     if (result is PackageSourcePayloadResult.Acquired acquired)
@@ -308,7 +345,12 @@ internal sealed class PackageAcquisitionCandidatePayloadAcquirer
                             failures,
                             notFoundAuthorities,
                             selectedAuthorities,
-                            selectionUsesOriginalSources);
+                            selectionUsesOriginalSources,
+                            transfer: fallback is { } reason
+                                ? transfer.Issue(
+                                    PackageTransferPath.RangedThenDownload,
+                                    reason)
+                                : transfer.Issue(PackageTransferPath.Download));
                     }
                     if (result is PackageSourcePayloadResult.Failed failed)
                     {
@@ -404,7 +446,8 @@ internal sealed class PackageAcquisitionCandidatePayloadAcquirer
     private readonly record struct RangedAttempt(
         RangedOutcome Outcome,
         AcquiredPackageSourcePayload? Payload = null,
-        PackageAuthorityFailure? Failure = null);
+        PackageAuthorityFailure? Failure = null,
+        PackageTransferFallbackReason? Fallback = null);
 
     /// <summary>
     /// The entry-read slack a ranged read adds to each entry request. Real
@@ -449,7 +492,8 @@ internal sealed class PackageAcquisitionCandidatePayloadAcquirer
         PackageEntrySelector selectEntries,
         PackagePayloadLimits limits,
         NuGetOperationContext operation,
-        Action<string>? log)
+        Action<string>? log,
+        PackageArchiveRequestLog requestLog)
     {
         InertString display = PackageSourceDisplay.ForDiagnostics(authority.Source);
         log?.Invoke(
@@ -460,7 +504,8 @@ internal sealed class PackageAcquisitionCandidatePayloadAcquirer
                 coordinate.Version,
                 RangedLimits(limits),
                 operation.CancellationToken,
-                operation).ConfigureAwait(false);
+                operation,
+                requestLog).ConfigureAwait(false);
         if (open.Value is not { } reader)
         {
             return ClassifyRanged(
@@ -563,7 +608,16 @@ internal sealed class PackageAcquisitionCandidatePayloadAcquirer
             log?.Invoke(
                 $"Ranged read of {PackageSourceDisplay.ForDiagnostics(authority.Source)} "
                 + $"while {step} was refused ({reason}); acquiring the complete archive instead.");
-            return new(RangedOutcome.Fallback);
+            return new(
+                RangedOutcome.Fallback,
+                Fallback: reason switch
+                {
+                    PackageArchiveReadRefusal.RangeIgnored =>
+                        PackageTransferFallbackReason.RangeIgnored,
+                    PackageArchiveReadRefusal.ArchiveChanged =>
+                        PackageTransferFallbackReason.ArchiveChanged,
+                    _ => PackageTransferFallbackReason.ArchiveUnsupported,
+                });
         }
 
         if (failure is null)
@@ -594,7 +648,9 @@ internal sealed class PackageAcquisitionCandidatePayloadAcquirer
                 log?.Invoke(
                     $"Ranged read of {PackageSourceDisplay.ForDiagnostics(authority.Source)} "
                     + $"while {step} failed ({failure.Kind}); acquiring the complete archive instead.");
-                return new(RangedOutcome.Fallback);
+                return new(
+                    RangedOutcome.Fallback,
+                    Fallback: PackageTransferFallbackReason.RangedReadFailed);
         }
     }
 

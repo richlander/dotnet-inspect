@@ -709,7 +709,8 @@ public sealed class PackageHouse
                     payloadResult.Authority!,
                     payloadResult.Source!,
                     payload.Origin,
-                    payload.Content.GenerationIdentity);
+                    payload.Content.GenerationIdentity,
+                    payloadResult.Transfer!);
                 if (request.Operation.Profile
                     == PackageHouseOperationProfile.Acquire)
                 {
