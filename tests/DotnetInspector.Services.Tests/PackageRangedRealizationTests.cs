@@ -140,6 +140,149 @@ public sealed class PackageRangedRealizationTests
     }
 
     /// <summary>
+    /// Entry cache: a second realization of the same selection reads the
+    /// cached directory and entries and makes no request.
+    /// </summary>
+    [Fact]
+    public async Task EntryCache_WarmReadOfTheSameSelection_MakesNoRequest()
+    {
+        byte[] archive = ReadPclStorage();
+        var store = new InMemoryPackageStore();
+        var cold = new RangeFeed(PclStorage, PclStorageVersion, archive);
+        await using (RangedEnvironment first = RangedEnvironment.Create(cold))
+        {
+            Assert.Equal(
+                PackagePayloadOrigin.Ranged,
+                Assert.IsType<PackageHouseSettlement.Acquired>(
+                    await first.RealizeAsync(store, PackagePayloadAccess.Ranged, "net45"))
+                    .Payload.Origin);
+        }
+
+        var warm = new RangeFeed(PclStorage, PclStorageVersion, archive);
+        await using RangedEnvironment environment = RangedEnvironment.Create(warm);
+        var acquired = Assert.IsType<PackageHouseSettlement.Acquired>(
+            await environment.RealizeAsync(store, PackagePayloadAccess.Ranged, "net45"));
+
+        Assert.Equal(PackagePayloadOrigin.Cache, acquired.Payload.Origin);
+        Assert.IsType<PackageHouseResult.Settled>(acquired.Result);
+        Assert.Equal(0, warm.RangedRequests + warm.FullRequests);
+        var content = Assert.IsType<RangedPackageContent>(acquired.Payload.Content);
+        Assert.Equal(
+            Net45Folder.Order(StringComparer.Ordinal),
+            content.MaterializedEntries.Order(StringComparer.Ordinal));
+    }
+
+    /// <summary>
+    /// Entry cache: a later read missing an entry reads only that entry by
+    /// range after the tail; the cached directory spares the size probe.
+    /// </summary>
+    [Fact]
+    public async Task EntryCache_WarmReadMissingAnEntry_ReadsOnlyThatEntry()
+    {
+        byte[] archive = ReadPclStorage();
+        var store = new InMemoryPackageStore();
+        await using (RangedEnvironment first = RangedEnvironment.Create(
+            new RangeFeed(PclStorage, PclStorageVersion, archive)))
+        {
+            Assert.IsType<PackageHouseSettlement.Acquired>(
+                await first.RealizeAsync(store, PackagePayloadAccess.Ranged, "net45"));
+        }
+        store.RemoveEntryForTesting(PclStorage, PclStorageVersion, "lib/net45/PCLStorage.xml");
+
+        var warm = new RangeFeed(PclStorage, PclStorageVersion, archive);
+        await using RangedEnvironment environment = RangedEnvironment.Create(warm);
+        var acquired = Assert.IsType<PackageHouseSettlement.Acquired>(
+            await environment.RealizeAsync(store, PackagePayloadAccess.Ranged, "net45"));
+
+        Assert.Equal(PackagePayloadOrigin.Ranged, acquired.Payload.Origin);
+        Assert.Equal(0, warm.FullRequests);
+        // The tail confirms the archive is unchanged, then the one missing
+        // entry; the other three come from the entry cache.
+        Assert.Equal(2, warm.RangedRequests);
+        Assert.Equal(
+            Net45Folder.Order(StringComparer.Ordinal),
+            Assert.IsType<RangedPackageContent>(acquired.Payload.Content)
+                .MaterializedEntries.Order(StringComparer.Ordinal));
+    }
+
+    /// <summary>
+    /// Entry cache: a cached entry that fails its directory checks is kept and
+    /// bypassed; the complete fetch answers.
+    /// </summary>
+    [Fact]
+    public async Task EntryCache_InvalidEntry_TakesTheCompleteFetch()
+    {
+        byte[] archive = ReadPclStorage();
+        var store = new InMemoryPackageStore();
+        await using (RangedEnvironment first = RangedEnvironment.Create(
+            new RangeFeed(PclStorage, PclStorageVersion, archive)))
+        {
+            Assert.IsType<PackageHouseSettlement.Acquired>(
+                await first.RealizeAsync(store, PackagePayloadAccess.Ranged, "net45"));
+        }
+        store.CorruptEntryForTesting(
+            PclStorage, PclStorageVersion, "lib/net45/PCLStorage.dll", [1, 2, 3]);
+
+        var warm = new RangeFeed(PclStorage, PclStorageVersion, archive);
+        await using RangedEnvironment environment = RangedEnvironment.Create(warm);
+        var acquired = Assert.IsType<PackageHouseSettlement.Acquired>(
+            await environment.RealizeAsync(store, PackagePayloadAccess.Ranged, "net45"));
+
+        Assert.Equal(PackagePayloadOrigin.Download, acquired.Payload.Origin);
+        Assert.Equal(1, warm.FullRequests);
+        Assert.Equal(0, warm.RangedRequests);
+    }
+
+    /// <summary>
+    /// Entry cache: when the archive changed since its directory was cached,
+    /// the fresh directory differs and the complete fetch answers.
+    /// </summary>
+    [Fact]
+    public async Task EntryCache_ChangedArchive_TakesTheCompleteFetch()
+    {
+        byte[] archive = ReadPclStorage();
+        var store = new InMemoryPackageStore();
+        await using (RangedEnvironment first = RangedEnvironment.Create(
+            new RangeFeed(PclStorage, PclStorageVersion, archive)))
+        {
+            Assert.IsType<PackageHouseSettlement.Acquired>(
+                await first.RealizeAsync(store, PackagePayloadAccess.Ranged, "net45"));
+        }
+
+        // The warm read is partial, and the coordinate was republished with
+        // an unrelated entry removed: a private feed or mirror that is not
+        // immutable.
+        store.RemoveEntryForTesting(PclStorage, PclStorageVersion, "lib/net45/PCLStorage.xml");
+        byte[] changed = Republish(archive, "lib/sl5/PCLStorage.xml");
+        var warm = new RangeFeed(PclStorage, PclStorageVersion, changed);
+        await using RangedEnvironment environment = RangedEnvironment.Create(warm);
+        var acquired = Assert.IsType<PackageHouseSettlement.Acquired>(
+            await environment.RealizeAsync(store, PackagePayloadAccess.Ranged, "net45"));
+
+        Assert.Equal(PackagePayloadOrigin.Download, acquired.Payload.Origin);
+        Assert.Equal(1, warm.FullRequests);
+    }
+
+    private static byte[] Republish(byte[] archive, string removedEntry)
+    {
+        using var output = new MemoryStream();
+        using (var source = new ZipArchive(new MemoryStream(archive), ZipArchiveMode.Read))
+        using (var target = new ZipArchive(output, ZipArchiveMode.Create, leaveOpen: true))
+        {
+            foreach (ZipArchiveEntry entry in source.Entries)
+            {
+                if (entry.FullName == removedEntry)
+                    continue;
+                ZipArchiveEntry copy = target.CreateEntry(entry.FullName);
+                using Stream from = entry.Open();
+                using Stream to = copy.Open();
+                from.CopyTo(to);
+            }
+        }
+        return output.ToArray();
+    }
+
+    /// <summary>
     /// Ranged content keeps the complete directory but no archive, and an
     /// entry the realization did not select is a visible refusal, not a
     /// missing entry.

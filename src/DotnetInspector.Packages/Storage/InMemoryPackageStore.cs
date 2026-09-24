@@ -8,7 +8,7 @@ namespace DotnetInspector.Packages;
 /// them; selected content is read from a retained structural archive index.
 /// No files are ever written.
 /// </summary>
-public sealed class InMemoryPackageStore : IPackageStore, IPreparedPackageStore
+public sealed class InMemoryPackageStore : IPackageStore, IPreparedPackageStore, IPackageEntryStore
 {
     private readonly ConcurrentDictionary<string, InMemoryPackageContent> _packages =
         new(StringComparer.Ordinal);
@@ -130,4 +130,73 @@ public sealed class InMemoryPackageStore : IPackageStore, IPreparedPackageStore
                 RequiresAdmission: false));
     }
 
+
+    private readonly ConcurrentDictionary<string, (ReadOnlyMemory<byte> Region, long Length)> _directories =
+        new(StringComparer.Ordinal);
+    private readonly ConcurrentDictionary<string, byte[]> _entries =
+        new(StringComparer.Ordinal);
+
+    bool IPackageEntryStore.KeepsEntries => true;
+
+    private static string EntryKey(string packageId, string version) =>
+        $"{packageId.ToLowerInvariant()}@{version.ToLowerInvariant()}";
+
+    bool IPackageEntryStore.TryReadDirectory(
+        string packageId,
+        string version,
+        out ReadOnlyMemory<byte> region,
+        out long archiveLength)
+    {
+        bool found = _directories.TryGetValue(
+            EntryKey(packageId, version),
+            out (ReadOnlyMemory<byte> Region, long Length) directory);
+        region = directory.Region;
+        archiveLength = directory.Length;
+        return found;
+    }
+
+    void IPackageEntryStore.PublishDirectory(
+        string packageId,
+        string version,
+        ReadOnlyMemory<byte> region,
+        long archiveLength) =>
+        _directories.TryAdd(
+            EntryKey(packageId, version),
+            (region.ToArray(), archiveLength));
+
+    bool IPackageEntryStore.TryReadEntry(
+        string packageId,
+        string version,
+        string entryPath,
+        out byte[] content)
+    {
+        if (_entries.TryGetValue(
+                $"{EntryKey(packageId, version)}/{PackageEntryStoreNames.EntryFileName(entryPath)}",
+                out byte[]? stored))
+        {
+            content = stored.ToArray();
+            return true;
+        }
+        content = [];
+        return false;
+    }
+
+    void IPackageEntryStore.PublishEntry(
+        string packageId,
+        string version,
+        string entryPath,
+        ReadOnlyMemory<byte> content) =>
+        _entries.TryAdd(
+            $"{EntryKey(packageId, version)}/{PackageEntryStoreNames.EntryFileName(entryPath)}",
+            content.ToArray());
+
+    /// <summary>Test seam: forgets a cached entry, as if it had never been read.</summary>
+    internal void RemoveEntryForTesting(string packageId, string version, string entryPath) =>
+        _entries.TryRemove(
+            $"{EntryKey(packageId, version)}/{PackageEntryStoreNames.EntryFileName(entryPath)}",
+            out _);
+
+    /// <summary>Test seam: replaces a cached entry's bytes, simulating on-disk corruption.</summary>
+    internal void CorruptEntryForTesting(string packageId, string version, string entryPath, byte[] content) =>
+        _entries[$"{EntryKey(packageId, version)}/{PackageEntryStoreNames.EntryFileName(entryPath)}"] = content;
 }

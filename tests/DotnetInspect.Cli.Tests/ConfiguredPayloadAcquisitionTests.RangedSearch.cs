@@ -31,18 +31,19 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
         var feed = new RangeHonoringFeedHandler(FirstFeed, id, package);
         UseFeed(feed);
 
-        var result = await RunCommandAsync(
-            [
-                "find",
-                $".{MemberSearchServiceTests.SearchTargetMemberName}",
-                "--package", $"{id}@{Version}",
-                "--tfm", "net11.0",
-                "--source", FirstFeed,
-                "--all",
-                "--json",
-                "--verbose",
-                "--tips", "q",
-            ]);
+        string[] find =
+        [
+            "find",
+            $".{MemberSearchServiceTests.SearchTargetMemberName}",
+            "--package", $"{id}@{Version}",
+            "--tfm", "net11.0",
+            "--source", FirstFeed,
+            "--all",
+            "--json",
+            "--verbose",
+            "--tips", "q",
+        ];
+        var result = await RunCommandAsync(find);
 
         Assert.True(result.Exit == 0, result.Error);
         Assert.Contains(
@@ -50,13 +51,29 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
             result.Output,
             StringComparison.Ordinal);
         Assert.Contains("payload Ranged", result.Error, StringComparison.Ordinal);
-        Assert.Contains("nothing was cached", result.Error, StringComparison.Ordinal);
+        // The feed is a credential-free HTTP authority, so the ranged entries
+        // are durable (docs/design/package-cache-policy.md).
+        Assert.Contains("kept in the entry cache", result.Error, StringComparison.Ordinal);
         // The one complete response is the size probe, abandoned before its body.
         Assert.Equal(1, feed.FullPackageResponses);
         Assert.True(feed.RangedResponses >= 2, $"ranged responses: {feed.RangedResponses}");
         Assert.True(
             feed.PackageBytesServed < assembly.Length + (1024 * 1024),
             $"served {feed.PackageBytesServed} of {package.Length} package bytes");
+
+        // The same search again answers from the entry cache with no package
+        // request of either kind.
+        int ranged = feed.RangedResponses;
+        long served = feed.PackageBytesServed;
+        var warm = await RunCommandAsync(find);
+
+        Assert.True(warm.Exit == 0, warm.Error);
+        Assert.Equal(result.Output, warm.Output);
+        Assert.Contains("from the entry cache", warm.Error, StringComparison.Ordinal);
+        Assert.Contains("no request", warm.Error, StringComparison.Ordinal);
+        Assert.Equal(1, feed.FullPackageResponses);
+        Assert.Equal(ranged, feed.RangedResponses);
+        Assert.Equal(served, feed.PackageBytesServed);
     }
 
     /// <summary>
