@@ -765,7 +765,6 @@ public static class JsonWireMemberRules
 
         if (assemblyIdentity is null
             || typesByScopedIdentity is null
-            || !reference.Assembly.Equals(assemblyIdentity)
             || !typesByScopedIdentity.TryGetValue(reference, out ApiType? type))
         {
             return null;

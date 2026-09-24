@@ -579,6 +579,23 @@ static class DtsEmitter
                     namingPolicy,
                     assemblyIdentity,
                     declaredTypesByScopedIdentity);
+            ApiMember? unsupportedMember = members
+                .Select(item => item.Member)
+                .FirstOrDefault(member =>
+                    GetEffectiveMemberPresence(
+                        surface,
+                        caseType,
+                        member,
+                        JsonWireDirection.Serialize,
+                        assemblyIdentity,
+                        declaredTypesByScopedIdentity)
+                    == JsonWireMemberPresence.Unsupported);
+            if (unsupportedMember is not null)
+            {
+                throw new UnsupportedWireContractException(
+                    $"{caseType.FullName}.{unsupportedMember.Name}",
+                    "effective JSON member presence is unsupported");
+            }
 
             string declarationName =
                 AllocatedTypeName(caseType, allocatedTypeNames);
@@ -1401,6 +1418,26 @@ static class DtsEmitter
             return;
         }
 
+        JsonWireDirection declarationDirection =
+            (directions & JsonWireDirection.Serialize)
+                != JsonWireDirection.None
+                ? JsonWireDirection.Serialize
+                : JsonWireDirection.Deserialize;
+        if (record.Members.Any(member =>
+                GetEffectiveMemberPresence(
+                    surface,
+                    record,
+                    member,
+                    declarationDirection,
+                    assemblyIdentity,
+                    declaredTypesByScopedIdentity)
+                == JsonWireMemberPresence.Unsupported))
+        {
+            ReportUnsupportedJsonWireShape(record.Name, diagnostics);
+            EmitBlockedType(sb, declarationName);
+            return;
+        }
+
         if (directions == JsonWireDirection.Both
             && record.Members.Any(member =>
                 JsonWireMemberRules.IsDirectionSensitive(
@@ -1432,11 +1469,6 @@ static class DtsEmitter
             recordTypeNames = names;
         }
 
-        JsonWireDirection declarationDirection =
-            (directions & JsonWireDirection.Serialize)
-                != JsonWireDirection.None
-                ? JsonWireDirection.Serialize
-                : JsonWireDirection.Deserialize;
         var members = record.Members
             .Select(member => (
                 Member: member,
@@ -1449,8 +1481,6 @@ static class DtsEmitter
                     declaredTypesByScopedIdentity),
                 ResolvedName: member.JsonPropertyName
                     ?? ApplyNamingPolicy(member.Name, namingPolicy)))
-            // Unsupported presence is not absence. Keep the member required
-            // until its owner can authenticate conditionality.
             .Where(item =>
                 item.Presence != JsonWireMemberPresence.Absent)
             .ToArray();

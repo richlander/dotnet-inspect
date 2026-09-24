@@ -77,7 +77,11 @@ composes with members that have no explicit condition. Unsupported context
 evidence cannot be masked by member overrides, and one record reached through
 conflicting effective defaults is unsupported. The surfaced effective default
 is keyed to the discovered type because it belongs to the context-to-record
-composition, not to the record's Metadata declaration.
+composition, not to the record's Metadata declaration. Exact retained
+definitions from referenced assemblies may establish whether a named type is a
+reference or value type; unresolved framework or generic definitions remain
+unsupported. Consumers must reject unsupported effective presence rather than
+emit it as an unconditional member.
 
 This library intentionally stays free of any target-language opinion (naming
 policy, `Promise` unwrapping, `.d.ts` syntax); that "personality" belongs to a
