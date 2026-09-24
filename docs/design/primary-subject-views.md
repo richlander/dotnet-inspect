@@ -167,10 +167,13 @@ adopts it, in that owner's document, with its own gates.
 - **Children:** the selected compile population in aggregate scope, one row
   per Library with its public-surface Type declaration Count. Each count reads
   only the compile asset that compile selection chose.
-- **Identity line:** source, selected target, compile roles present, and
-  managed and native runtime RIDs, capped to a count when long; for example
-  `Microsoft.Data.SqlClient 7.1.0 (NuGet, net9.0; ref, lib; runtimes: unix,
-  win)`.
+- **Identity line:** source and selected target, then two groups. The first
+  lists the peer asset directories present (`ref`, `lib`, `runtimes`). The
+  second adds detail for `runtimes`: its child RID directories, capped to a
+  count when long. For example,
+  `Microsoft.Data.SqlClient 7.1.0 (NuGet, net9.0; ref, lib, runtimes; runtimes: unix, win)`
+  reads as "three peer directories, and `runtimes` contains `unix` and
+  `win`".
 - **Runtime assets** are disclosed only on the identity line. Whether a
   `runtimes/*/lib` asset is an implementation overlay of a compile Library or
   a separate Library is decided by package asset selection's correspondence,
