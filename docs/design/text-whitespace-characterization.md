@@ -463,7 +463,7 @@ whitespace-only content fact is shown only under the sensitive policy.
 
 An insensitive summary is two-sided like the statistics it adjusts. It
 reports the Before and After counts without the lines of `WhitespaceOnly`
-changes, subtracting each line from the relation count that holds it, and
+changes, subtracting each line from every facet count that holds it, and
 reports the subtracted lines as a separate named Before and After count, so
 the subtraction is always stated. A brace moved onto its own line contributes
 one Before and two After whitespace-only lines; the removed blank line in
@@ -644,13 +644,14 @@ counted plan:
 | S2 | `DotnetInspector.Presentation` | First adopter: lowering and statistics for member source diffs; CLI member Source Diff |
 | M1 | Markout | Change labels in hunk headers, no merging across labels, visible whitespace glyphs |
 | M2 | Markout | Caller-issued hidden changes, disclosed as omissions |
-| S3 | `ILInspector.Research` and CLI | Authored-source text diff for `diff --pdb-source`, sensitive by default |
+| S3 | `ILInspector.Research` and CLI | Authored-source text diff for `diff --pdb-source`, sensitive by default; its opt-in exclusion mode needs M2 |
 | S4 | Inspect Web source-diff transport | Typed Worker transport of the characterization |
-| S5 | Inspect Web diff viewer | The three presentation modes for authored → authored comparisons |
+| S5 | Inspect Web diff viewer | The three presentation modes for authored → authored comparisons; Suppress as an explicit choice |
 | S6 | `DotnetInspector.Presentation` and CLI | Insensitive policy for the member Source Diff, the default, with an explicit sensitive option; needs M2 |
 | S7 | Decompiler harness (RTS) | Insensitive decompiled ↔ authored comparison in place of `NormalizeBody` |
 
-S0–S2 and M1 have landed. S3, S6, and S7 are independent of each other. S6
+S0–S2 and M1 have landed. S3, S6, and S7 are independent of each other,
+except that S3's exclusion mode and S6 both follow M2. S6
 changes only the lowering and summary of the existing CLI member Source Diff,
 and follows M2 under the [Markout co-development loop](../markout-co-development.md).
 Inspect Web is reached at S5, which follows S4. S3 is independent of S4 and
@@ -661,7 +662,8 @@ on both sides. That owner's slice records them:
 
 - the diff body shows every change by default, including whitespace-only
   changes, which are labeled;
-- an opt-in mode excludes whitespace-only changes and discloses that it did;
+- an opt-in mode excludes whitespace-only changes and discloses that it did,
+  applying the insensitive rules;
 - a summary-only mode reports counts without the body; and
 - the summary reports changed lines, whitespace-only lines as a subset of the
   changed lines, and moved lines.
@@ -669,35 +671,43 @@ on both sides. That owner's slice records them:
 The operator also directed the [whitespace policy](#whitespace-policy)
 defaults and their hosts:
 
-- The insensitive policy is a CLI and RTS capability only. Inspect Web never
-  exposes it, so S4 and S5 carry no transport or interaction for it. This
-  narrows the usual CLI-and-browser adoption of shared substrate by the
-  operator's explicit approval. The facts stay in host-neutral
-  `Inspector.Text`, which RTS consumes directly. The browser adoption of the
-  PDB and decompiled member Source Diff that
+- The insensitive default for decompiled ↔ authored comparisons is a CLI and
+  RTS capability only; Inspect Web does not need it. This narrows the usual
+  CLI-and-browser adoption of shared substrate by the operator's explicit
+  approval. The facts stay in host-neutral `Inspector.Text`, which RTS
+  consumes directly. The browser adoption of the PDB and decompiled member
+  Source Diff that
   [Member source diff presentation](member-source-diff-presentation.md) and
   [Inspect Web source-diff transport](inspect-web-source-diff-transport.md)
-  plan is unchanged; it presents that comparison under the sensitive policy,
-  as a recorded exception to the provenance default.
+  plan is unchanged and stays with those owners; it presents that comparison
+  under the sensitive policy, as a recorded exception to the provenance
+  default.
+- For authored → authored comparisons, S5 offers all three modes. Mark and
+  Highlight are the sensitive default, and Suppress is an explicit viewer
+  choice that applies the insensitive rules above. S5's viewer renders from
+  the transported facts, so it owns how it leaves out a change that cannot
+  pair as context.
 - The member Source Diff compares PDB (authored) with decompiled text, so S6
   makes it insensitive by default. The S2 labels remain its sensitive
   presentation.
-- RTS consumes the facts, not a rendering: it counts `Changed` lines and moved
-  blocks between decompiled and authored text, and reports `WhitespaceOnly`
-  lines separately. S7 replaces every `NormalizeBody` comparison in the
-  source probe with the pair outcome. `NormalizeBody` removes every .NET `\s`
+- RTS consumes the facts, not a rendering. Today its source probe reports only
+  a match or a difference. S7 replaces every `NormalizeBody` comparison in the
+  probe with the pair outcome, and reports a difference with the line-diff
+  facts: `Changed` lines, moved blocks, and `WhitespaceOnly` lines counted
+  separately. `NormalizeBody` removes every .NET `\s`
   character, which includes U+00A0, U+000B, U+000C, U+0085, other `Zs`
   characters, U+2028, and U+2029. This design's whitespace set deliberately
   excludes them, so bodies that differ only by those characters become
   `Changed`. That change is intended: a lookalike space must not pass as
   whitespace. RTS owns its outcomes, and S7 names the one for a
   `WhitespaceOnly` pair, which must stay distinguishable from a
-  `NoDifference` match. A whitespace-only outcome remains a difference report,
+  `Identical` match. A whitespace-only outcome remains a difference report,
   not an equivalence verdict: whitespace inside a string literal stays a
   difference until a language certifier says otherwise.
 - Decompiled → decompiled comparisons, such as RTS A/B runs across decompiler
-  builds, keep the sensitive default. That is current behavior, so no slice
-  changes them.
+  builds, keep the sensitive default. RTS A/B compares trimmed text
+  ordinally today, which is sensitive to everything except leading and
+  trailing whitespace of the whole text, so no slice changes them.
 
 Follow-on owners track separately in #8393:
 
