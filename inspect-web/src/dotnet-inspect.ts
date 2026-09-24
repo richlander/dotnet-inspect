@@ -12951,6 +12951,7 @@ function workbenchModalOwnsFocus() {
     || graphSourceIsOpen(state.graphSource)
     || documentViewerIsOpen(state.docViewer)
     || state.memberAnnotatedModal !== null
+    || memberDiffExplorer.isOpen
     || graphExplorer.isOpen;
 }
 
@@ -21472,6 +21473,7 @@ function workspaceKeyboardContextIsActive(): boolean {
     && !graphSourceIsOpen(state.graphSource)
     && !documentViewerIsOpen(state.docViewer)
     && state.memberAnnotatedModal === null
+    && !memberDiffExplorer.isOpen
     && !state.spotlightOpen;
 }
 
@@ -21609,6 +21611,11 @@ registerContainedShortcuts(
   "graph-explorer.contain-browser-shortcut",
   WORKBENCH_KEYBINDING_PRIORITY.graphSource,
   () => graphExplorer.isOpen,
+);
+registerContainedShortcuts(
+  "member-diff-explorer.contain-browser-shortcut",
+  WORKBENCH_KEYBINDING_PRIORITY.graphSource,
+  () => memberDiffExplorer.isOpen,
 );
 
 keybindings.register({

@@ -438,6 +438,7 @@ interface FakeDialog {
   removed: boolean;
   innerHTML: string;
   closeHandlers: EventListener[];
+  keydownHandlers: EventListener[];
 }
 
 function dialogHarness() {
@@ -448,11 +449,13 @@ function dialogHarness() {
     },
     createElement: () => {
       const closeHandlers: EventListener[] = [];
+      const keydownHandlers: EventListener[] = [];
       const dialog: FakeDialog = {
         open: false,
         removed: false,
         innerHTML: "",
         closeHandlers,
+        keydownHandlers,
       };
       const closeButton = {
         focus: () => undefined,
@@ -467,9 +470,18 @@ function dialogHarness() {
       Object.assign(dialog, {
         className: "",
         setAttribute: () => undefined,
-        addEventListener: () => undefined,
+        addEventListener: (
+          type: string,
+          listener: EventListenerOrEventListenerObject,
+        ) => {
+          if (type === "keydown" && typeof listener === "function") {
+            keydownHandlers.push(listener);
+          }
+        },
         querySelector: (selector: string) =>
           selector === "[data-member-diff-close]" ? closeButton : null,
+        querySelectorAll: () => [],
+        focus: () => undefined,
         showModal: () => {
           dialog.open = true;
         },
@@ -486,6 +498,33 @@ function dialogHarness() {
   });
   return { document, dialogs };
 }
+
+test("non-Tab keys preserve native dialog button activation", () => {
+  const dom = dialogHarness();
+  const controller = createMemberDiffExplorer({
+    document: dom.document,
+    operationAuthority: createOperationAuthorityPage(),
+    query: () => new Promise<BrowserSourceComparisonResult>(() => undefined),
+    cancel: () => undefined,
+    describeError: error => error instanceof Error ? error.message : String(error),
+    escapeHtml: String,
+    reportOperationDiagnostic: () => undefined,
+  });
+  controller.open(context(), fakeDom.htmlElement({
+    isConnected: true,
+    focus: () => undefined,
+  }));
+  const keydown = dom.dialogs[0]?.keydownHandlers.at(-1);
+  if (keydown === undefined) throw new Error("Expected a dialog keydown binding.");
+  let prevented = 0;
+  keydown(fakeDom.keyboardEvent({
+    key: "Enter",
+    preventDefault: () => prevented++,
+    stopPropagation: () => undefined,
+  }));
+  assert.equal(prevented, 0);
+  controller.dispose();
+});
 
 test("replacement cancels pending Source and suppresses its late result", async () => {
   const dom = dialogHarness();

@@ -787,7 +787,7 @@ export function createMemberDiffExplorer(
           close(true, "user");
           return;
         }
-        trapModalTab(nextDialog, event);
+        if (event.key === "Tab") trapModalTab(nextDialog, event);
       });
       dependencies.document.body.append(nextDialog);
       render();

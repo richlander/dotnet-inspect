@@ -2368,6 +2368,11 @@ test.describe("artifact-backed package scope adoption over real Wasm", () => {
     expect(page.url()).toBe(memberLocation);
     expect(await page.evaluate(() => history.length))
       .toBe(memberHistoryLength);
+    await page.keyboard.press("ArrowDown");
+    await expect(memberDiffExplorer).toBeVisible();
+    await expect(memberDiffExplorer.locator("#member-diff-explorer-title"))
+      .toContainText("First");
+    expect(page.url()).toBe(memberLocation);
     await expect(memberDiffExplorer.locator(".member-diff-explorer-pane"))
       .toHaveCount(3);
     await expect(memberDiffExplorer.locator("#member-diff-explorer-title"))
