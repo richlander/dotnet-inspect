@@ -190,8 +190,9 @@ key and exact coordinate, in its own versioned cache family,
 `package-authority-entries-v1`, registered for
 [versioned retirement](cache-concurrency.md#versioned-cache-retirement):
 
-- **The directory.** The archive's central directory, its derived total
-  length, and its validator, published once.
+- **The directory.** The archive's directory region, meaning the central
+  directory and the end records exactly as read, and the archive's total
+  length, published once.
 - **Each materialized entry.** Its expanded bytes, published under a file
   name that is the lowercase hexadecimal SHA-256 digest of its exact archive
   path bytes, so it is the same on case-sensitive and case-insensitive
@@ -225,8 +226,11 @@ When some are missing, the step makes an ordinary ranged read as the
 [range-access](package-archive-range-access.md#reading-the-directory) reader
 defines it: the tail read, which usually carries the whole directory, then
 the missing entries. The reader is unchanged; the entry cache adds no
-operation to it. The step then compares the fresh directory, total length,
-and validator with the cached ones. When they agree, it publishes the new
+operation to it. The step then compares the fresh directory region and total
+length with the cached ones, byte for byte. It does not compare validators:
+nuget.org's unquoted `ETag` is not a usable validator (see
+[Host scope](#host-scope)), and any republish that changes an entry changes
+the directory's sizes, CRCs, or offsets. When they agree, it publishes the new
 entries beside the cached ones. When they differ, the archive changed, and
 the step takes the complete fetch, as range access means by
 `ArchiveChanged`: the complete payload answers the read with the full
@@ -235,6 +239,11 @@ the entry cache from then on. Entry-cache items are never replaced. A warm
 read missing an entry therefore costs the tail round trip plus the entry
 requests; only a republished archive, which nuget.org never serves, costs a
 complete transfer.
+
+Because the directory is cached, a later read knows which of the entries its
+demand needs are cached and which are missing without a request. Ranged reads
+fetch whole folders, as [package read demand](package-read-demand.md) owns,
+so a cached folder is complete.
 
 A complete payload in the durable store answers before the entry cache, as
 the cache-first rule already orders them. Authorities without a persistent
@@ -315,24 +324,21 @@ All gates run in Release.
 
 | Case | Expected | Gate |
 | --- | --- | --- |
-| 1. Credential-free HTTP authority | persistent key; query-distinct and path-distinct endpoints get distinct keys; the key contains no endpoint text | `PackageSourceAuthorization_CredentialFreeHttpAuthorityHasPersistentKey`, replacing `..._HttpAuthorityWithoutStableIdHasNoPersistentKey` |
-| 2. Configured credential, or user information in the endpoint | no persistent key | `PackageSourceAuthorization_CredentialPathAuthoritiesHaveNoPersistentKey`, extended |
-| 3. Version-service priors for an HTTP authority | identity is still the endpoint | `PackageVersionServiceTests`, extended |
-| 4. Search of an archive under the cut, then a second invocation | first: one complete request, published durably; second: cache hit, no package request | CLI harness, two invocations |
-| 5. Search of an archive over the cut, twice | first: one abandoned request, the ranged read, and the directory and entries published to the entry cache; second: no package request | CLI harness, two invocations |
-| 5a. A second query needing one more entry of the same archive | the tail request and one entry request; no abandoned request | CLI harness |
-| 5e. Entries named with `..`, a rooted path, and two names that differ only by case | each published inside the entry cache under its digest; all three read back to their own content | contract suite |
-| 5b. A cached entry whose bytes no longer match the cached directory, or a cached directory that cannot be read | one complete transfer answers the read; later reads are served from the complete store; the invalid item is left in place; a verbose diagnostic names it | contract suite |
-| 5c. The archive changed since the directory was cached | the fresh directory differs from the cached one; one complete transfer answers the read with the full selection and publishes to the complete store; later reads are served from the complete store; no entry-cache item is replaced | contract suite |
-| 5d. An authority without a persistent key | nothing published to the entry cache | contract suite |
-| 6. No advertised length | complete acquisition | contract suite |
-| 7. A consumer other than the search Root | `package ID@VERSION` from a credential-free HTTP feed, twice: the second is a cache hit | CLI harness, two invocations |
-| 8. Ranged content that does not cover the Root's selection, then the complete fallback | one complete transfer | CLI harness |
+| 1. Credential-free HTTP authority | persistent key; query-distinct and path-distinct endpoints get distinct keys; the key contains no endpoint text | `PackageSourceAuthorization_CredentialFreeHttpAuthorityHasPersistentKey` and `..._PathSecretAuthoritiesHaveDistinctKeysWithoutEndpointText`; `AuthorityScopedPackageStoreTests.HttpAuthorities_WithEqualProducersKeepSeparateDurableSlots` |
+| 2. Configured credential, or user information in the endpoint | no persistent key | `PackageSourceAuthorization_CredentialPathAuthoritiesHaveNoPersistentKey` |
+| 3. Version-service priors for an HTTP authority | identity is still the endpoint | `PackageVersionServiceTests.Entry_RecordsTheSourceIdentityTheKeyUses` |
+| 4. Search of an archive under the cut, then a second invocation | first: one complete request, published durably; second: cache hit, no package request | `PackageRangedRealizationTests.SizeFirst_ArchiveAtOrUnderTheCut_IsAcquiredComplete`, then `RangedRealize_CachedPayloadAnswersWithoutTransfer` |
+| 5. Search of an archive over the cut, twice | first: one abandoned request, the ranged read, and the directory and entries published to the entry cache; second: no package request | `ConfiguredPayloadAcquisitionTests.SearchCommand_RangedRead_TransfersOnlyTheSelectedAssembly`, two invocations; `PackageRangedRealizationTests.EntryCache_WarmReadOfTheSameSelection_MakesNoRequest` |
+| 5a. A second query needing one more entry of the same archive | the tail request and one entry request; no abandoned request | `PackageRangedRealizationTests.EntryCache_WarmReadMissingAnEntry_ReadsOnlyThatEntry` |
+| 5e. Entries named with `..`, a rooted path, and two names that differ only by case | each published inside the entry cache under its digest; all three read back to their own content | `PackageEntryStoreTests.EntryCache_HostileEntryNames_StayContainedAndDistinct` |
+| 5b. A cached entry whose bytes no longer match the cached directory, or a cached directory that cannot be read | one complete transfer answers the read; later reads are served from the complete store; the invalid item is left in place; a verbose diagnostic names it | `PackageRangedRealizationTests.EntryCache_InvalidItem_TakesTheCompleteFetch`, for an entry and for the directory |
+| 5c. The archive changed since the directory was cached | the fresh directory differs from the cached one; one complete transfer answers the read with the full selection and publishes to the complete store; later reads are served from the complete store; no entry-cache item is replaced | `PackageRangedRealizationTests.EntryCache_ChangedArchive_TakesTheCompleteFetch` |
+| 5d. An authority without a persistent key | nothing published to the entry cache | `PackageEntryStoreTests.EntryCache_AuthorityWithoutPersistentKey_KeepsNothing` |
+| 6. No advertised length | complete acquisition | `PackageRangedRealizationTests.SizeFirst_NoAdvertisedLength_IsAcquiredComplete` |
+| 7. A consumer other than the search Root | `package ID@VERSION` from a credential-free HTTP feed, twice: the second is a cache hit | `ConfiguredPayloadAcquisitionTests.ExtractPinnedPackage_CredentialFreeHttpPinIsDurable` |
+| 8. Ranged content that does not cover the Root's selection, then the complete fallback | one complete transfer | unverified: the ranged selection is the Root's own selection expanded to folders, so no fixture reaches the fallback |
 | 9. Two invocations acquiring the same coordinate | one publication | existing cache-concurrency gates |
-| 10. Motivating assets | `Avalonia` 12.1.2: cold about the ranged read of #8415 plus the size probe, warm no package request. `Microsoft.NETCore.App.Runtime.linux-x64` 10.0.0, one assembly: cold about 0.1 s and 0.9 MB, warm no package request | preserved probe as design evidence |
-
-The existing assertion that an HTTP extraction result carries no
-`CacheScopeKey` (`ConfiguredPayloadAcquisitionTests`) changes with case 1.
+| 10. Motivating assets | `Avalonia` 12.1.2: cold about the ranged read of #8415 plus the size probe, warm no package request. `Microsoft.NETCore.App.Runtime.linux-x64` 10.0.0, one assembly: cold about 0.1 s and 0.9 MB, warm no package request | `eng/measure-package-read-demand.sh` for `Avalonia`, a preserved probe as design evidence; the runtime pack is gated when platform packs adopt ranged access in step 4 |
 
 ## Adoption
 

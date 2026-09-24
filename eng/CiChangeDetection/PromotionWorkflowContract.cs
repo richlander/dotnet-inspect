@@ -473,6 +473,12 @@ internal static class PromotionWorkflowContract
             "Staging workflow contract accepted write permission.");
         AssertMutationRejected(
             stagingWorkflow,
+            "  cancel-in-progress: false\n",
+            "  cancel-in-progress: true\n",
+            ValidateStaging,
+            "Staging workflow contract accepted cancellation of an active deployment.");
+        AssertMutationRejected(
+            stagingWorkflow,
             "    steps:\n      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1\n",
             """
                 steps:
@@ -811,7 +817,7 @@ internal static class PromotionWorkflowContract
             new Dictionary<string, string>(StringComparer.Ordinal)
             {
                 ["group"] = "deploy-inspect-web-staging",
-                ["cancel-in-progress"] = "true",
+                ["cancel-in-progress"] = "false",
             },
             "staging workflow.concurrency");
         RequireExactScalarValues(

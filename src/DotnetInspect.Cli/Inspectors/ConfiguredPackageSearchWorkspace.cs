@@ -5,6 +5,7 @@ using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Output;
 using DotnetInspector.Packages;
 using DotnetInspector.Queries;
+using DotnetInspector.Sections;
 using DotnetInspector.Services;
 using DotnetInspector.SourceSelection;
 using ILInspector.Metadata;
@@ -18,6 +19,21 @@ namespace DotnetInspect.Cli.Inspectors;
 /// </summary>
 internal sealed class ConfiguredPackageSearchWorkspace : IAsyncDisposable
 {
+    private const long MaxAssemblyImageBytes =
+        512L * 1024 * 1024;
+    private static readonly ApiSurfaceExtractionBounds
+        NamespaceInspectionBounds = new(
+            maxTypes: 500_000,
+            maxMembers: 0,
+            maxInspectionFailures: 10_000,
+            maxTypeForwarders: 100_000,
+            maxMetadataRows: int.MaxValue,
+            maxRetainedTextCharacters: int.MaxValue);
+    private static readonly AssemblyContextLibraryMaterializationLimits
+        NamespaceMaterializationLimits = new(
+            MaxAssemblyImageBytes,
+            MaxAssemblyImageBytes);
+
     readonly InspectionWorkspace _workspace;
     readonly PackageArtifactRootCorrespondence _correspondence;
     readonly ArtifactRootGenerationReference _generation;
@@ -251,6 +267,45 @@ internal sealed class ConfiguredPackageSearchWorkspace : IAsyncDisposable
         return null;
     }
 
+    internal async ValueTask<
+        InspectionEnvelope<PackageNamespaceDiscoveryOutcome>?>
+        InspectNamespaceAsync(
+            string @namespace,
+            CancellationToken cancellationToken = default)
+    {
+        ArtifactRootResult<
+            InspectionEnvelope<PackageNamespaceDiscoveryOutcome>> execution =
+                await _workspace.ExecutePackageRootQueryAsync(
+                    _correspondence,
+                    _generation,
+                    (realization, token) =>
+                        PackageNamespaceDiscoveryInspection.ExecuteAsync(
+                            realization,
+                            new(
+                                @namespace,
+                                NamespaceInspectionBounds,
+                                NamespaceMaterializationLimits),
+                            token),
+                    cancellationToken: cancellationToken)
+                .ConfigureAwait(false);
+        if (execution
+            is ArtifactRootResult<
+                InspectionEnvelope<
+                    PackageNamespaceDiscoveryOutcome>>.Available available)
+        {
+            return available.Value;
+        }
+
+        var rejected =
+            (ArtifactRootResult<
+                InspectionEnvelope<
+                    PackageNamespaceDiscoveryOutcome>>.Rejected)execution;
+        CommandError.WriteWarning(
+            $"Could not query package Root '{_packageDisplay}': "
+            + rejected.Failure);
+        return null;
+    }
+
     public async ValueTask DisposeAsync()
     {
         if (_closed)
@@ -401,7 +456,8 @@ internal sealed class ConfiguredPackageSearchWorkspace : IAsyncDisposable
                 cancellationToken,
                 limits: PackagePayloadLimits.Default,
                 compileTargetContext: target,
-                access: access).ConfigureAwait(false);
+                access: access,
+                assetDemand: PackageAssetDemand.Surface).ConfigureAwait(false);
         if (result.Payload is not { } payload)
         {
             CommandError.WriteWarning(
@@ -428,16 +484,16 @@ internal sealed class ConfiguredPackageSearchWorkspace : IAsyncDisposable
                 compatible.Universe.TargetFramework,
                 member.PackageId);
         }
-        return (binding, payload);
+        // Search reads the public surface only: the Root admits no
+        // implementation role, so nothing beyond the surface folder is read.
+        return (binding.WithAssetDemand(PackageAssetDemand.Surface), payload);
     }
 
     static bool CoversSelection(
         PackageCompileAssetSelection selection,
         RangedPackageContent ranged) =>
         !selection.IsSelected
-        || selection.Assets
-            .Concat(selection.ImplementationAssets)
-            .All(asset => ranged.IsMaterialized(asset.Path));
+        || selection.Assets.All(asset => ranged.IsMaterialized(asset.Path));
 
     static string Describe(ConfiguredPackagePayloadResult result)
     {

@@ -88,11 +88,14 @@ public sealed class PackageArchiveReader : IAsyncDisposable
     /// concurrency, under a bound on their expansion together. Every entry is
     /// checked before any transfer; the result is all the entries, in the
     /// order requested, or one failure or refusal and no content. The token
-    /// rule is <see cref="ReadEntryAsync"/>'s.
+    /// rule is <see cref="ReadEntryAsync"/>'s. <paramref name="entryMergeGap"/>
+    /// replaces the limits' merge gap for this read, up to
+    /// <see cref="ZipReadLimits.MaxEntryMergeGap"/>.
     /// </summary>
     public async Task<PackageArchiveReadResult<IReadOnlyList<PackageArchiveEntryContent>>> ReadEntriesAsync(
         IReadOnlyList<ZipEntry> entries,
         long? maxTotalExpandedBytes = null,
+        int? entryMergeGap = null,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(entries);
@@ -107,6 +110,7 @@ public sealed class PackageArchiveReader : IAsyncDisposable
                 entries,
                 Limits,
                 maxTotalExpandedBytes,
+                entryMergeGap,
                 token).ConfigureAwait(false);
             var results = new PackageArchiveEntryContent[entries.Count];
             for (int i = 0; i < results.Length; i++)
