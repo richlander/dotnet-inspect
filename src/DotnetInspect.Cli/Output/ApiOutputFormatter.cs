@@ -9,6 +9,7 @@ using System.Text;
 using System.Text.Json;
 using System.Globalization;
 using DotnetInspect.Cli.Options;
+using DotnetInspector.Queries;
 using DotnetInspector.Sections;
 using DotnetInspect.Cli.Sections;
 using DotnetInspector.Services;
@@ -121,9 +122,11 @@ public static class ApiOutputFormatter
         if (api.TypeForwarders.Count > 0)
         {
             view.TypeForwarders = api.TypeForwarders
-                .GroupBy(f => f.TargetAssembly)
-                .OrderBy(g => g.Key)
-                .Select(g => new ForwarderSummaryRow(g.Key, g.Count().ToString()))
+                .Select(
+                    forwarder =>
+                        new ApiTypeForwarderRow(
+                            forwarder.TypeName,
+                            forwarder.TargetAssembly))
                 .ToList();
         }
 
@@ -154,6 +157,136 @@ public static class ApiOutputFormatter
 
         return (view, truncatedCount);
     }
+
+    internal static CliApiSurface BuildLibraryTypeView(
+        LibraryDocument document,
+        ImmutableArray<LibraryTypeShape> declarations)
+    {
+        var view =
+            new CliApiSurface(
+                document.Assembly.Name,
+                descriptionText: null,
+                libraryText: null,
+                sourceText: null,
+                versionText: null,
+                tfmText: null);
+
+        foreach (LibraryTypeShape declaration in declarations)
+        {
+            switch (declaration.DeclarationKind)
+            {
+                case LibraryTypeDeclarationKind.Definition:
+                    AddDefinition(view, declaration);
+                    break;
+                case LibraryTypeDeclarationKind.Forwarder:
+                    AddForwarder(view, declaration);
+                    break;
+                default:
+                    throw new InvalidOperationException(
+                        "Unknown Library Type declaration kind.");
+            }
+        }
+
+        int definitions =
+            declarations.Count(
+                static declaration =>
+                    declaration.DeclarationKind
+                    == LibraryTypeDeclarationKind.Definition);
+        int forwarders = declarations.Length - definitions;
+        if (document.Types.Binding.DeclarationSelection
+                == LibraryTypeDeclarationSelection
+                    .DefinitionsAndForwarders
+            && definitions == 0)
+        {
+            view.DescriptionText =
+                ApiViewText.Field(
+                    forwarders == 0
+                        ? "This library contains no public types."
+                        : "This is a type-forwarding library. Forwarded "
+                            + "declarations are listed without resolving "
+                            + "their targets.");
+        }
+
+        return view;
+    }
+
+    private static void AddDefinition(
+        CliApiSurface view,
+        LibraryTypeShape declaration)
+    {
+        ApiTypeInventoryKind kind =
+            declaration.DefinitionKind
+            ?? throw new InvalidOperationException(
+                "A Library Type definition row requires a kind.");
+        int memberCount =
+            declaration.MemberCount
+                is LibraryTypeMemberCountOutcome.Counted counted
+                    ? counted.Value
+                    : throw new InvalidOperationException(
+                        "A Library Type definition row requires Member "
+                            + "Count.");
+        var row =
+            new TypeSummaryRow(
+                ApiViewText.Field(TypeKind(kind)),
+                MarkoutInline.CodeText(declaration.DisplayName),
+                ApiViewText.Field(
+                    memberCount.ToString(
+                        CultureInfo.InvariantCulture)),
+                Description: null);
+
+        switch (kind)
+        {
+            case ApiTypeInventoryKind.Class:
+                (view.Classes ??= []).Add(row);
+                break;
+            case ApiTypeInventoryKind.Struct:
+                (view.Structs ??= []).Add(row);
+                break;
+            case ApiTypeInventoryKind.Interface:
+                (view.Interfaces ??= []).Add(row);
+                break;
+            case ApiTypeInventoryKind.Enum:
+                (view.Enums ??= []).Add(row);
+                break;
+            case ApiTypeInventoryKind.Delegate:
+                (view.Delegates ??= []).Add(row);
+                break;
+            default:
+                throw new InvalidOperationException(
+                    "Unknown API Type inventory kind.");
+        }
+    }
+
+    private static void AddForwarder(
+        CliApiSurface view,
+        LibraryTypeShape declaration)
+    {
+        LibraryTypeForwardingEvidence forwarding =
+            declaration.Forwarding
+            ?? throw new InvalidOperationException(
+                "A Library Type forwarder row requires forwarding "
+                    + "evidence.");
+        (view.TypeForwarders ??= [])
+            .Add(
+                new ApiTypeForwarderRow(
+                    declaration.DisplayName.ToString(),
+                    AssemblyIdentityFormatter.Format(
+                        forwarding.TargetAssembly)));
+    }
+
+    private static string TypeKind(ApiTypeInventoryKind kind) =>
+        kind switch
+        {
+            ApiTypeInventoryKind.Class => "class",
+            ApiTypeInventoryKind.Struct => "struct",
+            ApiTypeInventoryKind.Interface => "interface",
+            ApiTypeInventoryKind.Enum => "enum",
+            ApiTypeInventoryKind.Delegate => "delegate",
+            _ => throw new ArgumentOutOfRangeException(
+                nameof(kind),
+                kind,
+                "Unknown API Type inventory kind."),
+        };
 
     internal static bool RendersInspectionFailures(
         ApiSurface api,
@@ -2951,6 +3084,45 @@ public static class ApiOutputFormatter
             else
                 view.TypeMetricRows = rows;
         }
+    }
+
+    internal static void PopulateImplementationProfiles(
+        TypeView view,
+        ApiType type,
+        AssemblyImplementationProfileFamilyInspection inspection)
+    {
+        var drillByToken = BuildMemberDrillMap(type);
+        var relationshipsByBody = inspection.OverloadRelationships
+            .GroupBy(relationship => (
+                relationship.Caller.MetadataToken,
+                relationship.EvidenceMethod.MetadataToken))
+            .ToDictionary(
+                group => group.Key,
+                group => group.ToArray());
+        List<ImplementationProfileRow> rows =
+        [
+            .. inspection.Profiles.Select(profile =>
+            {
+                drillByToken.TryGetValue(
+                    profile.Profile.Method.MetadataToken,
+                    out var drill);
+                relationshipsByBody.TryGetValue(
+                    (
+                        profile.Profile.Method.MetadataToken,
+                        profile.Profile.EvidenceMethod.MetadataToken),
+                    out var relationships);
+                return ToImplementationProfileRow(
+                    profile.Profile,
+                    relationships ?? [],
+                    drill,
+                    LibraryMetadataService.IsGeneratedMethod(
+                        profile.Profile.Method,
+                        inspection.GeneratedFrameworkTypes),
+                    includeDeclaringType: false);
+            }),
+        ];
+        if (rows.Count > 0)
+            view.MemberMetricRows = rows;
     }
 
     internal static bool IncludesImplementationProfileDiagnostic(

@@ -5,49 +5,49 @@ using DotnetInspector.Packages;
 using DotnetInspect.Cli.Commands;
 using DotnetInspect.Cli.Options;
 using DotnetInspector.Services;
-using ILInspector.Metadata;
-using System.Reflection.PortableExecutable;
 
 namespace DotnetInspect.Cli.Tests;
 
 public partial class CommandExecutionTests
 {
     [Fact]
-    public async Task Type_ListingDefaultCount_MatchesMetadataInventory()
+    public async Task Type_ListingDefaultCount_MatchesDrainedRows()
     {
-        string path = typeof(object).Assembly.Location;
-        using var stream = File.OpenRead(path);
-        using var reader = new PEReader(stream);
-        var counted = Assert.IsType<
-            ApiTypeInventoryCountResult.Counted>(
-                ApiSurfaceExtractor.CountSummaryTypes(reader));
-
         var (exit, output, error) = await RunAppAsync(
             "type",
             "--platform",
-            "System.Private.CoreLib",
+            "System.Text.Json",
             "--count",
             "--tips",
             "q");
+        var (rowsExit, rowsOutput, rowsError) =
+            await RunAppAsync(
+                "type",
+                "--platform",
+                "System.Text.Json",
+                "--tips",
+                "q");
 
         Assert.Equal(0, exit);
+        Assert.Equal(0, rowsExit);
         Assert.Empty(error);
+        Assert.Empty(rowsError);
         Assert.Equal(
-            counted.Count.Total.ToString(
+            int.Parse(
+                output.Trim(),
                 CultureInfo.InvariantCulture),
-            output.Trim());
+            rowsOutput
+                .Split('\n')
+                .Count(
+                    static line =>
+                        line.StartsWith(
+                            "| `",
+                            StringComparison.Ordinal)));
     }
 
     [Fact]
-    public async Task Type_ListingKindCount_MatchesMetadataInventory()
+    public async Task Type_ListingKindCount_MatchesDrainedRows()
     {
-        string path = typeof(object).Assembly.Location;
-        using var stream = File.OpenRead(path);
-        using var reader = new PEReader(stream);
-        var counted = Assert.IsType<
-            ApiTypeInventoryCountResult.Counted>(
-                ApiSurfaceExtractor.CountSummaryTypes(reader));
-
         var (exit, output, error) = await RunAppAsync(
             "type",
             "--platform",
@@ -57,13 +57,78 @@ public partial class CommandExecutionTests
             "--count",
             "--tips",
             "q");
+        var (rowsExit, rowsOutput, rowsError) =
+            await RunAppAsync(
+                "type",
+                "--platform",
+                "System.Private.CoreLib",
+                "-S",
+                SectionNames.Classes,
+                "--tips",
+                "q");
 
         Assert.Equal(0, exit);
+        Assert.Equal(0, rowsExit);
         Assert.Empty(error);
+        Assert.Empty(rowsError);
         Assert.Equal(
-            counted.Count.Classes.ToString(
+            int.Parse(
+                output.Trim(),
                 CultureInfo.InvariantCulture),
-            output.Trim());
+            rowsOutput
+                .Split('\n')
+                .Count(
+                    static line =>
+                        line.StartsWith(
+                            "| `",
+                            StringComparison.Ordinal)));
+    }
+
+    [Fact]
+    public async Task Type_Listing_NormalOmitsVerboseSurfaceInventories()
+    {
+        var normal = await RunAppAsync(
+            "type",
+            "--platform",
+            "System.Text.Json",
+            "-v:n",
+            "--tips",
+            "q");
+        var selected = await RunAppAsync(
+            "type",
+            "--platform",
+            "System.Text.Json",
+            "-v:n",
+            "-S",
+            SectionNames.Classes,
+            "--tips",
+            "q");
+
+        Assert.Equal(0, normal.Exit);
+        Assert.Empty(normal.Error);
+        Assert.Contains(
+            "# System.Text.Json",
+            normal.Output,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "## Classes",
+            normal.Output,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "| `",
+            normal.Output,
+            StringComparison.Ordinal);
+
+        Assert.Equal(0, selected.Exit);
+        Assert.Empty(selected.Error);
+        Assert.Contains(
+            "## Classes",
+            selected.Output,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "| `",
+            selected.Output,
+            StringComparison.Ordinal);
     }
 
     /// <summary>
@@ -76,7 +141,7 @@ public partial class CommandExecutionTests
     {
         string[][] withoutTheLine =
         [
-            ["-v:m"], ["-v:n"], ["-v:d"], ["--all"], ["-S"], ["-S", "Classes"], ["-S", SectionNames.ApiInfo]
+            ["-v:m"], ["-v:n"], ["-v:d"], ["--all"], ["-S", "Classes"], ["-S", SectionNames.ApiInfo]
         ];
 
         var (quietExit, quietOutput, _) = await RunAppAsync(
@@ -251,10 +316,10 @@ public partial class CommandExecutionTests
 
     /// <summary>
     /// An unmatched <c>--fields</c> name with a section selected must fail by name, not render
-    /// nothing and exit 0. Bare <c>-S</c> now always selects a section here, and <c>API Info</c>
-    /// is a two-column fact table, so an unmatched field emptied it completely -- and markout
-    /// drops the document title once a projection leaves no renderable field, so the output was
-    /// not thin but ENTIRELY empty with a success exit code. See #3651.
+    /// nothing and exit 0. <c>API Info</c> is a two-column fact table, so an unmatched field
+    /// emptied it completely -- and markout drops the document title once a projection leaves no
+    /// renderable field, so the output was not thin but ENTIRELY empty with a success exit code.
+    /// See #3651.
     ///
     /// The gate is emptiness of the RENDER, deliberately not validation of the NAMES, which is
     /// why the false-positive half of this test matters as much as the failing half: two
@@ -266,7 +331,7 @@ public partial class CommandExecutionTests
     public async Task Type_Listing_UnmatchedProjection_FailsByNameRatherThanRenderingNothing()
     {
         var (exit, output, error) = await RunAppAsync(
-            ["type", "--platform", "System.Text.Json", "-S", "--fields", "NoSuchField", "--tips", "q"]);
+            ["type", "--platform", "System.Text.Json", "-S", "API Info", "--fields", "NoSuchField", "--tips", "q"]);
 
         Assert.Equal(1, exit);
         Assert.Contains("NoSuchField", error, StringComparison.Ordinal);
@@ -371,7 +436,7 @@ public partial class CommandExecutionTests
         // Non-vacuity: the same projection with a REAL name must still succeed, or this would
         // pass on a build that rejected every projection.
         var (okExit, okOutput, _) = await RunAppAsync(
-            ["type", "--platform", "System.Text.Json", "-S", "--fields", "Types", "--tips", "q"]);
+            ["type", "--platform", "System.Text.Json", "-S", "API Info", "--fields", "Types", "--tips", "q"]);
 
         Assert.Equal(0, okExit);
         Assert.Contains("| Field | Value |", okOutput, StringComparison.Ordinal);
@@ -855,9 +920,9 @@ public partial class CommandExecutionTests
     }
 
     [Theory]
-    [InlineData("--table", "Target Library", "Kind    Type")]
-    [InlineData("--tsv", "target_library\ttypes", "kind\ttype")]
-    [InlineData("--jsonl", "\"target_library\":", "\"kind\":")]
+    [InlineData("--table", "Type", "Kind    Type")]
+    [InlineData("--tsv", "type\ttarget_assembly", "kind\ttype")]
+    [InlineData("--jsonl", "\"type\":", "\"kind\":")]
     public async Task Type_Listing_MixedSurfaceProjectsForwardersInTabularFormats(
         string format,
         string expected,
@@ -875,7 +940,7 @@ public partial class CommandExecutionTests
 
         Assert.Contains(expected, output, StringComparison.Ordinal);
         Assert.DoesNotContain(unexpected, output, StringComparison.Ordinal);
-        Assert.DoesNotContain(
+        Assert.Contains(
             "System.Drawing.ColorConverter",
             output,
             StringComparison.Ordinal);
@@ -892,7 +957,7 @@ public partial class CommandExecutionTests
             SectionNames.TypeForwarders,
             "--table",
             "--columns",
-            "Target Library",
+            "Target Assembly",
             "--rows",
             "1",
             "--tips",
@@ -900,8 +965,228 @@ public partial class CommandExecutionTests
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
-        Assert.Contains("Target Library", output, StringComparison.Ordinal);
+        Assert.Contains("Target Assembly", output, StringComparison.Ordinal);
         Assert.Contains("System.Runtime", output, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Type_Listing_FacadeCountAndRowsShareForwarderPopulation()
+    {
+        var (countExit, countOutput, countError) =
+            await RunAppAsync(
+                "type",
+                "--platform",
+                "System.Xml",
+                "-S",
+                SectionNames.TypeForwarders,
+                "--count",
+                "--tips",
+                "q");
+        var (rowsExit, rowsOutput, rowsError) =
+            await RunAppAsync(
+                "type",
+                "--platform",
+                "System.Xml",
+                "-S",
+                SectionNames.TypeForwarders,
+                "--tips",
+                "q");
+
+        Assert.Equal(0, countExit);
+        Assert.Equal(0, rowsExit);
+        Assert.Empty(countError);
+        Assert.Empty(rowsError);
+        int count =
+            int.Parse(
+                countOutput.Trim(),
+                CultureInfo.InvariantCulture);
+        int rows =
+            rowsOutput
+                .Split('\n')
+                .Count(
+                    static line =>
+                        line.StartsWith(
+                            "| `",
+                            StringComparison.Ordinal));
+        Assert.True(count > 100);
+        Assert.Equal(count, rows);
+        Assert.Contains(
+            "`System.Xml.XmlReader`",
+            rowsOutput,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "System.Xml.ReaderWriter, Version=",
+            rowsOutput,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "| Members |",
+            rowsOutput,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task
+        Type_Listing_FacadeExcludedModesKeepCountAndRowsOnSamePopulation()
+    {
+        var detailedCount = await RunAppAsync(
+            "type",
+            "--platform",
+            "System.Xml",
+            "-v:d",
+            "-S",
+            SectionNames.Classes,
+            "--count",
+            "--tips",
+            "q");
+        var detailedRows = await RunAppAsync(
+            "type",
+            "--platform",
+            "System.Xml",
+            "-v:d",
+            "-S",
+            SectionNames.Classes,
+            "--tips",
+            "q");
+        var tableCount = await RunAppAsync(
+            "type",
+            "--platform",
+            "System.Xml",
+            "-S",
+            SectionNames.Classes,
+            "--count",
+            "--table",
+            "--tips",
+            "q");
+        var tableRows = await RunAppAsync(
+            "type",
+            "--platform",
+            "System.Xml",
+            "-S",
+            SectionNames.Classes,
+            "--table",
+            "--tips",
+            "q");
+
+        Assert.Equal(0, detailedCount.Exit);
+        Assert.Equal(0, detailedRows.Exit);
+        Assert.Equal(0, tableCount.Exit);
+        Assert.Equal(0, tableRows.Exit);
+        Assert.Empty(detailedCount.Error);
+        Assert.Empty(detailedRows.Error);
+        Assert.Empty(tableCount.Error);
+        Assert.Empty(tableRows.Error);
+
+        int expected =
+            int.Parse(
+                detailedCount.Output.Trim(),
+                CultureInfo.InvariantCulture);
+        Assert.True(expected > 0);
+        Assert.Equal(
+            expected,
+            detailedRows.Output
+                .Split('\n')
+                .Count(
+                    static line =>
+                        line.StartsWith(
+                            "| `",
+                            StringComparison.Ordinal)));
+        Assert.Equal(
+            expected,
+            int.Parse(
+                tableCount.Output.Trim(),
+                CultureInfo.InvariantCulture));
+        Assert.Equal(
+            expected,
+            tableRows.Output
+                .Split(
+                    '\n',
+                    StringSplitOptions.RemoveEmptyEntries)
+                .Length - 1);
+    }
+
+    [Fact]
+    public async Task Type_Listing_FacadeDefaultIncludesForwarders()
+    {
+        var (defaultExit, defaultOutput, defaultError) =
+            await RunAppAsync(
+                "type",
+                "--platform",
+                "System.Xml",
+                "--count",
+                "--tips",
+                "q");
+        var (forwarderExit, forwarderOutput, forwarderError) =
+            await RunAppAsync(
+                "type",
+                "--platform",
+                "System.Xml",
+                "-S",
+                SectionNames.TypeForwarders,
+                "--count",
+                "--tips",
+                "q");
+        var (rowsExit, rowsOutput, rowsError) =
+            await RunAppAsync(
+                "type",
+                "--platform",
+                "System.Xml",
+                "--tips",
+                "q");
+
+        Assert.Equal(0, defaultExit);
+        Assert.Equal(0, forwarderExit);
+        Assert.Equal(0, rowsExit);
+        Assert.Empty(defaultError);
+        Assert.Empty(forwarderError);
+        Assert.Empty(rowsError);
+        Assert.Equal(forwarderOutput.Trim(), defaultOutput.Trim());
+        Assert.Contains(
+            "## Type Forwarders",
+            rowsOutput,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "`System.Xml.XmlReader`",
+            rowsOutput,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Type_Listing_CoreLibDrainsMultipleRowSegments()
+    {
+        var (countExit, countOutput, countError) =
+            await RunAppAsync(
+                "type",
+                "--platform",
+                "System.Private.CoreLib",
+                "--count",
+                "--tips",
+                "q");
+        var (rowsExit, rowsOutput, rowsError) =
+            await RunAppAsync(
+                "type",
+                "--platform",
+                "System.Private.CoreLib",
+                "--tips",
+                "q");
+
+        Assert.Equal(0, countExit);
+        Assert.Equal(0, rowsExit);
+        Assert.Empty(countError);
+        Assert.Empty(rowsError);
+        int count =
+            int.Parse(
+                countOutput.Trim(),
+                CultureInfo.InvariantCulture);
+        int rows =
+            rowsOutput
+                .Split('\n')
+                .Count(
+                    static line =>
+                        line.StartsWith(
+                            "| `",
+                            StringComparison.Ordinal));
+        Assert.True(count > 256);
+        Assert.Equal(count, rows);
     }
 
     [Fact]
@@ -963,28 +1248,40 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public void Type_FixedOverview_IsExactlyTypeInfo()
+    public void Type_FixedOverview_ContainsOwnedFixedSections()
     {
-        // Non-vacuity for the whole slice: every `type X -S` assertion below is only meaningful
-        // because this set is non-empty. An empty set is the state ApiCommand.HasNoBareSelectOverview
-        // rejects, so without this pin a future descriptor change could make bare -S error while the
-        // output tests kept passing for the wrong reason.
         var fixedOverview = ApiMemberSectionDescriptors.CreatePipeline().FixedOverviewSectionNames;
 
-        Assert.Equal([SectionNames.TypeInfo], fixedOverview);
+        Assert.Equal(
+            [
+                SectionNames.TypeInfo,
+                SectionNames.Baseclass,
+                SectionNames.Finalizer,
+            ],
+            fixedOverview);
     }
 
     [Fact]
-    public async Task Type_BareSelect_StaysBoundedAtWorstCaseArity()
+    public async Task Type_ExplicitFixedSections_StayBoundedAtWorstCaseArity()
     {
         // The bounded claim is about how many LINES the overview has, not how wide they are.
         // Func`17 is the worst arity in the platform, and its `Type Parameters` cell reaches ~492
-        // characters -- one row, rendered identically by explicit `-S "Type Info"` on main, so it
-        // is a property of the section rather than of this selection change. See #3616.
-        var (exit, output, _) = await RunAppAsync("type", "System.Func`17", "-S", "--tips", "q");
+        // characters. Baseclass adds one bounded row; the long generic signature remains one row.
+        // See #3616.
+        var (exit, output, _) = await RunAppAsync(
+            "type",
+            "System.Func`17",
+            "-S",
+            "Type Info;Baseclass",
+            "--tips",
+            "q");
 
         Assert.Equal(0, exit);
-        Assert.Equal([SectionNames.TypeInfo], SectionHeadings(output));
-        Assert.True(output.Split('\n').Length <= 16, $"Overview grew to {output.Split('\n').Length} lines at arity 17.");
+        Assert.Equal(
+            [SectionNames.TypeInfo, SectionNames.Baseclass],
+            SectionHeadings(output));
+        Assert.True(
+            output.Split('\n').Length <= 22,
+            $"Overview grew to {output.Split('\n').Length} lines at arity 17.");
     }
 }

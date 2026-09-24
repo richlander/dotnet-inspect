@@ -845,6 +845,37 @@ public class CommandLineTests
     }
 
     [Fact]
+    public void PreprocessArgs_EscapesColonAttachedAtCategorySelectAndPathValues()
+    {
+        var result = CommandLineBuilder.PreprocessArgs(
+            ["package", "Foo", "--section:@All", "--path:@readme"]);
+
+        Assert.Equal(
+            [
+                "package",
+                "Foo",
+                "--section:" + DotnetInspect.Cli.CommandLine.ArgumentPreprocessor.EscapedAtCategoryPrefix + "All",
+                "--path:" + DotnetInspect.Cli.CommandLine.ArgumentPreprocessor.EscapedAtCategoryPrefix + "readme",
+            ],
+            result);
+    }
+
+    [Fact]
+    public void PreprocessArgs_EscapesCompactAtCategorySelectValue()
+    {
+        var result = CommandLineBuilder.PreprocessArgs(
+            ["library", "Foo", "-S@Library"]);
+
+        Assert.Equal(
+            [
+                "library",
+                "Foo",
+                "-S" + DotnetInspect.Cli.CommandLine.ArgumentPreprocessor.EscapedAtCategoryPrefix + "Library",
+            ],
+            result);
+    }
+
+    [Fact]
     public void PreprocessArgs_WithKnownCommand_ReturnsUnchanged()
     {
         var args = new[] { "package", "Foo" };
@@ -1291,11 +1322,62 @@ public class CommandLineTests
     }
 
     [Fact]
-    public void PreprocessArgs_MergesRepeatedSelectAcrossAliasesAndEqualsForm()
+    public void PreprocessArgs_MergesRepeatedSelectAcrossAliasesAndAttachedForms()
     {
-        var result = CommandLineBuilder.PreprocessArgs(["package", "Foo", "--select", "A", "--section=B", "-s", "C"]);
+        var result = CommandLineBuilder.PreprocessArgs(
+        [
+            "package",
+            "Foo",
+            "--select",
+            "A",
+            "--section=B",
+            "-s:C",
+        ]);
 
         Assert.Equal(["package", "Foo", "-S", "A;B;C"], result);
+    }
+
+    [Fact]
+    public void PreprocessArgs_MergesRepeatedSelectWithCompactShortValue()
+    {
+        var result = CommandLineBuilder.PreprocessArgs(
+            ["package", "Foo", "-S", "Package Info", "-SManifest"]);
+
+        Assert.Equal(
+            ["package", "Foo", "-S", "Package Info;Manifest"],
+            result);
+    }
+
+    [Fact]
+    public void PreprocessArgs_NormalizesInvalidRepeatedSelectToEmptyValue()
+    {
+        (string[] Arguments, string[] Expected)[] cases =
+        [
+            (
+                ["package", "Foo", "-S", "Signals", "--section"],
+                ["package", "Foo", "-S", ""]),
+            (
+                ["package", "Foo", "-S", "Signals", "--section", "--json"],
+                ["package", "Foo", "-S", "", "--json"]),
+            (
+                ["package", "Foo", "-S", "Signals", "--section", ""],
+                ["package", "Foo", "-S", ""]),
+            (
+                ["package", "Foo", "-S", "Signals", "--section", ";"],
+                ["package", "Foo", "-S", ""]),
+            (
+                ["package", "Foo", "-S", "Signals", "--section", " , ; "],
+                ["package", "Foo", "-S", ""]),
+            (
+                ["package", "Foo", "-S", "Signals", "--section:"],
+                ["package", "Foo", "-S", ""]),
+            (
+                ["package", "Foo", "-S", "Signals", "-S;"],
+                ["package", "Foo", "-S", ""]),
+        ];
+
+        foreach (var (arguments, expected) in cases)
+            Assert.Equal(expected, CommandLineBuilder.PreprocessArgs(arguments));
     }
 
     [Fact]
@@ -1306,7 +1388,36 @@ public class CommandLineTests
         Assert.Equal(["member", "Foo", "--columns", "Select;Signature"], result);
     }
 
+    [Fact]
+    public void PreprocessArgs_RepeatedSelectPreservesHeadShorthand()
+    {
+        string[] result = PreprocessAndApplyLineWindow(
+        [
+            "package",
+            "Foo",
+            "-S",
+            "Package Info",
+            "--section",
+            "Manifest",
+            "-5",
+        ]);
+
+        Assert.Equal(
+            [
+                "package",
+                "Foo",
+                "-S",
+                "Package Info;Manifest",
+                "-n",
+                "5",
+            ],
+            result);
+        Assert.Equal(5, CommandLineBuilder.HeadLines);
+        Assert.Null(CommandLineBuilder.TailLines);
+    }
+
     [Theory]
+    [InlineData("--select=")]
     [InlineData("--columns=")]
     [InlineData("--fields=")]
     public void PreprocessArgs_ExpandsInlineEmptyProjectionValue(string option)

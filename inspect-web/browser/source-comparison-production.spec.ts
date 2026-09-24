@@ -195,11 +195,11 @@ test.describe("published authored Source comparison transport", () => {
           metadataToken: body.token,
         };
         const compared = await source.queryMemberSourceComparison(
-          "source-comparison-public-pair", JSON.stringify(request),
+          "source-comparison-public-pair", request,
         );
         const same = await source.queryMemberSourceComparison(
           "source-comparison-public-same",
-          JSON.stringify({ ...request, afterVersion: request.beforeVersion }),
+          { ...request, afterVersion: request.beforeVersion },
         );
         return { request, compared, same };
       });
@@ -330,7 +330,7 @@ test.describe("published authored Source comparison transport", () => {
         const result = await targetPage.evaluate(async request => {
           const source = await import("/inspect-web-source.js");
           return source.queryMemberSourceComparison(
-            `source-comparison-fixture-${request.memberName}`, JSON.stringify(request));
+            `source-comparison-fixture-${request.memberName}`, request);
         }, selected);
         return decodeSourceComparison(result);
       }
@@ -486,10 +486,168 @@ test.describe("published authored Source comparison transport", () => {
           __copiedMemberSource?: string;
         }).__copiedMemberSource)).toBe(expectedBody);
       expect(sourceFetchCount).toBe(settledSourceFetchCount);
+      await applicationPage.locator("#explore-source").click();
+      await expect(applicationPage.locator("#settings-backdrop")).toBeVisible();
+      await expect(
+        applicationPage.locator("#settings-decompiler-title"),
+      ).toBeFocused();
+      await applicationPage.locator("#settings-close").click();
+      await expect(applicationPage.locator("#explore-source")).toBeFocused();
       await chooseSubject(applicationPage, "type");
+      const typeApiUrl = applicationPage.url();
       await applicationPage.locator('[data-lens="source"]:visible').click();
       const typeView = applicationPage.getByLabel("Select type code view");
       await expect(typeView).toHaveValue("source");
+      await expect(applicationPage).not.toHaveURL(typeApiUrl);
+      const typeSourceUrl = applicationPage.url();
+      await applicationPage.locator("#explore-source").click();
+      await expect(applicationPage).toHaveURL(/\/type-explorer\?/u);
+      const typeExplorerHeading = applicationPage.getByRole("heading", {
+        level: 1,
+        name: /Type Explorer: .*Counter/u,
+      });
+      await expect(typeExplorerHeading).toBeFocused();
+      await expect(
+        applicationPage.getByRole("region", { name: "Whole-Type C#" }),
+      ).toContainText("Counter", { timeout: 60_000 });
+      await applicationPage.reload();
+      await expect(typeExplorerHeading).toBeFocused({ timeout: 60_000 });
+      await expect(
+        applicationPage.getByRole("region", { name: "Whole-Type C#" }),
+      ).toContainText("Counter", { timeout: 60_000 });
+      await applicationPage.setViewportSize({ width: 1120, height: 520 });
+      const typeExplorerLayout = await applicationPage.evaluate(() => {
+        const route = document.querySelector<HTMLElement>(
+          ".type-explorer-route");
+        const source = document.querySelector<HTMLElement>(
+          ".type-explorer-source pre");
+        if (route === null || source === null)
+          throw new Error("Type Explorer layout was not rendered.");
+        return {
+          routeClientHeight: route.clientHeight,
+          routeScrollHeight: route.scrollHeight,
+          sourceClientHeight: source.clientHeight,
+          sourceScrollHeight: source.scrollHeight,
+        };
+      });
+      expect(typeExplorerLayout.routeScrollHeight)
+        .toBe(typeExplorerLayout.routeClientHeight);
+      expect(typeExplorerLayout.sourceScrollHeight)
+        .toBeGreaterThan(typeExplorerLayout.sourceClientHeight);
+      const selectedBody = applicationPage.getByRole("radio", {
+        name: "Selected body",
+      });
+      const buildValueOutline = applicationPage
+        .locator(".type-explorer-outline [data-type-explorer-declaration]")
+        .filter({ hasText: /\bBuildValue\b/u })
+        .first();
+      await buildValueOutline.click();
+      await expect(selectedBody).toBeDisabled();
+      const selectedSourceOffset = async () =>
+        await applicationPage.evaluate(() => {
+          const source = document.querySelector<HTMLElement>(
+            ".type-explorer-source pre");
+          const selected = document.querySelector<HTMLElement>(
+            ".type-explorer-source [aria-current=\"true\"]");
+          if (source === null || selected === null)
+            throw new Error("Selected Type Explorer source declaration was not rendered.");
+          return selected.getBoundingClientRect().top
+            - source.getBoundingClientRect().top;
+        });
+      const buildValueOffset = await selectedSourceOffset();
+      const staticMembers = applicationPage.getByRole("radio", {
+        name: "Static",
+      });
+      const allMembers = applicationPage.getByRole("radio", {
+        name: "All",
+      });
+      await staticMembers.check();
+      await expect(
+        applicationPage.getByRole("region", { name: "Whole-Type C#" }),
+      ).toContainText("Counter", { timeout: 60_000 });
+      await expect(buildValueOutline).toHaveAttribute("aria-current", "true");
+      await expect.poll(async () =>
+        Math.abs(await selectedSourceOffset() - buildValueOffset))
+        .toBeLessThanOrEqual(2);
+      await allMembers.check();
+      const instanceMembers = applicationPage.getByRole("radio", {
+        name: "Instance",
+      });
+      await instanceMembers.check();
+      await expect(
+        applicationPage.locator(".type-explorer-failure"),
+      ).toContainText("SelectedMemberHidden");
+      await expect(selectedBody).toBeDisabled();
+      await allMembers.check();
+      await expect(
+        applicationPage.getByRole("region", { name: "Whole-Type C#" }),
+      ).toContainText("Counter", { timeout: 60_000 });
+      await expect(buildValueOutline).toHaveAttribute("aria-current", "true");
+      await expect(selectedBody).toBeDisabled();
+      const valueOutline = applicationPage
+        .locator(".type-explorer-outline [data-type-explorer-declaration]")
+        .filter({ hasText: /\bValue\b/u })
+        .first();
+      await valueOutline.click();
+      await expect(valueOutline).toHaveAttribute("aria-current", "true");
+      await expect(valueOutline).toBeFocused();
+      await staticMembers.check();
+      await expect(
+        applicationPage.locator(".type-explorer-failure"),
+      ).toContainText("SelectedMemberHidden");
+      await allMembers.check();
+      await expect(
+        applicationPage.getByRole("region", { name: "Whole-Type C#" }),
+      ).toContainText("Counter", { timeout: 60_000 });
+      await expect(valueOutline).toHaveAttribute("aria-current", "true");
+      const sourceDeclaration = applicationPage
+        .locator(".type-explorer-source-declaration")
+        .filter({ hasText: /\bCounter\b/u })
+        .first();
+      await sourceDeclaration.click();
+      await expect(sourceDeclaration).toBeFocused();
+      await expect(sourceDeclaration).toHaveAttribute("aria-current", "true");
+      await applicationPage.setViewportSize({ width: 600, height: 520 });
+      await expect(
+        applicationPage.locator(".type-explorer-outline"),
+      ).toBeHidden();
+      await expect(sourceDeclaration).toBeVisible();
+      await expect(sourceDeclaration).toHaveAttribute("aria-current", "true");
+      await applicationPage.setViewportSize({ width: 320, height: 480 });
+      await expect(
+        applicationPage.locator("#type-explorer-outline-toggle"),
+      ).toBeVisible();
+      const shortTypeExplorerLayout = await applicationPage.evaluate(() => {
+        const route = document.querySelector<HTMLElement>(
+          ".type-explorer-route");
+        const documentSurface = document.querySelector<HTMLElement>(
+          ".type-explorer-document");
+        const source = document.querySelector<HTMLElement>(
+          ".type-explorer-source");
+        if (route === null || documentSurface === null || source === null)
+          throw new Error("Short Type Explorer layout was not rendered.");
+        return {
+          routeClientHeight: route.clientHeight,
+          routeScrollHeight: route.scrollHeight,
+          documentHeight: documentSurface.getBoundingClientRect().height,
+          sourceHeight: source.getBoundingClientRect().height,
+        };
+      });
+      expect(shortTypeExplorerLayout.routeScrollHeight)
+        .toBeGreaterThan(shortTypeExplorerLayout.routeClientHeight);
+      expect(shortTypeExplorerLayout.documentHeight).toBeGreaterThan(0);
+      expect(shortTypeExplorerLayout.sourceHeight).toBeGreaterThan(0);
+      const skeleton = applicationPage.getByLabel("Skeleton");
+      await skeleton.check();
+      await expect(skeleton).toBeFocused();
+      await expect(
+        applicationPage.getByRole("region", { name: "Whole-Type C#" }),
+      ).toContainText("Counter", { timeout: 60_000 });
+      await applicationPage.getByRole("button", {
+        name: "Back to Type Source",
+      }).click();
+      await expect(applicationPage).toHaveURL(typeSourceUrl);
+      await expect(applicationPage.locator("#explore-source")).toBeFocused();
       await typeView.selectOption("api-declarations");
       await expect.poll(() => sourceCode.textContent())
         .toBe(apiDeclarations.content.text);
@@ -692,13 +850,16 @@ test.describe("published authored Source comparison transport", () => {
         };
       });
       const canceledId = "source-comparison-worker-canceled";
-      await page.evaluate(({ operationId, requestJson }) => {
+      await page.evaluate(({ operationId, comparisonRequest }) => {
         const target = window as SourceComparisonGateWindow;
         const bridge = target.__inspectWebSourceComparison;
         if (!bridge) throw new Error("Source comparison bridge is unavailable.");
         target.__sourceComparisonPending =
-          bridge.source.queryMemberSourceComparison(operationId, requestJson);
-      }, { operationId: canceledId, requestJson: JSON.stringify(request) });
+          bridge.source.queryMemberSourceComparison(
+            operationId,
+            comparisonRequest,
+          );
+      }, { operationId: canceledId, comparisonRequest: request });
       await sourceStart;
       await page.evaluate(async operationId => {
         const bridge = (window as SourceComparisonGateWindow)
@@ -722,18 +883,18 @@ test.describe("published authored Source comparison transport", () => {
       expect(canceled.reason).toBe("superseded");
 
       const successor = await page.evaluate(
-        async ({ operationId, requestJson }) => {
+        async ({ operationId, comparisonRequest }) => {
           const bridge = (window as SourceComparisonGateWindow)
             .__inspectWebSourceComparison;
           if (!bridge) throw new Error("Source comparison bridge is unavailable.");
           return await bridge.source.queryMemberSourceComparison(
             operationId,
-            requestJson,
+            comparisonRequest,
           );
         },
         {
           operationId: "source-comparison-worker-successor",
-          requestJson: JSON.stringify(request),
+          comparisonRequest: request,
         },
       );
       expect(successor.kind).toBe("Succeeded");

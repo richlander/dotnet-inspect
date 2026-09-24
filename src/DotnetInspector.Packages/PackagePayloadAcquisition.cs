@@ -12,6 +12,13 @@ public enum PackagePayloadOrigin
 
     /// <summary>The payload was downloaded from a source and committed.</summary>
     Download,
+
+    /// <summary>
+    /// The archive's directory and the selected entries were read by range
+    /// from a source; the content is retained in memory and nothing was
+    /// committed to a store.
+    /// </summary>
+    Ranged,
 }
 
 /// <summary>
@@ -757,7 +764,7 @@ public static class PackagePayloadAcquisition
         }
     }
 
-    static PackagePayloadLimits ValidateLimits(PackagePayloadLimits? limits)
+    internal static PackagePayloadLimits ValidateLimits(PackagePayloadLimits? limits)
     {
         limits ??= PackagePayloadLimits.Default;
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(

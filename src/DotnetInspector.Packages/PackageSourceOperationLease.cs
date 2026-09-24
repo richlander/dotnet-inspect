@@ -273,16 +273,26 @@ public sealed class PackageSourceOperationLease : IDisposable
         return ManifestCoreAsync(StartWork(), candidate);
     }
 
+    /// <param name="rangedSelection">
+    /// When supplied, a cache miss on an authority whose client can serve
+    /// byte ranges is answered by reading the archive directory and only the
+    /// entries this selector chooses, retained as
+    /// <see cref="RangedPackageContent"/> with origin
+    /// <see cref="PackagePayloadOrigin.Ranged"/>; a refusal falls back to the
+    /// complete fetch on that authority.
+    /// </param>
     public Task<ConfiguredPackagePayloadResult> AcquireCandidatePayloadAsync(
         PackageAcquisitionCandidate candidate,
         Func<ConfiguredPackageAuthority, PackageProducerIdentity, IPackageStore> createStore,
         Action<string>? log = null,
         PackagePayloadLimits? limits = null,
-        IPackagePayloadTransferPolicy? transferPolicy = null)
+        IPackagePayloadTransferPolicy? transferPolicy = null,
+        PackageEntrySelector? rangedSelection = null)
     {
         ArgumentNullException.ThrowIfNull(candidate);
         ArgumentNullException.ThrowIfNull(createStore);
-        return PayloadCoreAsync(StartWork(), candidate, createStore, log, limits, transferPolicy);
+        return PayloadCoreAsync(
+            StartWork(), candidate, createStore, log, limits, transferPolicy, rangedSelection);
     }
 
     public void Dispose()
@@ -478,11 +488,12 @@ public sealed class PackageSourceOperationLease : IDisposable
         ActiveWorkRegistration work, PackageAcquisitionCandidate candidate,
         Func<ConfiguredPackageAuthority, PackageProducerIdentity, IPackageStore> createStore,
         Action<string>? log, PackagePayloadLimits? limits,
-        IPackagePayloadTransferPolicy? transferPolicy)
+        IPackagePayloadTransferPolicy? transferPolicy,
+        PackageEntrySelector? rangedSelection)
     {
         using (work)
             return await work.Generation.AcquireCandidatePayloadAsync(
                 candidate, createStore, work.Context, log, limits,
-                transferPolicy).ConfigureAwait(false);
+                transferPolicy, rangedSelection).ConfigureAwait(false);
     }
 }

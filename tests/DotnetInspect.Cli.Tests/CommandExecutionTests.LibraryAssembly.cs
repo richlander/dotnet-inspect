@@ -81,10 +81,10 @@ public partial class CommandExecutionTests
     {
         var invalid = await RunAppAsync(
             "library", TestAssemblyPath,
-            "-S", "--count", "--fields", "NoSuchField", "--tips", "q");
+            "-S", "References", "--count", "--fields", "NoSuchField", "--tips", "q");
         var valid = await RunAppAsync(
             "library", TestAssemblyPath,
-            "-S", "--count", "--fields", "Name", "--tips", "q");
+            "-S", "References", "--count", "--fields", "Name", "--tips", "q");
 
         Assert.Equal(1, invalid.Exit);
         Assert.Empty(invalid.Output);
@@ -92,7 +92,8 @@ public partial class CommandExecutionTests
 
         Assert.Equal(0, valid.Exit);
         Assert.Empty(valid.Error);
-        Assert.Contains("| Library Info | 1 |", valid.Output);
+        Assert.True(
+            int.Parse(valid.Output.Trim(), CultureInfo.InvariantCulture) > 0);
     }
 
     [Fact]
@@ -121,63 +122,6 @@ public partial class CommandExecutionTests
         {
             Directory.Delete(tempDir, recursive: true);
         }
-    }
-
-    /// <summary>
-    /// Bare <c>-S</c> is a selection, so <c>--count</c> over it is well-defined (#3547). The
-    /// curated route carries that selection as a flag rather than as an include set, so this also
-    /// gates that the <c>--count</c> requirement reads the selection and not just the set.
-    /// </summary>
-    [Fact]
-    public async Task Library_BareSelectCount_EmitsFixedOverviewMap()
-    {
-        var (exit, output, error) = await RunAppAsync(
-            "library", "System.Text.Json", "-S", "--count", "--tips", "q");
-
-        Assert.Equal(0, exit);
-        Assert.Empty(error);
-        Assert.Contains("| Section | Count |", output);
-
-        var expected = LibrarySections.CreatePipeline().BareSelectSectionNames;
-        Assert.True(expected.Length > 1, "The overview must name several sections for a map to be the right answer.");
-        foreach (var section in expected)
-            Assert.Contains($"| {section} |", output);
-    }
-
-    /// <summary>
-    /// The gate for <see cref="SectionPipeline{TModel}.BareSelectSectionNames"/>: the map has to
-    /// describe the render bare <c>-S</c> produces, not some adjacent set. Every section of that
-    /// pipeline renders rows for this assembly, so the two sets must match exactly - comparing the
-    /// map against the pipeline property instead would assert nothing, because that property is
-    /// what a wrong answer here would come from. The requested-but-empty case, where the map
-    /// legitimately carries a row the render does not, is covered by
-    /// <c>Package_BareSelectCount_EmitsFixedOverviewMapIncludingEmptySections</c>.
-    /// </summary>
-    [Fact]
-    public async Task Library_BareSelectCount_MapDescribesTheBareSelectRender()
-    {
-        var (renderExit, renderOutput, _) = await RunAppAsync(
-            "library", "System.Text.Json", "-S", "--tips", "q");
-        Assert.Equal(0, renderExit);
-
-        var rendered = renderOutput.ReplaceLineEndings("\n").Split('\n')
-            .Where(line => line.StartsWith("## ", StringComparison.Ordinal))
-            .Select(line => line[3..].Trim())
-            .ToList();
-        Assert.True(rendered.Count > 1, "The overview must render several sections for a map to be the right answer.");
-
-        var (countExit, countOutput, _) = await RunAppAsync(
-            "library", "System.Text.Json", "-S", "--count", "--tips", "q");
-        Assert.Equal(0, countExit);
-
-        var mapped = countOutput.ReplaceLineEndings("\n").Split('\n')
-            .Where(line => line.StartsWith("| ", StringComparison.Ordinal))
-            .Select(line => line.Split('|')[1].Trim())
-            .Where(name => name.Length > 0 && name != "Section" && !name.StartsWith('-'))
-            .ToList();
-
-        Assert.Equal(mapped.Distinct().Count(), mapped.Count);
-        Assert.Equal(rendered.Order(), mapped.Order());
     }
 
     [Fact]
@@ -2285,13 +2229,17 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task LibraryCommand_BareSelect_RendersFixedOverview()
+    public async Task LibraryCommand_ExplicitFixedSections_RenderFixedOverview()
     {
-        var (exit, output, _) = await RunAppAsync("library", "System.Text.Json", "-S");
+        string selection = string.Join(
+            ';',
+            LibrarySections.CreatePipeline().FixedOverviewSectionNames);
+        var (exit, output, _) = await RunAppAsync(
+            "library", "System.Text.Json", "-S", selection);
 
         Assert.Equal(0, exit);
-        // Bare -S is the network-free FIXED overview: only the structurally-fixed, network-free
-        // fact tables, whose membership is package-independent (Library Info, Signals, Symbols).
+        // These are the structurally-fixed, network-free fact tables whose membership is
+        // package-independent (Library Info, Signals, Symbols).
         // Signals/Symbols are symbol-dependent but read an embedded/adjacent/cached PDB with no
         // network access, so they belong to the fixed overview.
         Assert.Contains("## Library Info", output);
@@ -2310,27 +2258,14 @@ public partial class CommandExecutionTests
         Assert.DoesNotContain("SourceLink availability", output);
     }
 
-    /// <summary>
-    /// The default preset is reached only through bare <c>-S</c>. <c>@Default</c> was a computed
-    /// pole that restated what bare <c>-S</c> already meant, so it is gone — including on
-    /// pipelines that still publish <c>@All</c>. Bare <c>-S</c> keeps rendering the broader
-    /// network-free fixed overview, which the pole never matched anyway (#3547).
-    /// </summary>
     [Fact]
     public async Task LibraryCommand_DefaultPole_IsNotResolvable()
     {
-        var (bareExit, rawOutput, bareError) = await RunAppAsync("library", "System.Text.Json", "-S");
         var (poleExit, poleOutput, poleError) = await RunAppAsync("library", "System.Text.Json", "-S", "@Default");
 
         Assert.Equal(1, poleExit);
         Assert.Contains("'@Default' not found", poleError, StringComparison.Ordinal);
         Assert.DoesNotContain("## Library Info", poleOutput);
-
-        Assert.Equal(0, bareExit);
-        Assert.DoesNotContain("@Default", bareError, StringComparison.Ordinal);
-        Assert.Contains("## Library Info", rawOutput);
-        Assert.Contains("## Signals", rawOutput);
-        Assert.Contains("## Symbols", rawOutput);
     }
 
     [Fact]

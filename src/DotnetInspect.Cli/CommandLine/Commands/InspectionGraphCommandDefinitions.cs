@@ -20,9 +20,11 @@ public static class InspectionGraphCommandDefinitions
             "Inspect typed relationships across an explicit workspace");
         var integrations = CreateIntegrationsCommand(opts);
         var libraries = CreateLibrariesCommand(opts);
+        var cluster = CreateClusterCommand(opts);
         var calls = CreateCallsCommand(opts);
         command.Subcommands.Add(integrations);
         command.Subcommands.Add(libraries);
+        command.Subcommands.Add(cluster);
         command.Subcommands.Add(calls);
         command.SetAction(_ =>
         {
@@ -316,16 +318,49 @@ public static class InspectionGraphCommandDefinitions
     }
 
     static Command CreateLibrariesCommand(SharedOptions opts)
+        => CreateLibraryCallUseCommand(
+            opts,
+            LibraryCallUseCommand.Name,
+            "Discover direct-use clusters between two local libraries",
+            LibraryCallUseRouteKind.Libraries,
+            clusterArgument: null);
+
+    static Command CreateClusterCommand(SharedOptions opts)
+    {
+        var clusterArgument = new Argument<int?>("cluster")
+        {
+            Description =
+                "Positive pair-local Direct-Use Cluster ordinal",
+            Arity = ArgumentArity.ZeroOrOne,
+        };
+        return CreateLibraryCallUseCommand(
+            opts,
+            LibraryCallUseCommand.ClusterName,
+            "Inspect one Direct-Use Cluster between two local libraries",
+            LibraryCallUseRouteKind.Cluster,
+            clusterArgument);
+    }
+
+    static Command CreateLibraryCallUseCommand(
+        SharedOptions opts,
+        string name,
+        string description,
+        LibraryCallUseRouteKind routeKind,
+        Argument<int?>? clusterArgument)
     {
         var command = new Command(
-            LibraryCallUseCommand.Name,
-            "Show exact direct call use and typed summaries between two local libraries");
+            name,
+            description);
         var libraryOption = new Option<string[]>("--library")
         {
             Description =
                 "Local managed library in the induced pair. Specify exactly twice.",
             AllowMultipleArgumentsPerToken = false,
         };
+        if (clusterArgument is not null)
+        {
+            command.Arguments.Add(clusterArgument);
+        }
         command.Options.Add(libraryOption);
         command.Options.Add(opts.Json);
         command.Options.Add(opts.Markdown);
@@ -334,27 +369,40 @@ public static class InspectionGraphCommandDefinitions
         opts.AddOutputOptionsTo(command);
         opts.AddSectionOptionsTo(command);
         opts.AddCountOptionTo(command);
-        command.Options.Add(opts.RowWhere);
 
         command.SetAction(async (parseResult, cancellationToken) =>
         {
+            string[]? discover = opts.ParseDiscover(parseResult);
+            int? cluster = clusterArgument is null
+                ? null
+                : parseResult.GetValue(clusterArgument);
+            if (routeKind == LibraryCallUseRouteKind.Cluster
+                && cluster is null
+                && discover is null)
+            {
+                CommandError.Write(
+                    "A positive Direct-Use Cluster ordinal is required.");
+                CommandError.WriteLine(
+                    "Run 'dotnet-inspect graph cluster --help' for usage.");
+                return 1;
+            }
+            if (cluster <= 0)
+            {
+                CommandError.Write(
+                    "The Direct-Use Cluster ordinal must be positive.");
+                return 1;
+            }
+
             if (!CliRowSelectionCommandRegistry
                 .TryGetPreparedSemanticIntent(
                     parseResult,
-                    "Library call site",
+                    routeKind == LibraryCallUseRouteKind.Cluster
+                        ? "Direct-Use Cluster call site"
+                        : "Library direct-use cluster",
                     out RowSelectionIntent<string>? rowSelection,
                     out string? rowSelectionError))
             {
                 CommandError.Write(rowSelectionError!);
-                return 1;
-            }
-
-            if (!LibraryCallUseQueryOptions.TryParse(
-                    parseResult.GetValue(opts.RowWhere) ?? [],
-                    out LibraryCallUseQueryOptions query,
-                    out OptionError error))
-            {
-                CommandError.Write(error);
                 return 1;
             }
 
@@ -365,7 +413,9 @@ public static class InspectionGraphCommandDefinitions
                 new LibraryCallUseOptions
                 {
                     Libraries = libraries,
-                    QueryPlan = query.Plan,
+                    RouteKind = routeKind,
+                    QueryPlan =
+                        GraphLibrariesQuery.CreatePlan(cluster),
                     Format = opts.ResolveFormat(parseResult),
                     Count = parseResult.GetValue(opts.Count),
                     RowSelection = rowSelection,
@@ -380,8 +430,7 @@ public static class InspectionGraphCommandDefinitions
                         opts.ParseColumns(parseResult),
                     Fields =
                         opts.ParseFields(parseResult),
-                    Discover =
-                        opts.ParseDiscover(parseResult),
+                    Discover = discover,
                     Select =
                         opts.ParseSelect(parseResult),
                     SelectDefault =

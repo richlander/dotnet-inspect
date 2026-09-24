@@ -49,6 +49,8 @@ public static partial class AttributeReader
         "System.Text.Json.Serialization.JsonSerializableAttribute";
     private const string JsExportJsonInputAttributeName =
         "TsJsExport.JsExportJsonInputAttribute";
+    private const string JsExportJsonOutputAttributeName =
+        "TsJsExport.JsExportJsonOutputAttribute";
     private const string JsonPolymorphicAttributeName =
         "System.Text.Json.Serialization.JsonPolymorphicAttribute";
     private const string JsonDerivedTypeAttributeName =
@@ -1197,8 +1199,31 @@ public static partial class AttributeReader
         out JsonWireIgnoreCondition defaultIgnoreCondition,
         out bool useStringEnumConverter,
         Action<int>? beforeMaterialize = null)
+        => TryGetJsonSourceGenerationWireOptions(
+            reader,
+            attributes,
+            out namingPolicy,
+            out generationMode,
+            out defaultIgnoreCondition,
+            out useStringEnumConverter,
+            out _,
+            beforeMaterialize);
+
+    public static bool TryGetJsonSourceGenerationWireOptions(
+        MetadataReader reader,
+        CustomAttributeHandleCollection attributes,
+        out JsonWireNamingPolicy? namingPolicy,
+        out JsonSourceGenerationMode generationMode,
+        out JsonWireIgnoreCondition defaultIgnoreCondition,
+        out bool useStringEnumConverter,
+        out JsonSourceGenerationDefaultIgnoreConditionEvidence
+            defaultIgnoreConditionEvidence,
+        Action<int>? beforeMaterialize = null)
     {
         bool found = false;
+        int attributeCount = 0;
+        JsonWireIgnoreCondition? supportedDefaultIgnoreCondition = null;
+        bool hasUnsupportedRow = false;
         namingPolicy = null;
         generationMode = JsonSourceGenerationMode.Default;
         defaultIgnoreCondition = JsonWireIgnoreCondition.Never;
@@ -1216,6 +1241,7 @@ public static partial class AttributeReader
                 continue;
             }
 
+            attributeCount++;
             bool hasExpectedConstructor =
                 HasExpectedConstructor(
                     reader,
@@ -1238,6 +1264,13 @@ public static partial class AttributeReader
                         JsonSourceGenerationMode.Default,
                         JsonWireIgnoreCondition.Never,
                         UseStringEnumConverter: false);
+            bool isUnsupported =
+                current.NamingPolicy == JsonWireNamingPolicy.Unsupported;
+            hasUnsupportedRow |= isUnsupported;
+            supportedDefaultIgnoreCondition =
+                !found && !isUnsupported
+                    ? current.DefaultIgnoreCondition
+                    : null;
             namingPolicy = found
                 ? JsonWireNamingPolicy.Unsupported
                 : current.NamingPolicy;
@@ -1252,6 +1285,10 @@ public static partial class AttributeReader
             found = true;
         }
 
+        defaultIgnoreConditionEvidence = new(
+            attributeCount,
+            supportedDefaultIgnoreCondition,
+            hasUnsupportedRow);
         return found;
     }
 
@@ -1480,6 +1517,100 @@ public static partial class AttributeReader
                 methodName,
                 parameterName,
                 wireType,
+                unsupportedReason));
+        }
+        return declarations;
+    }
+
+    public static List<ApiJsExportJsonOutputDeclaration>
+        ReadJsExportJsonOutputDeclarations(
+            MetadataReader reader,
+            CustomAttributeHandleCollection attributes,
+            ApiAssemblyIdentity? currentAssemblyIdentity,
+            Action<int>? beforeMaterialize = null)
+    {
+        var declarations =
+            new List<ApiJsExportJsonOutputDeclaration>();
+        foreach (CustomAttributeHandle handle in attributes)
+        {
+            CustomAttribute attribute = reader.GetCustomAttribute(handle);
+            if (!IsTopLevelAttributeType(
+                    reader,
+                    attribute.Constructor,
+                    JsExportJsonOutputAttributeName,
+                    beforeMaterialize))
+            {
+                continue;
+            }
+
+            ApiAssemblyIdentity? attributeAssembly = null;
+            string? unsupportedReason = null;
+            try
+            {
+                if (!TryGetAuthenticAttributeAssembly(
+                        reader,
+                        attribute.Constructor,
+                        JsExportJsonOutputAttributeName,
+                        beforeMaterialize,
+                        out attributeAssembly))
+                {
+                    unsupportedReason =
+                        "attribute assembly identity is unavailable";
+                }
+            }
+            catch (Exception ex) when (
+                ex is BadImageFormatException
+                    or ArgumentOutOfRangeException)
+            {
+                unsupportedReason =
+                    "attribute assembly identity is malformed";
+            }
+
+            string? methodName = null;
+            ApiTypeShape? wireType = null;
+            bool deferParsing = false;
+            if (currentAssemblyIdentity is null
+                || !HasExpectedConstructor(
+                    reader,
+                    attribute.Constructor,
+                    FrameworkConstructorKind.StringSystemTypeBoolean,
+                    beforeMaterialize)
+                || AttributeDecoder
+                    .TryDecodePreservingSerializedTypeNames(
+                        reader,
+                        attribute,
+                        beforeMaterialize) is not
+                    {
+                        FixedArguments.Length: 3,
+                        NamedArguments.Length: 0,
+                    } decoded
+                || decoded.FixedArguments[0].Value is not string decodedMethod
+                || decoded.FixedArguments[1].Value is not string serializedType
+                || decoded.FixedArguments[2].Value is not bool decodedDeferParsing)
+            {
+                unsupportedReason ??=
+                    "attribute constructor or value is malformed";
+            }
+            else
+            {
+                methodName = decodedMethod;
+                deferParsing = decodedDeferParsing;
+                wireType = ParseJsonSerializableRootShape(
+                    serializedType,
+                    currentAssemblyIdentity);
+                if (string.IsNullOrWhiteSpace(methodName)
+                    || wireType is null)
+                {
+                    unsupportedReason ??=
+                        "method or wire type is unsupported";
+                }
+            }
+
+            declarations.Add(new(
+                attributeAssembly,
+                methodName,
+                wireType,
+                deferParsing,
                 unsupportedReason));
         }
         return declarations;
@@ -1926,6 +2057,8 @@ public static partial class AttributeReader
         String,
         StringString,
         StringStringString,
+        StringSystemType,
+        StringSystemTypeBoolean,
         StringStringSystemType,
         JsonSerializerDefaults,
         JsonNumberHandling,
@@ -2097,6 +2230,29 @@ public static partial class AttributeReader
                         PrimitiveTypeNode { Name: "string" },
                         PrimitiveTypeNode { Name: "string" },
                     ],
+                FrameworkConstructorKind.StringSystemType =>
+                    signature.ParameterTypes is
+                    [
+                        PrimitiveTypeNode { Name: "string" },
+                        NamedTypeNode type,
+                    ]
+                    && IsExpectedTopLevelSignatureType(
+                        type,
+                        "System",
+                        "Type",
+                        IsCoreContractAssembly),
+                FrameworkConstructorKind.StringSystemTypeBoolean =>
+                    signature.ParameterTypes is
+                    [
+                        PrimitiveTypeNode { Name: "string" },
+                        NamedTypeNode type,
+                        PrimitiveTypeNode { Name: "bool" },
+                    ]
+                    && IsExpectedTopLevelSignatureType(
+                        type,
+                        "System",
+                        "Type",
+                        IsCoreContractAssembly),
                 FrameworkConstructorKind.StringStringSystemType =>
                     signature.ParameterTypes is
                     [

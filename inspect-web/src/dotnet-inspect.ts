@@ -244,6 +244,14 @@ import {
   bindMemberFacts,
   renderMemberFacts,
 } from "./member-facts.ts";
+import {
+  bindImplementationProfileState,
+  createImplementationProfileCoordinator,
+  renderImplementationProfileState,
+  type ImplementationProfileFamilySelection,
+  type ImplementationProfileFamilyRequest,
+  type ImplementationProfileState,
+} from "./implementation-profiles.ts";
 import { createOperationAuthorityPage } from "./operation-authority.ts";
 import {
   createMetadataInspectionCoordinator,
@@ -636,6 +644,31 @@ import {
   withHistoryEntryId,
   type PackageQueryReturnFocus,
 } from "./package-query-route.ts";
+import {
+  decodeTypeExplorerIntent,
+  defaultTypeExplorerIntent,
+  isTypeExplorerPath,
+  isTypeExplorerPredecessor,
+  readTypeExplorerHistory,
+  typeExplorerHistoryState,
+  typeExplorerUrl,
+  typeSourceUrl,
+  type TypeExplorerIntent,
+  type TypeExplorerMemberIdentity,
+} from "./type-explorer-route.ts";
+import {
+  bindTypeExplorerView,
+  captureTypeExplorerViewportAnchor,
+  canceledTypeExplorerView,
+  renderTypeExplorerView,
+  restoreTypeExplorerMemberSelection,
+  restoreTypeExplorerViewportAnchor,
+  type TypeExplorerInspection,
+  type TypeExplorerProjection,
+  type TypeExplorerSelectionPane,
+  type TypeExplorerViewportAnchor,
+  type TypeExplorerViewState,
+} from "./type-explorer-view.ts";
 import type { BrowserBuildIdentity } from "./facades/inspect-web-host.d.ts";
 import type {
   BrowserPackageChangesPackageSetDescriptor,
@@ -662,6 +695,9 @@ import type {
 } from "./facades/inspect-web-analysis.d.ts";
 import type {
   BrowserMemberSource,
+  BrowserTypeExplorerInspection,
+  BrowserTypeExplorerProjection,
+  BrowserTypeExplorerRequest,
   BrowserTypeCodeView,
 } from "./facades/inspect-web-source.d.ts";
 import type {
@@ -746,6 +782,8 @@ let inspectLibraryApiDiff:
 let inspectCloneCandidates:
   EngineClient["analysis"]["queryCloneCandidates"];
 let inspectMemberFacts: EngineClient["analysis"]["queryMemberFacts"];
+let inspectPackageImplementationProfiles:
+  EngineClient["analysis"]["queryPackageImplementationProfiles"];
 let inspectPackageIntegrations:
   EngineClient["analysis"]["queryPackageIntegrations"];
 let inspectPackageOpportunities:
@@ -756,6 +794,8 @@ let inspectPackageLibraryMetrics:
   EngineClient["analysis"]["queryPackageLibraryMetrics"];
 let inspectPlatformLibraryMetrics:
   EngineClient["analysis"]["queryPlatformLibraryMetrics"];
+let inspectPlatformImplementationProfiles:
+  EngineClient["analysis"]["queryPlatformImplementationProfiles"];
 let inspectPlatformIntegrations:
   EngineClient["analysis"]["queryPlatformIntegrations"];
 let inspectPlatformOpportunities:
@@ -765,12 +805,15 @@ let inspectPlatformPerformance:
 let cancelSourceInspection: EngineClient["source"]["cancelSourceQuery"];
 let cancelTypeSourceInspection:
   EngineClient["source"]["cancelTypeSourceQuery"];
+let cancelTypeExplorerInspection:
+  EngineClient["source"]["cancelTypeExplorerQuery"];
 let inspectMemberFindingCensus:
   EngineClient["source"]["queryMemberFindingCensus"];
 let inspectMemberSource: EngineClient["source"]["queryMemberSource"];
 let inspectTypeMemberSource:
   EngineClient["source"]["queryTypeMemberSource"];
 let inspectTypeSource: EngineClient["source"]["queryTypeSource"];
+let inspectTypeExplorer: EngineClient["source"]["queryTypeExplorer"];
 let inspectExpandPlatformCallGraph:
   EngineClient["callGraph"]["expandPlatformCallGraph"];
 let inspectMemberCallGraph:
@@ -857,6 +900,8 @@ async function loadEngineModule() {
       engineClient.package.requestPackageQueryMatches(...args);
     cancelTypeSourceInspection = (...args) =>
       engineClient.source.cancelTypeSourceQuery(...args);
+    cancelTypeExplorerInspection = (...args) =>
+      engineClient.source.cancelTypeExplorerQuery(...args);
     ({
       getPackageDocument: inspectPackageDocument,
       loadRuntimePack: inspectLoadRuntimePack,
@@ -905,10 +950,14 @@ async function loadEngineModule() {
     ({
       queryCloneCandidates: inspectCloneCandidates,
       queryMemberFacts: inspectMemberFacts,
+      queryPackageImplementationProfiles:
+        inspectPackageImplementationProfiles,
       queryPackageIntegrations: inspectPackageIntegrations,
       queryPackageOpportunities: inspectPackageOpportunities,
       queryPackagePerformance: inspectPackagePerformance,
       queryPackageLibraryMetrics: inspectPackageLibraryMetrics,
+      queryPlatformImplementationProfiles:
+        inspectPlatformImplementationProfiles,
       queryPlatformLibraryMetrics: inspectPlatformLibraryMetrics,
       queryPlatformIntegrations: inspectPlatformIntegrations,
       queryPlatformOpportunities: inspectPlatformOpportunities,
@@ -920,6 +969,7 @@ async function loadEngineModule() {
       queryMemberSource: inspectMemberSource,
       queryTypeMemberSource: inspectTypeMemberSource,
       queryTypeSource: inspectTypeSource,
+      queryTypeExplorer: inspectTypeExplorer,
     } = engineClient.source);
     ({
       expandPlatformCallGraph: inspectExpandPlatformCallGraph,
@@ -1098,6 +1148,13 @@ const initialState = {
   credits: false,
   packageQueryOpen: false,
   packageActivityOpen: false,
+  typeExplorerOpen: false,
+  typeExplorerOpenedFromApp: false,
+  typeExplorerPredecessorEntryId: null,
+  typeExplorerReturnFocusPending: false,
+  typeExplorerIntent: defaultTypeExplorerIntent(),
+  typeExplorerIntentError: "",
+  typeExplorerView: { status: "idle" as const },
   packageQueryPrefix: "",
   packageQueryNavigationError: "",
   packageQueryCatalogError: "",
@@ -1144,6 +1201,7 @@ const initialState = {
   memberAccessibilityFilter: "all",
   memberTraitFilter: "",
   memberTextFilter: "",
+  implementationProfiles: { status: "idle" as const },
   memberSource: { status: "idle" as const },
   memberAnnotated: null,
   memberAnnotatedLoading: false,
@@ -1308,6 +1366,7 @@ interface StateOverrides {
   } | null;
   queryNoticeRetryAction: RetryAction;
   selectedOverloadIndex: number | null;
+  implementationProfiles: ImplementationProfileState;
   memberSource: SourceResultState<BrowserMemberSource>;
   memberAnnotated: AnnotatedSourceResult | null;
   memberAnnotatedEmbedded: AnnotatedSourceSession | null;
@@ -1315,6 +1374,9 @@ interface StateOverrides {
   memberFindingInteraction: MemberFindingInteraction | null;
   typeSource: SourceResultState<BrowserTypeCodeView>;
   typeSourceView: TypeSourceView;
+  typeExplorerIntent: TypeExplorerIntent;
+  typeExplorerView: TypeExplorerViewState;
+  typeExplorerPredecessorEntryId: string | null;
   typeMetadata: BrowserTypeMetadata | null;
   libraryApiInspections:
     Map<string, BrowserExactLibraryApiInspection>;
@@ -3098,6 +3160,35 @@ async function deleteManagedRetainedWorkspace(
 const keybindings = createWorkbenchKeybindings();
 let keyboardHelpBindings = keybindings.bindingsFor();
 const operationAuthority = createOperationAuthorityPage();
+const implementationProfileWorkspaceGenerations =
+  new WeakMap<AppPackage, string>();
+const implementationProfiles = createImplementationProfileCoordinator({
+  state,
+  operationAuthority,
+  query: request => request.kind === "package"
+    ? inspectPackageImplementationProfiles(
+        request.packageId,
+        request.version,
+        request.targetFramework,
+        request.assemblyName,
+        request.typeDefinitionId,
+        [...request.stableSelectors])
+    : inspectPlatformImplementationProfiles(
+        request.targetFramework,
+        request.platformVersion,
+        request.assemblyFileName,
+        request.pack,
+        request.typeDefinitionId,
+        [...request.stableSelectors]),
+  describeError: errorMessage,
+  reportOperationDiagnostic: diagnostic => {
+    console.error(
+      "Implementation Profiles operation authority failure.",
+      diagnostic);
+    return undefined;
+  },
+  render: renderPreservingMemberFocus,
+});
 const sourceInspection = createSourceInspectionCoordinator({
   state,
   operationAuthority,
@@ -3654,6 +3745,10 @@ function applyView(view: WorkspaceView) {
       observeAsync(loadSelectedMemberSource(), "Loading member source");
     else if (section === "annotated")
       observeAsync(loadSelectedMemberAnnotatedSource(), "Loading annotated member source");
+    else if (section === "implementation-profiles")
+      observeAsync(
+        loadSelectedImplementationProfiles(),
+        "Loading implementation profiles");
     else if (section === "call-graph")
       observeAsync(loadSelectedMemberCallGraph(), "Loading the member call graph");
     else if (section === "facts")
@@ -3726,6 +3821,28 @@ const navigationSequence = {
   current: () => innerNavigationSequence.current(),
   isCurrent: (candidate: number) =>
     innerNavigationSequence.isCurrent(candidate),
+};
+let typeExplorerOperationId: string | null = null;
+let typeExplorerLoadSequence = 0;
+let typeExplorerHeadingFocusPending = false;
+let typeExplorerOutlineOpen = false;
+let typeExplorerMemberFocusPending: {
+  readonly identity: TypeExplorerMemberIdentity;
+  readonly pane: TypeExplorerSelectionPane;
+  readonly focusGeneration: number;
+} | null = null;
+let typeExplorerControlFocusPending: {
+  readonly id: string;
+  readonly name: string;
+  readonly value: string;
+  readonly focusGeneration: number;
+} | null = null;
+let typeExplorerViewportAnchorPending:
+  TypeExplorerViewportAnchor | null = null;
+let typeExplorerViewport = {
+  sourceTop: 0,
+  sourceLeft: 0,
+  outlineTop: 0,
 };
 
 function currentPackageQueryHandoff() {
@@ -3950,6 +4067,22 @@ const initialLocation = initialWorkspace.visible;
 state.credits = isCreditsPath(location.pathname);
 state.packageQueryOpen = isPackageQueryPath(location.pathname);
 state.packageActivityOpen = isPackageActivityPath(location.pathname);
+state.typeExplorerOpen = isTypeExplorerPath(location.pathname);
+if (state.typeExplorerOpen) {
+  const routeIntent = decodeTypeExplorerIntent(
+    new URL(location.href).searchParams.get("te"));
+  if (routeIntent === null) {
+    state.typeExplorerIntentError =
+      "The Type Explorer route contains malformed or missing presentation intent.";
+  } else {
+    state.typeExplorerIntent = routeIntent;
+  }
+  const routeHistory = readTypeExplorerHistory(history.state);
+  state.typeExplorerOpenedFromApp = routeHistory !== null;
+  state.typeExplorerPredecessorEntryId =
+    routeHistory?.predecessorEntryId ?? null;
+  typeExplorerHeadingFocusPending = true;
+}
 const diagnosticsOpen = isDiagnosticsPath(location.pathname);
 const productHomeDemosOpen = isProductHomeDemosPath(location.pathname);
 if (diagnosticsOpen) {
@@ -3966,6 +4099,7 @@ state.home = state.credits
   || (!diagnosticsOpen
     && !state.packageQueryOpen
     && !state.packageActivityOpen
+    && !state.typeExplorerOpen
     && !productHomeDemosOpen
     && !initialLocation.package
     && !initialWorkspace.hasWorkspaceState
@@ -6012,8 +6146,111 @@ function memberSourceHasConcreteOverload() {
 
 function memberSectionUsesWorkingSurface(section: MemberSection) {
   return section === "overview"
+    || section === "implementation-profiles"
     || section === "call-graph"
     || section === "facts";
+}
+
+function implementationProfileWorkspaceGeneration(pkg: AppPackage) {
+  const existing = implementationProfileWorkspaceGenerations.get(pkg);
+  if (existing) return existing;
+  const generation = crypto.randomUUID();
+  implementationProfileWorkspaceGenerations.set(pkg, generation);
+  return generation;
+}
+
+function implementationProfileTarget(): {
+  request: ImplementationProfileFamilyRequest;
+  selection: ImplementationProfileFamilySelection;
+} | null {
+  const pkg = state.package;
+  const type = selectedType();
+  const member = selectedMember(type);
+  if (!pkg
+    || !type
+    || !member
+    || state.rootKind === "library"
+    || member.kind !== "method"
+    || member.overloads.length < 2) {
+    return null;
+  }
+
+  const selectedOverloadIndex = state.selectedOverloadIndex;
+  const typeDefinitionId = type.definitionId;
+  const stableSelectors = member.overloads.map(
+    overload => overload.stableSelector);
+  const request: ImplementationProfileFamilyRequest =
+    pkg.isRuntimePack
+      ? (() => {
+          const row = platformLibraryForRequest(pkg, type.assemblyId);
+          return {
+            kind: "platform",
+            workspaceGeneration: implementationProfileWorkspaceGeneration(pkg),
+            targetFramework: pkg.activeFramework,
+            platformVersion: pkg.version,
+            pack: row.pack,
+            assemblyFileName: platformAssemblyRequest(row),
+            typeDefinitionId,
+            stableSelectors,
+          };
+        })()
+      : {
+          kind: "package",
+          workspaceGeneration: implementationProfileWorkspaceGeneration(pkg),
+          packageId: pkg.id,
+          version: pkg.version,
+          targetFramework: pkg.activeFramework,
+          assemblyName: type.assemblyId,
+          typeDefinitionId,
+          stableSelectors,
+        };
+  const selection: ImplementationProfileFamilySelection = {
+    typeDefinitionId,
+    display: `${typeDisplayName(type)}.${member.name}`,
+    members: member.overloads.map((overload, index) => ({
+      typeDefinitionId,
+      stableSelector: overload.stableSelector,
+      display: overload.signature,
+      bodyTokens: [
+        ...new Set([
+          ...(overload.metadataToken === null
+            ? []
+            : [overload.metadataToken]),
+          ...overload.bodySelectors.map(body => body.token),
+        ]),
+      ],
+      selected: selectedOverloadIndex === index,
+    })),
+    isCurrent: () =>
+      state.package === pkg
+      && selectedType()?.id === type.id
+      && selectedMember(selectedType())?.key === member.key
+      && state.memberSection === "implementation-profiles"
+      && state.selectedOverloadIndex === selectedOverloadIndex,
+  };
+  return { request, selection };
+}
+
+function loadSelectedImplementationProfiles(retry = false) {
+  const target = implementationProfileTarget();
+  if (!target) return Promise.resolve();
+  return retry
+    ? implementationProfiles.retry(target.request, target.selection)
+    : implementationProfiles.activate(target.request, target.selection);
+}
+
+function currentImplementationProfileState(): ImplementationProfileState {
+  const current = state.implementationProfiles;
+  if (current.status === "idle" || current.selection.isCurrent())
+    return current;
+  const target = implementationProfileTarget();
+  return target
+    ? {
+        status: "loading",
+        request: target.request,
+        selection: target.selection,
+      }
+    : { status: "idle" };
 }
 
 function currentSourceOperationKind() {
@@ -6061,6 +6298,10 @@ function loadMemberSectionContent(id: MemberSection) {
     observeAsync(loadSelectedMemberSource(), "Loading member source");
   else if (id === "annotated")
     observeAsync(loadSelectedMemberAnnotatedSource(), "Loading annotated member source");
+  else if (id === "implementation-profiles")
+    observeAsync(
+      loadSelectedImplementationProfiles(),
+      "Loading implementation profiles");
   else if (id === "call-graph")
     observeAsync(loadSelectedMemberCallGraph(), "Loading the member call graph");
   else if (id === "facts")
@@ -6093,6 +6334,7 @@ function openMemberGroup(key: string) {
     const retainedSection = state.memberSection;
     let selectedFirstOverload = false;
     if (state.memberSection !== "overview"
+      && state.memberSection !== "implementation-profiles"
       && group
       && group.overloads.length > 1
       && state.selectedOverloadIndex == null) {
@@ -6101,6 +6343,11 @@ function openMemberGroup(key: string) {
       selectedFirstOverload = true;
     }
     retainMemberSectionIfSupported(group);
+    if (state.memberSection === "implementation-profiles") {
+      const target = implementationProfileTarget();
+      if (!target || !implementationProfiles.hasActivated(target.request))
+        state.memberSection = "overview";
+    }
     if (selectedFirstOverload && state.memberSection !== retainedSection) {
       state.selectedOverloadIndex = null;
       state.selectedBodyTarget = null;
@@ -6162,13 +6409,15 @@ function openOverload(index: number) {
   loadMemberSectionContent(state.memberSection);
 }
 
-// Switch the open member's section (Overview / Call graph / Facts / Source / Annotated) and
-// kick off its lazy load. Shared by the scope-bar strip click and the 1—5 shortcut. If a
-// multi-overload member is still on its picker, resolve the first overload so the section
-// has content to show.
+// Switch the open member's section and kick off its lazy load. Shared by the scope-bar strip
+// click and the section shortcut. Family-level implementation profiles deliberately keep the
+// overload picker unresolved; overload-specific sections select the first overload as needed.
 function applyMemberSection(id: MemberSection) {
   const member = selectedMember(selectedType());
-  if (member && member.overloads.length > 1 && state.selectedOverloadIndex == null) {
+  if (id !== "implementation-profiles"
+    && member
+    && member.overloads.length > 1
+    && state.selectedOverloadIndex == null) {
     state.selectedOverloadIndex = 0;
     state.selectedBodyTarget = graphOnlyBodyTarget(member.overloads[0]);
   }
@@ -6221,7 +6470,10 @@ function selectMemberNavEntry(entry: MemberNavEntry, focusList: boolean) {
       } else {
         state.selectedOverloadIndex = null;
         clearMemberContentCache();
-        render();
+        if (state.memberSection === "implementation-profiles")
+          loadMemberSectionContent(state.memberSection);
+        else
+          render();
       }
     } else {
       openMemberGroup(entry.group.key);
@@ -6303,7 +6555,10 @@ function stepHorizontal(delta: number) {
   const type = selectedType();
   const member = state.lens === "api" ? selectedMember(type) : null;
   if (scope() === "member" && !member) return;
-  const overloadOpen = member && !(member.overloads.length > 1 && state.selectedOverloadIndex == null);
+  const overloadOpen = member
+    && (state.memberSection === "implementation-profiles"
+      || !(member.overloads.length > 1
+        && state.selectedOverloadIndex == null));
   if (overloadOpen) {
     const order = memberSectionsFor(member).map(([id]) => id);
     let index = order.indexOf(state.memberSection);
@@ -6532,7 +6787,8 @@ function renderCore(options: { synchronizeUrl?: boolean }) {
   }
   document.body.classList.remove(
     "package-query-route",
-    "package-activity-route");
+    "package-activity-route",
+    "type-explorer-route-body");
   const applicationMenuHadFocus = applicationMenuOwnsFocus(document);
   const focusedElement = document.activeElement instanceof HTMLElement
     ? document.activeElement
@@ -6740,6 +6996,12 @@ function renderCore(options: { synchronizeUrl?: boolean }) {
     state.selectedOverloadIndex = null;
     resetMemberFilters();
     resetMemberSectionState();
+  }
+  if (state.typeExplorerOpen) {
+    document.body.classList.add("type-explorer-route-body");
+    loadingBotSrc = null;
+    renderTypeExplorerPage();
+    return;
   }
   const visible = filteredTypes();
   // Keep the package lens on something the active package actually supports, so a restored
@@ -9300,7 +9562,9 @@ function renderMember(type: AppTypeSurface, member: AppMemberGroup) {
     && Number.isInteger(selectedOverloadIndex)
     && selectedOverloadIndex >= 0
     && selectedOverloadIndex < member.overloads.length;
-  if (member.overloads.length > 1 && !hasSelectedOverload) {
+  if (member.overloads.length > 1
+    && !hasSelectedOverload
+    && state.memberSection !== "implementation-profiles") {
     return `
       <section class="member-surface member-overload-surface" aria-labelledby="member-surface-title">
         <header class="api-surface-head member-surface-head">
@@ -9477,6 +9741,10 @@ function renderMember(type: AppTypeSurface, member: AppMemberGroup) {
     content = `<div data-call-graph-surface>${content}</div>`;
   } else if (state.memberSection === "facts") {
     content = renderMemberFacts(state);
+  } else if (state.memberSection === "implementation-profiles") {
+    content = renderImplementationProfileState(
+      currentImplementationProfileState(),
+      escapeHtml);
   } else if (state.memberSection === "annotated") {
     const destinationError = state.annotatedDestinationError
       ? `<div id="annotated-destination-error" class="graph-drill-error" role="alert">${escapeHtml(state.annotatedDestinationError)}</div>`
@@ -9503,7 +9771,11 @@ function renderMember(type: AppTypeSurface, member: AppMemberGroup) {
     <section class="member-surface" aria-labelledby="member-surface-title">
       <header class="api-surface-head member-surface-head">
         <h1 id="member-surface-title">${escapeHtml(member.name)}</h1>
-        <p>${escapeHtml(member.kind)} <span>· ${overloadIndex + 1} of ${member.overloads.length}</span></p>
+        <p>${escapeHtml(member.kind)} <span>· ${
+          state.memberSection === "implementation-profiles"
+            ? `${member.overloads.length} overloads`
+            : `${overloadIndex + 1} of ${member.overloads.length}`
+        }</span></p>
       </header>
       <div class="member-surface-scroll">${content}</div>
     </section>`;
@@ -9976,7 +10248,11 @@ function bindTypePanelEvents() {
       state.typeSourceView = view;
       observeAsync(loadSelectedTypeSource(), "Loading type code view");
     },
-    onExploreSource: () => openSettings("source"),
+    onExploreSource: () => {
+      if (scope() === "type" && state.lens === "source")
+        openTypeExplorerRoute();
+      else openSettings("source");
+    },
     onKindSelect: kind => {
       state.kindFilter = kind;
       state.typeCursor = 0;
@@ -10601,6 +10877,22 @@ function bindMemberFactsEvents() {
   });
 }
 
+function bindImplementationProfileEvents() {
+  bindImplementationProfileState(document, {
+    onRetry: () => {
+      observeAsync(
+        loadSelectedImplementationProfiles(true).finally(() => {
+          if (state.memberSection !== "implementation-profiles") return;
+          requestAnimationFrame(() =>
+            document.querySelector<HTMLElement>(
+              "#implementation-profile-retry, #implementation-profile-state-title")
+              ?.focus({ preventScroll: true }));
+        }),
+        "Retrying implementation profiles");
+    },
+  });
+}
+
 function bindAnnotatedSourceEvents() {
   bindAnnotatedSource(document, {
     onAction: applyAnnotatedSourceAction,
@@ -10681,6 +10973,7 @@ function bindEvents() {
   bindGraphSourceEvents();
   bindDocViewerEvents();
   bindMemberFactsEvents();
+  bindImplementationProfileEvents();
   bindAnnotatedSourceEvents();
   bindPackageViewEvents();
   bindLibrarySubjectNavEvents();
@@ -13183,10 +13476,16 @@ function loadSelectionData() {
   if (!state.selectedMemberKey) return undefined;
   const member = selectedMember(selectedType());
   if (!member) return undefined;
-  if (member.overloads.length > 1 && state.selectedOverloadIndex == null) return undefined;
+  if (member.overloads.length > 1
+    && state.selectedOverloadIndex == null
+    && state.memberSection !== "implementation-profiles") {
+    return undefined;
+  }
   switch (state.memberSection) {
     case "source": return loadSelectedMemberSource();
     case "annotated": return loadSelectedMemberAnnotatedSource();
+    case "implementation-profiles":
+      return loadSelectedImplementationProfiles();
     case "call-graph": return loadSelectedMemberCallGraph();
     case "facts": return loadSelectedMemberFactsSurface();
     case "overview": return loadSelectedMemberDocumentation();
@@ -14520,6 +14819,16 @@ function restorePackageRouteReturnFocus() {
   restorePackageQueryReturnFocus();
   restorePackageActivityReturnFocus();
   restorePackageQueryWorkspaceFocus();
+  restoreTypeExplorerReturnFocus();
+}
+
+function restoreTypeExplorerReturnFocus() {
+  if (!state.typeExplorerReturnFocusPending) return;
+  afterCurrentNavigationFrame(() => {
+    const opener = document.querySelector<HTMLElement>("#explore-source");
+    if (focusRenderedElement(opener) || focusLevelOneHeading())
+      state.typeExplorerReturnFocusPending = false;
+  });
 }
 
 function restorePackageQueryReturnFocus() {
@@ -14643,6 +14952,545 @@ function applyPackageActivityHistory(historyState: unknown) {
     activityHistory?.predecessorEntryId ?? null;
   state.packageActivityReturnFocus = activityHistory?.returnFocus ?? null;
   state.packageActivityReturnFocusPending = false;
+}
+
+function applyTypeExplorerHistory(historyState: unknown) {
+  const routeHistory = readTypeExplorerHistory(historyState);
+  state.typeExplorerOpenedFromApp = routeHistory !== null;
+  state.typeExplorerPredecessorEntryId =
+    routeHistory?.predecessorEntryId ?? null;
+  state.typeExplorerReturnFocusPending = false;
+}
+
+function cancelTypeExplorerLoad(
+  reason: "replaced" | "disposed" = "replaced",
+) {
+  typeExplorerLoadSequence++;
+  const operationId = typeExplorerOperationId;
+  typeExplorerOperationId = null;
+  if (operationId !== null && cancelTypeExplorerInspection)
+    cancelTypeExplorerInspection(operationId, reason);
+}
+
+function resetTypeExplorerRouteState() {
+  cancelTypeExplorerLoad("disposed");
+  state.typeExplorerOpen = false;
+  state.typeExplorerOpenedFromApp = false;
+  state.typeExplorerPredecessorEntryId = null;
+  state.typeExplorerIntentError = "";
+  state.typeExplorerView = { status: "idle" };
+  typeExplorerHeadingFocusPending = false;
+  typeExplorerOutlineOpen = false;
+  typeExplorerMemberFocusPending = null;
+  typeExplorerControlFocusPending = null;
+  typeExplorerViewportAnchorPending = null;
+  typeExplorerViewport = {
+    sourceTop: 0,
+    sourceLeft: 0,
+    outlineTop: 0,
+  };
+}
+
+function openTypeExplorerRoute() {
+  if (!selectedType()) {
+    showToast("Choose an exact Type before opening Type Explorer.");
+    return;
+  }
+  const predecessorEntryId = ensureCurrentHistoryEntryId();
+  if (!predecessorEntryId) {
+    showToast("Type Explorer could not record the current history entry.");
+    return;
+  }
+  const intent = defaultTypeExplorerIntent();
+  const routeEntryId = crypto.randomUUID();
+  if (!workspaceLocation.push(
+    typeExplorerUrl(new URL(location.href), intent).href,
+    typeExplorerHistoryState(history.state, routeEntryId, {
+      predecessorEntryId,
+      returnFocus: "explore-source",
+    }))) {
+    showToast("Type Explorer could not update browser history.");
+    return;
+  }
+  clearNavigationError();
+  state.typeExplorerOpen = true;
+  state.typeExplorerOpenedFromApp = true;
+  state.typeExplorerPredecessorEntryId = predecessorEntryId;
+  state.typeExplorerReturnFocusPending = false;
+  state.typeExplorerIntent = intent;
+  state.typeExplorerIntentError = "";
+  state.typeExplorerView = { status: "loading" };
+  typeExplorerHeadingFocusPending = true;
+  typeExplorerOutlineOpen = false;
+  typeExplorerMemberFocusPending = null;
+  typeExplorerControlFocusPending = null;
+  typeExplorerViewportAnchorPending = null;
+  typeExplorerViewport = {
+    sourceTop: 0,
+    sourceLeft: 0,
+    outlineTop: 0,
+  };
+  render({ synchronizeUrl: false });
+  observeAsync(loadTypeExplorer(), "Loading Type Explorer");
+}
+
+function closeTypeExplorerRoute() {
+  if (state.typeExplorerOpenedFromApp) {
+    history.back();
+    return;
+  }
+  if (!workspaceLocation.replace(
+    typeSourceUrl(new URL(location.href)).href,
+    history.state)) {
+    showToast("Type Explorer could not restore Type Source.");
+    return;
+  }
+  resetTypeExplorerRouteState();
+  render({ synchronizeUrl: false });
+}
+
+function replaceTypeExplorerIntent(intent: TypeExplorerIntent) {
+  if (!workspaceLocation.replace(
+    typeExplorerUrl(new URL(location.href), intent).href,
+    history.state)) {
+    showToast("Type Explorer could not update its route.");
+    return false;
+  }
+  state.typeExplorerIntent = intent;
+  state.typeExplorerIntentError = "";
+  state.typeExplorerView = { status: "loading" };
+  render({ synchronizeUrl: false });
+  observeAsync(loadTypeExplorer(), "Updating Type Explorer");
+  return true;
+}
+
+function setTypeExplorerIntent(
+  intent: TypeExplorerIntent,
+  preserveMemberFocus = false,
+) {
+  if (!preserveMemberFocus) {
+    const projection = state.typeExplorerView.status === "ready"
+      ? state.typeExplorerView.inspection.document?.projection ?? null
+      : null;
+    const selectedDeclarationId =
+      state.typeExplorerIntent.selectedDeclarationId;
+    if (projection !== null && selectedDeclarationId !== null) {
+      typeExplorerViewportAnchorPending =
+        captureTypeExplorerViewportAnchor(
+          app,
+          projection,
+          selectedDeclarationId)
+        ?? typeExplorerViewportAnchorPending;
+    } else if (selectedDeclarationId === null) {
+      typeExplorerViewportAnchorPending = null;
+    }
+    typeExplorerMemberFocusPending = null;
+    typeExplorerControlFocusPending =
+      document.activeElement instanceof HTMLInputElement
+        ? {
+            id: document.activeElement.id,
+            name: document.activeElement.name,
+            value: document.activeElement.value,
+            focusGeneration: documentFocusGeneration,
+          }
+        : null;
+  }
+  if (!replaceTypeExplorerIntent(intent)) {
+    typeExplorerMemberFocusPending = null;
+    typeExplorerControlFocusPending = null;
+    typeExplorerViewportAnchorPending = null;
+  }
+}
+
+function typeExplorerRequest(
+  intent: TypeExplorerIntent,
+): BrowserTypeExplorerRequest {
+  return {
+    bodyMode: intent.bodyMode,
+    selectedDeclarationId: intent.selectedDeclarationId,
+    documentRevision: intent.documentRevision,
+    placement: intent.placement,
+    accessibilities: intent.accessibilities,
+    includeGenerated: intent.includeGenerated,
+    includeDocumentation: intent.includeDocumentation,
+    includeAttributes: intent.includeAttributes,
+  };
+}
+
+function requireTypeExplorerAccessibility(
+  value: string,
+): string {
+  if (value === "Unknown"
+    || value === "Private"
+    || value === "PrivateProtected"
+    || value === "Protected"
+    || value === "Internal"
+    || value === "ProtectedInternal"
+    || value === "Public") {
+    return value;
+  }
+  throw new Error(`Type Explorer returned invalid accessibility '${value}'.`);
+}
+
+function requireTypeExplorerPlacement(
+  value: string,
+): string {
+  if (value === "Static" || value === "Instance") return value;
+  throw new Error(`Type Explorer returned invalid placement '${value}'.`);
+}
+
+function requireTypeExplorerOrigin(
+  value: string,
+): string {
+  if (value === "Unknown"
+    || value === "Generated"
+    || value === "NonGenerated") {
+    return value;
+  }
+  throw new Error(`Type Explorer returned invalid origin '${value}'.`);
+}
+
+function mapTypeExplorerProjection(
+  projection: BrowserTypeExplorerProjection,
+): TypeExplorerProjection {
+  return {
+    revision: projection.revision,
+    text: projection.text,
+    diagnostics: projection.diagnostics.map(diagnostic => ({
+      kind: diagnostic.kind,
+      message: diagnostic.message,
+    })),
+    declarations: projection.declarations.map(declaration => ({
+      declarationId: declaration.declarationId,
+      identity: declaration.identity,
+      declarationToken: declaration.declarationToken,
+      kind: declaration.kind,
+      accessibility:
+        requireTypeExplorerAccessibility(declaration.accessibility),
+      placement: requireTypeExplorerPlacement(declaration.placement),
+      origin: requireTypeExplorerOrigin(declaration.origin),
+      supportsSelectedBody: declaration.supportsSelectedBody,
+      range: declaration.range,
+    })),
+  };
+}
+
+function mapTypeExplorerInspection(
+  inspection: BrowserTypeExplorerInspection,
+): TypeExplorerInspection {
+  if (inspection.outcome !== "Unavailable"
+    && inspection.outcome !== "Rejected"
+    && inspection.outcome !== "Incomplete"
+    && inspection.outcome !== "Available") {
+    throw new Error("Type Explorer returned an invalid document outcome.");
+  }
+  return {
+    outcome: inspection.outcome,
+    reason: inspection.reason,
+    bodyProjectionsAttempted: inspection.bodyProjectionsAttempted,
+    failedBodyIds: inspection.failedBodyIds,
+    document: inspection.document === null
+      ? null
+      : {
+          assemblyName: inspection.document.assemblyName,
+          pdbSupplied: inspection.document.pdbSupplied,
+          symbolSource: inspection.document.symbolSource,
+          renderingPolicy: inspection.document.renderingPolicy,
+          documentationCapability:
+            inspection.document.documentationCapability,
+          contractRelationshipCapability:
+            inspection.document.contractRelationshipCapability,
+          projection: inspection.document.projection === null
+            ? null
+            : mapTypeExplorerProjection(inspection.document.projection),
+          projectionFailure: inspection.document.projectionFailure,
+        },
+    diagnostics: inspection.diagnostics.map(diagnostic => ({
+      code: diagnostic.code,
+      severity: String(diagnostic.severity),
+      message: diagnostic.summary,
+    })),
+  };
+}
+
+async function loadTypeExplorer() {
+  if (!state.typeExplorerOpen || state.typeExplorerIntentError) return;
+  const type = selectedType();
+  if (!state.engineReady || !type) {
+    state.typeExplorerView = { status: "failed", error: !type
+      ? "Choose an exact Type before opening Type Explorer."
+      : "The inspection engine is not ready." };
+    render({ synchronizeUrl: false });
+    return;
+  }
+  cancelTypeExplorerLoad();
+  const sequence = ++typeExplorerLoadSequence;
+  const operationId = crypto.randomUUID();
+  typeExplorerOperationId = operationId;
+  state.typeExplorerView = { status: "loading" };
+  render({ synchronizeUrl: false });
+  const pkg = currentPackage();
+  try {
+    const result = await inspectTypeExplorer(
+      operationId,
+      pkg.id,
+      pkg.version,
+      pkg.activeFramework,
+      type.assembly,
+      type.definitionId ?? type.id,
+      JSON.stringify(state.taste),
+      typeExplorerRequest(state.typeExplorerIntent));
+    if (!state.typeExplorerOpen
+      || sequence !== typeExplorerLoadSequence
+      || operationId !== typeExplorerOperationId) {
+      return;
+    }
+    if (result.kind === "Canceled") {
+      typeExplorerOperationId = null;
+      typeExplorerMemberFocusPending = null;
+      typeExplorerControlFocusPending = null;
+      state.typeExplorerView = canceledTypeExplorerView(result.reason);
+      render({ synchronizeUrl: false });
+      return;
+    }
+    if (result.kind === "Failed") {
+      typeExplorerOperationId = null;
+      typeExplorerMemberFocusPending = null;
+      typeExplorerControlFocusPending = null;
+      state.typeExplorerView = {
+        status: "failed",
+        error: result.error
+          ?? result.diagnostic
+          ?? "Type Explorer failed.",
+      };
+      render({ synchronizeUrl: false });
+      return;
+    }
+    if (result.kind !== "Succeeded" || result.value === null)
+      throw new Error("Type Explorer returned an invalid terminal result.");
+    const view: TypeExplorerViewState = {
+      status: "ready",
+      inspection: mapTypeExplorerInspection(result.value),
+    };
+    typeExplorerOperationId = null;
+    state.typeExplorerView = view;
+    const revision =
+      view.inspection.document?.projection?.revision ?? null;
+    if (revision !== null
+      && state.typeExplorerIntent.documentRevision !== revision) {
+      state.typeExplorerIntent = {
+        ...state.typeExplorerIntent,
+        documentRevision: revision,
+      };
+      workspaceLocation.replace(
+        typeExplorerUrl(
+          new URL(location.href),
+          state.typeExplorerIntent).href,
+        history.state);
+    }
+    render({ synchronizeUrl: false });
+  } catch (error) {
+    if (!state.typeExplorerOpen
+      || sequence !== typeExplorerLoadSequence
+      || operationId !== typeExplorerOperationId) {
+      return;
+    }
+    typeExplorerOperationId = null;
+    typeExplorerMemberFocusPending = null;
+    typeExplorerControlFocusPending = null;
+    state.typeExplorerView = {
+      status: "failed",
+      error: errorMessage(error),
+    };
+    render({ synchronizeUrl: false });
+  }
+}
+
+function renderTypeExplorerPage() {
+  const priorSource =
+    app.querySelector<HTMLElement>(".type-explorer-source pre");
+  const priorOutline =
+    app.querySelector<HTMLElement>(".type-explorer-outline");
+  if (priorSource !== null) {
+    typeExplorerViewport.sourceTop = priorSource.scrollTop;
+    typeExplorerViewport.sourceLeft = priorSource.scrollLeft;
+  }
+  if (priorOutline !== null)
+    typeExplorerViewport.outlineTop = priorOutline.scrollTop;
+  const headingHadFocus =
+    document.activeElement instanceof HTMLElement
+    && document.activeElement.id === "type-explorer-title";
+  const focusedInput = document.activeElement instanceof HTMLInputElement
+    ? {
+        id: document.activeElement.id,
+        name: document.activeElement.name,
+        value: document.activeElement.value,
+      }
+    : null;
+  const type = selectedType();
+  const pkg = state.package;
+  const viewState: TypeExplorerViewState = state.typeExplorerIntentError
+    ? { status: "failed", error: state.typeExplorerIntentError }
+    : state.typeExplorerView;
+  app.innerHTML = renderTypeExplorerView({
+    typeDisplay: type?.displayName ?? type?.id ?? "Type",
+    packageDisplay: pkg
+      ? `${pkg.id} ${pkg.version} · ${pkg.activeFramework}${
+        type ? ` · ${type.assembly}` : ""
+      }`
+      : "No package is active.",
+    intent: state.typeExplorerIntent,
+    state: viewState,
+    outlineOpen: typeExplorerOutlineOpen,
+    escapeHtml,
+    highlightCSharp,
+  });
+  bindTypeExplorerView(app, viewState, {
+    close: closeTypeExplorerRoute,
+    retry: () => {
+      state.typeExplorerView = { status: "loading" };
+      render({ synchronizeUrl: false });
+      observeAsync(loadTypeExplorer(), "Retrying Type Explorer");
+    },
+    toggleOutline: () => {
+      typeExplorerMemberFocusPending = null;
+      typeExplorerControlFocusPending = null;
+      typeExplorerOutlineOpen = !typeExplorerOutlineOpen;
+      render({ synchronizeUrl: false });
+      afterCurrentNavigationFrame(() =>
+        document.querySelector<HTMLElement>(
+          "#type-explorer-outline-toggle")?.focus());
+    },
+    selectBodyMode: bodyMode => setTypeExplorerIntent({
+      ...state.typeExplorerIntent,
+      bodyMode,
+    }),
+    selectPlacement: placement => setTypeExplorerIntent({
+      ...state.typeExplorerIntent,
+      placement,
+    }),
+    selectAccessibility: (accessibility, included) => setTypeExplorerIntent({
+      ...state.typeExplorerIntent,
+      accessibilities: included
+        ? [...state.typeExplorerIntent.accessibilities, accessibility]
+        : state.typeExplorerIntent.accessibilities.filter(
+          value => value !== accessibility),
+    }),
+    setIncludeDocumentation: includeDocumentation => setTypeExplorerIntent({
+      ...state.typeExplorerIntent,
+      includeDocumentation,
+    }),
+    setIncludeAttributes: includeAttributes => setTypeExplorerIntent({
+      ...state.typeExplorerIntent,
+      includeAttributes,
+    }),
+    setIncludeGenerated: includeGenerated => setTypeExplorerIntent({
+      ...state.typeExplorerIntent,
+      includeGenerated,
+    }),
+    selectMember: (declaration, pane) => {
+      typeExplorerControlFocusPending = null;
+      typeExplorerViewportAnchorPending = null;
+      typeExplorerMemberFocusPending = {
+        identity: declaration.identity,
+        pane,
+        focusGeneration: documentFocusGeneration,
+      };
+      setTypeExplorerIntent({
+        ...state.typeExplorerIntent,
+        bodyMode:
+          state.typeExplorerIntent.bodyMode === "SelectedBody"
+          && !declaration.supportsSelectedBody
+            ? "Bodies"
+            : state.typeExplorerIntent.bodyMode,
+        selectedDeclarationId: declaration.declarationId,
+      }, true);
+    },
+  });
+  const source = app.querySelector<HTMLElement>(".type-explorer-source pre");
+  if (source !== null) {
+    source.scrollTop = typeExplorerViewport.sourceTop;
+    source.scrollLeft = typeExplorerViewport.sourceLeft;
+  }
+  const outline =
+    app.querySelector<HTMLElement>(".type-explorer-outline");
+  if (outline !== null)
+    outline.scrollTop = typeExplorerViewport.outlineTop;
+  const pendingMemberFocus = typeExplorerMemberFocusPending;
+  const projection = viewState.status === "ready"
+    ? viewState.inspection.document?.projection ?? null
+    : null;
+  const pendingViewportAnchor = typeExplorerViewportAnchorPending;
+  if (pendingViewportAnchor !== null && projection !== null) {
+    afterCurrentNavigationFrame(() => {
+      if (typeExplorerViewportAnchorPending !== pendingViewportAnchor) return;
+      typeExplorerViewportAnchorPending = null;
+      restoreTypeExplorerViewportAnchor(
+        app,
+        projection,
+        pendingViewportAnchor);
+    });
+  }
+  if (pendingMemberFocus !== null && projection !== null) {
+    afterCurrentNavigationFrame(() => {
+      if (typeExplorerMemberFocusPending !== pendingMemberFocus) return;
+      typeExplorerMemberFocusPending = null;
+      if (pendingMemberFocus.focusGeneration !== documentFocusGeneration)
+        return;
+      restoreTypeExplorerMemberSelection(
+        app,
+        projection,
+        pendingMemberFocus.identity,
+        pendingMemberFocus.pane);
+    });
+  } else if (pendingMemberFocus !== null
+    && viewState.status === "ready") {
+    typeExplorerMemberFocusPending = null;
+  }
+  const pendingControlFocus = typeExplorerControlFocusPending;
+  if (pendingControlFocus !== null && viewState.status === "ready") {
+    afterCurrentNavigationFrame(() => {
+      if (typeExplorerControlFocusPending !== pendingControlFocus) return;
+      typeExplorerControlFocusPending = null;
+      if (pendingControlFocus.focusGeneration !== documentFocusGeneration)
+        return;
+      const controls = app.querySelectorAll<HTMLInputElement>("input");
+      for (const control of controls) {
+        if ((pendingControlFocus.id !== ""
+              && control.id === pendingControlFocus.id)
+          || (pendingControlFocus.id === ""
+            && control.name === pendingControlFocus.name
+            && control.value === pendingControlFocus.value)) {
+          control.focus();
+          return;
+        }
+      }
+    });
+  }
+  if (typeExplorerHeadingFocusPending || headingHadFocus) {
+    typeExplorerHeadingFocusPending = false;
+    afterCurrentNavigationFrame(() =>
+      document.querySelector<HTMLElement>("#type-explorer-title")?.focus());
+  } else if (focusedInput !== null) {
+    afterCurrentNavigationFrame(() => {
+      const controls = app.querySelectorAll<HTMLInputElement>("input");
+      for (const control of controls) {
+        if ((focusedInput.id !== "" && control.id === focusedInput.id)
+          || (focusedInput.id === ""
+            && control.name === focusedInput.name
+            && control.value === focusedInput.value)) {
+          control.focus();
+          return;
+        }
+      }
+    });
+  }
+  if (state.typeExplorerView.status === "idle"
+    && state.typeExplorerIntentError === ""
+    && state.engineReady) {
+    state.typeExplorerView = { status: "loading" };
+    observeAsync(loadTypeExplorer(), "Loading Type Explorer");
+  }
 }
 
 function openPackageQueryRoute(
@@ -20624,6 +21472,50 @@ window.addEventListener("popstate", () => {
   }
   const leftPackageQueryHandoff = currentPackageQueryHandoff();
   const navigationSeq = navigationSequence.begin();
+  const typeExplorerDestination = isTypeExplorerPath(location.pathname);
+  if (typeExplorerDestination) {
+    const intent = decodeTypeExplorerIntent(
+      new URL(location.href).searchParams.get("te"));
+    state.typeExplorerOpen = true;
+    state.typeExplorerIntentError = intent === null
+      ? "The Type Explorer route contains malformed or missing presentation intent."
+      : "";
+    if (intent !== null) state.typeExplorerIntent = intent;
+    state.typeExplorerView = { status: "idle" };
+    applyTypeExplorerHistory(history.state);
+    typeExplorerHeadingFocusPending = true;
+    typeExplorerOutlineOpen = false;
+    typeExplorerMemberFocusPending = null;
+    typeExplorerControlFocusPending = null;
+    typeExplorerViewportAnchorPending = null;
+    typeExplorerViewport = {
+      sourceTop: 0,
+      sourceLeft: 0,
+      outlineTop: 0,
+    };
+  } else if (state.typeExplorerOpen) {
+    const predecessorEntryId = state.typeExplorerPredecessorEntryId;
+    const restoreFocus =
+      state.typeExplorerOpenedFromApp
+      && isTypeExplorerPredecessor(history.state, predecessorEntryId);
+    cancelTypeExplorerLoad("disposed");
+    state.typeExplorerOpen = false;
+    state.typeExplorerOpenedFromApp = false;
+    state.typeExplorerPredecessorEntryId = null;
+    state.typeExplorerIntentError = "";
+    state.typeExplorerView = { status: "idle" };
+    state.typeExplorerReturnFocusPending = restoreFocus;
+    typeExplorerHeadingFocusPending = false;
+    typeExplorerOutlineOpen = false;
+    typeExplorerMemberFocusPending = null;
+    typeExplorerControlFocusPending = null;
+    typeExplorerViewportAnchorPending = null;
+    typeExplorerViewport = {
+      sourceTop: 0,
+      sourceLeft: 0,
+      outlineTop: 0,
+    };
+  }
   let leftPackageQueryForWorkspaceSuccessor = false;
   let unavailableWorkspaceAdmissionRejected = false;
   const dismissedAnnotatedSourceModal = dismissModalsForRoutedNavigation();
@@ -20748,6 +21640,7 @@ window.addEventListener("popstate", () => {
     && (isDiagnosticsPath(location.pathname)
       || isPackageQueryPath(location.pathname)
       || isPackageActivityPath(location.pathname)
+      || isTypeExplorerPath(location.pathname)
       || isCreditsPath(location.pathname)
       || isProductHomeDemosPath(location.pathname));
   if (unavailableGlobalWorkspace) {

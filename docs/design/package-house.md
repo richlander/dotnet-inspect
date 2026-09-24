@@ -818,7 +818,9 @@ or a payload is authorized.
 The current execution floor binds stable host capabilities to the
 `PackageHouse` instance. `PackagePayloadAcquisitionPlan` groups the
 authority-and-producer-scoped store provider, payload limits, transfer policy,
-and payload diagnostics. It carries no source lease, operation context,
+payload diagnostics, and payload access: complete, or ranged, which only a
+`Realize` operation may use because its selection bounds the read
+([Ranged payload realization](package-source-model.md#ranged-payload-realization)). It carries no source lease, operation context,
 payload, or release obligation and does not take ownership of stores returned
 by its provider. The resource-owner-issued operation lease remains an explicit
 consumed invocation input rather than a hidden field of a House-named plan.

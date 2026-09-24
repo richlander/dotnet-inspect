@@ -249,9 +249,9 @@ public static class ArgumentPreprocessor
         // ';'-joined token so repeated and separated forms behave the same.
         // System.CommandLine otherwise parses `--columns=` like a bare `--columns`; split the
         // inline-empty spelling first so projection validation can distinguish the explicit value.
+        args = NormalizeRepeatedSelect(args);
         args = ExpandInlineEmptyListOption(args, ColumnsAliases);
         args = ExpandInlineEmptyListOption(args, FieldsAliases);
-        args = MergeRepeatedListOption(args, SelectAliases, "-S");
         args = MergeRepeatedListOption(args, ColumnsAliases, "--columns");
         args = MergeRepeatedListOption(args, FieldsAliases, "--fields");
         args = EscapeAtCategoryOptionValues(args, AtCategoryOptionAliases);
@@ -280,6 +280,16 @@ public static class ArgumentPreprocessor
         }
 
         return args;
+    }
+
+    internal static string[] NormalizeRepeatedSelect(string[] args)
+    {
+        args = ExpandInlineEmptyListOption(args, SelectAliases);
+        return MergeRepeatedListOption(
+            args,
+            SelectAliases,
+            "-S",
+            requireEveryValue: true);
     }
 
     internal static int FindFirstPositionalArgument(
@@ -736,7 +746,7 @@ public static class ArgumentPreprocessor
                 if (!ReferenceEquals(escaped, inlineValue))
                 {
                     result ??= (string[])args.Clone();
-                    result[i] = args[i][..args[i].IndexOf('=')] + "=" + escaped;
+                    result[i] = args[i][..^inlineValue.Length] + escaped;
                 }
             }
             else if (i + 1 < args.Length)
@@ -767,7 +777,7 @@ public static class ArgumentPreprocessor
                 if (!ReferenceEquals(escaped, inlineValue))
                 {
                     result ??= (string[])args.Clone();
-                    result[i] = args[i][..args[i].IndexOf('=')] + "=" + escaped;
+                    result[i] = args[i][..^inlineValue.Length] + escaped;
                 }
                 continue;
             }
@@ -804,7 +814,11 @@ public static class ArgumentPreprocessor
     /// Collapses repeated occurrences of a single-valued list option into one ';'-joined token at the
     /// position of the first occurrence. Handles both `alias value` and `alias=value` forms.
     /// </summary>
-    private static string[] MergeRepeatedListOption(string[] args, string[] aliases, string canonical)
+    private static string[] MergeRepeatedListOption(
+        string[] args,
+        string[] aliases,
+        string canonical,
+        bool requireEveryValue = false)
     {
         int occurrences = 0;
         foreach (var arg in args)
@@ -815,6 +829,15 @@ public static class ArgumentPreprocessor
         }
         if (occurrences < 2)
             return args;
+
+        if (requireEveryValue
+            && HasMissingOrEmptyListOptionValue(args, aliases))
+        {
+            return NormalizeInvalidRepeatedListOption(
+                args,
+                aliases,
+                canonical);
+        }
 
         var result = new List<string>(args.Length);
         var values = new List<string>();
@@ -860,6 +883,80 @@ public static class ArgumentPreprocessor
         return [.. result];
     }
 
+    private static bool HasMissingOrEmptyListOptionValue(
+        string[] args,
+        string[] aliases)
+    {
+        for (int i = 0; i < args.Length; i++)
+        {
+            if (args[i] == "--")
+                break;
+
+            if (!IsListOptionAlias(args[i], aliases, out var inlineValue))
+                continue;
+
+            string? value = inlineValue;
+            if (value is null
+                && i + 1 < args.Length
+                && !args[i + 1].StartsWith("-", StringComparison.Ordinal))
+            {
+                value = args[++i];
+            }
+
+            if (!ContainsListName(value))
+                return true;
+        }
+
+        return false;
+    }
+
+    private static bool ContainsListName(string? value)
+        => !string.IsNullOrWhiteSpace(value)
+            && value.Split(
+                [',', ';'],
+                StringSplitOptions.RemoveEmptyEntries
+                    | StringSplitOptions.TrimEntries)
+                .Length > 0;
+
+    private static string[] NormalizeInvalidRepeatedListOption(
+        string[] args,
+        string[] aliases,
+        string canonical)
+    {
+        var result = new List<string>(args.Length);
+        bool inserted = false;
+        for (int i = 0; i < args.Length; i++)
+        {
+            if (args[i] == "--")
+            {
+                result.AddRange(args[i..]);
+                break;
+            }
+
+            if (!IsListOptionAlias(args[i], aliases, out var inlineValue))
+            {
+                result.Add(args[i]);
+                continue;
+            }
+
+            if (!inserted)
+            {
+                result.Add(canonical);
+                result.Add("");
+                inserted = true;
+            }
+
+            if (inlineValue is null
+                && i + 1 < args.Length
+                && !args[i + 1].StartsWith("-", StringComparison.Ordinal))
+            {
+                i++;
+            }
+        }
+
+        return [.. result];
+    }
+
     private static string[] ExpandInlineEmptyListOption(string[] args, string[] aliases)
     {
         List<string>? result = null;
@@ -893,9 +990,16 @@ public static class ArgumentPreprocessor
         {
             if (arg == alias)
                 return true;
-            if (arg.StartsWith(alias + "=", StringComparison.Ordinal))
+            if (CliArgumentOwnership.TryGetDelimitedValue(
+                    arg,
+                    alias,
+                    out inlineValue))
+                return true;
+            if (CliArgumentOwnership.IsShortAlias(alias)
+                && arg.Length > alias.Length
+                && arg.StartsWith(alias, StringComparison.Ordinal))
             {
-                inlineValue = arg[(alias.Length + 1)..];
+                inlineValue = arg[alias.Length..];
                 return true;
             }
         }

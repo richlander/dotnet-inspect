@@ -57,8 +57,8 @@ Forwarders, P/Invoke Methods, and Union Types are measured or structurally
 category remain available; explicit selection promotes the effective verbosity
 needed to render the requested inventory. Inspection Failures remains `Terse`
 and visible at `-v:n`; hiding failed producers from the normal view would allow
-partial inspection to look clean. Bare `-S` remains the fixed overview:
-Library Info, Symbols, and Signals.
+partial inspection to look clean. Select `@Library` explicitly when that
+broader base composition is required.
 
 Library domain categories remain explicit. Their target-growing audit,
 dependency, integration, SourceLink file, performance, resource-lifecycle,
@@ -155,26 +155,27 @@ Diff`, and `Implementation Diff` views. Its focused, non-composable
 `Complexity Context`, `Structural Context`, and `Finding Transitions` views
 remain standalone exact-name sections.
 Project uses `@Project` as its base category for package-authored `Skills` and
-`Package README file` documents from restored direct dependencies. Bare `-S`
-retains `Skills`; selecting `@Project` explicitly requests both inventories.
+`Package README file` documents from restored direct dependencies. Selecting
+`@Project` explicitly requests both inventories.
 Vocabulary uses `@Vocabulary` as its base category. `@API` and `@Decompiler`
-select the vocabularies consumed by those query families; bare output and bare
-`-S` retain the `Vocabulary Sections` index.
+select the vocabularies consumed by those query families; bare output retains
+the `Vocabulary Sections` index.
 Ecosystem uses a route-specific `@Ecosystem` base category. The optional focus
 operand first chooses the catalog-wide, focused-pack, or focused-Platform
 section set; `@Ecosystem` then composes that complete set. Exact
 `Integrations` selects the product-configured bindings. Ecosystem has no
 single-member `@Integrations` category. Ordinary output retains `Ecosystems`
-or `Ecosystem Info`, while bare `-S` retains the complete route-specific
-composition.
+or `Ecosystem Info`.
 `graph libraries` uses `@Libraries` as its base category for the pair-wide
 `Call Sites`, `Consumer Use Sites`, `Direct Use Clusters`, and `Provider API
-Types` projections. Ordinary output remains `Call Sites`, while bare `-S`
-retains the two summary projections. Coordinate-gated `Public Root Paths`
-remains exact-name-only and outside the category.
+Types` projections. Ordinary output is `Direct Use Clusters`.
+`graph cluster N` uses the same catalog for one focused component and ordinary
+output is `Call Sites`. Select `Consumer Use Sites;Provider API Types`
+explicitly for the two summary projections on either route. Coordinate-gated
+`Public Root Paths` remains exact-name-only and outside the category.
 Package Query uses `@Query` as its base category for `Packages` and
-`Query Summary`. Ordinary output remains adaptive, while bare `-S` retains
-the non-adaptive `Packages` preset.
+`Query Summary`. Ordinary output remains adaptive; exact `Packages` selection
+retains the non-adaptive package result.
 
 `Unsafe Members` is intentionally a standalone library section. It belongs to
 no category and is selected for rendering by exact name (or an explicit
@@ -256,24 +257,12 @@ Selecting `Reference Hierarchy` authorizes resolved transitive traversal.
 `--tree` changes only its projection. Omitting `--depth` traverses the complete
 resolvable hierarchy.
 
-### Bare `-S`
+### Missing selector
 
-Bare `-S` renders the command's compact network-free overview:
-
-```text
-Base union AND Fixed AND NetworkFree AND Effective
-```
-
-This is a stable candidate rule, not a promise of an identical rendered set
-for every target. A missing README or unavailable symbol record legitimately
-removes that section.
-
-Member contexts use focused presets within `@Member`: member-kind summaries for
-a broad type view, the matching inventory for a member name, and `Signature`
-for one selected overload. See [Bare `-S` default view](info-view.md).
-Package Query's authored `Packages` preset and `graph libraries`' authored
-summary pair are deliberate command-specific bare-`-S` projections rather than
-automatic verbosity presets.
+`-S`, `-s`, `--select`, and `--section` require exactly one section, category,
+or wildcard argument. A selection option without that argument is a parse
+error; it does not imply a command-specific overview. Use `-D` to discover
+available selectors and name the intended scope explicitly.
 
 ## Discovery
 
@@ -348,8 +337,7 @@ section scope; there is no `-S Section -Q` spelling. `--schema` and
 data. Query execution flags such as `--where`, `--order-by`, and `--top` are
 rejected rather than run against the metadata or silently discarded.
 
-The initial commands are `library`, `type`, `member`, `package`, `find`, and
-`graph libraries`.
+The initial commands are `library`, `type`, `member`, `package`, and `find`.
 Discovery describes command capabilities, including contexts requiring a
 selected type or member, rather than target-dependent applicability. A target
 may accompany the request, but it is not acquired or inspected. Commandless
@@ -361,8 +349,8 @@ diagnostic. Bare `-Q` omits sections without query operators.
 Each companion has the deterministic name `Query: <canonical section name>`.
 Its typed descriptor retains the owning section independently of that display
 name. Companions live outside the ordinary evidence catalog: normal verbosity,
-bare `-S`, data wildcards, categories, and ordinary `-D --schema` do not acquire
-them. Explicit companion selection may use `Query:` wildcards but cannot mix
+data wildcards, categories, and ordinary `-D --schema` do not acquire them.
+Explicit companion selection may use `Query:` wildcards but cannot mix
 metadata and evidence sections in one request. Companion schema discovery
 (`-D "Query: Section"`) requires one resolved section.
 On `find`, `-S` accepts query companions only; ordinary data-section selection

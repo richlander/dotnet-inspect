@@ -1592,7 +1592,7 @@ public class PackageQueryCliTests
     }
 
     [Fact]
-    public async Task BareSelectDefault_PreservesEmptyPackageShape()
+    public async Task PackagesSelection_PreservesEmptyPackageShape()
     {
         using var source = Source(out _);
         var options = OptionsForInput(
@@ -1601,7 +1601,10 @@ public class PackageQueryCliTests
         {
             JsonOutput = true,
             Tabular = false,
-            SelectDefault = true,
+            IncludeSections =
+            [
+                PackageProfileSections.Packages,
+            ],
         };
         var result = await ConsoleCapture.RunAsync(() =>
             PackageQueryCommand.ExecuteAsync(options, source, null));
@@ -2117,22 +2120,17 @@ public class PackageQueryCliTests
                 row.GetProperty("library").GetString()));
     }
 
-    [Theory]
-    [InlineData(false)]
-    [InlineData(true)]
+    [Fact]
     [Trait("Speed", "Slow")]
-    public async Task CliSelectedJsonRetainsPresentationContract(
-        bool bareSelect)
+    public async Task CliSelectedJsonRetainsPresentationContract()
     {
-        string[] selection = bareSelect
-            ? ["-S"]
-            : ["-S", "Packages"];
         var result = await Run(
             [
                 "package",
                 "query",
                 "Contoso.Package.That.Does.Not.Exist.7357",
-                .. selection,
+                "-S",
+                "Packages",
                 "--json",
                 "--compact",
             ]);

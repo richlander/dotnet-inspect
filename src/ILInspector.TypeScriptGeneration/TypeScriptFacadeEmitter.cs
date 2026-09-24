@@ -64,7 +64,8 @@ internal static class TypeScriptFacadeEmitter
                     diagnostics,
                     names.TypeNames,
                     names.InertStringName,
-                    names.DateTimeOffsetName);
+                    names.DateTimeOffsetName,
+                    names.JsonTextName);
             signatures.Add(
                 function,
                 names.Apply(function, signature));
@@ -81,7 +82,9 @@ internal static class TypeScriptFacadeEmitter
             names.InertStringName,
             names.InertStringBrandName,
             names.DateTimeOffsetName,
-            names.DateTimeOffsetBrandName));
+            names.DateTimeOffsetBrandName,
+            names.JsonTextName,
+            names.JsonTextBrandName));
 
         ExportPathNode exportTree = BuildExportTree(functions);
         EmitManagedExportsType(sb, exportTree, signatures);
@@ -408,7 +411,7 @@ internal static class TypeScriptFacadeEmitter
             .Append(signature.PublicReturnType)
             .Append(" {\n");
 
-        if (signature.ParsesJson)
+        if (signature.ParsesJson || signature.ReturnsJsonText)
         {
             sb.Append("  const $result = ")
                 .Append(signature.IsAsync ? "await " : "")
@@ -425,12 +428,23 @@ internal static class TypeScriptFacadeEmitter
                     .Append(");\n")
                     .Append("  }\n");
             }
-            sb.Append("  const $parsed: unknown = JSON.parse($result);\n")
-                .Append("  return $parsed as ")
-                .Append(signature.IsAsync
-                    ? UnwrapPromise(signature.PublicReturnType)
-                    : signature.PublicReturnType)
-                .Append(";\n");
+            if (signature.ParsesJson)
+            {
+                sb.Append("  const $parsed: unknown = JSON.parse($result);\n")
+                    .Append("  return $parsed as ")
+                    .Append(signature.IsAsync
+                        ? UnwrapPromise(signature.PublicReturnType)
+                        : signature.PublicReturnType)
+                    .Append(";\n");
+            }
+            else
+            {
+                sb.Append("  return $result as ")
+                    .Append(signature.IsAsync
+                        ? UnwrapPromise(signature.PublicReturnType)
+                        : signature.PublicReturnType)
+                    .Append(";\n");
+            }
         }
         else
         {
@@ -482,6 +496,8 @@ internal static class TypeScriptFacadeEmitter
         private readonly string? _inertStringBrandName;
         private readonly string? _dateTimeOffsetName;
         private readonly string? _dateTimeOffsetBrandName;
+        private readonly string? _jsonTextName;
+        private readonly string? _jsonTextBrandName;
 
         private TypeScriptNameAllocator(
             HashSet<string> moduleBindings,
@@ -491,7 +507,9 @@ internal static class TypeScriptFacadeEmitter
             string? inertStringName,
             string? inertStringBrandName,
             string? dateTimeOffsetName,
-            string? dateTimeOffsetBrandName)
+            string? dateTimeOffsetBrandName,
+            string? jsonTextName,
+            string? jsonTextBrandName)
         {
             _moduleBindings = moduleBindings;
             _typeNames = typeNames;
@@ -501,6 +519,8 @@ internal static class TypeScriptFacadeEmitter
             _inertStringBrandName = inertStringBrandName;
             _dateTimeOffsetName = dateTimeOffsetName;
             _dateTimeOffsetBrandName = dateTimeOffsetBrandName;
+            _jsonTextName = jsonTextName;
+            _jsonTextBrandName = jsonTextBrandName;
         }
 
         public static TypeScriptNameAllocator Create(
@@ -556,6 +576,25 @@ internal static class TypeScriptFacadeEmitter
                         "dateTimeOffsetStringBrand",
                         "brand",
                         dateTimeOffsetIdentity + "#brand",
+                        TypeScriptIdentifier.IsStrictModeBindingIdentifier);
+            bool usesJsonText = DtsEmitter.UsesJsonText(surface);
+            string? jsonTextName =
+                !usesJsonText
+                    ? null
+                    : Allocate(
+                        moduleBindings,
+                        "JsonText",
+                        "type",
+                        "ts-jsexport#JsonText",
+                        TypeScriptIdentifier.IsTypeDeclarationIdentifier);
+            string? jsonTextBrandName =
+                !usesJsonText
+                    ? null
+                    : Allocate(
+                        moduleBindings,
+                        "jsonTextBrand",
+                        "brand",
+                        "ts-jsexport#JsonText#brand",
                         TypeScriptIdentifier.IsStrictModeBindingIdentifier);
             var typeNames = new Dictionary<ApiType, string>();
             foreach (ApiType type in surface.Records
@@ -649,7 +688,9 @@ internal static class TypeScriptFacadeEmitter
                 inertStringName,
                 inertStringBrandName,
                 dateTimeOffsetName,
-                dateTimeOffsetBrandName);
+                dateTimeOffsetBrandName,
+                jsonTextName,
+                jsonTextBrandName);
         }
 
         static string StripMetadataArity(string name)
@@ -669,6 +710,10 @@ internal static class TypeScriptFacadeEmitter
 
         public string? DateTimeOffsetBrandName =>
             _dateTimeOffsetBrandName;
+
+        public string? JsonTextName => _jsonTextName;
+
+        public string? JsonTextBrandName => _jsonTextBrandName;
 
         public TypeScriptFunctionSignature Apply(
             JsExportFunction function,

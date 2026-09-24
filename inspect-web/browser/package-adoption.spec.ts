@@ -2473,6 +2473,8 @@ test.describe("bounded network-backed two-host demo", () => {
       .toContainText("System.Text.Json", { timeout: 180_000 });
 
     await page.locator("[data-product-navigation-button]").click();
+    await expect(page.locator('[data-product-destination="query"]'))
+      .not.toHaveAttribute("aria-disabled", "true", { timeout: 180_000 });
     await page.locator('[data-product-destination="workspace"]').click();
     await page.getByRole(
       "button",

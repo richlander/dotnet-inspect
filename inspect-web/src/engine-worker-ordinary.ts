@@ -82,12 +82,14 @@ type MetadataOperationName =
 type AnalysisOperationName =
   | "queryCloneCandidates"
   | "queryMemberFacts"
+  | "queryPackageImplementationProfiles"
   | "queryPackageIntegrations"
   | "queryPlatformIntegrations"
   | "queryPackageOpportunities"
   | "queryPlatformOpportunities"
   | "queryPackagePerformance"
   | "queryPackageLibraryMetrics"
+  | "queryPlatformImplementationProfiles"
   | "queryPlatformLibraryMetrics"
   | "queryPlatformPerformance";
 
@@ -1193,6 +1195,26 @@ export const engineWorkerOrdinaryOperations = {
         ...args: Parameters<AnalysisFacade["queryCloneCandidates"]>
       ) => facades.analysis.queryCloneCandidates(...args),
     ),
+    queryPackageImplementationProfiles: valueOperation(
+      "ordinary-analysis-query-package-implementation-profiles",
+      6,
+      (
+        facades,
+        ...args: Parameters<
+          AnalysisFacade["queryPackageImplementationProfiles"]
+        >
+      ) => facades.analysis.queryPackageImplementationProfiles(...args),
+    ),
+    queryPlatformImplementationProfiles: valueOperation(
+      "ordinary-analysis-query-platform-implementation-profiles",
+      6,
+      (
+        facades,
+        ...args: Parameters<
+          AnalysisFacade["queryPlatformImplementationProfiles"]
+        >
+      ) => facades.analysis.queryPlatformImplementationProfiles(...args),
+    ),
     queryMemberFacts: valueOperation(
       "ordinary-analysis-query-member-facts",
       10,
@@ -1795,6 +1817,14 @@ export function bindEngineWorkerOrdinaryClient(
     analysis: {
       queryCloneCandidates: bind(
         engineWorkerOrdinaryOperations.analysis.queryCloneCandidates,
+      ),
+      queryPackageImplementationProfiles: bind(
+        engineWorkerOrdinaryOperations.analysis
+          .queryPackageImplementationProfiles,
+      ),
+      queryPlatformImplementationProfiles: bind(
+        engineWorkerOrdinaryOperations.analysis
+          .queryPlatformImplementationProfiles,
       ),
       queryMemberFacts: bind(
         engineWorkerOrdinaryOperations.analysis.queryMemberFacts,

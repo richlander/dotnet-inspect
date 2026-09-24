@@ -412,7 +412,7 @@ public partial class CommandExecutionTests
     [InlineData("--preview")]
     [InlineData("--max-packages", "1")]
     [InlineData("--discover")]
-    [InlineData("-S")]
+    [InlineData("-S", "Dependencies")]
     public async Task DependsShare_RejectsConflictingOutput(
         params string[] conflicting)
     {

@@ -81,8 +81,9 @@ dotnet-inspect package query 'Microsoft.Extensions.*' \
   --where "license=MIT"
 
 # One Graph-owned selector scopes every selected graph projection.
-dotnet-inspect graph libraries consumer.dll provider.dll \
-  --where "Cluster=3"
+dotnet-inspect graph cluster 3 \
+  --library consumer.dll \
+  --library provider.dll
 
 # Target Library Query: one row per candidate assembly.
 dotnet-inspect library query ./bin \
@@ -629,15 +630,18 @@ to gain a Browser page in this release.
 
 Graph Libraries is the second adopter. Its operation definition registers the
 explicit Library pair subject role, Library-pair direct-use result grain,
-Cluster selector, and five existing projection row sets. One command route and
-one route per operation-backed section expose the same selector. The CLI lowers
-`--where` to canonical portable intent, resolves the owner-issued plan, and
-applies that plan through
+Cluster selector, and five existing projection row sets. One operation route
+and one route per operation-backed section expose the same selector. The CLI
+lowers the `graph cluster N` positional operand to canonical portable intent,
+resolves the owner-issued plan, and applies that plan through
 `AssemblyPairDirectUseClusterProjection.ScopeToObservedCluster`. The existing
 pair query, cluster derivation, root-path composition, section selection,
 Markout lowering, completion, and failure contracts remain unchanged. Inspect
 Web has no two-Library selection surface, so this focused adoption adds no
 Browser gesture; a future Browser consumer can use the same route and plan.
+The CLI intentionally does not expose this subject transition as `--where` or
+`-Q`; pair-wide discovery and focused cluster inspection are separate command
+routes.
 
 Dependency is the third adopter. Its operation definition remains beside the
 existing type-relationship row vocabulary and host-neutral Dependency content

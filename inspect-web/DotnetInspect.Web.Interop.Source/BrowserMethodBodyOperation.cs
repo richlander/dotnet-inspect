@@ -16,6 +16,9 @@ namespace DotnetInspect.Web.Interop.Source;
     nameof(SourceExports.QueryMethodBodyComparison),
     "requestJson",
     typeof(BrowserMethodBodyComparisonRequest))]
+[JsExportJsonOutput(
+    nameof(SourceExports.QueryMethodBodyComparison),
+    typeof(BrowserMethodBodyComparisonResult))]
 public static partial class SourceExports
 {
     [JSExport]
