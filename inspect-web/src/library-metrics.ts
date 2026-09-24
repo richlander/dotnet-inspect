@@ -166,7 +166,7 @@ function renderTreemap(
     const labelHtml = rectangle.width > 86 && rectangle.height > 28
       ? `<text class="metrics-treemap-label" x="${rectangle.x + 7}" y="${rectangle.y + 17}">${escapeHtml(label)}</text>`
       : "";
-    return `<g class="metrics-treemap-cell"><title>${escapeHtml(tooltip)}</title><rect x="${rectangle.x.toFixed(2)}" y="${rectangle.y.toFixed(2)}" width="${rectangle.width.toFixed(2)}" height="${rectangle.height.toFixed(2)}" fill="hsl(265 65% ${lightness}%)"></rect>${labelHtml}</g>`;
+    return `<g class="metrics-treemap-cell"><title>${escapeHtml(tooltip)}</title><rect x="${rectangle.x}" y="${rectangle.y}" width="${rectangle.width}" height="${rectangle.height}" fill="hsl(265 65% ${lightness}%)"></rect>${labelHtml}</g>`;
   }).join("");
   const omittedNote = omitted.length
     ? ` Top ${TREEMAP_LIMIT} types are shown individually; ${formatNumber(omitted.length)} smaller types are grouped as Other types.`

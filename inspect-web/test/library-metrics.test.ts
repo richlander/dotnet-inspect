@@ -113,7 +113,7 @@ test("treemap rectangle area remains proportional to instruction volume", () => 
           typeKey: "Example.Core.Large",
           typeDisplay: "Example.Core.Large",
           name: "Large",
-          instructionCount: 1_000,
+          instructionCount: 200_000,
         },
         {
           ...data.typeSummaries[0]!,
@@ -130,9 +130,14 @@ test("treemap rectangle area remains proportional to instruction volume", () => 
   )].map(match => Number(match[1]) * Number(match[2]));
 
   assert.equal(rectangles.length, 2);
+  assert.ok(rectangles[1]! > 0);
   const totalArea = rectangles.reduce((sum, area) => sum + area, 0);
-  assert.ok(Math.abs(rectangles[0]! / totalArea - 1_000 / 1_001) < .0001);
-  assert.ok(Math.abs(rectangles[1]! / totalArea - 1 / 1_001) < .0001);
+  assert.ok(
+    Math.abs(rectangles[0]! / totalArea - 200_000 / 200_001) < .000001,
+  );
+  assert.ok(
+    Math.abs(rectangles[1]! / totalArea - 1 / 200_001) < .000001,
+  );
 });
 
 test("relationship topology keeps same-display generic arities distinct", () => {
