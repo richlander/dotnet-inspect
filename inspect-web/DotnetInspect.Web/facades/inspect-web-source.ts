@@ -480,16 +480,23 @@ export interface BrowserSourceComparisonEndpoint {
   readonly revision: string | null;
 }
 
+export interface BrowserSourceComparisonEndpointRequest {
+  readonly typeIdentity: string;
+  readonly stableSelector: string;
+  readonly canonicalSignature: string;
+  readonly fingerprint: string;
+  readonly typeFullName: string;
+  readonly memberName: string;
+}
+
 export interface BrowserSourceComparisonRequest {
   readonly packageId: string;
   readonly beforeVersion: string;
   readonly afterVersion: string;
   readonly framework: string;
   readonly assembly: string;
-  readonly typeIdentity: string;
-  readonly memberName: string;
-  readonly selectorKey: string;
-  readonly metadataToken: number;
+  readonly before: BrowserSourceComparisonEndpointRequest | null;
+  readonly after: BrowserSourceComparisonEndpointRequest | null;
 }
 
 export interface BrowserSourceComparisonResult {

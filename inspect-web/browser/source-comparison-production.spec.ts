@@ -179,20 +179,26 @@ test.describe("published authored Source comparison transport", () => {
         const member = type?.api.find(candidate => candidate.name === "Trim");
         const body = member?.bodySelectors.find(candidate =>
           candidate.token === member.metadataToken);
-        if (!type || !body) {
+        if (!type || !member || !body) {
           throw new Error(
             "The real package does not expose StringSegment.Trim.");
         }
+        const endpoint = {
+          typeIdentity: type.definitionId,
+          stableSelector: member.stableSelector,
+          canonicalSignature: member.canonicalSignature,
+          fingerprint: member.anchorDigest,
+          typeFullName: member.anchorTypeFullName,
+          memberName: member.name,
+        };
         const request = {
           packageId: surface.package,
           beforeVersion: surface.version,
           afterVersion: "10.0.1",
           framework: surface.activeFramework,
           assembly: type.assemblyId,
-          typeIdentity: type.definitionId,
-          memberName: body.memberName,
-          selectorKey: body.selectorKey,
-          metadataToken: body.token,
+          before: endpoint,
+          after: endpoint,
         };
         const compared = await source.queryMemberSourceComparison(
           "source-comparison-public-pair", request,
@@ -307,7 +313,7 @@ test.describe("published authored Source comparison transport", () => {
             candidate.token === member.metadataToken)
             ?? member?.bodySelectors.find(candidate =>
               candidate.memberName === `get_${memberName}`);
-          if (!type || !body) {
+          if (!type || !member || !body) {
             throw new Error(
               `The fixture does not expose ${selectedType}.${memberName}.`);
           }
@@ -321,6 +327,11 @@ test.describe("published authored Source comparison transport", () => {
             memberName: body.memberName,
             selectorKey: body.selectorKey,
             metadataToken: body.token,
+            stableSelector: member.stableSelector,
+            canonicalSignature: member.canonicalSignature,
+            fingerprint: member.anchorDigest,
+            typeFullName: member.anchorTypeFullName,
+            anchorMemberName: member.name,
           };
         }, { memberName: name, version: selectedVersion, selectedType: typeName });
       }
@@ -329,8 +340,26 @@ test.describe("published authored Source comparison transport", () => {
         const selected = await memberRequest(targetPage, name);
         const result = await targetPage.evaluate(async request => {
           const source = await import("/inspect-web-source.js");
+          const endpoint = {
+            typeIdentity: request.typeIdentity,
+            stableSelector: request.stableSelector,
+            canonicalSignature: request.canonicalSignature,
+            fingerprint: request.fingerprint,
+            typeFullName: request.typeFullName,
+            memberName: request.anchorMemberName,
+          };
           return source.queryMemberSourceComparison(
-            `source-comparison-fixture-${request.memberName}`, request);
+            `source-comparison-fixture-${request.memberName}`,
+            {
+              packageId: request.packageId,
+              beforeVersion: request.beforeVersion,
+              afterVersion: request.afterVersion,
+              framework: request.framework,
+              assembly: request.assembly,
+              before: endpoint,
+              after: endpoint,
+            },
+          );
         }, selected);
         return decodeSourceComparison(result);
       }
@@ -834,19 +863,25 @@ test.describe("published authored Source comparison transport", () => {
         const member = type?.api.find(candidate => candidate.name === "Value");
         const body = member?.bodySelectors.find(candidate =>
           candidate.token === member.metadataToken);
-        if (!type || !body) {
+        if (!type || !member || !body) {
           throw new Error("The fixture does not expose Counter.Value.");
         }
+        const endpoint = {
+          typeIdentity: type.definitionId,
+          stableSelector: member.stableSelector,
+          canonicalSignature: member.canonicalSignature,
+          fingerprint: member.anchorDigest,
+          typeFullName: member.anchorTypeFullName,
+          memberName: member.name,
+        };
         return {
           packageId: surface.package,
           beforeVersion: surface.version,
           afterVersion: "2.0.0",
           framework: surface.activeFramework,
           assembly: type.assemblyId,
-          typeIdentity: type.definitionId,
-          memberName: body.memberName,
-          selectorKey: body.selectorKey,
-          metadataToken: body.token,
+          before: endpoint,
+          after: endpoint,
         };
       });
       const canceledId = "source-comparison-worker-canceled";

@@ -9,6 +9,7 @@ using DotnetInspector.Sections;
 using DotnetInspector.SourceHouse;
 using ILInspector.Analysis;
 using ILInspector.Metadata;
+using ILInspector.MetadataPrimitives;
 using DotnetInspect.Web.Interop.Source;
 using InspectWeb.MethodBodyFixtures;
 using NuGetFetch;
@@ -62,11 +63,12 @@ public sealed class BrowserSourceComparisonOperationTests(ITestOutputHelper outp
         string propertyName, string expected)
     {
         await using Pair pair = await Pair.OpenAsync();
-        BrowserSourceComparisonRequest request = await pair.Request("FieldGetter", propertyName);
+        MemberSelection selection =
+            await pair.Selection("FieldGetter", propertyName);
         string json = await SourceExports.QueryMemberSource(
-            request.PackageId, request.BeforeVersion, request.Framework, request.Assembly,
-            request.TypeIdentity, request.MemberName, request.SelectorKey,
-            request.MetadataToken, "[]");
+            selection.PackageId, BeforeVersion, selection.Framework, selection.Assembly,
+            selection.TypeIdentity, selection.MemberName, selection.SelectorKey,
+            selection.MetadataToken, "[]");
         using var document = JsonDocument.Parse(json);
         var source = document.RootElement.GetProperty("source");
         Assert.Equal("decompiled", source.GetProperty("provider").GetString());
@@ -79,11 +81,12 @@ public sealed class BrowserSourceComparisonOperationTests(ITestOutputHelper outp
     public async Task MemberSourceExport_PreservesProvenInitializerContext(string typeName, bool initialized)
     {
         await using Pair pair = await Pair.OpenAsync();
-        BrowserSourceComparisonRequest request = await pair.Request(typeName, "Count");
+        MemberSelection selection =
+            await pair.Selection(typeName, "Count");
         string json = await SourceExports.QueryMemberSource(
-            request.PackageId, request.BeforeVersion, request.Framework, request.Assembly,
-            request.TypeIdentity, request.MemberName, request.SelectorKey,
-            request.MetadataToken, "[]");
+            selection.PackageId, BeforeVersion, selection.Framework, selection.Assembly,
+            selection.TypeIdentity, selection.MemberName, selection.SelectorKey,
+            selection.MetadataToken, "[]");
         using var document = JsonDocument.Parse(json);
         var source = document.RootElement.GetProperty("source");
         Assert.Equal("decompiled", source.GetProperty("provider").GetString());
@@ -114,12 +117,14 @@ public sealed class BrowserSourceComparisonOperationTests(ITestOutputHelper outp
         using var host = new SourcePairHost(
             scenario == "missing" ? null : FixtureSource(FixtureCatalog.InspectWebSourceComparisonPair.Old),
             FixtureSource(FixtureCatalog.InspectWebSourceComparisonPair.New));
-        BrowserSourceComparisonRequest request = await pair.Request("Counter", "Value");
+        MemberSelection selection =
+            await pair.Selection("Counter", "Value");
         await using BrowserMemberResolution.ScopedResolution resolved =
             await BrowserMemberResolution.ImplementationMemberAsync(
-                request.PackageId, request.BeforeVersion, request.Framework,
-                request.Assembly, request.TypeIdentity, request.MemberName,
-                request.SelectorKey, request.MetadataToken, TestContext.Current.CancellationToken);
+                selection.PackageId, BeforeVersion, selection.Framework,
+                selection.Assembly, selection.TypeIdentity, selection.MemberName,
+                selection.SelectorKey, selection.MetadataToken,
+                TestContext.Current.CancellationToken);
         var context = new AssemblyContextSourceQueryContext(
             host.Context.SymbolClient, host.Context.PdbStore,
             host.Context.PackageSourceAuthorization, host.Context.SourceFetch)
@@ -195,12 +200,14 @@ public sealed class BrowserSourceComparisonOperationTests(ITestOutputHelper outp
         using var host = new SourcePairHost(
             scenario == "missing" ? null : FixtureSource(FixtureCatalog.InspectWebSourceComparisonPair.Old),
             FixtureSource(FixtureCatalog.InspectWebSourceComparisonPair.New));
-        BrowserSourceComparisonRequest request = await pair.Request("Counter", "Value");
+        MemberSelection selection =
+            await pair.Selection("Counter", "Value");
         await using BrowserMemberResolution.ScopedResolution resolved =
             await BrowserMemberResolution.ImplementationMemberAsync(
-                request.PackageId, request.BeforeVersion, request.Framework,
-                request.Assembly, request.TypeIdentity, request.MemberName,
-                request.SelectorKey, request.MetadataToken, TestContext.Current.CancellationToken);
+                selection.PackageId, BeforeVersion, selection.Framework,
+                selection.Assembly, selection.TypeIdentity, selection.MemberName,
+                selection.SelectorKey, selection.MetadataToken,
+                TestContext.Current.CancellationToken);
         var context = new AssemblyContextSourceQueryContext(
             host.Context.SymbolClient, host.Context.PdbStore,
             host.Context.PackageSourceAuthorization, host.Context.SourceFetch)
@@ -274,7 +281,6 @@ public sealed class BrowserSourceComparisonOperationTests(ITestOutputHelper outp
         Assert.NotNull(value.After.ModuleVersionId);
         Assert.NotNull(value.Before.MetadataToken);
         Assert.NotNull(value.After.MetadataToken);
-        Assert.Equal(request.MetadataToken, value.Before.MetadataToken);
         Assert.Equal(sameToken, value.Before.MetadataToken == value.After.MetadataToken);
 
         // Refused Source acquisition is visible non-success, never an empty successful diff.
@@ -285,6 +291,63 @@ public sealed class BrowserSourceComparisonOperationTests(ITestOutputHelper outp
         output.WriteLine($"After: {value.After.State}: {value.After.Detail}");
         AssertUnresolvedSource(value.Before);
         AssertUnresolvedSource(value.After);
+        await pair.AssertScopesReleased();
+    }
+
+    [Fact]
+    public async Task ExportPreservesDistinctEndpointSelectors()
+    {
+        await using Pair pair = await Pair.OpenAsync();
+        BrowserSourceComparisonRequest value =
+            await pair.Request("Counter", "Value");
+        BrowserSourceComparisonRequest unchanged =
+            await pair.Request("Counter", "Unchanged");
+        BrowserSourceComparisonRequest request =
+            value with { After = unchanged.After };
+
+        BrowserSourceComparison result = Assert.IsType<BrowserSourceComparison>(
+            (await Compare(request)).Value);
+
+        Assert.Contains("::Value", result.Before.MemberIdentity);
+        Assert.Contains("::Unchanged", result.After.MemberIdentity);
+        Assert.NotEqual(
+            result.Before.MemberIdentity,
+            result.After.MemberIdentity);
+        Assert.NotNull(result.Before.MetadataToken);
+        Assert.NotNull(result.After.MetadataToken);
+        await pair.AssertScopesReleased();
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task ExportRetainsOneRequestedEndpointWithoutClaimingAbsence(
+        bool requestBefore)
+    {
+        await using Pair pair = await Pair.OpenAsync();
+        BrowserSourceComparisonRequest both =
+            await pair.Request("Counter", "Value");
+        BrowserSourceComparisonRequest request = both with
+        {
+            Before = requestBefore ? both.Before : null,
+            After = requestBefore ? null : both.After,
+        };
+
+        BrowserSourceComparison result = Assert.IsType<BrowserSourceComparison>(
+            (await Compare(request)).Value);
+
+        Assert.Equal("Unavailable", result.Status);
+        Assert.Null(result.Diff);
+        BrowserSourceComparisonEndpoint requested =
+            requestBefore ? result.Before : result.After;
+        BrowserSourceComparisonEndpoint unrequested =
+            requestBefore ? result.After : result.Before;
+        Assert.NotEqual("Unrequested", requested.State);
+        Assert.NotNull(requested.MemberIdentity);
+        Assert.Equal("Unrequested", unrequested.State);
+        Assert.Null(unrequested.MemberIdentity);
+        Assert.Null(unrequested.MetadataToken);
+        Assert.Null(unrequested.Detail);
         await pair.AssertScopesReleased();
     }
 
@@ -310,7 +373,7 @@ public sealed class BrowserSourceComparisonOperationTests(ITestOutputHelper outp
         // The launching endpoint keeps its own resolved identity: a member that is absent in the
         // other version is not a comparison failure and does not retract Before.
         Assert.NotNull(value.Before.MemberIdentity);
-        Assert.Equal(value.Request.MetadataToken, value.Before.MetadataToken);
+        Assert.NotNull(value.Before.MetadataToken);
         await pair.AssertScopesReleased();
     }
 
@@ -547,8 +610,11 @@ public sealed class BrowserSourceComparisonOperationTests(ITestOutputHelper outp
             relations,
             new(0, 0, 0, 0, 0, 0),
             changes);
+        var endpointRequest = new BrowserSourceComparisonEndpointRequest(
+            "T", "M()", "void T.M()", "0123456789", "T", "M");
         var request = new BrowserSourceComparisonRequest(
-            "P", "1.0.0", "2.0.0", "net11.0", "A", "T", "M", "M()", 0x06000001);
+            "P", "1.0.0", "2.0.0", "net11.0", "A",
+            endpointRequest, endpointRequest);
         static BrowserSourceComparisonEndpoint Endpoint(string version) =>
             new("P", version, "net11.0", "A", "A.dll", null, "A", "T::M()",
                 0x06000001, "Available", null, null, null, null, null);
@@ -575,20 +641,18 @@ public sealed class BrowserSourceComparisonOperationTests(ITestOutputHelper outp
     }
 
     [Theory]
-    [InlineData("", BeforeVersion, AfterVersion, 0x06000001, "PackageId")]
-    [InlineData("Source.Comparison.Unused", "not a version", AfterVersion, 0x06000001,
+    [InlineData("", BeforeVersion, AfterVersion, "Value()", "PackageId")]
+    [InlineData("Source.Comparison.Unused", "not a version", AfterVersion, "Value()",
         "two exact package versions")]
-    [InlineData("Source.Comparison.Unused", BeforeVersion, "", 0x06000001,
+    [InlineData("Source.Comparison.Unused", BeforeVersion, "", "Value()",
         "two exact package versions")]
-    [InlineData("Source.Comparison.Unused", BeforeVersion, AfterVersion, 0x04000001,
-        "selected MethodDef")]
-    [InlineData("Source.Comparison.Unused", BeforeVersion, AfterVersion, 0x06000000,
-        "selected MethodDef")]
+    [InlineData("Source.Comparison.Unused", BeforeVersion, AfterVersion, "",
+        "StableSelector")]
     public async Task InvalidPairOrSelectionIsRejectedBeforeAnyAcquisition(
         string packageId,
         string beforeVersion,
         string afterVersion,
-        int metadataToken,
+        string stableSelector,
         string message)
     {
         var request = new BrowserSourceComparisonRequest(
@@ -597,10 +661,20 @@ public sealed class BrowserSourceComparisonOperationTests(ITestOutputHelper outp
             afterVersion,
             Framework,
             AssemblyName,
-            "SourceDiffFixture.Counter",
-            "Value",
-            "Value()",
-            metadataToken);
+            new(
+                "SourceDiffFixture.Counter",
+                stableSelector,
+                "int SourceDiffFixture.Counter.Value()",
+                "0123456789",
+                "SourceDiffFixture.Counter",
+                "Value"),
+            new(
+                "SourceDiffFixture.Counter",
+                stableSelector,
+                "int SourceDiffFixture.Counter.Value()",
+                "0123456789",
+                "SourceDiffFixture.Counter",
+                "Value"));
 
         BrowserSourceComparisonResult result = await Compare(request);
 
@@ -611,7 +685,27 @@ public sealed class BrowserSourceComparisonOperationTests(ITestOutputHelper outp
     }
 
     [Fact]
-    public async Task AccessorSelectionDoesNotSilentlyBecomeItsEnclosingDeclaration()
+    public async Task PairWithoutARequestedEndpointIsRejectedBeforeAcquisition()
+    {
+        var request = new BrowserSourceComparisonRequest(
+            "Source.Comparison.Unused",
+            BeforeVersion,
+            AfterVersion,
+            Framework,
+            AssemblyName,
+            null,
+            null);
+
+        BrowserSourceComparisonResult result = await Compare(request);
+
+        Assert.Equal(BrowserSourceComparisonResultKind.Failed, result.Kind);
+        Assert.Equal(BrowserTypeSourceFailureKind.Expected, result.FailureKind);
+        Assert.Null(result.Value);
+        Assert.Contains("at least one endpoint member", result.Error);
+    }
+
+    [Fact]
+    public async Task NonMethodAnchorDoesNotSilentlyBecomeAnAccessorDeclaration()
     {
         string packageId = "Source.Comparison.Accessor." + Guid.NewGuid().ToString("N");
         await RegisterAsync(FixtureCatalog.InspectWebMethodBodies, BeforeVersion, packageId);
@@ -624,9 +718,14 @@ public sealed class BrowserSourceComparisonOperationTests(ITestOutputHelper outp
         ApiMember property = Assert.Single(
             type.Members,
             member => member.Name == nameof(Left.Value));
-        CallGraphMemberBodySelector getter = Assert.Single(
-            CallGraphMemberResolver.CreateBodySelectors(type, property),
-            selector => selector.MemberName == "get_Value");
+        MemberAnchor anchor = ApiMemberIdentity.GetMemberAnchor(type, property);
+        var endpoint = new BrowserSourceComparisonEndpointRequest(
+            type.DefinitionName!.ToEscapedFullName(),
+            anchor.StableSelector,
+            anchor.CanonicalSignature,
+            anchor.Fingerprint,
+            anchor.TypeFullName,
+            anchor.MemberName);
 
         BrowserSourceComparisonResult result = await Compare(new(
             packageId,
@@ -634,15 +733,16 @@ public sealed class BrowserSourceComparisonOperationTests(ITestOutputHelper outp
             BeforeVersion,
             Framework,
             "InspectWeb.MethodBodyFixtures.dll",
-            type.DefinitionName!.ToEscapedFullName(),
-            getter.MemberName,
-            getter.SelectorKey,
-            getter.BodyToken));
+            endpoint,
+            endpoint));
 
-        Assert.Equal(BrowserSourceComparisonResultKind.Failed, result.Kind);
-        Assert.Equal(BrowserTypeSourceFailureKind.Expected, result.FailureKind);
-        Assert.Contains("whole method declaration", result.Error);
-        Assert.Null(result.Value);
+        Assert.Equal(BrowserSourceComparisonResultKind.Succeeded, result.Kind);
+        BrowserSourceComparison value =
+            Assert.IsType<BrowserSourceComparison>(result.Value);
+        Assert.Equal("Unavailable", value.Status);
+        Assert.Equal("NotFound", value.Before.State);
+        Assert.Equal("NotFound", value.After.State);
+        Assert.Null(value.Diff);
         await BrowserPackageWorkspace.RemoveScopeAsync(lease.Scope);
     }
 
@@ -980,6 +1080,30 @@ public sealed class BrowserSourceComparisonOperationTests(ITestOutputHelper outp
         File.ReadAllBytes(Assert.Single(
             fixture.SourcePaths(), path => Path.GetFileName(path) == "Counter.cs"));
 
+    static AssemblyMemberSourcePairEndpointRequest ProductEndpoint(
+        BrowserSourceComparisonEndpointRequest request) =>
+        new(
+            MetadataTypeDefinitionName.ParseSerialized(request.TypeIdentity)
+                is MetadataTypeDefinitionNameResult.Valid valid
+                    ? valid.Name
+                    : throw new InvalidOperationException(
+                        "The test endpoint Type identity is invalid."),
+            new(
+                request.StableSelector,
+                request.CanonicalSignature,
+                request.Fingerprint,
+                request.TypeFullName,
+                request.MemberName));
+
+    sealed record MemberSelection(
+        string PackageId,
+        string Framework,
+        string Assembly,
+        string TypeIdentity,
+        string MemberName,
+        string SelectorKey,
+        int MetadataToken);
+
     sealed class Pair(string packageId) : IAsyncDisposable
     {
         internal string PackageId => packageId;
@@ -1006,12 +1130,40 @@ public sealed class BrowserSourceComparisonOperationTests(ITestOutputHelper outp
                 candidate => candidate.FullName == $"SourceDiffFixture.{typeName}");
             ApiMember member = Assert.Single(
                 type.Members, candidate => candidate.Name == memberName);
-            CallGraphMemberBodySelector body = Assert.Single(
-                CallGraphMemberResolver.CreateBodySelectors(type, member));
+            MemberAnchor anchor = ApiMemberIdentity.GetMemberAnchor(type, member);
+            var endpoint = new BrowserSourceComparisonEndpointRequest(
+                type.DefinitionName!.ToEscapedFullName(),
+                anchor.StableSelector,
+                anchor.CanonicalSignature,
+                anchor.Fingerprint,
+                anchor.TypeFullName,
+                anchor.MemberName);
             return new(
                 packageId,
                 BeforeVersion,
                 afterVersion,
+                Framework,
+                AssemblyName,
+                endpoint,
+                endpoint);
+        }
+
+        internal async Task<MemberSelection> Selection(
+            string typeName,
+            string memberName)
+        {
+            await using BrowserScopeLease<BrowserInspectionScope> lease =
+                await BrowserPackageWorkspace.OpenScopeAsync(
+                    packageId, BeforeVersion, Framework);
+            ApiType type = Assert.Single(
+                Surface(lease.Scope).Types,
+                candidate => candidate.FullName == $"SourceDiffFixture.{typeName}");
+            ApiMember member = Assert.Single(
+                type.Members, candidate => candidate.Name == memberName);
+            CallGraphMemberBodySelector body = Assert.Single(
+                CallGraphMemberResolver.CreateBodySelectors(type, member));
+            return new(
+                packageId,
                 Framework,
                 AssemblyName,
                 type.DefinitionName!.ToEscapedFullName(),
@@ -1034,31 +1186,43 @@ public sealed class BrowserSourceComparisonOperationTests(ITestOutputHelper outp
                 admitEndpoints = null)
         {
             BrowserSourceComparisonRequest request = await Request(typeName, memberName);
-            await using BrowserMemberResolution.ScopedResolution before =
-                await BrowserMemberResolution.ImplementationMemberAsync(
-                    request.PackageId, request.BeforeVersion, request.Framework,
-                    request.Assembly, request.TypeIdentity, request.MemberName,
-                    request.SelectorKey, request.MetadataToken,
+            AssemblyMemberSourcePairEndpointRequest selectedBefore =
+                ProductEndpoint(request.Before!);
+            AssemblyMemberSourcePairEndpointRequest selectedAfter =
+                ProductEndpoint(request.After!);
+            await using BrowserScopeLease<BrowserInspectionScope> beforeLease =
+                await BrowserPackageWorkspace.OpenScopeAsync(
+                    request.PackageId,
+                    request.BeforeVersion,
+                    request.Framework,
                     TestContext.Current.CancellationToken);
-            AssemblyMemberSourceRequest selected = AssemblyMemberSourceRequest.From(
-                before.Member.Type, before.Member.Member);
             await using BrowserScopeLease<BrowserInspectionScope> afterLease =
                 await BrowserPackageWorkspace.OpenScopeAsync(
                     request.PackageId, request.AfterVersion, request.Framework,
                     TestContext.Current.CancellationToken);
             BrowserInspectionScope afterScope = afterLease.Scope;
+            BrowserInspectionScope beforeScope = beforeLease.Scope;
+            BrowserPackageCoordinate beforeCoordinate =
+                beforeScope.Coordinates[0];
+            BrowserWorkspaceParticipant before =
+                beforeScope.ImplementationParticipant(
+                    beforeScope.SurfaceParticipant(
+                        beforeCoordinate,
+                        beforeCoordinate.CompileAsset(request.Assembly)));
             BrowserPackageCoordinate afterCoordinate = afterScope.Coordinates[0];
             BrowserWorkspaceParticipant after = afterScope.ImplementationParticipant(
                 afterScope.SurfaceParticipant(
                     afterCoordinate, afterCoordinate.CompileAsset(request.Assembly)));
-            InspectionEnvelope<AssemblyMemberSourcePairResult> inspection = await before.Scope.UseImplementationParticipant(
-                before.ImplementationParticipant,
+            InspectionEnvelope<AssemblyMemberSourcePairResult> inspection =
+                await beforeScope.UseImplementationParticipant(
+                before,
                 (beforeGroup, beforeParticipant) => afterScope.UseImplementationParticipant(
                     after,
                     (afterGroup, afterParticipant) =>
                         MemberSourcePairInspection.ExecuteAsync(
                             beforeGroup, beforeParticipant, afterGroup, afterParticipant,
-                            new(selected.Type, selected.Member), sourceContext ?? host.Context,
+                            new(selectedBefore, selectedAfter),
+                            sourceContext ?? host.Context,
                             TestContext.Current.CancellationToken,
                             admitEndpoints)));
             AssemblyMemberSourcePairResult pair = inspection.Content;
@@ -1074,7 +1238,7 @@ public sealed class BrowserSourceComparisonOperationTests(ITestOutputHelper outp
                 }
             }
             return BrowserSourceComparisonProjection.Project(
-                request, pair, before.ImplementationParticipant, after);
+                request, pair, before, after);
         }
 
         internal async Task AssertScopesReleased(params string[] versions)
