@@ -1804,6 +1804,9 @@ test.describe("artifact-backed package scope adoption over real Wasm", () => {
     if (outcome.kind !== "available") {
       throw new Error(`Expected available documentation, received ${outcome.kind}.`);
     }
+    if (!outcome.source || !outcome.documentation) {
+      throw new Error("Available documentation omitted its payload.");
+    }
     expect(outcome.source.kind).toBe("Platform");
     expect(outcome.documentation.summary)
       .toBe("Reads documentation from a non-public type.");

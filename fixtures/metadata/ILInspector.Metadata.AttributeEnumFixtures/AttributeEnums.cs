@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using System.Text.Json.Serialization;
 
 namespace AttributeEnumFixtures;
@@ -24,6 +25,8 @@ public static class ProducerTruth
 
 public sealed record JsonOptionsPayload(string? Name);
 
+public sealed record UnresolvedCollectionPayload(List<string>? Items);
+
 [JsonSerializable(typeof(JsonOptionsPayload))]
 public partial class AbsentJsonOptionsContext : JsonSerializerContext;
 
@@ -40,3 +43,9 @@ public partial class ExplicitNeverJsonOptionsContext : JsonSerializerContext;
     DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull)]
 [JsonSerializable(typeof(JsonOptionsPayload))]
 public partial class WhenWritingNullJsonOptionsContext : JsonSerializerContext;
+
+[JsonSourceGenerationOptions(
+    DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull)]
+[JsonSerializable(typeof(UnresolvedCollectionPayload))]
+public partial class UnresolvedCollectionJsonOptionsContext
+    : JsonSerializerContext;

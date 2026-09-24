@@ -70,6 +70,18 @@ while serializing for every supported member type; both are present while
 deserializing. Invalid or unauthenticated condition/type combinations, and
 malformed, duplicated, or unknown authentic conditions, are unsupported rather
 than absence. Consumers decide how to represent conditional keys.
+Serializer-context defaults use retained Metadata evidence rather than the
+compatibility effective-value projection. Authentic absence and one supported
+`Never` row both produce the framework default, while `WhenWritingNull`
+composes with members that have no explicit condition. Unsupported context
+evidence cannot be masked by member overrides, and one record reached through
+conflicting effective defaults is unsupported. The surfaced effective default
+is keyed to the discovered type because it belongs to the context-to-record
+composition, not to the record's Metadata declaration. Exact retained
+definitions from referenced assemblies may establish whether a named type is a
+reference or value type; unresolved framework or generic definitions remain
+unsupported. Consumers must reject unsupported effective presence rather than
+emit it as an unconditional member.
 
 This library intentionally stays free of any target-language opinion (naming
 policy, `Promise` unwrapping, `.d.ts` syntax); that "personality" belongs to a
