@@ -1,15 +1,33 @@
 import type { BrowserLibraryMetrics } from "../src/facades/inspect-web-analysis.d.ts";
-import { renderLibraryMetricsSurface } from "../src/library-metrics.ts";
+import {
+  bindLibraryMetricsInteractions,
+  renderLibraryMetricsSurface,
+} from "../src/library-metrics.ts";
 
-const typeNames = ["A", "B", "C", "D", "E"];
-const entangledRelationships = typeNames.flatMap(source =>
-  typeNames
-    .filter(target => target !== source)
+const types = [
+  { key: "Example.A", display: "Example.A" },
+  { key: "Example.B", display: "Example.B" },
+  {
+    key: "Example.C",
+    display: "Example.LongRunningRequestCoordinator",
+  },
+  {
+    key: "Example.D",
+    display: "Example.DistributedOperationDispatcher",
+  },
+  {
+    key: "Example.E",
+    display: "Example.PersistentWorkspaceRelationshipIndex",
+  },
+];
+const entangledRelationships = types.flatMap(source =>
+  types
+    .filter(target => target.key !== source.key)
     .map(target => ({
-      sourceTypeKey: `Example.${source}`,
-      sourceTypeDisplay: `Example.${source}`,
-      targetTypeKey: `Example.${target}`,
-      targetTypeDisplay: `Example.${target}`,
+      sourceTypeKey: source.key,
+      sourceTypeDisplay: source.display,
+      targetTypeKey: target.key,
+      targetTypeDisplay: target.display,
       callSiteCount: 1,
       sourceDegree: 4,
       targetDegree: 4,
@@ -27,18 +45,18 @@ const data: BrowserLibraryMetrics = {
   },
   distributions: [],
   asyncStateMachinePresence: null,
-  typeSummaries: [{
-    typeKey: "Example.A",
-    typeDisplay: "Example.A",
+  typeSummaries: types.slice(0, 2).map((type, index) => ({
+    typeKey: type.key,
+    typeDisplay: type.display,
     namespace: "Example",
-    name: "A",
-    bodyCount: 1,
-    instructionCount: 1,
-    complexityTotal: 1,
-    loopCount: 0,
+    name: type.display.slice("Example.".length),
+    bodyCount: index + 1,
+    instructionCount: (index + 1) * 12,
+    complexityTotal: (index + 1) * 3,
+    loopCount: index,
     directCallCount: 4,
-    allocationCount: 0,
-  }],
+    allocationCount: index,
+  })),
   entangledRelationships,
   diagnostics: [],
   failure: null,
@@ -67,4 +85,13 @@ app.innerHTML = renderLibraryMetricsSurface({
   escapeHtml: value => String(value).replaceAll("&", "&amp;")
     .replaceAll("<", "&lt;").replaceAll(">", "&gt;")
     .replaceAll('"', "&quot;").replaceAll("'", "&#39;"),
+});
+
+const activation = document.createElement("output");
+activation.id = "metrics-activated-type";
+app.append(activation);
+bindLibraryMetricsInteractions(app, {
+  activateType: typeKey => {
+    activation.value = typeKey;
+  },
 });
