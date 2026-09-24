@@ -20,7 +20,7 @@
     <PackageDownload Include="System.Text.Json" Version="[10.0.0];[11.0.0-preview.7.26381.103]" />
     <PackageDownload Include="Microsoft.NETCore.App.Ref" Version="[10.0.10];[11.0.0-preview.7.26381.103]" />
     <PackageDownload Include="Microsoft.AspNetCore.App.Runtime.linux-x64" Version="[10.0.10]" />
-    <PackageDownload Include="Microsoft.NETCore.App.Runtime.linux-x64" Version="[10.0.10]" />
+    <PackageDownload Include="Microsoft.NETCore.App.Runtime.linux-x64" Version="[10.0.10];[11.0.0-rc.1.26425.128]" />
   </ItemGroup>
 
   <ItemGroup>
@@ -44,6 +44,9 @@
       CopyToOutputDirectory="PreserveNewest" />
     <None Include="$(NuGetPackageRoot)microsoft.netcore.app.runtime.linux-x64\10.0.10\microsoft.netcore.app.runtime.linux-x64.10.0.10.nupkg"
       Link="RealAssets\FrameworkActivation\microsoft.netcore.app.runtime.linux-x64.10.0.10.nupkg"
+      CopyToOutputDirectory="PreserveNewest" />
+    <None Include="$(NuGetPackageRoot)microsoft.netcore.app.runtime.linux-x64\11.0.0-rc.1.26425.128\runtimes\linux-x64\lib\net11.0\System.Xml.dll;$(NuGetPackageRoot)microsoft.netcore.app.runtime.linux-x64\11.0.0-rc.1.26425.128\runtimes\linux-x64\lib\net11.0\System.Xml.ReaderWriter.dll;$(NuGetPackageRoot)microsoft.netcore.app.runtime.linux-x64\11.0.0-rc.1.26425.128\runtimes\linux-x64\lib\net11.0\System.Private.Xml.dll;$(NuGetPackageRoot)microsoft.netcore.app.runtime.linux-x64\11.0.0-rc.1.26425.128\runtimes\linux-x64\lib\net11.0\System.Private.CoreLib.dll"
+      Link="RealAssets\PlatformForwarderActivation\%(Filename)%(Extension)"
       CopyToOutputDirectory="PreserveNewest" />
     <None Include="$(NuGetPackageRoot)system.text.json\10.0.0\system.text.json.10.0.0.nupkg"
       Link="RealAssets\FrameworkActivation\system.text.json.10.0.0.nupkg"
