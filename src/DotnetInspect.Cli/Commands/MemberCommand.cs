@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using System.Diagnostics.CodeAnalysis;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 using DotnetInspect.Cli.CommandLine;
@@ -754,6 +755,34 @@ public static class MemberCommand
             {
                 effectiveOptions =
                     effectiveOptions with { DllPath = profileDllPath };
+            }
+
+            if (TryCreateImplementationProfileFamilySelection(
+                    apiType,
+                    effectiveOptions,
+                    out ImplementationProfileFamilySelection? familySelection))
+            {
+                effectiveOptions =
+                    await AttachImplementationProfileFamilyInspectionAsync(
+                        apiType,
+                        effectiveOptions,
+                        loaded,
+                        familySelection);
+                InspectionEnvelope<
+                    AssemblyContextEntry<
+                        AssemblyImplementationProfileFamilyInspection>>
+                    inspection =
+                        effectiveOptions
+                            .ImplementationProfileFamilyInspection!;
+                ApiCommand.WriteSourceInspectionDiagnostics(
+                    inspection.Diagnostics);
+                if (inspection.Content
+                    is not AssemblyContextEntry<
+                        AssemblyImplementationProfileFamilyInspection>
+                        .Available)
+                {
+                    return 1;
+                }
             }
 
             // Enrich with local XML docs only (source info is in the source command)
@@ -1784,6 +1813,116 @@ public static class MemberCommand
                 ApiMemberIdentity.GetMemberSignatureSortKey,
                 StringComparer.Ordinal)
             .ToList();
+    }
+
+    internal static bool TryCreateImplementationProfileFamilySelection(
+        ApiType apiType,
+        MemberOptions options,
+        [NotNullWhen(true)]
+        out ImplementationProfileFamilySelection? selection)
+    {
+        selection = null;
+        if (options.IncludeAll
+            || options.OverloadIndex.HasValue
+            || !string.IsNullOrWhiteSpace(options.MemberDigest)
+            || options.MemberGenericArity.HasValue
+            || options.KindFilter.Count > 0
+            || options.SelectedBodyMethodToken.HasValue
+            || options.MemberFilter.Count != 1
+            || options.IncludeSections?
+                .Contains(SectionNames.MemberMetrics) != true)
+        {
+            return false;
+        }
+
+        string memberName = options.MemberFilter.First();
+        if (MemberFilterHasWildcard(memberName)
+            || apiType.DefinitionName is null)
+        {
+            return false;
+        }
+
+        List<ApiMember> candidates =
+            GetCandidateMembers(apiType, options, memberName);
+        if (candidates.Count < 2
+            || candidates.Any(member =>
+                member.Kind is not ("method" or "extension-method")))
+        {
+            return false;
+        }
+
+        string[] selectors =
+        [
+            .. candidates
+                .Select(member =>
+                    ApiMemberIdentity
+                        .GetMemberAnchor(apiType, member)
+                        .StableSelector)
+                .Distinct(StringComparer.Ordinal),
+        ];
+        if (selectors.Length != candidates.Count)
+            return false;
+
+        selection = new ImplementationProfileFamilySelection(
+            AssemblyContextApiSurfaceQuery.MetadataTypeIdentity(apiType),
+            selectors);
+        return true;
+    }
+
+    private static async Task<MemberOptions>
+        AttachImplementationProfileFamilyInspectionAsync(
+        ApiType apiType,
+        MemberOptions options,
+        ApiServices.LoadedApiSurface loaded,
+        ImplementationProfileFamilySelection selection)
+    {
+        ResolvedAssemblyReference definingAssembly =
+            loaded.TryGetSourceAssembly(apiType)
+            ?? ResolvedAssemblyReference.CreateFromPath(
+                apiType.SourceAssemblyPath
+                    ?? loaded.ApiDllPath,
+                AssemblyResolutionProvenance.Local(
+                    "member implementation profiles"));
+        SelectedTypeBindingContext? bindingContext =
+            loaded.TryGetBindingContext(apiType)
+            ?? loaded.RootBindingContext;
+        IAssemblyBindingPolicy bindingPolicy =
+            bindingContext?.Policy
+            ?? (definingAssembly.Path is { } definingAssemblyPath
+                ? new AssemblyDependencyResolver(
+                    new AssemblyDependencyResolutionOptions(
+                        definingAssemblyPath)
+                    {
+                        ProjectAssetsPath =
+                            options.ProjectAssetsPath,
+                        TargetFramework = options.Tfm,
+                        IncludeDepsJsonAssets = false,
+                        IncludeAspNetCoreSharedFramework = false,
+                        PreferImplementationAssemblies = true,
+                        AllowPlatformAssemblyVersionRollForward = true,
+                    })
+                : throw new InvalidOperationException(
+                    "A pathless selected API participant requires its "
+                        + "authoritative binding policy."));
+        var participant =
+            new AssemblyContextParticipant(
+                definingAssembly,
+                bindingPolicy);
+        await using var workspace = new InspectionWorkspace();
+        using AssemblyContextGroup group =
+            workspace.CreateAssemblyContextGroup([participant]);
+        InspectionEnvelope<
+            AssemblyContextEntry<
+                AssemblyImplementationProfileFamilyInspection>>
+            inspection =
+                ImplementationProfileFamilyInspectionOperation.Execute(
+                    group,
+                    participant,
+                    selection);
+        return options with
+        {
+            ImplementationProfileFamilyInspection = inspection,
+        };
     }
 
     private static bool RejectExactMemberCardinality(
