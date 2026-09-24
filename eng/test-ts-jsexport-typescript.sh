@@ -216,6 +216,57 @@ export const invalidConditionalNullableJson: ConditionalOutputDto = {
 };
 TS
 
+cat > "$scratch/directional-usage.ts" <<'TS'
+import {
+  getDirectionalChoice,
+  roundTripDirectional,
+  roundTripDirectionalEnvelope,
+  roundTripDirectionalOuter,
+} from "./facade.js";
+import type {
+  DirectionalBox,
+  DirectionalChoice,
+  DirectionalEnvelopeDtoInput,
+  DirectionalEnvelopeDtoOutput,
+  DirectionalOuterDtoInput,
+  DirectionalOuterDtoOutput,
+  DirectionalRoundTripDtoInput,
+  DirectionalRoundTripDtoOutput,
+} from "./facade.js";
+
+export function useDirectionalRoundTrip(): DirectionalRoundTripDtoOutput {
+  const input: DirectionalRoundTripDtoInput = { name: "client" };
+  return roundTripDirectional(input);
+}
+
+export function useDirectionalEnvelope(
+  input: DirectionalEnvelopeDtoInput,
+): DirectionalEnvelopeDtoOutput {
+  const boxed: DirectionalBox<DirectionalRoundTripDtoInput> = input.box;
+  const recursive: DirectionalEnvelopeDtoInput | null = input.next;
+  void boxed;
+  void recursive;
+  return roundTripDirectionalEnvelope(input);
+}
+
+export function useDirectionalChoice(): DirectionalChoice {
+  return getDirectionalChoice();
+}
+
+export function useDirectionalOuter(
+  input: DirectionalOuterDtoInput,
+): DirectionalOuterDtoOutput {
+  return roundTripDirectionalOuter(input);
+}
+
+// The reader ignores this output-only member, so it is not accepted as input.
+export const invalidInput: DirectionalRoundTripDtoInput = {
+  name: "client",
+  // @ts-expect-error
+  serverNote: "not consumed",
+};
+TS
+
 cat > "$scratch/union-usage.ts" <<'TS'
 import {
   getBoxedCount,
@@ -494,6 +545,7 @@ cat > "$scratch/tsconfig.json" <<'JSON'
     "polymorphic-facade.ts",
     "callback-usage.ts",
     "conditional-usage.ts",
+    "directional-usage.ts",
     "inert-usage.ts",
     "timestamp-usage.ts",
     "typed-input-usage.ts",

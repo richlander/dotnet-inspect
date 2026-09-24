@@ -169,6 +169,318 @@ public sealed class TypeScriptFacadeEmitterTests
     }
 
     [Fact]
+    public void Emit_PropagatesDirectionalDeclarationsThroughTypeShapes()
+    {
+        global::ILInspector.JsExportSurface.JsExportSurface surface =
+            BuildSurface(
+                typeof(global::ILInspector.JsExportSurface.TypeScriptFixtures
+                    .TypeScriptFixtureExports).Assembly.Location);
+        ApiType envelope = Assert.Single(
+            surface.Records,
+            type => type.Name == "DirectionalEnvelopeDto");
+        Assert.Equal(
+            JsonWireDirection.Both,
+            surface.WireDirections[envelope]);
+        DtsEmitter.WireDeclarationPlan plan =
+            DtsEmitter.CreateWireDeclarationPlan(surface);
+        Assert.Equal(
+            2,
+            plan.Declarations.Count(declaration =>
+                ReferenceEquals(declaration.Type, envelope)
+                && declaration.IsSplit));
+
+        string source = TypeScriptFacadeEmitter.Emit(
+            surface,
+            RuntimeModule);
+
+        Assert.Contains(
+            """
+            export interface DirectionalRoundTripDtoInput {
+              readonly name: string;
+            }
+            """,
+            source,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            """
+            export interface DirectionalRoundTripDtoOutput {
+              readonly name: string;
+              readonly serverNote: string;
+            }
+            """,
+            source,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            """
+            export interface DirectionalEnvelopeDtoInput {
+              readonly direct: DirectionalRoundTripDtoInput;
+              readonly items: ReadonlyArray<DirectionalRoundTripDtoInput>;
+              readonly lookup: Readonly<Record<string, DirectionalRoundTripDtoInput>>;
+              readonly box: DirectionalBox<DirectionalRoundTripDtoInput>;
+              readonly next: DirectionalEnvelopeDtoInput | null;
+            }
+            """,
+            source,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            """
+            export interface DirectionalEnvelopeDtoOutput {
+              readonly direct: DirectionalRoundTripDtoOutput;
+              readonly items: ReadonlyArray<DirectionalRoundTripDtoOutput>;
+              readonly lookup: Readonly<Record<string, DirectionalRoundTripDtoOutput>>;
+              readonly box: DirectionalBox<DirectionalRoundTripDtoOutput>;
+              readonly next: DirectionalEnvelopeDtoOutput | null;
+            }
+            """,
+            source,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            """
+            export interface DirectionalOuterDtoInput {
+              readonly envelope: DirectionalEnvelopeDtoInput;
+            }
+            """,
+            source,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            """
+            export interface DirectionalOuterDtoOutput {
+              readonly envelope: DirectionalEnvelopeDtoOutput;
+            }
+            """,
+            source,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "export type DirectionalChoice = "
+                + "DirectionalRoundTripDtoOutput | string | null;",
+            source,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "export function roundTripDirectional("
+                + "payloadJson: DirectionalRoundTripDtoInput): "
+                + "DirectionalRoundTripDtoOutput",
+            source,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "export function roundTripDirectionalEnvelope("
+                + "payloadJson: DirectionalEnvelopeDtoInput): "
+                + "DirectionalEnvelopeDtoOutput",
+            source,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "export function roundTripDirectionalOuter("
+                + "payloadJson: DirectionalOuterDtoInput): "
+                + "DirectionalOuterDtoOutput",
+            source,
+            StringComparison.Ordinal);
+        Assert.Equal(
+            1,
+            source.Split(
+                "export interface DirectionalBox<",
+                StringSplitOptions.None).Length - 1);
+        Assert.DoesNotContain(
+            "WidgetDtoInput",
+            source,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "WidgetDtoOutput",
+            source,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Emit_UsesOutputDeclarationInsideDeferredJsonText()
+    {
+        var dto = new ApiType
+        {
+            Namespace = "Fixture",
+            Name = "Directional",
+            Kind = "class",
+            Members =
+            [
+                new ApiMember
+                {
+                    Name = "ServerNote",
+                    Kind = "property",
+                    ReturnType = "string",
+                    HasGetter = true,
+                    IndexParameterCount = 0,
+                    JsonIgnoreConditions =
+                        [JsonWireIgnoreCondition.WhenReading],
+                },
+            ],
+        };
+        var output = new JsExportFunction
+        {
+            DeclaringType = "Fixture.Exports",
+            Name = "GetDirectional",
+            RuntimeDispatchKey = "GetDirectional.1",
+            ReturnType = "Task<string>",
+            ReturnWireType = "Fixture.Directional",
+            ReturnWireMode = JsExportJsonOutputMode.JsonText,
+        };
+        var input = new JsExportFunction
+        {
+            DeclaringType = "Fixture.Exports",
+            Name = "SetDirectional",
+            RuntimeDispatchKey = "SetDirectional.1",
+            ReturnType = "void",
+            Parameters =
+            [
+                new ApiParameter
+                {
+                    Name = "Payload",
+                    Type = "string",
+                },
+            ],
+            ParameterWireBindings =
+            [
+                new JsExportParameterWireBinding
+                {
+                    ParameterIndex = 0,
+                    WireType = "Fixture.Directional",
+                },
+            ],
+        };
+        var surface =
+            new global::ILInspector.JsExportSurface.JsExportSurface
+            {
+                AssemblyIdentity = AssemblyIdentity(),
+                Records = [dto],
+                Functions = [output, input],
+                WireDirections =
+                    new Dictionary<ApiType, JsonWireDirection>
+                    {
+                        [dto] = JsonWireDirection.Both,
+                    },
+            };
+
+        string source = TypeScriptFacadeEmitter.Emit(
+            surface,
+            RuntimeModule);
+
+        Assert.Contains(
+            "export async function getDirectional(): "
+                + "Promise<JsonText<DirectionalOutput>>",
+            source,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "export function setDirectional("
+                + "payload: DirectionalInput): void",
+            source,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Emit_PropagatesDirectionalSplitThroughUnionCases()
+    {
+        ApiAssemblyIdentity assembly = AssemblyIdentity();
+        MetadataTypeDefinitionName directionalName =
+            Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
+                MetadataTypeDefinitionName.Create(
+                    "Fixture",
+                    System.Collections.Immutable.ImmutableArray.Create(
+                        "Directional")))
+                .Name;
+        MetadataTypeDefinitionName choiceName =
+            Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
+                MetadataTypeDefinitionName.Create(
+                    "Fixture",
+                    System.Collections.Immutable.ImmutableArray.Create(
+                        "Choice")))
+                .Name;
+        var directional = new ApiType
+        {
+            Namespace = "Fixture",
+            Name = "Directional",
+            Kind = "class",
+            DefinitionName = directionalName,
+            Members =
+            [
+                new ApiMember
+                {
+                    Name = "ServerNote",
+                    Kind = "property",
+                    ReturnType = "string",
+                    HasGetter = true,
+                    IndexParameterCount = 0,
+                    JsonIgnoreConditions =
+                        [JsonWireIgnoreCondition.WhenReading],
+                },
+            ],
+        };
+        var choice = new ApiType
+        {
+            Namespace = "Fixture",
+            Name = "Choice",
+            Kind = "class",
+            DefinitionName = choiceName,
+        };
+        var assemblyReference = new AssemblyReferenceIdentity(
+            assembly.Name,
+            assembly.Version,
+            assembly.Culture,
+            assembly.PublicKeyToken);
+        TypeRef directionalReference = TypeRef.Definition(
+            assembly.Name,
+            "Fixture",
+            "Directional",
+            new ResolvableTypeReference(
+                new TypeReferenceOrigin.AssemblyReference(
+                    assemblyReference),
+                directionalName));
+        var directionalIdentity = new ApiTypeReferenceIdentity(
+            assembly,
+            directional.FullName,
+            directionalName);
+        var choiceIdentity = new ApiTypeReferenceIdentity(
+            assembly,
+            choice.FullName,
+            choiceName);
+        var surface =
+            new global::ILInspector.JsExportSurface.JsExportSurface
+            {
+                AssemblyIdentity = assembly,
+                Records = [directional],
+                Unions =
+                [
+                    new JsExportUnion
+                    {
+                        Definition = choice,
+                        CaseTypes = [directionalReference],
+                        IncludesNull = false,
+                        DeserializationUnsupportedReason = null!,
+                    },
+                ],
+                ReferencedTypeDefinitions =
+                    new Dictionary<ApiTypeReferenceIdentity, ApiType>
+                    {
+                        [directionalIdentity] = directional,
+                        [choiceIdentity] = choice,
+                    },
+                WireDirections =
+                    new Dictionary<ApiType, JsonWireDirection>
+                    {
+                        [directional] = JsonWireDirection.Both,
+                        [choice] = JsonWireDirection.Both,
+                    },
+            };
+
+        string source = TypeScriptFacadeEmitter.Emit(
+            surface,
+            RuntimeModule);
+
+        Assert.Contains(
+            "export type ChoiceInput = DirectionalInput;",
+            source,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "export type ChoiceOutput = DirectionalOutput;",
+            source,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void Emit_SerializesAuthenticatedJsonInputsWithoutChangingRawAbi()
     {
         global::ILInspector.JsExportSurface.JsExportSurface surface =
@@ -1649,6 +1961,77 @@ public sealed class TypeScriptFacadeEmitterTests
         Assert.Equal(
             2,
             names.Distinct(StringComparer.Ordinal).Count());
+    }
+
+    [Fact]
+    public void Emit_AllocatesAcrossDirectionalPreferredNameCollisions()
+    {
+        var split = new ApiType
+        {
+            Namespace = "A",
+            Name = "Widget",
+            Kind = "class",
+            Members =
+            [
+                new ApiMember
+                {
+                    Name = "Value",
+                    Kind = "property",
+                    ReturnType = "string",
+                    HasGetter = true,
+                    IndexParameterCount = 0,
+                    JsonIgnoreConditions =
+                        [JsonWireIgnoreCondition.WhenReading],
+                },
+            ],
+        };
+        var collision = new ApiType
+        {
+            Namespace = "B",
+            Name = "WidgetInput",
+            Kind = "class",
+        };
+        var surface =
+            new global::ILInspector.JsExportSurface.JsExportSurface
+            {
+                AssemblyIdentity = AssemblyIdentity(),
+                Records = [collision, split],
+                WireDirections =
+                    new Dictionary<ApiType, JsonWireDirection>
+                    {
+                        [split] = JsonWireDirection.Both,
+                        [collision] = JsonWireDirection.Serialize,
+                    },
+            };
+
+        string source = TypeScriptFacadeEmitter.Emit(
+            surface,
+            RuntimeModule);
+
+        Assert.Contains(
+            """
+            export interface WidgetInput {
+            }
+            """,
+            source,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            """
+            export interface WidgetOutput {
+              readonly Value: string;
+            }
+            """,
+            source,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            source.Split('\n'),
+            line => line.StartsWith(
+                "export interface type_",
+                StringComparison.Ordinal));
+        Assert.Equal(
+            3,
+            DeclaredTypeNames(source).Distinct(
+                StringComparer.Ordinal).Count());
     }
 
     [Fact]

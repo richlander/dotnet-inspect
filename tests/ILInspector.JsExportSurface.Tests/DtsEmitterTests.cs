@@ -3437,7 +3437,7 @@ public sealed class DtsEmitterTests
     }
 
     [Fact]
-    public void Emit_BlocksBidirectionalContextDefaultConditionalRecord()
+    public void Emit_SplitsBidirectionalContextDefaultConditionalRecord()
     {
         var diagnostics = new TypeScriptGenerationDiagnostics();
         var record = new ApiType
@@ -3477,15 +3477,22 @@ public sealed class DtsEmitterTests
         string dts = DtsEmitter.Emit(surface, diagnostics);
 
         Assert.Contains(
-            "export type Payload = unknown;",
+            """
+            export interface PayloadInput {
+              readonly Value: string;
+            }
+            """,
             dts,
             StringComparison.Ordinal);
         Assert.Contains(
-            diagnostics.UnmappedTypes,
-            diagnostic =>
-                diagnostic.Location == "Payload JSON wire shape"
-                && diagnostic.CSharpType
-                    == "serialization and deserialization member sets differ on a bidirectional type");
+            """
+            export interface PayloadOutput {
+              readonly Value?: string;
+            }
+            """,
+            dts,
+            StringComparison.Ordinal);
+        Assert.Empty(diagnostics.UnmappedTypes);
     }
 
     [Fact]
@@ -3867,7 +3874,7 @@ public sealed class DtsEmitterTests
     }
 
     [Fact]
-    public void Emit_BlocksBidirectionalTypeWithDirectionSensitiveMember()
+    public void Emit_SplitsBidirectionalTypeWithDirectionSensitiveMember()
     {
         var diagnostics = new TypeScriptGenerationDiagnostics();
         string path = typeof(FixtureExports).Assembly.Location;
@@ -3886,34 +3893,60 @@ public sealed class DtsEmitterTests
             diagnostics);
 
         Assert.Contains(
-            "export type DirectionalRoundTripDto = unknown;",
+            """
+            export interface DirectionalRoundTripDtoInput {
+              readonly name: string;
+            }
+            """,
             dts,
             StringComparison.Ordinal);
         Assert.Contains(
+            """
+            export interface DirectionalRoundTripDtoOutput {
+              readonly name: string;
+              readonly serverNote: string;
+            }
+            """,
+            dts,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "export declare function roundTripDirectional("
+                + "payloadJson: DirectionalRoundTripDtoInput): "
+                + "DirectionalRoundTripDtoOutput;",
+            dts,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
             diagnostics.UnmappedTypes,
             diagnostic =>
-                diagnostic.Location
-                    == "DirectionalRoundTripDto JSON wire shape"
-                && diagnostic.CSharpType
-                    == "serialization and deserialization member sets differ on a bidirectional type");
+                diagnostic.Location.StartsWith(
+                    "DirectionalRoundTripDto",
+                    StringComparison.Ordinal));
     }
 
     /// <summary>
     /// Without body evidence no direction can be attributed, so every type is
-    /// conservatively treated as bidirectional and a direction-sensitive shape
-    /// is blocked rather than guessed.
+    /// conservatively treated as bidirectional. Both authenticated projections
+    /// are emitted rather than selecting one as a shared compromise.
     /// </summary>
     [Fact]
-    public void Emit_BlocksDirectionSensitiveTypeWithoutBodyEvidence()
+    public void Emit_SplitsDirectionSensitiveTypeWithoutBodyEvidence()
     {
         string dts = EmitFixtureDts();
 
         Assert.Contains(
-            "export type DirectionalOutputDto = unknown;",
+            "export interface DirectionalOutputDtoInput {",
             dts,
             StringComparison.Ordinal);
         Assert.Contains(
-            "export type DirectionalInputDto = unknown;",
+            "export interface DirectionalOutputDtoOutput {",
+            dts,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "export interface DirectionalInputDtoInput {",
+            dts,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "export interface DirectionalInputDtoOutput {",
             dts,
             StringComparison.Ordinal);
     }

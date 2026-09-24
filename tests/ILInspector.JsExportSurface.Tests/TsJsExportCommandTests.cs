@@ -38,7 +38,7 @@ public sealed class TsJsExportCommandTests
     }
 
     [Fact]
-    public void Invoke_DoesNotPublishPartialOutputWhenSurfaceIsUnsupported()
+    public void Invoke_PublishesDirectionSpecificSurface()
     {
         string outputPath = Path.Combine(
             AppContext.BaseDirectory,
@@ -61,10 +61,19 @@ public sealed class TsJsExportCommandTests
                 output,
                 error);
 
-            Assert.Equal(1, exitCode);
+            Assert.Equal(0, exitCode);
             Assert.Empty(output.ToString());
             Assert.NotEmpty(error.ToString());
-            Assert.Equal(existing, File.ReadAllText(outputPath));
+            string generated = File.ReadAllText(outputPath);
+            Assert.NotEqual(existing, generated);
+            Assert.Contains(
+                "export interface DirectionalRoundTripDtoInput {",
+                generated,
+                StringComparison.Ordinal);
+            Assert.Contains(
+                "export interface DirectionalRoundTripDtoOutput {",
+                generated,
+                StringComparison.Ordinal);
         }
         finally
         {

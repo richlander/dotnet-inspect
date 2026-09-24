@@ -103,6 +103,28 @@ public sealed record ConditionalOutputDto(string Name)
     public JsonElement? NullablePayload { get; init; }
 }
 
+public sealed record DirectionalRoundTripDto(string Name)
+{
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenReading)]
+    public string ServerNote { get; init; } = "";
+}
+
+public sealed record DirectionalBox<TValue>(TValue Value);
+
+public sealed record DirectionalEnvelopeDto(
+    DirectionalRoundTripDto Direct,
+    DirectionalRoundTripDto[] Items,
+    IReadOnlyDictionary<string, DirectionalRoundTripDto> Lookup,
+    DirectionalBox<DirectionalRoundTripDto> Box)
+{
+    public DirectionalEnvelopeDto? Next { get; init; }
+}
+
+public sealed record DirectionalOuterDto(
+    DirectionalEnvelopeDto Envelope);
+
+public union DirectionalChoice(DirectionalRoundTripDto, string);
+
 public sealed class HiddenTypeJsonIncludeDto
 {
     public string Public { get; set; } = "public";
@@ -161,6 +183,13 @@ internal sealed partial class BlobFixtureJsonContext : JsonSerializerContext;
 [JsonSerializable(typeof(GenericNestedChoice))]
 [JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase)]
 internal sealed partial class GenericRecordJsonContext : JsonSerializerContext;
+
+[JsonSerializable(typeof(DirectionalRoundTripDto))]
+[JsonSerializable(typeof(DirectionalEnvelopeDto))]
+[JsonSerializable(typeof(DirectionalOuterDto))]
+[JsonSerializable(typeof(DirectionalChoice))]
+[JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase)]
+internal sealed partial class DirectionalJsonContext : JsonSerializerContext;
 
 [SupportedOSPlatform("browser")]
 public static partial class TypeScriptFixtureExports
@@ -228,6 +257,49 @@ public static partial class TypeScriptFixtureExports
         JsonSerializer.Serialize(
             new ConditionalOutputDto(name),
             FixtureJsonContext.Default.ConditionalOutputDto);
+
+    [JSExport]
+    public static string RoundTripDirectional(string payloadJson)
+    {
+        DirectionalRoundTripDto payload = JsonSerializer.Deserialize(
+            payloadJson,
+            DirectionalJsonContext.Default.DirectionalRoundTripDto)!;
+        return JsonSerializer.Serialize(
+            payload with { ServerNote = "server" },
+            DirectionalJsonContext.Default.DirectionalRoundTripDto);
+    }
+
+    [JSExport]
+    public static string RoundTripDirectionalEnvelope(string payloadJson)
+    {
+        DirectionalEnvelopeDto payload = JsonSerializer.Deserialize(
+            payloadJson,
+            DirectionalJsonContext.Default.DirectionalEnvelopeDto)!;
+        return JsonSerializer.Serialize(
+            payload,
+            DirectionalJsonContext.Default.DirectionalEnvelopeDto);
+    }
+
+    [JSExport]
+    public static string RoundTripDirectionalOuter(string payloadJson)
+    {
+        DirectionalOuterDto payload = JsonSerializer.Deserialize(
+            payloadJson,
+            DirectionalJsonContext.Default.DirectionalOuterDto)!;
+        return JsonSerializer.Serialize(
+            payload,
+            DirectionalJsonContext.Default.DirectionalOuterDto);
+    }
+
+    [JSExport]
+    public static string GetDirectionalChoice() =>
+        JsonSerializer.Serialize(
+            new DirectionalChoice(
+                new DirectionalRoundTripDto("choice")
+                {
+                    ServerNote = "server",
+                }),
+            DirectionalJsonContext.Default.DirectionalChoice);
 
     [JSExport]
     public static string GetInspectionEvidence(bool includePayload)
