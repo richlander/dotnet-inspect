@@ -572,11 +572,30 @@ internal sealed class PackageAcquisitionCandidatePayloadAcquirer
                 "The ranged read completed without a value, failure, or refusal.");
         }
         RequireAuthority(failure.Source, authority, client.Source);
-        if (failure.Kind == PackageSourceFailureKind.NotFound)
-            return new(RangedOutcome.NotFound);
-        return new(
-            RangedOutcome.Failed,
-            Failure: DescribePayloadFailure(authority.Source, failure));
+        switch (failure.Kind)
+        {
+            case PackageSourceFailureKind.NotFound:
+                return new(RangedOutcome.NotFound);
+
+            // The complete fetch would answer the same way: the credential
+            // is refused, or the archive exceeds the same payload limits.
+            case PackageSourceFailureKind.AuthenticationRequired:
+            case PackageSourceFailureKind.ResponseRejected:
+                return new(
+                    RangedOutcome.Failed,
+                    Failure: DescribePayloadFailure(authority.Source, failure));
+
+            // A ranged read is an optimization. A source that answers ranges
+            // with an error status, a malformed partial response, or a
+            // stalled request may still serve the whole archive, which the
+            // complete path validates on its own. An expired operation
+            // ceiling never reaches here: the caller checks it first.
+            default:
+                log?.Invoke(
+                    $"Ranged read of {PackageSourceDisplay.ForDiagnostics(authority.Source)} "
+                    + $"while {step} failed ({failure.Kind}); acquiring the complete archive instead.");
+                return new(RangedOutcome.Fallback);
+        }
     }
 
     private static IReadOnlyList<PackageContentEntry> DirectoryEntries(
