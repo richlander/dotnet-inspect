@@ -17,7 +17,8 @@ public static class ResourceExplanationCommandDefinitions
         {
             Description =
                 "Exact product-resource path, such as "
-                + "library/sections/reference-hierarchy",
+                + "library/sections/reference-hierarchy or "
+                + "package-query/query/facets/library-literal",
         };
         var depthOption = new Option<int>("--depth")
         {

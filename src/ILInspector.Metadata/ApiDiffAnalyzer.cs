@@ -695,28 +695,88 @@ public static class ApiDiffAnalyzer
                     Subject: ApiChangeSubject.Type(oldType, newType)));
             }
 
-            // Constraints changed
-            var oldConstraints = new HashSet<string>(oldParam.Constraints, StringComparer.Ordinal);
-            var newConstraints = new HashSet<string>(newParam.Constraints, StringComparer.Ordinal);
+            CompareTypeParameterConstraints(
+                oldParam,
+                newParam,
+                ApiChangeSubject.Type(oldType, newType),
+                changes);
+        }
+    }
 
-            var added = newConstraints.Except(oldConstraints).ToList();
-            var removed = oldConstraints.Except(newConstraints).ToList();
+    internal static void CompareMemberTypeParameterConstraints(
+        ApiType oldType,
+        ApiType newType,
+        ApiMember oldMember,
+        ApiMember newMember,
+        List<ApiChange> changes)
+    {
+        IReadOnlyList<TypeParameter>? oldParameters =
+            oldMember.SignatureModel?.TypeParameters;
+        IReadOnlyList<TypeParameter>? newParameters =
+            newMember.SignatureModel?.TypeParameters;
+        if (oldParameters is null
+            || newParameters is null
+            || oldParameters.Count != newParameters.Count)
+        {
+            return;
+        }
 
-            if (added.Count > 0)
-            {
-                changes.Add(new ApiChange(ChangeKind.TypeParameterConstraintTightened, ChangeClassification.Breaking,
-                    $"Generic parameter '{newParam.Name}' added constraints: {string.Join(", ", added)}",
+        ApiChangeSubject subject =
+            ApiChangeSubject.Member(
+                oldType,
+                oldMember,
+                newType,
+                newMember);
+        for (int index = 0; index < oldParameters.Count; index++)
+        {
+            CompareTypeParameterConstraints(
+                oldParameters[index],
+                newParameters[index],
+                subject,
+                changes);
+        }
+    }
+
+    static void CompareTypeParameterConstraints(
+        TypeParameter oldParameter,
+        TypeParameter newParameter,
+        ApiChangeSubject subject,
+        List<ApiChange> changes)
+    {
+        var oldConstraints = new HashSet<string>(
+            oldParameter.Constraints,
+            StringComparer.Ordinal);
+        var newConstraints = new HashSet<string>(
+            newParameter.Constraints,
+            StringComparer.Ordinal);
+
+        List<string> added =
+            [.. newConstraints.Except(oldConstraints)];
+        List<string> removed =
+            [.. oldConstraints.Except(newConstraints)];
+
+        if (added.Count > 0)
+        {
+            changes.Add(
+                new ApiChange(
+                    ChangeKind.TypeParameterConstraintTightened,
+                    ChangeClassification.Breaking,
+                    $"Generic parameter '{newParameter.Name}' added constraints: "
+                        + string.Join(", ", added),
                     NewValue: string.Join(", ", added),
-                    Subject: ApiChangeSubject.Type(oldType, newType)));
-            }
+                    Subject: subject));
+        }
 
-            if (removed.Count > 0)
-            {
-                changes.Add(new ApiChange(ChangeKind.TypeParameterConstraintLoosened, ChangeClassification.Additive,
-                    $"Generic parameter '{newParam.Name}' removed constraints: {string.Join(", ", removed)}",
+        if (removed.Count > 0)
+        {
+            changes.Add(
+                new ApiChange(
+                    ChangeKind.TypeParameterConstraintLoosened,
+                    ChangeClassification.Additive,
+                    $"Generic parameter '{newParameter.Name}' removed constraints: "
+                        + string.Join(", ", removed),
                     OldValue: string.Join(", ", removed),
-                    Subject: ApiChangeSubject.Type(oldType, newType)));
-            }
+                    Subject: subject));
         }
     }
 
@@ -829,6 +889,12 @@ public static class ApiDiffAnalyzer
                 var oldMember = oldBySignature[key];
                 var newMember = newBySignature[key];
                 CompareMemberModifiers(oldType, newType, oldMember, newMember, changes);
+                CompareMemberTypeParameterConstraints(
+                    oldType,
+                    newType,
+                    oldMember,
+                    newMember,
+                    changes);
             }
         }
 

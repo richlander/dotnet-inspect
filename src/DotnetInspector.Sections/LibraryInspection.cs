@@ -176,6 +176,14 @@ public sealed record LibraryTypePopulationRequest
                 "A Library Type namespace suffix must start with '.' and contain a suffix.",
                 nameof(@namespace));
         }
+        if (namespaceMatch
+                is MetadataNamespaceMatch.ExactOrDescendant
+            && @namespace!.Length == 0)
+        {
+            throw new ArgumentException(
+                "A Library Type namespace descendant root cannot be empty.",
+                nameof(@namespace));
+        }
 
         bool includesDefinitions =
             declarationSelection

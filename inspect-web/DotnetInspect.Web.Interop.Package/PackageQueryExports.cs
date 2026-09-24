@@ -18,13 +18,20 @@ namespace DotnetInspect.Web.Interop.Package
     [SupportedOSPlatform("browser")]
     internal static partial class BrowserPackageQueryOperations
     {
+        private static readonly PackageQueryRegisteredTerm[] ExposedTerms =
+        [
+            .. PackageQuery.RegisteredTerms.Where(term =>
+                PackageQueryCapabilityBinding.Binding.ExposedQueryTerms
+                    .Contains(
+                        PackageQuery.TermBindingIdentity(
+                            term.Descriptor.Key),
+                        StringComparer.Ordinal)),
+        ];
+
         internal static BrowserPackageQueryCatalog Catalog() =>
             new(
                 [
-                    .. PackageQuery.RegisteredTerms
-                        .Where(term =>
-                            term.Descriptor.Role
-                                == PackageQueryTermRole.Inspection)
+                    .. ExposedTerms
                         .SelectMany(term =>
                             term.Descriptor.Options.Select(option =>
                         new BrowserPackageQueryPresetDescriptor(
@@ -55,11 +62,9 @@ namespace DotnetInspect.Web.Interop.Package
                             term.Descriptor.DisplayGroupLabel))),
                 ],
                 [
-                    .. PackageQuery.RegisteredTerms
+                    .. ExposedTerms
                         .Where(term =>
-                            term.Descriptor.Role
-                                == PackageQueryTermRole.Inspection
-                            && term.Descriptor.ControlKind
+                            term.Descriptor.ControlKind
                                 is PackageQueryTermControlKind.Input
                                     or PackageQueryTermControlKind.MultilineInput)
                         .Select(term =>
@@ -295,13 +300,15 @@ namespace DotnetInspect.Web.Interop.Package
                                 BrowserPackageWorkspace.PackageTransferPolicy),
                         semanticBudget!,
                         new LibraryLiteralAssessmentSink(emit));
-            var envelope = await PackageQueryInspection.ExecuteAsync(
-                    BrowserPackageWorkspace.Gallery,
-                    plan,
-                    contentProvider,
-                    traversalServices,
-                    semanticExecution,
-                    observer,
+            var envelope =
+                await PackageQueryCapabilityBinding.Binding.ExecuteAsync(
+                    new(
+                        BrowserPackageWorkspace.Gallery,
+                        plan,
+                        contentProvider,
+                        traversalServices,
+                        semanticExecution,
+                        observer),
                     cancellationToken)
                 .ConfigureAwait(false);
             return Complete(envelope);

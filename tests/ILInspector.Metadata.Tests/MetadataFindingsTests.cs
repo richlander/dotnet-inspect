@@ -109,6 +109,54 @@ public class MetadataFindingsTests
     }
 
     [Fact]
+    public void MatchedMethodConstraintChange_IsCompatibilityEvidence()
+    {
+        ApiMember oldMethod = StructuredMethod(
+            "Apply",
+            "void Apply<T>()",
+            "System.Void",
+            []);
+        oldMethod.SignatureModel!.TypeParameters.Add(
+            new TypeParameter
+            {
+                Name = "T",
+                Constraints = { "Dependency.BeforeConstraint" },
+            });
+        ApiMember newMethod = StructuredMethod(
+            "Apply",
+            "void Apply<T>()",
+            "System.Void",
+            []);
+        newMethod.SignatureModel!.TypeParameters.Add(
+            new TypeParameter
+            {
+                Name = "T",
+                Constraints = { "Dependency.AfterConstraint" },
+            });
+
+        ApiFindingComparison result = MetadataFindings.CompareApi(
+            Surface(Type("Widget", members: [oldMethod])),
+            Surface(Type("Widget", members: [newMethod])),
+            Subject);
+
+        ApiChange[] changes =
+        [
+            .. Assert.Single(result.ApiDiff.TypeDiffs).Changes,
+        ];
+        Assert.Equal(
+            [
+                ChangeKind.TypeParameterConstraintTightened,
+                ChangeKind.TypeParameterConstraintLoosened,
+            ],
+            changes.Select(change => change.Kind));
+        Assert.All(
+            changes,
+            change => Assert.Equal(
+                ApiChangeSubjectKind.Member,
+                change.Subject?.Kind));
+    }
+
+    [Fact]
     public void MatchedTypeFacetChanges_AreChangedPairs()
     {
         var oldSurface = Surface(Type("Widget"));
