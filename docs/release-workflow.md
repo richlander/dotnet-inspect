@@ -83,8 +83,9 @@ Main-push staging is rolling-latest. One active run completes while GitHub
 retains only the newest pending run, replacing older pending runs as `main`
 advances. This lets staging make progress during sustained merge traffic
 without building and deploying every intermediate commit. A release still
-requires a successful staging run for its exact commit; manually dispatch that
-commit if its push-triggered run was coalesced.
+requires a successful staging run for its exact commit. If that commit's
+push-triggered run was coalesced, wait for active staging work to finish and
+rerun the original push-triggered run.
 
 Publish and promote together. Do not publish a new package version without
 promoting its matching site, and do not promote a site from a commit that is
