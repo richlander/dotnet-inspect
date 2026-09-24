@@ -40,6 +40,7 @@ createServer((request, response) => {
     site,
     pathname === "/"
     || pathname === "/query" || pathname === "/query/"
+    || pathname === "/type-explorer" || pathname === "/type-explorer/"
     || pathname === "/activity" || pathname === "/activity/"
       ? "index.html"
       : `.${pathname}`,
