@@ -99,7 +99,12 @@ records that it was truncated, with the full totals.
 
 Bytes received count the response body bytes the step consumed. An abandoned
 response counts the bytes read before it was abandoned. A retried request
-records each attempt as its own request.
+records each attempt as its own request. A complete request is recorded once
+per source call; a source client that retries a complete request inside that
+call, as the gallery client does, shows only its final attempt.
+
+When an earlier authority fails to supply the payload, its requests stay in
+the receipt ahead of those of the authority that did, in issue order.
 
 ### Issuance and carriage
 
@@ -116,6 +121,9 @@ Every acquisition through the House has a receipt. Legacy acquisition paths
 that bypass the House, such as the platform pack service, issue none; their
 migration onto the House is owned by
 [package-backed platform realization](package-backed-platform-realization.md#production-adoption-and-retirement).
+Exact package-backed `type` and library API inspection also acquire through
+the legacy Workspace context loader rather than the House, so they gain
+receipts only when they move onto it.
 
 ### Delivery
 
@@ -145,7 +153,7 @@ showed goes as follows:
 | Wall time | dropped: not evidence, and not deterministic |
 | Output size | dropped: the output itself is the measure |
 | README provenance detail | dropped: no production caller sets it |
-| Request breadcrumbs (`RequestTelemetry.Breadcrumb`) | dropped with the trace, their only consumer |
+| Request breadcrumbs (`RequestTelemetry.Breadcrumb`) | dropped with the trace; the bare-input router's decisions, which the CLI harness observes, stay as a CLI-internal decision log captured only by a caller in its own async flow |
 
 `NetworkTelemetry` and `CacheTelemetry` remain. The Debug network traffic log,
 network policy enforcement, and cache statistics still consume them.
@@ -166,16 +174,17 @@ serializer.
 | 5. A refused credential | no fallback request; the refused request is recorded | contract suite |
 | 6. The House acquisition receipt | its origin agrees with the transfer receipt's path | contract suite |
 | 7. More requests than the bound | the first 256 kept, marked truncated, totals complete | contract suite |
-| 8. Debug evidence delivery | the first consumer's `--evidence-envelope` lists each acquisition with its receipt; the ordinary output is unchanged | CLI harness, Debug |
+| 8. Debug evidence delivery | `diff --history --evidence-envelope` lists each acquisition with its receipt; the ordinary output is unchanged | evidence and serializer: contract suite; delivery: CLI harness, Debug |
 | 9. Retired flags | `--info` and `--trace-mermaid` are rejected as unknown options | CLI harness |
 
 ## Adoption
 
 1. This document.
 2. The receipt, issued by the package acquisition step and carried on the
-   House acquisition receipt. The first consumer is exact package-backed
-   `type` and library API inspection, whose baseline envelopes exist: they
-   gain a Debug `--evidence-envelope` listing the operation's acquisitions.
+   House acquisition receipt. The first consumer is `diff --history`, whose
+   baseline envelope exists and whose version cells each acquire through the
+   House: it gains a Debug `--evidence-envelope` listing the operation's
+   acquisitions.
    The same slice retires `--info`, `--trace-mermaid`, and the request
    breadcrumbs, with their tests and their mentions in
    `docs/cli-reference.md`, `docs/design/output-shapes.md`,
@@ -187,7 +196,9 @@ serializer.
    request purpose for the abandoned probe.
 4. `find` and `package` adopt the evidence once their exact-package routes
    have baseline envelopes, which the
-   [output shapes](output-shapes.md#implementation-status) ladder owns.
+   [output shapes](output-shapes.md#implementation-status) ladder owns. Exact
+   package-backed `type` and library API inspection adopt it once their
+   package Root acquisition moves onto the House.
 5. Inspect Web delivers receipts through its existing evidence export when it
    adopts package evidence.
 
