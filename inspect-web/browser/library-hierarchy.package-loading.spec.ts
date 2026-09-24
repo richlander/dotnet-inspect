@@ -144,6 +144,31 @@ test("Library Metadata omits Package coordinate selectors", async ({ page }) => 
     JSON.stringify(["System.Text.Json", "10.0.0", "net10.0", other.id]));
 });
 
+for (const width of [1280, 390]) {
+  test(`subject-path TFM opens Package frameworks at ${width}px`, async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width, height: 900 });
+    await installPackageLoadingFacades(page);
+    await page.goto(frameworkRoot);
+    await chooseSubject(page, "type", "Type");
+
+    const targetFramework = page.getByRole(
+      "button",
+      {
+        name: "Target framework net10.0. Change target framework for System.Text.Json",
+      });
+    await expect(targetFramework).toHaveText("· net10.0");
+    await targetFramework.click();
+
+    await expect(subjectTab(page, "package")).toHaveAttribute(
+      "aria-selected",
+      "true");
+    await expect(page.locator('[data-package-framework="net10.0"]'))
+      .toBeFocused();
+  });
+}
+
 for (const change of packageCoordinateChanges) {
   test(`package ${change.name} replacement preserves latent exact Library selection`, async ({ page }) => {
     await installPackageLoadingFacades(page);

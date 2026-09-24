@@ -111,7 +111,11 @@ presentations before the primary content:
    Interaction-owned product-navigation control and its history, Search, and
    Application menu controls.
 2. Row two renders the icon-backed ordered active subject path before any
-   page-level contextual working-surface actions.
+   page-level contextual working-surface actions. A Package root in that path
+   carries its resolved target framework as a quiet, non-shrinking qualifier
+   immediately after the Package name. The Package name keeps its copy action;
+   activating the target-framework qualifier opens the Package subject and its
+   framework inventory.
 
 The two rows together follow the CLI's product-to-subject-to-inspector grammar
 but are not command text. Inventories, hierarchy menus, and other target
@@ -744,6 +748,13 @@ rendering its outcome. The version control remains in the Package working
 surface across Package inspectors. Neither control appears in Workspace, Type,
 or Member, and Package Overview does not repeat a target-framework selector.
 Library Metadata does not repeat Package Version or Framework controls.
+
+The persistent subject path discloses that exact active framework after the
+Package name across Package, Library, Type, and Member. The qualifier is
+navigation rather than another selector: activating it opens Package with the
+framework inventory visible and focused. It stays visible before the Package
+name yields space at narrow widths. Page-level actions such as `Explore` retain
+the separate trailing action region.
 
 At a narrow viewport the content-navigation action is labelled `Frameworks`
 and opens the same complete TFM inventory. A pending TFM change retains the

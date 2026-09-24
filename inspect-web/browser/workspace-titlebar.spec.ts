@@ -2228,6 +2228,11 @@ test("the target row advertises the typed Package, Library, Type, and Member pat
   ]);
   await expect(page.locator(".subject-path-separator")).toHaveCount(3);
   await expect(page.locator("[data-subject-copy]")).toHaveCount(4);
+  const targetFramework = page.locator("[data-subject-framework]");
+  await expect(targetFramework).toHaveText("· net10.0");
+  await expect(targetFramework).toHaveAttribute(
+    "aria-label",
+    "Target framework net10.0. Change target framework for System.Text.Json");
   await expect(page.locator(".targetbar .subject-path")).toBeVisible();
   await expect(page.locator(".titlebar .scope-switch")).toBeVisible();
   await expect(page.locator(".titlebar .lens")).toHaveCount(5);
@@ -2247,6 +2252,10 @@ test("the target row advertises the typed Package, Library, Type, and Member pat
   await expect(page.locator("body")).toHaveAttribute(
     "data-copied-subject",
     "System.Text.Json.JsonSerializer");
+  await targetFramework.click();
+  await expect(page.locator("body")).toHaveAttribute(
+    "data-package-framework-opened",
+    "true");
   const search = await box(page, "#open-search");
   const forward = await box(page, "#nav-forward");
   expect(forward.x + forward.width).toBeLessThanOrEqual(search.x);
@@ -2257,9 +2266,11 @@ test("the target row advertises the typed Package, Library, Type, and Member pat
   const targetbar = await box(page, ".targetbar");
   const target = await box(page, ".inspected-target");
   const workspace = await box(page, ".workspace");
-  const pathSegments = await page.locator(".subject-path-segment")
-    .evaluateAll(segments => segments.map(segment => {
-      const bounds = segment.getBoundingClientRect();
+  const pathItems = await page.locator(
+    ".subject-path-segment, .subject-path-framework",
+  )
+    .evaluateAll(items => items.map(item => {
+      const bounds = item.getBoundingClientRect();
       return { x: bounds.x, right: bounds.right };
     }));
   expect(target.x).toBeLessThan(20);
@@ -2274,9 +2285,9 @@ test("the target row advertises the typed Package, Library, Type, and Member pat
   expect(targetbar.x).toBe(0);
   expect(targetbar.width).toBeCloseTo(1440, 0);
   expect(targetbar.y + targetbar.height).toBeLessThanOrEqual(workspace.y);
-  for (let index = 1; index < pathSegments.length; index++) {
-    const current = pathSegments[index];
-    const previous = pathSegments[index - 1];
+  for (let index = 1; index < pathItems.length; index++) {
+    const current = pathItems[index];
+    const previous = pathItems[index - 1];
     if (!current || !previous) {
       throw new Error("Inspected-target path geometry is incomplete.");
     }

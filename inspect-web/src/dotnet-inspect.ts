@@ -7136,9 +7136,9 @@ function renderCore(options: { synchronizeUrl?: boolean }) {
     activeScope === "member" && state.memberSection === "call-graph";
   const subjectPath = currentInspectedSubjectPath();
   const subjectPathLabel = subjectPath.map(segment =>
-    segment.qualifier
-      ? `${segment.label} · ${segment.qualifier}`
-      : segment.label).join(" > ");
+    [segment.label, segment.targetFramework, segment.qualifier]
+      .filter(Boolean)
+      .join(" · ")).join(" > ");
   const contentFrameEnabled = activeScope !== "workspace";
   const contentNavigationLabel =
     activeScope === "package"
@@ -7521,6 +7521,7 @@ interface SubjectPathSegment {
   label: string;
   copyable: boolean;
   qualifier?: string;
+  targetFramework?: string;
 }
 
 function inspectedSubjectPath(
@@ -7543,6 +7544,9 @@ function inspectedSubjectPath(
             ? activeLibrarySubjectName()
             : packageDisplayName(pkg),
         copyable: true,
+        ...(state.rootKind === "package"
+          ? { targetFramework: pkg.activeFramework }
+          : {}),
       }]
     : [];
   if (state.atPackageRoot
@@ -7605,10 +7609,13 @@ function renderInspectedSubjectPath(
     const content = segment.copyable
       ? `<button type="button" class="subject-path-segment${root}${current}" data-subject-copy="${index}" title="Copy ${label}" aria-label="Copy ${escapeHtml(segment.kind)} name ${label}">${label}</button>`
       : `<span class="subject-path-segment${root}${current}">${label}</span>`;
+    const targetFramework = segment.targetFramework
+      ? `<button type="button" class="subject-path-framework" data-subject-framework="${escapeHtml(segment.targetFramework)}" title="Change target framework" aria-label="Target framework ${escapeHtml(segment.targetFramework)}. Change target framework for ${label}">· ${escapeHtml(segment.targetFramework)}</button>`
+      : "";
     const qualifier = segment.qualifier
       ? `<span class="subject-path-qualifier" aria-label="Defining Library ${escapeHtml(segment.qualifier)}">· ${escapeHtml(segment.qualifier)}</span>`
       : "";
-    return `${separator}${content}${qualifier}`;
+    return `${separator}${content}${targetFramework}${qualifier}`;
   }).join("");
 }
 
@@ -11049,6 +11056,14 @@ const workbenchShellActions: WorkbenchShellBindingActions = {
     const segment = currentInspectedSubjectPath()[index];
     if (segment?.copyable)
       void copyText(segment.label, `${segment.kind} name copied`);
+  },
+  onOpenPackageTargetFramework: () => {
+    contentFramePane = "navigation";
+    state.workspaceSubjectOpen = false;
+    state.atPackageRoot = true;
+    state.atLibraryRoot = false;
+    render();
+    afterCurrentNavigationFrame(() => focusContentNavigation(document));
   },
   onDismissNotice: dismissQueryNotice,
   onDismissPackageNotice: () => {

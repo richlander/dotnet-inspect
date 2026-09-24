@@ -704,6 +704,26 @@ body:has(:not([hidden]) > [role="dialog"][aria-modal="true"])
   outline: 1px solid var(--shell-accent);
   outline-offset: 3px;
 }
+.subject-path-framework {
+  flex: none;
+  margin-left: 6px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--dim);
+  font: 500 11px var(--mono);
+  white-space: nowrap;
+  cursor: pointer;
+}
+.subject-path-framework:hover {
+  color: var(--text);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.subject-path-framework:focus-visible {
+  outline: 1px solid var(--shell-accent);
+  outline-offset: 3px;
+}
 .subject-path-qualifier {
   flex: 0 4 auto;
   min-width: 0;
