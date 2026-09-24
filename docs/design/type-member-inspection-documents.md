@@ -629,6 +629,13 @@ unimplemented House view or host binding available. Legacy command-local paths
 remain adoption gaps until their producer and consumer both use the shared
 route.
 
+The current Browser Type Explorer route named `TypeDocumentInspection`
+returns `CSharpTypeDocumentOutcome`, a source-oriented projection. It is a
+migration input, not the composite Type document defined here. Adoption either
+consumes its owner-issued source outcome beneath the shared producer or retires
+the overlapping route; a host must not treat the current projection as the
+completed Metadata, DocumentationHouse, and SourceHouse aggregate.
+
 ## Platform and safety boundary
 
 The reusable request, content, row, and envelope contracts are resource-free,
