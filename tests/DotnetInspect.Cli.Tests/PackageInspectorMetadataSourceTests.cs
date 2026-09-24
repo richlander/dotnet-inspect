@@ -71,30 +71,18 @@ public sealed class PackageInspectorMetadataSourceTests : IDisposable
                 resolution, packageId, version, isLocalFile: false,
                 localFilePath: null, nuspec, client, new VerboseLogger(enabled: false));
 
+            // Local and credential-free HTTP authorities are both durable,
+            // and each keeps its own producer index.
             Assert.Equal(name, result.Description?.ToString());
-            if (local)
-            {
-                Assert.NotNull(subject);
-                Assert.Equal(
-                    name,
-                    PackageIndexCache.TryGet(subject)?.Description?.ToString());
-            }
-            else
-            {
-                Assert.Null(subject);
-            }
+            Assert.NotNull(subject);
+            Assert.Equal(
+                name,
+                PackageIndexCache.TryGet(subject)?.Description?.ToString());
         }
 
-        if (local)
-        {
-            Assert.NotEqual(
-                PackageIndexCache.CacheKey(subjects[0]),
-                PackageIndexCache.CacheKey(subjects[1]));
-        }
-        else
-        {
-            Assert.Empty(subjects);
-        }
+        Assert.NotEqual(
+            PackageIndexCache.CacheKey(subjects[0]),
+            PackageIndexCache.CacheKey(subjects[1]));
     }
 
     [Fact]

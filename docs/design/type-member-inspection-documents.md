@@ -838,8 +838,16 @@ Library -> Type -> MemberGroup -> exact Member
 
 Its compact Type tree may show Member-group Rows with nested exact-overload
 Counts. Its `member` tree presents exact-overload Rows for one MemberGroup.
-The presentation may collapse or decorate those rows but may not redefine
-their populations.
+Both are native Tree presentations: omitting an explicit format selects the
+same semantic projection as `--tree`. The presentation may collapse or
+decorate those rows but may not redefine their populations.
+
+An ordinal or digest Member selector instead resolves one exact
+`MemberDocument`. That leaf subject has no child population: its native default
+is the singular Signature view, and bare `--tree` fails rather than displaying
+siblings from its containing MemberGroup or an empty Tree. An explicitly
+selected view such as Call Graph may still supply its own admitted Tree shape;
+Tree eligibility follows the effective selected shape.
 
 ### Contextual Resource Explanation (#8148)
 
@@ -1033,27 +1041,29 @@ The final two are product defects, not permitted host divergence.
 owns the revised counted path:
 
 1. Lock this Type/Member-group/Member population-document specification.
-2. Add the compact Type Member-group population and terminal-specific
-   QuerySpace execution, including nested exact-overload Count.
-3. Implement `TypeDocument` over that population without the eager rich
-   exact-Type/API-surface path.
-4. Bind the Type tree and section inventories to the shared route in CLI and
-   Inspect Web.
-5. Add the exact-overload population and terminal-specific QuerySpace
+2. Add the exact-overload population and terminal-specific QuerySpace
    execution for one MemberGroup.
-6. Implement `MemberGroupDocument` and adopt its overload tree in CLI and
+3. Implement `MemberGroupDocument` and adopt its native overload Tree in CLI and
    Inspect Web.
-7. Implement selector-driven `MemberGroupDocument` versus exact
+4. Implement selector-driven `MemberGroupDocument` versus exact
    `MemberDocument` routing, exact declaration drill-down, and corresponding
    `--explain` subject mapping.
-8. Compose independently scoped Type-subject, Member-subject, and returned
+5. Compose independently scoped Member-subject and returned
    exact-row DocumentationHouse attachments.
-9. Compose exact Member SourceHouse attachments.
-10. Amend #8445 and its implementation path to the exact-Member, non-population
+6. Compose exact Member SourceHouse attachments.
+7. Add the compact Type Member-group population and terminal-specific
+   QuerySpace execution, including nested exact-overload Count.
+8. Implement `TypeDocument` over that population without the eager rich
+   exact-Type/API-surface path.
+9. Bind the native Type Tree and section inventories to the shared route in
+   CLI and Inspect Web.
+10. Compose independently scoped Type-subject DocumentationHouse and
+    SourceHouse attachments.
+11. Amend #8445 and its implementation path to the exact-Member, non-population
     metrics contract required above.
-11. Adopt selective sibling-relationship decoration from #8450/#8455 without
+12. Adopt selective sibling-relationship decoration from #8450/#8455 without
     changing Member-group Rows or Count.
-12. Register completed routes and remove superseded eager, command-local, and
+13. Register completed routes and remove superseded eager, command-local, and
     host-local composition paths.
 
 Each implementation or adoption remains a focused owner change. This design

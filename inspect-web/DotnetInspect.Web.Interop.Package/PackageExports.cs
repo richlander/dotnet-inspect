@@ -664,9 +664,13 @@ public static partial class PackageExports
     [JSExport]
     public static async Task<string> GetPackageDocument(string packageId, string version, string path)
     {
-        BrowserPackage package = await BrowserPackageWorkspace.AcquireAsync(packageId, version);
+        BrowserPackageDocumentPayload payload =
+            await BrowserPackageWorkspace.ReadDocumentAsync(
+                packageId,
+                version,
+                path);
         BrowserPackageDocumentContent document =
-            BrowserPackageWireProjection.Project(package.ReadDocument(path));
+            BrowserPackageWireProjection.Project(payload);
         return JsonSerializer.Serialize(
             document,
             BrowserPackageJsonContext.Default.BrowserPackageDocumentContent);

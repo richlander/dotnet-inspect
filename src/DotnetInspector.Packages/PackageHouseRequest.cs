@@ -260,7 +260,10 @@ public sealed class PackageHouseRequest
         PackageHouseAssetSelectionKind? assetSelection = null,
         PackageHouseLibraryHandoffMode libraryHandoff =
             PackageHouseLibraryHandoffMode.PackageOnly,
-        PackageHouseRequestAssociation? association = null)
+        PackageHouseRequestAssociation? association = null,
+        PackageAssetDemand assetDemand =
+            PackageAssetDemand.SurfaceAndImplementation,
+        IEnumerable<string>? implementationNames = null)
     {
         ArgumentNullException.ThrowIfNull(demand);
         ArgumentNullException.ThrowIfNull(operation);
@@ -268,6 +271,8 @@ public sealed class PackageHouseRequest
             throw new ArgumentOutOfRangeException(nameof(libraryHandoff));
         if (assetSelection is { } selection && !Enum.IsDefined(selection))
             throw new ArgumentOutOfRangeException(nameof(assetSelection));
+        if (!Enum.IsDefined(assetDemand))
+            throw new ArgumentOutOfRangeException(nameof(assetDemand));
 
         bool realizes =
             operation.Profile == PackageHouseOperationProfile.Realize;
@@ -286,12 +291,34 @@ public sealed class PackageHouseRequest
                 nameof(libraryHandoff));
         }
 
+        if (implementationNames is not null)
+        {
+            if (!realizes)
+            {
+                throw new ArgumentException(
+                    "Only a Realize operation can name implementation assemblies.",
+                    nameof(implementationNames));
+            }
+            if (assetDemand != PackageAssetDemand.SurfaceAndImplementation)
+            {
+                throw new ArgumentException(
+                    "Named implementation assemblies require the SurfaceAndImplementation demand.",
+                    nameof(implementationNames));
+            }
+        }
+
         Demand = demand;
         Operation = operation;
         TargetContext = targetContext;
         AssetSelection = assetSelection;
         LibraryHandoff = libraryHandoff;
         Association = association;
+        AssetDemand = assetDemand;
+        ImplementationNames = implementationNames is null
+            ? null
+            : PackageImplementationNames.Create(
+                implementationNames,
+                nameof(implementationNames));
     }
 
     public PackageHouseDemand Demand { get; }
@@ -305,4 +332,19 @@ public sealed class PackageHouseRequest
     public PackageHouseLibraryHandoffMode LibraryHandoff { get; }
 
     public PackageHouseRequestAssociation? Association { get; }
+
+    /// <summary>
+    /// Which assets the consumer reads. A ranged Realize reads only these;
+    /// complete access acquires the whole archive regardless.
+    /// </summary>
+    public PackageAssetDemand AssetDemand { get; }
+
+    /// <summary>
+    /// The implementation assemblies the consumer names, by file name, or
+    /// <see langword="null"/> for every selected implementation asset. With
+    /// names, the realization selects only the named implementation assets,
+    /// and a ranged read fetches the aligned blocks that hold them
+    /// (docs/design/package-read-demand.md).
+    /// </summary>
+    public PackageImplementationNames? ImplementationNames { get; }
 }

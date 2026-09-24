@@ -90,9 +90,19 @@ public sealed partial class PackageRangedRealizationTests
 
         Assert.Equal(PackageTransferPath.Ranged, receipt.Path);
         Assert.Null(receipt.FallbackReason);
-        Assert.Equal(server.RangedRequests, receipt.RequestCount);
+        // Size first: the complete request is abandoned at its advertised
+        // length before the ranged read (docs/design/package-cache-policy.md).
+        Assert.Equal(server.FullRequests + server.RangedRequests, receipt.RequestCount);
         Assert.Collection(
             receipt.Requests,
+            probe => Assert.Equal(
+                new PackageTransferRequest(
+                    PackageTransferRequestPurpose.SizeProbe,
+                    null,
+                    PackageTransferRequestOutcome.Abandoned,
+                    archive.Length,
+                    0),
+                probe),
             tail =>
             {
                 long received = Math.Min(DirectoryTailLength, archive.Length);
@@ -121,7 +131,7 @@ public sealed partial class PackageRangedRealizationTests
             });
         AssertTotals(
             receipt,
-            2,
+            3,
             receipt.Requests.Sum(request => request.BytesReceived));
         Assert.True(receipt.BytesReceived < archive.Length);
     }
@@ -151,6 +161,14 @@ public sealed partial class PackageRangedRealizationTests
         Assert.Equal(PackageTransferFallbackReason.RangeIgnored, receipt.FallbackReason);
         Assert.Collection(
             receipt.Requests,
+            probe => Assert.Equal(
+                new PackageTransferRequest(
+                    PackageTransferRequestPurpose.SizeProbe,
+                    null,
+                    PackageTransferRequestOutcome.Abandoned,
+                    archive.Length,
+                    0),
+                probe),
             ignored =>
             {
                 Assert.Equal(PackageTransferRequestPurpose.DirectoryTail, ignored.Purpose);
@@ -168,7 +186,7 @@ public sealed partial class PackageRangedRealizationTests
                     archive.Length,
                     archive.Length),
                 complete));
-        AssertTotals(receipt, 2, archive.Length);
+        AssertTotals(receipt, 3, archive.Length);
     }
 
     /// <summary>
@@ -198,17 +216,22 @@ public sealed partial class PackageRangedRealizationTests
                 "net45"),
             PackagePayloadOrigin.Ranged);
 
-        Assert.Equal(0, refusing.FullRequests);
+        // The refusing source's one complete request is its size probe,
+        // abandoned before the refused ranged read; no complete request
+        // follows the refusal.
+        Assert.Equal(1, refusing.FullRequests);
         Assert.Equal(1, refusing.RangedRequests);
         Assert.Equal(PackageTransferPath.Ranged, receipt.Path);
         Assert.Equal(
             [
+                (PackageTransferRequestPurpose.SizeProbe, PackageTransferRequestOutcome.Abandoned),
                 (PackageTransferRequestPurpose.DirectoryTail, PackageTransferRequestOutcome.Refused),
+                (PackageTransferRequestPurpose.SizeProbe, PackageTransferRequestOutcome.Abandoned),
                 (PackageTransferRequestPurpose.DirectoryTail, PackageTransferRequestOutcome.Completed),
                 (PackageTransferRequestPurpose.EntrySpan, PackageTransferRequestOutcome.Completed),
             ],
             receipt.Requests.Select(request => (request.Purpose, request.Outcome)));
-        Assert.Equal(0, receipt.Requests[0].BytesReceived);
+        Assert.Equal(0, receipt.Requests[1].BytesReceived);
         Assert.DoesNotContain(
             receipt.Requests,
             request => request.Purpose == PackageTransferRequestPurpose.Complete);
