@@ -412,6 +412,11 @@ public static class InspectionCommandDefinitions
             Description =
                 "List public Types in an exact namespace, or in namespaces ending with a leading-dot suffix",
         };
+        var namespaceChildrenOption = new Option<bool>("--children")
+        {
+            Description =
+                "With --namespace: include the named namespace and its descendants",
+        };
         var metadataRootOption = new Option<string?>("--metadata-root")
         {
             Description = "Metadata root for @Metadata sections: cli or r2r-manifest"
@@ -445,6 +450,7 @@ public static class InspectionCommandDefinitions
         assemblyCommand.Options.Add(asmTfmOption);
         assemblyCommand.Options.Add(typeFilterOption);
         assemblyCommand.Options.Add(namespaceOption);
+        assemblyCommand.Options.Add(namespaceChildrenOption);
         assemblyCommand.Options.Add(metadataRootOption);
         assemblyCommand.Options.Add(detailsOption);
         assemblyCommand.Options.Add(opts.PreferRenderedUrls);
@@ -866,6 +872,8 @@ public static class InspectionCommandDefinitions
                 TypeFilter = typeFilter,
                 TypeNamespace =
                     parseResult.GetValue(namespaceOption),
+                IncludeNamespaceChildren =
+                    parseResult.GetValue(namespaceChildrenOption),
                 MetadataRoot = metadataRoot,
                 PreferRenderedUrls = parseResult.GetValue(opts.PreferRenderedUrls),
                 JsonOutput = opts.ResolveFormat(parseResult) == OutputFormat.Json,

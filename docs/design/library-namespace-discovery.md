@@ -99,7 +99,9 @@ observations do not collapse.
 ## Non-goals
 
 - Namespace suffix discovery.
-- Descendant namespace matching.
+- Descendant matching during namesake discovery. An already selected Library
+  may explicitly request its named namespace and descendants through the
+  Library population contract.
 - Package availability inference from missing prune data.
 - Rendering or tree-versus-table defaults.
 - Progressive result publication.

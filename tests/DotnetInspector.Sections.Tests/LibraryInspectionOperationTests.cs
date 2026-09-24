@@ -451,6 +451,97 @@ public sealed class LibraryInspectionOperationTests
 
     [Fact]
     public async Task
+        NamespaceChildrenCountAndRowsIncludeSelfAndDescendants()
+    {
+        byte[] content =
+            await LibraryInspectionTestLibrary
+                .NamespaceSuffixFixtureAsync();
+        await using LibraryInspectionTestLibrary library =
+            await LibraryInspectionTestLibrary.CreateAsync(
+                content,
+                LibraryInspectionTestLibrary.Identity(content));
+
+        LibraryDocument document = Document(
+            Execute(
+                library,
+                count: true,
+                new(maximumRows: 1),
+                @namespace: "World.Blue.Nodes",
+                namespaceMatch:
+                    MetadataNamespaceMatch.ExactOrDescendant));
+        LibraryTypePopulationCountOutcome.Counted count =
+            Assert.IsType<LibraryTypePopulationCountOutcome.Counted>(
+                document.Types.Count);
+        LibraryTypePopulationRowsOutcome.Read first =
+            Assert.IsType<LibraryTypePopulationRowsOutcome.Read>(
+                document.Types.Rows);
+        LibraryTypePopulationContinuation continuation =
+            Assert.IsType<LibraryTypePopulationContinuation>(
+                first.Continuation);
+        LibraryTypePopulationRowsOutcome.Read second =
+            Assert.IsType<LibraryTypePopulationRowsOutcome.Read>(
+                Document(
+                    Execute(
+                        library,
+                        count: false,
+                        new(
+                            maximumRows: 1,
+                            continuation: continuation),
+                        @namespace: "World.Blue.Nodes",
+                        namespaceMatch:
+                            MetadataNamespaceMatch.ExactOrDescendant))
+                    .Types.Rows);
+
+        Assert.Equal(
+            "World.Blue.Nodes",
+            document.Types.Binding.Namespace);
+        Assert.Equal(
+            MetadataNamespaceMatch.ExactOrDescendant,
+            document.Types.Binding.NamespaceMatch);
+        Assert.Equal(2, count.Total);
+        Assert.Null(second.Continuation);
+        LibraryTypeShape[] rows =
+            [.. first.Items, .. second.Items];
+        Assert.Equal(count.Total, rows.Length);
+        Assert.Contains(
+            rows,
+            row =>
+                row.Identity
+                    == Name("World.Blue.Nodes", "Foo"));
+        Assert.Contains(
+            rows,
+            row =>
+                row.Identity
+                    == Name(
+                        "World.Blue.Nodes.More",
+                        "Descendant"));
+        Assert.DoesNotContain(
+            rows,
+            row =>
+                row.Identity
+                    == Name("World.Blue.MyNodes", "NearName"));
+        Assert.DoesNotContain(
+            rows,
+            row =>
+                row.Identity
+                    == Name("World.Green.Nodes", "Bar"));
+
+        AssertRowsRejection(
+            Execute(
+                library,
+                count: false,
+                new(
+                    maximumRows: 1,
+                    continuation: continuation),
+                @namespace: "World.Blue.Nodes"),
+            LibraryTypePopulationRowsRejection
+                .IncompatibleContinuation);
+
+        await library.RetireAsync();
+    }
+
+    [Fact]
+    public async Task
         RealFacade_NamespaceSuffixIncludesFirstClassForwarders()
     {
         byte[] content =
@@ -1703,6 +1794,13 @@ public sealed class LibraryInspectionOperationTests
                 @namespace: null,
                 namespaceMatch:
                     MetadataNamespaceMatch.Suffix));
+        Assert.Throws<ArgumentException>(
+            () => new LibraryTypePopulationRequest(
+                LibraryTypeAccessibility.Public,
+                new(),
+                @namespace: "",
+                namespaceMatch:
+                    MetadataNamespaceMatch.ExactOrDescendant));
     }
 
     [Fact]
