@@ -52,6 +52,8 @@ public enum ResourceExplanationRelationshipKind
     QueryFacet,
     ConsumerBinding,
     Invokes,
+    Exposes,
+    ExposedBy,
     RequiredContext,
 }
 

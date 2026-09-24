@@ -222,6 +222,15 @@ public sealed class ResourceExplanationCommandTests : IDisposable
                 .EnumerateArray(),
             relationship =>
                 relationship.GetProperty("relationship_kind").GetString()
+                    == "ExposedBy"
+                && relationship.GetProperty("target_path").GetString()
+                    == "package-query/bindings/cli");
+        Assert.Contains(
+            explanationDocument.RootElement
+                .GetProperty("relationships")
+                .EnumerateArray(),
+            relationship =>
+                relationship.GetProperty("relationship_kind").GetString()
                     == "RequiredContext"
                 && relationship.GetProperty("target_path").GetString()
                     == "package-query/query/facets/library-target");

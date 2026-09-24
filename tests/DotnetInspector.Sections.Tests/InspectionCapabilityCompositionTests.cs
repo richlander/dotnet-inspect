@@ -285,6 +285,190 @@ public sealed class InspectionCapabilityCompositionTests
                     == PackageQueryCapabilityResourcePaths.Route);
     }
 
+    [Fact]
+    public void ConsumerBindingExplanationPreservesExposedFacetSubset()
+    {
+        ResourceExplanationCatalog readme =
+            CreateExplanationForBinding(
+                PackageQuery.TermBindingIdentity(
+                    PackageQuery.ReadmeTermKey));
+        ResourceExplanationCatalog literal =
+            CreateExplanationForBinding(
+                PackageQuery.TermBindingIdentity(
+                    PackageQuery.LibraryLiteralTermKey));
+        ResourceExplanationIdentity.Capability bindingIdentity =
+            CapabilityIdentity(
+                InspectionCapabilityResourceKind.ConsumerBinding,
+                "test/binding");
+
+        Assert.Contains(
+            readme.Relationships,
+            relationship =>
+                relationship.Source == bindingIdentity
+                && relationship.RelationshipKind
+                    == ResourceExplanationRelationshipKind.Exposes
+                && relationship.TargetPath
+                    == PackageQueryCapabilityResourcePaths.QueryFacet(
+                        PackageQuery.ReadmeTermKey));
+        Assert.DoesNotContain(
+            readme.Relationships,
+            relationship =>
+                relationship.Source == bindingIdentity
+                && relationship.RelationshipKind
+                    == ResourceExplanationRelationshipKind.Exposes
+                && relationship.TargetPath
+                    == PackageQueryCapabilityResourcePaths.QueryFacet(
+                        PackageQuery.LibraryLiteralTermKey));
+        Assert.Contains(
+            literal.Relationships,
+            relationship =>
+                relationship.Source == bindingIdentity
+                && relationship.RelationshipKind
+                    == ResourceExplanationRelationshipKind.Exposes
+                && relationship.TargetPath
+                    == PackageQueryCapabilityResourcePaths.QueryFacet(
+                        PackageQuery.LibraryLiteralTermKey));
+    }
+
+    [Fact]
+    public void SharedQuerySpaceProjectsMembershipOncePerFacet()
+    {
+        var alternateRoute =
+            new InspectionRouteRegistration<
+                PackageQueryInspectionRequest,
+                PackageQueryDocument>(
+                new(
+                    "package-query/alternate",
+                    "Alternate Package Query",
+                    "A second route over the Package Query surface."),
+                PackageQueryCapability.Document,
+                PackageQuery.QuerySpace,
+                PackageQueryCapability.Route.ExecuteAsync,
+                PackageQueryCapability.Route.QueryTermRelationships);
+        InspectionCapabilityCatalog catalog =
+            InspectionCapabilityCatalog.Create(
+                [
+                    new(
+                        "test/shared-query-space",
+                        documents: [PackageQueryCapability.Document],
+                        routes:
+                        [
+                            PackageQueryCapability.Route,
+                            alternateRoute,
+                        ]),
+                ]);
+
+        ResourceExplanationCatalog explanation =
+            ResourceExplanationCatalog.CreateCapabilities(
+                catalog,
+                SharedQuerySpacePaths(catalog, alternateRoute));
+        ResourceExplanationIdentity.Capability querySpaceIdentity =
+            CapabilityIdentity(
+                InspectionCapabilityResourceKind.QuerySpace,
+                PackageQuery.QuerySpace.Descriptor.Identity);
+        ResourceExplanationIdentity.Capability literalIdentity =
+            CapabilityIdentity(
+                InspectionCapabilityResourceKind.QueryFacet,
+                PackageQuery.TermBindingIdentity(
+                    PackageQuery.LibraryLiteralTermKey),
+                PackageQuery.QuerySpace.Descriptor.Identity);
+
+        Assert.Equal(
+            1,
+            explanation.Relationships.Count(relationship =>
+                relationship.Source == querySpaceIdentity
+                && relationship.RelationshipKind
+                    == ResourceExplanationRelationshipKind.QueryFacet
+                && relationship.Target == literalIdentity));
+        Assert.Equal(
+            2,
+            explanation.Relationships.Count(relationship =>
+                relationship.Source == literalIdentity
+                && relationship.RelationshipKind
+                    == ResourceExplanationRelationshipKind.Route));
+        Assert.Equal(
+            1,
+            explanation.Relationships.Count(relationship =>
+                relationship.Source == literalIdentity
+                && relationship.RelationshipKind
+                    == ResourceExplanationRelationshipKind.RequiredContext));
+    }
+
+    private static ResourceExplanationCatalog CreateExplanationForBinding(
+        string exposedTerm)
+    {
+        InspectionConsumerBinding<
+            PackageQueryInspectionRequest,
+            PackageQueryDocument> binding = Binding(exposedTerm);
+        InspectionCapabilityCatalog catalog =
+            InspectionCapabilityCatalog.Create(
+                [
+                    PackageQueryCapability.ProductModule,
+                    new("test/consumer", bindings: [binding]),
+                ]);
+        return ResourceExplanationCatalog.CreateCapabilities(
+            catalog,
+            PackageQueryCapabilityResourcePaths.Create(catalog));
+    }
+
+    private static InspectionConsumerBinding<
+        PackageQueryInspectionRequest,
+        PackageQueryDocument> Binding(string exposedTerm) =>
+        new(
+            new(
+                "test/binding",
+                InspectionConsumerKind.Cli,
+                "Test CLI",
+                "package query"),
+            PackageQueryCapability.Route,
+            [exposedTerm]);
+
+    private static IEnumerable<
+        InspectionCapabilityResourcePathRegistration> SharedQuerySpacePaths(
+        InspectionCapabilityCatalog catalog,
+        InspectionRouteRegistration alternateRoute)
+    {
+        yield return new(
+            new(
+                InspectionCapabilityResourceKind.Document,
+                PackageQueryCapability.Document.Descriptor.Identity),
+            PackageQueryCapabilityResourcePaths.Document);
+        foreach (InspectionRouteRegistration route in catalog.Routes)
+        {
+            yield return new(
+                new(
+                    InspectionCapabilityResourceKind.Route,
+                    route.Descriptor.Identity),
+                ReferenceEquals(route, alternateRoute)
+                    ? PackageQueryCapabilityResourcePaths.Document.Append(
+                        "routes",
+                        "alternate")
+                    : PackageQueryCapabilityResourcePaths.Route);
+        }
+        yield return new(
+            new(
+                InspectionCapabilityResourceKind.QuerySpace,
+                PackageQuery.QuerySpace.Descriptor.Identity),
+            PackageQueryCapabilityResourcePaths.QuerySpace);
+        foreach (QuerySpace.Composition.QuerySpaceOperationTermDescriptor term
+                 in PackageQuery.QuerySpace.Descriptor.Operation.Terms)
+        {
+            yield return new(
+                new(
+                    InspectionCapabilityResourceKind.QueryFacet,
+                    term.Identity,
+                    PackageQuery.QuerySpace.Descriptor.Identity),
+                PackageQueryCapabilityResourcePaths.QueryFacet(term.Key));
+        }
+    }
+
+    private static ResourceExplanationIdentity.Capability
+        CapabilityIdentity(
+            InspectionCapabilityResourceKind kind,
+            string identity,
+            string? parentIdentity = null) =>
+        new(new(kind, identity, parentIdentity));
+
     private static InspectionDocumentRegistration<string> Document(
         string identity) =>
         new(

@@ -654,36 +654,51 @@ public sealed class ResourceExplanationCatalog
                         term)];
                 AddRelationship(
                     relationships,
-                    querySpaceIdentity,
-                    ResourceExplanationRelationshipKind.QueryFacet,
-                    facetIdentity,
-                    paths[QueryFacetIdentity(
-                        route.QuerySpace,
-                        term)]);
-                AddRelationship(
-                    relationships,
                     facetIdentity,
                     ResourceExplanationRelationshipKind.Route,
                     routeIdentity,
                     paths[RouteIdentity(route)]);
             }
+        }
 
+        foreach (QuerySpaceBinding querySpace in querySpaces)
+        {
+            ResourceExplanationIdentity.Capability querySpaceIdentity =
+                identities[QuerySpaceIdentity(querySpace)];
+            foreach (QuerySpaceOperationTermDescriptor term
+                     in querySpace.Descriptor.Operation.Terms)
+            {
+                ResourceExplanationIdentity.Capability facetIdentity =
+                    identities[QueryFacetIdentity(querySpace, term)];
+                AddRelationship(
+                    relationships,
+                    querySpaceIdentity,
+                    ResourceExplanationRelationshipKind.QueryFacet,
+                    facetIdentity,
+                    paths[QueryFacetIdentity(querySpace, term)]);
+            }
+
+            IEnumerable<InspectionQueryTermRelationship> termRelationships =
+                catalog.Routes
+                    .Where(route =>
+                        ReferenceEquals(route.QuerySpace, querySpace))
+                    .SelectMany(static route =>
+                        route.QueryTermRelationships)
+                    .Distinct();
             foreach (InspectionQueryTermRelationship termRelationship
-                     in route.QueryTermRelationships)
+                     in termRelationships)
             {
                 QuerySpaceOperationTermDescriptor source =
-                    route.QuerySpace.Descriptor.Operation.Terms.Single(
+                    querySpace.Descriptor.Operation.Terms.Single(
                         term => term.Identity
                             == termRelationship.SourceTerm);
                 QuerySpaceOperationTermDescriptor target =
-                    route.QuerySpace.Descriptor.Operation.Terms.Single(
+                    querySpace.Descriptor.Operation.Terms.Single(
                         term => term.Identity
                             == termRelationship.TargetTerm);
                 AddRelationship(
                     relationships,
-                    identities[QueryFacetIdentity(
-                        route.QuerySpace,
-                        source)],
+                    identities[QueryFacetIdentity(querySpace, source)],
                     termRelationship.Kind switch
                     {
                         InspectionQueryTermRelationshipKind
@@ -693,12 +708,8 @@ public sealed class ResourceExplanationCatalog
                         _ => throw new InvalidOperationException(
                             "Unknown query-term relationship kind."),
                     },
-                    identities[QueryFacetIdentity(
-                        route.QuerySpace,
-                        target)],
-                    paths[QueryFacetIdentity(
-                        route.QuerySpace,
-                        target)]);
+                    identities[QueryFacetIdentity(querySpace, target)],
+                    paths[QueryFacetIdentity(querySpace, target)]);
             }
         }
 
@@ -720,6 +731,33 @@ public sealed class ResourceExplanationCatalog
                 ResourceExplanationRelationshipKind.ConsumerBinding,
                 bindingIdentity,
                 paths[ConsumerBindingIdentity(binding)]);
+            foreach (string exposedTerm in binding.ExposedQueryTerms)
+            {
+                QuerySpaceOperationTermDescriptor term =
+                    binding.Route.QuerySpace.Descriptor.Operation.Terms
+                        .Single(term =>
+                            term.Identity == exposedTerm);
+                ResourceExplanationIdentity.Capability facetIdentity =
+                    identities[QueryFacetIdentity(
+                        binding.Route.QuerySpace,
+                        term)];
+                ResourcePath facetPath =
+                    paths[QueryFacetIdentity(
+                        binding.Route.QuerySpace,
+                        term)];
+                AddRelationship(
+                    relationships,
+                    bindingIdentity,
+                    ResourceExplanationRelationshipKind.Exposes,
+                    facetIdentity,
+                    facetPath);
+                AddRelationship(
+                    relationships,
+                    facetIdentity,
+                    ResourceExplanationRelationshipKind.ExposedBy,
+                    bindingIdentity,
+                    paths[ConsumerBindingIdentity(binding)]);
+            }
         }
 
         return Create(resources, relationships);
