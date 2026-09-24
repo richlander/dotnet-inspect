@@ -78,6 +78,10 @@ internal sealed class LibraryBodyLiftedSourceOwnerResolver
         LiftedOwnerGroupKey,
         Lazy<LiftedOwnerGroupEvidence>>
         _liftedOwnerGroups = new();
+    readonly ConcurrentDictionary<
+        LiftedOwnerGroupKey,
+        Lazy<LiftedOwnerGroupEvidence>>
+        _scopeExpansionLiftedOwnerGroups = new();
     readonly Lazy<IReadOnlyDictionary<
         LiftedOwnerGroupKey,
         ImmutableArray<MethodDefinitionHandle>>>
@@ -123,6 +127,25 @@ internal sealed class LibraryBodyLiftedSourceOwnerResolver
             directlySelectedBody)
             == LiftedSourceOwnerResolution.Resolved;
 
+    internal bool TryResolveForScopeExpansion(
+        MethodDefinitionHandle liftedHandle,
+        MethodDefinition liftedMethod,
+        MethodIdentity liftedIdentity,
+        out AuthenticatedSourceOwner sourceOwner,
+        IReadOnlySet<int>? ownerMethodScope,
+        Func<TypeRef, bool>? ownerTypeScope,
+        bool directlySelectedBody) =>
+        Resolve(
+            liftedHandle,
+            liftedMethod,
+            liftedIdentity,
+            out sourceOwner,
+            ownerMethodScope,
+            ownerTypeScope,
+            directlySelectedBody,
+            cacheScopedGroup: true)
+            == LiftedSourceOwnerResolution.Resolved;
+
     internal LiftedSourceOwnerResolution Resolve(
         MethodDefinitionHandle liftedHandle,
         MethodDefinition liftedMethod,
@@ -130,7 +153,8 @@ internal sealed class LibraryBodyLiftedSourceOwnerResolver
         out AuthenticatedSourceOwner sourceOwner,
         IReadOnlySet<int>? ownerMethodScope = null,
         Func<TypeRef, bool>? ownerTypeScope = null,
-        bool directlySelectedBody = false)
+        bool directlySelectedBody = false,
+        bool cacheScopedGroup = false)
     {
         sourceOwner = default;
         if (!TryGetLiftedOwnerGroup(
@@ -180,7 +204,8 @@ internal sealed class LibraryBodyLiftedSourceOwnerResolver
                 ownerName,
                 directlySelectedBody
                     ? null
-                    : ownerMethodScope);
+                    : ownerMethodScope,
+                cacheScopedGroup);
         LiftedSourceOwnerResolution resolution =
             ownerGroup.Resolve(
                 liftedToken,
@@ -306,11 +331,26 @@ internal sealed class LibraryBodyLiftedSourceOwnerResolver
     LiftedOwnerGroupEvidence LiftedOwnerGroup(
         TypeDefinitionHandle ownerType,
         string ownerName,
-        IReadOnlySet<int>? ownerMethodScope)
+        IReadOnlySet<int>? ownerMethodScope,
+        bool cacheScopedGroup)
     {
         var key = new LiftedOwnerGroupKey(ownerType, ownerName);
         if (ownerMethodScope is not null)
         {
+            if (cacheScopedGroup)
+            {
+                return _scopeExpansionLiftedOwnerGroups
+                    .GetOrAdd(
+                        key,
+                        group => new Lazy<
+                            LiftedOwnerGroupEvidence>(
+                            () => BuildLiftedOwnerGroup(
+                                group,
+                                ownerMethodScope),
+                            LazyThreadSafetyMode
+                                .ExecutionAndPublication))
+                    .Value;
+            }
             return BuildLiftedOwnerGroup(
                 key,
                 ownerMethodScope);

@@ -1153,6 +1153,14 @@ public class OptimizationOpportunityFixtures
         static int AddTwo(int item) => item + 2;
     }
 
+    public static int IndirectLiftedFunction(int value)
+    {
+        return Later(value);
+
+        static int Earlier(int item) => item + 1;
+        static int Later(int item) => Earlier(item);
+    }
+
     public static bool DistinctMethodSpecsWithSharedMemberRef<T>(
         T left,
         T right)

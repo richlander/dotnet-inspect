@@ -527,7 +527,8 @@ internal sealed class LibraryBodyDeclaredSourceResolver(
                         || plan.TypeScope?.Invoke(
                             method.DeclaringType)
                             == true;
-                    if (_liftedSourceOwnerResolver.TryResolve(
+                    if (_liftedSourceOwnerResolver
+                        .TryResolveForScopeExpansion(
                             methodHandle,
                             methodDefinition,
                             method,
@@ -548,17 +549,19 @@ internal sealed class LibraryBodyDeclaredSourceResolver(
                 catch (
                     ImplementationMetricWorkLimitExceededException ex)
                 {
-                    diagnostics.Add(new AnalysisDiagnostic(
-                        ex.MethodToken,
-                        LibraryMethodAnalysisRunner
-                            .MethodLabel(
-                                _reader,
-                                typeHandle,
-                                methodHandle),
-                        ex.Message,
-                        DeclaringType: method.DeclaringType));
+                    if (!attributionBudgetExhausted)
+                    {
+                        diagnostics.Add(new AnalysisDiagnostic(
+                            ex.MethodToken,
+                            LibraryMethodAnalysisRunner
+                                .MethodLabel(
+                                    _reader,
+                                    typeHandle,
+                                    methodHandle),
+                            ex.Message,
+                            DeclaringType: method.DeclaringType));
+                    }
                     attributionBudgetExhausted = true;
-                    break;
                 }
                 catch (Exception ex)
                     when (LibraryMethodAnalysisRunner
@@ -575,8 +578,6 @@ internal sealed class LibraryBodyDeclaredSourceResolver(
                         DeclaringType: method.DeclaringType));
                 }
             }
-            if (attributionBudgetExhausted)
-                break;
         }
         ImplementationMetricWorkBudgetSnapshot? work =
             _implementationMetricWork?.Snapshot();

@@ -501,6 +501,63 @@ public sealed class LibraryBodyAnalysisExecutionTests
     }
 
     [Fact]
+    public void
+        MetricWorkBounds_PublishRetainedMappingAfterUnresolvedBody()
+    {
+        string path =
+            typeof(OptimizationOpportunityFixtures)
+                .Assembly.Location;
+        int ownerToken = MethodToken(
+            path,
+            nameof(OptimizationOpportunityFixtures),
+            nameof(OptimizationOpportunityFixtures
+                .IndirectLiftedFunction),
+            MethodAttributes.Public);
+        var limits = new ImplementationMetricWorkLimits(
+            maximumPhysicalBodies: 10,
+            maximumEncodedIlBytes: long.MaxValue,
+            maximumAttributionProbeBodies: 1,
+            maximumAttributionProbeIlBytes: long.MaxValue);
+
+        LibraryBodyAnalysisExecution execution =
+            LibraryBodyAnalysisService.ExecutePath(
+                path,
+                LibraryBodyAnalysisRequest
+                    .CreateImplementationMetrics(
+                        ImplementationMetricAnalysisRequest
+                            .CompleteProfileV1,
+                        limits,
+                        new HashSet<int> { ownerToken }));
+
+        ImplementationMetricWorkBudgetSnapshot work =
+            Assert.IsType<ImplementationMetricWorkBudgetSnapshot>(
+                execution.ImplementationMetricWork);
+        Assert.Equal(
+            ImplementationMetricWorkLimitKind
+                .AttributionProbeBodies,
+            work.AttributionExhaustedLimit);
+        Assert.Contains(
+            execution.ImplementationProfiles.Profiles,
+            profile =>
+                profile.Method.MetadataToken == ownerToken
+                && profile.EvidenceMethod.Name.Contains(
+                    "g__Later|",
+                    StringComparison.Ordinal));
+        Assert.DoesNotContain(
+            execution.ImplementationProfiles.Profiles,
+            profile =>
+                profile.Method.MetadataToken == ownerToken
+                && profile.EvidenceMethod.Name.Contains(
+                    "g__Earlier|",
+                    StringComparison.Ordinal));
+        Assert.Single(
+            execution.Receipt.Diagnostics,
+            diagnostic => diagnostic.Message.Contains(
+                "attribution-probe body limit",
+                StringComparison.Ordinal));
+    }
+
+    [Fact]
     public void ExecutePath_PublishesFocusedResultsWithOneReceipt()
     {
         LibraryBodyAnalysisExecution execution =
