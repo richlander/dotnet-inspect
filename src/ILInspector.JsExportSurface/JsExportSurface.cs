@@ -81,6 +81,23 @@ public sealed class JsExportSurface
     public IReadOnlyDictionary<ApiType, JsonWireDirection> WireDirections
         { get; init; } =
         new Dictionary<ApiType, JsonWireDirection>();
+
+    /// <summary>
+    /// Authenticated effective serializer-context defaults for discovered
+    /// types.
+    /// </summary>
+    /// <remarks>
+    /// Missing entries on declaration-only hand-composed surfaces use the
+    /// framework default, <see cref="JsonWireContextDefaultIgnoreCondition.Never"/>.
+    /// Conflicting or unsupported context evidence is retained as
+    /// <see cref="JsonWireContextDefaultIgnoreCondition.Unsupported"/>.
+    /// </remarks>
+    [JsonIgnore]
+    public IReadOnlyDictionary<
+        ApiType,
+        JsonWireContextDefaultIgnoreCondition>
+        ContextDefaultIgnoreConditions { get; init; } =
+        new Dictionary<ApiType, JsonWireContextDefaultIgnoreCondition>();
 }
 
 /// <summary>
