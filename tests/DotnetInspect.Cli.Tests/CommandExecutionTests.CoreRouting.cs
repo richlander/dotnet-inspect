@@ -143,12 +143,58 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task SectionSelection_PackagePreparseMergesCompactShortTarget()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "package",
+            "System.Text.Json@10.0.0",
+            "-S",
+            "Package Info",
+            "-SManifest",
+            "--tips",
+            "q");
+
+        Assert.True(
+            exit == 0,
+            $"Expected exit code 0, got {exit}.{Environment.NewLine}{error}");
+        Assert.Empty(error);
+        Assert.Contains(
+            "## Package Info",
+            output,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "## Manifest",
+            output,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task SectionSelection_AcceptsColonAttachedCategory()
     {
         var (exit, output, error) = await RunAppAsync(
             "library",
             "System.Text.Json",
             "--section:@Library",
+            "--tips",
+            "q");
+
+        Assert.True(
+            exit == 0,
+            $"Expected exit code 0, got {exit}.{Environment.NewLine}{error}");
+        Assert.Empty(error);
+        Assert.Contains(
+            "## Library Info",
+            output,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task SectionSelection_AcceptsCompactShortCategory()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "library",
+            "System.Text.Json",
+            "-S@Library",
             "--tips",
             "q");
 

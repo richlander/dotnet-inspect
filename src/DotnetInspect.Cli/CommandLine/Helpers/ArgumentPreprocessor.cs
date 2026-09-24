@@ -995,6 +995,13 @@ public static class ArgumentPreprocessor
                     alias,
                     out inlineValue))
                 return true;
+            if (CliArgumentOwnership.IsShortAlias(alias)
+                && arg.Length > alias.Length
+                && arg.StartsWith(alias, StringComparison.Ordinal))
+            {
+                inlineValue = arg[alias.Length..];
+                return true;
+            }
         }
         return false;
     }

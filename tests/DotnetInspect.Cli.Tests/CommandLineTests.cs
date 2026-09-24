@@ -861,6 +861,21 @@ public class CommandLineTests
     }
 
     [Fact]
+    public void PreprocessArgs_EscapesCompactAtCategorySelectValue()
+    {
+        var result = CommandLineBuilder.PreprocessArgs(
+            ["library", "Foo", "-S@Library"]);
+
+        Assert.Equal(
+            [
+                "library",
+                "Foo",
+                "-S" + DotnetInspect.Cli.CommandLine.ArgumentPreprocessor.EscapedAtCategoryPrefix + "Library",
+            ],
+            result);
+    }
+
+    [Fact]
     public void PreprocessArgs_WithKnownCommand_ReturnsUnchanged()
     {
         var args = new[] { "package", "Foo" };
@@ -1323,6 +1338,17 @@ public class CommandLineTests
     }
 
     [Fact]
+    public void PreprocessArgs_MergesRepeatedSelectWithCompactShortValue()
+    {
+        var result = CommandLineBuilder.PreprocessArgs(
+            ["package", "Foo", "-S", "Package Info", "-SManifest"]);
+
+        Assert.Equal(
+            ["package", "Foo", "-S", "Package Info;Manifest"],
+            result);
+    }
+
+    [Fact]
     public void PreprocessArgs_NormalizesInvalidRepeatedSelectToEmptyValue()
     {
         (string[] Arguments, string[] Expected)[] cases =
@@ -1344,6 +1370,9 @@ public class CommandLineTests
                 ["package", "Foo", "-S", ""]),
             (
                 ["package", "Foo", "-S", "Signals", "--section:"],
+                ["package", "Foo", "-S", ""]),
+            (
+                ["package", "Foo", "-S", "Signals", "-S;"],
                 ["package", "Foo", "-S", ""]),
         ];
 
