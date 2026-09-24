@@ -55,7 +55,7 @@ It does not own:
 - product snapshot construction, reconciliation, recommendation, or
   retained-session authority (owned by
   [Inspection Subject Navigation](inspection-subject-navigation.md)); and
-- portable field identity, packet versioning, codec, projection, or
+- Workspace portable field identity, packet versioning, codec, projection, or
   restoration semantics (owned by
   [Workspace Definitions](workspace-definitions.md) and
   [#4787](https://github.com/richlander/dotnet-inspect/issues/4787)).
@@ -74,7 +74,8 @@ This document consumes, without redefining:
 - the coordinate, subject/hierarchy menu, lens tab, and Library listbox
   targets whose focus this document resolves, as rendered by
   [Inspect Web Navigation Presentation](inspect-web-navigation-presentation.md);
-  and
+- the typed Type Explorer route intent and stable focus targets defined by
+  [Inspect Web Type Explorer](inspect-web-type-explorer.md); and
 - the persistent shell control, modal dialogs, and routed-surface
   classification defined by
   [Inspect Web Shell Interaction](inspect-web-shell-interaction.md).
@@ -246,6 +247,30 @@ identity into readable path segments merely to make them URL-addressable. A
 non-package workspace omits the `package` courtesy field rather than placing a
 local path or other sensitive coordinate in readable URL state.
 
+Type Explorer composes its dedicated route over that same authority:
+
+```text
+/type-explorer?package=System.Text.Json&w=<opaque-canonical-packet>&te=<opaque-presentation-intent>
+```
+
+The `w` packet or an exact session-history association remains the sole
+authority for the active Workspace and Type. The Browser does not repeat Type
+identity in the path or `te`, and it does not derive identity from rendered C#
+or a display name. Navigation Consumer's Type Explorer route adapter owns `te`
+as a versioned, URL-safe canonical encoding of the typed presentation intent
+supplied by Type Explorer, not another Workspace packet. Its absence means the
+Type Explorer defaults. A malformed or unsupported value produces a visible
+route-restoration failure rather than partial decoding or default fallback.
+
+The presentation intent may carry body projection, static/instance pivot,
+accessibility selection, documentation/attribute/generated-declaration
+visibility, contract focus, selected member, insight lens, and requested
+insight scope. A document-correlated selection carries the complete
+owner-issued Member or contract identity and document revision, never a
+document-local declaration ID, projection range, metadata token alone, or
+display text. Operation progress, rows, failures, completion, scroll position,
+and focus bookkeeping are not encoded.
+
 [Workspace Definitions](workspace-definitions.md) owns which workspace state
 is portable and how it is encoded, decoded, and restored, tracked by
 [#4787](https://github.com/richlander/dotnet-inspect/issues/4787). The UI
@@ -267,13 +292,14 @@ inspects compact fields.
 Browser history uses the same classification:
 
 - push a history entry for an applied explicit action that performs Home,
-  Workspace, or Diagnostics routing; opens, closes, or activates a coordinate;
-  changes package version or TFM; changes the Package, Library, Type, or Member
-  subject; or changes the active lens or Member section;
+  Workspace, Type Explorer, or Diagnostics routing; opens, closes, or activates
+  a coordinate; changes package version or TFM; changes the Package, Library,
+  Type, or Member subject; or changes the active lens or Member section;
 - replace the current entry for committed filter changes and portable overload,
-  body, or source-target refinements, plus maintenance, dedicated
-  synchronization, or non-applied outcomes whose `Synchronization required`
-  disposition posts refreshed or reconciled state; and
+  body, source-target, or Type Explorer presentation-intent refinements, plus
+  maintenance, dedicated synchronization, or non-applied outcomes whose
+  `Synchronization required` disposition posts refreshed or reconciled state;
+  and
 - adopt the browser-selected entry without calling `pushState` or
   `replaceState` when initial shared-link activation, refresh, Back, or Forward
   restores the exact requested state. If that restoration instead posts a
@@ -332,11 +358,11 @@ generations, action IDs, intent tokens, and effect authority as opaque. It does
 not mint, order, compare, or reconstruct them.
 
 A navigation destination surface is any inspection surface or routed Home,
-Workspace, or Diagnostics surface that consumes a navigation result. Its
-lifetime begins when its renderer is mounted for a returned destination and
-ends when that renderer is replaced or unmounted. Modal and transient controls
-may invoke navigation, but they do not independently consume the returned
-navigation authority.
+Workspace, Type Explorer, or Diagnostics surface that consumes a navigation
+result. Its lifetime begins when its renderer is mounted for a returned
+destination and ends when that renderer is replaced or unmounted. Modal and
+transient controls may invoke navigation, but they do not independently
+consume the returned navigation authority.
 
 Each current product result has two orthogonal classifications. Its semantic
 outcome decides what the UI presents:
@@ -623,6 +649,49 @@ otherwise to the retained surface's level-one heading, without committing a
 destination. The restarted occurrence discovery preserves that focus when its
 result replaces the catalog DOM.
 
+### Type Explorer entry and return
+
+Type Source **Explore** captures the exact current Type Source location and
+stable Explore focus target, then pushes one `/type-explorer` entry. It does
+not submit a product subject or lens navigation action, mutate the retained
+Workspace, or replace the Type Source entry. The Type Explorer route composes
+the current product-issued canonical Workspace packet with the current typed
+Type Explorer presentation intent. When the Workspace is non-projectable, the
+entry remains valid for the live session through its exact history association,
+contains no stale `w` or package courtesy fields, and refresh presents a
+visible restoration failure rather than guessing from readable URL state.
+
+Browser Back and the visible Type Explorer **Back** action use the same history
+transition. A matching in-app predecessor restores the unchanged Type Source
+entry, scroll state, and structural source controls, then focuses the stable
+Explore action when it remains rendered; otherwise focus falls back to the
+Type Source level-one heading. Forward restores the Type Explorer entry and
+focuses its heading, unless its typed intent names an exact selected Member
+whose owner-issued focus target is present, in which case that target receives
+focus. A Type Explorer entry without a matching in-app predecessor, including a
+direct or shared-link entry, uses its visible Back action to replace the route
+with the exact Type Source location projected from the same Workspace
+authority, or presents the projection or restoration failure without opening
+Home, Settings, or an approximate Type.
+
+Committed structural controls and selected-member changes replace the current
+Type Explorer entry with a new `te` value so Browser Back returns directly to
+Type Source rather than stepping through local refinements. Async insight
+progress and results do not write history. Opening or dismissing an Annotated
+Source modal does not write history; after that owner adopts an external
+opener, ordinary dismissal resolves the exact caller-issued member focus
+target within the preserved Type Explorer destination lifetime.
+
+Initial activation, refresh, Back, or Forward decodes the Workspace authority
+before admitting the Type Explorer intent. The restored Workspace must resolve
+one exact active Type whose current Type lens is Source. A missing Type, another
+lens, malformed `te`, document-revision mismatch, unavailable complete Type
+document, or stale Member identity remains visible in the Type Explorer route
+and cannot fall back to ordinary Type Source, Settings, a first matching
+member, or defaults. Only the current location intent may install the viewer
+or move focus; late document or insight work is separately suppressed by
+Operation Authority.
+
 ### Package query entry and return
 
 Package query's `/query` route is a full-bleed routed surface under
@@ -697,6 +766,32 @@ cases gate pending projection, visible failure with an unchanged predecessor,
 superseding Query navigation, and preservation of newer Search focus.
 Package-backed fallback and new entry controls on other routed surfaces are
 outside this repair.
+
+### Type Explorer route gates
+
+Before implementation claims Type Explorer navigation adoption, it must add
+and pass:
+
+- `type-explorer-navigation.test.ts`:
+  `Type Source Explore pushes one exact Type Explorer route`,
+  `Type Explorer refinements replace their current entry`,
+  `Type Explorer Back restores the exact Type Source predecessor`,
+  `Type Explorer Forward restores selected-member focus`,
+  `direct Type Explorer Back projects exact Type Source`,
+  `non-projectable Type Explorer history fails visibly on refresh`, and
+  `malformed or stale Type Explorer intent never falls back` cover canonical
+  composition, predecessor preservation, push-versus-replace classification,
+  exact focus targets, session-only history, and visible restoration failure.
+- `browser/type-explorer.spec.ts`:
+  `System.Text.Json Type Source Explore returns through history` uses the real
+  `OrderedDictionary<TKey,TValue>.Enumerator` Type Source route. It confirms
+  that Explore pushes `/type-explorer`, Back restores the unchanged Type Source
+  state and focus, Forward restores the routed heading or exact selected
+  Member, and Settings never becomes the Explore destination.
+
+These gates remain unimplemented in this design slice. The static Type
+Explorer production-adoption slice owns their production call sites and real
+Browser execution.
 
 ### Existing transition gates
 
@@ -1025,3 +1120,29 @@ outcomes.
 8. Supersede a Back restoration with Forward, then return a non-posting
    outcome for the current Forward restoration. Confirm that only the newest
    traversal serial may realign the selected entry.
+
+### Type Explorer route acceptance
+
+1. Open the real `System.Text.Json` nested generic Type in Type Source and
+   activate Explore.
+2. Confirm that one `/type-explorer` entry is pushed over the same exact
+   Workspace/Type authority and that the Type Source predecessor is unchanged.
+3. Change body projection, member pivot, accessibility, inclusion controls, and
+   selected Member. Confirm that each committed state replaces the current
+   Type Explorer entry and carries complete identity plus document revision
+   where required.
+4. Use Browser Back and confirm that the exact Type Source state returns with
+   focus on Explore or the Type Source heading fallback. Use Forward and
+   confirm that the current Type Explorer intent and exact selected-member
+   focus are restored without another history write.
+5. Refresh the Type Explorer route and confirm exact restoration. Repeat with
+   malformed presentation intent, document-revision mismatch, stale Member
+   identity, and unavailable complete Type document; confirm that each remains
+   visibly failed in Type Explorer without opening Type Source or Settings.
+6. Enter Type Explorer from a non-projectable live Workspace and confirm the
+   session history transition works without stale portable fields. Refresh and
+   confirm the visible restoration failure.
+7. Load a Type Explorer URL without an in-app predecessor and activate its
+   visible Back action. Confirm that it projects the exact Type Source
+   destination from the same Workspace authority or leaves a typed failure
+   visible; it never falls back to Home or an approximate Type.

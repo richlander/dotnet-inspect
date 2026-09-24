@@ -153,7 +153,10 @@ The resolver does not infer lowering from identity coincidences or recognize
 runtime-async IL shapes.
 Incomplete coverage, a raw/serialized mixture, an untrusted `Task<string>`
 declaration, or serializer evidence from a lifted local function or another
-method leaves `ReturnWireType` unset.
+method leaves inferred `ReturnWireType` unset. An authenticated
+`JsExportJsonOutputAttribute` may independently provide that association.
+Equal reachable serializer evidence corroborates the declaration; conflicting
+evidence fails the surface.
 
 Deserialize roots retain both their unpositioned type inventory and, when
 provable, an exact `JsExportParameterWireBinding`. A binding requires the
@@ -163,8 +166,17 @@ physical static export body. Direct loads and transparent unaddressed locals
 qualify. Transformed values, fields, call results, merged or address-taken
 locals, lifted bodies, and conflicting DTO roots do not acquire a guessed
 parameter association. If any reachable authenticated deserialize root lacks
-one exact association, the function publishes no parameter bindings; the
-unpositioned inventory remains available as diagnostic evidence. This remains
+one exact association, inferred parameter bindings are withheld; independently
+authenticated `JsExportJsonInputAttribute` bindings remain available. The
+unpositioned inventory remains diagnostic evidence.
+
+Certification is complete per export. A member with no declarations is
+certified when every observed JSON association is inferred. A member with any
+declaration is certified only when every observed JSON association is
+declared, with equal flow evidence treated as corroboration. Mixed or
+unpositionable evidence produces a certification diagnostic while retaining
+the best available bindings. The `ts-jsexport --warnings-as-errors` production
+gate rejects those diagnostics before publication. This remains
 target-language-neutral evidence; consumers decide whether a bound JSON string
 becomes an object parameter.
 

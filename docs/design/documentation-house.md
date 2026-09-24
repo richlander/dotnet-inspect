@@ -12,6 +12,11 @@ settles compiled XML documentation and documentation extracted from authored
 source over one exact shared Library reference and transferred operation lease,
 without acquiring packages, platforms, PDBs, or source bytes itself.
 
+Documentation in this contract means compiler-generated XML documentation
+companions and XML documentation comments recovered from exact SourceLink
+source. Package READMEs, package descriptions, licenses, and other package
+metadata are outside this boundary.
+
 The source-neutral request, contribution, channel-attempt, field-evidence,
 outcome, and receipt floor plus compiled-XML and authored-source settlement are
 implemented in
@@ -44,8 +49,9 @@ source-neutral operation for explicit authored or combined demand, preserves
 both terminal attempts, settles field evidence, and records the final lease
 consumer. Queries now exposes the unified settlement through a QuerySpace-
 backed documentation operation while preserving the compiled-only projection
-for existing consumers. Host adoption and remaining legacy retirement remain
-staged.
+for existing consumers. The 22-slice host-adoption and legacy-retirement plan
+is complete for the implemented channels. New routes or exact declaration-
+correspondence capabilities require separately scoped work.
 
 This is one focused new-owner effort under
 [Design Scope](../design-scope.md). It transfers one cohesive responsibility:
@@ -55,10 +61,11 @@ target, realization, view-correspondence, forwarding, and library-handoff
 authority is unchanged. Host-local documentation composition remains migration
 evidence, not the target architecture.
 
-The first production consumer is exact package-member documentation in Inspect
-Web. CLI and Browser/Wasm then converge on the same House contract. The tracker
-contains 22 ordered slices from this specification through package, platform,
-and authored-source adoption and retirement of the previous composition.
+The first production consumer was exact package-member documentation in
+Inspect Web. CLI and Browser/Wasm now share the same House contract. The
+tracker's 22 ordered slices cover the specification, package and platform
+compiled-XML adoption, package authored-source adoption, and retirement of the
+previous composition.
 
 The design depends on:
 
@@ -213,9 +220,28 @@ the display version. The netstandard path, for which PlatformHouse defines no
 family, constructs the monolithic `netstandard.dll` direct Library with its
 `netstandard.xml` companion, queries only IDs represented by that contract
 surface, and applies a bounded 32-MiB allowance for the XML document. The
-remaining CLI `SourceEnricher` path retains PDB and authored-source acquisition,
-comment search, parsing, field merging, and warnings until the authored channel
-transfers those responsibilities in slice 21.
+CLI `SourceEnricher` retains PDB acquisition, source-location projection,
+checksums, URLs, and their diagnostics. Package documentation source-text
+acquisition, comment parsing, and compiled/authored field settlement now run
+through the shared PackageQueries and DocumentationHouse operation delivered
+by slice 21.
+
+### Current production coverage
+
+| Route | Compiled XML | SourceLink-authored XML comments |
+| --- | --- | --- |
+| Package, CLI and Inspect Web | Supported | Supported for exact eligible methods when the host explicitly authorizes source work |
+| Direct Library, CLI | Supported | Not yet supported |
+| Platform reference pack, CLI and Inspect Web | Supported | Not yet supported |
+| Project or Workspace publication | Not an independent DocumentationHouse route | Not yet supported |
+
+Implicit package documentation remains compiled-only and does not authorize
+PDB discovery, source acquisition, or network work. The authored channel
+currently requires an exact eligible MethodDef, exact PDB mapping,
+checksum-verified source, and one uniquely selected CSharpText declaration.
+Types, properties, events, fields, accessors, bodyless declarations, and other
+shapes without separately owned exact correspondence remain visibly
+unavailable rather than falling back to a name or nearby source location.
 
 ## Relationship to adjacent owners
 
@@ -1066,9 +1092,10 @@ Each slice changes one owner or one production consumer. The count changes only
 through an explicit tracker update that preserves both hosts and retirement of
 the previous architecture.
 
-Issue #6497 owns compiler XML identity, bounded XML reading, and retirement of
-`XmlDocFileParser` and `BrowserXmlDocumentation`. Those are prerequisites, not
-DocumentationHouse slices, and this plan does not duplicate their retirement.
+Issue #6497 delivered compiler XML identity, bounded XML reading, and retirement
+of `XmlDocFileParser` and `BrowserXmlDocumentation`. Those completed
+prerequisites are not DocumentationHouse slices, and this plan does not
+duplicate their ownership.
 Workspace publication and consumption of reusable documentation artifacts are
 not initial scope; adding them requires a separately counted production-
 consumer slice.
@@ -1084,8 +1111,10 @@ checksum verification, and bounded CSharpText declaration selection; no
 privileged build-observer capability is required.
 
 This slice adopts combined demand, transport, presentation, and the public
-browser authored-documentation path. Issue #8155 tracks the remaining
-Inspect Web adoption and UX work rather than a separate provenance authority.
+browser authored-documentation path. Issue #8155's production
+physical-declaration capability was completed under #8342 and #8357 using
+ordinary SourceLink authorization; the superseded build-attestation path is
+not a remaining provenance requirement.
 
 The Metadata-issued subject and token identify the selected API assembly.
 Before creating an authored-source operation, Queries locates that subject's
