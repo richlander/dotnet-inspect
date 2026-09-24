@@ -72,18 +72,18 @@ public sealed class MemberCallGraphSessionTests
     static string ExternalFocusRole(
         InspectionGraphDocument document,
         InspectionGraphEdge edge) =>
-        Assert.IsType<InspectionGraphValue.Token>(
-            Assert.Single(
-                document.Characteristics,
-                characteristic =>
-                    ReferenceEquals(
-                        characteristic.Descriptor,
-                        ExternalFocusedCallGraphInspectionCatalog
-                            .EdgeRole)
-                    && characteristic.Target
-                        == InspectionGraphTarget.Edge(edge.Id))
-                .Value)
-            .Value;
+        Assert.Single(
+            Assert.IsType<InspectionGraphValue.TokenSet>(
+                Assert.Single(
+                    document.Characteristics,
+                    characteristic =>
+                        ReferenceEquals(
+                            characteristic.Descriptor,
+                            InspectionGraphFocusCatalog.Role)
+                        && characteristic.Target
+                            == InspectionGraphTarget.Edge(edge.Id))
+                    .Value)
+                .Values);
 
     [Fact]
     public async Task Callees_ScopedFirstPaint_BuildsScopedIndexOnly()
@@ -168,7 +168,7 @@ public sealed class MemberCallGraphSessionTests
                     InspectionMember(
                         document.Nodes[edge.ToNodeId]).Name)));
         Assert.Equal(
-            "boundary",
+            "exit",
             ExternalFocusRole(
                 document,
                 Assert.Single(document.Edges)));
@@ -229,7 +229,7 @@ public sealed class MemberCallGraphSessionTests
         Assert.Equal(
             [
                 ("RunOuter", "Run", "connector"),
-                ("Run", "Ping", "boundary"),
+                ("Run", "Ping", "exit"),
             ],
             document.Edges.Select(edge =>
                 (
@@ -391,8 +391,8 @@ public sealed class MemberCallGraphSessionTests
             document.Limits,
             limit => ReferenceEquals(
                 limit.Descriptor,
-                ExternalFocusedCallGraphInspectionCatalog
-                    .BoundaryClassificationIncomplete));
+                InspectionGraphFocusCatalog
+                    .ScopeClassificationIncomplete));
         Assert.Equal(
             InspectionGraphTarget.Edge(edge.Id),
             limit.Target);
@@ -426,8 +426,8 @@ public sealed class MemberCallGraphSessionTests
             document.Limits,
             limit => ReferenceEquals(
                 limit.Descriptor,
-                ExternalFocusedCallGraphInspectionCatalog
-                    .BoundaryClassificationIncomplete));
+                InspectionGraphFocusCatalog
+                    .ScopeClassificationIncomplete));
         Assert.DoesNotContain(
             document.Limits,
             limit => ReferenceEquals(
@@ -471,14 +471,14 @@ public sealed class MemberCallGraphSessionTests
                 InspectionMember(
                     document.Nodes[edge.ToNodeId]).Name));
         Assert.Equal(
-            "boundary",
+            "exit",
             ExternalFocusRole(document, edge));
         Assert.DoesNotContain(
             document.Limits,
             limit => ReferenceEquals(
                 limit.Descriptor,
-                ExternalFocusedCallGraphInspectionCatalog
-                    .BoundaryClassificationIncomplete));
+                InspectionGraphFocusCatalog
+                    .ScopeClassificationIncomplete));
     }
 
     [Fact]

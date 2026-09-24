@@ -3,7 +3,10 @@
 ## Status, owner, and claim
 
 Status: **design contract** for
-[#8403](https://github.com/richlander/dotnet-inspect/issues/8403).
+[#8403](https://github.com/richlander/dotnet-inspect/issues/8403). The
+exit-frontier subset and its first call adopter are implemented under
+[#8444](https://github.com/richlander/dotnet-inspect/issues/8444); other
+extents and focus choices remain unverified.
 
 The **Inspection Graph Focus Projection** in `DotnetInspector.Queries` owns:
 
@@ -101,12 +104,12 @@ sets, relationship selection, traversal direction, and bounds. Focus
 projection consumes those settled values after producer execution.
 
 [External-focused call topology](external-focused-call-topology.md) is the
-current call-specific analogue. It established boundary rows, deterministic
-shortest connectors, explicit unknown membership, and physical-call receipt
-preservation. This pattern generalizes those observable properties over
-Inspection Graph without transferring Call Graph's topology or identity
-contracts. A later focused adoption may retire the parallel call-only
-projection after exact parity.
+compatibility baseline for the first adopter. It established boundary rows,
+deterministic shortest connectors, explicit unknown membership, and
+physical-call receipt preservation. The shared projection generalizes those
+observable properties over Inspection Graph without transferring Call Graph's
+topology or identity contracts. #8444 proves parity and retires the parallel
+call-only projection.
 
 The conventional analogues recorded by that design remain applicable:
 
@@ -501,7 +504,7 @@ The counted production path is six focused steps:
 1. Lock this shared focus-projection contract.
 2. Adopt it for the current external-focused call view, prove exact parity for
    boundary, shortest-connector, unknown, receipt, and completeness behavior,
-   then retire the parallel call-specific projection.
+   then retire the parallel call-specific projection — #8444.
 3. Adopt owner-issued public API relationships and completeness evidence
    without redefining API visibility or signature semantics.
 4. Adopt owner-issued package and assembly affiliation for supply-chain and
@@ -543,8 +546,19 @@ The shared projection and its focused adoptions collectively gate:
     path; and
 15. equal typed results for equivalent CLI and Browser/Wasm plans.
 
-Until an adoption names its Release gate, its behavior in this section remains
-**unverified**.
+The #8444 exit-frontier adoption names these Release gates:
+
+- `InspectionGraphFocusProjectionTests` covers induced and seeded frontiers,
+  direction, deterministic connectors, cycles, unknown scope, request
+  validation, additive roles, physical receipts, and propagation of global
+  and retained-target limits and failures;
+- `MemberCallGraphSessionTests` and
+  `PackageRoleMemberCallGraphQueryTests` cover exact assembly/package
+  classification joins plus source diagnostics; and
+- `ExternalCallGraphCommandTests` covers unchanged CLI/Markout output.
+
+Other focus extents and choices in this section remain **unverified** until
+their focused adoptions name Release gates.
 
 ## Non-goals
 

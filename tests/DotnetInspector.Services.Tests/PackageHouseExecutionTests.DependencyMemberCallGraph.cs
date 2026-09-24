@@ -116,7 +116,7 @@ public sealed partial class PackageHouseExecutionTests
                 GraphMember(
                     available.Document.Graph.Nodes[edge.ToNodeId]).Name));
         Assert.Equal(
-            "boundary",
+            "exit",
             ExternalFocusRole(available.Document.Graph, edge));
         Assert.Equal(
             [
@@ -1250,17 +1250,18 @@ public sealed partial class PackageHouseExecutionTests
     private static string ExternalFocusRole(
         InspectionGraphDocument document,
         InspectionGraphEdge edge) =>
-        Assert.IsType<InspectionGraphValue.Token>(
-            Assert.Single(
-                document.Characteristics,
-                characteristic =>
-                    ReferenceEquals(
-                        characteristic.Descriptor,
-                        ExternalFocusedCallGraphInspectionCatalog.EdgeRole)
-                    && characteristic.Target
-                        == InspectionGraphTarget.Edge(edge.Id))
-                .Value)
-            .Value;
+        Assert.Single(
+            Assert.IsType<InspectionGraphValue.TokenSet>(
+                Assert.Single(
+                    document.Characteristics,
+                    characteristic =>
+                        ReferenceEquals(
+                            characteristic.Descriptor,
+                            InspectionGraphFocusCatalog.Role)
+                        && characteristic.Target
+                            == InspectionGraphTarget.Edge(edge.Id))
+                    .Value)
+                .Values);
 
     private static WorkspaceRegistrationRevision CurrentRegistrations(
         InspectionWorkspace workspace) =>

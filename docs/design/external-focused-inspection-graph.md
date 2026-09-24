@@ -1,13 +1,14 @@
 # External-focused Inspection Graph composition
 
-This document owns the Queries composition that applies
-[external-focused call topology](external-focused-call-topology.md) to one
-cross-library member call neighborhood and lowers the result into the shared
-[Inspection Graph document](inspection-graph-document.md).
+This document owns the Queries composition that applies the shared
+[Inspection Graph focus projection](inspection-graph-focus-projection.md) to
+one cross-library member call neighborhood.
 
-Implementation is tracked by
-[#7498](https://github.com/richlander/dotnet-inspect/issues/7498); the complete
-relationship experience remains
+The original composition was implemented by
+[#7498](https://github.com/richlander/dotnet-inspect/issues/7498). Its transfer
+to the shared focus owner and retirement of the parallel CallGraph model are
+tracked by [#8444](https://github.com/richlander/dotnet-inspect/issues/8444);
+the complete relationship experience remains
 [#7451](https://github.com/richlander/dotnet-inspect/issues/7451).
 
 ## Claim and owner
@@ -16,20 +17,21 @@ relationship experience remains
 
 1. classify an existing cross-library `CallGraphProjection` against the exact
    assembly generations retained by its `MemberCallGraphSession`;
-2. apply outgoing seeded external focus with the selected member as the seed;
-   and
-3. adapt every retained positive or unclassified evidence row into one
-   `InspectionGraphDocument`.
+2. adapt that already-bounded topology and every physical receipt into one
+   `InspectionGraphDocument`; and
+3. apply an outgoing seeded exit-frontier focus request with the selected
+   member as its origin.
 
 This composition is the default topology for
 `MemberCallGraphSession.CrossLibraryCalleeNeighborhood`. Ordinary `Callees`,
 `Callers`, and `CrossLibrary` views retain their existing topology.
 
-CallGraph remains the owner of boundary and shortest-connector selection.
-Workspace remains the owner of assembly-context participants and acquisition
-identity. Inspection Graph remains the owner of the shared graph document.
-Queries owns only their exact join and the resulting default for this
-cross-library operation.
+CallGraph remains the owner of call traversal, logical rows, and physical
+receipts. The shared Queries focus projection owns boundary and
+shortest-connector selection. Workspace remains the owner of assembly-context
+participants and acquisition identity. Inspection Graph remains the owner of
+the shared graph document. This composition owns only their exact join and the
+resulting default for this cross-library operation.
 
 ## Motivating scenario
 
@@ -106,34 +108,38 @@ bounds. After constructing that bounded source projection, Queries requests:
 - the exact root generation as hub; and
 - every other successfully acquired participant generation as external.
 
-The projection therefore retains every seed-reachable external boundary and
-one deterministic shortest hub-local connector to it. It does not continue
-through the external participant.
+The focus request selects the Call relationship, outgoing direction, and exit
+frontier. It therefore retains every origin-reachable external exit and one
+deterministic shortest inside-scope connector to it. It does not continue
+through the outside participant.
 
 Zero-depth or node-bound source graphs retain the primary seed and their
 existing limits without inventing a boundary.
 
 ## Inspection Graph lowering
 
-The adapted document contains every row in
-`ExternalFocusedCallGraphProjection.EvidenceRows`. Document-local node, edge,
-and occurrence ids are dense, while occurrence evidence retains the original
-CallGraph row or physical call-site identities.
+The source document contains the complete already-bounded call projection
+before focus selection. The focused result assigns dense document-local node,
+edge, and occurrence ids while preserving original CallGraph row and physical
+call-site identities.
 
-Each retained edge receives one derived
-`queries.call.external-focus-role` characteristic:
+Each retained edge receives one additive `queries.focus-role`
+characteristic:
 
-- `boundary`;
+- `exit`;
 - `connector`; or
 - `unclassified-boundary`.
 
-A row used by positive and unclassified paths is still one `connector`; the
-source-relative CallGraph row and occurrences remain singular.
+The origin node receives the `focus` role. A row used by several paths remains
+one connector; the source-relative CallGraph row and occurrences remain
+singular. The external-call CLI maps the shared `exit` role to its existing
+`boundary` output token so user-visible output remains unchanged.
 
 Every unclassified boundary also receives a targeted
-`queries.call.external-boundary-classification-incomplete` limit. This
-preserves the CallGraph result's classification boundary in the shared document
-instead of dropping the edge or converting unknown membership into absence.
+`queries.focus-scope-classification-incomplete` limit. This preserves the
+scope-classification boundary in the shared document instead of dropping the
+edge or converting unknown membership into absence. The existing CLI warning
+token remains stable at its host lowering boundary.
 
 Existing source facts remain independent:
 
@@ -159,12 +165,17 @@ mapping.
 
 ## Production path
 
-The four-step path under #7451 is:
+This composition participates in the six-step shared focus path:
 
-1. #7470: CallGraph-owned boundary and connector projection — complete.
-2. #7498: this Queries/Inspection Graph composition.
-3. #7595: CLI Graph lowers the shared document through Markout.
-4. Inspect Web consumes the same host-neutral document.
+1. #8403 locked the shared projection contract.
+2. #8444 transfers this composition to that owner and retires the CallGraph
+   projection after parity.
+3. Public API relationships and exposure decisions adopt the projection.
+4. Package and assembly affiliation adopt it independently.
+5. Typed signal decisions adopt it without moving producer semantics.
+6. Integration corridors carry the common result to both hosts; #7595's
+   existing CLI Graph path continues lowering this call result through
+   Markout, and Inspect Web consumes the same host-neutral document.
 
 The two hosts may present roles and incomplete classification differently.
 Neither host reclassifies nodes or reselects topology.
@@ -176,7 +187,7 @@ Release gates cover:
 1. direct root-to-external calls while omitting external-to-external
    continuation;
 2. a multi-edge hub-local shortest connector followed by its boundary;
-3. edge role characteristics for boundary and connector rows;
+3. shared focus roles for origin, exit, connector, and unclassified rows;
 4. outside-group endpoints retained as unclassified boundaries with a targeted
    completeness limit;
 5. exact generation matching, including ECMA-equivalent identity spellings,
@@ -186,6 +197,11 @@ Release gates cover:
 7. zero-depth and node-bound requests retaining only the primary seed and
    applicable limits; and
 8. unchanged ordinary `Callees`, `Callers`, and `CrossLibrary` views.
+
+`InspectionGraphFocusProjectionTests` owns reusable topology parity.
+`MemberCallGraphSessionTests`, `PackageRoleMemberCallGraphQueryTests`, and
+`ExternalCallGraphCommandTests` own this adopter's classification,
+composition, and host-output parity.
 
 ## Non-claims
 

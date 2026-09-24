@@ -247,7 +247,7 @@ public static class PackageRoleMemberCallGraphQuery
                     request,
                     node =>
                     {
-                        MemberCallGraphExternalFocusMembership membership =
+                        InspectionGraphScopeMembership membership =
                             ClassifyPackageMembership(
                                 participants,
                                 node,
@@ -299,7 +299,7 @@ public static class PackageRoleMemberCallGraphQuery
         return result.ToImmutable();
     }
 
-    internal static MemberCallGraphExternalFocusMembership
+    internal static InspectionGraphScopeMembership
         ClassifyPackageMembership(
         ImmutableArray<PackageAssemblyRoleParticipant> participants,
         CallGraphNode node,
@@ -319,7 +319,7 @@ public static class PackageRoleMemberCallGraphQuery
                 || !reference.IsEquivalentTo(resolution))
             {
                 package = null;
-                return MemberCallGraphExternalFocusMembership.Unknown;
+                return InspectionGraphScopeMembership.Unknown;
             }
             identity = reference;
         }
@@ -331,13 +331,13 @@ public static class PackageRoleMemberCallGraphQuery
         if (package is null || ambiguous)
         {
             package = null;
-            return MemberCallGraphExternalFocusMembership.Unknown;
+            return InspectionGraphScopeMembership.Unknown;
         }
 
         return baseline.Classify(package.PackageId)
                 is PackageSupplyChainClassification.Baseline
-            ? MemberCallGraphExternalFocusMembership.Hub
-            : MemberCallGraphExternalFocusMembership.External;
+            ? InspectionGraphScopeMembership.Inside
+            : InspectionGraphScopeMembership.Outside;
     }
 
     internal static (PackageRootIdentity? Package, bool Ambiguous)
