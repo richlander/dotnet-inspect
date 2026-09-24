@@ -86,6 +86,31 @@ public sealed class ResourceOccurrenceAnalysisTests
         Assert.True(method.IsComplete);
         Assert.Empty(method.Limitations);
         Assert.Empty(execution.ResourceOccurrences.Limitations);
+        Assert.True(execution.ResourceOwnership.WasRequested);
+        Assert.Same(
+            execution.Receipt,
+            execution.ResourceOwnership.Receipt);
+        Assert.Equal(
+            admission.Receipt,
+            execution.ResourceOwnership.AdmissionReceipt);
+        ResourceOwnershipMethodSummary summary =
+            Assert.Single(
+                execution.ResourceOwnership.Methods,
+                result =>
+                    result.Method.Name
+                    == "RentAndReturnDirectly");
+        ResourceOwnershipAcquisitionFlow ownership =
+            Assert.Single(summary.Acquisitions);
+        Assert.Same(root, ownership.Obligation);
+        Assert.Contains(
+            ownership.Uses,
+            use =>
+                use.Kind == ResourceOwnershipUseKind.Released
+                && Assert.Single(use.ResourceKinds).Identity
+                    == ArrayPoolResourceEffectModel.BufferKind);
+        Assert.Empty(execution.CallGraph.OwnershipEvidence);
+        Assert.NotEmpty(
+            execution.CallGraph.ResourceOwnershipSummaries);
     }
 
     [Fact]
@@ -511,6 +536,12 @@ public sealed class ResourceOccurrenceAnalysisTests
                 .OccurrencePopulationRejected,
             limitation.EffectResolutionRejection);
         Assert.Empty(execution.ResourceOccurrences.Methods);
+        Assert.True(execution.ResourceOwnership.WasRequested);
+        Assert.False(execution.ResourceOwnership.IsComplete);
+        Assert.NotEmpty(execution.ResourceOwnership.Methods);
+        Assert.All(
+            execution.ResourceOwnership.Methods,
+            static summary => Assert.False(summary.IsComplete));
     }
 
     [Fact]
@@ -592,6 +623,15 @@ public sealed class ResourceOccurrenceAnalysisTests
                 && limitation.Message.Contains(
                     "conflict",
                     StringComparison.Ordinal));
+        ResourceOwnershipMethodSummary unaffected =
+            Assert.Single(
+                execution.ResourceOwnership.Methods,
+                summary => summary.Method.Name == "StoreRentedArray");
+        Assert.True(unaffected.IsComplete);
+        Assert.Contains(
+            Assert.Single(unaffected.Parameters).Uses,
+            use => use.Kind == ResourceOwnershipUseKind.Stored);
+        Assert.False(execution.ResourceOwnership.IsComplete);
     }
 
     [Fact]
@@ -625,6 +665,14 @@ public sealed class ResourceOccurrenceAnalysisTests
             limitation =>
                 limitation.Kind == ResourceOccurrenceLimitationKind.ValueFlow
                 && limitation.Effect is ResourceEffect.Acquire);
+        ResourceOwnershipMethodSummary ownership =
+            Assert.Single(
+                execution.ResourceOwnership.Methods,
+                summary =>
+                    summary.Method.MetadataToken
+                        == method.Method.MetadataToken);
+        Assert.False(ownership.IsComplete);
+        Assert.False(execution.ResourceOwnership.IsComplete);
     }
 
     [Fact]

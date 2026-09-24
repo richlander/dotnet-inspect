@@ -83,6 +83,24 @@ type names such as `string`, `int`, `DateTime`, and `Guid` resolve to
 `System.Private.CoreLib`. Use explicit commands and `--package`, `--platform`,
 or `--library` when you need a specific source.
 
+After exact Type and Member lookup misses, a dotted Platform name may resolve
+as an exact namespace in its longest namesake Library. For example:
+
+```bash
+dotnet-inspect System.Text.Json.Nodes
+```
+
+is equivalent to:
+
+```bash
+dotnet-inspect library System.Text.Json \
+  --namespace System.Text.Json.Nodes
+```
+
+The Router confirms exact ordinal namespace membership before selecting this
+route. It does not use suffix or descendant matching, and broad inputs such as
+`System.Text` retain their existing Type-prefix browsing behavior.
+
 ### Library namespace Type listings
 
 An exact Library can list its public Type declarations from one exact
@@ -92,6 +110,18 @@ namespace:
 dotnet-inspect library System.Text.Json \
   --namespace System.Text.Json.Nodes
 ```
+
+Add `--children` to include the named namespace and all namespaces beneath its
+dot-segment boundary:
+
+```bash
+dotnet-inspect library System.Text.Json \
+  --namespace System.Text.Json \
+  --children
+```
+
+This includes Types from `System.Text.Json` and
+`System.Text.Json.Serialization`, but not `System.Text.Jsonish`.
 
 A leading dot selects an exhaustive namespace suffix within that same exact
 Library:
@@ -104,9 +134,10 @@ dotnet-inspect library ./MyLibrary.dll --namespace .Nodes
 `World.Green.Nodes`. It does not prepend the Library name, and it does not
 match `Nodes`, `World.Blue.MyNodes`, or `World.Blue.Nodes.More`. Markdown
 renders the matching declarations in Type tables without a separate count
-summary. `--envelope` exposes the same population's typed exact-or-suffix
-binding and continuation identity. Namesake source discovery belongs to
-Router, Spotlight, and `find`, not this exact-Library operation.
+summary. `--envelope` exposes the same population's typed exact,
+exact-or-descendant, or suffix binding and continuation identity. Namesake
+source discovery belongs to Router, Spotlight, and `find`, not this
+exact-Library operation.
 
 Use `-D --schema` to inspect the syntax-selected structural view without
 acquiring or loading the target. Package `--library` and `--all-libraries`

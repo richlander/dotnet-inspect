@@ -64,6 +64,13 @@ internal static class DirectLibraryInspectionCommand
             return 1;
         }
 
+        if (!LibraryNamespaceListingCommand.TryGetNamespaceMatch(
+                options,
+                out MetadataNamespaceMatch namespaceMatch))
+        {
+            return 1;
+        }
+
         LibraryInspectionPlan plan;
         try
         {
@@ -72,13 +79,7 @@ internal static class DirectLibraryInspectionCommand
                     LibraryTypeAccessibility.Public,
                     new(),
                     @namespace: options.TypeNamespace,
-                    namespaceMatch:
-                        options.TypeNamespace?.StartsWith(
-                            ".",
-                            StringComparison.Ordinal)
-                            is true
-                                ? MetadataNamespaceMatch.Suffix
-                                : MetadataNamespaceMatch.Exact),
+                    namespaceMatch: namespaceMatch),
                 s_bounds);
         }
         catch (ArgumentException failure)

@@ -375,6 +375,38 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task
+        BareName_ExactPlatformNamespace_RoutesToNamesakeLibrary()
+    {
+        var direct = await RunAppAsync(
+            "library",
+            "System.Text.Json",
+            "--namespace",
+            "System.Text.Json.Nodes",
+            "--framework",
+            "runtime",
+            "--tips",
+            "q");
+        var routed = await RunAppAsync(
+            "System.Text.Json.Nodes",
+            "--tips",
+            "q");
+
+        Assert.Equal(0, direct.Exit);
+        Assert.Equal(0, routed.Exit);
+        Assert.Equal(direct.Output, routed.Output);
+        Assert.Equal(direct.Error, routed.Error);
+        Assert.Contains(
+            "`System.Text.Json.Nodes.JsonArray`",
+            routed.Output,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "System.Text.Json.JsonSerializer",
+            routed.Output,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task BareName_ExactNuGetPackageId_RoutesToPackage()
     {
         var (exit, output, error) = await RunAppAsync("System.CommandLine", "--tips", "q");

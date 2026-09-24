@@ -6,6 +6,7 @@ using DotnetInspect.Cli.Inspectors;
 using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Output;
 using DotnetInspector.Packages;
+using DotnetInspector.Platforms;
 using DotnetInspector.Sections;
 using DotnetInspect.Cli.Planning;
 using DotnetInspector.Services;
@@ -648,6 +649,44 @@ public static class RouterCommandDefinition
                                 CommandError.Write(
                                     $"Platform type lookup failed ({rejected.Rejection}).");
                                 return tokens;
+                            case PlatformTypeCatalogRouteOutcome.Missing:
+                                InspectionEnvelope<
+                                    PlatformNamespaceDiscoveryOutcome>
+                                    namespaceInspection =
+                                    PlatformNamespaceDiscoveryInspection
+                                        .Execute(
+                                            completed.Catalog,
+                                            new(target),
+                                            cancellationToken);
+                                switch (namespaceInspection.Content)
+                                {
+                                    case PlatformNamespaceDiscoveryOutcome
+                                        .Found found:
+                                        PlatformNamespaceDiscoveryHit hit =
+                                            found.Hits[0];
+                                        RouterDecisionLog.Record(
+                                            "platform-namespace",
+                                            $"{target} -> "
+                                                + $"library={hit.Library}; "
+                                                + $"namespace={hit.Namespace}");
+                                        return [
+                                            "library",
+                                            hit.Library,
+                                            "--namespace",
+                                            hit.Namespace,
+                                            "--framework",
+                                            PlatformFrameworkSpec(
+                                                hit.Target),
+                                            .. tail,
+                                        ];
+                                    case PlatformNamespaceDiscoveryOutcome
+                                        .Missing:
+                                        break;
+                                    default:
+                                        throw new InvalidOperationException(
+                                            "Unknown Platform namespace route outcome.");
+                                }
+                                break;
                         }
                         break;
                     case CliPlatformTypeCatalogOutcome.NotCompleted failure:
@@ -1417,8 +1456,7 @@ public static class RouterCommandDefinition
                     resolved.Candidate.Type.ToMetadataFullName());
             string assemblyName =
                 resolved.Candidate.Assembly.Identity.Name;
-            string framework =
-                $"runtime@{resolved.Target.Version}";
+            string framework = PlatformFrameworkSpec(resolved.Target);
             return resolved.Request.MemberSelector is null
                 ? [
                     "type",
@@ -1441,6 +1479,18 @@ public static class RouterCommandDefinition
                     .. tail,
                 ];
         }
+
+        private static string PlatformFrameworkSpec(
+            PlatformTypeCatalogRouteTarget target) =>
+            target.Family switch
+            {
+                PlatformFamily.DotNetRuntime =>
+                    $"runtime@{target.Version}",
+                PlatformFamily.AspNetCore =>
+                    $"aspnetcore@{target.Version}",
+                _ => throw new InvalidOperationException(
+                    "Unknown Platform family."),
+            };
 
         private static string[] RouteExactGenericPlatformType(
             PlatformTypeLookupOutcome.Resolved resolved,

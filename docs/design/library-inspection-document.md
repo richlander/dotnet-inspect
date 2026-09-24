@@ -195,7 +195,7 @@ LibraryTypePopulationRequest
     definition Type kinds: any non-empty subset when definitions are selected
     accessibility/public-surface selection
     optional namespace selection
-      exact namespace or leading-dot suffix
+      exact namespace, exact namespace plus descendants, or leading-dot suffix
   optional Count request
   optional Rows request
 
@@ -309,12 +309,18 @@ therefore selects definitions of that kind rather than silently binding
 forwarders or guessing their target kind. The public-surface facet can select
 both definitions and forwarders from the owner-issued declaration inventory.
 
-The namespace facet has explicit exact and suffix modes. Exact mode selects
-declarations whose owner-issued structured name has exactly the requested
-namespace under ordinal comparison. It is not a textual prefix or subtree
-query: `System.Text.Json` does not select `System.Text.Json.Nodes`. An absent
-selector means every namespace; an empty exact selector means the global
-namespace.
+The namespace facet has explicit exact, exact-or-descendant, and suffix modes.
+Exact mode selects declarations whose owner-issued structured name has exactly
+the requested namespace under ordinal comparison. It is not a textual prefix
+or subtree query: `System.Text.Json` does not select
+`System.Text.Json.Nodes`. An absent selector means every namespace; an empty
+exact selector means the global namespace.
+
+Exact-or-descendant mode selects the named namespace and namespaces beneath its
+dot-segment boundary. `System.Text.Json` selects both `System.Text.Json` and
+`System.Text.Json.Nodes`, but not `System.Text.Jsonish`. The root cannot be
+empty. The CLI selects this mode only through
+`--namespace System.Text.Json --children`; exact mode remains the default.
 
 Suffix mode is selected by a leading-dot value such as `.Nodes` and exhaustively
 selects declarations whose namespace ends ordinally in that complete suffix.
@@ -602,16 +608,17 @@ Adoption is staged through focused slices:
    Unqualified Type inventory and Count include first-class definition and
    forwarder declarations; declaration-kind selections include or exclude
    them through the request facet rather than presentation-only filtering.
-5. Adopt exact and leading-dot suffix namespace Count and Rows over one
-   resolved Library, then lower source-specific namesake discovery separately.
+5. Adopt exact, exact-or-descendant, and leading-dot suffix namespace Count and
+   Rows over one resolved Library, then lower source-specific namesake
+   discovery separately.
    Router and Spotlight may stop at their source-policy match bound; `find` may
    continue to additional Library observations. None filters already-rendered
    Type rows. The first production adopter is the direct Library inspection
-   envelope, whose namespace option lowers exact values and leading-dot suffix
-   values into the typed facet without source discovery. The ordinary Library
-   CLI subsequently drains Rows from that same population and lowers them
-   through Markout Type tables; it does not reconstruct namespace membership
-   from rendered text.
+   envelope, whose namespace option lowers exact values, explicit `--children`
+   selection, and leading-dot suffix values into the typed facet without source
+   discovery. The ordinary Library CLI subsequently drains Rows from that same
+   population and lowers them through Markout Type tables; it does not
+   reconstruct namespace membership from rendered text.
 6. Expose one typed `BrowserLibraryInspectionRequest` through the #8347
    generated JSON-input facade and consume the same envelope in Inspect Web.
 7. Adopt additional Library facts and populations owner by owner, then retire
@@ -642,12 +649,15 @@ The design and implementation slices require Release gates for:
 - accessibility and kind facet Counts agree with their Rows populations;
 - exact namespace Count agrees with completely drained Rows, including
   forwarders, and returns no declarations from neighboring namespaces;
+- exact-or-descendant Count agrees with completely drained Rows, includes the
+  named namespace and its descendants, and excludes near-prefix and sibling
+  namespaces;
 - leading-dot suffix Count agrees with completely drained Rows across multiple
   namespace roots and excludes the root-only, near-name, and descendant cases;
 - the empty namespace selects the global namespace while an absent namespace
   selector remains unqualified;
-- changing namespace text or exact-versus-suffix mode rejects continuation
-  reuse;
+- changing namespace text or exact, exact-or-descendant, or suffix mode rejects
+  continuation reuse;
 - forwarder Rows retain structured names, ordered occurrence chains, exact
   terminal assembly-reference identities, Library/MVID correspondence, and no
   opener or target owner;

@@ -494,6 +494,124 @@ public sealed partial class JsExportSurfaceBuilderTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
+    public void Build_TreatsAbsentAndExplicitNeverContextDefaultsAsEquivalent(
+        bool reverseContexts)
+    {
+        ApiType absentContext = CreateSerializerContext(
+            "AbsentContext",
+            "SharedDto",
+            JsonWireNamingPolicy.None);
+        ApiType explicitNeverContext = CreateSerializerContext(
+            "ExplicitNeverContext",
+            "SharedDto",
+            JsonWireNamingPolicy.None);
+        explicitNeverContext.JsonDefaultIgnoreConditionEvidence =
+            new JsonSourceGenerationDefaultIgnoreConditionEvidence(
+                1,
+                JsonWireIgnoreCondition.Never,
+                HasUnsupportedRow: false);
+        var sharedDto = new ApiType { Name = "SharedDto" };
+        var apiSurface = new ApiSurface
+        {
+            Types = reverseContexts
+                ? [explicitNeverContext, sharedDto, absentContext]
+                : [absentContext, sharedDto, explicitNeverContext],
+        };
+
+        ILInspector.JsExportSurface.JsExportSurface surface =
+            JsExportSurfaceBuilder.Build(apiSurface);
+
+        ApiType record = Assert.Single(surface.Records);
+        Assert.Equal(
+            JsonWireContextDefaultIgnoreCondition.Never,
+            surface.ContextDefaultIgnoreConditions[record]);
+        Assert.Equal(
+            JsonWireNamingPolicy.None,
+            record.JsonPropertyNamingPolicy);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Build_MarksConflictingContextDefaultsUnsupportedRegardlessOfOrder(
+        bool reverseContexts)
+    {
+        ApiType neverContext = CreateSerializerContext(
+            "NeverContext",
+            "SharedDto",
+            JsonWireNamingPolicy.None);
+        ApiType whenWritingNullContext = CreateSerializerContext(
+            "WhenWritingNullContext",
+            "SharedDto",
+            JsonWireNamingPolicy.None);
+        whenWritingNullContext.JsonDefaultIgnoreConditionEvidence =
+            new JsonSourceGenerationDefaultIgnoreConditionEvidence(
+                1,
+                JsonWireIgnoreCondition.WhenWritingNull,
+                HasUnsupportedRow: false);
+        var sharedDto = new ApiType { Name = "SharedDto" };
+        var apiSurface = new ApiSurface
+        {
+            Types = reverseContexts
+                ? [whenWritingNullContext, sharedDto, neverContext]
+                : [neverContext, sharedDto, whenWritingNullContext],
+        };
+
+        ILInspector.JsExportSurface.JsExportSurface surface =
+            JsExportSurfaceBuilder.Build(apiSurface);
+
+        ApiType record = Assert.Single(surface.Records);
+        Assert.Equal(
+            JsonWireContextDefaultIgnoreCondition.Unsupported,
+            surface.ContextDefaultIgnoreConditions[record]);
+        Assert.Equal(
+            JsonWireNamingPolicy.Unsupported,
+            record.JsonPropertyNamingPolicy);
+    }
+
+    [Fact]
+    public void Build_RetainsUnsupportedContextDefaultDespiteMemberOverride()
+    {
+        ApiType context = CreateSerializerContext(
+            "Context",
+            "Root",
+            JsonWireNamingPolicy.None);
+        context.JsonDefaultIgnoreConditionEvidence =
+            new JsonSourceGenerationDefaultIgnoreConditionEvidence(
+                2,
+                Value: null,
+                HasUnsupportedRow: false);
+        var root = new ApiType
+        {
+            Name = "Root",
+            Members =
+            [
+                new ApiMember
+                {
+                    Name = "Value",
+                    Kind = "property",
+                    HasGetter = true,
+                    ReturnType = "string",
+                    IndexParameterCount = 0,
+                    JsonIgnoreConditions =
+                        [JsonWireIgnoreCondition.Never],
+                },
+            ],
+        };
+
+        ILInspector.JsExportSurface.JsExportSurface surface =
+            JsExportSurfaceBuilder.Build(
+                new ApiSurface { Types = [context, root] });
+
+        ApiType record = Assert.Single(surface.Records);
+        Assert.Equal(
+            JsonWireContextDefaultIgnoreCondition.Unsupported,
+            surface.ContextDefaultIgnoreConditions[record]);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
     public void Build_DoesNotTraverseConverterControlledShapes(
         bool converterIsOnType)
     {
