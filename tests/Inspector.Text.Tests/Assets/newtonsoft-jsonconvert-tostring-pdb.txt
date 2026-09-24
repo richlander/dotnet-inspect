@@ -1,0 +1,63 @@
+        public static string ToString(object? value)
+        {
+            if (value == null)
+            {
+                return Null;
+            }
+
+            PrimitiveTypeCode typeCode = ConvertUtils.GetTypeCode(value.GetType());
+
+            switch (typeCode)
+            {
+                case PrimitiveTypeCode.String:
+                    return ToString((string)value);
+                case PrimitiveTypeCode.Char:
+                    return ToString((char)value);
+                case PrimitiveTypeCode.Boolean:
+                    return ToString((bool)value);
+                case PrimitiveTypeCode.SByte:
+                    return ToString((sbyte)value);
+                case PrimitiveTypeCode.Int16:
+                    return ToString((short)value);
+                case PrimitiveTypeCode.UInt16:
+                    return ToString((ushort)value);
+                case PrimitiveTypeCode.Int32:
+                    return ToString((int)value);
+                case PrimitiveTypeCode.Byte:
+                    return ToString((byte)value);
+                case PrimitiveTypeCode.UInt32:
+                    return ToString((uint)value);
+                case PrimitiveTypeCode.Int64:
+                    return ToString((long)value);
+                case PrimitiveTypeCode.UInt64:
+                    return ToString((ulong)value);
+                case PrimitiveTypeCode.Single:
+                    return ToString((float)value);
+                case PrimitiveTypeCode.Double:
+                    return ToString((double)value);
+                case PrimitiveTypeCode.DateTime:
+                    return ToString((DateTime)value);
+                case PrimitiveTypeCode.Decimal:
+                    return ToString((decimal)value);
+#if HAVE_DB_NULL_TYPE_CODE
+                case PrimitiveTypeCode.DBNull:
+                    return Null;
+#endif
+#if HAVE_DATE_TIME_OFFSET
+                case PrimitiveTypeCode.DateTimeOffset:
+                    return ToString((DateTimeOffset)value);
+#endif
+                case PrimitiveTypeCode.Guid:
+                    return ToString((Guid)value);
+                case PrimitiveTypeCode.Uri:
+                    return ToString((Uri)value);
+                case PrimitiveTypeCode.TimeSpan:
+                    return ToString((TimeSpan)value);
+#if HAVE_BIG_INTEGER
+                case PrimitiveTypeCode.BigInteger:
+                    return ToStringInternal((BigInteger)value);
+#endif
+            }
+
+            throw new ArgumentException("Unsupported type: {0}. Use the JsonSerializer class to get the object's JSON representation.".FormatWith(CultureInfo.InvariantCulture, value.GetType()));
+        }
