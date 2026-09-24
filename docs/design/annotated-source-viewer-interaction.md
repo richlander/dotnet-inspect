@@ -218,10 +218,14 @@ body or overload and never falls back to an embedded reader.
 Ordinary **Close**, backdrop activation, or final layered Escape dismissal
 returns through the caller-issued logical focus target. The Shell Interaction
 and Navigation Consumer owners resolve that target against the current
-renderer lifetime, replace it when the caller rerenders, and apply their
-existing heading or persistent-shell fallback when the caller is destroyed.
-The request therefore carries a logical target resolved at dismissal rather
-than an element reference.
+renderer lifetime. While the issuing renderer remains current, dismissal may
+resolve the same logical opener. If Navigation Consumer replaces that
+destination renderer while the modal survives, it replaces the dismissal
+target with the newly mounted destination heading, or its existing persistent
+shell fallback when no heading is mounted. The request therefore carries a
+logical target resolved at dismissal rather than an element reference. This
+owner does not claim exact-opener restoration across full renderer
+replacement.
 
 Browser Back or Forward and committed destination navigation dismiss without
 ordinary focus return, as they do for embedded opening. A viewer-local refusal
@@ -239,8 +243,10 @@ production path. This focused adoption establishes the Annotated Source
 capability first. A later Type Explorer consumer slice supplies one exact
 body-bearing destination and stable declaration opener, then proves production
 drill-down and dismissal return with the pinned `System.Text.Json` package.
-This owner does not define that caller's projection, availability UI, or route
-state.
+That consumer either preserves its destination renderer lifetime while the
+modal is open or separately adopts a Navigation Consumer change before
+claiming exact-opener return across replacement. This owner does not define
+that caller's projection, availability UI, route state, or replacement policy.
 
 ## Annotation sets
 
@@ -649,10 +655,11 @@ Conformance requires:
   viewer-local destination refusal, returned typed navigation failure, and
   successful destination handoff;
 - shell-composition focus tests proving external ordinary dismissal resolves
-  the caller-issued logical target across caller rerender, falls back through
-  the Navigation Consumer contract after caller destruction, never focuses a
-  detached element, and is not applied for Back, Forward, committed
-  navigation, or modal replacement;
+  the caller-issued logical target while its renderer remains current, uses the
+  replacement destination heading after Navigation Consumer replaces that
+  renderer, falls back to the persistent shell target when no heading is
+  mounted, never focuses a detached element, and is not applied for Back,
+  Forward, committed navigation, or modal replacement;
 - hit tests covering pointer coordinates, keyboard activation, invocation
   precedence, discontinuous spans, deterministic tightest-node selection, and
   drag-selection non-activation;
