@@ -233,7 +233,8 @@ detection, namespace heuristic, or producer-intent inference is introduced.
 `graph libraries` owns pair-wide discovery and defaults to `Direct Use
 Clusters`. `graph cluster N` owns focused detail and defaults to exact `Call
 Sites`. Both routes require exactly two distinct local Libraries and expose
-the same explicit section catalog. Bare `-S` retains the two summary
+the same explicit section catalog. Select
+`Consumer Use Sites;Provider API Types` explicitly for the two summary
 projections.
 
 Each row exposes the directed pair, cluster ordinal and anchor tokens,

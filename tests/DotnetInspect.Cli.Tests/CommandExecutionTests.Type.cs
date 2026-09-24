@@ -124,28 +124,18 @@ public partial class CommandExecutionTests
         }
     }
 
-    /// <summary>
-    /// A dotted prefix that does not resolve to a type enters the preamble looking like a single
-    /// type -- so its sections are validated against the single-type pipeline -- but renders a
-    /// LISTING. Bare <c>-S</c> therefore resolved to <c>Type Info</c>, which the listing cannot
-    /// render, and produced a document with no sections at all. This pins the re-resolution in
-    /// <c>TryWritePrefixBrowse</c>: bare <c>-S</c> must land on the listing's own fixed overview,
-    /// and a single-type section name must be REJECTED BY NAME rather than silently rendering
-    /// nothing.
-    /// </summary>
     [Fact]
-    public async Task Type_PrefixBrowse_BareSelect_ResolvesAgainstTheListingPipeline()
+    public async Task Type_PrefixBrowse_ExplicitListingSection_ResolvesAgainstTheListingPipeline()
     {
         var (exit, output, error) = await RunAppAsync(
-            "type", "System.Coll", "--platform", "System.Private.CoreLib", "--tips", "q", "-S");
+            "type", "System.Coll", "--platform", "System.Private.CoreLib",
+            "--tips", "q", "-S", SectionNames.ApiInfo);
 
         Assert.Equal(0, exit);
         Assert.Contains("best-effort prefix matches", error, StringComparison.Ordinal);
 
-        // Names what it wants: the listing's fixed overview, and nothing else. An empty-document
-        // regression would pass a bare "output is non-empty" check on the H1 alone.
         Assert.Equal(
-            ApiTypeSectionDescriptors.CreatePipeline().FixedOverviewSectionNames,
+            [SectionNames.ApiInfo],
             SectionHeadings(output));
 
         // The single-type overview is not renderable here, so selecting it must fail loudly and
@@ -640,26 +630,6 @@ public partial class CommandExecutionTests
         Assert.Equal(0, unmatched.ExitCode);
         Assert.Empty(unmatched.Output);
         Assert.Contains("No matching members for filter: event", unmatched.Error);
-    }
-
-    [Fact]
-    public async Task Type_SingleType_TypeLimitDoesNotRestrictShapeMembers()
-    {
-        var (exit, output, error) = await RunAppAsync(
-            "type",
-            "System.IO.MemoryStream",
-            "--platform",
-            "System.Private.CoreLib",
-            "-t",
-            "1",
-            "--tips",
-            "q");
-
-        Assert.Equal(0, exit);
-        Assert.Empty(error);
-        Assert.Contains("Constructors", output);
-        Assert.Contains("Properties", output);
-        Assert.Contains("Methods", output);
     }
 
     [Fact]

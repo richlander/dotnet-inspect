@@ -808,18 +808,17 @@ establishes a coherent broader composition. `@History` is a catalog door over
 the Document, not serialized content and not a universal one-category-per-
 Document rule. The
 [section model](section-model.md#category-doors) remains authoritative; no
-computed `@All` category is introduced. Bare `-S` without Count follows the
-mode-aware default above, not pairwise Changes. The terminal's authoritative
-temporal evidence is not reduced to whichever projection a renderer selects.
+computed `@All` category is introduced. The terminal's authoritative temporal
+evidence is not reduced to whichever projection a renderer selects.
 
 For Type/Member History Count, Changed Versions is the only admitted cohort.
-With no section selector, or with bare `-S`, Count selects that cohort rather
-than the ordinary Evaluations default. An explicit selector must resolve only
-to Changed Versions; selectors including Evaluations or Transitions, including
-`-S "*"`, are rejected before acquisition, not ignored or reduced with another
-unit. This deliberately replaces the standalone Timeline's arbitrary
-selected-cohort counts at the Diff/History cutover. Ordinary row selection
-continues to expose Evaluations and Transitions without Count.
+With no section selector, Count selects that cohort rather than the ordinary
+Evaluations default. An explicit selector must resolve only to Changed
+Versions; selectors including Evaluations or Transitions, including `-S "*"`,
+are rejected before acquisition, not ignored or reduced with another unit.
+This deliberately replaces the standalone Timeline's arbitrary selected-cohort
+counts at the Diff/History cutover. Ordinary row selection continues to expose
+Evaluations and Transitions without Count.
 
 The section/query catalog is mode-aware before acquisition. Pairwise Changes,
 Analysis Diff, Implementation Diff, and Finding Transitions cannot be mixed

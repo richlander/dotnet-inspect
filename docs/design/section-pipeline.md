@@ -44,8 +44,7 @@ does not label sections as "opt-in".
 
 Categories are authored through `AddBaseCategory` and `AddCategory`.
 
-- Base categories define automatic verbosity, bare-`-S`, and flat discovery
-  scope.
+- Base categories define automatic verbosity and flat discovery scope.
 - Domain categories are explicit doors.
 - A section can belong to more than one category.
 - Membership is never inferred from a display-name prefix.
@@ -58,8 +57,8 @@ Automatic candidate selection intersects:
 - explicit-only policy.
 
 Exact section selection overrides automatic scope. Category selection expands
-to authored members before query demand is computed. Bare `-S` uses the
-fixed, network-free subset of the base union.
+to authored members before query demand is computed. Section selection always
+requires an explicit section, category, or wildcard argument.
 
 The library catalog calls `WithoutComputedPoles`; it does not expose computed
 `@All` or `@Hidden` selectors.
