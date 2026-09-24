@@ -444,18 +444,22 @@ always select the other policy explicitly.
 Insensitive presentation applies the Suppress mode with two constraints from
 line correspondence:
 
-- A `WhitespaceOnly` change whose two sides have the same number of lines, and
-  that has no `FinalLineTerminator` edit, is suppressed: its lines render as
-  unchanged context.
+- A `WhitespaceOnly` change with no `LineBreaks` and no `FinalLineTerminator`
+  edit is suppressed: its lines render as unchanged context. Every edit then
+  has equal boundary counts, so line *i* of one side corresponds to line *i*
+  of the other and the two differ only within the line or in terminator
+  spelling, which is the `diff -w` notion of an unchanged line.
 - Any other `WhitespaceOnly` change cannot pair its lines as context. The
   common case is a blank line that authored code has and decompiled code
-  lacks; a brace moved onto its own line is another. A change that adds or
-  removes the final line terminator is a third: its lines pair by count, but
-  an unterminated final line must stay changed. Such a change is hidden
-  instead: the mapped diff keeps it as a change, and formatters leave it out
-  of the rendered lines. GNU `diff -B` leaves out hunks that only add or remove
-  blank lines; hiding goes further, because it also hides a whitespace-only
-  change next to a `Changed` change, where `-B` would show it.
+  lacks; a brace moved onto its own line is another. A line re-cut keeps the
+  line count but not the correspondence: `if (c) {` after a blank line,
+  against `if (c)` then `{`, has two lines on each side and no line that
+  matches. A change that adds or removes the final line terminator pairs its
+  lines, but an unterminated final line must stay changed. Such a change is
+  hidden instead: the mapped diff keeps it as a change, and formatters leave
+  it out of the rendered lines. GNU `diff -B` leaves out hunks that only add
+  or remove blank lines; hiding goes further, because it also hides a
+  whitespace-only change next to a `Changed` change, where `-B` would show it.
 
 Moves are unaffected: a moved block is still presented as a move, and its
 whitespace-only content fact is shown only under the sensitive policy.
@@ -483,8 +487,9 @@ line level. The adopter takes the lowering from the issued changes and edits
 rather than re-deriving it.
 
 Suppress mode lowers a suppressed change to no Markout change at all. Its
-lines fall into an equal-cardinality unchanged gap, whose text Markout
-deliberately does not compare. Unified output prints context from the Before
+lines correspond one-to-one, so they fall into an unchanged gap; Markout
+accepts that correspondence claim and deliberately does not compare the text
+of an unchanged gap. Unified output prints context from the Before
 side, as `diff -w` and `git diff -w` do, so an adopter that compares decompiled
 with authored text places the authored text on the Before side where its
 command allows.
@@ -701,7 +706,9 @@ defaults and their hosts:
   selection for this endpoint pair, and S7 leaves it unchanged.
 - S7 replaces every `NormalizeBody` comparison in the probe with the pair
   outcome: Correct holds when the outcome is `Identical` or `WhitespaceOnly`.
-  Terminator spelling and a final terminator are whitespace edits, so every
+  Printer exact compares a separate printer-body extraction that differs from
+  the Correct body only in whitespace, and normalizes only line terminators;
+  terminator spelling and a final terminator are whitespace edits, so every
   Printer exact body stays Correct and the nesting holds. S7 reports a body
   that is not Correct with the line-diff facts: `Changed` lines, moved blocks,
   and `WhitespaceOnly` lines counted separately. `NormalizeBody` removes every
