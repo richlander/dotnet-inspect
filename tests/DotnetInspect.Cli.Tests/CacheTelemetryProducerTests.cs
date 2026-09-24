@@ -53,9 +53,7 @@ public sealed class CacheTelemetryProducerTests
             }
             finally
             {
-                PersistentCache.CancelAndWaitForMaintenance(Timeout.InfiniteTimeSpan);
-                if (Directory.Exists(root))
-                    Directory.Delete(root, recursive: true);
+                RestoreDefaultCache(root);
             }
         });
     }
@@ -63,14 +61,23 @@ public sealed class CacheTelemetryProducerTests
     [Fact]
     public void SymbolMissesIncludeExtensionInCategory()
     {
+        string root = Path.Combine(Path.GetTempPath(), $"cache-symbols-{Guid.NewGuid():N}");
         var observer = new CacheObservationRecorder(observation =>
             observation.Category.StartsWith("symbol-misses/", StringComparison.Ordinal));
-        using IDisposable subscription = CacheTelemetry.Subscribe(observer);
         string key = $"https://example.test/symbols/{Guid.NewGuid():N}.pdb";
+        try
+        {
+            NuGetCache.Initialize("dotnet-inspect-test", root, skipNuGetCache: true);
+            using IDisposable subscription = CacheTelemetry.Subscribe(observer);
 
-        PersistentCache.Set("symbol-misses", key, "403", extension: "forbidden");
-        _ = PersistentCache.TryGet("symbol-misses", key, extension: "forbidden");
-        _ = PersistentCache.TryGet("symbol-misses", key, extension: "miss");
+            PersistentCache.Set("symbol-misses", key, "403", extension: "forbidden");
+            _ = PersistentCache.TryGet("symbol-misses", key, extension: "forbidden");
+            _ = PersistentCache.TryGet("symbol-misses", key, extension: "miss");
+        }
+        finally
+        {
+            RestoreDefaultCache(root);
+        }
 
         Assert.Contains(
             observer.Snapshot(),
@@ -86,6 +93,18 @@ public sealed class CacheTelemetryProducerTests
                 Category: "symbol-misses/miss",
                 Result: CacheAccessResult.Miss,
             });
+    }
+
+    /// <summary>
+    /// Points the process-wide cache back at the default test root before the
+    /// test's own root is deleted, so no later test uses a deleted root.
+    /// </summary>
+    private static void RestoreDefaultCache(string root)
+    {
+        PersistentCache.CancelAndWaitForMaintenance(Timeout.InfiniteTimeSpan);
+        NuGetCache.Initialize("dotnet-inspect-test");
+        if (Directory.Exists(root))
+            Directory.Delete(root, recursive: true);
     }
 }
 
