@@ -188,6 +188,21 @@ public sealed class AssemblyInspectionSession :
         => AssemblyInspector.ExtractReferenceIdentities(_image.PEReader);
 
     /// <summary>
+    /// Produces detached Metadata-owned relation evidence over this exact image.
+    /// </summary>
+    public MetadataRelationInspectionOutcome Relations(
+        MetadataRelationInspectionRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        _image.EnsureAlive();
+        return MetadataRelationInspection.Execute(
+            _image.PEReader,
+            request,
+            cancellationToken);
+    }
+
+    /// <summary>
     /// The image's own simple assembly name and the simple names of its assembly references,
     /// read from the <c>Assembly</c> and <c>AssemblyRef</c> tables alone. Use this in preference to
     /// <see cref="AssemblyInfo"/> when only reachability by name is needed: it decodes no

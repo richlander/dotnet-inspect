@@ -1318,11 +1318,19 @@ kbd {
 }
 .metrics-treemap { min-height: 260px; }
 .metrics-treemap-cell rect { stroke: var(--bg); stroke-width: 2; }
+.metrics-treemap-cell[data-metrics-type-key] { cursor: pointer; }
+.metrics-treemap-cell[data-metrics-type-key]:is(:hover, :focus-visible) rect {
+  stroke: var(--accent); stroke-width: 4;
+}
 .metrics-treemap-label,
 .metrics-relationship-node text {
   fill: var(--text); font: 11px var(--mono); pointer-events: none;
 }
-.metrics-relationship-crossing { min-height: 230px; }
+.metrics-treemap-evidence {
+  min-height: 18px; margin: 10px 0 0; color: var(--muted);
+  font: 11px/1.5 var(--mono);
+}
+.metrics-relationship-crossing { min-height: 300px; }
 .metrics-relationship-edge {
   fill: none; opacity: .78; transition: opacity .15s ease, stroke-width .15s ease;
 }
@@ -1330,9 +1338,6 @@ kbd {
 .metrics-relationship-node circle { fill: var(--accent); stroke: var(--bg); stroke-width: 2; }
 .metrics-relationship-node text { fill: var(--muted); font-size: 10px; }
 .metrics-visual-caption { margin: 10px 0 0; color: var(--dim); font: 10px/1.5 var(--mono); }
-.metrics-detail { margin-top: 18px; border-top: 1px solid var(--line); padding-top: 12px; }
-.metrics-detail summary { color: var(--muted); cursor: pointer; font: 12px var(--mono); }
-.metrics-table { margin-top: 12px; }
 .metadata-surface-scroll > .metadata-shape-section { padding: 0; }
 .metadata-shape-section .section-title { min-height: 40px; margin: 0; padding: 0 16px; border-bottom: 1px solid var(--line); }
 .metadata-shape-section .fact-rows { border-top: 0; }
