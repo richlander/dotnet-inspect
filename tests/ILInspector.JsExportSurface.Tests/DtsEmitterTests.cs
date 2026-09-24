@@ -6,6 +6,7 @@ using System.Reflection.PortableExecutable;
 using System.Runtime.Versioning;
 using System.Text.Json;
 using System.Text.Json.Serialization.Metadata;
+using AttributeEnumFixtures;
 using ILInspector.Analysis;
 using ILInspector.JsExportSurface.Fixtures;
 using ILInspector.JsExportSurface.NestedContextConstructorFixtures;
@@ -3260,6 +3261,12 @@ public sealed class DtsEmitterTests
                 nameof(TypeScriptFixtureExports.GetInspectionEvidence));
 
         Assert.Single(surface.Functions);
+        ApiType inspectionEvidence = Assert.Single(
+            surface.Records,
+            type => type.Name == nameof(InspectionEvidence));
+        Assert.Equal(
+            JsonWireContextDefaultIgnoreCondition.WhenWritingNull,
+            surface.ContextDefaultIgnoreConditions[inspectionEvidence]);
         string dts = DtsEmitter.Emit(surface);
 
         Assert.Contains("export type JsonValue =", dts, StringComparison.Ordinal);
@@ -3326,6 +3333,230 @@ public sealed class DtsEmitterTests
         Assert.DoesNotContain(
             "  readonly Identity?:",
             dts,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void
+        Emit_BlocksContextDefaultWhenNullCapabilityIsUnresolved()
+    {
+        using FileStream stream = File.OpenRead(
+            typeof(UnresolvedCollectionJsonOptionsContext)
+                .Assembly.Location);
+        using var peReader = new PEReader(stream);
+        ApiSurface apiSurface = ApiSurfaceExtractor.Extract(
+            peReader,
+            includeAll: true);
+        ApiType context = Assert.Single(
+            apiSurface.Types,
+            type => type.Name
+                == nameof(UnresolvedCollectionJsonOptionsContext));
+        ApiType payload = Assert.Single(
+            apiSurface.Types,
+            type => type.Name
+                == nameof(UnresolvedCollectionPayload));
+        apiSurface.Types = [context, payload];
+        ILInspector.JsExportSurface.JsExportSurface surface =
+            JsExportSurfaceBuilder.Build(apiSurface);
+        var diagnostics = new TypeScriptGenerationDiagnostics();
+
+        string dts = DtsEmitter.Emit(surface, diagnostics);
+
+        Assert.Contains(
+            "export type UnresolvedCollectionPayload = unknown;",
+            dts,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            diagnostics.UnmappedTypes,
+            diagnostic =>
+                diagnostic.Location
+                    == "UnresolvedCollectionPayload JSON wire shape"
+                && diagnostic.CSharpType
+                    == "unsupported wire-shaping attributes or inheritance");
+        Assert.Equal(
+            "{}",
+            JsonSerializer.Serialize(
+                new UnresolvedCollectionPayload(Items: null),
+                UnresolvedCollectionJsonOptionsContext.Default
+                    .UnresolvedCollectionPayload));
+    }
+
+    [Fact]
+    public void Emit_BlocksUnsupportedContextDefaultDespiteMemberOverride()
+    {
+        var diagnostics = new TypeScriptGenerationDiagnostics();
+        var record = new ApiType
+        {
+            Name = "Payload",
+            Members =
+            [
+                new ApiMember
+                {
+                    Name = "Value",
+                    Kind = "property",
+                    HasGetter = true,
+                    IndexParameterCount = 0,
+                    ReturnType = "string",
+                    JsonIgnoreConditions =
+                        [JsonWireIgnoreCondition.Never],
+                },
+            ],
+        };
+        var surface = new ILInspector.JsExportSurface.JsExportSurface
+        {
+            Records = [record],
+            WireDirections = new Dictionary<
+                ApiType,
+                JsonWireDirection>
+            {
+                [record] = JsonWireDirection.Serialize,
+            },
+            ContextDefaultIgnoreConditions =
+                new Dictionary<
+                    ApiType,
+                    JsonWireContextDefaultIgnoreCondition>
+                {
+                    [record] =
+                        JsonWireContextDefaultIgnoreCondition.Unsupported,
+                },
+        };
+
+        string dts = DtsEmitter.Emit(surface, diagnostics);
+
+        Assert.Contains(
+            "export type Payload = unknown;",
+            dts,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            diagnostics.UnmappedTypes,
+            diagnostic =>
+                diagnostic.Location
+                    == "Payload JsonSerializerContext options"
+                && diagnostic.CSharpType
+                    == "unsupported wire-shaping options");
+    }
+
+    [Fact]
+    public void Emit_BlocksBidirectionalContextDefaultConditionalRecord()
+    {
+        var diagnostics = new TypeScriptGenerationDiagnostics();
+        var record = new ApiType
+        {
+            Name = "Payload",
+            Members =
+            [
+                new ApiMember
+                {
+                    Name = "Value",
+                    Kind = "property",
+                    HasGetter = true,
+                    IndexParameterCount = 0,
+                    ReturnType = "string",
+                },
+            ],
+        };
+        var surface = new ILInspector.JsExportSurface.JsExportSurface
+        {
+            Records = [record],
+            WireDirections = new Dictionary<
+                ApiType,
+                JsonWireDirection>
+            {
+                [record] = JsonWireDirection.Both,
+            },
+            ContextDefaultIgnoreConditions =
+                new Dictionary<
+                    ApiType,
+                    JsonWireContextDefaultIgnoreCondition>
+                {
+                    [record] =
+                        JsonWireContextDefaultIgnoreCondition.WhenWritingNull,
+                },
+        };
+
+        string dts = DtsEmitter.Emit(surface, diagnostics);
+
+        Assert.Contains(
+            "export type Payload = unknown;",
+            dts,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            diagnostics.UnmappedTypes,
+            diagnostic =>
+                diagnostic.Location == "Payload JSON wire shape"
+                && diagnostic.CSharpType
+                    == "serialization and deserialization member sets differ on a bidirectional type");
+    }
+
+    [Fact]
+    public void Emit_RejectsUnsupportedPolymorphicMemberPresence()
+    {
+        var root = new ApiType
+        {
+            Name = "Outcome",
+            JsonPropertyNamingPolicy = JsonWireNamingPolicy.None,
+        };
+        var caseType = new ApiType
+        {
+            Name = "AvailableOutcome",
+            JsonPropertyNamingPolicy = JsonWireNamingPolicy.None,
+            Members =
+            [
+                new ApiMember
+                {
+                    Name = "Items",
+                    Kind = "property",
+                    HasGetter = true,
+                    IndexParameterCount = 0,
+                    ReturnType =
+                        "System.Collections.Generic.List<string>",
+                },
+            ],
+        };
+        var surface = new ILInspector.JsExportSurface.JsExportSurface
+        {
+            PolymorphicUnions =
+            [
+                new JsExportPolymorphicUnion
+                {
+                    Definition = root,
+                    TypeDiscriminatorPropertyName = "kind",
+                    Cases =
+                    [
+                        new JsExportPolymorphicCase
+                        {
+                            Definition = caseType,
+                            TypeDiscriminator = "available",
+                        },
+                    ],
+                },
+            ],
+            ContextDefaultIgnoreConditions =
+                new Dictionary<
+                    ApiType,
+                    JsonWireContextDefaultIgnoreCondition>
+                {
+                    [root] =
+                        JsonWireContextDefaultIgnoreCondition.WhenWritingNull,
+                    [caseType] =
+                        JsonWireContextDefaultIgnoreCondition.WhenWritingNull,
+                },
+            WireDirections = new Dictionary<
+                ApiType,
+                JsonWireDirection>
+            {
+                [root] = JsonWireDirection.Serialize,
+                [caseType] = JsonWireDirection.Serialize,
+            },
+        };
+
+        UnsupportedWireContractException exception =
+            Assert.Throws<UnsupportedWireContractException>(
+                () => DtsEmitter.Emit(surface));
+
+        Assert.Contains(
+            "effective JSON member presence is unsupported",
+            exception.Message,
             StringComparison.Ordinal);
     }
 

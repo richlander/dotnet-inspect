@@ -333,48 +333,60 @@ function combinedDocumentation(): DocumentationQueryOutcome {
 }
 
 function combinedDocumentationWithoutFields(
-  authoredSource: Extract<
-    DocumentationQueryOutcome,
-    { readonly kind: "completed" }
-  >["authoredSource"],
+  authoredSource: NonNullable<
+    Extract<
+      DocumentationQueryOutcome,
+      { readonly kind: "completed" }
+    >["authoredSource"]
+  >,
 ): DocumentationQueryOutcome {
   const outcome = combinedDocumentation();
   assert.equal(outcome.kind, "completed");
+  const { fields } = outcome;
+  assert.ok(fields);
+  assert.ok(fields.summary);
+  assert.ok(fields.remarks);
+  assert.ok(fields.returns);
+  assert.ok(fields.exceptions);
+  assert.ok(fields.samples);
   return {
     ...outcome,
     compiledXml: absentDocumentation(),
     authoredSource,
     fields: {
       summary: {
-        ...outcome.fields.summary,
+        ...fields.summary,
         kind: "Absent",
         contributions: [],
       },
       remarks: {
-        ...outcome.fields.remarks,
+        ...fields.remarks,
         kind: "Absent",
         contributions: [],
       },
       returns: {
-        ...outcome.fields.returns,
+        ...fields.returns,
         kind: "Absent",
         contributions: [],
       },
-      parameters: outcome.fields.parameters.map(parameter => ({
-        ...parameter,
-        evidence: {
-          ...parameter.evidence,
-          kind: "Absent",
-          contributions: [],
-        },
-      })),
+      parameters: fields.parameters.map(parameter => {
+        assert.ok(parameter.evidence);
+        return {
+          ...parameter,
+          evidence: {
+            ...parameter.evidence,
+            kind: "Absent",
+            contributions: [],
+          },
+        };
+      }),
       exceptions: {
-        ...outcome.fields.exceptions,
+        ...fields.exceptions,
         kind: "Absent",
         contributions: [],
       },
       samples: {
-        ...outcome.fields.samples,
+        ...fields.samples,
         kind: "Absent",
         contributions: [],
       },
@@ -747,6 +759,48 @@ test("combined documentation applies ordered field settlement", async () => {
   assert.equal(state.memberDocumentationError, "");
 });
 
+test("missing completed documentation fields remain visible and retryable", async () => {
+  const overload = memberSurface();
+  const outcome = combinedDocumentation();
+  assert.equal(outcome.kind, "completed");
+  assert.ok(outcome.fields);
+  const { summary: _, ...incompleteFields } = outcome.fields;
+  const state = inspectionState();
+  const coordinator = createMemberDetailInspectionCoordinator(
+    inspectionDependencies(state, {
+      queryDocumentation: async () => ({
+        ...outcome,
+        fields: incompleteFields,
+      }),
+    }));
+
+  await coordinator.loadDocumentation(documentationRequest(overload));
+
+  assert.equal(overload.documentationLoaded, undefined);
+  assert.equal(
+    state.memberDocumentationError,
+    "The documentation response was incomplete.");
+});
+
+test("missing available documentation remains visible and retryable", async () => {
+  const overload = memberSurface();
+  const outcome = availableDocumentation();
+  assert.equal(outcome.kind, "available");
+  const { documentation: _, ...incompleteOutcome } = outcome;
+  const state = inspectionState();
+  const coordinator = createMemberDetailInspectionCoordinator(
+    inspectionDependencies(state, {
+      queryDocumentation: async () => incompleteOutcome,
+    }));
+
+  await coordinator.loadDocumentation(documentationRequest(overload));
+
+  assert.equal(overload.documentationLoaded, undefined);
+  assert.equal(
+    state.memberDocumentationError,
+    "The documentation response was incomplete.");
+});
+
 test("documentation hydration mutates only the application projection", async () => {
   const wire = wireMemberSurface();
   const overload = createAppMemberSurface(wire);
@@ -797,7 +851,6 @@ test("authored failure remains visible and retryable after compiled absence", as
           ? combinedDocumentationWithoutFields({
               kind: "failed",
               reason: "SourceFailed",
-              observation: null,
             })
           : combinedDocumentation();
       },
