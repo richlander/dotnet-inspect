@@ -8,7 +8,7 @@ realization asks a ranged read for**. It is a slice of
 is that assemblies a person or an agent inspects all day do not cost network
 all day.
 
-The claim has three parts:
+The claim has four parts:
 
 - **Asset demand.** A House request carries an asset demand. `Surface` asks
   for the compile surface only: the reference or compile assets the
@@ -28,6 +28,9 @@ The claim has three parts:
   blocks of about 1 MB, derived from the archive alone, instead of whole
   folders. A large implementation folder, such as a runtime pack's 172
   assemblies, then costs the blocks an inspection actually names.
+- **Documents are named directly.** A document demand names exact entries or
+  folders, such as the root `README.md` or a skill folder, and a ranged
+  `Acquire` may carry it. Ranged content serves the House's pull reads.
 
 This document transfers one claim from the
 [package source model](package-source-model.md#ranged-payload-realization):
@@ -213,6 +216,33 @@ Counting assemblies instead of bytes was measured and rejected. With
 8-assembly blocks, `System.Linq` reads 2.67 MB and `System.Collections`
 1.74 MB, because a large neighbour shares the block.
 
+### Document demand
+
+A host that needs package documents rather than assets, such as the root
+`README.md` or a `skills/<name>/SKILL.md`, names them directly: a set of exact
+entry paths and folder prefixes. A document demand needs no asset
+realization, so a ranged `Acquire` operation may carry one. Without a
+document demand, ranged access still requires a `Realize` operation.
+
+A document read fetches:
+
+- the package's root folder, whole, which holds the `.nuspec` a README chosen
+  by role needs;
+- the folder of each named entry, whole, under the folder unit above; and
+- each named folder, whole, as a skill folder with its assets.
+
+A named entry the archive's directory does not list is a visible failure,
+not an empty success. [Size first](package-cache-policy.md#size-first) and
+the [entry cache](package-cache-policy.md#the-entry-cache) apply unchanged:
+an archive under the cut is acquired complete, and a warm document read makes
+no request.
+
+Ranged content supports the House's
+[pull-based payload reads](package-house.md#pull-based-acquired-payload-reads)
+for its materialized entries, whose bytes the archive reader has already
+checked against the directory's declared length and CRC. Opening an entry
+that was not read stays a visible refusal.
+
 ### Per-command demand
 
 | Command | Demand | Access at this head |
@@ -242,6 +272,11 @@ All gates run in Release.
 | 8. An entry larger than the budget | one block holding that entry alone | `PackageEntryBlocksTests`: blocks tile the folder without gap or overlap, whatever the input order |
 | 9. A name that selects no implementation asset | a visible realization failure | `PackageRangedRealizationTests.NamedImplementation_NameSelectingNothing_FailsVisibly` (House `NoMatch`) and `PackageRootAcquisitionTests.AssetDemand_NamedRootRealizesOnlyItsNames` (Root `PackageImplementationNameException`) |
 | 10. A named asset in a folder already read whole as the surface | no block and no extra request: the named read equals the unnamed read | `PackageRangedRealizationTests.NamedImplementation_FolderAlreadyReadAsSurface_AddsNoBlock`, a boundary fixture with interleaved `lib/net8.0` and `lib/net10.0` folders and no `ref/` |
+| 11. A root `README.md` export from an archive above the cut | size probe, tail, and one span for the root folder; output byte-identical to the complete path | CLI harness, real asset |
+| 12. A `skills/<name>/SKILL.md` export | the root folder and that skill folder only | CLI harness |
+| 13. The same export twice from a credential-free HTTP feed | the second makes no package request | CLI harness |
+| 14. A named entry the directory does not list | a visible failure | contract suite |
+| 15. A pull read of a ranged entry that was not read | a visible refusal | contract suite |
 
 ## Adoption
 
@@ -258,8 +293,11 @@ All gates run in Release.
    [package-backed platform source](package-backed-platform-realization.md)
    no longer reads every member's identity at realization. That change belongs
    to its owner.
+6. Document demand and pull reads over ranged content, adopted by the exact
+   `package --content --out` export of a root `README.md` or
+   `skills/**/SKILL.md` path.
 
-`package` keeps complete acquisition.
+`package` keeps complete acquisition, except its document export (step 6).
 
 ## Non-claims
 

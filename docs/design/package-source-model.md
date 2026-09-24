@@ -1030,8 +1030,9 @@ and returns them as ranged content.
 
 The PackageHouse supplies the selection and bounds it. A host sets ranged
 access on its `PackagePayloadAcquisitionPlan`; ranged access requires a
-`Realize` operation, and an `Acquire` operation with it is refused before any
-source work. The selection is the assets that operation's realization
+`Realize` operation, or an `Acquire` operation that carries a
+[document demand](package-read-demand.md#document-demand), and any other
+`Acquire` with it is refused before any source work. The selection is the assets that operation's realization
 selects over the directory for its asset demand, expanded to their folders,
 as [package read demand](package-read-demand.md) owns, so the realization
 receipt is evaluated over the same content and names only materialized

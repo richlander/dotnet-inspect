@@ -766,7 +766,9 @@ no adapter and retain their current behavior. Host adoption must begin from a
 live House settlement rather than wrapping an already materialized `byte[]` or
 legacy file read in a stream. Package content that does not implement the
 internal House pull capability fails visibly; the House does not fall back to
-the legacy eager entry-opening contract. Filesystem content additionally
+the legacy eager entry-opening contract. Ranged content implements it for its
+materialized entries, as [package read demand](package-read-demand.md#document-demand)
+owns. Filesystem content additionally
 requires a retained package archive: its declared entry size and CRC validate
 the extracted-file stream, while archive-less content is visibly unsupported.
 
