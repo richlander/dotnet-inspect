@@ -622,6 +622,17 @@ public static class CSharpDeclarationRepresentability
                     parameterNames[index]));
         }
 
+        if (!NamedTypeSpellingsAreUnambiguous(
+                containingIdentity,
+                relationship.DeclarationOwner,
+                declaration.Signature))
+        {
+            return Unavailable(
+                post,
+                CSharpDeclarationUnavailableReason
+                    .OutsideInitialBoundary);
+        }
+
         if (profile.Version < CSharpLanguageVersion.CSharp11)
         {
             return Refuse(
@@ -943,6 +954,98 @@ public static class CSharpDeclarationRepresentability
 
         spelling = source is null ? null : new(source);
         return spelling is not null;
+    }
+
+    internal static bool NamedTypeSpellingsAreUnambiguous(
+        MetadataTypeIdentity containingType,
+        MetadataTypeIdentity explicitInterface,
+        MetadataMethodSignatureIdentity signature)
+    {
+        ArgumentNullException.ThrowIfNull(containingType);
+        ArgumentNullException.ThrowIfNull(explicitInterface);
+        ArgumentNullException.ThrowIfNull(signature);
+
+        var definitions =
+            new Dictionary<string, MetadataNamedTypeIdentity>(
+                StringComparer.Ordinal);
+        return AddNamedDefinitions(containingType, definitions)
+            && AddNamedDefinitions(explicitInterface, definitions)
+            && AddNamedDefinitions(signature.ReturnType, definitions)
+            && signature.ParameterTypes.All(
+                type => AddNamedDefinitions(type, definitions));
+    }
+
+    static bool AddNamedDefinitions(
+        MetadataTypeIdentity identity,
+        Dictionary<string, MetadataNamedTypeIdentity> definitions)
+    {
+        switch (identity)
+        {
+            case MetadataTypeIdentity.Named named:
+                return AddNamedDefinition(
+                    named.Definition,
+                    definitions);
+            case MetadataTypeIdentity.GenericInstance generic:
+                return AddNamedDefinition(
+                        generic.Definition,
+                        definitions)
+                    && generic.Arguments.All(
+                        argument => AddNamedDefinitions(
+                            argument,
+                            definitions));
+            case MetadataTypeIdentity.SzArray array:
+                return AddNamedDefinitions(
+                    array.Element,
+                    definitions);
+            default:
+                return true;
+        }
+    }
+
+    static bool AddNamedDefinition(
+        MetadataNamedTypeIdentity definition,
+        Dictionary<string, MetadataNamedTypeIdentity> definitions)
+    {
+        string key = NamedDefinitionSpellingKey(definition);
+        if (definitions.TryGetValue(
+                key,
+                out MetadataNamedTypeIdentity? existing))
+        {
+            return existing == definition;
+        }
+
+        definitions.Add(key, definition);
+        return true;
+    }
+
+    static string NamedDefinitionSpellingKey(
+        MetadataNamedTypeIdentity definition)
+    {
+        var builder = new System.Text.StringBuilder();
+        string namespaceName =
+            MetadataDeclarationText.RenderNamespace(definition);
+        builder.Append(namespaceName.Length);
+        builder.Append(':');
+        builder.Append(namespaceName);
+
+        int segmentCount =
+            MetadataDeclarationText.GetSegmentCount(definition);
+        for (int index = 0; index < segmentCount; index++)
+        {
+            string segment =
+                MetadataDeclarationText.RenderSegment(
+                    definition,
+                    index);
+            builder.Append('|');
+            builder.Append(segment.Length);
+            builder.Append(':');
+            builder.Append(segment);
+            builder.Append('#');
+            builder.Append(
+                definition.IntroducedGenericParameterCounts[index]);
+        }
+
+        return builder.ToString();
     }
 
     static string? SpellPrimitive(

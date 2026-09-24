@@ -574,6 +574,59 @@ public sealed class CSharpDeclarationRepresentabilityTests
     }
 
     [Fact]
+    public void CDR002_DistinctAssemblyScopesCannotShareAcceptedSpelling()
+    {
+        using AuthoredFixture fixture = AuthoredFixture.Create(
+            methodImplementationCount: 1,
+            interfaceImplementationCount: 1,
+            collidingAssemblyScopedTypes: true);
+        CSharpMethodDeclarationPost post = fixture.Capture();
+        MetadataMethodSignatureIdentity signature = Assert.IsType<
+            MetadataMethodDeclarationResult.Posted>(post.Method)
+            .Evidence.Signature;
+        var returnType = Assert.IsType<MetadataTypeIdentity.Named>(
+            signature.ReturnType);
+        var secondOperand = Assert.IsType<MetadataTypeIdentity.Named>(
+            signature.ParameterTypes[1]);
+
+        Assert.NotEqual(
+            returnType.Definition.Scope,
+            secondOperand.Definition.Scope);
+        Assert.True(
+            CSharpDeclarationRepresentability.TrySpellType(
+                returnType,
+                out CSharpTypeSpelling? returnSpelling));
+        Assert.True(
+            CSharpDeclarationRepresentability.TrySpellType(
+                secondOperand,
+                out CSharpTypeSpelling? operandSpelling));
+        Assert.Equal(
+            returnSpelling.Source,
+            operandSpelling.Source);
+        Assert.IsType<MetadataMethodImplementationResult.Related>(
+            post.Implementations);
+        Assert.False(
+            CSharpDeclarationRepresentability
+                .NamedTypeSpellingsAreUnambiguous(
+                    Assert.IsType<
+                        MetadataTypeDeclarationResult.Posted>(
+                            post.ContainingType)
+                        .Evidence.OpenSelfIdentity,
+                    Assert.Single(post.ImplementationOccurrences)
+                        .Relationship.DeclarationOwner,
+                    signature));
+
+        var unavailable = Assert.IsType<
+            CSharpDeclarationRepresentabilityResult.Unavailable>(
+                CSharpDeclarationRepresentability.Decide(
+                    post,
+                    new(CSharpLanguageVersion.CSharp11)));
+        Assert.Equal(
+            CSharpDeclarationUnavailableReason.OutsideInitialBoundary,
+            unavailable.Reason);
+    }
+
+    [Fact]
     public void CDR003_NonContainingOperandsAreOutsideInitialBoundary()
     {
         using AuthoredFixture fixture = AuthoredFixture.Create(
@@ -1075,16 +1128,25 @@ public sealed class CSharpDeclarationRepresentabilityTests
             TypeAttributes targetAttributes =
                 TypeAttributes.Public | TypeAttributes.Sealed,
             bool targetIsValueType = true,
-            string? restrictedReturnType = null)
+            string? restrictedReturnType = null,
+            bool collidingAssemblyScopedTypes = false)
         {
             int selectedReturnShapes =
                 (returnsVoid ? 1 : 0)
                 + (returnsVoidArray ? 1 : 0)
-                + (restrictedReturnType is null ? 0 : 1);
+                + (restrictedReturnType is null ? 0 : 1)
+                + (collidingAssemblyScopedTypes ? 1 : 0);
             if (selectedReturnShapes > 1)
             {
                 throw new ArgumentException(
                     "A signature must select at most one special return shape.");
+            }
+            if (collidingAssemblyScopedTypes
+                && (!signatureUsesContainingType
+                    || interfaceGenericArity != 0))
+            {
+                throw new ArgumentException(
+                    "The scope-collision scenario owns its generic signature.");
             }
 
             Guid mvid = Guid.NewGuid();
@@ -1132,36 +1194,78 @@ public sealed class CSharpDeclarationRepresentabilityTests
                         metadata.GetOrAddString("System"),
                         metadata.GetOrAddString(
                             restrictedReturnType));
+            TypeReferenceHandle firstCollisionType = default;
+            TypeReferenceHandle secondCollisionType = default;
+            if (collidingAssemblyScopedTypes)
+            {
+                AssemblyReferenceHandle firstAssembly =
+                    metadata.AddAssemblyReference(
+                        metadata.GetOrAddString("Collision.One"),
+                        new Version(1, 0, 0, 0),
+                        default,
+                        default,
+                        (AssemblyFlags)0,
+                        default);
+                AssemblyReferenceHandle secondAssembly =
+                    metadata.AddAssemblyReference(
+                        metadata.GetOrAddString("Collision.Two"),
+                        new Version(1, 0, 0, 0),
+                        default,
+                        default,
+                        (AssemblyFlags)0,
+                        default);
+                firstCollisionType = metadata.AddTypeReference(
+                    firstAssembly,
+                    metadata.GetOrAddString("Collision"),
+                    metadata.GetOrAddString("Widget"));
+                secondCollisionType = metadata.AddTypeReference(
+                    secondAssembly,
+                    metadata.GetOrAddString("Collision"),
+                    metadata.GetOrAddString("Widget"));
+            }
 
-            var signatureBlob = new BlobBuilder();
-            signatureBlob.WriteByte(0x00);
-            signatureBlob.WriteCompressedInteger(2);
-            if (returnsVoid)
+            BlobHandle bodySignature;
+            BlobHandle declarationSignature;
+            if (collidingAssemblyScopedTypes)
             {
-                signatureBlob.WriteByte(0x01);
-            }
-            else if (returnsVoidArray)
-            {
-                signatureBlob.WriteByte(0x1d);
-                signatureBlob.WriteByte(0x01);
-            }
-            else if (restrictedReturnType is not null)
-            {
-                signatureBlob.WriteByte(0x11);
-                signatureBlob.WriteCompressedInteger(
-                    (MetadataTokens.GetRowNumber(restrictedReturn) << 2)
-                    | 1);
+                bodySignature = AddCollisionSignature(
+                    openContainingType: false);
+                declarationSignature = AddCollisionSignature(
+                    openContainingType: true);
             }
             else
             {
+                var signatureBlob = new BlobBuilder();
+                signatureBlob.WriteByte(0x00);
+                signatureBlob.WriteCompressedInteger(2);
+                if (returnsVoid)
+                {
+                    signatureBlob.WriteByte(0x01);
+                }
+                else if (returnsVoidArray)
+                {
+                    signatureBlob.WriteByte(0x1d);
+                    signatureBlob.WriteByte(0x01);
+                }
+                else if (restrictedReturnType is not null)
+                {
+                    WriteTypeReference(
+                        signatureBlob,
+                        restrictedReturn);
+                }
+                else
+                {
+                    WriteSignatureType(signatureBlob);
+                }
                 WriteSignatureType(signatureBlob);
+                WriteSignatureType(signatureBlob);
+                bodySignature =
+                    metadata.GetOrAddBlob(signatureBlob);
+                declarationSignature = bodySignature;
             }
-            WriteSignatureType(signatureBlob);
-            WriteSignatureType(signatureBlob);
-            BlobHandle signature =
-                metadata.GetOrAddBlob(signatureBlob);
             var bodyInstructions = new BlobBuilder();
-            if (returnsVoidArray)
+            if (returnsVoidArray
+                || collidingAssemblyScopedTypes)
                 bodyInstructions.WriteByte((byte)ILOpCode.Ldnull);
             else if (!returnsVoid)
                 bodyInstructions.WriteByte((byte)ILOpCode.Ldarg_0);
@@ -1178,7 +1282,7 @@ public sealed class CSharpDeclarationRepresentabilityTests
                     | MethodAttributes.HideBySig,
                 MethodImplAttributes.IL,
                 metadata.GetOrAddString(operatorName),
-                signature,
+                bodySignature,
                 bodyOffset,
                 MetadataTokens.ParameterHandle(1));
             MethodDefinitionHandle declaration =
@@ -1191,7 +1295,7 @@ public sealed class CSharpDeclarationRepresentabilityTests
                         | MethodAttributes.HideBySig,
                     MethodImplAttributes.IL,
                     metadata.GetOrAddString(operatorName),
-                    signature,
+                    declarationSignature,
                     bodyOffset: 0,
                     MetadataTokens.ParameterHandle(1));
 
@@ -1218,12 +1322,19 @@ public sealed class CSharpDeclarationRepresentabilityTests
                             | TypeAttributes.Abstract
                         : TypeAttributes.Public,
                     metadata.GetOrAddString(interfaceNamespace),
-                    metadata.GetOrAddString(interfaceName),
+                    metadata.GetOrAddString(
+                        collidingAssemblyScopedTypes
+                            ? $"{interfaceName}`1"
+                            : interfaceName),
                     default,
                     MetadataTokens.FieldDefinitionHandle(1),
                     declaration);
+            int effectiveInterfaceArity =
+                collidingAssemblyScopedTypes
+                    ? 1
+                    : interfaceGenericArity;
             for (int index = 0;
-                index < interfaceGenericArity;
+                index < effectiveInterfaceArity;
                 index++)
             {
                 metadata.AddGenericParameter(
@@ -1233,13 +1344,34 @@ public sealed class CSharpDeclarationRepresentabilityTests
                     index);
             }
 
+            EntityHandle implementedInterface = @interface;
+            EntityHandle methodDeclaration = declaration;
+            if (collidingAssemblyScopedTypes)
+            {
+                var typeSpecification = new BlobBuilder();
+                typeSpecification.WriteByte(0x15);
+                typeSpecification.WriteByte(0x12);
+                typeSpecification.WriteCompressedInteger(
+                    MetadataTokens.GetRowNumber(@interface) << 2);
+                typeSpecification.WriteCompressedInteger(1);
+                WriteSignatureType(typeSpecification);
+                TypeSpecificationHandle constructedInterface =
+                    metadata.AddTypeSpecification(
+                        metadata.GetOrAddBlob(typeSpecification));
+                implementedInterface = constructedInterface;
+                methodDeclaration = metadata.AddMemberReference(
+                    constructedInterface,
+                    metadata.GetOrAddString(operatorName),
+                    declarationSignature);
+            }
+
             for (int index = 0;
                 index < interfaceImplementationCount;
                 index++)
             {
                 metadata.AddInterfaceImplementation(
                     target,
-                    @interface);
+                    implementedInterface);
             }
 
             for (int index = 0;
@@ -1249,7 +1381,7 @@ public sealed class CSharpDeclarationRepresentabilityTests
                 metadata.AddMethodImplementation(
                     target,
                     body,
-                    declaration);
+                    methodDeclaration);
             }
 
             string path = Path.Combine(
@@ -1281,6 +1413,40 @@ public sealed class CSharpDeclarationRepresentabilityTests
                     signatureUsesContainingType
                         ? 0x08
                         : 0x0c);
+            }
+
+            void WriteTypeReference(
+                BlobBuilder builder,
+                TypeReferenceHandle type)
+            {
+                builder.WriteByte(0x12);
+                builder.WriteCompressedInteger(
+                    (MetadataTokens.GetRowNumber(type) << 2)
+                    | 1);
+            }
+
+            BlobHandle AddCollisionSignature(
+                bool openContainingType)
+            {
+                var builder = new BlobBuilder();
+                builder.WriteByte(0x00);
+                builder.WriteCompressedInteger(2);
+                WriteTypeReference(
+                    builder,
+                    secondCollisionType);
+                if (openContainingType)
+                {
+                    builder.WriteByte(0x13);
+                    builder.WriteCompressedInteger(0);
+                }
+                else
+                {
+                    WriteSignatureType(builder);
+                }
+                WriteTypeReference(
+                    builder,
+                    firstCollisionType);
+                return metadata.GetOrAddBlob(builder);
             }
         }
 
