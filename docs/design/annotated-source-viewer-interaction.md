@@ -2,6 +2,8 @@
 
 Status: proposed, merge-blocking design for
 [PR #4448](https://github.com/richlander/dotnet-inspect/pull/4448).
+External-opening adoption is tracked by
+[#8439](https://github.com/richlander/dotnet-inspect/issues/8439).
 
 **Owner:** interaction inside the embedded Annotated Source reader and the
 modal Annotated Source viewer.
@@ -148,7 +150,7 @@ annotation toggle.
 
 ### Modal session
 
-Each **Explore** activation starts a fresh modal session:
+Each admitted open starts a fresh modal session:
 
 - the active set is **Default**;
 - C# is visible, while IL and coordinates are hidden;
@@ -168,20 +170,72 @@ modal. Unanchored, IL-only, and non-default Findings have no embedded action and
 cannot become embedded primary. Embedded detail never transfers: the modal has
 different controls and therefore cannot truthfully retain an embedded opener.
 
-Modal dismissal destroys modal-local state. It derives the embedded primary
-from the modal primary using the same default-and-C# eligibility rule, closes
-detail, and leaves the embedded reader at its fixed presentation. A later
-**Explore** starts fresh; it does not resurrect the dismissed modal's
-annotation, media, coordinate, relationship-presentation, node, or detail
-state.
+Modal dismissal destroys modal-local state. For an embedded-reader open, it
+derives the embedded primary from the modal primary using the same
+default-and-C# eligibility rule, closes detail, and leaves the embedded reader
+at its fixed presentation. A later open starts fresh; it does not resurrect
+the dismissed modal's annotation, media, coordinate,
+relationship-presentation, node, or detail state.
 
 The modal is opened and dismissed through
 [Inspect Web Shell Interaction](inspect-web-shell-interaction.md). Those
 operations do not push or replace browser-history entries. Ordinary dismissal
-returns focus to the stable **Explore** control. Browser Back or Forward first
-dismisses the modal and then
+returns focus to the open request's shell-owned dismissal target. For an
+embedded-reader open, that target is the stable **Explore** control. Browser
+Back or Forward first dismisses the modal without applying ordinary focus
+return and then
 [Inspect Web Navigation Consumer](inspect-web-navigation-consumer.md) performs
 the history navigation.
+
+### External opening
+
+An inspection surface may request the existing modal without rendering an
+embedded Annotated Source reader. The request supplies:
+
+- one settled Annotated Source result associated with one exact
+  product-issued member/body destination; and
+- one shell-admitted logical focus target issued by the caller's current
+  destination lifetime.
+
+The destination/result association is the admission currency. The viewer does
+not recover it from a member name, canonical signature, rendered C#, display
+text, or DOM position. Destination construction, acquisition, and validation
+remain with their product owners; the external caller does not receive a
+second viewer-specific identity.
+
+An admitted external request starts the same fresh modal session as
+**Explore**, except that there is no embedded primary to transfer. Initial
+focus therefore uses the shell-permitted modal heading target. External
+opening does not add a second Annotated Source interaction mode, retain caller
+presentation inside viewer state, or change annotation, media, relationship,
+detail, Escape, or destination behavior.
+
+Unsupported, missing, ambiguous, stale, or failed destination acquisition
+does not open the modal. The caller keeps its current surface, presents the
+typed failure, and retains useful focus. The viewer never substitutes another
+body or overload and never falls back to an embedded reader.
+
+Ordinary **Close**, backdrop activation, or final layered Escape dismissal
+returns through the caller-issued logical focus target. The Shell Interaction
+and Navigation Consumer owners resolve that target against the current
+renderer lifetime, replace it when the caller rerenders, and apply their
+existing heading or persistent-shell fallback when the caller is destroyed.
+The request therefore carries a logical target resolved at dismissal rather
+than an element reference.
+
+Browser Back or Forward and accepted destination navigation dismiss without
+ordinary focus return, as they do for embedded opening. Rejected destination
+navigation retains the modal and its original dismissal target. Opening a
+replacement modal closes the prior modal without returning focus, then admits
+the replacement request under the shell's one-modal rule.
+
+[#8083](https://github.com/richlander/dotnet-inspect/issues/8083) owns the
+production path. This focused adoption establishes the Annotated Source
+capability first. A later Type Explorer consumer slice supplies one exact
+body-bearing destination and stable declaration opener, then proves production
+drill-down and dismissal return with the pinned `System.Text.Json` package.
+This owner does not define that caller's projection, availability UI, or route
+state.
 
 ## Annotation sets
 
@@ -522,9 +576,12 @@ bounded executable design model for viewer-local interaction. It checks:
 
 The model deliberately omits shell history, modal stacking outside this
 viewer, asynchronous navigation authority, packet state, declaration
-construction, Finding census construction, and document production. Its
-finite bounds, TLC result, mutation evidence, and non-claims are recorded in
-the [model README](models/annotated-source-viewer/README.md).
+construction, Finding census construction, document production, and external
+dismissal-target resolution. External opening reuses the modeled fresh modal
+session with no eligible embedded primary; shell-composition gates own its
+admission and focus-return behavior. The model's finite bounds, TLC result,
+mutation evidence, and non-claims are recorded in the
+[model README](models/annotated-source-viewer/README.md).
 
 ## Validation contract
 
@@ -543,6 +600,10 @@ Conformance requires:
   independently derived transfer eligibility, embedded-detail destruction on
   opening, shell-permitted heading or current-selection focus, state
   destruction on dismissal, and no detail transfer;
+- external-opening tests proving exact destination/result association,
+  fresh-state parity with no embedded-primary transfer, heading initial focus,
+  typed failure without modal opening, and no overload, body, embedded-reader,
+  or display-text fallback;
 - active-versus-rendered tests covering C#-only, IL-only, dual-target, and
   unanchored Findings plus a non-Finding structural annotation, with rendered
   targets derived directly from owning-annotation membership and visible media;
@@ -579,6 +640,11 @@ Conformance requires:
 - focus tests for direct close, annotation-set controls, annotation, media, and
   coordinate toggles, pointer dismissal, rejected navigation, and successful
   destination handoff;
+- shell-composition focus tests proving external ordinary dismissal resolves
+  the caller-issued logical target across caller rerender, falls back through
+  the Navigation Consumer contract after caller destruction, never focuses a
+  detached element, and does not run for Back, Forward, accepted navigation,
+  or modal replacement;
 - hit tests covering pointer coordinates, keyboard activation, invocation
   precedence, discontinuous spans, deterministic tightest-node selection, and
   drag-selection non-activation;
@@ -590,6 +656,8 @@ Conformance requires:
   focused detail without changing the current source scroll position;
 - real-browser tests proving source-node selection and detail-close focus
   reveal their exact targets within the relevant source or inspector viewport;
+- a real-browser external open with no embedded reader, proving modal
+  containment and exact ordinary-dismissal focus restoration;
 - a style gate rejecting persistent source-text underlines; and
 - a CI-integrated real-browser gate for pointer hit testing, focus, Escape,
   modal trapping, backdrop dismissal, and drag selection.
