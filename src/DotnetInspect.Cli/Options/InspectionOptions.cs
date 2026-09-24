@@ -87,6 +87,8 @@ public record InspectionOptions : IProjectionOptions
     /// </summary>
     public bool NamesakeLibrary { get; init; }
 
+    internal string? TypeNamespace { get; init; }
+
     internal WorkspaceLibrarySelection? WorkspaceLibrarySelection { get; init; }
 
     internal string[]? WorkspaceLibraryAssetPaths { get; init; }

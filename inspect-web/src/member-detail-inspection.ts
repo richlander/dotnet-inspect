@@ -56,6 +56,7 @@ export interface MemberFindingCensusRequest extends MemberCoordinates {
   selectorKey: string;
   metadataToken: number;
   taste: string;
+  embeddedSession?: boolean;
   isCurrent(): boolean;
 }
 
@@ -374,9 +375,11 @@ export function createMemberDetailInspectionCoordinator(
         const census = await dependencies.queryFindingCensus(request);
         const interaction = createMemberFindingInteraction(census);
         const annotated = census.annotatedSource;
-        const embedded = createEmbeddedSession(
-          createAnnotatedSourceViewerModel(annotated),
-        );
+        const embedded = request.embeddedSession === false
+          ? null
+          : createEmbeddedSession(
+              createAnnotatedSourceViewerModel(annotated),
+            );
         if (request.isCurrent()
           && state.memberAnnotatedKey === request.signature
           && memberFindingCensusRequestId === requestId) {

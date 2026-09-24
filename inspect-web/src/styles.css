@@ -5660,6 +5660,37 @@ button.library-api-diff-row[aria-current="true"] { background: var(--panel-raise
   outline: 1px solid var(--accent);
   background: var(--accent-soft);
 }
+.type-explorer-body-inspect {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  margin: 0 7px;
+  font-family: var(--font);
+  font-size: 11px;
+  user-select: none;
+}
+.type-explorer-body-inspect button {
+  padding: 2px 7px;
+  border: 1px solid var(--accent);
+  border-radius: 999px;
+  background: var(--accent-soft);
+  color: var(--text);
+  font: inherit;
+  cursor: pointer;
+}
+.type-explorer-body-inspect button:hover,
+.type-explorer-body-inspect button:focus-visible {
+  background: var(--panel-active);
+}
+.type-explorer-body-inspect button[aria-disabled="true"] {
+  cursor: progress;
+}
+.type-explorer-body-inspect-status { color: var(--muted); }
+.type-explorer-body-inspect-error {
+  max-width: 44ch;
+  color: var(--finding-allocation);
+  white-space: normal;
+}
 .type-explorer-status {
   display: flex;
   flex: 1 1 0;
