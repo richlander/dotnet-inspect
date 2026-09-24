@@ -330,6 +330,32 @@ public sealed class ZipArchiveReaderTests
         Assert.Equal(2, separate.Reads - before);
     }
 
+    /// <summary>
+    /// A caller that planned its entries into one span (an aligned block)
+    /// states the merge gap for that read in place of the limits', within
+    /// the same cap.
+    /// </summary>
+    [Fact]
+    public async Task Batch_MergeGapOverride_ReplacesTheLimitsGapForOneRead()
+    {
+        byte[] archive = Archive(
+            ("lib/a.dll", Noise(40_000)), ("between", Noise(30_000)), ("lib/b.dll", Noise(40_001)),
+            ("filler", Noise(200_000)));
+        var source = new CountingSource(new StreamRandomAccessSource(new MemoryStream(archive)));
+        ZipDirectory directory = await ZipArchiveReader.ReadDirectoryAsync(source, ZipReadLimits.Default, Token);
+        ZipEntry[] selected = [directory.Find("lib/a.dll")!, directory.Find("lib/b.dll")!];
+        int before = source.Reads;
+
+        await ZipArchiveReader.ReadEntriesAsync(
+            source, directory, selected, ZipReadLimits.Default, entryMergeGap: 64 * 1024, cancellationToken: Token);
+
+        Assert.Equal(1, source.Reads - before);
+        await Assert.ThrowsAsync<ArgumentOutOfRangeException>(
+            () => ZipArchiveReader.ReadEntriesAsync(
+                source, directory, selected, ZipReadLimits.Default,
+                entryMergeGap: ZipReadLimits.MaxEntryMergeGap + 1, cancellationToken: Token));
+    }
+
     [Theory]
     [InlineData(1)]
     [InlineData(3)]

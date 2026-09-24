@@ -782,6 +782,16 @@ target-framework filters, path globs and roles, partial document scopes,
 .NET tool-wrapper redirection, and other package files retain their existing
 paths in this slice.
 
+The second production consumer is the Browser/Wasm viewer for exact root
+`README.md` and `skills/**/*.md` document-manifest entries. The managed export
+executes a focused House `Acquire` operation, opens the selected README or
+Skill through the settlement's pull stream, and incrementally decodes UTF-8
+through bounded pooled byte and character buffers. The admitted `.nupkg` and
+the final displayed string remain resident, but no second complete expanded
+entry `byte[]` is created. Root `PACKAGE.md` viewing retains its existing eager
+entry path in this slice, while the managed-to-TypeScript wire DTO and frontend
+call site remain unchanged.
+
 `PackageHouseExecutionTests.ExactPayloadRead_IsColdAndPullsFromTheHouseGeneration`
 gates cold start, pre-read cancellation, receipt association, and progressive
 copying.
@@ -791,6 +801,10 @@ gates the Browser/Wasm-relevant absence of an expanded-entry-sized allocation,
 nuget.org `System.Text.Json` package, and
 `PackageArchiveValidatorTests.CheckedPullRead_RejectsContentBeyondTheDeclaredLength`
 preserves lazy checked-read failure.
+`BrowserEngineBoundaryTests.PackageDocument_ReadmeAndSkillPullThroughHouseAcquisition`
+gates the production Browser route, multi-buffer UTF-8 decoding, Skill
+selection, cache reuse, package-only acquisition, and visible refusal of a
+non-manifest path.
 
 ## Shared version-settlement inspection
 
