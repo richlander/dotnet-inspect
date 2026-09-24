@@ -52,6 +52,148 @@ public sealed record BrowserAnalysisInspectionDiagnostic(
     string Summary,
     string? Correspondence);
 
+public sealed record BrowserImplementationProfiles(
+    int SchemaVersion,
+    string Outcome,
+    BrowserImplementationProfileSubject? Subject,
+    BrowserImplementationProfileContent? Content,
+    BrowserImplementationProfileFailure? Failure,
+    BrowserAnalysisInspectionShare? Share,
+    BrowserAnalysisInspectionDiagnostic[] Diagnostics,
+    BrowserCompileLibraryAvailability CompileLibrary);
+
+public sealed record BrowserImplementationProfileSubject(
+    BrowserAnalysisAssemblyIdentity Identity,
+    string? ModuleVersionId,
+    BrowserImplementationProfileProvenance Provenance);
+
+public sealed record BrowserAnalysisAssemblyIdentity(
+    string Name,
+    string? Version,
+    string? Culture,
+    string? PublicKeyToken);
+
+public sealed record BrowserImplementationProfileProvenance(
+    string Kind,
+    string? PackageId,
+    string? PackageVersion,
+    string? Framework,
+    string? FrameworkVersion,
+    string? RuntimeIdentifier,
+    string? AssetPath,
+    string? ResolverSource,
+    string? Project,
+    string? ContentRef,
+    string? Digest,
+    string? DeclaredName);
+
+public sealed record BrowserImplementationProfileContent(
+    BrowserImplementationProfilePublicMember[] Members,
+    BrowserImplementationProfileMethod[] Methods,
+    BrowserImplementationProfile[] Profiles,
+    BrowserImplementationProfileCoverage Coverage,
+    BrowserImplementationProfileRelationship[] OverloadRelationships,
+    string[] GeneratedFrameworkTypes,
+    BrowserImplementationProfileAnalysisDiagnostic[] AnalysisDiagnostics,
+    BrowserImplementationProfileApiSurfaceFailure[] ApiSurfaceInspectionFailures);
+
+public sealed record BrowserImplementationProfileMethod(
+    string Key,
+    string AssemblyName,
+    string ModuleVersionId,
+    string DeclaringType,
+    string Name,
+    string[] ParameterTypes,
+    string ReturnType,
+    int MetadataToken,
+    bool IsStatic,
+    bool IsExtension,
+    string CallerUnsafeMode,
+    int GenericArity,
+    string[] GenericParameterNames,
+    string Display);
+
+public sealed record BrowserImplementationProfile(
+    string MethodKey,
+    string EvidenceMethodKey,
+    int ILBytes,
+    int InstructionCount,
+    int DistinctOpcodeCount,
+    int BasicBlockCount,
+    int BranchCount,
+    int ConditionalBranchCount,
+    int SwitchCount,
+    int SwitchTargetCount,
+    int NormalFlowCyclomaticComplexity,
+    int LoopCount,
+    int CatchCount,
+    int FilterCount,
+    int FinallyCount,
+    int FaultCount,
+    int LocalCount,
+    int DirectCallCount,
+    int DistinctCalleeCount,
+    int AllocationCount,
+    int ThrowCount,
+    bool Async,
+    bool Unsafe,
+    int ReflectionCallCount,
+    int IncomingOverloadCallerCount,
+    int OutgoingOverloadTargetCount,
+    bool IsComplete,
+    string[] IncompleteReasons,
+    BrowserImplementationProfilePublicMember[] PublicMembers);
+
+public sealed record BrowserImplementationProfilePublicMember(
+    string TypeDefinitionId,
+    string Member,
+    string StableSelector,
+    int[] BodyTokens);
+
+public sealed record BrowserImplementationProfileCoverage(
+    bool WasRequested,
+    bool HasFullMethodEvidenceScope,
+    string[] DeclaredMethodKeys,
+    string[] ManagedMethodBodyKeys,
+    string[] ProfiledEvidenceBodyKeys,
+    BrowserImplementationProfileUnavailableBody[] UnavailableBodies,
+    BrowserImplementationProfileAnalysisDiagnostic[] Diagnostics);
+
+public sealed record BrowserImplementationProfileUnavailableBody(
+    string? EvidenceMethodKey,
+    int MethodToken,
+    string Reason,
+    BrowserImplementationProfileAnalysisDiagnostic? Diagnostic);
+
+public sealed record BrowserImplementationProfileRelationship(
+    string CallerKey,
+    string CalleeKey,
+    string EvidenceMethodKey,
+    int ILOffset,
+    string Kind);
+
+public sealed record BrowserImplementationProfileAnalysisDiagnostic(
+    int MethodToken,
+    string Method,
+    string Message,
+    int? SourceMethodToken,
+    string? DeclaringType,
+    string? SourceDeclaringType);
+
+public sealed record BrowserImplementationProfileApiSurfaceFailure(
+    string Operation,
+    int SubjectToken,
+    string Mechanism,
+    string Kind,
+    string Detail,
+    BrowserAnalysisAssemblyIdentity? SubjectAssembly,
+    BrowserAnalysisAssemblyIdentity? DependencyAssembly);
+
+public sealed record BrowserImplementationProfileFailure(
+    string Kind,
+    string Detail,
+    string? MetadataRootReason);
+
 /// <summary>
 /// Ecosystem integration evidence for one workspace, carried exactly as
 /// <c>AssemblyContextIntegrationsQuery</c> produced it: one group per package/version/framework,
@@ -234,6 +376,7 @@ public sealed record BrowserPerformanceOpportunity(
 [JsonSerializable(typeof(BrowserPackageOpportunities))]
 [JsonSerializable(typeof(BrowserPackagePerformance))]
 [JsonSerializable(typeof(BrowserLibraryMetrics))]
+[JsonSerializable(typeof(BrowserImplementationProfiles))]
 [JsonSerializable(typeof(BrowserAnalysisInspectionEnvelope))]
 [JsonSerializable(typeof(BrowserMemberFacts))]
 [JsonSerializable(typeof(BrowserCloneCandidateRequest))]

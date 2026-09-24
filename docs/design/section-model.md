@@ -970,24 +970,25 @@ section. Bare `-S` and explicit `@Ecosystem` compose the route's full authored
 set in alphabetical order. Select `Integrations` directly for configured
 bindings.
 
-## Graph libraries category map
+## Graph Library relationship category map
 
-The `graph libraries` command's authored ownership is:
+The `graph libraries` and `graph cluster` commands' authored ownership is:
 
 | Category | Members |
 | --- | --- |
 | `@Libraries` | `Call Sites`, `Consumer Use Sites`, `Direct Use Clusters`, `Provider API Types` |
 
 `@Libraries` is the base category and composes the four pair-wide projections
-in alphabetical section order. Ordinary output remains the exact `Call Sites`
-view. Bare `-S` remains the `Consumer Use Sites` and `Provider API Types`
-summary pair.
+in alphabetical section order. Ordinary `graph libraries` output is `Direct
+Use Clusters`; ordinary `graph cluster N` output is exact `Call Sites` for the
+focused component. Bare `-S` remains the `Consumer Use Sites` and `Provider API
+Types` summary pair.
 
 `Public Root Paths` remains uncategorized and exact-name-only because it
-requires one positive `Cluster` coordinate before acquisition. Wildcard and
-category selection do not opt into it. The pairwise call-use, direct-use
-cluster, and cluster root-path designs continue to own the section semantics;
-this document owns only their command catalog composition.
+requires the focused route's positive cluster ordinal before acquisition.
+Wildcard and category selection do not opt into it. The pairwise call-use,
+direct-use cluster, and cluster root-path designs continue to own the section
+semantics; this document owns only their command catalog composition.
 
 ## Package Query category map
 

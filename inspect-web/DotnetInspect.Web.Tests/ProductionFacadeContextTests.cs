@@ -114,10 +114,12 @@ public sealed class ProductionFacadeContextTests
         [
             "QueryCloneCandidates",
             "QueryMemberFacts",
+            "QueryPackageImplementationProfiles",
             "QueryPackageIntegrations",
             "QueryPackageLibraryMetrics",
             "QueryPackageOpportunities",
             "QueryPackagePerformance",
+            "QueryPlatformImplementationProfiles",
             "QueryPlatformIntegrations",
             "QueryPlatformLibraryMetrics",
             "QueryPlatformOpportunities",

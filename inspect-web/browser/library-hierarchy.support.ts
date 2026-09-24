@@ -1007,6 +1007,237 @@ async function installFacades(
       }`,
     analysis: `
       ${surfaceLookup}
+      let implementationProfileRequestCount = 0;
+      function implementationProfiles(
+        subjectName,
+        typeDefinitionId,
+        stableSelectors,
+        compileLibrary,
+        provenance
+      ) {
+        const logicalMethods = stableSelectors.map((selector, index) => ({
+          key: "logical-" + index,
+          assemblyName: subjectName,
+          moduleVersionId: "11111111-1111-1111-1111-111111111111",
+          declaringType: typeDefinitionId,
+          name: "Run",
+          parameterTypes: index === 0 ? ["System.Int32"] : ["System.String"],
+          returnType: "System.Void",
+          metadataToken: 0x06000100 + index,
+          isStatic: false,
+          isExtension: false,
+          callerUnsafeMode: "None",
+          genericArity: 0,
+          genericParameterNames: [],
+          display: typeDefinitionId + ".Run(" + (index === 0 ? "System.Int32" : "System.String") + ")"
+        }));
+        const generatedMethod = {
+          ...logicalMethods[0],
+          key: "generated-0",
+          name: "<Run>g__Core|0_0",
+          metadataToken: 0x06001000,
+          display: typeDefinitionId + ".<Run>g__Core|0_0()"
+        };
+        const members = stableSelectors.map((stableSelector, index) => ({
+          typeDefinitionId,
+          member: "Run",
+          stableSelector,
+          bodyTokens: [
+            logicalMethods[index].metadataToken,
+            ...(index === 0 ? [generatedMethod.metadataToken] : [])
+          ]
+        }));
+        const profile = (
+          index,
+          evidenceMethodKey,
+          instructionCount,
+          branchCount,
+          loopCount
+        ) => ({
+          methodKey: "logical-" + index,
+          evidenceMethodKey,
+          ilBytes: instructionCount * 2,
+          instructionCount,
+          distinctOpcodeCount: Math.max(1, Math.floor(instructionCount / 4)),
+          basicBlockCount: branchCount + 1,
+          branchCount,
+          conditionalBranchCount: branchCount,
+          switchCount: 0,
+          switchTargetCount: 0,
+          normalFlowCyclomaticComplexity: branchCount + 1,
+          loopCount,
+          catchCount: 0,
+          filterCount: 0,
+          finallyCount: 0,
+          faultCount: 0,
+          localCount: index === 0 ? 3 : 0,
+          directCallCount: index === 0 ? 4 : 1,
+          distinctCalleeCount: index === 0 ? 3 : 1,
+          allocationCount: 0,
+          throwCount: 0,
+          async: false,
+          unsafe: false,
+          reflectionCallCount: 0,
+          incomingOverloadCallerCount: index === 0 ? 0 : 1,
+          outgoingOverloadTargetCount: index === 0 ? 1 : 0,
+          isComplete: true,
+          incompleteReasons: [],
+          publicMembers: [members[index]]
+        });
+        const profiles = [
+          profile(0, "logical-0", 80, 8, 2),
+          profile(0, "generated-0", 18, 1, 0),
+          profile(1, "logical-1", 5, 0, 0)
+        ];
+        return {
+          schemaVersion: 2,
+          outcome: "available",
+          subject: {
+            identity: {
+              name: subjectName,
+              version: "1.0.0.0",
+              culture: null,
+              publicKeyToken: null
+            },
+            moduleVersionId: "11111111-1111-1111-1111-111111111111",
+            provenance
+          },
+          content: {
+            members,
+            methods: [...logicalMethods, generatedMethod],
+            profiles,
+            coverage: {
+              wasRequested: true,
+              hasFullMethodEvidenceScope: false,
+              declaredMethodKeys: logicalMethods.map(method => method.key),
+              managedMethodBodyKeys: [
+                ...logicalMethods.map(method => method.key),
+                generatedMethod.key
+              ],
+              profiledEvidenceBodyKeys: [
+                ...logicalMethods.map(method => method.key),
+                generatedMethod.key
+              ],
+              unavailableBodies: [],
+              diagnostics: []
+            },
+            overloadRelationships: [{
+              callerKey: "logical-0",
+              calleeKey: "logical-1",
+              evidenceMethodKey: "logical-0",
+              ilOffset: 12,
+              kind: "Direct"
+            }],
+            generatedFrameworkTypes: [typeDefinitionId + "+<>c"],
+            analysisDiagnostics: [],
+            apiSurfaceInspectionFailures: []
+          },
+          failure: null,
+          share: {
+            kind: "NonProjectable",
+            fullUrl: null,
+            packet: null,
+            path: "implementation-profile-family/share",
+            reason: "Fixture projection."
+          },
+          diagnostics: [],
+          compileLibrary
+        };
+      }
+      async function waitForImplementationProfiles(requestKey) {
+        const scenario = ${JSON.stringify(analysis)};
+        if (scenario === "deferred") {
+          await new Promise(resolve => document.addEventListener(
+            "fixture-implementation-profiles-ready:" + requestKey,
+            resolve,
+            { once: true }));
+        }
+        if (scenario === "query-error")
+          throw new Error("Implementation-profile query unavailable.");
+      }
+      export async function queryPackageImplementationProfiles(
+        id,
+        version,
+        framework,
+        asset,
+        typeDefinitionId,
+        stableSelectors
+      ) {
+        document.documentElement.dataset.implementationProfileRequestCount =
+          String(++implementationProfileRequestCount);
+        document.documentElement.dataset.implementationProfileRequest =
+          JSON.stringify([
+            id,
+            version,
+            framework,
+            asset,
+            typeDefinitionId,
+            stableSelectors
+          ]);
+        await waitForImplementationProfiles(asset);
+        const surface = surfaceFor(id);
+        const selected = surface.assemblies.find(item => item.id === asset);
+        if (!selected) throw new Error("Unknown library: " + asset);
+        return implementationProfiles(
+          selected.name,
+          typeDefinitionId,
+          stableSelectors,
+          surface.compileLibrary,
+          {
+            kind: "package",
+            packageId: id,
+            packageVersion: version,
+            framework,
+            frameworkVersion: null,
+            runtimeIdentifier: null,
+            assetPath: selected.asset,
+            resolverSource: null,
+            project: null,
+            contentRef: null,
+            digest: null,
+            declaredName: null
+          });
+      }
+      export async function queryPlatformImplementationProfiles(
+        framework,
+        version,
+        file,
+        pack,
+        typeDefinitionId,
+        stableSelectors
+      ) {
+        document.documentElement.dataset.implementationProfileRequestCount =
+          String(++implementationProfileRequestCount);
+        document.documentElement.dataset.implementationProfileRequest =
+          JSON.stringify([
+            framework,
+            version,
+            file,
+            pack,
+            typeDefinitionId,
+            stableSelectors
+          ]);
+        await waitForImplementationProfiles(file);
+        return implementationProfiles(
+          file.replace(/\\.dll$/i, ""),
+          typeDefinitionId,
+          stableSelectors,
+          { status: "Selected", targetFramework: framework, message: null },
+          {
+            kind: "platform",
+            packageId: null,
+            packageVersion: null,
+            framework,
+            frameworkVersion: version,
+            runtimeIdentifier: null,
+            assetPath: null,
+            resolverSource: pack,
+            project: null,
+            contentRef: null,
+            digest: null,
+            declaredName: null
+          });
+      }
       export async function queryPackageIntegrations(id, version, framework, asset) {
         document.documentElement.dataset.integrationRequest = asset;
         const surface = surfaceFor(id);

@@ -953,8 +953,22 @@ public class ApiType
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
     public JsonWireNamingPolicy? JsonPropertyNamingPolicy { get; set; }
 
+    /// <summary>
+    /// Compatibility projection of the effective default-ignore value.
+    /// Consumers that require authenticated presence or failure semantics use
+    /// <see cref="JsonDefaultIgnoreConditionEvidence"/>.
+    /// </summary>
     [JsonIgnore]
     public JsonWireIgnoreCondition JsonDefaultIgnoreCondition { get; set; }
+
+    /// <summary>
+    /// Authentic source-generation attribute evidence retained without
+    /// collapsing absence, duplicates, or unsupported rows into
+    /// <see cref="JsonWireIgnoreCondition.Never"/>.
+    /// </summary>
+    [JsonIgnore]
+    public JsonSourceGenerationDefaultIgnoreConditionEvidence
+        JsonDefaultIgnoreConditionEvidence { get; set; }
 
     [JsonIgnore]
     public bool JsonUseStringEnumConverter { get; set; }

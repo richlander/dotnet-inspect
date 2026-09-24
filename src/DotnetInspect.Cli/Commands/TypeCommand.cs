@@ -326,13 +326,23 @@ public static class TypeCommand
                         options.TypeName))
             {
                 // No type specified - list all types
-                if (loadedSurface is null
-                    && TryExecuteMetadataTypeCount(
-                        source,
-                        options)
-                    is int countExitCode)
+                if (loadedSurface is null)
                 {
-                    return countExitCode;
+                    int? libraryListingResult =
+                        await LibraryTypeListingCommand.TryExecuteAsync(
+                            source,
+                            options,
+                            cancellationToken);
+                    if (libraryListingResult is not null)
+                        return libraryListingResult.Value;
+
+                    if (TryExecuteMetadataTypeCount(
+                            source,
+                            options)
+                        is int countExitCode)
+                    {
+                        return countExitCode;
+                    }
                 }
 
                 var loaded = loadedSurface
