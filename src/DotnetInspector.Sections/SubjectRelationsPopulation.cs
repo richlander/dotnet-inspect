@@ -522,7 +522,9 @@ public static class SubjectRelationsPopulationOperation
         SubjectRelationsInspectionRequest request,
         SubjectRelationPopulationEvidence evidence,
         SubjectRelationPopulationCountOutcome? count,
-        SubjectRelationPopulationRowsOutcome? rows)
+        SubjectRelationPopulationRowsOutcome? rows,
+        SubjectRelationPopulationContinuationAuthority?
+            continuationAuthority = null)
     {
         ArgumentNullException.ThrowIfNull(request);
         ArgumentNullException.ThrowIfNull(evidence);
@@ -558,17 +560,36 @@ public static class SubjectRelationsPopulationOperation
         }
         if (rows is SubjectRelationPopulationRowsOutcome.Read read)
         {
-            ValidateRows(request, evidence, read);
+            int startOrdinal = ValidateRows(
+                request,
+                evidence,
+                read,
+                continuationAuthority);
             if (count
                     is SubjectRelationPopulationCountOutcome.Counted counted
-                && read.Continuation is null
-                && evidence.IsComplete
-                && counted.Value != read.Items.Length)
+                && evidence.IsComplete)
             {
-                throw new ArgumentException(
-                    "Exact Count must equal complete terminal Rows.",
-                    nameof(rows));
+                long endOrdinal =
+                    (long)startOrdinal + read.Items.Length;
+                bool disagreesWithRows =
+                    read.Continuation is null
+                        ? counted.Value != endOrdinal
+                        : counted.Value <= endOrdinal;
+                if (disagreesWithRows)
+                {
+                    throw new ArgumentException(
+                        "Exact Count must contain the returned Rows segment "
+                        + "and equal the final population ordinal.",
+                        nameof(rows));
+                }
             }
+        }
+        else if (continuationAuthority is not null)
+        {
+            throw new ArgumentException(
+                "Continuation authority accompanies only a successful Rows "
+                + "read.",
+                nameof(continuationAuthority));
         }
 
         return new(
@@ -581,15 +602,49 @@ public static class SubjectRelationsPopulationOperation
             rows);
     }
 
-    private static void ValidateRows(
+    private static int ValidateRows(
         SubjectRelationsInspectionRequest request,
         SubjectRelationPopulationEvidence evidence,
-        SubjectRelationPopulationRowsOutcome.Read rows)
+        SubjectRelationPopulationRowsOutcome.Read rows,
+        SubjectRelationPopulationContinuationAuthority?
+            continuationAuthority)
     {
         SubjectRelationPopulationRowsRequest rowRequest =
             request.Request.Rows
             ?? throw new InvalidOperationException(
                 "Rows validation requires a Rows request.");
+        int startOrdinal;
+        if (rowRequest.Continuation is null)
+        {
+            if (continuationAuthority is not null)
+            {
+                throw new ArgumentException(
+                    "An initial Rows request cannot use continuation "
+                    + "authority.",
+                    nameof(continuationAuthority));
+            }
+            startOrdinal = 0;
+        }
+        else
+        {
+            if (continuationAuthority is null)
+            {
+                throw new ArgumentException(
+                    "A successful continued Rows read requires "
+                    + "producer-resolved continuation authority.",
+                    nameof(continuationAuthority));
+            }
+            if (ContinuationRejection(
+                    request,
+                    continuationAuthority)
+                is { } rejection)
+            {
+                throw new ArgumentException(
+                    $"A successful Rows read used {rejection} authority.",
+                    nameof(continuationAuthority));
+            }
+            startOrdinal = continuationAuthority.NextOrdinal;
+        }
         if (rows.Ordering != rowRequest.Ordering)
         {
             throw new ArgumentException(
@@ -613,6 +668,10 @@ public static class SubjectRelationsPopulationOperation
 
         HashSet<InspectionGraphRelationshipDescriptor> relationships =
             evidence.Producers
+                .Where(static producer =>
+                    producer.Disposition is
+                        SubjectRelationProducerDisposition.Complete
+                        or SubjectRelationProducerDisposition.Partial)
                 .SelectMany(static producer => producer.Relationships)
                 .ToHashSet<InspectionGraphRelationshipDescriptor>(
                     ReferenceEqualityComparer.Instance);
@@ -633,5 +692,7 @@ public static class SubjectRelationsPopulationOperation
                     nameof(rows));
             }
         }
+
+        return startOrdinal;
     }
 }

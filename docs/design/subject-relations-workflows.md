@@ -353,9 +353,16 @@ projection, and next population ordinal. Maximum returned rows is a physical
 segment bound, not population identity. After resolving that opaque value, the
 producer retains process-local continuation authority carrying those exact
 bindings; generic composition can reject invalid, stale, or incompatible
-continuation without owning the producer's encoding. A section-row executor
-may shape a producer-returned segment but must not manufacture source
-continuation from a previously completed in-memory array.
+continuation without owning the producer's encoding. Settlement uses the
+resolved next ordinal when checking whole-population Count against a final
+continued segment. A section-row executor may shape a producer-returned segment
+but must not manufacture source continuation from a previously completed
+in-memory array.
+
+Rows may contain only relationships covered by producer outcomes that are
+Complete or Partial. An Unavailable or Failed producer remains visible in the
+population evidence but cannot contribute successful rows merely because a
+different producer was usable.
 
 `Integration` is a named classified view over the same relation population.
 Every matching row retains its producer-issued Integration associations.

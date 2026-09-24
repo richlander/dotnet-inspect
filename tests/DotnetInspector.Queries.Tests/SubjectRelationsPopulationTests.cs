@@ -551,6 +551,105 @@ public sealed class SubjectRelationsPopulationTests
     }
 
     [Fact]
+    public void ContinuedFinalRowsUsePopulationOrdinalForCountAgreement()
+    {
+        Context context = CreateContext();
+        SubjectRelationRow row = Row(
+            context,
+            "3.0.0",
+            integration: false);
+        var continuation = new SubjectRelationPopulationContinuation(
+            new InertString(TextPolicy.Field, "relations-next"));
+        var selection = new SubjectRelationPopulationSelection();
+        SubjectRelationsInspectionRequest request =
+            InspectionRequest(
+                context,
+                new(
+                    selection,
+                    new SubjectRelationPopulationCountRequest(),
+                    new SubjectRelationPopulationRowsRequest(
+                        1,
+                        continuation: continuation)));
+        SubjectRelationPopulationContinuationAuthority authority =
+            SubjectRelationPopulationContinuationAuthority.Capture(
+                continuation,
+                context.Focus,
+                context.Population,
+                selection,
+                SubjectRelationPopulationOrdering.Producer,
+                SubjectRelationRowProjection.Canonical,
+                nextOrdinal: 1);
+        SubjectRelationPopulationRowsOutcome.Read finalRows =
+            new(
+                SubjectRelationPopulationOrdering.Producer,
+                [row],
+                continuation: null);
+
+        SubjectRelationPopulationResult settled =
+            SubjectRelationsPopulationOperation.Settle(
+                request,
+                PopulationEvidence(context, complete: true),
+                new SubjectRelationPopulationCountOutcome.Counted(2),
+                finalRows,
+                authority);
+
+        Assert.Equal(
+            2,
+            Assert.IsType<
+                SubjectRelationPopulationCountOutcome.Counted>(
+                    settled.Count).Value);
+        Assert.Throws<ArgumentException>(
+            () => SubjectRelationsPopulationOperation.Settle(
+                request,
+                PopulationEvidence(context, complete: true),
+                new SubjectRelationPopulationCountOutcome.Counted(1),
+                finalRows,
+                authority));
+        Assert.Throws<ArgumentException>(
+            () => SubjectRelationsPopulationOperation.Settle(
+                request,
+                PopulationEvidence(context, complete: true),
+                new SubjectRelationPopulationCountOutcome.Counted(2),
+                finalRows));
+    }
+
+    [Fact]
+    public void ExactCountMustExtendBeyondReturnedContinuation()
+    {
+        Context context = CreateContext();
+        SubjectRelationRow row = Row(
+            context,
+            "2.0.0",
+            integration: false);
+        var continuation = new SubjectRelationPopulationContinuation(
+            new InertString(TextPolicy.Field, "relations-next"));
+        SubjectRelationsInspectionRequest request =
+            InspectionRequest(
+                context,
+                new(
+                    new(),
+                    new SubjectRelationPopulationCountRequest(),
+                    new SubjectRelationPopulationRowsRequest(1)));
+        SubjectRelationPopulationRowsOutcome.Read rows =
+            new(
+                SubjectRelationPopulationOrdering.Producer,
+                [row],
+                continuation);
+
+        _ = SubjectRelationsPopulationOperation.Settle(
+            request,
+            PopulationEvidence(context, complete: true),
+            new SubjectRelationPopulationCountOutcome.Counted(2),
+            rows);
+        Assert.Throws<ArgumentException>(
+            () => SubjectRelationsPopulationOperation.Settle(
+                request,
+                PopulationEvidence(context, complete: true),
+                new SubjectRelationPopulationCountOutcome.Counted(1),
+                rows));
+    }
+
+    [Fact]
     public void ReturnedRowsMustRespectTheRequestedSegmentBound()
     {
         Context context = CreateContext();
@@ -740,6 +839,50 @@ public sealed class SubjectRelationsPopulationTests
                     context,
                     RowsRequest(10)),
                 PopulationEvidence(context, complete: true),
+                count: null,
+                new SubjectRelationPopulationRowsOutcome.Read(
+                    SubjectRelationPopulationOrdering.Producer,
+                    [row],
+                    continuation: null)));
+    }
+
+    [Theory]
+    [InlineData(SubjectRelationProducerDisposition.Unavailable)]
+    [InlineData(SubjectRelationProducerDisposition.Failed)]
+    public void NonUsableProducerCannotPublishRowsBesideUsableProducer(
+        SubjectRelationProducerDisposition disposition)
+    {
+        Context context = CreateContext();
+        InspectionGraphRelationshipDescriptor nonUsableRelationship =
+            CreateRelationship("test.non-usable");
+        SubjectRelationRow row = Row(
+            context,
+            "2.0.0",
+            integration: false,
+            relationship: nonUsableRelationship);
+        var nonUsableProducer =
+            new InspectionQuery<int>(
+                "test.subject-relations.non-usable",
+                InspectionCost.NetworkFree);
+        SubjectRelationPopulationEvidence evidence =
+            new(
+                context.Population,
+                [
+                    ProducerOutcome(
+                        SubjectRelationProducerDisposition.Complete),
+                    new(
+                        nonUsableProducer,
+                        disposition,
+                        new(1, 0, 0, 1, 0),
+                        [nonUsableRelationship]),
+                ]);
+
+        Assert.Throws<ArgumentException>(
+            () => SubjectRelationsPopulationOperation.Settle(
+                InspectionRequest(
+                    context,
+                    RowsRequest(10)),
+                evidence,
                 count: null,
                 new SubjectRelationPopulationRowsOutcome.Read(
                     SubjectRelationPopulationOrdering.Producer,
