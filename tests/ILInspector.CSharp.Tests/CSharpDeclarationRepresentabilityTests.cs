@@ -574,16 +574,15 @@ public sealed class CSharpDeclarationRepresentabilityTests
     }
 
     [Theory]
-    [InlineData(false)]
-    [InlineData(true)]
+    [InlineData(SpellingCollisionKind.CompleteDefinition)]
+    [InlineData(SpellingCollisionKind.NamespaceNestedDefinition)]
     public void CDR002_DistinctDefinitionsCannotShareAcceptedSpelling(
-        bool namespaceNestedCollision)
+        SpellingCollisionKind collision)
     {
         using AuthoredFixture fixture = AuthoredFixture.Create(
             methodImplementationCount: 1,
             interfaceImplementationCount: 1,
-            collidingAssemblyScopedTypes: true,
-            namespaceNestedCollision: namespaceNestedCollision);
+            spellingCollision: collision);
         CSharpMethodDeclarationPost post = fixture.Capture();
         MetadataMethodSignatureIdentity signature = Assert.IsType<
             MetadataMethodDeclarationResult.Posted>(post.Method)
@@ -596,7 +595,8 @@ public sealed class CSharpDeclarationRepresentabilityTests
         Assert.NotEqual(
             returnType.Definition.Scope,
             secondOperand.Definition.Scope);
-        if (namespaceNestedCollision)
+        if (collision
+            == SpellingCollisionKind.NamespaceNestedDefinition)
         {
             Assert.Equal(
                 "Collision",
@@ -626,6 +626,103 @@ public sealed class CSharpDeclarationRepresentabilityTests
         Assert.Equal(
             returnSpelling.Source,
             operandSpelling.Source);
+        Assert.IsType<MetadataMethodImplementationResult.Related>(
+            post.Implementations);
+        Assert.False(
+            CSharpDeclarationRepresentability
+                .NamedTypeSpellingsAreUnambiguous(
+                    Assert.IsType<
+                        MetadataTypeDeclarationResult.Posted>(
+                            post.ContainingType)
+                        .Evidence.OpenSelfIdentity,
+                    Assert.Single(post.ImplementationOccurrences)
+                        .Relationship.DeclarationOwner,
+                    signature));
+
+        var unavailable = Assert.IsType<
+            CSharpDeclarationRepresentabilityResult.Unavailable>(
+                CSharpDeclarationRepresentability.Decide(
+                    post,
+                    new(CSharpLanguageVersion.CSharp11)));
+        Assert.Equal(
+            CSharpDeclarationUnavailableReason.OutsideInitialBoundary,
+            unavailable.Reason);
+    }
+
+    [Theory]
+    [InlineData(SpellingCollisionKind.DistinctNestedLeaves)]
+    [InlineData(SpellingCollisionKind.NamespaceTypeQualifier)]
+    public void CDR002_DistinctQualifierTargetsCannotShareAcceptedSpelling(
+        SpellingCollisionKind collision)
+    {
+        using AuthoredFixture fixture = AuthoredFixture.Create(
+            methodImplementationCount: 1,
+            interfaceImplementationCount: 1,
+            spellingCollision: collision);
+        CSharpMethodDeclarationPost post = fixture.Capture();
+        MetadataMethodSignatureIdentity signature = Assert.IsType<
+            MetadataMethodDeclarationResult.Posted>(post.Method)
+            .Evidence.Signature;
+        var returnType = Assert.IsType<MetadataTypeIdentity.Named>(
+            signature.ReturnType);
+        var secondOperand = Assert.IsType<MetadataTypeIdentity.Named>(
+            signature.ParameterTypes[1]);
+
+        Assert.True(
+            CSharpDeclarationRepresentability.TrySpellType(
+                returnType,
+                out CSharpTypeSpelling? returnSpelling));
+        Assert.True(
+            CSharpDeclarationRepresentability.TrySpellType(
+                secondOperand,
+                out CSharpTypeSpelling? operandSpelling));
+        Assert.Equal(
+            "global::Collision.Outer.Right",
+            returnSpelling.Source);
+        Assert.Equal(
+            "global::Collision.Outer.Left",
+            operandSpelling.Source);
+
+        MetadataNamedTypeIdentity operandQualifier =
+            secondOperand.Definition.GetDefinitionPrefix(1);
+        Assert.True(
+            CSharpDeclarationRepresentability.TrySpellType(
+                new MetadataTypeIdentity.Named(
+                    operandQualifier,
+                    IsValueType: false),
+                out CSharpTypeSpelling? operandQualifierSpelling));
+        Assert.Equal(
+            "global::Collision.Outer",
+            operandQualifierSpelling.Source);
+        if (collision == SpellingCollisionKind.DistinctNestedLeaves)
+        {
+            MetadataNamedTypeIdentity returnQualifier =
+                returnType.Definition.GetDefinitionPrefix(1);
+            Assert.NotEqual(
+                returnQualifier.Scope,
+                operandQualifier.Scope);
+            Assert.True(
+                CSharpDeclarationRepresentability.TrySpellType(
+                    new MetadataTypeIdentity.Named(
+                        returnQualifier,
+                        IsValueType: false),
+                    out CSharpTypeSpelling? returnQualifierSpelling));
+            Assert.Equal(
+                operandQualifierSpelling.Source,
+                returnQualifierSpelling.Source);
+        }
+        else
+        {
+            Assert.Equal(
+                "Collision.Outer",
+                MetadataDeclarationText.RenderNamespace(
+                    returnType.Definition));
+            Assert.Equal(
+                1,
+                MetadataDeclarationText.GetSegmentCount(
+                    returnType.Definition));
+        }
+
         Assert.IsType<MetadataMethodImplementationResult.Related>(
             post.Implementations);
         Assert.False(
@@ -1118,6 +1215,15 @@ public sealed class CSharpDeclarationRepresentabilityTests
         }
     }
 
+    public enum SpellingCollisionKind
+    {
+        None,
+        CompleteDefinition,
+        NamespaceNestedDefinition,
+        DistinctNestedLeaves,
+        NamespaceTypeQualifier,
+    }
+
     sealed class AuthoredFixture : IDisposable
     {
         readonly string _path;
@@ -1152,33 +1258,28 @@ public sealed class CSharpDeclarationRepresentabilityTests
                 TypeAttributes.Public | TypeAttributes.Sealed,
             bool targetIsValueType = true,
             string? restrictedReturnType = null,
-            bool collidingAssemblyScopedTypes = false,
-            bool namespaceNestedCollision = false)
+            SpellingCollisionKind spellingCollision =
+                SpellingCollisionKind.None)
         {
+            bool hasSpellingCollision =
+                spellingCollision != SpellingCollisionKind.None;
             int selectedReturnShapes =
                 (returnsVoid ? 1 : 0)
                 + (returnsVoidArray ? 1 : 0)
                 + (restrictedReturnType is null ? 0 : 1)
-                + (collidingAssemblyScopedTypes ? 1 : 0);
+                + (hasSpellingCollision ? 1 : 0);
             if (selectedReturnShapes > 1)
             {
                 throw new ArgumentException(
                     "A signature must select at most one special return shape.");
             }
-            if (collidingAssemblyScopedTypes
+            if (hasSpellingCollision
                 && (!signatureUsesContainingType
                     || interfaceGenericArity != 0))
             {
                 throw new ArgumentException(
                     "The scope-collision scenario owns its generic signature.");
             }
-            if (namespaceNestedCollision
-                && !collidingAssemblyScopedTypes)
-            {
-                throw new ArgumentException(
-                    "Nested collision requires scoped collision types.");
-            }
-
             Guid mvid = Guid.NewGuid();
             var metadata = new MetadataBuilder();
             metadata.AddModule(
@@ -1226,7 +1327,7 @@ public sealed class CSharpDeclarationRepresentabilityTests
                             restrictedReturnType));
             TypeReferenceHandle firstCollisionType = default;
             TypeReferenceHandle secondCollisionType = default;
-            if (collidingAssemblyScopedTypes)
+            if (hasSpellingCollision)
             {
                 AssemblyReferenceHandle firstAssembly =
                     metadata.AddAssemblyReference(
@@ -1244,7 +1345,9 @@ public sealed class CSharpDeclarationRepresentabilityTests
                         default,
                         (AssemblyFlags)0,
                         default);
-                if (namespaceNestedCollision)
+                if (spellingCollision
+                    == SpellingCollisionKind
+                        .NamespaceNestedDefinition)
                 {
                     firstCollisionType = metadata.AddTypeReference(
                         firstAssembly,
@@ -1262,7 +1365,8 @@ public sealed class CSharpDeclarationRepresentabilityTests
                             default,
                             metadata.GetOrAddString("Widget"));
                 }
-                else
+                else if (spellingCollision
+                    == SpellingCollisionKind.CompleteDefinition)
                 {
                     firstCollisionType = metadata.AddTypeReference(
                         firstAssembly,
@@ -1274,11 +1378,48 @@ public sealed class CSharpDeclarationRepresentabilityTests
                             metadata.GetOrAddString("Collision"),
                             metadata.GetOrAddString("Widget"));
                 }
+                else
+                {
+                    TypeReferenceHandle firstOuter =
+                        metadata.AddTypeReference(
+                            firstAssembly,
+                            metadata.GetOrAddString("Collision"),
+                            metadata.GetOrAddString("Outer"));
+                    firstCollisionType =
+                        metadata.AddTypeReference(
+                            firstOuter,
+                            default,
+                            metadata.GetOrAddString("Left"));
+                    if (spellingCollision
+                        == SpellingCollisionKind
+                            .DistinctNestedLeaves)
+                    {
+                        TypeReferenceHandle secondOuter =
+                            metadata.AddTypeReference(
+                                secondAssembly,
+                                metadata.GetOrAddString("Collision"),
+                                metadata.GetOrAddString("Outer"));
+                        secondCollisionType =
+                            metadata.AddTypeReference(
+                                secondOuter,
+                                default,
+                                metadata.GetOrAddString("Right"));
+                    }
+                    else
+                    {
+                        secondCollisionType =
+                            metadata.AddTypeReference(
+                                secondAssembly,
+                                metadata.GetOrAddString(
+                                    "Collision.Outer"),
+                                metadata.GetOrAddString("Right"));
+                    }
+                }
             }
 
             BlobHandle bodySignature;
             BlobHandle declarationSignature;
-            if (collidingAssemblyScopedTypes)
+            if (hasSpellingCollision)
             {
                 bodySignature = AddCollisionSignature(
                     openContainingType: false);
@@ -1317,7 +1458,7 @@ public sealed class CSharpDeclarationRepresentabilityTests
             }
             var bodyInstructions = new BlobBuilder();
             if (returnsVoidArray
-                || collidingAssemblyScopedTypes)
+                || hasSpellingCollision)
                 bodyInstructions.WriteByte((byte)ILOpCode.Ldnull);
             else if (!returnsVoid)
                 bodyInstructions.WriteByte((byte)ILOpCode.Ldarg_0);
@@ -1375,14 +1516,14 @@ public sealed class CSharpDeclarationRepresentabilityTests
                         : TypeAttributes.Public,
                     metadata.GetOrAddString(interfaceNamespace),
                     metadata.GetOrAddString(
-                        collidingAssemblyScopedTypes
+                        hasSpellingCollision
                             ? $"{interfaceName}`1"
                             : interfaceName),
                     default,
                     MetadataTokens.FieldDefinitionHandle(1),
                     declaration);
             int effectiveInterfaceArity =
-                collidingAssemblyScopedTypes
+                hasSpellingCollision
                     ? 1
                     : interfaceGenericArity;
             for (int index = 0;
@@ -1398,7 +1539,7 @@ public sealed class CSharpDeclarationRepresentabilityTests
 
             EntityHandle implementedInterface = @interface;
             EntityHandle methodDeclaration = declaration;
-            if (collidingAssemblyScopedTypes)
+            if (hasSpellingCollision)
             {
                 var typeSpecification = new BlobBuilder();
                 typeSpecification.WriteByte(0x15);

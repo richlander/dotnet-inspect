@@ -85,6 +85,32 @@ public sealed class MetadataDeclarationTextTests
             MetadataDeclarationText.RenderSegment(namedType, 1));
     }
 
+    [Fact]
+    public void NamedTypeDefinitionPrefixRetainsStructuredIdentity()
+    {
+        MetadataNamedTypeIdentity namedType =
+            new(
+                new(
+                    MetadataTypeScopeKind.CurrentModule,
+                    Guid.Empty,
+                    null,
+                    null),
+                Text("System.Numerics"),
+                [Text("IAdditionOperators`3"), Text("Nested")],
+                [3, 0]);
+        MetadataNamedTypeIdentity prefix =
+            namedType.GetDefinitionPrefix(1);
+        Assert.Equal(namedType.Scope, prefix.Scope);
+        Assert.Equal(namedType.Namespace, prefix.Namespace);
+        Assert.Equal([Text("IAdditionOperators`3")], prefix.Segments);
+        Assert.Equal([3], prefix.IntroducedGenericParameterCounts);
+        Assert.Same(namedType, namedType.GetDefinitionPrefix(2));
+        Assert.Throws<ArgumentOutOfRangeException>(
+            () => namedType.GetDefinitionPrefix(0));
+        Assert.Throws<ArgumentOutOfRangeException>(
+            () => namedType.GetDefinitionPrefix(3));
+    }
+
     static InertString Text(string value) =>
         new(TextPolicy.Field, value);
 }

@@ -966,7 +966,7 @@ public static class CSharpDeclarationRepresentability
         ArgumentNullException.ThrowIfNull(signature);
 
         var definitions =
-            new Dictionary<string, MetadataNamedTypeIdentity>(
+            new Dictionary<string, MetadataNamedTypeIdentity?>(
                 StringComparer.Ordinal);
         return AddNamedDefinitions(containingType, definitions)
             && AddNamedDefinitions(explicitInterface, definitions)
@@ -977,7 +977,7 @@ public static class CSharpDeclarationRepresentability
 
     static bool AddNamedDefinitions(
         MetadataTypeIdentity identity,
-        Dictionary<string, MetadataNamedTypeIdentity> definitions)
+        Dictionary<string, MetadataNamedTypeIdentity?> definitions)
     {
         switch (identity)
         {
@@ -1004,22 +1004,7 @@ public static class CSharpDeclarationRepresentability
 
     static bool AddNamedDefinition(
         MetadataNamedTypeIdentity definition,
-        Dictionary<string, MetadataNamedTypeIdentity> definitions)
-    {
-        string key = NamedDefinitionSpellingKey(definition);
-        if (definitions.TryGetValue(
-                key,
-                out MetadataNamedTypeIdentity? existing))
-        {
-            return existing == definition;
-        }
-
-        definitions.Add(key, definition);
-        return true;
-    }
-
-    static string NamedDefinitionSpellingKey(
-        MetadataNamedTypeIdentity definition)
+        Dictionary<string, MetadataNamedTypeIdentity?> definitions)
     {
         var builder = new System.Text.StringBuilder();
         string namespaceName =
@@ -1032,6 +1017,13 @@ public static class CSharpDeclarationRepresentability
                     builder,
                     CSharpIdentifier.Escape(segment),
                     genericArity: 0);
+                if (!AddSpellingTarget(
+                        builder.ToString(),
+                        definition: null,
+                        definitions))
+                {
+                    return false;
+                }
             }
         }
 
@@ -1056,9 +1048,32 @@ public static class CSharpDeclarationRepresentability
                 builder,
                 CSharpIdentifier.Escape(identifier),
                 introduced);
+            if (!AddSpellingTarget(
+                    builder.ToString(),
+                    definition.GetDefinitionPrefix(index + 1),
+                    definitions))
+            {
+                return false;
+            }
         }
 
-        return builder.ToString();
+        return true;
+    }
+
+    static bool AddSpellingTarget(
+        string key,
+        MetadataNamedTypeIdentity? definition,
+        Dictionary<string, MetadataNamedTypeIdentity?> definitions)
+    {
+        if (definitions.TryGetValue(
+                key,
+                out MetadataNamedTypeIdentity? existing))
+        {
+            return existing == definition;
+        }
+
+        definitions.Add(key, definition);
+        return true;
     }
 
     static void AppendSpellingComponent(
