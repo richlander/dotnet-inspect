@@ -26,12 +26,17 @@ The pattern has five obligations. An adopting command meets all of them:
    subject's children, drawn from the host-neutral population its owner issues.
    The children section is the command's single `-v:m` section.
 3. **Info is opt-in.** Facts about the subject are reached through bare `-S`,
-   owned by [Bare `-S` default view](info-view.md). This pattern does not
-   change Info content.
-4. **Summaries are projections.** A presentation such as the CLI tree may group,
-   decorate, or collapse children. It never omits a member of an unqualified
-   population, and never substitutes a group count for the population's
-   Count. Complete formats render the full population.
+   owned by [Bare `-S` default view](info-view.md). Info must answer "what is
+   this subject?" and must not re-render the children population. The
+   existing `package`, `library`, and single-type presets already do; the
+   exact-member-name preset does not, and its adoption depends on the Info
+   owner issuing one (see [Adopter proposals](#adopter-proposals)).
+4. **Summaries are projections.** A presentation such as the CLI tree may add
+   a grouped, decorated, or collapsed projection of the children. That
+   projection is additional: it is never the unqualified inventory, it never
+   substitutes a group count for the population's Count, and it names the
+   gesture that reaches the full inventory. Complete formats render the
+   unqualified population in full.
 5. **Failure is visible.** An unreadable child, an incomplete population, or an
    empty population renders as such. None becomes a success-shaped empty or
    zero result.
@@ -67,8 +72,10 @@ edge, that adoption must not present its rows as copyable arguments.
   [Progressive disclosure](progressive-disclosure.md#verbosity) owns which
   sections each verbosity level renders; it adopts obligation 2 per command.
 - **Info view:** [Bare `-S` default view](info-view.md) owns subject facts;
-  this pattern consumes it unchanged and asks it to retire presets for
-  contexts an adoption removes.
+  this pattern consumes the `package`, `library`, and single-type presets
+  unchanged. It asks the owner to retire presets for contexts an adoption
+  removes, and to issue an exact-member-name subject-facts preset before
+  `member` adopts.
 - **Default renderer:**
   [Rendering model](rendering-model.md#native-type-and-source-defaults) owns
   default presentation. The existing exact-type tree is the reference shape
@@ -97,7 +104,8 @@ This document does not own and does not decide:
 - the identity-line fields, RID disclosure, or tree layout of any command;
 - collapse thresholds;
 - type or member name resolution rules or overload addressing; or
-- Info content or section names.
+- Info content or section names, including the proposed exact-member-name
+  preset, which remains the Info owner's decision.
 
 Those remain with the owners named in the basis. The next section records
 proposals for them.
@@ -124,6 +132,13 @@ adopts it, in that owner's document, with its own gates.
   declaration Count exceeds a threshold, proposed as 100. Collapsed namespace
   counts still include forwarders, and the tree ends with a tip naming the
   expansion gesture.
+- **Subject resolution:** a `library` source that selects more than one
+  Library fails with a candidate list instead of silently picking one, and an
+  exact Library selector (candidate spelling `library P --library <name>`)
+  resolves one Library, bound to package source, version, and target. A
+  namesake or first-Library recommendation under
+  [Package library scope](package-library-scope.md#exact-scope) may appear as
+  a tip on that failure, never as the silent subject.
 - **Narrowing:** `library L --namespace N`, so that every collapsed row can be
   expanded.
 - **Retirement:** the current `type` listing context retires only after the
@@ -140,13 +155,13 @@ adopts it, in that owner's document, with its own gates.
   managed and native runtime RIDs, capped to a count when long; for example
   `Microsoft.Data.SqlClient 7.1.0 (NuGet, net9.0; ref, lib; runtimes: unix,
   win)`.
-- **Runtime-only Libraries** appear as a count on the identity line, not as
-  rows, because they are outside the compile population.
-- **Addressing prerequisite:** this adoption requires the package-to-Library
-  edge above — a portable row identity that preserves package source,
-  version, and target, and an exact `library` gesture that consumes it. A
-  candidate spelling is `library P --library <name>`, but the gesture must
-  bind to the row identity, not only the name.
+- **Runtime assets** are disclosed only on the identity line. Whether a
+  `runtimes/*/lib` asset is an implementation overlay of a compile Library or
+  a separate Library is decided by package asset selection's correspondence,
+  not by this view.
+- **Addressing prerequisite:** this adoption reuses the exact Library selector
+  from the Library proposal as the package-to-Library edge; each row carries
+  the identity that selector consumes.
 
 ### Type and member (owners: the `type` and `member` command designs)
 
@@ -156,6 +171,11 @@ adopts it, in that owner's document, with its own gates.
 - **`member T` without a member name** fails with a tip for `type T`.
 - **Member tree:** an identity line with the overload count, then one
   signature per overload.
+- **Member Info:** today bare `-S` on `member T M` renders the overload rows,
+  which become the children. `member` adoption waits for the Info owner to
+  issue a subject-facts preset for an exact member name (for example member
+  kind, declaring type, overload count, and documentation summary). Info for
+  one selected overload, `M:<n>`, remains Signature.
 
 ## Evidence
 
@@ -164,16 +184,20 @@ Observed with production dotnet-inspect 0.26.0 on 2026-09-23, unless noted:
 | Asset | Observation | Bearing |
 | --- | --- | --- |
 | System.Text.Json 10.0.12 (NuGet) | Default is Package Info; one `lib/net10.0` Library | Package default is Info, not children |
-| System.Text.Json 11.0 (platform) | Default is Library Info. Legacy definition-only public count is 91; the Library owner reports 97 public-surface declarations | Threshold uses declaration Count, not definitions |
-| System.Private.CoreLib | Legacy definition-only public count 1,358; the Library owner reports 1,447 declarations | A large library collapses under any reasonable threshold |
+| System.Text.Json 11.0.0-rc.1.26425.128 (platform) | Default is Library Info. Legacy definition-only public count is 91; the Library Type Count adoption reports 97 public-surface declarations | Threshold uses declaration Count, not definitions |
+| System.Private.CoreLib | Legacy definition-only public count 1,358; the Library Type Count adoption reports 1,447 declarations | A large library collapses under any reasonable threshold |
 | Newtonsoft.Json | 130 public definitions | Collapses at the proposed threshold |
 | Microsoft.Data.SqlClient 7.1.0 | `ref`, `lib`, and `runtimes/{unix,win}/lib` copies; the `lib/net9.0` asset is a 93 KB stub next to 1.67 MB runtime copies | Package children count from the compile asset alone |
 | SkiaSharp.NativeAssets.Linux | 13 `runtimes/*/native` RIDs, no managed Libraries | Empty compile population must be stated |
 | platform `Timer` | `type Timer` silently renders `System.Threading.Timer` | Obligation 1 requires a visible ambiguity failure |
 | `member JsonSerializer` | Renders member-group tables duplicating `type` | Two commands render one subject's children |
+| `member JsonSerializer Serialize -S` | Bare `-S` renders the `Methods` overload rows | No exact-member-name Info preset exists yet |
+| Microsoft.TestPlatform.ObjectModel 18.10.1 | Three Libraries for net8.0; `library` silently renders `Microsoft.TestPlatform.CoreUtilities.dll` | Obligation 1 requires Library subject resolution |
 
-The 97 and 1,447 figures come from the Library owner's current evidence and
-were not reproduced here. Each adoption records its own measurements against
+The 97 and 1,447 figures come from the Library Type Count and Rows work in
+[#8385](https://github.com/richlander/dotnet-inspect/pull/8385) and
+[#8411](https://github.com/richlander/dotnet-inspect/pull/8411) and were not
+reproduced here. Each adoption records its own measurements against
 its owner's Count.
 
 ## Adoption
@@ -184,26 +208,31 @@ changes and demonstrates the real production-host scenario. Host-neutral
 children populations serve both CLI and Browser/Wasm; the CLI tree is host
 presentation.
 
-1. **Library children** (presentation only): default and `-v:m` children
-   view, tree, and `--namespace`, consuming the Library Type declaration
-   population. Current listing paths remain.
+1. **Library subject and children:** exact Library subject resolution and
+   selector, then the default and `-v:m` children view, tree, and
+   `--namespace`, consuming the Library Type declaration population. Current
+   listing paths remain.
 2. **Listing retirement:** after the positive CLI and Browser/Wasm gates in
    the Library proposal, retire the `type` listing context and its bare `-S`
    preset.
-3. **Package children:** after the package-to-Library edge exists.
+3. **Package children:** rows addressed through the step 1 Library selector.
 4. **Exact `type` and `member`:** exact resolution, removal of `member T`
-   without a name, and the member tree.
+   without a name, and the member tree. The `member` part waits for the Info
+   owner's exact-member-name preset.
 
 ## Gates
 
 This document's obligations are gated through each adoption, in Release,
 against that adoption's motivating assets:
 
-- obligation 1: the platform `Timer` collision fails with candidates;
+- obligation 1: the platform `Timer` collision and
+  Microsoft.TestPlatform.ObjectModel's three Libraries each fail with
+  candidates;
 - obligations 2 and 3: default, `-v:m`, and bare `-S` output for each adopted
   command;
 - obligation 4: a tree's grouped or collapsed counts sum to the population
-  Count, forwarders included, for System.Text.Json and System.Private.CoreLib;
+  Count, forwarders included, and the complete formats list every
+  declaration, for System.Text.Json and System.Private.CoreLib;
 - obligation 5: an empty compile population for SkiaSharp.NativeAssets.Linux;
   and
 - each ladder edge: its row identity resolves through its exact gesture to the
