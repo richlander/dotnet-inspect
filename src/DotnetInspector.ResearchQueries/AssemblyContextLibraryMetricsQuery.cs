@@ -34,8 +34,8 @@ public static class AssemblyContextLibraryMetricsQuery
                     LibraryBodyAnalysisService.ExecuteImage(
                         AssemblyContextAnalysisSource.Name(subject),
                         snapshot.Content,
-                        LibraryBodyAnalysisRequest.Create(
-                            LibraryBodyAnalysisFeatures.ImplementationProfiles),
+                        LibraryBodyAnalysisRequest
+                            .CreateCompleteImplementationProfile(),
                         resolver);
                 return LibraryMetricsQuery.Execute(execution);
             });
