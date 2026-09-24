@@ -194,7 +194,7 @@ internal static class PackageContentAdmission
                 archive,
                 limits,
                 cancellationToken)
-            is not PackageArchiveValidation.Valid)
+            is not PackageArchiveValidation.Valid valid)
         {
             return Outcome.LimitsExceeded;
         }
@@ -210,6 +210,9 @@ internal static class PackageContentAdmission
         {
             return Outcome.LimitsExceeded;
         }
+
+        if (content is FileSystemPackageContent fileSystem)
+            fileSystem.RememberArchiveEntries(valid.Archive);
 
         return Outcome.Admissible;
     }

@@ -1,5 +1,6 @@
 using System.Buffers.Binary;
 using System.IO.Compression;
+using System.IO.Hashing;
 
 namespace DotnetInspector.Packages;
 
@@ -1087,40 +1088,12 @@ static class ZipEntryDescriptorReader
             source.Slice(offset, 4));
 }
 
-struct ZipCrc32
+sealed class ZipCrc32
 {
-    static readonly uint[] Table = CreateTable();
-    uint _value;
+    readonly Crc32 _crc = new();
 
-    public ZipCrc32() => _value = uint.MaxValue;
+    internal uint Value => _crc.GetCurrentHashAsUInt32();
 
-    internal uint Value => ~_value;
-
-    internal void Append(ReadOnlySpan<byte> bytes)
-    {
-        foreach (byte value in bytes)
-        {
-            _value = Table[(byte)(_value ^ value)]
-                ^ (_value >> 8);
-        }
-    }
-
-    static uint[] CreateTable()
-    {
-        var table = new uint[256];
-        for (uint index = 0; index < table.Length; index++)
-        {
-            uint value = index;
-            for (int bit = 0; bit < 8; bit++)
-            {
-                value = (value & 1) == 0
-                    ? value >> 1
-                    : (value >> 1) ^ 0xEDB88320;
-            }
-
-            table[index] = value;
-        }
-
-        return table;
-    }
+    internal void Append(ReadOnlySpan<byte> bytes) =>
+        _crc.Append(bytes);
 }
