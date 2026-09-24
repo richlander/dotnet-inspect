@@ -530,6 +530,10 @@ public sealed class BrowserEngineLayeringTests
             // Matches package-relative entry paths against named implementation
             // assemblies (docs/design/package-read-demand.md), not a filesystem path.
             "DotnetInspector.Packages.PackageImplementationNames",
+            // Names package-relative document entries and folders, validated as
+            // entry segments (docs/design/package-read-demand.md#document-demand),
+            // not a filesystem path.
+            "DotnetInspector.Packages.PackageDocumentDemand",
             "DotnetInspector.Packages.PackageCoordinateResolver",
             "DotnetInspector.Packages.PackageExtractor",
             // Opens a package-relative product-resource path, not a filesystem path.
