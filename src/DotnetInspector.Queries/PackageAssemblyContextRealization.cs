@@ -965,6 +965,13 @@ public sealed class PackageRootBinding
             throw new ArgumentOutOfRangeException(nameof(demand));
         if (Root.AssetDemand == demand)
             return this;
+        // A surface-only Root's content was read for the surface alone, so it
+        // is never upgraded in place (docs/design/package-read-demand.md).
+        if (Root.AssetDemand == PackageAssetDemand.Surface)
+        {
+            throw new InvalidOperationException(
+                "A surface-only package Root cannot be upgraded in place; realize it with the demand it needs.");
+        }
         var root = new PackageRootRealization(
             Root.Content,
             Root.PackageId,

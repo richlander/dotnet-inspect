@@ -26,6 +26,37 @@ public sealed class PackageRootAcquisitionTests
     static readonly PackageSource Private =
         new("private", "https://private.test/v3/index.json");
 
+    /// <summary>
+    /// A surface-only Root keeps its selection and is never upgraded in place
+    /// (docs/design/package-read-demand.md).
+    /// </summary>
+    [Fact]
+    public async Task AssetDemand_SurfaceRootIsNeverUpgradedInPlace()
+    {
+        using var http = new HttpClient(new FailingHandler());
+        IPackageStore store = await CachedStoreAsync(LibraryPackage());
+        var acquired = Assert.IsType<PackageRootAcquisitionOutcome.Acquired>(
+            await PackageRootAcquisition.AcquireAsync(
+                PackageRootAcquisitionRequest.Create(
+                    PackageId,
+                    Version,
+                    Framework),
+                Options(http, store),
+                TestContext.Current.CancellationToken));
+        PackageRootBinding full = acquired.Binding;
+        Assert.Equal(PackageAssetDemand.SurfaceAndImplementation, full.Root.AssetDemand);
+
+        PackageRootBinding surface = full.WithAssetDemand(PackageAssetDemand.Surface);
+
+        Assert.Equal(PackageAssetDemand.Surface, surface.Root.AssetDemand);
+        Assert.Equal(
+            full.Root.AssetSelection.Assets.Select(asset => asset.Path),
+            surface.Root.AssetSelection.Assets.Select(asset => asset.Path));
+        Assert.Same(surface, surface.WithAssetDemand(PackageAssetDemand.Surface));
+        Assert.Throws<InvalidOperationException>(() =>
+            surface.WithAssetDemand(PackageAssetDemand.SurfaceAndImplementation));
+    }
+
     [Fact]
     public async Task ExplicitCoordinate_AcquiresRootAndIssuesExactRequest()
     {

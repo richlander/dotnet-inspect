@@ -67,7 +67,7 @@ The five cold requests are the size probe, the tail read, and three spans for
 the `ref/net10.0` folder, which the archive interleaves with other folders'
 documentation files.
 
-`find .ToString --package ID@VERSION --tfm net10.0` on nine more packages,
+`find .ToString --package ID@VERSION --tfm net10.0` on eight more packages,
 the same day, one cold and one warm run each, returned the same rows as
 0.26.0 for every package. Every warm run made no request:
 

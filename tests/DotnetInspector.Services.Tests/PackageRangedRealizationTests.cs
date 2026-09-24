@@ -229,8 +229,10 @@ public sealed class PackageRangedRealizationTests
     }
 
     /// <summary>
-    /// Entry cache: a cached entry that fails its directory checks is kept and
-    /// bypassed; the complete fetch answers.
+    /// Entry cache: a cached entry or directory that fails its checks is kept
+    /// and bypassed, with a verbose diagnostic; the complete fetch answers and
+    /// publishes to the complete store, which answers later reads
+    /// (docs/design/package-cache-policy.md, case 5b).
     /// </summary>
     [Theory]
     [InlineData(false)]
@@ -259,11 +261,45 @@ public sealed class PackageRangedRealizationTests
         Assert.Equal(PackagePayloadOrigin.Download, acquired.Payload.Origin);
         Assert.Equal(1, warm.FullRequests);
         Assert.Equal(0, warm.RangedRequests);
+        Assert.Contains(environment.Log, line => line.Contains("kept and bypassed", StringComparison.Ordinal));
+
+        // The invalid item is left in place.
+        IPackageEntryStore entries = store;
+        if (directory)
+        {
+            Assert.True(entries.TryReadDirectory(PclStorage, PclStorageVersion, out ReadOnlyMemory<byte> region, out _));
+            Assert.Equal(new byte[] { 1, 2, 3 }, region.ToArray());
+        }
+        else
+        {
+            Assert.True(entries.TryReadEntry(
+                PclStorage, PclStorageVersion, "lib/net45/PCLStorage.dll", out byte[] content));
+            Assert.Equal(new byte[] { 1, 2, 3 }, content);
+        }
+
+        await AssertLaterReadIsServedFromTheCompleteStoreAsync(store, archive);
+    }
+
+    private static async Task AssertLaterReadIsServedFromTheCompleteStoreAsync(
+        InMemoryPackageStore store,
+        byte[] archive)
+    {
+        var later = new RangeFeed(PclStorage, PclStorageVersion, archive);
+        await using RangedEnvironment environment = RangedEnvironment.Create(later);
+        var acquired = Assert.IsType<PackageHouseSettlement.Acquired>(
+            await environment.RealizeAsync(store, PackagePayloadAccess.Ranged, "net45"));
+
+        Assert.Equal(PackagePayloadOrigin.Cache, acquired.Payload.Origin);
+        Assert.Equal(0, later.FullRequests);
+        Assert.Equal(0, later.RangedRequests);
     }
 
     /// <summary>
     /// Entry cache: when the archive changed since its directory was cached,
-    /// the fresh directory differs and the complete fetch answers.
+    /// the fresh directory differs; the complete fetch answers with the whole
+    /// archive and publishes to the complete store, which answers later reads,
+    /// and no entry-cache item is replaced
+    /// (docs/design/package-cache-policy.md, case 5c).
     /// </summary>
     [Fact]
     public async Task EntryCache_ChangedArchive_TakesTheCompleteFetch()
@@ -289,6 +325,24 @@ public sealed class PackageRangedRealizationTests
 
         Assert.Equal(PackagePayloadOrigin.Download, acquired.Payload.Origin);
         Assert.Equal(1, warm.FullRequests);
+        Assert.IsNotType<RangedPackageContent>(acquired.Payload.Content);
+        Assert.NotNull(store.TryGetCached(
+            PclStorage,
+            PclStorageVersion,
+            [acquired.Payload.ProducerKey]));
+
+        // The cached directory still describes the original archive, and the
+        // entry the changed read lacked was not published from it.
+        IPackageEntryStore entries = store;
+        Assert.True(entries.TryReadDirectory(PclStorage, PclStorageVersion, out ReadOnlyMemory<byte> region, out long length));
+        Assert.Equal(archive.Length, length);
+        Assert.NotNull(ZipFetch.ZipArchiveReader.ReadDirectoryFromRegion(
+                region, length, new ZipFetch.ZipReadLimits())
+            .Find("lib/sl5/PCLStorage.xml"));
+        Assert.False(entries.TryReadEntry(
+            PclStorage, PclStorageVersion, "lib/net45/PCLStorage.xml", out _));
+
+        await AssertLaterReadIsServedFromTheCompleteStoreAsync(store, changed);
     }
 
     private static byte[] Republish(byte[] archive, string removedEntry)
