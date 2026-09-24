@@ -74,7 +74,10 @@ public sealed record LibraryTypeDeclarationRowsInspectionRequest
         bool includeDefinitions = true,
         bool includeForwarders = true,
         ApiTypeInventoryKinds definitionKinds =
-            ApiTypeInventoryKinds.All)
+            ApiTypeInventoryKinds.All,
+        string? @namespace = null,
+        MetadataNamespaceMatch namespaceMatch =
+            MetadataNamespaceMatch.Exact)
     {
         ArgumentOutOfRangeException.ThrowIfNegative(startOrdinal);
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(maximumRows);
@@ -120,6 +123,38 @@ public sealed record LibraryTypeDeclarationRowsInspectionRequest
                 "A continuation MVID cannot be empty.",
                 nameof(expectedModuleVersionId));
         }
+        if (@namespace?.Length
+            > MetadataSafetyPolicy.MaxTypeNameCharacters)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(@namespace),
+                @namespace.Length,
+                $"A declaration namespace cannot exceed "
+                    + $"{MetadataSafetyPolicy.MaxTypeNameCharacters} "
+                    + "characters.");
+        }
+        if (!Enum.IsDefined(namespaceMatch))
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(namespaceMatch),
+                namespaceMatch,
+                "Unknown declaration namespace match.");
+        }
+        if (@namespace is null
+            && namespaceMatch is not MetadataNamespaceMatch.Exact)
+        {
+            throw new ArgumentException(
+                "An unqualified declaration Rows request cannot select a namespace match.",
+                nameof(namespaceMatch));
+        }
+        if (namespaceMatch is MetadataNamespaceMatch.Suffix
+            && (@namespace!.Length < 2
+                || @namespace[0] != '.'))
+        {
+            throw new ArgumentException(
+                "A declaration namespace suffix must start with '.' and contain a suffix.",
+                nameof(@namespace));
+        }
 
         StartOrdinal = startOrdinal;
         MaximumRows = maximumRows;
@@ -127,6 +162,8 @@ public sealed record LibraryTypeDeclarationRowsInspectionRequest
         IncludeDefinitions = includeDefinitions;
         IncludeForwarders = includeForwarders;
         DefinitionKinds = definitionKinds;
+        Namespace = @namespace;
+        NamespaceMatch = namespaceMatch;
         ExpectedModuleVersionId = expectedModuleVersionId;
     }
 
@@ -136,6 +173,8 @@ public sealed record LibraryTypeDeclarationRowsInspectionRequest
     public bool IncludeDefinitions { get; }
     public bool IncludeForwarders { get; }
     public ApiTypeInventoryKinds DefinitionKinds { get; }
+    public string? Namespace { get; }
+    public MetadataNamespaceMatch NamespaceMatch { get; }
     public Guid? ExpectedModuleVersionId { get; }
 
     internal bool Includes(AssemblyTypeDefinitionKind kind) =>
@@ -598,6 +637,7 @@ public static class LibraryTypeDeclarationInventoryInspection
             && request.IncludeForwarders
             && request.DefinitionKinds
                 == ApiTypeInventoryKinds.All
+            && request.Namespace is null
             && allDeclarations.Any(
                 static declaration =>
                     declaration.Kind
@@ -611,18 +651,22 @@ public static class LibraryTypeDeclarationInventoryInspection
             [
                 .. allDeclarations.Where(
                     declaration =>
-                        declaration.Kind switch
-                        {
-                            AssemblyTypeDeclarationKind.Definition =>
-                                request.IncludeDefinitions
-                                && request.Includes(
-                                    declaration.DefinitionKind
-                                    ?? throw new InvalidOperationException(
-                                        "A Type definition declaration omitted its kind.")),
-                            AssemblyTypeDeclarationKind.Forwarder =>
-                                request.IncludeForwarders,
-                            _ => false,
-                        })
+                        (request.Namespace is null
+                            || declaration.Name.IsInNamespace(
+                                request.Namespace,
+                                request.NamespaceMatch))
+                        && (declaration.Kind switch
+                            {
+                                AssemblyTypeDeclarationKind.Definition =>
+                                    request.IncludeDefinitions
+                                    && request.Includes(
+                                        declaration.DefinitionKind
+                                        ?? throw new InvalidOperationException(
+                                            "A Type definition declaration omitted its kind.")),
+                                AssemblyTypeDeclarationKind.Forwarder =>
+                                    request.IncludeForwarders,
+                                _ => false,
+                            }))
             ];
 
         if (request.StartOrdinal > declarations.Length

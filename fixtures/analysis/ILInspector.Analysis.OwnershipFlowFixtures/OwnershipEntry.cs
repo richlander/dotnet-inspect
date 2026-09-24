@@ -19,6 +19,135 @@ public static class Entry
         return buffer.Length;
     }
 
+    public static int RentAndReturnThroughGenericHelper()
+    {
+        byte[] buffer = ArrayPool<byte>.Shared.Rent(16);
+        try
+        {
+            ReturnGeneric(buffer);
+        }
+        finally
+        {
+            s_ownershipProbe++;
+        }
+        return buffer.Length;
+    }
+
+    public static int RentAndReturnThroughNestedGenericHelpers()
+    {
+        byte[] buffer = ArrayPool<byte>.Shared.Rent(16);
+        try
+        {
+            ForwardGeneric(buffer);
+        }
+        finally
+        {
+            s_ownershipProbe++;
+        }
+        return buffer.Length;
+    }
+
+    public static int RentAndReturnDirectlyOpenGeneric<T>()
+    {
+        T[] buffer = ArrayPool<T>.Shared.Rent(16);
+        try
+        {
+            ArrayPool<T>.Shared.Return(buffer);
+        }
+        finally
+        {
+            s_ownershipProbe++;
+        }
+        return buffer.Length;
+    }
+
+    public static int RentAndReturnCompoundThroughGenericHelper()
+    {
+        byte[][] buffer = ArrayPool<byte[]>.Shared.Rent(16);
+        try
+        {
+            ReturnGenericArrays<byte>(buffer);
+        }
+        finally
+        {
+            s_ownershipProbe++;
+        }
+        return buffer.Length;
+    }
+
+    public static int RentAndReturnCompoundThroughNestedGenericHelpers()
+    {
+        byte[][] buffer = ArrayPool<byte[]>.Shared.Rent(16);
+        try
+        {
+            ForwardGenericArrays<byte>(buffer);
+        }
+        finally
+        {
+            s_ownershipProbe++;
+        }
+        return buffer.Length;
+    }
+
+    public static int RentAndReturnNamedCompoundThroughGenericHelper()
+    {
+        OwnershipToken[][] buffer =
+            ArrayPool<OwnershipToken[]>.Shared.Rent(16);
+        try
+        {
+            ReturnGenericArrays<OwnershipToken>(buffer);
+        }
+        finally
+        {
+            s_ownershipProbe++;
+        }
+        return buffer.Length;
+    }
+
+    public static int RentAndReturnNamedCompoundThroughNestedGenericHelpers()
+    {
+        OwnershipToken[][] buffer =
+            ArrayPool<OwnershipToken[]>.Shared.Rent(16);
+        try
+        {
+            ForwardGenericArrays<OwnershipToken>(buffer);
+        }
+        finally
+        {
+            s_ownershipProbe++;
+        }
+        return buffer.Length;
+    }
+
+    public static int RentAndReturnConstructedCompoundThroughGenericHelper()
+    {
+        byte[][] buffer = ArrayPool<byte[]>.Shared.Rent(16);
+        try
+        {
+            ForwardConstructedGenericArray<byte>(buffer);
+        }
+        finally
+        {
+            s_ownershipProbe++;
+        }
+        return buffer.Length;
+    }
+
+    public static int RentAndReturnNamedConstructedCompoundThroughGenericHelper()
+    {
+        OwnershipToken[][] buffer =
+            ArrayPool<OwnershipToken[]>.Shared.Rent(16);
+        try
+        {
+            ForwardConstructedGenericArray<OwnershipToken>(buffer);
+        }
+        finally
+        {
+            s_ownershipProbe++;
+        }
+        return buffer.Length;
+    }
+
     public static int RentAndForwardToReturn()
     {
         byte[] buffer = ArrayPool<byte>.Shared.Rent(16);
@@ -97,6 +226,21 @@ public static class Entry
         byte[] buffer = ArrayPool<byte>.Shared.Rent(16);
         try
         {
+            GC.KeepAlive(buffer);
+        }
+        finally
+        {
+            s_ownershipProbe++;
+        }
+        return buffer.Length;
+    }
+
+    public static int RentReturnAndForwardExternally()
+    {
+        byte[] buffer = ArrayPool<byte>.Shared.Rent(16);
+        try
+        {
+            ReturnRentedArray(buffer);
             GC.KeepAlive(buffer);
         }
         finally
@@ -289,6 +433,8 @@ public static class Entry
         buffer = [];
 
     static byte[]? s_rentedArray;
+    static object? s_resource;
+    static OwnershipToken? s_ownershipToken;
     static int s_ownershipProbe;
     static readonly Exception s_lifecycleException =
         new InvalidOperationException();
@@ -539,6 +685,45 @@ public static class Entry
         ObserveTwoResources(first, second);
     }
 
+    public static void ExerciseTwoResourceDomainsThroughHelper()
+    {
+        byte[] first = AcquireFirstResource();
+        ForwardResource(first);
+        s_ownershipProbe += first.Length;
+        byte[] second = AcquireSecondResource();
+        ForwardResource(second);
+        s_ownershipProbe += second.Length;
+    }
+
+    public static void ExerciseGenericResourceArguments()
+    {
+        object resource = AcquirePair<int, string>();
+        KeepLocal(ref resource);
+        StoreResource(resource);
+    }
+
+    public static void ExerciseOwnershipIsolation()
+    {
+        OwnershipToken resource = AcquireOwnershipToken();
+        try
+        {
+            ForwardOwnershipToken(resource);
+        }
+        finally
+        {
+            ++s_ownershipProbe;
+        }
+
+        System.GC.KeepAlive(resource);
+    }
+
+    public static void ExerciseTrackedResourceMutation()
+    {
+        TrackedResource resource = AcquireTrackedResource<int>();
+        KeepLocal(ref resource);
+        MutateTrackedResource(resource);
+    }
+
     public static void RentAddressThenObserve()
     {
         byte[] buffer = ArrayPool<byte>.Shared.Rent(16);
@@ -554,6 +739,46 @@ public static class Entry
     static void ObserveTwoResources(byte[] first, byte[] second)
     {
     }
+
+    static void ForwardResource(byte[] resource) =>
+        ObserveResource(resource);
+
+    static void ReturnGeneric<T>(T[] resource) =>
+        ArrayPool<T>.Shared.Return(resource);
+
+    static void ForwardGeneric<T>(T[] resource) =>
+        ReturnGeneric(resource);
+
+    static void ReturnGenericArrays<T>(T[][] resource) =>
+        ArrayPool<T[]>.Shared.Return(resource);
+
+    static void ForwardGenericArrays<T>(T[][] resource) =>
+        ReturnGenericArrays<T>(resource);
+
+    static void ForwardConstructedGenericArray<T>(T[][] resource) =>
+        ReturnGeneric<T[]>(resource);
+
+    static object AcquirePair<TFirst, TSecond>() =>
+        new();
+
+    static OwnershipToken AcquireOwnershipToken() =>
+        new();
+
+    static void ForwardOwnershipToken(OwnershipToken resource) =>
+        s_ownershipToken = resource;
+
+    static void KeepLocal<T>(ref T resource)
+    {
+    }
+
+    static void StoreResource(object resource) =>
+        s_resource = resource;
+
+    static TrackedResource AcquireTrackedResource<T>() =>
+        new();
+
+    static void MutateTrackedResource(TrackedResource resource) =>
+        resource.Value = 42;
 
     sealed class OwnershipWorker
     {
@@ -579,6 +804,13 @@ public static class Entry
             ArrayPool<byte>.Shared.Return(buffer);
     }
 }
+
+public sealed class TrackedResource
+{
+    public int Value;
+}
+
+public sealed class OwnershipToken;
 
 public delegate T BindingCallback<T>(T value);
 

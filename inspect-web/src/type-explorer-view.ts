@@ -5,13 +5,35 @@ import type {
   TypeExplorerMemberIdentity,
   TypeExplorerPlacement,
 } from "./type-explorer-route.ts";
+import { assertNever } from "./data.ts";
 
 interface TypeExplorerRange {
   readonly start: number;
   readonly length: number;
 }
 
-interface TypeExplorerDeclaration {
+export type TypeExplorerBodyRole =
+  | "Method"
+  | "Getter"
+  | "Setter"
+  | "Init"
+  | "Adder"
+  | "Remover";
+
+export interface TypeExplorerBodyDestination {
+  readonly moduleVersionId: string;
+  readonly member: TypeExplorerMemberIdentity;
+  readonly metadataToken: number;
+}
+
+export interface TypeExplorerBody {
+  readonly bodyId: number;
+  readonly role: TypeExplorerBodyRole;
+  readonly range: TypeExplorerRange;
+  readonly destination: TypeExplorerBodyDestination | null;
+}
+
+export interface TypeExplorerDeclaration {
   readonly declarationId: number;
   readonly identity: TypeExplorerMemberIdentity;
   readonly declarationToken: number;
@@ -21,6 +43,7 @@ interface TypeExplorerDeclaration {
   readonly origin: string;
   readonly supportsSelectedBody: boolean;
   readonly range: TypeExplorerRange;
+  readonly bodies: readonly TypeExplorerBody[];
 }
 
 export interface TypeExplorerProjection {
@@ -71,11 +94,21 @@ export type TypeExplorerViewState =
 
 export type TypeExplorerSelectionPane = "outline" | "source";
 
+export type TypeExplorerBodyInspectionState =
+  | { readonly status: "idle" }
+  | { readonly status: "loading"; readonly bodyId: number }
+  | {
+      readonly status: "failed";
+      readonly bodyId: number;
+      readonly error: string;
+    };
+
 export interface TypeExplorerViewOptions {
   readonly typeDisplay: string;
   readonly packageDisplay: string;
   readonly intent: TypeExplorerIntent;
   readonly state: TypeExplorerViewState;
+  readonly bodyInspection?: TypeExplorerBodyInspectionState;
   readonly outlineOpen?: boolean;
   readonly escapeHtml: (value: unknown) => string;
   readonly highlightCSharp: (value: string) => string;
@@ -97,6 +130,10 @@ export interface TypeExplorerViewActions {
   readonly selectMember: (
     declaration: TypeExplorerDeclaration,
     pane: TypeExplorerSelectionPane,
+  ) => void;
+  readonly inspectBody: (
+    declaration: TypeExplorerDeclaration,
+    body: TypeExplorerBody,
   ) => void;
 }
 
@@ -121,6 +158,7 @@ export function renderTypeExplorerView(
     packageDisplay,
     intent,
     state,
+    bodyInspection = { status: "idle" },
     outlineOpen = false,
     escapeHtml,
     highlightCSharp,
@@ -145,6 +183,7 @@ export function renderTypeExplorerView(
     content = inspectionHtml(
       state.inspection,
       intent,
+      bodyInspection,
       outlineOpen,
       escapeHtml,
       highlightCSharp);
@@ -221,6 +260,22 @@ export function bindTypeExplorerView(
   const declarations = new Map(
     projection.declarations.map(declaration =>
       [String(declaration.declarationId), declaration]));
+  const bodies = new Map(
+    projection.declarations.flatMap(declaration =>
+      declaration.bodies.map(body =>
+        [String(body.bodyId), { declaration, body }] as const)));
+  for (const target of root.querySelectorAll<HTMLButtonElement>(
+    "[data-type-explorer-inspect-body]",
+  )) {
+    target.addEventListener("click", event => {
+      event.stopPropagation();
+      if (target.dataset.typeExplorerInspectBusy === "true") return;
+      const entry = bodies.get(
+        target.dataset.typeExplorerInspectBody ?? "");
+      if (entry !== undefined)
+        actions.inspectBody(entry.declaration, entry.body);
+    });
+  }
   for (const target of root.querySelectorAll<HTMLElement>(
     "[data-type-explorer-declaration]",
   )) {
@@ -362,6 +417,7 @@ export function restoreTypeExplorerViewportAnchor(
 function inspectionHtml(
   inspection: TypeExplorerInspection,
   intent: TypeExplorerIntent,
+  bodyInspection: TypeExplorerBodyInspectionState,
   outlineOpen: boolean,
   escapeHtml: TypeExplorerViewOptions["escapeHtml"],
   highlightCSharp: TypeExplorerViewOptions["highlightCSharp"],
@@ -466,6 +522,7 @@ function inspectionHtml(
       : projectionHtml(
           projection,
           intent.selectedDeclarationId,
+          bodyInspection,
           outlineOpen,
           escapeHtml,
           highlightCSharp)}
@@ -475,6 +532,7 @@ function inspectionHtml(
 function projectionHtml(
   projection: TypeExplorerProjection,
   selectedDeclarationId: number | null,
+  bodyInspection: TypeExplorerBodyInspectionState,
   outlineOpen: boolean,
   escapeHtml: TypeExplorerViewOptions["escapeHtml"],
   highlightCSharp: TypeExplorerViewOptions["highlightCSharp"],
@@ -522,6 +580,8 @@ function projectionHtml(
           renderSourceDeclarations(
             projection,
             selectedDeclarationId,
+            bodyInspection,
+            escapeHtml,
             highlightCSharp)
         }</code></pre>
       </section>
@@ -531,6 +591,8 @@ function projectionHtml(
 function renderSourceDeclarations(
   projection: TypeExplorerProjection,
   selectedDeclarationId: number | null,
+  bodyInspection: TypeExplorerBodyInspectionState,
+  escapeHtml: TypeExplorerViewOptions["escapeHtml"],
   highlightCSharp: TypeExplorerViewOptions["highlightCSharp"],
 ): string {
   let cursor = 0;
@@ -540,17 +602,103 @@ function renderSourceDeclarations(
     const end = start + declaration.range.length;
     const selected = declaration.declarationId === selectedDeclarationId;
     html += highlightCSharp(projection.text.slice(cursor, start));
-    html += `<span class="type-explorer-source-declaration${
-      selected ? " selected" : ""
-    }" role="button" tabindex="0"${selected
-      ? ' aria-current="true"'
-      : ""}
-      data-type-explorer-declaration="${declaration.declarationId}">${
-        highlightCSharp(projection.text.slice(start, end))
-      }</span>`;
+    const bodies = selected
+      ? [...declaration.bodies]
+          .filter(body =>
+            body.destination !== null
+            && body.range.start >= start
+            && body.range.start + body.range.length <= end)
+          .sort((left, right) => left.range.start - right.range.start)
+      : [];
+    let declarationCursor = start;
+    let primarySegment = true;
+    for (const body of bodies) {
+      if (body.range.start < declarationCursor) continue;
+      html += declarationSegmentHtml(
+        projection.text.slice(declarationCursor, body.range.start),
+        declaration,
+        selected,
+        primarySegment,
+        highlightCSharp);
+      if (body.range.start > declarationCursor) primarySegment = false;
+      html += inspectBodyHtml(body, bodyInspection, escapeHtml);
+      const bodyEnd = body.range.start + body.range.length;
+      html += declarationSegmentHtml(
+        projection.text.slice(body.range.start, bodyEnd),
+        declaration,
+        selected,
+        primarySegment,
+        highlightCSharp);
+      primarySegment = false;
+      declarationCursor = bodyEnd;
+    }
+    html += declarationSegmentHtml(
+      projection.text.slice(declarationCursor, end),
+      declaration,
+      selected,
+      primarySegment,
+      highlightCSharp);
     cursor = end;
   }
   return html + highlightCSharp(projection.text.slice(cursor));
+}
+
+function declarationSegmentHtml(
+  source: string,
+  declaration: TypeExplorerDeclaration,
+  selected: boolean,
+  primary: boolean,
+  highlightCSharp: TypeExplorerViewOptions["highlightCSharp"],
+): string {
+  if (source.length === 0) return "";
+  return `<span class="type-explorer-source-declaration${
+    selected ? " selected" : ""
+  }"${primary
+    ? ` role="button" tabindex="0"${selected
+      ? ' aria-current="true"'
+      : ""}`
+    : ""}
+    data-type-explorer-declaration="${declaration.declarationId}">${
+      highlightCSharp(source)
+    }</span>`;
+}
+
+function inspectBodyHtml(
+  body: TypeExplorerBody,
+  state: TypeExplorerBodyInspectionState,
+  escapeHtml: TypeExplorerViewOptions["escapeHtml"],
+): string {
+  const active = state.status !== "idle" && state.bodyId === body.bodyId;
+  const loading = active && state.status === "loading";
+  const failure = active && state.status === "failed"
+    ? `<span class="type-explorer-body-inspect-error" role="alert">${
+        escapeHtml(state.error)
+      }</span>`
+    : "";
+  return `<span class="type-explorer-body-inspect">
+    <button type="button"
+      data-type-explorer-inspect-body="${body.bodyId}"
+      aria-label="${escapeHtml(inspectBodyAccessibleName(body.role))}"${
+        loading
+          ? ' aria-busy="true" aria-disabled="true" data-type-explorer-inspect-busy="true"'
+          : ""
+      }>Inspect</button>
+    ${loading
+      ? '<span class="type-explorer-body-inspect-status" role="status">Inspecting…</span>'
+      : failure}
+  </span>`;
+}
+
+function inspectBodyAccessibleName(role: TypeExplorerBodyRole): string {
+  switch (role) {
+    case "Method": return "Inspect method body";
+    case "Getter": return "Inspect getter body";
+    case "Setter": return "Inspect setter body";
+    case "Init": return "Inspect init body";
+    case "Adder": return "Inspect event subscription body";
+    case "Remover": return "Inspect event unsubscription body";
+    default: return assertNever(role, "Type Explorer body role");
+  }
 }
 
 function diagnosticsHtml(

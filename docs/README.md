@@ -83,13 +83,14 @@ root README remains current without cataloging every focused capability.
 | Query library, composition, operation registration, portable intent, and payload | [QuerySpace Library Boundary](design/query-space-library.md), [Query Space Composition](design/query-space-composition.md), [Query Operation Infrastructure](design/query-operation-infrastructure.md), [Portable Query Intent](design/portable-query-intent.md), and [Portable Query Payload](design/portable-query-payload.md) |
 | Installed capability composition, search, discovery, and exact explanation | [Inspection Capability Composition](design/inspection-capability-composition.md), [Capability Catalog Search](design/capability-catalog-search.md), [Schema Query](design/schema-query.md), [Resource Explanation](design/resource-explanation.md), and [Product Vocabulary](design/vocabulary.md) |
 | Retained state and service orientation | [Stateless Core Services](design/stateless-core-services.md) |
-| Resource ownership and current adoption | [Resource Ownership and Borrowing](design/resource-ownership-and-borrowing.md), [Resource Occurrence Analysis](design/resource-occurrence-analysis.md), and the [Resource-Owner Type Map](design/resource-owner-type-map.md) |
+| Resource ownership and current adoption | [Resource Ownership and Borrowing](design/resource-ownership-and-borrowing.md), [Resource Occurrence Analysis](design/resource-occurrence-analysis.md), [Generic Research Ownership Paths](design/generic-research-ownership-paths.md), and the [Resource-Owner Type Map](design/resource-owner-type-map.md) |
 | Command placement, names, defaults, and disclosure | [Operation Commands and Subject Sections](design/operation-command-and-subject-section-composition.md), [Relationship Section Naming](design/relationship-section-naming.md), [Progressive Disclosure](design/progressive-disclosure.md), and [CLI Host Architecture](cli-architecture.md) |
 | Output data and rendering | [Output Shapes](design/output-shapes.md), [Style Guide](design/style-guide.md), and [Inspection Envelope](design/inspection-envelope.md) |
 | Metadata and API inspection | [Assembly Inspection Query](design/assembly-inspection-query.md) |
 | Package composition | [PackageHouse](design/package-house.md) |
 | Package version selection and freshness | [Version Resolution](design/version-resolution.md) and [Package Version Service](design/package-version-service.md) |
 | Ranged reads of a package archive's directory and entries | [Package archive range access](design/package-archive-range-access.md) |
+| Which remote package archives are cached and which are read by range; durable identity for credential-free HTTP feeds | [Package cache policy](design/package-cache-policy.md) |
 | What a package acquisition transferred: typed per-request receipts in Debug evidence | [Package transfer receipt](design/package-transfer-receipt.md) |
 | Platform composition | [PlatformHouse](design/platform-house-reference-processing.md) |
 | Source and PDB composition | [SourceHouse](design/source-house.md) and [PDB Acquisition](pdb-acquisition.md) |

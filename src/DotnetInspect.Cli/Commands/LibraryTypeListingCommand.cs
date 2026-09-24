@@ -181,7 +181,7 @@ internal static class LibraryTypeListingCommand
         return new(declarations, definitionKinds);
     }
 
-    private readonly record struct LibraryTypePopulationSelection(
+    internal readonly record struct LibraryTypePopulationSelection(
         LibraryTypeDeclarationSelection Declarations,
         ApiTypeInventoryKinds DefinitionKinds);
 
@@ -212,10 +212,13 @@ internal static class LibraryTypeListingCommand
         return new LibraryTypeListingResult(document, []);
     }
 
-    private static LibraryTypeListingResult? ReadRows(
+    internal static LibraryTypeListingResult? ReadRows(
         ExactLibraryInspectionSession session,
         LibraryTypePopulationSelection selection,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        string? @namespace = null,
+        MetadataNamespaceMatch namespaceMatch =
+            MetadataNamespaceMatch.Exact)
     {
         var rows = ImmutableArray.CreateBuilder<LibraryTypeShape>();
         LibraryDocument? firstDocument = null;
@@ -236,7 +239,9 @@ internal static class LibraryTypeListingCommand
                                 new LibraryTypeMemberCountRequest(),
                             continuation: continuation),
                         selection.Declarations,
-                        selection.DefinitionKinds),
+                        selection.DefinitionKinds,
+                        @namespace,
+                        namespaceMatch),
                     s_bounds);
             InspectionEnvelope<LibraryInspectionOutcome>? envelope =
                 session.Execute(plan, cancellationToken);

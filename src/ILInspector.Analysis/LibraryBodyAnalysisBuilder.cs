@@ -61,6 +61,7 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
         PEReader peReader,
         IAssemblyReferenceResolver? resolver = null,
         LibraryBodyRootSnapshot? rootSnapshot = null,
+        IAssemblyBindingPolicy? bindingPolicy = null,
         Action<MethodDefinitionHandle>? methodBodyReferenceIndexed = null,
         Action<MethodDefinitionHandle>? stableReceiverGetterClassified = null,
         Action<MethodDefinitionHandle, int>? methodReferenceResolved = null,
@@ -142,13 +143,15 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
                 _primaryMetadataResolver,
                 liftedSourceOwnerResolver,
                 _asyncSourceResolver);
-        if (resolver is not null && reader.IsAssembly)
+        if ((resolver is not null || bindingPolicy is not null)
+            && reader.IsAssembly)
             _referenceMetadataResolver =
                 new LibraryBodyReferenceMetadataResolver(
                     path,
                     reader,
                     resolver,
-                    rootSnapshot);
+                    rootSnapshot,
+                    bindingPolicy);
         _asyncSiblingMethodIndex =
             new LibraryBodyAsyncSiblingMethodIndex(
                 asyncSiblingMethodScanned);
@@ -597,6 +600,7 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
                     plan);
         }
         analysis = PublishResourceOccurrences(analysis, plan, results);
+        analysis = PublishResourceOwnership(analysis, plan, results);
         return PublishResourceLifecycle(analysis, plan, results);
     }
 

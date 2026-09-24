@@ -64,11 +64,28 @@ internal static class DirectLibraryInspectionCommand
             return 1;
         }
 
-        var plan = new LibraryInspectionPlan(
-            new(
-                LibraryTypeAccessibility.Public,
-                new()),
-            s_bounds);
+        LibraryInspectionPlan plan;
+        try
+        {
+            plan = new(
+                new(
+                    LibraryTypeAccessibility.Public,
+                    new(),
+                    @namespace: options.TypeNamespace,
+                    namespaceMatch:
+                        options.TypeNamespace?.StartsWith(
+                            ".",
+                            StringComparison.Ordinal)
+                            is true
+                                ? MetadataNamespaceMatch.Suffix
+                                : MetadataNamespaceMatch.Exact),
+                s_bounds);
+        }
+        catch (ArgumentException failure)
+        {
+            CommandError.Write(failure.Message);
+            return 1;
+        }
         InspectionEnvelope<LibraryInspectionOutcome>? result =
             await ExactLibraryInspectionExecutor.ExecuteAsync(
                 source.AssemblyName,

@@ -591,6 +591,50 @@ test.describe("published authored Source comparison transport", () => {
       await valueOutline.click();
       await expect(valueOutline).toHaveAttribute("aria-current", "true");
       await expect(valueOutline).toBeFocused();
+      const inspectBody = applicationPage.getByRole("button", {
+        name: "Inspect method body",
+      });
+      await expect(inspectBody).toBeVisible();
+      await inspectBody.scrollIntoViewIfNeeded();
+      const typeExplorerBeforeInspect = await applicationPage.evaluate(() => {
+        const source = document.querySelector<HTMLElement>(
+          ".type-explorer-source pre");
+        const outline = document.querySelector<HTMLElement>(
+          ".type-explorer-outline");
+        if (source === null || outline === null)
+          throw new Error("Type Explorer scroll surfaces were not rendered.");
+        return {
+          url: location.href,
+          sourceTop: source.scrollTop,
+          sourceLeft: source.scrollLeft,
+          outlineTop: outline.scrollTop,
+        };
+      });
+      await inspectBody.click();
+      await expect(
+        applicationPage.locator("#annotated-source-backdrop"),
+      ).toBeVisible({ timeout: 60_000 });
+      await expect(
+        applicationPage.locator("#annotated-modal-title"),
+      ).toBeFocused();
+      await expect(applicationPage).toHaveURL(
+        typeExplorerBeforeInspect.url);
+      await applicationPage.locator("#annotated-modal-close").click();
+      await expect(inspectBody).toBeFocused();
+      await expect(valueOutline).toHaveAttribute("aria-current", "true");
+      await expect.poll(() => applicationPage.evaluate(() => {
+        const source = document.querySelector<HTMLElement>(
+          ".type-explorer-source pre");
+        const outline = document.querySelector<HTMLElement>(
+          ".type-explorer-outline");
+        if (source === null || outline === null) return null;
+        return {
+          url: location.href,
+          sourceTop: source.scrollTop,
+          sourceLeft: source.scrollLeft,
+          outlineTop: outline.scrollTop,
+        };
+      })).toEqual(typeExplorerBeforeInspect);
       await staticMembers.check();
       await expect(
         applicationPage.locator(".type-explorer-failure"),

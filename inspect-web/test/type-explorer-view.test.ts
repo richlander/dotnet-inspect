@@ -53,6 +53,7 @@ const inspection: TypeExplorerInspection = {
           start: 0,
           length: 48,
         },
+        bodies: [],
       }],
     },
   },
@@ -189,6 +190,196 @@ test("Type Explorer disables Selected body without owner-issued support", () => 
     html,
     /value="SelectedBody" disabled/u);
 });
+
+  test("Type Explorer reveals Inspect only for the selected exact body", () => {
+    const text = "public string ConvertName(string name) { return name; }";
+    const bodyStart = text.indexOf("{");
+    const bodyInspection: TypeExplorerInspection = {
+      ...inspection,
+      document: {
+        ...inspection.document!,
+        projection: {
+          ...inspection.document!.projection!,
+          text,
+          declarations: [{
+            ...inspection.document!.projection!.declarations[0]!,
+            supportsSelectedBody: true,
+            range: { start: 0, length: text.length },
+            bodies: [{
+              bodyId: 11,
+              role: "Method",
+              range: {
+                start: bodyStart,
+                length: text.length - bodyStart,
+              },
+              destination: {
+                moduleVersionId: "11111111-1111-1111-1111-111111111111",
+                member: identity,
+                metadataToken: 0x06000001,
+              },
+            }],
+          }],
+        },
+      },
+    };
+    const selected = renderTypeExplorerView({
+      typeDisplay: "JsonNamingPolicy",
+      packageDisplay: "System.Text.Json",
+      intent: {
+        ...defaultTypeExplorerIntent(),
+        selectedDeclarationId: 7,
+      },
+      state: { status: "ready", inspection: bodyInspection },
+      escapeHtml,
+      highlightCSharp: escapeHtml,
+    });
+    const unselected = renderTypeExplorerView({
+      typeDisplay: "JsonNamingPolicy",
+      packageDisplay: "System.Text.Json",
+      intent: defaultTypeExplorerIntent(),
+      state: { status: "ready", inspection: bodyInspection },
+      escapeHtml,
+      highlightCSharp: escapeHtml,
+    });
+
+    assert.match(selected, />Inspect<\/button>/u);
+    assert.match(selected, /aria-label="Inspect method body"/u);
+    assert.match(selected, /data-type-explorer-inspect-body="11"/u);
+    assert.doesNotMatch(unselected, /data-type-explorer-inspect-body/u);
+  });
+
+  test("Type Explorer distinguishes accessor Inspect actions without guessing", () => {
+    const text = "public int Value { get { return 1; } set { } }";
+    const getterStart = text.indexOf("{", text.indexOf("get"));
+    const getterEnd = text.indexOf("}", getterStart) + 1;
+    const setterStart = text.indexOf("{", text.indexOf("set"));
+    const accessorInspection: TypeExplorerInspection = {
+      ...inspection,
+      document: {
+        ...inspection.document!,
+        projection: {
+          ...inspection.document!.projection!,
+          text,
+          declarations: [{
+            ...inspection.document!.projection!.declarations[0]!,
+            identity: {
+              ...identity,
+              memberName: "Value",
+            },
+            range: { start: 0, length: text.length },
+            bodies: [
+              {
+                bodyId: 21,
+                role: "Getter",
+                range: {
+                  start: getterStart,
+                  length: getterEnd - getterStart,
+                },
+                destination: {
+                  moduleVersionId: "11111111-1111-1111-1111-111111111111",
+                  member: {
+                    ...identity,
+                    stableSelector: "M:get_Value",
+                    canonicalSignature: "System.Int32 Example::get_Value()",
+                    memberName: "get_Value",
+                  },
+                  metadataToken: 0x06000002,
+                },
+              },
+              {
+                bodyId: 22,
+                role: "Setter",
+                range: {
+                  start: setterStart,
+                  length: text.length - setterStart - 2,
+                },
+                destination: {
+                  moduleVersionId: "11111111-1111-1111-1111-111111111111",
+                  member: {
+                    ...identity,
+                    stableSelector: "M:set_Value(System.Int32)",
+                    canonicalSignature:
+                      "System.Void Example::set_Value(System.Int32)",
+                    memberName: "set_Value",
+                  },
+                  metadataToken: 0x06000003,
+                },
+              },
+            ],
+          }],
+        },
+      },
+    };
+    const html = renderTypeExplorerView({
+      typeDisplay: "Example",
+      packageDisplay: "Example",
+      intent: {
+        ...defaultTypeExplorerIntent(),
+        selectedDeclarationId: 7,
+      },
+      state: { status: "ready", inspection: accessorInspection },
+      escapeHtml,
+      highlightCSharp: escapeHtml,
+    });
+
+    assert.equal(html.match(/>Inspect<\/button>/gu)?.length, 2);
+    assert.match(html, /aria-label="Inspect getter body"/u);
+    assert.match(html, /aria-label="Inspect setter body"/u);
+  });
+
+  test("Type Explorer keeps body acquisition progress and failure local", () => {
+    const body = {
+      bodyId: 11,
+      role: "Method" as const,
+      range: { start: 0, length: 48 },
+      destination: {
+        moduleVersionId: "11111111-1111-1111-1111-111111111111",
+        member: identity,
+        metadataToken: 0x06000001,
+      },
+    };
+    const bodyInspection: TypeExplorerInspection = {
+      ...inspection,
+      document: {
+        ...inspection.document!,
+        projection: {
+          ...inspection.document!.projection!,
+          declarations: [{
+            ...inspection.document!.projection!.declarations[0]!,
+            bodies: [body],
+          }],
+        },
+      },
+    };
+    const options = {
+      typeDisplay: "JsonNamingPolicy",
+      packageDisplay: "System.Text.Json",
+      intent: {
+        ...defaultTypeExplorerIntent(),
+        selectedDeclarationId: 7,
+      },
+      state: { status: "ready" as const, inspection: bodyInspection },
+      escapeHtml,
+      highlightCSharp: escapeHtml,
+    };
+    const loading = renderTypeExplorerView({
+      ...options,
+      bodyInspection: { status: "loading", bodyId: 11 },
+    });
+    const failed = renderTypeExplorerView({
+      ...options,
+      bodyInspection: {
+        status: "failed",
+        bodyId: 11,
+        error: "<body unavailable>",
+      },
+    });
+
+    assert.match(loading, /aria-busy="true"/u);
+    assert.match(loading, /Inspecting…/u);
+    assert.match(failed, /role="alert">&lt;body unavailable&gt;/u);
+    assert.doesNotMatch(failed, /<body unavailable>/u);
+  });
 
 test("Type Explorer keeps Selected body disabled during projection failure", () => {
   const html = renderTypeExplorerView({
@@ -388,6 +579,7 @@ test("Type Explorer reports the pane that initiated member selection", () => {
     setIncludeGenerated() {},
     setIncludeDocumentation() {},
     setIncludeAttributes() {},
+    inspectBody() {},
     selectMember(_declaration, pane) {
       selected.push(pane);
     },
@@ -398,4 +590,86 @@ test("Type Explorer reports the pane that initiated member selection", () => {
   source.activate();
 
   assert.deepEqual(selected, ["outline", "source"]);
+});
+
+test("Type Explorer binds Inspect to the exact projected body", () => {
+  class FakeInspectTarget {
+    readonly dataset = {
+      typeExplorerInspectBody: "11",
+    };
+    private click:
+      ((event: { stopPropagation(): void }) => void) | null = null;
+
+    addEventListener(
+      name: string,
+      listener: (event: { stopPropagation(): void }) => void,
+    ) {
+      if (name === "click") this.click = listener;
+    }
+
+    activate() {
+      this.click?.({ stopPropagation() {} });
+    }
+  }
+
+  const target = new FakeInspectTarget();
+  const body = {
+    bodyId: 11,
+    role: "Method" as const,
+    range: { start: 0, length: 48 },
+    destination: {
+      moduleVersionId: "11111111-1111-1111-1111-111111111111",
+      member: identity,
+      metadataToken: 0x06000001,
+    },
+  };
+  const declaration = {
+    ...inspection.document!.projection!.declarations[0]!,
+    bodies: [body],
+  };
+  const exactInspection: TypeExplorerInspection = {
+    ...inspection,
+    document: {
+      ...inspection.document!,
+      projection: {
+        ...inspection.document!.projection!,
+        declarations: [declaration],
+      },
+    },
+  };
+  const root = fakeDom.parentNode({
+    querySelector() {
+      return null;
+    },
+    querySelectorAll(selector: string) {
+      return selector === "[data-type-explorer-inspect-body]"
+        ? [target]
+        : [];
+    },
+  });
+  const inspected: number[] = [];
+  const actions: TypeExplorerViewActions = {
+    close() {},
+    retry() {},
+    toggleOutline() {},
+    selectBodyMode() {},
+    selectPlacement() {},
+    selectAccessibility() {},
+    setIncludeGenerated() {},
+    setIncludeDocumentation() {},
+    setIncludeAttributes() {},
+    selectMember() {},
+    inspectBody(selectedDeclaration, selectedBody) {
+      assert.equal(selectedDeclaration, declaration);
+      inspected.push(selectedBody.bodyId);
+    },
+  };
+
+  bindTypeExplorerView(
+    root,
+    { status: "ready", inspection: exactInspection },
+    actions);
+  target.activate();
+
+  assert.deepEqual(inspected, [11]);
 });
