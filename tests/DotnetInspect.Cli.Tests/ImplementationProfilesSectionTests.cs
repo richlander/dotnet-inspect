@@ -277,6 +277,17 @@ public class MetricSectionTests
         Assert.False(
             MemberCommand.TryCreateImplementationProfileFamilySelection(
                 type,
+                familyOptions with
+                {
+                    KindFilter =
+                        new HashSet<string>(
+                            ["method"],
+                            StringComparer.OrdinalIgnoreCase),
+                },
+                out _));
+        Assert.False(
+            MemberCommand.TryCreateImplementationProfileFamilySelection(
+                type,
                 familyOptions with { MemberFilter = ["Value"] },
                 out _));
     }

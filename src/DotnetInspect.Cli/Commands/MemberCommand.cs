@@ -1826,6 +1826,7 @@ public static class MemberCommand
             || options.OverloadIndex.HasValue
             || !string.IsNullOrWhiteSpace(options.MemberDigest)
             || options.MemberGenericArity.HasValue
+            || options.KindFilter.Count > 0
             || options.SelectedBodyMethodToken.HasValue
             || options.MemberFilter.Count != 1
             || options.IncludeSections?

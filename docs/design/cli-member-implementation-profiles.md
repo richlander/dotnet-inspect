@@ -33,6 +33,7 @@ The exact-family route requires all of the following:
 - the `member` command explicitly requests `Member Metrics`;
 - exactly one member name is selected without a wildcard;
 - no overload index, digest, body token, or generic-arity narrowing is active;
+- no member-kind filter narrows the selected name;
 - `--all` is absent, so the CLI and operation share the public API population;
 - the selected API type has exact metadata definition identity; and
 - the selected name resolves to at least two public methods or extension
@@ -50,7 +51,7 @@ The existing member Analysis path remains authoritative for:
 - one method without overload siblings;
 - an exact overload, digest, accessor, or physical body selection;
 - constructors, operators, properties, events, and other non-method members;
-- wildcard, generic-arity, non-public, or `--all` selections;
+- wildcard, generic-arity, member-kind, non-public, or `--all` selections;
 - `Type Metrics`, library `Member Metrics`, and `Library Metrics`; and
 - requests that combine `Member Metrics` with another section whose existing
   acquisition requires the broader execution.
