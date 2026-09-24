@@ -1248,22 +1248,21 @@ public class PlatformResolverTests
 
     /// <summary>
     /// A platform lookup downloads only the named framework's reference pack,
-    /// at the version the spec or the platform version names.
+    /// at the version the spec names.
     /// </summary>
     [Theory]
-    [InlineData("runtime@9.0.9", null, "Microsoft.NETCore.App.Ref", "9.0.9")]
-    [InlineData("runtime", "9.0.9", "Microsoft.NETCore.App.Ref", "9.0.9")]
-    [InlineData("runtime", null, "Microsoft.NETCore.App.Ref", null)]
-    [InlineData("aspnetcore@10.0.1", "9.0.9", "Microsoft.AspNetCore.App.Ref", "10.0.1")]
-    [InlineData("netstandard@2.1.0", null, "NETStandard.Library.Ref", "2.1.0")]
+    [InlineData("runtime@9.0.9", "Microsoft.NETCore.App.Ref", "9.0.9")]
+    [InlineData("runtime", "Microsoft.NETCore.App.Ref", null)]
+    [InlineData("runtime@", "Microsoft.NETCore.App.Ref", null)]
+    [InlineData("aspnetcore@10.0.1", "Microsoft.AspNetCore.App.Ref", "10.0.1")]
+    [InlineData("netstandard@2.1.0", "NETStandard.Library.Ref", "2.1.0")]
     public void PackRequestFor_NamesOnlyTheRequestedFrameworksPack(
         string frameworkSpec,
-        string? platformVersion,
         string expectedPack,
         string? expectedVersion)
     {
         PlatformPackService.PackRequest request = Assert.IsType<PlatformPackService.PackRequest>(
-            PlatformPackService.PackRequestFor(frameworkSpec, platformVersion));
+            PlatformPackService.PackRequestFor(frameworkSpec));
         Assert.Equal(expectedPack, request.PackName);
         Assert.Equal(expectedVersion, request.Version);
     }
@@ -1271,6 +1270,6 @@ public class PlatformResolverTests
     [Fact]
     public void PackRequestFor_UnknownFramework_RequestsNothing()
     {
-        Assert.Null(PlatformPackService.PackRequestFor("platform", null));
+        Assert.Null(PlatformPackService.PackRequestFor("platform"));
     }
 }

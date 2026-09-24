@@ -678,7 +678,7 @@ public static class PlatformResolver
         {
             // Download only the named framework's reference pack: the caller
             // already chose the framework, so no other pack can hold the answer.
-            if (PlatformPackService.PackRequestFor(frameworkSpec, platformVersion)
+            if (PlatformPackService.PackRequestFor(frameworkSpec)
                 is { } request)
             {
                 await foreach (var _ in PlatformPackService.EnsurePacksAsync(

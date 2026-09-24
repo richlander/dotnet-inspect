@@ -115,10 +115,8 @@ public static class PlatformPackService
     }
 
     /// <summary>
-    /// Downloads multiple packs with staggered starts. The biased pack (first in
-    /// the request list) starts immediately; others start after a short delay.
-    /// If the biased pack completes before the delay, the caller gets the result
-    /// without waiting. Remaining downloads continue for cache warming.
+    /// Ensures each requested pack is available locally, downloading the ones
+    /// that are not, and yields each pack as it completes.
     /// </summary>
     public static IAsyncEnumerable<PackResult> EnsurePacksAsync(
         IEnumerable<PackRequest> requests,
@@ -145,12 +143,11 @@ public static class PlatformPackService
 
     /// <summary>
     /// The reference-pack request for one named framework, such as
-    /// <c>runtime</c>, <c>aspnetcore@10.0.1</c>, or <c>netstandard</c>. The
-    /// version comes from the spec's <c>@</c> suffix, else from
-    /// <paramref name="platformVersion"/>, else latest. Returns null for a
-    /// framework with no reference pack.
+    /// <c>runtime</c>, <c>aspnetcore@10.0.1</c>, or <c>netstandard</c>, at the
+    /// spec's <c>@</c> version or latest. Returns null for a framework with no
+    /// reference pack.
     /// </summary>
-    internal static PackRequest? PackRequestFor(string frameworkSpec, string? platformVersion)
+    internal static PackRequest? PackRequestFor(string frameworkSpec)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(frameworkSpec);
         string name = frameworkSpec;
@@ -161,11 +158,8 @@ public static class PlatformPackService
             name = frameworkSpec[..at];
             version = frameworkSpec[(at + 1)..];
         }
-        version = string.IsNullOrWhiteSpace(version)
-            ? (string.IsNullOrWhiteSpace(platformVersion) ? null : platformVersion)
-            : version;
         return PlatformResolver.FrameworkMappings.TryGetValue(name, out string? packName)
-            ? new PackRequest(packName, version)
+            ? new PackRequest(packName, string.IsNullOrWhiteSpace(version) ? null : version)
             : null;
     }
 
