@@ -53,8 +53,8 @@ internal static class LibraryTypeListingCommand
         if (assemblyPath is null)
             return 1;
 
-        LibraryTypeDeclarationSelection declarationSelection =
-            GetDeclarationSelection(options);
+        LibraryTypePopulationSelection selection =
+            GetPopulationSelection(options);
         LibraryTypeListingResult? result =
             await ExactLibraryInspectionExecutor.ExecuteAsync(
                 assemblyPath,
@@ -63,11 +63,11 @@ internal static class LibraryTypeListingCommand
                     options.Count
                         ? ReadCount(
                             session,
-                            declarationSelection,
+                            selection,
                             cancellationToken)
                         : ReadRows(
                             session,
-                            declarationSelection,
+                            selection,
                             cancellationToken),
                 cancellationToken);
         if (result is null)
@@ -128,45 +128,66 @@ internal static class LibraryTypeListingCommand
             && options.Format == OutputFormat.Markdown;
     }
 
-    private static LibraryTypeDeclarationSelection
-        GetDeclarationSelection(TypeOptions options)
+    private static LibraryTypePopulationSelection
+        GetPopulationSelection(TypeOptions options)
     {
         if (options.CountDefaultPopulation
             || options.IncludeSections is not { Count: > 0 } sections)
         {
-            return LibraryTypeDeclarationSelection
-                .DefinitionsAndForwarders;
+            return new(
+                LibraryTypeDeclarationSelection
+                    .DefinitionsAndForwarders,
+                ApiTypeInventoryKinds.All);
         }
 
         bool includeForwarders =
             sections.Contains(SectionNames.TypeForwarders);
+        ApiTypeInventoryKinds definitionKinds =
+            ApiTypeInventoryKinds.None;
+        if (sections.Contains(SectionNames.Classes))
+            definitionKinds |= ApiTypeInventoryKinds.Classes;
+        if (sections.Contains(SectionNames.Structs))
+            definitionKinds |= ApiTypeInventoryKinds.Structs;
+        if (sections.Contains(SectionNames.Interfaces))
+            definitionKinds |= ApiTypeInventoryKinds.Interfaces;
+        if (sections.Contains(SectionNames.Enums))
+            definitionKinds |= ApiTypeInventoryKinds.Enums;
+        if (sections.Contains(SectionNames.Delegates))
+            definitionKinds |= ApiTypeInventoryKinds.Delegates;
         bool includeDefinitions =
-            sections.Any(
-                static section =>
-                    section is SectionNames.Classes
-                        or SectionNames.Structs
-                        or SectionNames.Interfaces
-                        or SectionNames.Enums
-                        or SectionNames.Delegates);
+            definitionKinds
+                != ApiTypeInventoryKinds.None;
 
-        return (includeDefinitions, includeForwarders) switch
+        LibraryTypeDeclarationSelection declarations =
+            (includeDefinitions, includeForwarders) switch
+            {
+                (true, true) =>
+                    LibraryTypeDeclarationSelection
+                        .DefinitionsAndForwarders,
+                (true, false) =>
+                    LibraryTypeDeclarationSelection.Definitions,
+                (false, true) =>
+                    LibraryTypeDeclarationSelection.Forwarders,
+                _ =>
+                    LibraryTypeDeclarationSelection
+                        .DefinitionsAndForwarders,
+            };
+        if (!includeDefinitions && !includeForwarders)
         {
-            (true, true) =>
-                LibraryTypeDeclarationSelection
-                    .DefinitionsAndForwarders,
-            (true, false) =>
-                LibraryTypeDeclarationSelection.Definitions,
-            (false, true) =>
-                LibraryTypeDeclarationSelection.Forwarders,
-            _ =>
-                LibraryTypeDeclarationSelection
-                    .DefinitionsAndForwarders,
-        };
+            definitionKinds =
+                ApiTypeInventoryKinds.All;
+        }
+
+        return new(declarations, definitionKinds);
     }
+
+    private readonly record struct LibraryTypePopulationSelection(
+        LibraryTypeDeclarationSelection Declarations,
+        ApiTypeInventoryKinds DefinitionKinds);
 
     private static LibraryTypeListingResult? ReadCount(
         ExactLibraryInspectionSession session,
-        LibraryTypeDeclarationSelection declarationSelection,
+        LibraryTypePopulationSelection selection,
         CancellationToken cancellationToken)
     {
         var plan =
@@ -174,7 +195,8 @@ internal static class LibraryTypeListingCommand
                 new LibraryTypePopulationRequest(
                     LibraryTypeAccessibility.Public,
                     new LibraryTypePopulationCountRequest(),
-                    declarationSelection: declarationSelection),
+                    declarationSelection: selection.Declarations,
+                    definitionKinds: selection.DefinitionKinds),
                 s_bounds);
         InspectionEnvelope<LibraryInspectionOutcome>? envelope =
             session.Execute(plan, cancellationToken);
@@ -192,7 +214,7 @@ internal static class LibraryTypeListingCommand
 
     private static LibraryTypeListingResult? ReadRows(
         ExactLibraryInspectionSession session,
-        LibraryTypeDeclarationSelection declarationSelection,
+        LibraryTypePopulationSelection selection,
         CancellationToken cancellationToken)
     {
         var rows = ImmutableArray.CreateBuilder<LibraryTypeShape>();
@@ -213,7 +235,8 @@ internal static class LibraryTypeListingCommand
                             memberCount:
                                 new LibraryTypeMemberCountRequest(),
                             continuation: continuation),
-                        declarationSelection),
+                        selection.Declarations,
+                        selection.DefinitionKinds),
                     s_bounds);
             InspectionEnvelope<LibraryInspectionOutcome>? envelope =
                 session.Execute(plan, cancellationToken);
