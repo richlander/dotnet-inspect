@@ -6,7 +6,8 @@ internal sealed class ConfiguredPackageExtractionSession(
     TimeSpan requestTimeout,
     string tempDirPrefix,
     Func<DesktopPackageSourceComposition>? createComposition,
-    PackageHouseTargetContext? compileTargetContext = null) : IAsyncDisposable
+    PackageHouseTargetContext? compileTargetContext = null,
+    bool retainHouseSettlement = false) : IAsyncDisposable
 {
     private readonly Dictionary<ConfiguredPackageAuthority, IPackageStore> _stores =
         new(ReferenceEqualityComparer.Instance);
@@ -19,7 +20,7 @@ internal sealed class ConfiguredPackageExtractionSession(
         NuGetSourceOptions? sourceOptions, Action<string>? log)
     {
         DesktopPackageSourceComposition composition = GetComposition();
-        if (compileTargetContext is null)
+        if (compileTargetContext is null && !retainHouseSettlement)
             _operation ??= composition.CreateOperationContext();
         ConfiguredPackagePayloadResult result = await composition.AcquirePinnedAsync(
             packageId, version, GetStore, sourceOptions, log,
@@ -37,7 +38,7 @@ internal sealed class ConfiguredPackageExtractionSession(
         bool includePrerelease, string? rangeAddress)
     {
         DesktopPackageSourceComposition composition = GetComposition();
-        if (compileTargetContext is null)
+        if (compileTargetContext is null && !retainHouseSettlement)
             _operation ??= composition.CreateOperationContext();
         ConfiguredPackagePayloadResult result = await composition.AcquireSelectedAsync(
             packageId, versionSelector, GetStore, sourceOptions, log,

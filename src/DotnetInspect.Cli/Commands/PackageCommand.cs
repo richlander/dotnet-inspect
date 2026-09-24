@@ -1142,6 +1142,8 @@ public partial class PackageCommand
         {
             return 1;
         }
+        bool retainPackageFileSettlement =
+            RequestsPackageFileInventoryInfrastructure(options);
 
         try
         {
@@ -1166,13 +1168,17 @@ public partial class PackageCommand
                             client, packageName, pinnedVersion, logger.Log,
                             sourceOptions: options.SourceOptions,
                             createComposition: context.CreatePackageSourceComposition,
-                            compileTargetContext: packageInfoTargetContext)
+                            compileTargetContext: packageInfoTargetContext,
+                            retainHouseSettlement:
+                                retainPackageFileSettlement)
                         : await PackageExtractor.ExtractSelectedPackageAsync(
                             client, packageName, version.Length > 0 ? version : null, logger.Log,
                             sourceOptions: options.SourceOptions,
                             includePrerelease: options.IncludePrerelease,
                             createComposition: context.CreatePackageSourceComposition,
-                            compileTargetContext: packageInfoTargetContext);
+                            compileTargetContext: packageInfoTargetContext,
+                            retainHouseSettlement:
+                                retainPackageFileSettlement);
                 }
                 else
                 {
@@ -1389,7 +1395,19 @@ public partial class PackageCommand
 
             result.Source = target.IsLocalFile ? SourceKind.File : SourceKind.NuGet;
 
-            PopulatePackageFileSections(result, extractPath, options);
+            (
+                PackageFilePopulationOutcome packageFilePopulation,
+                int? packageFileCount) =
+                await PopulatePackageFileSectionsAsync(
+                    result,
+                    resolution,
+                    extractPath,
+                    options);
+            if (packageFilePopulation == PackageFilePopulationOutcome.Failed)
+                return 1;
+            bool packageFileRowsSelected =
+                packageFilePopulation
+                == PackageFilePopulationOutcome.Infrastructure;
             if (ShouldPopulatePackageContentAudit(
                     producerOptions,
                     pipeline))
@@ -1487,7 +1505,8 @@ public partial class PackageCommand
             // Filter output based on options
             FilterResultForOutput(result, options);
 
-            if (!TrySelectPackageFiles(
+            if (!packageFileRowsSelected
+                && !TrySelectPackageFiles(
                     result,
                     options.PackageFileRowSelection))
             {
@@ -1538,10 +1557,23 @@ public partial class PackageCommand
             // different payload than the one -D displays.
             if (options.Count && !effectiveDiscovery)
             {
-                CountOutput.WriteCountResult(
-                    OutputFormatter.FormatResult(result, options, pipeline),
-                    options.OutputPath,
-                    options.Rows);
+                if (packageFileCount is { } count)
+                {
+                    CountOutput.WriteCount(
+                        count,
+                        options.OutputPath,
+                        options.Rows);
+                }
+                else
+                {
+                    CountOutput.WriteCountResult(
+                        OutputFormatter.FormatResult(
+                            result,
+                            options,
+                            pipeline),
+                        options.OutputPath,
+                        options.Rows);
+                }
                 return PackageIntegrityExitCode(result);
             }
 

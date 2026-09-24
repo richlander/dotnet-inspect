@@ -10,6 +10,7 @@ using DotnetInspect.Cli.Output;
 using DotnetInspector.Packages;
 using DotnetInspect.Cli.Planning;
 using DotnetInspector.Queries;
+using QuerySpace.Composition;
 using QuerySpace.Rows;
 using NuGetFetch;
 using PackageExtractor = DotnetInspector.Packages.PackageExtractor;
@@ -619,14 +620,22 @@ public partial class PackageCommand
             result.Source = target.IsLocalFile ? SourceKind.File : SourceKind.NuGet;
 
             if (wantsFilesSection)
-                PopulatePackageFileSections(result, extractPath, options);
+                PopulatePackageFileSectionsLegacy(
+                    result,
+                    extractPath,
+                    options);
 
             if (ShouldPopulatePackageContentAudit(
                     producerOptions,
                     pipeline))
             {
                 if (result.PackageFiles is null)
-                    PopulatePackageFileSections(result, extractPath, options);
+                {
+                    PopulatePackageFileSectionsLegacy(
+                        result,
+                        extractPath,
+                        options);
+                }
                 PopulatePackageContentAudit(result, extractPath);
             }
 
@@ -1067,21 +1076,106 @@ public partial class PackageCommand
             .ToList();
     }
 
-    private static void PopulatePackageFileSections(InspectionResult result, string extractPath, InspectionOptions options)
+    private enum PackageFilePopulationOutcome
     {
-        bool wantsPackageFileRows = RequestsPackageFileRows(options);
+        Legacy,
+        Infrastructure,
+        Failed,
+    }
 
+    private static async ValueTask<(
+        PackageFilePopulationOutcome Outcome,
+        int? Count)>
+        PopulatePackageFileSectionsAsync(
+            InspectionResult result,
+            PackageExtractionResult resolution,
+            string extractPath,
+            InspectionOptions options)
+    {
         var packageReadme = result.PackageReadmeFile
             ?? PackageFileLister.ResolvePackageReadme(extractPath, result.ReadmeFile);
         result.PackageReadmeFile = packageReadme;
         result.HasReadme = packageReadme != null;
         result.HasAgentDocumentation = File.Exists(Path.Combine(extractPath, "AGENTS.md"));
+        if (CanUsePackageFileInventoryInfrastructure(
+                resolution,
+                options))
+        {
+            var terminal = options.Count
+                ? QuerySpaceTerminalRequirement.Count
+                : QuerySpaceTerminalRequirement.Rows;
+            var query = PackageFileInventoryQuery.CreateRequest(
+                options.PackageFileRowSelection
+                    ?? RowSelectionIntent<string>.Empty,
+                terminal);
+            InspectionEnvelope<PackageFileInventoryDocument> envelope =
+                await PackageFileInventoryCommandCapability.Binding
+                    .ExecuteAsync(
+                        new(
+                            (PackageHouseSettlement.Acquired)
+                                resolution.HouseSettlement!,
+                            query))
+                    .ConfigureAwait(false);
+            PackageFileInventoryDocument document = envelope.Content;
+            if (document.Status != PackageFileInventoryStatus.Completed)
+            {
+                CommandError.Write(
+                    "Could not inspect package files.",
+                    document.Detail?.ToString()
+                        ?? "The package-file inventory operation failed.");
+                return (PackageFilePopulationOutcome.Failed, null);
+            }
+
+            List<PackageFile> infrastructureFiles =
+            [
+                .. document.Files.Select(file =>
+                {
+                    string path = file.Path.ToString();
+                    return new PackageFile(
+                        path,
+                        file.Size,
+                        packageReadme is not null
+                            && path.Equals(
+                                packageReadme,
+                                StringComparison.OrdinalIgnoreCase),
+                        path.Equals(
+                            "AGENTS.md",
+                            StringComparison.OrdinalIgnoreCase),
+                        PackageFileLister.IsLicenseDocumentPath(
+                            path,
+                            result.DeclaredLicenseFile));
+                }),
+            ];
+            result.PackageFiles = infrastructureFiles;
+            result.Files = infrastructureFiles;
+            result.HasAgentDocumentation =
+                infrastructureFiles.Any(static file => file.IsAgents);
+            return (
+                PackageFilePopulationOutcome.Infrastructure,
+                document.Terminal
+                    == QuerySpaceTerminalRequirement.Count
+                    ? document.Count
+                    : null);
+        }
+
+        PopulatePackageFileSectionsLegacy(
+            result,
+            extractPath,
+            options);
+        return (PackageFilePopulationOutcome.Legacy, null);
+    }
+
+    private static void PopulatePackageFileSectionsLegacy(
+        InspectionResult result,
+        string extractPath,
+        InspectionOptions options)
+    {
         var files = PackageFileLister.ListAll(
             extractPath,
-            packageReadme,
+            result.PackageReadmeFile,
             result.DeclaredLicenseFile);
         result.PackageFiles = files;
-        if (wantsPackageFileRows
+        if (RequestsPackageFileRows(options)
             && (HasPathFilter(options)
             || options.IncludeSections?.Contains(PackageSections.Files) == true
             || SelectResolver.IsActiveAllSelector(options.Select, options.IncludeSections)
@@ -1092,6 +1186,29 @@ public partial class PackageCommand
                 : files;
         }
     }
+
+    private static bool CanUsePackageFileInventoryInfrastructure(
+        PackageExtractionResult resolution,
+        InspectionOptions options)
+    {
+        if (resolution.HouseSettlement
+                is not PackageHouseSettlement.Acquired)
+        {
+            return false;
+        }
+
+        return RequestsPackageFileInventoryInfrastructure(options);
+    }
+
+    private static bool RequestsPackageFileInventoryInfrastructure(
+        InspectionOptions options) =>
+        options.Discover is null
+            && !options.Print
+            && !HasPackageFileFilter(options)
+            && options.IncludeSections is { Count: 1 } sections
+            && sections.Single().Equals(
+                PackageSections.Files,
+                StringComparison.OrdinalIgnoreCase);
 
     private static bool ShouldPopulatePackageContentAudit(
         InspectionOptions options,

@@ -1960,6 +1960,72 @@ public sealed partial class ConfiguredPayloadAcquisitionTests : IDisposable
         }
     }
 
+    [Fact]
+    public async Task ExtractPinnedPackage_CanRetainAcquireOnlyHouseSettlement()
+    {
+        const string Id = "Pinned.HouseSettlement";
+        string source = Path.Combine(_root, "house-settlement");
+        WriteLocalPackage(source, Id, "retained payload");
+        using var client =
+            new HttpClient(
+                new RejectNetworkHandler(new HttpClientHandler()));
+
+        PackageExtractionOutcome outcome =
+            await DesktopPackageExtractor.ExtractPinnedPackageAsync(
+                client,
+                Id,
+                Version,
+                sourceOptions: new NuGetSourceOptions
+                {
+                    Sources = [source],
+                },
+                retainHouseSettlement: true);
+
+        Assert.True(outcome.IsSuccess, outcome.ErrorMessage);
+        PackageExtractionResult result = outcome.Result!;
+        try
+        {
+            PackageHouseSettlement.Acquired settlement =
+                Assert.IsType<PackageHouseSettlement.Acquired>(
+                    result.HouseSettlement);
+            Assert.NotNull(settlement.Result.Evidence.Acquisition);
+            Assert.Null(settlement.Result.Evidence.Realization);
+            Assert.Same(
+                result.AcquiredPayload,
+                settlement.Payload);
+        }
+        finally
+        {
+            DesktopPackageExtractor.Cleanup(result.TempDir);
+        }
+    }
+
+    [Fact]
+    public async Task PackageCommand_PackageFilesUsesAcquireOnlyHouseSettlement()
+    {
+        const string Id = "Pinned.PackageFiles";
+        string source = Path.Combine(_root, "package-files");
+        WriteLocalPackage(source, Id, "package files payload");
+
+        var (exit, output, error) = await RunCommandAsync(
+            ["package", $"{Id}@{Version}", "--source", source,
+                "-S", "Package files", "--rows", "1..1",
+                "--json", "--tips", "q"]);
+
+        Assert.True(exit == 0, $"Exit {exit}: {error}");
+        using JsonDocument document = JsonDocument.Parse(output);
+        JsonElement file = Assert.Single(
+            document.RootElement.GetProperty("files").EnumerateArray());
+        Assert.Equal(
+            $"{Id}.nuspec",
+            file.GetProperty("path").GetString());
+        Assert.False(
+            document.RootElement.TryGetProperty(
+                "package_info_measurements",
+                out _));
+        Assert.Empty(error);
+    }
+
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
