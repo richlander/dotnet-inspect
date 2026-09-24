@@ -188,7 +188,9 @@ The whitespace characterization's validator gains four checks:
 line's content with every whitespace character removed. Content facts still
 use exact text:
 
-- a correspondence whose lines are ordinal-equal is `Unchanged`; and
+- a correspondence whose lines are ordinal-equal and agree in whether they
+  are terminated is `Unchanged`; a change in final-terminator presence stays
+  `Changed`, as today; and
 - one whose lines are equal only by alignment key is `Changed`, and so differs
   whitespace-only.
 
@@ -201,8 +203,9 @@ The matcher's existing passes then decide placement, with no extra rule:
 
 A block re-indented where it stands, such as a block wrapped in a new `if`, is
 therefore part of the longest common subsequence. It is `Stable` with
-`Changed` content, and the whitespace characterization issues it as a
-`WhitespaceOnly` change. A block that relocates and is re-indented is found
+`Changed` content inside its region, so it is not a move. Isolating it as its
+own `WhitespaceOnly` change is splitter quality in the whitespace
+characterization. A block that relocates and is re-indented is found
 by the move pass and becomes a move whose content is `WhitespaceOnly`.
 Anchors, which are stable and `Unchanged`, remain lines with ordinal-equal
 content, so the whitespace characterization's preconditions hold.
@@ -262,7 +265,7 @@ Each row becomes an S1 Release test in `tests/Inspector.Text.Tests`, using
 | Block moved down | `A B x y z` → `x y z A B` (one line per letter) | one move, id 1, `A B` from Before 0–1 to After 3–4, `Unchanged`; the removal comes first |
 | Block moved up | `x y z A B` → `A B x y z` | one move, id 1, assigned at the addition, which comes first |
 | Relocated and re-indented | `A B x y z` → `x y z if (c) {` / `␠␠A` / `␠␠B` / `}` | one move, `WhitespaceOnly`, `Indentation`; the `if` and brace lines are ordinary `Changed` changes |
-| Re-indented in place (Polly `MeterEvent`) | guard `if (!e) {` / `return;` / `}` / `A` / `B` → `if (e) {` / `␠␠A` / `␠␠B` / `}` | no move: `A B` is the longest common subsequence by alignment key, so it is `Stable` with `Changed` content and becomes a `WhitespaceOnly` change inside a `Changed` region |
+| Re-indented in place (Polly `MeterEvent`) | guard `if (!e) {` / `return;` / `}` / `A` / `B` → `if (e) {` / `␠␠A` / `␠␠B` / `}` | no move: `A B` is the longest common subsequence by alignment key, so it is `Stable` with `Changed` content in a `Changed` region; its own `WhitespaceOnly` change is a quality expectation |
 | Relocated case blocks (Newtonsoft `JsonConvert.ToString`) | `case String` pair moved after the other cases | a move, `Unchanged`, with ids in change-sequence order for each relocated pair |
 | Moved and edited | `A` / `B` moved, and `B` became `B2` | no move under `TextFindings`; ordinary removal and addition |
 | Single-line move | `A x y` → `x y A` | no move (below the two-line minimum) |
@@ -294,8 +297,8 @@ The whitespace plan in #8393 carries moves along its existing steps:
 
 | Step | Owner | Moves adds |
 | --- | --- | --- |
-| S1 | `Inspector.Text` | Move facts, ids, validator checks, and the whitespace move pass in `TextFindings.CreateAnalysisDiff` |
-| M1 | Markout | The typed `moved` label (id, direction, other end) beside the whitespace label |
+| S1 | `Inspector.Text` | Move facts, ids, validator checks, and whitespace-insensitive alignment in `TextFindings.CreateAnalysisDiff` |
+| M1 | Markout | The typed `moved` label (id, direction, other end, whitespace kinds) beside the whitespace label |
 | S2 | `DotnetInspector.Presentation` + CLI | Lowering moves in member Source Diff; the summary's moved-block count |
 | S3 | `ILInspector.Research` + CLI | The same for `diff --pdb-source` |
 | S4, S5 | Inspect Web | Transport of move facts; jump between ends |

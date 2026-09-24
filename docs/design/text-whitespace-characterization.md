@@ -491,7 +491,7 @@ their region's changes.
 | YAML nesting | a key indented under a sibling | `WhitespaceOnly`, `Indentation`; structural meaning is not claimed |
 | No-break space | `a b` → `a`U+00A0`b` | `Changed` |
 | Word merge | `foo bar` → `foobar` | `WhitespaceOnly`, `Separation` |
-| Swapped lines | `a` / `b` → `b` / `a` | `Changed`; with a producer that issues a `Moved` correspondence, `Changed` because of movement |
+| Swapped lines | `a` / `b` → `b` / `a` | region `Changed`; with a producer that issues a `Moved` correspondence, the moved line's ends are `Moved` changes |
 | Trailing line after an anchor | `a⏎␠` → `a` (via `TextAnalysisDiffPresentation.CreateAnalysisDiff`) | `WhitespaceOnly`, `LineBreaks` covering the anchor's boundary |
 | Final newline | `x` → `x⏎` | `WhitespaceOnly`, `LineBreaks` and `FinalLineTerminator` |
 | Terminator spelling, line diff | `a⏎b` with CRLF → LF | *doc* `WhitespaceOnly`, no region |
@@ -535,7 +535,8 @@ This design does not define:
 - whitespace significance, token preservation, or comment-only or
   literal-only classification (a separate `CSharpText` certifier design);
 - a change to `AnalysisDiff<T>`, to `TextFindings` relations, or to any
-  producer's statistics;
+  producer's statistics ([Text move characterization](text-move-characterization.md)
+  changes `TextFindings.CreateAnalysisDiff` alignment);
 - moves, which [Text move characterization](text-move-characterization.md)
   defines;
 - intraline ranges for non-whitespace changes, though a follow-on may reuse the
