@@ -435,6 +435,7 @@ import {
   renderTypeSource,
   TYPE_RELATIONSHIPS_GRAPH_SUMMARY,
   type MemberNavEntry,
+  type SourceTextRange,
   typeMetadataSignature,
   typeSourceSignature,
   typeCodeViewText,
@@ -9455,6 +9456,7 @@ function renderMemberSourceHtml() {
         return renderSourceResult({
           source: source.source,
           text: memberSourceText(source, selectedPart),
+          leftJustify: source.parts.length > 0,
           escapeHtml,
           highlightCSharp,
         });
@@ -9899,15 +9901,34 @@ function highlight(value: string) {
     .replace(/\b(string|object|void|Type|Stream|Task|ValueTask|CancellationToken|TValue)\b/g, '<span class="primitive">$1</span>');
 }
 
-function highlightCSharp(value: string) {
-  const source = value;
-  if (prismCSharp.languages.csharp) {
-    return prismCSharp.highlight(
-      source,
-      prismCSharp.languages.csharp,
-      "csharp");
+function highlightCSharp(
+  source: string,
+  collapsedRanges: readonly SourceTextRange[] = [],
+) {
+  if (collapsedRanges.length === 0) {
+    return prismCSharp.languages.csharp
+      ? prismCSharp.highlight(
+          source,
+          prismCSharp.languages.csharp,
+          "csharp")
+      : escapeHtml(source);
   }
-  return escapeHtml(source);
+
+  const highlighting = createCSharpRangeHighlighter(
+    source,
+    prismCSharp,
+    escapeHtml);
+
+  let html = "";
+  let cursor = 0;
+  for (const range of collapsedRanges) {
+    html += highlighting.render(cursor, range.start - cursor);
+    html += `<span class="source-shared-indentation">${
+      highlighting.render(range.start, range.length)
+    }</span>`;
+    cursor = range.start + range.length;
+  }
+  return html + highlighting.render(cursor, source.length - cursor);
 }
 
 function annotatedSourceHighlighter(
