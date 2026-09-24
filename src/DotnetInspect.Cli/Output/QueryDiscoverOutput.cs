@@ -42,7 +42,14 @@ internal static class QueryDiscoverOutput
             !bare
             && selected.SelectMany(section => section.Keys)
                 .Any(key => key.ExecutionClass is not null);
-        string[] facetColumns = FacetColumns(includeExecutionClass);
+        bool includeResourcePath =
+            !bare
+            && selected.SelectMany(section => section.Keys)
+                .Any(key => key.ResourcePath is not null);
+        string[] facetColumns =
+            FacetColumns(
+                includeExecutionClass,
+                includeResourcePath);
         RowSelectionIntent<string>? semanticRowSelection = null;
         string? semanticSelectionName = commandName switch
         {
@@ -175,6 +182,7 @@ internal static class QueryDiscoverOutput
                             selected,
                             bare,
                             includeExecutionClass,
+                            includeResourcePath,
                             true,
                             message));
             }
@@ -212,6 +220,7 @@ internal static class QueryDiscoverOutput
                         selected,
                         bare,
                         includeExecutionClass,
+                        includeResourcePath,
                         false,
                         null));
             return 0;
@@ -226,6 +235,7 @@ internal static class QueryDiscoverOutput
             selected,
             bare,
             includeExecutionClass,
+            includeResourcePath,
             true,
             message);
         return 0;
@@ -234,8 +244,12 @@ internal static class QueryDiscoverOutput
             ?? (!bare
                 && options.ParseVerbosity(result) < Verbosity.Detailed
                     ? includeExecutionClass
-                        ? ["Facet", "Execution Class", "Operators", "Comparisons", "Values"]
-                        : ["Facet", "Operators", "Comparisons", "Values"]
+                        ? includeResourcePath
+                            ? ["Facet", "Execution Class", "Operators", "Comparisons", "Values", "Resource"]
+                            : ["Facet", "Execution Class", "Operators", "Comparisons", "Values"]
+                        : includeResourcePath
+                            ? ["Facet", "Operators", "Comparisons", "Values", "Resource"]
+                            : ["Facet", "Operators", "Comparisons", "Values"]
                     : null);
     }
 
@@ -266,6 +280,7 @@ internal static class QueryDiscoverOutput
         IReadOnlyList<SectionQueryDescriptor> sections,
         bool bare,
         bool includeExecutionClass,
+        bool includeResourcePath,
         bool headings,
         string? message)
     {
@@ -285,8 +300,14 @@ internal static class QueryDiscoverOutput
         }
         else
         {
-            string[] columns = FacetColumns(includeExecutionClass);
-            string[] fields = FacetFields(includeExecutionClass);
+            string[] columns =
+                FacetColumns(
+                    includeExecutionClass,
+                    includeResourcePath);
+            string[] fields =
+                FacetFields(
+                    includeExecutionClass,
+                    includeResourcePath);
             foreach (SectionQueryDescriptor section in sections)
             {
                 if (headings)
@@ -298,25 +319,49 @@ internal static class QueryDiscoverOutput
                     columns,
                     fields,
                     [.. section.Keys.Select(key =>
-                        FacetRow(key, includeExecutionClass))]);
+                        FacetRow(
+                            key,
+                            includeExecutionClass,
+                            includeResourcePath))]);
             }
         }
         writer.Flush();
     }
 
-    private static string[] FacetColumns(bool includeExecutionClass) =>
-        includeExecutionClass
-            ? ["Facet", "Execution Class", "Operators", "Comparisons", "Values", "Example"]
-            : ["Facet", "Operators", "Comparisons", "Values", "Example"];
+    private static string[] FacetColumns(
+        bool includeExecutionClass,
+        bool includeResourcePath) =>
+        (includeExecutionClass, includeResourcePath) switch
+        {
+            (true, true) =>
+                ["Facet", "Execution Class", "Operators", "Comparisons", "Values", "Example", "Resource"],
+            (true, false) =>
+                ["Facet", "Execution Class", "Operators", "Comparisons", "Values", "Example"],
+            (false, true) =>
+                ["Facet", "Operators", "Comparisons", "Values", "Example", "Resource"],
+            (false, false) =>
+                ["Facet", "Operators", "Comparisons", "Values", "Example"],
+        };
 
-    private static string[] FacetFields(bool includeExecutionClass) =>
-        includeExecutionClass
-            ? ["facet", "execution_class", "operators", "comparisons", "values", "example"]
-            : ["facet", "operators", "comparisons", "values", "example"];
+    private static string[] FacetFields(
+        bool includeExecutionClass,
+        bool includeResourcePath) =>
+        (includeExecutionClass, includeResourcePath) switch
+        {
+            (true, true) =>
+                ["facet", "execution_class", "operators", "comparisons", "values", "example", "resource"],
+            (true, false) =>
+                ["facet", "execution_class", "operators", "comparisons", "values", "example"],
+            (false, true) =>
+                ["facet", "operators", "comparisons", "values", "example", "resource"],
+            (false, false) =>
+                ["facet", "operators", "comparisons", "values", "example"],
+        };
 
     private static string[] FacetRow(
         SectionQueryKey key,
-        bool includeExecutionClass)
+        bool includeExecutionClass,
+        bool includeResourcePath)
     {
         string values = key.Values.IsEmpty
             ? key.ValueKind
@@ -334,9 +379,12 @@ internal static class QueryDiscoverOutput
             values,
             MarkoutInline.Code(key.Example),
         ];
-        return includeExecutionClass
+        string[] row = includeExecutionClass
             ? [key.Name, key.ExecutionClass ?? "", .. remainder]
             : [key.Name, .. remainder];
+        return includeResourcePath
+            ? [.. row, key.ResourcePath ?? ""]
+            : row;
     }
 }
 
