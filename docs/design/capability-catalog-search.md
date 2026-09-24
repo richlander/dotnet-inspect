@@ -137,6 +137,40 @@ similarity algorithm. Capability Catalog Search does not introduce another
 distance function, fuzzy library, phonetic model, stemming model, synonym
 catalog, or learned ranker.
 
+## Complexity basis and precedent
+
+The user-observable requirement is to orient an agent that knows a task concept
+but not the responsible command, section, or query key. Exact identity lookup
+alone cannot serve a misspelling such as `litteral`, while raw similarity
+against only the complete key `library-literal` scores below the useful
+threshold. The smallest sufficient mechanism is therefore:
+
+1. project bounded complete values and separator-defined segments from facts
+   already present in the composed catalog;
+2. score those terms with the existing similarity implementation;
+3. retain the maximum score and its provenance per resource; and
+4. return a deterministic bounded prefix with exact resource and binding
+   identities.
+
+The design transfers three repository precedents:
+
+- `TypeMatcher.FindClosest` uses `StringDistance.Similarity`, a `0.6`
+  threshold, descending score, and a bounded result count;
+- section-selection suggestions compare explicit registered names and retain
+  deterministic bounded candidates; and
+- structural-clone name ranking gives ordinal-ignore-case equality score
+  `1.0` and otherwise invariantly folds names before calling
+  `StringDistance.Similarity`.
+
+Only those mechanics transfer. Type-name base-name grammar, section prefix
+selection, structural-clone eligibility, and their domain verdicts do not.
+Catalog search owns its explicit term projection and returns orientation
+candidates rather than a selected semantic answer.
+
+This design replaces no existing search architecture. `find`, `-D`, `-Q`, and
+exact Resource Explanation retain their current jobs, so there is no
+migration or retirement plan.
+
 ## Search input
 
 `CapabilityCatalogSearchRequest` contains:
@@ -394,6 +428,15 @@ dotnet-inspect catalog <text>
 Library, Type, Member, project, or Workspace subject. Default Markdown is a
 compact ranked table. Structured output serializes the same
 `CapabilityCatalogSearchDocument`; it does not expose a CLI-only search DTO.
+
+The CLI maps the typed Document to one Markout view for Markdown, table, TSV,
+JSONL, and projected JSON. Plain unprojected Content JSON and `--envelope`
+use the source-generated serializer for
+`CapabilityCatalogSearchDocument`, preserving numeric similarity, booleans,
+counts, arrays, identities, and relationship structure rather than
+re-encoding rendered table cells. The Browser renders the same typed Content
+through its own view layer. Neither host owns another search result or ranking
+model.
 
 The first CLI adoption supports the ordinary output-format controls and the
 semantic result limit. Section selection, `--where`, acquisition capabilities,
