@@ -17,7 +17,8 @@ internal readonly record struct PackageEntryExtent(
 
 /// <summary>
 /// A ranged read's plan: the exact entries, then each aligned block that
-/// holds a block anchor, and every entry the read requires.
+/// holds a block anchor, with every entry of any folder that lies inside
+/// the block's request, in archive order, and every entry the read requires.
 /// </summary>
 internal sealed record PackageRangedPlan(
     IReadOnlyList<string> Entries,
@@ -156,10 +157,34 @@ internal static class PackageEntryBlocks
                 ?? throw new InvalidOperationException(
                     $"The ranged block anchor '{anchor}' is not in the archive directory.");
             if (taken.Add(block[0].Offset))
-                blocks.Add([.. block.Select(static entry => entry.Name)]);
+                blocks.Add(Covered(directory, block[0].Offset, block[^1].Offset));
         }
         return new PackageRangedPlan(selection.Entries, blocks.AsReadOnly());
     }
+
+    /// <summary>
+    /// Every file entry whose local header lies from the block's first entry
+    /// through its last, whatever its folder, in archive order. The block's
+    /// request runs from the first entry's header to the end of the last
+    /// entry, so an entry of another folder interleaved between two of the
+    /// block's entries lies wholly inside it, up to the next local header,
+    /// and is read and kept rather than transferred and dropped.
+    /// </summary>
+    private static IReadOnlyList<string> Covered(
+        ZipDirectory directory,
+        long first,
+        long last) =>
+    [
+        .. directory.Entries
+            .Where(entry =>
+                entry.LocalHeaderOffset >= first
+                && entry.LocalHeaderOffset <= last
+                && entry.Name.Length > 0
+                && !entry.Name.EndsWith('/'))
+            .OrderBy(static entry => entry.LocalHeaderOffset)
+            .ThenBy(static entry => entry.Name, StringComparer.Ordinal)
+            .Select(static entry => entry.Name),
+    ];
 
     internal static string FolderOf(string path)
     {

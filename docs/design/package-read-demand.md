@@ -151,22 +151,33 @@ Blocks are fixed by the archive alone:
   so an entry larger than the budget is a block by itself.
 - An entry's size is its span in the archive: from its local header to the
   next local header of its folder, or, for the folder's last entry, to the
-  next local header in the archive. Bytes of another folder interleaved
-  between two entries count toward the earlier one, so a block's size is the
-  length of the one request that reads it.
+  next local header in the archive. Entries of another folder interleaved
+  between two of the folder's entries count toward the earlier one, so no
+  block's request is longer than the budget, unless the block is one entry
+  above it.
 - The budget is the [size cut](package-cache-policy.md#size-first), 1 MB.
 
 A read of a named asset fetches the whole block that contains it, as one
-request covering the block from its first entry's local header to the next
-block's first local header. Blocks tile the folder without gaps or overlap,
-so two reads never fetch the same bytes, and a block already held by the
+request from the block's first local header to the end of its last entry.
+Every archive entry whose local header lies between those two, whatever its
+folder, lies wholly inside the request, up to the next local header. It is
+read with the block, materialized, and kept in the entry cache like any read
+entry, so a block's request never carries bytes that are discarded, and a
+later read that selects one of those entries does not fetch it again. The
+only bytes read and not kept are the read slack of at most 1 KB past the
+last entry, which may hold the start of the next entry; no partial entry can
+occur at the start, which is always a local header. Blocks tile the folder
+without gaps or overlap, and a later read requests only the runs of a
+block's entries that the entry cache does not hold, so two reads never fetch
+the same entry, and a block already held by the
 [entry cache](package-cache-policy.md#the-entry-cache) costs no request. The
 entry cache still stores entries. A block is a read-planning unit, and it is
 present when all of its entries are.
 
 On `Avalonia` 12.1.2 for net10.0, whose `lib/net10.0` folder the archive
 interleaves with other folders, naming `Avalonia.Dialogs.dll` reads its
-0.75 MB block of 15 entries in one request. The whole realization, surface
+0.75 MB block of 15 entries in one request, and keeps the 14 `lib/net8.0`
+entries that request covers. The whole realization, surface
 included, takes 6 requests and 3.0 MB, where reading the whole
 implementation folder takes 10 requests and 4.7 MB.
 
@@ -215,7 +226,7 @@ All gates run in Release.
 | 3. A surface-only Root | no implementation role; admission succeeds | case 1's gate, whose search admits a Root realized from the surface folder alone |
 | 4. The same search twice from a credential-free HTTP feed | the second makes no package request and returns the same output | `ConfiguredPayloadAcquisitionTests.SearchCommand_RangedRead_TransfersOnlyTheSelectedAssembly` |
 | 5. A surface search, then focused commands and `package` on the same package | each command's output equals the baseline build's | `eng/measure-package-read-demand.sh`, a preserved probe as design evidence; it also reproduces the measurements above |
-| 6. A named implementation assembly | the surface folders and only the block that contains the named assembly | `PackageRangedRealizationTests.NamedImplementation_RealAvalonia_ReadsTheSurfaceAndOnlyTheNamedBlock`, real asset `Avalonia` 12.1.2: the block is one entry span, and roles realize over what was read |
+| 6. A named implementation assembly | the surface folders and only the block that contains the named assembly | `PackageRangedRealizationTests.NamedImplementation_RealAvalonia_ReadsTheSurfaceAndOnlyTheNamedBlock`, real asset `Avalonia` 12.1.2: the block is one entry span, the other-folder entries inside it are materialized and cached, a later read that selects one makes no request for it, and roles realize over what was read |
 | 7. A second realization naming a neighbour in the same block | no request | `PackageRangedRealizationTests.NamedImplementation_NeighbourInACachedBlock_MakesNoRequest`, entry cache |
 | 8. An entry larger than the budget | one block holding that entry alone | `PackageEntryBlocksTests`: blocks tile the folder without gap or overlap, whatever the input order |
 | 9. A name that selects no implementation asset | a visible realization failure | `PackageRangedRealizationTests.NamedImplementation_NameSelectingNothing_FailsVisibly` (House `NoMatch`) and `PackageRootAcquisitionTests.AssetDemand_NamedRootRealizesOnlyItsNames` (Root `PackageImplementationNameException`) |

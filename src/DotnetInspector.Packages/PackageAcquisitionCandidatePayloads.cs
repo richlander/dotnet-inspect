@@ -643,25 +643,36 @@ internal sealed class PackageAcquisitionCandidatePayloadAcquirer
                 rangedRead.SizeCut);
 
             // Exact entries share requests under the reader's merge gap. Each
-            // aligned block is its own read whose merge gap spans the block,
-            // so a block is one request (docs/design/package-read-demand.md).
+            // aligned block is read as one request whose merge gap spans the
+            // block (docs/design/package-read-demand.md). A block lists every
+            // entry inside its range in archive order, so a run of its
+            // entries is contiguous; where some are already held, each run of
+            // missing entries is its own request, and nothing held is fetched
+            // again.
             var seen = new HashSet<string>(StringComparer.Ordinal);
             var reads = new List<(List<ZipEntry> Entries, int? MergeGap)>();
             long declared = 0;
-            AddRead(plan.Entries, mergeGap: null);
+            AddReads(plan.Entries, mergeGap: null);
             int blockGap = (int)Math.Min(rangedRead.SizeCut, ZipReadLimits.MaxEntryMergeGap);
             foreach (IReadOnlyList<string> block in plan.Blocks)
-                AddRead(block, blockGap);
+                AddReads(block, blockGap);
 
-            void AddRead(IReadOnlyList<string> paths, int? mergeGap)
+            void AddReads(IReadOnlyList<string> paths, int? mergeGap)
             {
                 var targets = new List<ZipEntry>();
                 foreach (string path in paths)
                 {
-                    if (!seen.Add(path))
+                    if (!seen.Add(path)
+                        || cachedState?.Cached.ContainsKey(path) == true)
+                    {
+                        // Held or read elsewhere: a block's run ends here.
+                        if (mergeGap is not null && targets.Count > 0)
+                        {
+                            reads.Add((targets, mergeGap));
+                            targets = [];
+                        }
                         continue;
-                    if (cachedState?.Cached.ContainsKey(path) == true)
-                        continue;
+                    }
                     ZipEntry entry =
                         reader.Directory.Find(path)
                         ?? throw new InvalidOperationException(

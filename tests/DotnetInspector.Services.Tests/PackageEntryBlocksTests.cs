@@ -110,6 +110,17 @@ public sealed class PackageEntryBlocksTests
         ZipEntry sub = directory.Find("lib/x/sub/c.dll")!;
         Assert.Equal(b.LocalHeaderOffset - a.LocalHeaderOffset, extents[0].Length);
         Assert.Equal(sub.LocalHeaderOffset - b.LocalHeaderOffset, extents[1].Length);
+
+        // The block's request runs from a.dll's header to the end of b.dll,
+        // so lib/y/a.dll between them is read and kept; the subfolder entry
+        // after b.dll is not.
+        PackageRangedPlan plan = PackageEntryBlocks.PlanSelection(
+            directory,
+            new PackageRangedSelection([], ["lib/x/b.dll"]),
+            budget: 1_000_000);
+        Assert.Equal(
+            ["lib/x/a.dll", "lib/y/a.dll", "lib/x/b.dll"],
+            Assert.Single(plan.Blocks));
     }
 
     /// <summary>

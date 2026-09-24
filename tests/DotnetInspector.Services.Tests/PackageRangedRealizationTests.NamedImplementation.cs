@@ -38,11 +38,18 @@ public sealed partial class PackageRangedRealizationTests
         Assert.Equal(AvaloniaImplementation + "Avalonia.DesignerSupport.xml", block[0]);
         Assert.Equal(AvaloniaImplementation + "Avalonia.Markup.xml", block[^1]);
         (long blockStart, long blockEnd) = oracle.Extent(block);
+        // The archive interleaves lib/net8.0 with lib/net10.0: the 14 net8.0
+        // entries between the block's first and last entries lie wholly
+        // inside its request, and are read and kept with it.
+        IReadOnlyList<string> covered = oracle.Between(block[0], block[^1], except: block);
+        Assert.Equal(14, covered.Count);
+        Assert.All(covered, name => Assert.StartsWith("lib/net8.0/", name, StringComparison.Ordinal));
 
+        var store = new InMemoryPackageStore();
         var server = new RangeFeed(Avalonia, AvaloniaVersion, archive);
         await using RangedEnvironment environment = RangedEnvironment.Create(server);
         PackageHouseSettlement settlement = await environment.RealizeAsync(
-            new InMemoryPackageStore(),
+            store,
             PackagePayloadAccess.Ranged,
             "net10.0",
             PackageRangedRead.DefaultSizeCut,
@@ -54,8 +61,16 @@ public sealed partial class PackageRangedRealizationTests
         Assert.IsType<PackageHouseResult.Settled>(acquired.Result);
         var content = Assert.IsType<RangedPackageContent>(acquired.Payload.Content);
         Assert.Equal(
-            oracle.Folder(AvaloniaSurface).Concat(block).Order(StringComparer.Ordinal),
+            oracle.Folder(AvaloniaSurface).Concat(block).Concat(covered).Order(StringComparer.Ordinal),
             content.MaterializedEntries.Order(StringComparer.Ordinal));
+        IPackageEntryStore entries = store;
+        Assert.All(covered, name =>
+        {
+            Assert.True(entries.TryReadEntry(Avalonia, AvaloniaVersion, name, out byte[] cached));
+            Assert.True(content.TryOpenEntry(name, out Stream? stream));
+            using (stream)
+                Assert.Equal(ReadAll(stream!), cached);
+        });
 
         // The receipt names only what was read: the surface and the named
         // implementation asset.
@@ -117,8 +132,39 @@ public sealed partial class PackageRangedRealizationTests
             AvaloniaImplementation + "Avalonia.Dialogs.dll",
             implementation.Asset.Path);
 
+        // A later read that selects a covered entry makes no request for it:
+        // net8.0 naming Avalonia.Dialogs.dll reads its own surface and the
+        // rest of its block, never the bytes already held.
+        string kept = "lib/net8.0/Avalonia.Dialogs.dll";
+        Assert.Contains(kept, covered);
+        (long keptStart, long keptEnd) = oracle.Extent([kept]);
+        var later = new RangeFeed(Avalonia, AvaloniaVersion, archive);
+        await using RangedEnvironment laterEnvironment = RangedEnvironment.Create(later);
+        PackageHouseSettlement net8 = await laterEnvironment.RealizeAsync(
+            store,
+            PackagePayloadAccess.Ranged,
+            "net8.0",
+            PackageRangedRead.DefaultSizeCut,
+            Avalonia,
+            AvaloniaVersion,
+            ["Avalonia.Dialogs.dll"]);
+        Assert.IsType<PackageHouseResult.Settled>(
+            Assert.IsType<PackageHouseSettlement.Acquired>(net8).Result);
+        PackageTransferReceipt laterReceipt = Transfer(net8, PackagePayloadOrigin.Ranged);
+        Assert.DoesNotContain(
+            laterReceipt.Requests,
+            request => request.Purpose == PackageTransferRequestPurpose.EntrySpan
+                && request.Range!.Value.Start < keptEnd
+                && request.Range.Value.Start + request.Range.Value.Length > keptStart);
+        Assert.True(
+            Assert.IsType<RangedPackageContent>(
+                Assert.IsType<PackageHouseSettlement.Acquired>(net8).Payload.Content)
+                .IsMaterialized(kept));
+
         TestContext.Current.TestOutputHelper?.WriteLine(
-            $"block {blockStart}-{blockEnd} ({block.Count} entries, {blockEnd - blockStart} bytes); "
+            $"materialized {content.MaterializedEntries.Count}; "
+            + $"later net8.0 read: requests {laterReceipt.RequestCount}, received {laterReceipt.BytesReceived}; "
+            + $"block {blockStart}-{blockEnd} ({block.Count} entries, {blockEnd - blockStart} bytes); "
             + $"span {blockSpan.Start}+{blockSpan.Length}; "
             + $"requests {receipt.RequestCount}, received {receipt.BytesReceived}; "
             + $"implementation folder stored {oracle.StoredBytes(oracle.Folder(AvaloniaImplementation))}, "
@@ -398,6 +444,21 @@ public sealed partial class PackageRangedRealizationTests
             }
             return blocks.Single(block => block.Contains(anchor));
         }
+
+        /// <summary>
+        /// File entries whose local header lies from <paramref name="first"/>'s
+        /// through <paramref name="last"/>'s, other than <paramref name="except"/>.
+        /// </summary>
+        public IReadOnlyList<string> Between(string first, string last, IReadOnlyList<string> except) =>
+        [
+            .. _entries
+                .Where(entry =>
+                    entry.Offset >= Offset(first)
+                    && entry.Offset <= Offset(last)
+                    && !entry.Name.EndsWith('/')
+                    && !except.Contains(entry.Name))
+                .Select(entry => entry.Name),
+        ];
 
         /// <summary>From the first entry's local header to the header after the last.</summary>
         public (long Start, long End) Extent(IReadOnlyList<string> names) =>
