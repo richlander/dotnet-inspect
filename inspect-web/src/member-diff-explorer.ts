@@ -464,8 +464,8 @@ function renderComparedSource(
   escapeHtml: (value: unknown) => string,
 ): string {
   const exact = value.isExact
-    ? '<span class="member-diff-source-exact">Exact member match</span>'
-    : '<span class="member-diff-source-inexact">Non-exact result</span>';
+    ? '<span class="member-diff-source-exact">Authored Source is identical</span>'
+    : '<span class="member-diff-source-inexact">Authored Source changed</span>';
   const endpoints = `<div class="member-diff-source-endpoints">
     ${endpointStatus(value.before, context.destination.target, "Before", escapeHtml)}
     ${endpointStatus(value.after, context.destination.current, "After", escapeHtml)}

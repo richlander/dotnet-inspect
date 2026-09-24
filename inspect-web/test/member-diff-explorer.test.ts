@@ -275,6 +275,7 @@ BrowserSourceComparisonRequest {
 function sourceResult(
   value: LibraryApiDiffMemberExploreContext,
   diff: BrowserSourceDiff | null = sourceDiff(),
+  isExact = false,
 ): BrowserSourceComparisonResult {
   return {
     version: 1,
@@ -282,7 +283,7 @@ function sourceResult(
     value: {
       request: requestFor(value),
       status: diff === null ? "Unavailable" : "Compared",
-      isExact: true,
+      isExact: diff !== null && isExact,
       before: sourceEndpoint("1.0.0"),
       after: sourceEndpoint("2.0.0"),
       diff,
@@ -309,7 +310,7 @@ test("Member Diff Explore renders all three evidence panes from typed evidence",
   assert.match(html, /What changed/);
   assert.match(html, /Parameter type changed from int to long\./);
   assert.match(html, /Paired declaration evidence is not available yet/);
-  assert.match(html, /Exact member match/);
+  assert.match(html, /Authored Source changed/);
   assert.match(html, /1 Before changed/);
   assert.match(html, /<mark>int<\/mark>/);
   assert.match(html, /<mark>long<\/mark>/);
@@ -382,6 +383,57 @@ test("decoded N:M moved correspondence remains one relation with independent pop
   assert.equal((html.match(/data-side="after"/g) ?? []).length, 1);
   assert.match(html, /2 Before moved/);
   assert.match(html, /1 After moved/);
+});
+
+test("identical Source does not upgrade a soft Member correspondence", () => {
+  const value = context();
+  const softContext: LibraryApiDiffMemberExploreContext = {
+    ...value,
+    member: {
+      ...value.member,
+      match: {
+        tier: "signature",
+        confidence: 80,
+      },
+    },
+  };
+  const exactDiff: BrowserSourceDiff = {
+    version: 1,
+    before: {
+      label: "Before",
+      lines: ["public void Run()"],
+      finalLineTerminator: "Present",
+    },
+    after: {
+      label: "After",
+      lines: ["public void Run()"],
+      finalLineTerminator: "Present",
+    },
+    relations: [{
+      kind: "Correspondence",
+      beforeCoordinates: [0],
+      afterCoordinates: [0],
+      content: "Unchanged",
+      placement: "Stable",
+    }],
+    statistics: {
+      added: 0,
+      removed: 0,
+      changedBefore: 0,
+      changedAfter: 0,
+      movedBefore: 0,
+      movedAfter: 0,
+    },
+    changes: [],
+  };
+
+  const html = renderMemberDiffExplorer(softContext, {
+    status: "ready",
+    result: sourceResult(softContext, exactDiff, true),
+  }, String);
+  assert.match(html, /Member Diff · Changed/);
+  assert.match(html, /Authored Source is identical/);
+  assert.doesNotMatch(html, /Exact member match/);
 });
 
 test("one-sided destinations omit that Source endpoint intentionally", () => {
@@ -751,6 +803,6 @@ test("a settled non-failed Source result is retained for the same exact context"
 
   controller.open(value, invoker);
   assert.equal(queries, 1);
-  assert.match(dom.dialogs[1]?.innerHTML ?? "", /Exact member match/);
+  assert.match(dom.dialogs[1]?.innerHTML ?? "", /Authored Source changed/);
   controller.dispose();
 });
