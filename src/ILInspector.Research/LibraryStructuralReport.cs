@@ -106,8 +106,21 @@ public static class LibraryStructuralReport
     public const int MaximumEntangledTypeCount = 24;
 
     public static LibraryStructuralReportResult Execute(
+        LibraryBodyAnalysisExecution analysis)
+    {
+        ArgumentNullException.ThrowIfNull(analysis);
+        return Execute(
+            analysis.ImplementationProfiles,
+            analysis.CallGraph);
+    }
+
+    public static LibraryStructuralReportResult Execute(
+        LibraryImplementationProfileAnalysisResult analysis) =>
+        Execute(analysis, callGraph: null);
+
+    static LibraryStructuralReportResult Execute(
         LibraryImplementationProfileAnalysisResult analysis,
-        LibraryCallGraphAnalysisResult? callGraph = null)
+        LibraryCallGraphAnalysisResult? callGraph)
     {
         ArgumentNullException.ThrowIfNull(analysis);
 

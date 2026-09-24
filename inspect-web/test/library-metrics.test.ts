@@ -158,3 +158,27 @@ test("relationship topology keeps same-display generic arities distinct", () => 
   assert.notEqual(edge[1], edge[2]);
   assert.match(html, /2 most connected types/);
 });
+
+test("relationship topology renders the complete Research projection", () => {
+  const relationships = Array.from({ length: 16 }, (_, index) => ({
+    sourceTypeKey: "Example.Hub",
+    sourceTypeDisplay: "Example.Hub",
+    targetTypeKey: `Example.Leaf${index}`,
+    targetTypeDisplay: `Example.Leaf${index}`,
+    callSiteCount: index + 1,
+    sourceDegree: 16,
+    targetDegree: 1,
+  }));
+  const html = render({
+    data: {
+      ...data,
+      entangledRelationships: relationships,
+    },
+  });
+
+  assert.equal(
+    html.match(/class="metrics-relationship-edge"/g)?.length,
+    relationships.length,
+  );
+  assert.match(html, /17 most connected types · 16 retained relationships/);
+});

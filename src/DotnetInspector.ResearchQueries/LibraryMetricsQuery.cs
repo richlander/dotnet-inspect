@@ -43,34 +43,40 @@ public static class LibraryMetricsQuery
         LibraryBodyAnalysisExecution analysis)
     {
         ArgumentNullException.ThrowIfNull(analysis);
-        return Execute(
-            analysis.ImplementationProfiles,
-            analysis.CallGraph);
-    }
-
-    public static LibraryMetricsResult Execute(
-        LibraryImplementationProfileAnalysisResult analysis,
-        LibraryCallGraphAnalysisResult? callGraph = null)
-    {
-        ArgumentNullException.ThrowIfNull(analysis);
         try
         {
-            return LibraryStructuralReport.Execute(
-                analysis,
-                callGraph) switch
-            {
-                LibraryStructuralReportResult.Available available =>
-                    new LibraryMetricsResult.Available(available.Document),
-                LibraryStructuralReportResult.Unavailable unavailable =>
-                    new LibraryMetricsResult.Unavailable(unavailable),
-                var unknown => throw new InvalidOperationException(
-                    "Unknown Library Metrics report result "
-                    + $"'{unknown.GetType().Name}'."),
-            };
+            return Project(LibraryStructuralReport.Execute(analysis));
         }
         catch (Exception ex)
         {
             return new LibraryMetricsResult.Failed(ex);
         }
     }
+
+    public static LibraryMetricsResult Execute(
+        LibraryImplementationProfileAnalysisResult analysis)
+    {
+        ArgumentNullException.ThrowIfNull(analysis);
+        try
+        {
+            return Project(LibraryStructuralReport.Execute(analysis));
+        }
+        catch (Exception ex)
+        {
+            return new LibraryMetricsResult.Failed(ex);
+        }
+    }
+
+    static LibraryMetricsResult Project(
+        LibraryStructuralReportResult result) =>
+        result switch
+        {
+            LibraryStructuralReportResult.Available available =>
+                new LibraryMetricsResult.Available(available.Document),
+            LibraryStructuralReportResult.Unavailable unavailable =>
+                new LibraryMetricsResult.Unavailable(unavailable),
+            var unknown => throw new InvalidOperationException(
+                "Unknown Library Metrics report result "
+                + $"'{unknown.GetType().Name}'."),
+        };
 }

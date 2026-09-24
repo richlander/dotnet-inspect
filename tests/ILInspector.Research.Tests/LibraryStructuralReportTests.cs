@@ -170,9 +170,7 @@ public sealed class LibraryStructuralReportTests
                     | LibraryBodyAnalysisFeatures.ImplementationProfiles));
 
         var available = Assert.IsType<LibraryStructuralReportResult.Available>(
-            LibraryStructuralReport.Execute(
-                execution.ImplementationProfiles,
-                execution.CallGraph));
+            LibraryStructuralReport.Execute(execution));
 
         Assert.NotEmpty(available.Document.TypeSummaries);
         Assert.Contains(
@@ -202,9 +200,7 @@ public sealed class LibraryStructuralReportTests
                 <= LibraryStructuralReport.MaximumEntangledTypeCount
                     * LibraryStructuralReport.MaximumEntangledTypeCount);
         var repeated = Assert.IsType<LibraryStructuralReportResult.Available>(
-            LibraryStructuralReport.Execute(
-                execution.ImplementationProfiles,
-                execution.CallGraph));
+            LibraryStructuralReport.Execute(execution));
         Assert.Equal(
             available.Document.EntangledRelationships,
             repeated.Document.EntangledRelationships);

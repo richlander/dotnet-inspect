@@ -62,4 +62,25 @@ public sealed class LibraryMetricsQueryTests
             analysis.ImplementationProfiles.Coverage,
             unavailable.Outcome.Coverage);
     }
+
+    [Fact]
+    public void Execute_SharedExecutionPublishesRelationshipEvidence()
+    {
+        LibraryBodyAnalysisExecution analysis =
+            LibraryBodyAnalysisService.ExecutePath(
+                FixtureCatalog.AnalysisCallerGraphTarget.AssemblyPath(),
+                LibraryBodyAnalysisRequest.Create(
+                    LibraryBodyAnalysisFeatures.MethodEvidence
+                    | LibraryBodyAnalysisFeatures.ImplementationProfiles));
+
+        LibraryMetricsResult result =
+            LibraryMetricsQuery.Execute(analysis);
+
+        var available =
+            Assert.IsType<LibraryMetricsResult.Available>(result);
+        Assert.NotEmpty(available.Document.EntangledRelationships);
+        Assert.Same(
+            analysis.Receipt,
+            available.Document.AnalysisReceipt);
+    }
 }

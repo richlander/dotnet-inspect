@@ -43,8 +43,9 @@ multi-library population. Neither is inferred from one report.
 
 The report consumes one
 `LibraryImplementationProfileAnalysisResult` from the existing
-`LibraryBodyAnalysisService` execution. An adopting query may also provide the
-same execution's `LibraryCallGraphAnalysisResult`; that optional input is used
+`LibraryBodyAnalysisService` execution. Relationship composition accepts the
+owning `LibraryBodyAnalysisExecution`, rather than independently supplied
+focused results, and uses that execution's `LibraryCallGraphAnalysisResult`
 only for the bounded relationship projection described below. Its
 `LibraryBodyAnalysisReceipt` establishes the exact module identity, source
 label, requested feature set, full-scope state, and Analysis diagnostics.
@@ -242,7 +243,9 @@ from type summaries plus a `Relationship Crossing` view from the bounded
 relationship projection, without recomputing any report fact. Area represents
 instruction volume, treemap color represents average normal-flow complexity, and
 relationship stroke width represents retained call-site count. These visuals
-are structural evidence and preserve the settled Library-to-Type-to-Member
+render every endpoint and edge in Research's bounded relationship projection;
+the Browser performs no second topology selection. They are structural
+evidence and preserve the settled Library-to-Type-to-Member
 journey; they do not add a quality score, Compare surface, complete graph, or a
 second report model.
 

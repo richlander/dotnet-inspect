@@ -5,7 +5,6 @@ const TREEMAP_HEIGHT = 360;
 const TREEMAP_LIMIT = 72;
 const RELATIONSHIP_WIDTH = 900;
 const RELATIONSHIP_HEIGHT = 320;
-const RELATIONSHIP_LIMIT = 16;
 const RELATIONSHIP_COLORS = [
   "#b9aaee", "#7ed8dc", "#9cc8f1", "#e5b567", "#d98a70",
   "#8ebb76", "#c795e9", "#87aeca",
@@ -203,7 +202,6 @@ function renderRelationshipCrossing(
   }
   const types = [...degree.entries()]
     .sort((left, right) => right[1] - left[1] || left[0].localeCompare(right[0]))
-    .slice(0, RELATIONSHIP_LIMIT)
     .map(([typeKey, typeDegree]) => ({
       typeKey,
       typeDisplay: displays.get(typeKey) ?? typeKey,
