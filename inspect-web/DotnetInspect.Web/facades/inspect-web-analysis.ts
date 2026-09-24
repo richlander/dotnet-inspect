@@ -44,6 +44,13 @@ export interface BrowserAllocationFact {
   readonly detail: string | null;
 }
 
+export interface BrowserAnalysisAssemblyIdentity {
+  readonly name: string;
+  readonly version: string | null;
+  readonly culture: string | null;
+  readonly publicKeyToken: string | null;
+}
+
 export interface BrowserAnalysisInspectionDiagnostic {
   readonly code: string;
   readonly severity: BrowserAnalysisInspectionDiagnosticSeverity;
@@ -305,6 +312,155 @@ export interface BrowserExceptionRegion {
   readonly caughtType: string | null;
 }
 
+export interface BrowserImplementationProfile {
+  readonly methodKey: string;
+  readonly evidenceMethodKey: string;
+  readonly ilBytes: number;
+  readonly instructionCount: number;
+  readonly distinctOpcodeCount: number;
+  readonly basicBlockCount: number;
+  readonly branchCount: number;
+  readonly conditionalBranchCount: number;
+  readonly switchCount: number;
+  readonly switchTargetCount: number;
+  readonly normalFlowCyclomaticComplexity: number;
+  readonly loopCount: number;
+  readonly catchCount: number;
+  readonly filterCount: number;
+  readonly finallyCount: number;
+  readonly faultCount: number;
+  readonly localCount: number;
+  readonly directCallCount: number;
+  readonly distinctCalleeCount: number;
+  readonly allocationCount: number;
+  readonly throwCount: number;
+  readonly async: boolean;
+  readonly unsafe: boolean;
+  readonly reflectionCallCount: number;
+  readonly incomingOverloadCallerCount: number;
+  readonly outgoingOverloadTargetCount: number;
+  readonly isComplete: boolean;
+  readonly incompleteReasons: ReadonlyArray<string>;
+  readonly publicMembers: ReadonlyArray<BrowserImplementationProfilePublicMember>;
+}
+
+export interface BrowserImplementationProfileAnalysisDiagnostic {
+  readonly methodToken: number;
+  readonly method: string;
+  readonly message: string;
+  readonly sourceMethodToken: number | null;
+  readonly declaringType: string | null;
+  readonly sourceDeclaringType: string | null;
+}
+
+export interface BrowserImplementationProfileApiSurfaceFailure {
+  readonly operation: string;
+  readonly subjectToken: number;
+  readonly mechanism: string;
+  readonly kind: string;
+  readonly detail: string;
+  readonly subjectAssembly: BrowserAnalysisAssemblyIdentity | null;
+  readonly dependencyAssembly: BrowserAnalysisAssemblyIdentity | null;
+}
+
+export interface BrowserImplementationProfileContent {
+  readonly members: ReadonlyArray<BrowserImplementationProfilePublicMember>;
+  readonly methods: ReadonlyArray<BrowserImplementationProfileMethod>;
+  readonly profiles: ReadonlyArray<BrowserImplementationProfile>;
+  readonly coverage: BrowserImplementationProfileCoverage;
+  readonly overloadRelationships: ReadonlyArray<BrowserImplementationProfileRelationship>;
+  readonly generatedFrameworkTypes: ReadonlyArray<string>;
+  readonly analysisDiagnostics: ReadonlyArray<BrowserImplementationProfileAnalysisDiagnostic>;
+  readonly apiSurfaceInspectionFailures: ReadonlyArray<BrowserImplementationProfileApiSurfaceFailure>;
+}
+
+export interface BrowserImplementationProfileCoverage {
+  readonly wasRequested: boolean;
+  readonly hasFullMethodEvidenceScope: boolean;
+  readonly declaredMethodKeys: ReadonlyArray<string>;
+  readonly managedMethodBodyKeys: ReadonlyArray<string>;
+  readonly profiledEvidenceBodyKeys: ReadonlyArray<string>;
+  readonly unavailableBodies: ReadonlyArray<BrowserImplementationProfileUnavailableBody>;
+  readonly diagnostics: ReadonlyArray<BrowserImplementationProfileAnalysisDiagnostic>;
+}
+
+export interface BrowserImplementationProfileFailure {
+  readonly kind: string;
+  readonly detail: string;
+  readonly metadataRootReason: string | null;
+}
+
+export interface BrowserImplementationProfileMethod {
+  readonly key: string;
+  readonly assemblyName: string;
+  readonly moduleVersionId: string;
+  readonly declaringType: string;
+  readonly name: string;
+  readonly parameterTypes: ReadonlyArray<string>;
+  readonly returnType: string;
+  readonly metadataToken: number;
+  readonly isStatic: boolean;
+  readonly isExtension: boolean;
+  readonly callerUnsafeMode: string;
+  readonly genericArity: number;
+  readonly genericParameterNames: ReadonlyArray<string>;
+  readonly display: string;
+}
+
+export interface BrowserImplementationProfileProvenance {
+  readonly kind: string;
+  readonly packageId: string | null;
+  readonly packageVersion: string | null;
+  readonly framework: string | null;
+  readonly frameworkVersion: string | null;
+  readonly runtimeIdentifier: string | null;
+  readonly assetPath: string | null;
+  readonly resolverSource: string | null;
+  readonly project: string | null;
+  readonly contentRef: string | null;
+  readonly digest: string | null;
+  readonly declaredName: string | null;
+}
+
+export interface BrowserImplementationProfilePublicMember {
+  readonly typeDefinitionId: string;
+  readonly member: string;
+  readonly stableSelector: string;
+  readonly bodyTokens: ReadonlyArray<number>;
+}
+
+export interface BrowserImplementationProfileRelationship {
+  readonly callerKey: string;
+  readonly calleeKey: string;
+  readonly evidenceMethodKey: string;
+  readonly ilOffset: number;
+  readonly kind: string;
+}
+
+export interface BrowserImplementationProfileSubject {
+  readonly identity: BrowserAnalysisAssemblyIdentity;
+  readonly moduleVersionId: string | null;
+  readonly provenance: BrowserImplementationProfileProvenance;
+}
+
+export interface BrowserImplementationProfileUnavailableBody {
+  readonly evidenceMethodKey: string | null;
+  readonly methodToken: number;
+  readonly reason: string;
+  readonly diagnostic: BrowserImplementationProfileAnalysisDiagnostic | null;
+}
+
+export interface BrowserImplementationProfiles {
+  readonly schemaVersion: number;
+  readonly outcome: string;
+  readonly subject: BrowserImplementationProfileSubject | null;
+  readonly content: BrowserImplementationProfileContent | null;
+  readonly failure: BrowserImplementationProfileFailure | null;
+  readonly share: BrowserAnalysisInspectionShare | null;
+  readonly diagnostics: ReadonlyArray<BrowserAnalysisInspectionDiagnostic>;
+  readonly compileLibrary: BrowserCompileLibraryAvailability;
+}
+
 export interface BrowserIntegrationCategory {
   readonly integration: string;
   readonly signals: ReadonlyArray<BrowserIntegrationSignal>;
@@ -470,10 +626,12 @@ type $ManagedExports = {
           readonly "AnalysisExports": {
             readonly "QueryCloneCandidates.976702342": (requestJson: string) => Promise<string>;
             readonly "QueryMemberFacts.581406856": (packageId: string, version: string, targetFramework: string, assemblyName: string, typeIdentity: string, memberName: string, memberSignature: string, selectorKey: string, metadataToken: number, implementationBodySelected: boolean) => Promise<string>;
+            readonly "QueryPackageImplementationProfiles.1825815599": (packageId: string, version: string, targetFramework: string, assemblyName: string, typeDefinitionId: string, stableSelectors: string[]) => Promise<string>;
             readonly "QueryPackageIntegrations.1579276339": (packageId: string, version: string, targetFramework: string, assemblyName: string) => Promise<string>;
             readonly "QueryPackageLibraryMetrics.1579276339": (packageId: string, version: string, targetFramework: string, assemblyName: string) => Promise<string>;
             readonly "QueryPackageOpportunities.1579276339": (packageId: string, version: string, targetFramework: string, assemblyName: string) => Promise<string>;
             readonly "QueryPackagePerformance.1579276339": (packageId: string, version: string, targetFramework: string, assemblyName: string) => Promise<string>;
+            readonly "QueryPlatformImplementationProfiles.1825815599": (targetFramework: string, platformVersion: string, assemblyFileName: string, pack: string, typeDefinitionId: string, stableSelectors: string[]) => Promise<string>;
             readonly "QueryPlatformIntegrations.1579276339": (targetFramework: string, platformVersion: string, assemblyFileName: string, pack: string) => Promise<string>;
             readonly "QueryPlatformLibraryMetrics.1579276339": (targetFramework: string, platformVersion: string, assemblyFileName: string, pack: string) => Promise<string>;
             readonly "QueryPlatformOpportunities.1579276339": (targetFramework: string, platformVersion: string, assemblyFileName: string, pack: string) => Promise<string>;
@@ -558,6 +716,18 @@ function $validateManagedExports(exports: unknown): asserts exports is $ManagedE
     value = $ownDataProperty(value, "Interop");
     value = $ownDataProperty(value, "Analysis");
     value = $ownDataProperty(value, "AnalysisExports");
+    value = $ownDataProperty(value, "QueryPackageImplementationProfiles.1825815599");
+    if (typeof value !== "function") {
+      throw new Error("Managed export \u0027DotnetInspect.Web.Interop.Analysis.AnalysisExports.QueryPackageImplementationProfiles.1825815599\u0027 is not callable.");
+    }
+  }
+  {
+    let value: unknown = exports;
+    value = $ownDataProperty(value, "DotnetInspect");
+    value = $ownDataProperty(value, "Web");
+    value = $ownDataProperty(value, "Interop");
+    value = $ownDataProperty(value, "Analysis");
+    value = $ownDataProperty(value, "AnalysisExports");
     value = $ownDataProperty(value, "QueryPackageIntegrations.1579276339");
     if (typeof value !== "function") {
       throw new Error("Managed export \u0027DotnetInspect.Web.Interop.Analysis.AnalysisExports.QueryPackageIntegrations.1579276339\u0027 is not callable.");
@@ -597,6 +767,18 @@ function $validateManagedExports(exports: unknown): asserts exports is $ManagedE
     value = $ownDataProperty(value, "QueryPackagePerformance.1579276339");
     if (typeof value !== "function") {
       throw new Error("Managed export \u0027DotnetInspect.Web.Interop.Analysis.AnalysisExports.QueryPackagePerformance.1579276339\u0027 is not callable.");
+    }
+  }
+  {
+    let value: unknown = exports;
+    value = $ownDataProperty(value, "DotnetInspect");
+    value = $ownDataProperty(value, "Web");
+    value = $ownDataProperty(value, "Interop");
+    value = $ownDataProperty(value, "Analysis");
+    value = $ownDataProperty(value, "AnalysisExports");
+    value = $ownDataProperty(value, "QueryPlatformImplementationProfiles.1825815599");
+    if (typeof value !== "function") {
+      throw new Error("Managed export \u0027DotnetInspect.Web.Interop.Analysis.AnalysisExports.QueryPlatformImplementationProfiles.1825815599\u0027 is not callable.");
     }
   }
   {
@@ -710,6 +892,12 @@ export async function queryMemberFacts(packageId: string, version: string, targe
   return $parsed as BrowserMemberFacts;
 }
 
+export async function queryPackageImplementationProfiles(packageId: string, version: string, targetFramework: string, assemblyName: string, typeDefinitionId: string, stableSelectors: string[]): Promise<BrowserImplementationProfiles> {
+  const $result = await $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Analysis"]["AnalysisExports"]["QueryPackageImplementationProfiles.1825815599"](packageId, version, targetFramework, assemblyName, typeDefinitionId, stableSelectors);
+  const $parsed: unknown = JSON.parse($result);
+  return $parsed as BrowserImplementationProfiles;
+}
+
 export async function queryPackageIntegrations(packageId: string, version: string, targetFramework: string, assemblyName: string): Promise<BrowserPackageIntegrations> {
   const $result = await $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Analysis"]["AnalysisExports"]["QueryPackageIntegrations.1579276339"](packageId, version, targetFramework, assemblyName);
   const $parsed: unknown = JSON.parse($result);
@@ -732,6 +920,12 @@ export async function queryPackagePerformance(packageId: string, version: string
   const $result = await $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Analysis"]["AnalysisExports"]["QueryPackagePerformance.1579276339"](packageId, version, targetFramework, assemblyName);
   const $parsed: unknown = JSON.parse($result);
   return $parsed as BrowserPackagePerformance;
+}
+
+export async function queryPlatformImplementationProfiles(targetFramework: string, platformVersion: string, assemblyFileName: string, pack: string, typeDefinitionId: string, stableSelectors: string[]): Promise<BrowserImplementationProfiles> {
+  const $result = await $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Analysis"]["AnalysisExports"]["QueryPlatformImplementationProfiles.1825815599"](targetFramework, platformVersion, assemblyFileName, pack, typeDefinitionId, stableSelectors);
+  const $parsed: unknown = JSON.parse($result);
+  return $parsed as BrowserImplementationProfiles;
 }
 
 export async function queryPlatformIntegrations(targetFramework: string, platformVersion: string, assemblyFileName: string, pack: string): Promise<BrowserPackageIntegrations> {

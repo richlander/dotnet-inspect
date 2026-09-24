@@ -69,10 +69,12 @@ type MetadataOperations =
 type AnalysisOperations =
   | "queryCloneCandidates"
   | "queryMemberFacts"
+  | "queryPackageImplementationProfiles"
   | "queryPackageIntegrations"
   | "queryPackageOpportunities"
   | "queryPackagePerformance"
   | "queryPackageLibraryMetrics"
+  | "queryPlatformImplementationProfiles"
   | "queryPlatformLibraryMetrics"
   | "queryPlatformIntegrations"
   | "queryPlatformOpportunities"
