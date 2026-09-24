@@ -192,6 +192,7 @@ fields, columns, or renderer settings. Its first population request is:
 LibraryTypePopulationRequest
   facet selection
     declaration kinds: definitions, forwarders, or both
+    definition Type kinds: any non-empty subset when definitions are selected
     accessibility/public-surface selection
   optional Count request
   optional Rows request

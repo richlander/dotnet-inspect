@@ -72,7 +72,9 @@ public sealed record LibraryTypeDeclarationRowsInspectionRequest
         bool includeMemberCount,
         Guid? expectedModuleVersionId,
         bool includeDefinitions = true,
-        bool includeForwarders = true)
+        bool includeForwarders = true,
+        ApiTypeInventoryKinds definitionKinds =
+            ApiTypeInventoryKinds.All)
     {
         ArgumentOutOfRangeException.ThrowIfNegative(startOrdinal);
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(maximumRows);
@@ -80,6 +82,37 @@ public sealed record LibraryTypeDeclarationRowsInspectionRequest
         {
             throw new ArgumentException(
                 "A declaration Rows request must include definitions, forwarders, or both.");
+        }
+        if ((definitionKinds
+                & ~ApiTypeInventoryKinds.All)
+            != 0)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(definitionKinds),
+                definitionKinds,
+                "Unknown declaration definition-kind selection.");
+        }
+        if (includeDefinitions
+            && definitionKinds
+                == ApiTypeInventoryKinds.None)
+        {
+            throw new ArgumentException(
+                "A declaration Rows request that includes definitions must select at least one definition kind.",
+                nameof(definitionKinds));
+        }
+        if (!includeDefinitions)
+        {
+            if (definitionKinds
+                is not ApiTypeInventoryKinds.All
+                    and not ApiTypeInventoryKinds.None)
+            {
+                throw new ArgumentException(
+                    "A forwarder-only declaration Rows request cannot select definition kinds.",
+                    nameof(definitionKinds));
+            }
+
+            definitionKinds =
+                ApiTypeInventoryKinds.None;
         }
         if (expectedModuleVersionId == Guid.Empty)
         {
@@ -93,6 +126,7 @@ public sealed record LibraryTypeDeclarationRowsInspectionRequest
         IncludeMemberCount = includeMemberCount;
         IncludeDefinitions = includeDefinitions;
         IncludeForwarders = includeForwarders;
+        DefinitionKinds = definitionKinds;
         ExpectedModuleVersionId = expectedModuleVersionId;
     }
 
@@ -101,7 +135,37 @@ public sealed record LibraryTypeDeclarationRowsInspectionRequest
     public bool IncludeMemberCount { get; }
     public bool IncludeDefinitions { get; }
     public bool IncludeForwarders { get; }
+    public ApiTypeInventoryKinds DefinitionKinds { get; }
     public Guid? ExpectedModuleVersionId { get; }
+
+    internal bool Includes(AssemblyTypeDefinitionKind kind) =>
+        kind switch
+        {
+            AssemblyTypeDefinitionKind.Class =>
+                (DefinitionKinds
+                    & ApiTypeInventoryKinds.Classes)
+                != 0,
+            AssemblyTypeDefinitionKind.ValueType =>
+                (DefinitionKinds
+                    & ApiTypeInventoryKinds.Structs)
+                != 0,
+            AssemblyTypeDefinitionKind.Interface =>
+                (DefinitionKinds
+                    & ApiTypeInventoryKinds.Interfaces)
+                != 0,
+            AssemblyTypeDefinitionKind.Enum =>
+                (DefinitionKinds
+                    & ApiTypeInventoryKinds.Enums)
+                != 0,
+            AssemblyTypeDefinitionKind.Delegate =>
+                (DefinitionKinds
+                    & ApiTypeInventoryKinds.Delegates)
+                != 0,
+            _ => throw new ArgumentOutOfRangeException(
+                nameof(kind),
+                kind,
+                "Unknown Type definition kind."),
+        };
 }
 
 public enum LibraryTypeDeclarationRowsInspectionUnavailableReason
@@ -548,7 +612,11 @@ public static class LibraryTypeDeclarationInventoryInspection
                         declaration.Kind switch
                         {
                             AssemblyTypeDeclarationKind.Definition =>
-                                request.IncludeDefinitions,
+                                request.IncludeDefinitions
+                                && request.Includes(
+                                    declaration.DefinitionKind
+                                    ?? throw new InvalidOperationException(
+                                        "A Type definition declaration omitted its kind.")),
                             AssemblyTypeDeclarationKind.Forwarder =>
                                 request.IncludeForwarders,
                             _ => false,
