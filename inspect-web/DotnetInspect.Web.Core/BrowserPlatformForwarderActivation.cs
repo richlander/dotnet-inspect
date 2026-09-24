@@ -447,6 +447,7 @@ internal sealed class BrowserPlatformForwarderActivation : IDisposable
                 Project(
                     action,
                     entry,
+                    completed.Receipt,
                     completed.Value.Outcome),
             PlatformHouseOutcome<
                 PlatformTypeDefinitionValue.Implementation<
@@ -503,6 +504,7 @@ internal sealed class BrowserPlatformForwarderActivation : IDisposable
     private static BrowserPlatformForwarderActivationResult Project(
         BrowserPlatformForwarderAction action,
         ActionEntry entry,
+        PlatformHouseReceipt receipt,
         PlatformTypeDefinitionResolutionResult resolution)
     {
         if (resolution.Hops.IsDefaultOrEmpty
@@ -513,6 +515,7 @@ internal sealed class BrowserPlatformForwarderActivation : IDisposable
                 new BrowserPlatformForwarderActivationBlock.Refused(
                     BrowserPlatformForwarderRefusedReason
                         .EvidenceMismatch,
+                    Receipt: receipt,
                     Resolution: resolution));
         }
 
@@ -527,13 +530,13 @@ internal sealed class BrowserPlatformForwarderActivation : IDisposable
                     action,
                     new BrowserPlatformForwarderActivationBlock.Unavailable(
                         BrowserPlatformForwarderUnavailableReason.Resolution,
-                        Receipt: null,
+                        receipt,
                         resolution)),
             PlatformTypeDefinitionResolutionResult.Ambiguous =>
                 Blocked(
                     action,
                     new BrowserPlatformForwarderActivationBlock.Ambiguous(
-                        Receipt: null,
+                        receipt,
                         resolution)),
             PlatformTypeDefinitionResolutionResult.Rejected rejected
                 when rejected.Failure
@@ -548,7 +551,7 @@ internal sealed class BrowserPlatformForwarderActivation : IDisposable
                 Blocked(
                     action,
                     new BrowserPlatformForwarderActivationBlock.Incomplete(
-                        Receipt: null,
+                        receipt,
                         resolution)),
             PlatformTypeDefinitionResolutionResult.Rejected =>
                 Blocked(
@@ -556,6 +559,7 @@ internal sealed class BrowserPlatformForwarderActivation : IDisposable
                     new BrowserPlatformForwarderActivationBlock.Refused(
                         BrowserPlatformForwarderRefusedReason
                             .ResolutionRejected,
+                        Receipt: receipt,
                         Resolution: resolution)),
             _ => throw new InvalidOperationException(
                 "Unknown Platform type-definition result."),

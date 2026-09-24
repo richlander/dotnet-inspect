@@ -176,6 +176,10 @@ public sealed class BrowserPlatformForwarderActivationTests
         Assert.Equal(
             BrowserPlatformForwarderRefusedReason.EvidenceMismatch,
             refused.Reason);
+        Assert.NotNull(refused.Receipt);
+        Assert.Equal(
+            PlatformHouseSettlementKind.Completed,
+            refused.Receipt.SettlementKind);
         Assert.NotNull(refused.Resolution);
 
         using var other =
@@ -310,6 +314,10 @@ public sealed class BrowserPlatformForwarderActivationTests
         var incomplete = Assert.IsType<
             BrowserPlatformForwarderActivationBlock.Incomplete>(
                 blocked.Block);
+        Assert.NotNull(incomplete.Receipt);
+        Assert.Equal(
+            PlatformHouseSettlementKind.Completed,
+            incomplete.Receipt.SettlementKind);
         var rejected = Assert.IsType<
             PlatformTypeDefinitionResolutionResult.Rejected>(
                 incomplete.Resolution);
