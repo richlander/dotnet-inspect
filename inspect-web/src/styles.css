@@ -1943,6 +1943,7 @@ kbd {
 .source-result > .source-provenance > .graph-source-status { grid-column: 1 / -1; overflow-wrap: anywhere; white-space: normal; }
 .source-result pre { min-width: 0; min-height: 0; max-width: 100%; margin: 0; padding: 18px; overflow: auto; border: 0; background: var(--code-bg); }
 .source-result pre code { color: var(--code-text); font: 14px/1.65 var(--mono); }
+.source-result .source-shared-indentation { font-size: 0; }
 .source-result .token.comment { color: #6f7669; font-style: italic; }
 .source-result .token.keyword { color: #d98a70; }
 .source-result .token.class-name,
