@@ -67,6 +67,7 @@ public sealed record MetadataTypeDeclarationEvidence(
     MetadataTypeIdentity.Primitive? PrimitiveAlias,
     TypeAttributes Attributes,
     MetadataTypeDeclarationCategory Category,
+    bool IsByRefLike,
     bool DefinesCoreLibraryRoot,
     MetadataTypeDefinitionAddress? DeclaringType);
 
@@ -185,6 +186,9 @@ internal sealed class MetadataTypeDeclarationEvidenceOperation
                     attributes,
                     definesCoreLibraryRoot,
                     index);
+            bool isByRefLike =
+                category == MetadataTypeDeclarationCategory.Struct
+                && ReadIsByRefLike(definition, handle);
             bool isValueType =
                 category is MetadataTypeDeclarationCategory.Struct
                     or MetadataTypeDeclarationCategory.Enum;
@@ -253,6 +257,7 @@ internal sealed class MetadataTypeDeclarationEvidenceOperation
                     primitiveAlias,
                     attributes,
                     category,
+                    isByRefLike,
                     definesCoreLibraryRoot,
                     declaringType),
                 _context.Counters);
@@ -327,6 +332,62 @@ internal sealed class MetadataTypeDeclarationEvidenceOperation
         _ = Read(site, () => definition.GetFields().Count);
         _ = Read(site, () => definition.GetMethods().Count);
         return definition;
+    }
+
+    bool ReadIsByRefLike(
+        TypeDefinition definition,
+        TypeDefinitionHandle handle)
+    {
+        MetadataTypeDeclarationSite site = Site(
+            MetadataTypeDeclarationStage.CategoryClassification,
+            MetadataTypeDeclarationMechanism.RelationshipTraversal,
+            handle);
+        CustomAttributeHandleCollection attributes = Read(
+            site,
+            definition.GetCustomAttributes);
+        bool hasMarker = false;
+        foreach (CustomAttributeHandle attributeHandle in attributes)
+        {
+            _token.ThrowIfCancellationRequested();
+            Charge(
+                site with { Handle = attributeHandle },
+                MetadataOperationDimension.RelationshipEdges);
+            CustomAttribute attribute = Read(
+                site with { Handle = attributeHandle },
+                () => _reader.GetCustomAttribute(attributeHandle));
+            EntityHandle constructor = Read(
+                site with { Handle = attributeHandle },
+                () => attribute.Constructor);
+            MetadataTypeDeclarationSite constructorSite =
+                site with { Handle = constructor };
+            AttributeTypeIdentityDisposition disposition = Read(
+                constructorSite,
+                () => AttributeReader.ClassifyTopLevelAttributeType(
+                    _reader,
+                    constructor,
+                    KnownAttributeNames.IsByRefLikeAttribute,
+                    beforeMaterialize: amount => Charge(
+                        site,
+                        MetadataOperationDimension.StructuredNodes,
+                        amount),
+                    chargeRelationship: amount => Charge(
+                        constructorSite,
+                        MetadataOperationDimension.RelationshipEdges,
+                        amount),
+                    out _));
+            if (disposition == AttributeTypeIdentityDisposition.Unresolved)
+            {
+                throw Refuse(
+                    constructorSite,
+                    MetadataTypeDeclarationFailureReason.MalformedMetadata,
+                    "A custom-attribute constructor owner could not be resolved.");
+            }
+
+            if (disposition == AttributeTypeIdentityDisposition.Match)
+                hasMarker = true;
+        }
+
+        return hasMarker;
     }
 
     void ValidateRawTypeDefinitionRow(

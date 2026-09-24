@@ -20,6 +20,13 @@ public readonly record struct RuntimeJsExportAttributeEvidence(
     public bool HasValidRow => ValidRowCount > 0;
 }
 
+internal enum AttributeTypeIdentityDisposition
+{
+    Match,
+    Different,
+    Unresolved,
+}
+
 /// <summary>
 /// Reads and checks custom attributes on types and members.
 /// </summary>
@@ -2400,11 +2407,42 @@ public static partial class AttributeReader
         Action<int>? beforeMaterialize,
         out EntityHandle declaringType)
     {
-        declaringType = default;
-        if (ExpectedTopLevelName(fullTypeName) is not { } expected)
-            return false;
+        return ClassifyTopLevelAttributeType(
+                reader,
+                constructor,
+                fullTypeName,
+                beforeMaterialize,
+                chargeRelationship: null,
+                out declaringType)
+            == AttributeTypeIdentityDisposition.Match;
+    }
 
-        declaringType = constructor.Kind switch
+    internal static AttributeTypeIdentityDisposition
+        ClassifyTopLevelAttributeType(
+            MetadataReader reader,
+            EntityHandle constructor,
+            string fullTypeName,
+            Action<int>? beforeMaterialize,
+            Action<int>? chargeRelationship,
+            out EntityHandle declaringType)
+    {
+        MetadataTypeDefinitionName? expected =
+            ExpectedTopLevelName(fullTypeName);
+        if (expected is null)
+        {
+            declaringType = default;
+            return AttributeTypeIdentityDisposition.Unresolved;
+        }
+
+        HandleKind constructorKind = constructor.Kind;
+        if (constructorKind is
+            HandleKind.MemberReference
+            or HandleKind.MethodDefinition)
+        {
+            chargeRelationship?.Invoke(1);
+        }
+
+        declaringType = constructorKind switch
         {
             HandleKind.MemberReference =>
                 reader.GetMemberReference(
@@ -2416,7 +2454,7 @@ public static partial class AttributeReader
             _ => default,
         };
         if (declaringType.IsNil)
-            return false;
+            return AttributeTypeIdentityDisposition.Unresolved;
 
         // A locally defined attribute authenticates through either constructor
         // spelling. ECMA-335 lets a MemberRef name a member of a TypeDef in the
@@ -2425,21 +2463,36 @@ public static partial class AttributeReader
         // structured name, so a nested carrier stays rejected.
         if (declaringType.Kind == HandleKind.TypeDefinition)
         {
-            return MetadataTypeDefinitionNameReader.Read(
+            return Classify(
+                MetadataTypeDefinitionNameReader.Read(
                     reader,
                     (TypeDefinitionHandle)declaringType,
-                    beforeMaterialize)
-                is MetadataTypeDefinitionNameReadResult.Read defined
-                && defined.Name.Equals(expected);
+                    beforeMaterialize,
+                    chargeChain: chargeRelationship));
         }
 
         return declaringType.Kind == HandleKind.TypeReference
-            && MetadataTypeDefinitionNameReader.Read(
+            ? Classify(
+                MetadataTypeDefinitionNameReader.Read(
                     reader,
                     (TypeReferenceHandle)declaringType,
-                    beforeMaterialize)
-                is MetadataTypeDefinitionNameReadResult.Read referenced
-            && referenced.Name.Equals(expected);
+                    beforeMaterialize,
+                    chargeChain: chargeRelationship))
+            : AttributeTypeIdentityDisposition.Unresolved;
+
+        AttributeTypeIdentityDisposition Classify(
+            MetadataTypeDefinitionNameReadResult result)
+        {
+            if (result is not
+                MetadataTypeDefinitionNameReadResult.Read read)
+            {
+                return AttributeTypeIdentityDisposition.Unresolved;
+            }
+
+            return read.Name.Equals(expected)
+                ? AttributeTypeIdentityDisposition.Match
+                : AttributeTypeIdentityDisposition.Different;
+        }
     }
 
     /// <summary>
