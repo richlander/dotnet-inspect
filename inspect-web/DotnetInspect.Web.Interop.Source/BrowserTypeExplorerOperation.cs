@@ -14,6 +14,9 @@ namespace DotnetInspect.Web.Interop.Source;
     nameof(SourceExports.QueryTypeExplorer),
     "requestJson",
     typeof(BrowserTypeExplorerRequest))]
+[JsExportJsonOutput(
+    nameof(SourceExports.QueryTypeExplorer),
+    typeof(BrowserTypeExplorerResult))]
 public static partial class SourceExports
 {
     [JSExport]
