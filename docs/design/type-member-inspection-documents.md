@@ -242,6 +242,7 @@ the synthetic logical Member into an implementation subject.
 | Type and Member metadata views | Existing focused Metadata owners | Requested descriptive metadata for a supplied exact Type or Member binding, without population work |
 | Type metrics | A future focused Type-metrics owner | Typed results for the same exact Type binding |
 | Exact Member metrics | [MemberMetricsInspect](member-metrics-inspect.md) and [Library Body Analysis Service](library-body-analysis-service.md) | Typed results and relationships for supplied exact Member bindings |
+| Subject explanation and reusable references | [Contextual Resource Explanation](contextual-resource-explanation.md) and #7916 | Terminal explanation of the already resolved Type, logical-Member, or exact-Member subject and reusable subject-kind-preserving identity |
 | Completed handoff | [Inspection envelope](inspection-envelope.md) | Content, Share, and diagnostics |
 | Presentation | CLI, Inspect Web, Markout, and focused output owners | Host gesture and rendering over unchanged typed content |
 
@@ -319,6 +320,61 @@ Navigating back to or across siblings uses the containing
 
 Pattern, prefix, glob, or multi-name search belongs to `find` or a Type
 population query rather than creating a multi-subject document.
+
+## Selector-driven document and explanation identity
+
+Member selector intent determines the document subject before content or
+explanation is produced:
+
+```text
+member JsonSerializer DeserializeAsync
+  -> logical-name intent
+  -> LogicalMemberDocument(JsonSerializer.DeserializeAsync)
+
+member JsonSerializer DeserializeAsync:1
+  -> exact-overload intent
+  -> MemberDocument(the selected exact DeserializeAsync declaration)
+```
+
+The command spellings are illustrative of the existing selector grammar. The
+contract is independent of whether the Type is supplied positionally, through
+`-m`, or through a package, Platform, project, or Workspace route.
+
+A bare name remains a logical-Member request even when the family currently
+contains one exact declaration. It does not silently become an exact
+`MemberDocument`. An ordinal or digest is exact-target intent and must resolve
+to one owner-issued exact Member identity or return typed non-success.
+
+The one-based `:N` ordinal is a selector within the current bound overload
+population, not durable Member identity. After resolution, Content, Share,
+documentation, source, metrics, reusable references, and explanation use the
+resulting exact identity and retain the selector/population correspondence
+required by their owners.
+
+Command-local `--explain` uses the subject already resolved for the document:
+
+```text
+member JsonSerializer DeserializeAsync --explain
+  -> explain one logical-Member subject
+  -> retain the overload-family identity and population binding
+
+member JsonSerializer DeserializeAsync:1 --explain
+  -> explain one exact-Member subject
+  -> retain the resolved exact declaration and containing family
+```
+
+A logical family is exactly one explainable subject even though its population
+contains several exact declarations. `--explain` must not reject it as
+multi-subject, choose its first overload, or promote a singleton family to an
+exact Member. Exact-selector explanation must not widen back to the family or
+replay the selector against a different population.
+
+The standalone `explain` command preserves the same distinction when it
+consumes an owner-issued reusable reference. A reference projected from a
+logical-Member row explains that logical family; a reference projected from an
+exact-overload row explains that exact Member. Reference parsing and reopening
+cannot erase the subject-kind discriminator or substitute a displayed name,
+ordinal, signature, or digest for owner-issued identity.
 
 ## Exact subject and population correspondence
 
@@ -705,7 +761,7 @@ decorate an exact Member row when explicitly requested. They remain
 Analysis-owned observations or judgments, not API declaration facts or
 documentation.
 
-## Requirements on related open work
+## Requirements on related work
 
 ### MemberMetricsInspect (#8445)
 
@@ -762,6 +818,28 @@ Its compact Type tree may show logical-Member Rows with nested exact-overload
 Counts. Its `member` tree presents exact-overload Rows for one logical Member.
 The presentation may collapse or decorate those rows but may not redefine
 their populations.
+
+### Contextual Resource Explanation (#8148)
+
+[Contextual Resource Explanation](contextual-resource-explanation.md) must
+generalize its current "exact-subject" wording to one resolved explainable
+subject. Its exactly-one cardinality requirement applies to resolved subjects,
+not to the number of exact declarations contained by a logical-Member subject.
+
+Member adoption therefore maps:
+
+- bare-name Member intent to the `LogicalMemberDocument` subject affordance;
+- ordinal or digest exact-target intent to the `MemberDocument` subject
+  affordance;
+- a reusable logical-Member reference consumed by `explain` to the same
+  logical-family explanation; and
+- a reusable exact-Member reference consumed by `explain` to the same exact
+  declaration explanation.
+
+The command-local and reusable-reference paths consume the same owner-issued
+subject discriminator and identity. Neither path reparses display text,
+selects the first overload, or uses overload-population cardinality as subject
+cardinality.
 
 ## Completion and failure
 
@@ -901,6 +979,13 @@ The implementation must preserve at least:
   identity;
 - an ambiguous logical Member runs no exact-Member documentation, source, or
   metrics work;
+- bare-name `DeserializeAsync` remains a `LogicalMemberDocument` even when a
+  selected version has one overload, while `DeserializeAsync:1` resolves one
+  exact `MemberDocument`;
+- `--explain` preserves the same logical or exact subject and does not rerun
+  selector resolution;
+- `explain` over a reusable logical-Member or exact-Member reference preserves
+  the reference's subject kind after reopening;
 - one exact Member has no managed body but still has API signature and
   documentation;
 - an async exact Member has multiple physical bodies without becoming several
@@ -936,7 +1021,9 @@ owns the revised counted path:
    execution for one logical Member.
 6. Implement `LogicalMemberDocument` and adopt its overload tree in CLI and
    Inspect Web.
-7. Implement exact `MemberDocument` and exact declaration drill-down.
+7. Implement selector-driven `LogicalMemberDocument` versus exact
+   `MemberDocument` routing, exact declaration drill-down, and corresponding
+   `--explain` subject mapping.
 8. Compose independently scoped Type-subject, Member-subject, and returned
    exact-row DocumentationHouse attachments.
 9. Compose exact Member SourceHouse attachments.
@@ -985,6 +1072,13 @@ The implementation sequence must add Release gates proving:
   family documentation;
 - exact `MemberDocument` signature and DocumentationHouse subject retain one
   exact declaration binding;
+- bare-name and exact-selector Member requests produce different typed document
+  subjects, and `--explain` preserves the same resolved subject;
+- an ordinal selector is resolved once against the bound overload population
+  and explanation receives the resulting exact identity rather than treating
+  the ordinal as durable identity;
+- reusable logical-Member and exact-Member references round-trip through
+  `explain` to explanations of their original subject kinds;
 - exact Type or Member metadata views consume the settled subject binding and
   expose no logical-Member or overload Rows or Count;
 - sibling-relationship decoration consumes the settled exact-overload roster,
