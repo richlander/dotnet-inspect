@@ -774,8 +774,9 @@ the extracted-file stream, while archive-less content is visibly unsupported.
 
 The first production consumer is exact-version online CLI export of one
 literal root `README.md` or `skills/**/SKILL.md` path to a file. The command
-acquires directly through the House filesystem store without invoking the
-legacy `PackageExtractor` route. A README copies progressively to the
+acquires directly through the House, with ranged access and a
+[document demand](package-read-demand.md#document-demand) in the
+authority-scoped store, without invoking the legacy `PackageExtractor` route. A README copies progressively to the
 destination with the bounded exact-byte sink. A Skill decodes progressively
 into the existing containment-selected representation before that
 representation is written; it does not bypass Skill containment to preserve
