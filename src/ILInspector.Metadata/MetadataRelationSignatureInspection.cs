@@ -133,7 +133,11 @@ internal static partial class MetadataRelationInspection
                         anchor = ApiMemberIdentity.CreateMethodAnchor(
                             reader,
                             typeHandle,
-                            method);
+                            method,
+                            MethodCorrespondenceResolver.IsExtensionMethod(
+                                reader,
+                                type,
+                                method));
                     }
                     catch (Exception exception)
                         when (exception is BadImageFormatException

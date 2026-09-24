@@ -143,16 +143,19 @@ public abstract record InspectionGraphTypeIdentity
     {
         public MetadataShape(
             AssemblyAcquisitionRegistration registration,
-            MetadataTypeIdentity type)
+            MetadataTypeIdentity type,
+            MetadataGenericBindingContext? genericContext = null)
         {
             ArgumentNullException.ThrowIfNull(registration);
             ArgumentNullException.ThrowIfNull(type);
             Registration = registration;
             Type = type;
+            GenericContext = genericContext;
         }
 
         public AssemblyAcquisitionRegistration Registration { get; }
         public MetadataTypeIdentity Type { get; }
+        public MetadataGenericBindingContext? GenericContext { get; }
         public override bool IsPortable => false;
     }
 
@@ -171,6 +174,14 @@ public abstract record InspectionGraphTypeIdentity
         public override bool IsPortable => false;
     }
 }
+
+/// <summary>
+/// Exact declaration context for generic parameters embedded in one Metadata
+/// type shape.
+/// </summary>
+public sealed record MetadataGenericBindingContext(
+    MetadataTypeDefinitionAddress DeclaringType,
+    MetadataMethodAddress? DeclaringMethod);
 
 /// <summary>Owner-issued identity for one assembly subject.</summary>
 public abstract record InspectionGraphAssemblyIdentity
@@ -312,11 +323,13 @@ public abstract record InspectionGraphSubject
 
     public static InspectionGraphSubject ForMetadataTypeShape(
         AssemblyAcquisitionRegistration registration,
-        MetadataTypeIdentity type) =>
+        MetadataTypeIdentity type,
+        MetadataGenericBindingContext? genericContext = null) =>
         ForType(
             new InspectionGraphTypeIdentity.MetadataShape(
                 registration,
-                type));
+                type,
+                genericContext));
 
     public static InspectionGraphSubject ForIntegrationType(
         IntegrationTypeIdentity identity) =>

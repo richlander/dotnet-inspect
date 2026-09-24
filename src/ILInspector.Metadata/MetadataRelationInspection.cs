@@ -54,9 +54,22 @@ internal static partial class MetadataRelationInspection
                 exception.Message);
         }
 
-        ValidateTypeScope(reader, request);
         using var operation =
             new MetadataOperationContext(request.Policy);
+        MetadataRelationReceiptIdentity receiptIdentity =
+            ReadReceiptIdentity(reader, out string? receiptFailure);
+        if (receiptIdentity.ModuleVersionId is not Guid moduleVersionId)
+        {
+            return new MetadataRelationInspectionOutcome.Available(
+                FailedAll(
+                    receiptIdentity,
+                    request,
+                    operation,
+                    receiptFailure
+                        ?? "The metadata image has no usable module identity."));
+        }
+
+        ValidateTypeScope(reader, request, moduleVersionId);
         MetadataImageAdmissionResult admission =
             operation.AdmitImage(reader);
         if (admission is MetadataImageAdmissionResult.Rejected rejected)
@@ -71,7 +84,7 @@ internal static partial class MetadataRelationInspection
                 rejected.Failure.ImageMetadataRows);
             return new MetadataRelationInspectionOutcome.Available(
                 new(
-                    Receipt(reader, request, operation),
+                    Receipt(receiptIdentity, request, operation),
                     Unavailable<MetadataHierarchyRelationEvidence>(
                         request,
                         MetadataRelationFamily.Hierarchy,
@@ -99,7 +112,7 @@ internal static partial class MetadataRelationInspection
         {
             return new MetadataRelationInspectionOutcome.Available(
                 FailedAll(
-                    reader,
+                    receiptIdentity,
                     request,
                     operation,
                     exception.Message));
@@ -152,7 +165,7 @@ internal static partial class MetadataRelationInspection
 
         return new MetadataRelationInspectionOutcome.Available(
             new(
-                Receipt(reader, request, operation),
+                Receipt(receiptIdentity, request, operation),
                 hierarchy,
                 extensions,
                 references,
@@ -161,13 +174,12 @@ internal static partial class MetadataRelationInspection
 
     private static void ValidateTypeScope(
         MetadataReader reader,
-        MetadataRelationInspectionRequest request)
+        MetadataRelationInspectionRequest request,
+        Guid moduleVersionId)
     {
         if (request.TypeScope.IsEmpty)
             return;
 
-        Guid moduleVersionId =
-            reader.GetGuid(reader.GetModuleDefinition().Mvid);
         int rowCount =
             reader.GetTableRowCount(TableIndex.TypeDef);
         foreach (MetadataTypeDefinitionAddress address
@@ -208,25 +220,64 @@ internal static partial class MetadataRelationInspection
     }
 
     private static MetadataRelationInspectionReceipt Receipt(
-        MetadataReader reader,
+        MetadataRelationReceiptIdentity identity,
         MetadataRelationInspectionRequest request,
         MetadataOperationContext operation) =>
         new(
-            reader.GetGuid(reader.GetModuleDefinition().Mvid),
-            reader.IsAssembly
-                ? AssemblyReferenceIdentity
-                    .FromAssemblyDefinition(reader)
-                : null,
+            identity.ModuleVersionId,
+            identity.Assembly,
             request.Families,
             operation.Counters);
 
-    private static MetadataRelationInspectionResult FailedAll(
+    private static MetadataRelationReceiptIdentity ReadReceiptIdentity(
         MetadataReader reader,
+        out string? failure)
+    {
+        AssemblyReferenceIdentity? assembly;
+        try
+        {
+            assembly = reader.IsAssembly
+                ? AssemblyReferenceIdentity.FromAssemblyDefinition(reader)
+                : null;
+        }
+        catch (Exception exception)
+            when (exception is BadImageFormatException
+                or OverflowException)
+        {
+            failure = exception.Message;
+            return new(null, null);
+        }
+
+        try
+        {
+            Guid moduleVersionId =
+                reader.GetGuid(reader.GetModuleDefinition().Mvid);
+            if (moduleVersionId == Guid.Empty)
+            {
+                failure =
+                    "The metadata image has an empty module version identifier.";
+                return new(null, assembly);
+            }
+
+            failure = null;
+            return new(moduleVersionId, assembly);
+        }
+        catch (Exception exception)
+            when (exception is BadImageFormatException
+                or OverflowException)
+        {
+            failure = exception.Message;
+            return new(null, assembly);
+        }
+    }
+
+    private static MetadataRelationInspectionResult FailedAll(
+        MetadataRelationReceiptIdentity identity,
         MetadataRelationInspectionRequest request,
         MetadataOperationContext operation,
         string detail) =>
         new(
-            Receipt(reader, request, operation),
+            Receipt(identity, request, operation),
             Failed<MetadataHierarchyRelationEvidence>(
                 request,
                 MetadataRelationFamily.Hierarchy,
@@ -243,6 +294,10 @@ internal static partial class MetadataRelationInspection
                 request,
                 MetadataRelationFamily.Signatures,
                 detail));
+
+    private sealed record MetadataRelationReceiptIdentity(
+        Guid? ModuleVersionId,
+        AssemblyReferenceIdentity? Assembly);
 
     private static MetadataRelationFamilyResult<TEvidence>
         CompleteOrPartial<TEvidence>(

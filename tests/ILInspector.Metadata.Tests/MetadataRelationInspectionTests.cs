@@ -1,6 +1,7 @@
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
+using System.Reflection;
 
 namespace ILInspector.Metadata.Tests;
 
@@ -100,6 +101,7 @@ public sealed class MetadataRelationInspectionTests
                     new(
                         [
                             MetadataRelationFamily.Hierarchy,
+                            MetadataRelationFamily.Extensions,
                             MetadataRelationFamily.Signatures,
                         ],
                         MetadataOperationPolicy.Unbounded,
@@ -157,6 +159,13 @@ public sealed class MetadataRelationInspectionTests
                         "ReadOnlySpan`1",
                         "char"));
         Assert.Equal(memoryExtensions, asSpan.DeclaringType);
+        MetadataExtensionRelationEvidence asSpanExtension =
+            Assert.Single(
+                available.Result.Extensions.Evidence,
+                relation =>
+                    relation.Member.CanonicalSignature
+                        == asSpan.Member.CanonicalSignature);
+        Assert.Equal(asSpan.Member, asSpanExtension.Member);
     }
 
     [Fact]
@@ -223,6 +232,44 @@ public sealed class MetadataRelationInspectionTests
                 TestContext.Current.CancellationToken));
 
         Assert.Equal("request", exception.ParamName);
+    }
+
+    [Fact]
+    public void MalformedModuleMvidSettlesRequestedFamiliesAsFailed()
+    {
+        using AssemblyInspectionSession session =
+            AssemblyInspectionSession.OpenPrefetched(
+                new MemoryStream(
+                    BuildInvalidModuleMvidImage(),
+                    writable: false));
+
+        var available =
+            Assert.IsType<MetadataRelationInspectionOutcome.Available>(
+                session.Relations(
+                    new(
+                        [
+                            MetadataRelationFamily.Hierarchy,
+                            MetadataRelationFamily.Signatures,
+                        ],
+                        MetadataOperationPolicy.Unbounded),
+                    TestContext.Current.CancellationToken));
+
+        Assert.Null(available.Result.Receipt.ModuleVersionId);
+        Assert.NotNull(available.Result.Receipt.Assembly);
+        Assert.Equal(
+            MetadataRelationFamilyDisposition.Failed,
+            available.Result.Hierarchy.Disposition);
+        Assert.Equal(
+            MetadataRelationFamilyDisposition.Failed,
+            available.Result.Signatures.Disposition);
+        Assert.Empty(available.Result.Hierarchy.Evidence);
+        Assert.Empty(available.Result.Signatures.Evidence);
+        Assert.All(
+            available.Result.Hierarchy.Diagnostics
+                .Concat(available.Result.Signatures.Diagnostics),
+            diagnostic => Assert.Equal(
+                MetadataRelationDiagnosticKind.MalformedMetadata,
+                diagnostic.Kind));
     }
 
     private static MetadataTypeDefinitionAddress Address(
@@ -297,4 +344,40 @@ public sealed class MetadataRelationInspectionTests
         && named.Definition.Namespace.ToString() == @namespace
         && named.Definition.Segments.Length == 1
         && named.Definition.Segments[0].ToString() == name;
+
+    private static byte[] BuildInvalidModuleMvidImage()
+    {
+        var metadata = new MetadataBuilder();
+        metadata.AddModule(
+            0,
+            metadata.GetOrAddString("InvalidMvid.dll"),
+            MetadataTokens.GuidHandle(100),
+            default,
+            default);
+        metadata.AddAssembly(
+            metadata.GetOrAddString("InvalidMvid"),
+            new Version(1, 0),
+            default,
+            default,
+            default,
+            AssemblyHashAlgorithm.None);
+        metadata.AddTypeDefinition(
+            TypeAttributes.NotPublic,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+
+        var image = new BlobBuilder();
+        new ManagedPEBuilder(
+            PEHeaderBuilder.CreateLibraryHeader(),
+            new MetadataRootBuilder(
+                metadata,
+                suppressValidation: true),
+            new BlobBuilder(),
+            flags: CorFlags.ILOnly)
+            .Serialize(image);
+        return image.ToArray();
+    }
 }

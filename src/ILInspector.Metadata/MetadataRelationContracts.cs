@@ -100,7 +100,7 @@ public sealed record MetadataRelationInspectionRequest
 }
 
 public sealed record MetadataRelationInspectionReceipt(
-    Guid ModuleVersionId,
+    Guid? ModuleVersionId,
     AssemblyReferenceIdentity? Assembly,
     ImmutableArray<MetadataRelationFamily> Families,
     MetadataOperationCounters Counters);

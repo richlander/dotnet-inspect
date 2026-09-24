@@ -1,6 +1,7 @@
 using System.Collections.Immutable;
 
 using ILInspector.Metadata;
+using ILInspector.MetadataPrimitives;
 
 namespace DotnetInspector.Queries;
 
@@ -325,17 +326,34 @@ public static class MetadataRelationGraphAdapter
         ResolvedAssemblyReference source,
         MetadataRelationInspectionResult result)
     {
-        Guid moduleVersionId = result.Receipt.ModuleVersionId;
+        Guid? moduleVersionId = result.Receipt.ModuleVersionId;
+        Guid? acquisitionModuleVersionId =
+            source.Registration.ModuleVersionId;
         bool invalid =
-            result.Hierarchy.Evidence.Any(evidence =>
-                evidence.Source.ModuleVersionId != moduleVersionId)
+            (moduleVersionId is null
+                && (result.Hierarchy.Evidence.Length != 0
+                    || result.Extensions.Evidence.Length != 0
+                    || result.AssemblyReferences.Evidence.Length != 0
+                    || result.Signatures.Evidence.Length != 0
+                    || IsNonFailedRequested(result.Hierarchy)
+                    || IsNonFailedRequested(result.Extensions)
+                    || IsNonFailedRequested(result.AssemblyReferences)
+                    || IsNonFailedRequested(result.Signatures)))
+            || (acquisitionModuleVersionId is Guid bound
+                && moduleVersionId is Guid receipt
+                && receipt != bound)
+            || result.Hierarchy.Evidence.Any(evidence =>
+                moduleVersionId is null
+                || evidence.Source.ModuleVersionId != moduleVersionId)
             || result.Extensions.Evidence.Any(evidence =>
-                evidence.DeclaringType.ModuleVersionId
+                moduleVersionId is null
+                || evidence.DeclaringType.ModuleVersionId
                     != moduleVersionId
                 || evidence.ReceiverDeclarationMethod.ModuleVersionId
                     != moduleVersionId)
             || result.Signatures.Evidence.Any(evidence =>
-                evidence.DeclaringType.ModuleVersionId
+                moduleVersionId is null
+                || evidence.DeclaringType.ModuleVersionId
                     != moduleVersionId
                 || evidence.Method.ModuleVersionId
                     != moduleVersionId)
@@ -349,6 +367,12 @@ public static class MetadataRelationGraphAdapter
                 nameof(result));
         }
     }
+
+    private static bool IsNonFailedRequested<TEvidence>(
+        MetadataRelationFamilyResult<TEvidence> result) =>
+        result.WasRequested
+        && result.Disposition
+            != MetadataRelationFamilyDisposition.Failed;
 
     public static ImmutableArray<SubjectRelationRow> BindRows(
         MetadataRelationGraphProjection projection,
@@ -410,7 +434,11 @@ public static class MetadataRelationGraphAdapter
                         evidence.SourceType),
                     InspectionGraphSubject.ForMetadataTypeShape(
                         source.Registration,
-                        evidence.Target),
+                        evidence.Target,
+                        GenericContext(
+                            evidence.Target,
+                            evidence.Source,
+                            declaringMethod: null)),
                     new MetadataHierarchyGraphEvidence(
                         source.Registration,
                         evidence),
@@ -450,7 +478,11 @@ public static class MetadataRelationGraphAdapter
                         evidence.Member),
                     InspectionGraphSubject.ForMetadataTypeShape(
                         source.Registration,
-                        evidence.Receiver),
+                        evidence.Receiver,
+                        GenericContext(
+                            evidence.Receiver,
+                            evidence.DeclaringType,
+                            evidence.ReceiverDeclarationMethod)),
                     new MetadataExtensionGraphEvidence(
                         source.Registration,
                         evidence),
@@ -527,7 +559,11 @@ public static class MetadataRelationGraphAdapter
                         evidence.Member),
                     InspectionGraphSubject.ForMetadataTypeShape(
                         source.Registration,
-                        evidence.Shape),
+                        evidence.Shape,
+                        GenericContext(
+                            evidence.Shape,
+                            evidence.DeclaringType,
+                            evidence.Method)),
                     new MetadataSignatureGraphEvidence(
                         source.Registration,
                         evidence),
@@ -581,5 +617,79 @@ public static class MetadataRelationGraphAdapter
                         ? SubjectRelationProducerDiagnosticKind.Limit
                         : SubjectRelationProducerDiagnosticKind.Failure,
                     diagnostic)));
+    }
+
+    private static MetadataGenericBindingContext? GenericContext(
+        MetadataTypeIdentity type,
+        MetadataTypeDefinitionAddress declaringType,
+        MetadataMethodAddress? declaringMethod)
+    {
+        GenericParameterUse use = GenericParameters(type);
+        if (!use.HasType && !use.HasMethod)
+            return null;
+        if (use.HasMethod && declaringMethod is null)
+        {
+            throw new ArgumentException(
+                "A method generic parameter requires an exact declaring method.",
+                nameof(type));
+        }
+
+        return new(
+            declaringType,
+            use.HasMethod ? declaringMethod : null);
+    }
+
+    private static GenericParameterUse GenericParameters(
+        MetadataTypeIdentity type) =>
+        type switch
+        {
+            MetadataTypeIdentity.GenericParameter parameter =>
+                parameter.IsMethodParameter
+                    ? new(false, true)
+                    : new(true, false),
+            MetadataTypeIdentity.GenericInstance generic =>
+                Combine(generic.Arguments),
+            MetadataTypeIdentity.SzArray array =>
+                GenericParameters(array.Element),
+            MetadataTypeIdentity.Array array =>
+                GenericParameters(array.Element),
+            MetadataTypeIdentity.Pointer pointer =>
+                GenericParameters(pointer.Element),
+            MetadataTypeIdentity.ByReference byReference =>
+                GenericParameters(byReference.Element),
+            MetadataTypeIdentity.FunctionPointer pointer =>
+                GenericParameters(pointer.Signature),
+            MetadataTypeIdentity.Modified modified =>
+                GenericParameters(modified.Modifier)
+                    | GenericParameters(modified.Type),
+            MetadataTypeIdentity.Pinned pinned =>
+                GenericParameters(pinned.Type),
+            _ => default,
+        };
+
+    private static GenericParameterUse GenericParameters(
+        MetadataMethodSignatureIdentity signature) =>
+        GenericParameters(signature.ReturnType)
+        | Combine(signature.ParameterTypes);
+
+    private static GenericParameterUse Combine(
+        IEnumerable<MetadataTypeIdentity> types)
+    {
+        GenericParameterUse result = default;
+        foreach (MetadataTypeIdentity type in types)
+            result |= GenericParameters(type);
+        return result;
+    }
+
+    private readonly record struct GenericParameterUse(
+        bool HasType,
+        bool HasMethod)
+    {
+        public static GenericParameterUse operator |(
+            GenericParameterUse left,
+            GenericParameterUse right) =>
+            new(
+                left.HasType || right.HasType,
+                left.HasMethod || right.HasMethod);
     }
 }
