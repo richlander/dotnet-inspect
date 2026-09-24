@@ -990,11 +990,11 @@ public static class ArgumentPreprocessor
         {
             if (arg == alias)
                 return true;
-            if (arg.StartsWith(alias + "=", StringComparison.Ordinal))
-            {
-                inlineValue = arg[(alias.Length + 1)..];
+            if (CliArgumentOwnership.TryGetDelimitedValue(
+                    arg,
+                    alias,
+                    out inlineValue))
                 return true;
-            }
         }
         return false;
     }

@@ -1291,9 +1291,17 @@ public class CommandLineTests
     }
 
     [Fact]
-    public void PreprocessArgs_MergesRepeatedSelectAcrossAliasesAndEqualsForm()
+    public void PreprocessArgs_MergesRepeatedSelectAcrossAliasesAndAttachedForms()
     {
-        var result = CommandLineBuilder.PreprocessArgs(["package", "Foo", "--select", "A", "--section=B", "-s", "C"]);
+        var result = CommandLineBuilder.PreprocessArgs(
+        [
+            "package",
+            "Foo",
+            "--select",
+            "A",
+            "--section=B",
+            "-s:C",
+        ]);
 
         Assert.Equal(["package", "Foo", "-S", "A;B;C"], result);
     }
@@ -1317,6 +1325,9 @@ public class CommandLineTests
                 ["package", "Foo", "-S", ""]),
             (
                 ["package", "Foo", "-S", "Signals", "--section", " , ; "],
+                ["package", "Foo", "-S", ""]),
+            (
+                ["package", "Foo", "-S", "Signals", "--section:"],
                 ["package", "Foo", "-S", ""]),
         ];
 

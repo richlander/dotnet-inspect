@@ -89,6 +89,60 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task SectionSelection_PackagePreparseRejectsRepeatedColonEmptyTargetWithoutStack()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "package",
+            "System.Text.Json",
+            "-S",
+            "Package Info",
+            "--section:",
+            "--json",
+            "--offline");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains(
+            "--select requires at least one name.",
+            error,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            nameof(InvalidOperationException),
+            error,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "at DotnetInspect",
+            error,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task SectionSelection_PackagePreparseMergesColonAttachedTarget()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "package",
+            "System.Text.Json@10.0.0",
+            "-S",
+            "Package Info",
+            "--section:Manifest",
+            "--tips",
+            "q");
+
+        Assert.True(
+            exit == 0,
+            $"Expected exit code 0, got {exit}.{Environment.NewLine}{error}");
+        Assert.Empty(error);
+        Assert.Contains(
+            "## Package Info",
+            output,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "## Manifest",
+            output,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task SectionSelection_RejectsSeparatorOnlyRepeatedTarget()
     {
         var (exit, output, error) = await RunAppAsync(
