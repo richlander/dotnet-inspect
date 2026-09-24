@@ -16,15 +16,16 @@ The normative claim is:
 > block as one *move*. A move links its Before lines to its After lines with a
 > deterministic, document-local move id, and states whether the block moved
 > unchanged, moved with whitespace-only edits, or moved with other changes.
-> `TextFindings.CreateAnalysisDiff` also detects blocks that moved with
-> whitespace-only edits.
+> `TextFindings.CreateAnalysisDiff` aligns lines whitespace-insensitively, so
+> it also detects blocks that moved with whitespace-only edits, and it tells
+> them apart from blocks re-indented in place.
 
 `Inspector.Text` owns:
 
 - the definition of a move and its id;
 - the move facts issued beside the whitespace characterization;
 - how moves take part in regions, changes, line facts, and the summary; and
-- whitespace-insensitive move detection in `TextFindings.CreateAnalysisDiff`.
+- whitespace-insensitive alignment in `TextFindings.CreateAnalysisDiff`.
 
 Supporting owners remain authoritative:
 
@@ -94,9 +95,11 @@ dnx dotnet-inspect -y -- diff --package Polly.Extensions@8.5.2..8.6.0 \
 git's `--color-moved-ws=allow-indentation-change` marks these blocks as moved.
 Relative to the unchanged lines around them, though, they never move: they
 are re-indented where they stand. This design therefore separates
-*relocation* from *re-indentation*. A block that keeps its order relative to
-the anchors is a whitespace-only change under the whitespace characterization,
-not a move. Only a block that crosses anchors is a move.
+*relocation* from *re-indentation*. A block that keeps its order in the
+order-preserving alignment is a whitespace-only change under the whitespace
+characterization, not a move. Only a block that the move pass relocates is a
+move. The `diff --pdb-source` path uses `TextFindings.Compare`, which stays
+exact until its follow-on, so the S1 fixture carries this evidence.
 
 S1 retains both members as pinned-package evidence. The pathological cases
 below become deterministic `Inspector.Text` fixtures.
@@ -105,26 +108,29 @@ below become deterministic `Inspector.Text` fixtures.
 
 ### Definition
 
-A *moved correspondence* is a `Moved` correspondence whose lines contain at
-least one non-whitespace character. A `Moved` correspondence over
-whitespace-only lines isn't a move. Relocating blank space is a whitespace
-difference, and the whitespace characterization treats it as one, so that
-placement is ignored here.
+A *moved run* is a maximal set of `Moved` correspondences whose Before lines
+form one contiguous run and whose After lines form one contiguous run, with
+the correspondences in the same order on both sides. A blank or
+whitespace-only line inside a moved run belongs to the run, just as it would
+inside any block of code.
 
-A *move* is a maximal set of moved correspondences whose Before lines form one
-contiguous run and whose After lines form one contiguous run, with the
-correspondences in the same order on both sides. Each side of a move is its
-*end*. An end is contiguous and holds at least one line.
+A *move* is a moved run that contains at least one non-whitespace character.
+A moved run made entirely of whitespace-only lines isn't a move: relocating
+blank space is a whitespace difference, the whitespace characterization treats
+it as one, and its placement is ignored here.
 
-A moved correspondence whose Before or After population isn't contiguous is an
-argument failure.
+Each side of a move is its *end*. An end is contiguous and holds at least one
+line. A `Moved` correspondence whose Before or After population isn't
+contiguous is an argument failure.
 
 ### Move ids
 
 Moves are numbered from 1 in the order in which their first end appears in the
-change sequence of the whitespace characterization. That sequence is ordered
-on both sides, so the numbering is deterministic. A block that moved up has
-its addition first, so its id is assigned at the addition.
+change sequence of the whitespace characterization. When a removal-only change
+and an addition-only change start at the same position, the removal comes
+first, following the unified-diff convention. With that rule the sequence, and
+therefore the numbering, is deterministic. A block that moved up has its
+addition first, so its id is assigned at the addition.
 
 Ids are local to one diff. They identify the move relation, not line content.
 Every move id appears on exactly two changes.
@@ -178,33 +184,39 @@ The whitespace characterization's validator gains four checks:
 
 ## Detection in `TextFindings`
 
-`TextFindings.CreateAnalysisDiff` keeps its exact matching and the matcher's
-exact move pass. It then runs a second move pass over the lines that remain
-unmatched on both sides. That pass commits maximal blocks that are:
+`TextFindings.CreateAnalysisDiff` aligns lines by their *alignment key*: the
+line's content with every whitespace character removed. Content facts still
+use exact text:
 
-- contiguous on both sides;
-- at least two lines long;
-- equal line by line after removing whitespace from each line; and
-- contain at least one non-whitespace character.
+- a correspondence whose lines are ordinal-equal is `Unchanged`; and
+- one whose lines are equal only by alignment key is `Changed`, and so differs
+  whitespace-only.
 
-Ties resolve by length and then by position, as in the exact pass. Each
-committed line becomes a correspondence with `Changed` content, which records
-that its text isn't identical.
+The matcher's existing passes then decide placement, with no extra rule:
 
-The pass decides placement from the anchors. A committed block is `Stable`
-when the anchors before it on the Before side are exactly the anchors before
-it on the After side, meaning it was re-indented in place. Otherwise it
-crossed at least one anchor and is `Moved`. A `Stable` block stays inside its
-region as content that differs whitespace-only, so the whitespace
-characterization's splitter can issue it as a `WhitespaceOnly` change. Only
-`Moved` blocks become moves.
+- the order-preserving longest common subsequence gives `Stable` placement;
+  and
+- the move pass gives `Moved` placement: maximal blocks of at least two lines,
+  contiguous on both sides, with ties resolved by length and then position.
+
+A block re-indented where it stands, such as a block wrapped in a new `if`, is
+therefore part of the longest common subsequence. It is `Stable` with
+`Changed` content, and the whitespace characterization issues it as a
+`WhitespaceOnly` change. A block that relocates and is re-indented is found
+by the move pass and becomes a move whose content is `WhitespaceOnly`.
+Anchors, which are stable and `Unchanged`, remain lines with ordinal-equal
+content, so the whitespace characterization's preconditions hold.
+
+This changes `TextFindings.CreateAnalysisDiff` output, which its consumers
+see: lines that differ only in whitespace now correspond one to one as
+`Changed`, where before they fell into a shared replacement population. Line
+statistics count these as changed rather than as removals and additions.
 
 Other producers' `Moved` correspondences are consumed as issued.
 `TextFindings.Compare`, which feeds the cross-version member source pair
 through `TextAnalysisDiffPresentation.CreateAnalysisDiff`, keeps exact
-detection only. Its adoption of the whitespace pass is tracked as a follow-on
-in #8435, because it changes a `FindingComparison` contract that another path
-consumes.
+alignment. Its adoption is tracked as a follow-on in #8435, because it changes
+a `FindingComparison` contract that another path consumes.
 
 ## Presentation
 
@@ -249,14 +261,17 @@ Each row becomes an S1 Release test in `tests/Inspector.Text.Tests`, using
 | --- | --- | --- |
 | Block moved down | `A B x y z` → `x y z A B` (one line per letter) | one move, id 1, `A B` from Before 0–1 to After 3–4, `Unchanged`; the removal comes first |
 | Block moved up | `x y z A B` → `A B x y z` | one move, id 1, assigned at the addition, which comes first |
-| Relocated and re-indented | `A B x y` → `x y if (c) {` / `␠␠A` / `␠␠B` / `}` | one move across the anchors `x y`, `WhitespaceOnly`, `Indentation`; the `if` and brace lines are ordinary `Changed` changes |
-| Re-indented in place (Polly `MeterEvent`) | guard `if (!e) {` / `return;` / `}` / `A` / `B` → `if (e) {` / `␠␠A` / `␠␠B` / `}` | no move: `A B` keeps its anchor order, so it is a `Stable` whitespace-only block inside a `Changed` region |
+| Relocated and re-indented | `A B x y z` → `x y z if (c) {` / `␠␠A` / `␠␠B` / `}` | one move, `WhitespaceOnly`, `Indentation`; the `if` and brace lines are ordinary `Changed` changes |
+| Re-indented in place (Polly `MeterEvent`) | guard `if (!e) {` / `return;` / `}` / `A` / `B` → `if (e) {` / `␠␠A` / `␠␠B` / `}` | no move: `A B` is the longest common subsequence by alignment key, so it is `Stable` with `Changed` content and becomes a `WhitespaceOnly` change inside a `Changed` region |
 | Relocated case blocks (Newtonsoft `JsonConvert.ToString`) | `case String` pair moved after the other cases | a move, `Unchanged`, with ids in change-sequence order for each relocated pair |
 | Moved and edited | `A` / `B` moved, and `B` became `B2` | no move under `TextFindings`; ordinary removal and addition |
 | Single-line move | `A x y` → `x y A` | no move (below the two-line minimum) |
 | Blank lines moved | two blank lines relocated | no move; whitespace-only regions |
 | Two moves | two separate blocks relocated | ids 1 and 2 in change-sequence order, each on exactly two changes |
 | Swapped blocks | `A B C D` → `C D A B` | one move (the exact pass keeps one block as matched); id 1 |
+| Re-indented swap | `x A B C D y` → `x ␠␠C ␠␠D ␠␠A ␠␠B y` | one block `Stable` (by the LCS tie rule) and a `WhitespaceOnly` change; the other block one move, `WhitespaceOnly` |
+| Interior blank line | `A ␣ B x y z` → `x y z A ␣ B` | one move of three lines, id 1 |
+| Id tie at one position | `A B x1 x2 x3 C D` → `C D x1 x2 x3 A B` | two moves; `A B` is id 1 because its removal precedes the addition of `C D` at the same position |
 | Adjacent ends of different moves | two moved blocks leave adjacent Before positions | two adjacent `Moved` changes with different ids |
 | Ambiguous source | two identical `A B` blocks, one moves | deterministic choice of source, by the pass's tie rule |
 | Braces only | a block of `}` / `}` lines relocated | a move (it has non-whitespace characters); reviewers see it labeled |
