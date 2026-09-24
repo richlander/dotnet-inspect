@@ -210,6 +210,61 @@ public partial class OutputFormatterTests
         }
     }
 
+    [Fact]
+    public async Task ExactByteDestination_PreservesExistingFileWhenPullFailsAtEof()
+    {
+        byte[] sentinel = "existing"u8.ToArray();
+        var tempDirectory =
+            Directory.CreateTempSubdirectory("exact-byte-destination-failure-");
+        try
+        {
+            string path = Path.Combine(
+                tempDirectory.FullName,
+                "payload.bin");
+            await File.WriteAllBytesAsync(
+                path,
+                sentinel,
+                TestContext.Current.CancellationToken);
+            await using var input = new ThrowAtEofStream("replacement"u8.ToArray());
+
+            await Assert.ThrowsAsync<InvalidDataException>(() =>
+                ProjectionDestinationWriter.WriteExactBytesAsync(
+                    new ProjectionDestination(path, ExactTransfer: true),
+                    input,
+                    TestContext.Current.CancellationToken));
+
+            Assert.Equal(
+                sentinel,
+                await File.ReadAllBytesAsync(
+                    path,
+                    TestContext.Current.CancellationToken));
+            Assert.Single(
+                Directory.EnumerateFiles(tempDirectory.FullName));
+        }
+        finally
+        {
+            tempDirectory.Delete(recursive: true);
+        }
+    }
+
+    private sealed class ThrowAtEofStream(byte[] content) :
+        MemoryStream(content, writable: false)
+    {
+        public override int Read(
+            byte[] buffer,
+            int offset,
+            int count)
+        {
+            if (Position == Length)
+            {
+                throw new InvalidDataException(
+                    "Payload validation failed at EOF.");
+            }
+
+            return base.Read(buffer, offset, count);
+        }
+    }
+
     private sealed class ObservedReadStream(byte[] content) : Stream
     {
         private int _position;

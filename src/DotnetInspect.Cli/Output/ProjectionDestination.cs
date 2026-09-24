@@ -111,31 +111,47 @@ internal static class ProjectionDestinationWriter
         Stream input,
         CancellationToken cancellationToken)
     {
+        string fullOutputPath = Path.GetFullPath(outputPath);
+        string directory = Path.GetDirectoryName(fullOutputPath)
+            ?? throw new InvalidOperationException(
+                "The exact output path has no parent directory.");
+        string temporaryPath = Path.Combine(
+            directory,
+            $".{Path.GetFileName(fullOutputPath)}.{Guid.NewGuid():N}.tmp");
         byte[] buffer =
             ArrayPool<byte>.Shared.Rent(ExactTransferBufferSize);
         try
         {
-            using var output = new FileStream(
-                outputPath,
-                FileMode.Create,
+            using (var output = new FileStream(
+                temporaryPath,
+                FileMode.CreateNew,
                 FileAccess.Write,
-                FileShare.None);
-            while (true)
+                FileShare.None))
             {
-                cancellationToken.ThrowIfCancellationRequested();
-                int read = input.Read(
-                    buffer,
-                    0,
-                    ExactTransferBufferSize);
-                if (read == 0)
-                    return;
+                while (true)
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+                    int read = input.Read(
+                        buffer,
+                        0,
+                        ExactTransferBufferSize);
+                    if (read == 0)
+                        break;
 
-                output.Write(buffer, 0, read);
+                    output.Write(buffer, 0, read);
+                }
             }
+
+            File.Move(
+                temporaryPath,
+                fullOutputPath,
+                overwrite: true);
         }
         finally
         {
             ArrayPool<byte>.Shared.Return(buffer);
+            if (File.Exists(temporaryPath))
+                File.Delete(temporaryPath);
         }
     }
 

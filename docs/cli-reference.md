@@ -513,6 +513,10 @@ dotnet-inspect package Newtonsoft.Json@13.0.4 \
   --layout --tfm net6.0 -n 1 --tail --json
 dotnet-inspect package Markout@0.35.2 \
   --path "skills/*/SKILL.md" -n 1 --tail --paths
+dotnet-inspect package Markout@0.35.2 \
+  --path skills/markout/SKILL.md --content --out skill.md
+dotnet-inspect package System.Text.Json --version 10.0.0 \
+  --path README.md --content --out README.md
 dotnet-inspect package Microsoft.Data.SqlClient@6.1.0 \
   --tfm net8.0 -S "Package files" --paths
 dotnet-inspect package Microsoft.Data.SqlClient@6.1.0 \
@@ -543,6 +547,16 @@ enumeration, optional exact directory-segment `--tfm` filtering, and optional
 `--path` filtering. Count, table, TSV, JSONL, JSON, `--value`, and `--paths`
 observe the same selected rows; `--roots` instead emits their ordered distinct
 top-level package roots. Add `--lines` only to clip rendered text.
+
+For an exact online package version, writing one literal root `README.md` or
+`skills/**/SKILL.md` path to `--out` acquires directly through the PackageHouse
+filesystem store rather than the legacy extraction route. README bytes copy
+progressively to the file. Skill documents retain their existing containment
+and link-normalization behavior, so the House stream is decoded into that
+final selected representation before the file is written. Local packages,
+floating or range version selection, stdout, target-framework filters, path
+globs and roles, scoped documents, .NET tool-wrapper redirection, and other
+package files retain their existing behavior.
 
 For one package with `--layout`, `-n`, `--tail`, and `--rows A..B` select
 complete sorted file paths after archive extraction and `--lib`, `--tools`, or
