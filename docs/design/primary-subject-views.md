@@ -14,22 +14,39 @@ current product behavior remains governed by its existing owner.
 This document owns one claim:
 
 > Each of `package`, `library`, `type`, and `member` names exactly one subject.
-> Its default view is that subject's children: one compact identity line
-> followed by the child population that the subject's owner issues. Facts
-> about the subject itself are the opt-in Info view.
+> When that subject owns a natural child population, its default presentation
+> is a native Tree rooted at the subject: one compact identity line followed by
+> the child population that the subject's owner issues. Facts about the subject
+> itself are the opt-in Info view.
+
+An exact Member selected by ordinal or digest is the leaf case. It owns no
+child population, so its default remains the singular Signature view rather
+than an empty Tree or its MemberGroup's sibling population.
 
 The pattern has five obligations. An adopting command meets all of them:
 
-1. **One subject.** The command resolves exactly one subject or fails visibly.
-   It never renders a list of subjects and never picks one candidate silently.
-2. **Children by default.** The default view is `-v:m`, the compact children
-   view: the subject's children, drawn from the host-neutral population its
-   owner issues, rendered as one or more of that owner's children sections
-   (for example a type's per-kind member sections). It may also show context
-   the owner attaches to the subject, such as a base type or implemented
-   interfaces. That context is labeled as context and is never counted as
-   children. Whether a related declaration is a child or context is the
-   population owner's decision, not the presentation's.
+1. **One subject of the command's kind.** The command resolves exactly one
+   Package, Library, Type, or Member subject, respectively, or fails visibly.
+   It never renders a list of subjects, silently picks one candidate, or treats
+   a subject from the preceding containment level as a listing request.
+   In particular, `type <Library>` and `member <Type>` fail and identify
+   `library <Library>` and `type <Type>` as the corresponding subject
+   inspections.
+2. **Native Tree for population subjects.** The default `-v:m` presentation
+   for a Package, Library, Type, or MemberGroup is the command's native Tree:
+   the subject's children, drawn from the host-neutral population its owner
+   issues, rooted beneath one compact subject identity line. A command without
+   that Tree shape develops it as part of adoption. Explicit `--tree` selects
+   the same projection; it changes presentation only and never requests
+   another population. An exact Member is a leaf subject and retains its
+   singular Signature default.
+
+   The Tree may organize children as one or more owner-issued semantic groups
+   (for example a Type's per-kind Member-group branches). It may also show
+   context the owner attaches to the subject, such as a base Type or
+   implemented interfaces. That context is labeled as context and is never
+   counted as children. Whether a related declaration is a child or context is
+   the population owner's decision, not the presentation's.
 
    Some children stand in a special relationship to the subject: a forwarded
    Type declaration in a Library, or an attached extension Member of a Type
@@ -45,14 +62,15 @@ The pattern has five obligations. An adopting command meets all of them:
    this subject?" and does not re-render the children population. Whether
    `-v:d` also includes the facts section is Progressive disclosure's
    decision.
-4. **`-v:m` is compact; `-v:n` and `-v:d` are exhaustive.** At `-v:m`, the
-   tree may group, decorate, or collapse the children. That summary is an
+4. **`-v:m` Tree is compact; `-v:n` and `-v:d` are exhaustive.** At `-v:m`,
+   the Tree may group, decorate, or collapse the children. That summary is an
    additional projection: it never substitutes a group count for the
-   population's Count, and a collapsed tree names the gesture that reaches the
-   full inventory. Markdown, JSON, and row formats render the full population
-   even at `-v:m`. At `-v:n` and `-v:d`, every format renders the unqualified
-   children population in full, with no collapse or omission; higher
-   verbosity may add detail to rows but never removes children.
+   population's Count, and a collapsed branch names the gesture that reaches
+   the full inventory. Explicit Markdown, JSON, and row formats render the
+   full population even at `-v:m`. At `-v:n` and `-v:d`, every format,
+   including Tree, renders the unqualified children population in full, with
+   no collapse or omission; higher verbosity may add detail to rows but never
+   removes children.
 5. **Failure is visible.** An unreadable child, an incomplete population, or an
    empty population renders as such. None becomes a success-shaped empty or
    zero result.
@@ -65,8 +83,9 @@ The four commands form one containment ladder:
 | --- | --- | --- |
 | `package` | one package at one selected target | Libraries, or RID packages for a tool pointer package |
 | `library` | one exact Library | Type declarations |
-| `type` | one exact Type | Members |
-| `member` | one exact member name | Overload signatures |
+| `type` | one exact Type | MemberGroups |
+| `member` | one exact MemberGroup | exact Member signatures |
+| `member` with ordinal or digest | one exact Member | none; default to Signature |
 
 The ladder is a target, not a claim that every edge works today. An edge from
 one level to the next is supported only after its adopter provides both:
@@ -97,12 +116,14 @@ edge, that adoption must not present its rows as copyable arguments.
   one selected overload. This pattern consumes them unchanged by name. No
   facts section exists yet for an exact member name, so `member` adoption
   requests one.
-- **Default renderer:**
+- **Native Tree renderer:**
   [Rendering model](rendering-model.md#native-type-and-source-defaults) owns
-  default presentation. The existing exact-type tree is the reference shape
-  for the compact view: per-kind member sections, collapsed overloads,
-  labeled context (`Inherits`, `Implements`), and a distinguished group of
-  attached extension Members (`Extension Methods`).
+  native default presentation, and [Output shapes](output-shapes.md) owns
+  `--tree` as a presentation modifier over one admitted Tree shape. The
+  existing exact-Type Tree is the reference shape for the compact view:
+  per-kind MemberGroup branches, collapsed overloads, labeled context
+  (`Inherits`, `Implements`), and a distinguished group of attached extension
+  Members (`Extension Methods`).
 - **Library children:**
   [Library inspection documents and populations](library-inspection-document.md)
   owns the Library Type declaration population, including first-class
@@ -280,11 +301,20 @@ dotnet-inspect.osx-arm64 0.26.0 (NuGet, DotNetCliTool v2, osx-arm64; command: do
 - **Exact resolution:** ambiguous input fails with a candidate list, and each
   candidate is spelled as input that resolves uniquely. Pattern, prefix, and
   missing-name input fails with tips for `find` and `library`.
+- **No parent-listing fallback:** `type` accepts a Type, not a Library, and
+  `member` accepts a MemberGroup or exact Member selector, not a Type. A
+  wrong-kind subject fails and identifies the command that inspects it.
 - **`member T` without a member name** is an error. It does not render the
   Type's Members or forward to `type T`; its message names `type T` as the
   command that shows a Type's Members.
-- **Member tree:** an identity line with the overload count, then one
-  signature per overload.
+- **Member Tree:** the newly developed native Tree for a bare-name MemberGroup
+  has an identity line with the overload count, then one exact Member signature
+  per overload. Explicit `--tree` selects the same projection as that default
+  invocation. An ordinal or digest selector instead resolves an exact Member
+  and retains its singular Signature default. Bare `--tree` fails because that
+  leaf subject has no Tree shape; an explicitly selected view such as Call
+  Graph may supply its own admitted Tree shape under the existing output-shape
+  rules.
 - **Member Info:** no named facts section exists for an exact member name.
   `member` adoption waits for its section owner to issue one (for example
   member kind, declaring type, overload count, and documentation summary).
@@ -326,19 +356,23 @@ changes and demonstrates the real production-host scenario. Host-neutral
 children populations serve both CLI and Browser/Wasm; the CLI tree is host
 presentation.
 
-1. **Library subject and children:** exact Library subject resolution and
-   selector, then the compact `-v:m` default, tree, and `--namespace`, and
-   exhaustive `-v:n`/`-v:d` inventories, consuming the Library Type
-   declaration population. Current listing paths remain.
-2. **Listing retirement:** after the positive CLI and Browser/Wasm gates in
-   the Library proposal, retire the `type` listing context.
-3. **Package children:** compact and exhaustive views for library and tool
-   packages, with Library rows addressed through the step 1 Library selector
-   and tool pointer rows through `package <id>`.
-4. **Exact `type` and `member`:** exact resolution, removal of `member T`
-   without a name, the member tree, and exhaustive `-v:n`/`-v:d` member
-   inventories for `type`. The `member` part waits for the
-   exact-member-name facts section.
+1. **Exact `member`:** exact MemberGroup resolution for a bare Member name,
+   removal of `member T` without a Member name, the native overload Tree, and
+   exhaustive `-v:n`/`-v:d` exact-Member inventories. Ordinal or digest
+   selectors resolve exact Member leaf subjects and retain the Signature
+   default. Exact-Member Info waits for the exact-Member facts section.
+2. **Exact `type`:** retain the existing native Type Tree as the reference
+   presentation, require exact Type resolution, and retire the Library-listing
+   fallback from `type`.
+3. **Library subject and children:** exact Library subject resolution and
+   selector, then the compact native `-v:m` Tree, `--namespace`, and exhaustive
+   `-v:n`/`-v:d` inventories, consuming the Library Type declaration
+   population. Library scale and collapse policy belong to that adoption.
+4. **Listing retirement:** after the positive CLI and Browser/Wasm gates in
+   the Library proposal, retire remaining superseded Type-listing paths.
+5. **Package children:** compact and exhaustive native Trees for library and
+   tool packages, with Library rows addressed through the step 3 Library
+   selector and tool pointer rows through `package <id>`.
 
 ## Gates
 
