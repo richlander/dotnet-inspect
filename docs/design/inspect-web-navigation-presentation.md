@@ -754,7 +754,9 @@ Package name across Package, Library, Type, and Member. The qualifier is
 navigation rather than another selector: activating it opens Package with the
 framework inventory visible and focused. It stays visible before the Package
 name yields space at narrow widths. Page-level actions such as `Explore` retain
-the separate trailing action region.
+the separate trailing action region. When a narrow Type Source surface cannot
+fit both regions on one line, the inspected target takes the first line and the
+complete Source action region takes a second line below it.
 
 At a narrow viewport the content-navigation action is labelled `Frameworks`
 and opens the same complete TFM inventory. A pending TFM change retains the

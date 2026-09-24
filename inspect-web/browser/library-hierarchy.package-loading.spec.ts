@@ -48,6 +48,18 @@ const packageCoordinateChanges = [{
   failure: { failVersionOnce: "10.0.1" },
   error: "Version inspection failed",
 }];
+const longFramework = "net10.0-windows10.0.19041.0";
+const longFrameworkSurface: BrowserPackageSurface = {
+  ...frameworkSurface,
+  frameworks: [longFramework, ...frameworkSurface.frameworks],
+  activeFramework: longFramework,
+  compileLibrary: {
+    ...frameworkSurface.compileLibrary,
+    targetFramework: longFramework,
+  },
+};
+const longFrameworkRoot =
+  `/?package=System.Text.Json&version=10.0.0&framework=${longFramework}#pkg`;
 
 function packageCoordinateControl(
   page: Page,
@@ -149,8 +161,13 @@ for (const width of [1280, 390]) {
     page,
   }) => {
     await page.setViewportSize({ width, height: 900 });
-    await installPackageLoadingFacades(page);
-    await page.goto(frameworkRoot);
+    const expectedFramework = width === 390 ? longFramework : "net10.0";
+    await installPackageLoadingFacades(
+      page,
+      {},
+      undefined,
+      width === 390 ? longFrameworkSurface : frameworkSurface);
+    await page.goto(width === 390 ? longFrameworkRoot : frameworkRoot);
     await chooseSubject(page, "type", "Type");
     if (width === 390) {
       await chooseInspector(page, "data-lens", "source", "Source");
@@ -161,14 +178,30 @@ for (const width of [1280, 390]) {
       await expect(page.locator("#copy-type-source")).toBeVisible();
       await expect(page.getByRole("link", { name: "Open" })).toBeVisible();
       await expect(page.locator("#explore-source")).toBeVisible();
+      const targetBounds = await page.locator(".inspected-target").boundingBox();
+      const actionBounds = await page.locator(
+        ".working-surface-actions",
+      ).boundingBox();
+      const targetbarBounds = await page.locator(".targetbar").boundingBox();
+      const workspaceBounds = await page.locator("#subject-panel").boundingBox();
+      expect(targetBounds).not.toBeNull();
+      expect(actionBounds).not.toBeNull();
+      expect(targetbarBounds).not.toBeNull();
+      expect(workspaceBounds).not.toBeNull();
+      expect(targetBounds!.y + targetBounds!.height)
+        .toBeLessThanOrEqual(actionBounds!.y + 1);
+      expect(actionBounds!.y + actionBounds!.height)
+        .toBeLessThanOrEqual(targetbarBounds!.y + targetbarBounds!.height + 1);
+      expect(targetbarBounds!.y + targetbarBounds!.height)
+        .toBeLessThanOrEqual(workspaceBounds!.y + 1);
     }
 
     const targetFramework = page.getByRole(
       "button",
       {
-        name: "Target framework net10.0. Change target framework for System.Text.Json",
+        name: `Target framework ${expectedFramework}. Change target framework for System.Text.Json`,
       });
-    await expect(targetFramework).toHaveText("· net10.0");
+    await expect(targetFramework).toHaveText(`· ${expectedFramework}`);
     await expect(targetFramework).toBeVisible();
     const frameworkBounds = await targetFramework.boundingBox();
     const pathBounds = await page.locator(".subject-path").boundingBox();
@@ -182,7 +215,9 @@ for (const width of [1280, 390]) {
     await expect(subjectTab(page, "package")).toHaveAttribute(
       "aria-selected",
       "true");
-    await expect(page.locator('[data-package-framework="net10.0"]'))
+    await expect(page.locator(
+      `[data-package-framework="${expectedFramework}"]`,
+    ))
       .toBeFocused();
   });
 }
