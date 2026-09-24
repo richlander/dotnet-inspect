@@ -36,7 +36,8 @@ internal static class BrowserAnalysisInspectionProjection
             [.. inspection.Diagnostics.Select(Project)]);
     }
 
-    static BrowserAnalysisInspectionShare Project(InspectionShare share) =>
+    internal static BrowserAnalysisInspectionShare Project(
+        InspectionShare share) =>
         share switch
         {
             InspectionShare.Available available =>
@@ -57,7 +58,7 @@ internal static class BrowserAnalysisInspectionProjection
                 "Unknown inspection Share outcome."),
         };
 
-    static BrowserAnalysisInspectionDiagnostic Project(
+    internal static BrowserAnalysisInspectionDiagnostic Project(
         InspectionDiagnostic diagnostic) =>
         new(
             diagnostic.Code,
