@@ -477,13 +477,13 @@ Workspace Share does not yet represent the comparison's ordered endpoints and
 API scope. A host must not manufacture a replayable Share from one endpoint.
 
 The selected-Library comparison uses Metadata's bounded metadata-only
-projection. Compatibility compares exact generic-constraint names and member
-signature identities, so it does not resolve external constraint definitions
-only to classify them as classes or interfaces. Declaration inspection retains
-its resolution-aware behavior because faithful C# override rendering consumes
-that classification. The supplied binding policy, not the CLI or this
-presentation adapter, continues to decide the dependency universe for
-operations that require resolution.
+projection. Compatibility compares exact type- and method-parameter constraint
+names alongside member signature identities, so it does not resolve external
+constraint definitions only to classify them as classes or interfaces.
+Declaration inspection retains its resolution-aware behavior because faithful
+C# override rendering consumes that classification. The supplied binding
+policy, not the CLI or this presentation adapter, continues to decide the
+dependency universe for operations that require resolution.
 
 The CLI adopts this terminal for ordinary API diffs with exactly one acquired
 Library per endpoint, optionally narrowed by Type or compatibility

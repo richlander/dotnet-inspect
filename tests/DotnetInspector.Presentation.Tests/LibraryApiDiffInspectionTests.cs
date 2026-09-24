@@ -4,6 +4,7 @@ using System.Reflection.PortableExecutable;
 using DotnetInspector.Fixtures;
 using DotnetInspector.Queries;
 using DotnetInspector.Sections;
+using Inspector.Findings;
 using ILInspector.Metadata;
 
 namespace DotnetInspector.Presentation.Tests;
@@ -60,6 +61,38 @@ public sealed class LibraryApiDiffInspectionTests
         Assert.True(document.Summary.ChangedMemberCount > 0);
         Assert.True(document.Summary.BreakingCount > 0);
         Assert.True(document.Summary.AdditiveCount > 0);
+
+        ComparisonSubject<LibraryApiTypeDiff> constraintChange =
+            Assert.Single(
+                document.Comparison.Subjects,
+                subject => subject.Display
+                    == "LibraryApiDiffFixture.MethodConstraintChange");
+        Assert.Collection(
+            constraintChange.Comparison.CompatibilityChanges,
+            tightened =>
+            {
+                Assert.Equal(
+                    ChangeKind.TypeParameterConstraintTightened,
+                    tightened.Kind);
+                Assert.Equal(
+                    "LibraryApiDiffFixture.Dependency.AfterConstraint",
+                    tightened.NewValue?.ToString());
+                Assert.Equal(
+                    ApiChangeSubjectKind.Member,
+                    tightened.Subject.Kind);
+            },
+            loosened =>
+            {
+                Assert.Equal(
+                    ChangeKind.TypeParameterConstraintLoosened,
+                    loosened.Kind);
+                Assert.Equal(
+                    "LibraryApiDiffFixture.Dependency.BeforeConstraint",
+                    loosened.OldValue?.ToString());
+                Assert.Equal(
+                    ApiChangeSubjectKind.Member,
+                    loosened.Subject.Kind);
+            });
     }
 
     [Fact]
@@ -92,7 +125,7 @@ public sealed class LibraryApiDiffInspectionTests
     {
         var limits = new ApiSurfaceProjectionLimits(
             maxParticipants: 64,
-            maxTypes: 6,
+            maxTypes: 7,
             maxMembers: 1_000_000,
             maxInspectionFailures: int.MaxValue,
             maxTypeForwarders: int.MaxValue,

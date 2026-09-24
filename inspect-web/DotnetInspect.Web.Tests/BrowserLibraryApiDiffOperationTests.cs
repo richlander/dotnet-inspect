@@ -258,7 +258,7 @@ public sealed class BrowserLibraryApiDiffOperationTests
         Assert.NotEmpty(receiverMoved.After.CanonicalSignature);
         Assert.Equal(10, receiverMoved.After.Fingerprint.Length);
         Assert.Equal(
-            new BrowserLibraryApiDiffAggregate(7, 1, 1, 9, 4, 2, 0),
+            new BrowserLibraryApiDiffAggregate(8, 1, 1, 10, 5, 3, 0),
             value.Aggregate);
     }
 
@@ -289,6 +289,36 @@ public sealed class BrowserLibraryApiDiffOperationTests
         Assert.Equal(
             BrowserLibraryApiDiffChangeCategory.Signature,
             virtualRemoved.Category);
+
+        BrowserLibraryApiDiffType constraintChange = Assert.Single(
+            value.Types,
+            type => type.Display
+                == "LibraryApiDiffFixture.MethodConstraintChange");
+        Assert.Empty(constraintChange.Changes);
+        BrowserLibraryApiDiffMember constrainedMethod =
+            Assert.Single(constraintChange.Members);
+        Assert.Collection(
+            constrainedMethod.Changes,
+            tightened =>
+            {
+                Assert.Equal(
+                    BrowserLibraryApiDiffChangeKind
+                        .TypeParameterConstraintTightened,
+                    tightened.Kind);
+                Assert.Equal(
+                    "LibraryApiDiffFixture.Dependency.AfterConstraint",
+                    tightened.NewValue);
+            },
+            loosened =>
+            {
+                Assert.Equal(
+                    BrowserLibraryApiDiffChangeKind
+                        .TypeParameterConstraintLoosened,
+                    loosened.Kind);
+                Assert.Equal(
+                    "LibraryApiDiffFixture.Dependency.BeforeConstraint",
+                    loosened.OldValue);
+            });
         Assert.NotEmpty(virtualRemoved.Message);
         Assert.Equal(hard.BreakingCount, first.Changes.Length);
 
