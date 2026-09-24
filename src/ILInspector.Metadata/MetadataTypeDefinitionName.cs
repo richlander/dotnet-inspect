@@ -10,6 +10,7 @@ public enum MetadataNamespaceMatch
 {
     Exact,
     Suffix,
+    ExactOrDescendant,
 }
 
 /// <summary>Why a structured metadata type-definition name could not be created.</summary>
@@ -266,6 +267,13 @@ public sealed class MetadataTypeDefinitionName : IEquatable<MetadataTypeDefiniti
                 "A metadata namespace suffix must start with '.' and contain a suffix.",
                 nameof(namespacePattern));
         }
+        if (match is MetadataNamespaceMatch.ExactOrDescendant
+            && namespacePattern.Length == 0)
+        {
+            throw new ArgumentException(
+                "A metadata namespace descendant root cannot be empty.",
+                nameof(namespacePattern));
+        }
         return match switch
         {
             MetadataNamespaceMatch.Exact =>
@@ -277,6 +285,16 @@ public sealed class MetadataTypeDefinitionName : IEquatable<MetadataTypeDefiniti
                 Namespace.EndsWith(
                     namespacePattern,
                     StringComparison.Ordinal),
+            MetadataNamespaceMatch.ExactOrDescendant =>
+                string.Equals(
+                    Namespace,
+                    namespacePattern,
+                    StringComparison.Ordinal)
+                || (Namespace.Length > namespacePattern.Length
+                    && Namespace.StartsWith(
+                        namespacePattern,
+                        StringComparison.Ordinal)
+                    && Namespace[namespacePattern.Length] == '.'),
             _ => throw new InvalidOperationException(
                 "Unknown metadata namespace match."),
         };

@@ -111,6 +111,18 @@ dotnet-inspect library System.Text.Json \
   --namespace System.Text.Json.Nodes
 ```
 
+Add `--children` to include the named namespace and all namespaces beneath its
+dot-segment boundary:
+
+```bash
+dotnet-inspect library System.Text.Json \
+  --namespace System.Text.Json \
+  --children
+```
+
+This includes Types from `System.Text.Json` and
+`System.Text.Json.Serialization`, but not `System.Text.Jsonish`.
+
 A leading dot selects an exhaustive namespace suffix within that same exact
 Library:
 
@@ -122,9 +134,10 @@ dotnet-inspect library ./MyLibrary.dll --namespace .Nodes
 `World.Green.Nodes`. It does not prepend the Library name, and it does not
 match `Nodes`, `World.Blue.MyNodes`, or `World.Blue.Nodes.More`. Markdown
 renders the matching declarations in Type tables without a separate count
-summary. `--envelope` exposes the same population's typed exact-or-suffix
-binding and continuation identity. Namesake source discovery belongs to
-Router, Spotlight, and `find`, not this exact-Library operation.
+summary. `--envelope` exposes the same population's typed exact,
+exact-or-descendant, or suffix binding and continuation identity. Namesake
+source discovery belongs to Router, Spotlight, and `find`, not this
+exact-Library operation.
 
 Use `-D --schema` to inspect the syntax-selected structural view without
 acquiring or loading the target. Package `--library` and `--all-libraries`
