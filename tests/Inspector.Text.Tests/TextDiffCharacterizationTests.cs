@@ -403,6 +403,30 @@ public class TextDiffCharacterizationTests
     }
 
     [Fact]
+    public void CrossedPieceNeverMergesBackIntoIdenticalText()
+    {
+        // Round 2 review repro: a producer that leaves equal lines unpaired around a move end.
+        // Crossing and merging used to cycle; a merge that would re-form identical text is skipped.
+        const string before = "x\nK\nA\nB";
+        const string after = "x\nA\nB\nx\nK";
+        var diff = new AnalysisDiff<string>(
+            ["x", "K", "A", "B"],
+            ["x", "A", "B", "x", "K"],
+            [
+                new AnalysisDiffRelation.Removal([0]),
+                new AnalysisDiffRelation.Addition([0]),
+                new AnalysisDiffRelation.Addition([3]),
+                new AnalysisDiffRelation.Correspondence([2, 3], [1, 2], AnalysisDiffContentKind.Unchanged, AnalysisDiffPlacementKind.Moved),
+                new AnalysisDiffRelation.Correspondence([1], [4], AnalysisDiffContentKind.Unchanged, AnalysisDiffPlacementKind.Stable),
+            ]);
+
+        TextDiffCharacterization result = TextDiffCharacterization.Create(diff, before, after);
+        TextDiffCharacterizationValidator.Validate(result, diff, before, after);
+
+        Assert.Single(result.Moves);
+    }
+
+    [Fact]
     public void BracesOnly_IsAMove()
         => Assert.Single(Characterize("}\n}\nx\ny\nz\n", "x\ny\nz\n}\n}\n").Moves);
 

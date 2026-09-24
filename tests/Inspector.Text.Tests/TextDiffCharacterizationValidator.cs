@@ -179,8 +179,15 @@ static class TextDiffCharacterizationValidator
                 else
                     Require(change.Edits.IsEmpty, "a changed change issues no edits");
 
-                if (c > 0 && region.Changes[c - 1].Outcome != TextChangeOutcome.Moved)
-                    Require(region.Changes[c - 1].Outcome != change.Outcome, "adjacent non-moved changes differ in outcome");
+                if (c > 0
+                    && region.Changes[c - 1].Outcome != TextChangeOutcome.Moved
+                    && region.Changes[c - 1].Outcome == change.Outcome)
+                {
+                    // Allowed only where merging the two would produce identical texts.
+                    Require(
+                        beforeText[bStarts[c - 1]..bStarts[c + 1]] == afterText[aStarts[c - 1]..aStarts[c + 1]],
+                        "adjacent non-moved changes differ in outcome unless their merge would be identical");
+                }
             }
         }
 

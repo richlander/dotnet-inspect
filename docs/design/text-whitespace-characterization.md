@@ -331,7 +331,8 @@ otherwise. The partition then follows two rules:
 - A `Changed` region contains at least one `Changed` or `Moved` change, and
   adjacent changes in it always have different outcomes, so every change is
   maximal. `Moved` changes are exempt from that rule, as the move design
-  states.
+  states, and so are two adjacent changes whose merged texts would be
+  identical, which keeps a merge from re-forming an identical change.
   Where the owner can isolate a whitespace-only part, that part becomes its
   own `WhitespaceOnly` change.
 

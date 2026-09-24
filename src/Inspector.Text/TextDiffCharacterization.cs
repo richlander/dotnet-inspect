@@ -542,7 +542,8 @@ public sealed record TextDiffCharacterization(
     /// neighbor; an identical piece whose neighbors are move ends is split into its Before and
     /// After lines, placed on opposite sides of an adjacent move end (every move end has lines on
     /// one side only, so one part can always cross it); and adjacent free pieces with the same
-    /// outcome merge, so every non-moved change is maximal.
+    /// outcome merge unless the merge would be identical. Merges never create identical pieces
+    /// and each cross removes one for good, so the loop terminates.
     /// </summary>
     static ImmutableArray<TextChange> IssueChanges(RegionContext context, List<Piece> pieces)
     {
@@ -550,8 +551,9 @@ public sealed record TextDiffCharacterization(
         int limit = 16 * (pieces.Count + 4);
         for (int step = 0; step < limit; step++)
         {
-            List<(Piece Piece, TextPairCharacterization Characterization)> evaluated = Evaluate(context, current);
-            (Repair repair, int index) = FindRepair(evaluated);
+            List<(Piece Piece, TextPairCharacterization Characterization)> evaluated =
+                Evaluate(context, current, out int[] beforeCuts, out int[] afterCuts);
+            (Repair repair, int index) = FindRepair(evaluated, context, beforeCuts, afterCuts);
             switch (repair)
             {
                 case Repair.None:
@@ -589,7 +591,10 @@ public sealed record TextDiffCharacterization(
     }
 
     static (Repair Repair, int Index) FindRepair(
-        List<(Piece Piece, TextPairCharacterization Characterization)> evaluated)
+        List<(Piece Piece, TextPairCharacterization Characterization)> evaluated,
+        RegionContext context,
+        int[] beforeCuts,
+        int[] afterCuts)
     {
         for (int index = 0; index < evaluated.Count; index++)
         {
@@ -611,7 +616,8 @@ public sealed record TextDiffCharacterization(
         {
             if (evaluated[index].Piece.Move < 0
                 && evaluated[index + 1].Piece.Move < 0
-                && evaluated[index].Characterization.Outcome == evaluated[index + 1].Characterization.Outcome)
+                && evaluated[index].Characterization.Outcome == evaluated[index + 1].Characterization.Outcome
+                && !MergedIsIdentical(context, beforeCuts, afterCuts, index))
             {
                 return (Repair.Merge, index);
             }
@@ -620,6 +626,16 @@ public sealed record TextDiffCharacterization(
         return (Repair.None, -1);
     }
 
+
+    /// <summary>
+    /// Whether merging the free pieces at <paramref name="index"/> and <c>index + 1</c> would
+    /// produce identical cut texts. Such a merge is skipped, so a merge never creates an
+    /// identical piece; with that, each cross removes one identical piece for good and the
+    /// repair loop terminates.
+    /// </summary>
+    static bool MergedIsIdentical(RegionContext context, int[] beforeCuts, int[] afterCuts, int index)
+        => context.BeforeLines.Text.AsSpan(beforeCuts[index], beforeCuts[index + 2] - beforeCuts[index])
+            .SequenceEqual(context.AfterLines.Text.AsSpan(afterCuts[index], afterCuts[index + 2] - afterCuts[index]));
     /// <summary>
     /// Splits the identical free piece at <paramref name="index"/> into its Before-only and
     /// After-only parts and moves one part across an adjacent move end. A move end holds lines on
@@ -679,7 +695,9 @@ public sealed record TextDiffCharacterization(
 
     static List<(Piece Piece, TextPairCharacterization Characterization)> Evaluate(
         RegionContext context,
-        List<Piece> pieces)
+        List<Piece> pieces,
+        out int[] beforeCuts,
+        out int[] afterCuts)
     {
         int count = pieces.Count;
         var beforeStarts = new int[count];
@@ -696,6 +714,8 @@ public sealed record TextDiffCharacterization(
 
         beforeStarts[0] = context.BeforeStart;
         afterStarts[0] = context.AfterStart;
+        beforeCuts = [.. beforeStarts, context.BeforeEnd];
+        afterCuts = [.. afterStarts, context.AfterEnd];
 
         var evaluated = new List<(Piece, TextPairCharacterization)>(count);
         for (int index = 0; index < count; index++)
