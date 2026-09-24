@@ -24,8 +24,8 @@ The claim has three parts:
   assembly a query uses. The CLI and Inspect Web apply the same rule.
 - **An entry cache for ranged reads.** Every entry a ranged read materializes
   is kept durably, with the archive's directory, so a later read of the same
-  entry costs no request and a read of another entry skips the directory
-  read.
+  entries costs no request and a read needing another entry costs only an
+  ordinary ranged read of the entries it lacks.
 
 It consumes, and does not redefine, the ranged read of
 [package archive range access](package-archive-range-access.md), the lease
@@ -61,9 +61,9 @@ invocation. It also needs cross-process mutable state for its wanted-list.
 Choosing by size before transferring gives each archive the cheaper of the
 two paths, with no background work.
 
-The cut sits where one extra round trip stops paying for itself. A ranged
-read costs about one more round trip than a complete download and saves
-every byte it does not select. Measured 2026-09-23 on 39 nuget.org packages
+A ranged read costs about one more round trip than a complete download and
+saves every byte it does not select, so where the two cross depends on the
+link. Measured 2026-09-23 on 39 nuget.org packages
 from 0.35 to 17.3 MB, each three times, complete download against a ranged
 read of the highest target framework's assemblies; the three slower links
 are modeled from each package's measured requests and bytes:
@@ -78,14 +78,18 @@ are modeled from each package's measured requests and bytes:
 
 The extra round trip is worth 0.38 MB of transfer at 100 Mbps and 0.10 MB
 at 10 Mbps. Fetching all 39 packages cold costs 15.0 s complete against
-7.3 s ranged at 100 Mbps, and 132.4 s against 38.9 s at 10 Mbps. Under 1 MB
-either path costs tens of milliseconds, and a complete archive keeps every
-file (documentation XML, the manifest, other frameworks) for later commands,
-so small archives are cached complete. On this very fast link, the ranged
-read lost for two 4 MB packages whose selection is most of the archive: the
-.NET Core 3.1 reference pack and `Microsoft.NETCore.App` 2.2.0. On every
-modeled link it won for both; adoption watches reference packs for an
-observable cost.
+7.3 s ranged at 100 Mbps, and 132.4 s against 38.9 s at 10 Mbps.
+
+The 1 MB cut is the operator's choice (Rich, 2026-09-23), not a universal
+break-even. It is close to the break-even of the 100 Mbps model. On the
+faster measured link, 9 of the 27 packages above it lost to a complete
+download, by tens of milliseconds, among them the .NET Core 3.1 reference
+pack and `Microsoft.NETCore.App` 2.2.0, whose selection is most of the
+archive. On the slower modeled links the ranged read wins most packages
+under the cut too, at 10 Mbps 11 of 12. Below the cut the choice favors
+keeping the whole archive: a complete archive holds every file
+(documentation XML, the manifest, other frameworks) for later commands.
+Adoption watches reference packs for an observable cost.
 
 Package sizes across one developer's NuGet global packages folder (1,696
 packages, 4.5 GB): median 0.2 MB, 90th percentile 7.0 MB, 99th 40.1 MB,
@@ -146,13 +150,13 @@ size-first rule below.
 
 ### Size first
 
-A consumer that sets ranged access consults, for each authority in the
-existing order, the complete store first and then the entry cache below.
+A consumer that sets ranged access consults every authorized complete store
+first, then every authorized entry cache, in the existing authority order.
 Either can answer without a request: a complete payload always, and the entry
 cache when it holds the archive's directory and every selected entry. A
 cached directory also records the archive's total length, so an archive the
-entry cache knows needs no size probe: its missing entries are read by range
-directly.
+entry cache knows needs no size probe: the step goes straight to the ranged
+read for its missing entries.
 
 Otherwise the step starts the ordinary complete acquisition. When the
 response advertises an archive length above the size cut, the step abandons
@@ -184,7 +188,9 @@ key and exact coordinate, in its own versioned cache family,
 - **The directory.** The archive's central directory, its derived total
   length, and its validator, published once.
 - **Each materialized entry.** Its expanded bytes, published under a file
-  name that is a digest of its exact archive path bytes. The archive path is
+  name that is the lowercase hexadecimal SHA-256 digest of its exact archive
+  path bytes, so it is the same on case-sensitive and case-insensitive
+  filesystems. The archive path is
   never used as a filesystem path: an entry name is untrusted package input
   and reaches the disk only as data, as the
   [threat model's archive rule](untrusted-data-threat-model.md#package-archives-use-traversal-aware-extraction)
@@ -196,14 +202,22 @@ Each item is immutable and published by the same atomic rename that
 [cache concurrency](cache-concurrency.md) uses, so concurrent invocations
 converge on one copy without locks.
 
-A later ranged read of the coordinate consults the entry cache first. With a
-cached directory it needs no tail or directory request. Each selected entry
-that is cached is read from disk and checked against the cached directory's
-declared length and CRC; a mismatch discards that entry and reads it again.
-Only the missing entries are fetched, and the first request carries the
-cached validator, so a changed archive is `ArchiveChanged` and the cached
-directory and entries for that coordinate are discarded. An entry-cache read
-with everything present makes no request.
+A later ranged read of the coordinate consults the entry cache first. Each
+selected entry that is cached is read from disk and checked against the
+cached directory's declared length and CRC; a mismatch discards that entry
+and treats it as missing. When every selected entry is present, the read
+makes no request.
+
+When some are missing, the step makes an ordinary ranged read as the
+[range-access](package-archive-range-access.md#reading-the-directory) reader
+defines it: the tail read, which usually carries the whole directory, then
+the missing entries. The reader is unchanged; the entry cache adds no
+operation to it. The step then compares the fresh directory, total length,
+and validator with the cached ones. When they agree, it publishes the new
+entries beside the cached ones. When they differ, the archive changed: the
+coordinate's cached directory and entries are discarded, and the fresh
+directory and entries are published in their place. A warm read missing an
+entry therefore costs the tail round trip plus the entry requests.
 
 A complete payload in the durable store answers before the entry cache, as
 the cache-first rule already orders them. Authorities without a persistent
@@ -289,10 +303,10 @@ All gates run in Release.
 | 3. Version-service priors for an HTTP authority | identity is still the endpoint | `PackageVersionServiceTests`, extended |
 | 4. Search of an archive under the cut, then a second invocation | first: one complete request, published durably; second: cache hit, no package request | CLI harness, two invocations |
 | 5. Search of an archive over the cut, twice | first: one abandoned request, the ranged read, and the directory and entries published to the entry cache; second: no package request | CLI harness, two invocations |
-| 5a. A second query needing one more entry of the same archive | one entry request; no abandoned, tail, or directory request | CLI harness |
+| 5a. A second query needing one more entry of the same archive | the tail request and one entry request; no abandoned request | CLI harness |
 | 5e. Entries named with `..`, a rooted path, and two names that differ only by case | each published inside the entry cache under its digest; all three read back to their own content | contract suite |
 | 5b. A cached entry whose bytes no longer match the cached directory | discarded and read again | contract suite |
-| 5c. The archive changed since the directory was cached | `ArchiveChanged`; the coordinate's cached directory and entries are discarded; the complete fetch answers | contract suite |
+| 5c. The archive changed since the directory was cached | the fresh directory differs from the cached one; the coordinate's cached directory and entries are replaced by the fresh ones | contract suite |
 | 5d. An authority without a persistent key | nothing published to the entry cache | contract suite |
 | 6. No advertised length | complete acquisition | contract suite |
 | 7. A consumer other than the search Root | `package ID@VERSION` from a credential-free HTTP feed, twice: the second is a cache hit | CLI harness, two invocations |
@@ -310,7 +324,9 @@ The existing assertion that an HTTP extraction result carries no
 2. The persistent key for credential-free HTTP authorities, size first, and
    the entry cache in the lease step, adopted by the exact-package search Root
    that #8415 put on the ranged path; gates 1 to 9. This step changes every
-   consumer in the table above.
+   consumer in the table above, and updates the comment in
+   `AuthorityScopedFileSystemPackageStore` that says no durable HTTP
+   authority identity exists.
 3. The remaining search scopes adopt ranged access, and with it size first,
    in the second part of range-access adoption step 2.
 4. The [package-backed platform](package-backed-platform-realization.md)
