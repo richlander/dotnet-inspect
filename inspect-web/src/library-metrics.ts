@@ -44,7 +44,8 @@ function formatNumber(value: number): string {
 }
 
 interface TreemapItem {
-  readonly typeId: string;
+  readonly typeKey: string;
+  readonly typeDisplay: string;
   readonly namespace: string;
   readonly name: string;
   readonly bodyCount: number;
@@ -122,7 +123,8 @@ function renderTreemap(
   const omitted = source.slice(TREEMAP_LIMIT);
   if (omitted.length) {
     visible.push({
-      typeId: "Other types",
+      typeKey: "other-types",
+      typeDisplay: "Other types",
       namespace: "",
       name: "Other types",
       bodyCount: omitted.reduce((sum, item) => sum + item.bodyCount, 0),
@@ -160,8 +162,8 @@ function renderTreemap(
     const density = rectangle.item.complexityTotal
       / Math.max(1, rectangle.item.bodyCount);
     const lightness = 78 - Math.round(34 * density / maximumDensity);
-    const label = shortTypeName(rectangle.item.typeId);
-    const tooltip = `${rectangle.item.typeId} · ${formatNumber(rectangle.item.bodyCount)} bodies · ${formatNumber(rectangle.item.instructionCount)} instructions · average complexity ${density.toFixed(1)}`;
+    const label = shortTypeName(rectangle.item.typeDisplay);
+    const tooltip = `${rectangle.item.typeDisplay} · ${formatNumber(rectangle.item.bodyCount)} bodies · ${formatNumber(rectangle.item.instructionCount)} instructions · average complexity ${density.toFixed(1)}`;
     const labelHtml = rectangle.width > 86 && rectangle.height > 28
       ? `<text class="metrics-treemap-label" x="${rectangle.x + 7}" y="${rectangle.y + 17}">${escapeHtml(label)}</text>`
       : "";
@@ -186,42 +188,49 @@ function renderRelationshipCrossing(
     return `<section class="document-section empty-document"><h2>No internal crossings found</h2><p>The available call evidence did not produce a bounded set of cross-type relationships.</p></section>`;
   }
   const degree = new Map<string, number>();
+  const displays = new Map<string, string>();
   for (const relationship of relationships) {
-    degree.set(relationship.sourceTypeId, Math.max(
-      degree.get(relationship.sourceTypeId) ?? 0,
+    displays.set(relationship.sourceTypeKey, relationship.sourceTypeDisplay);
+    displays.set(relationship.targetTypeKey, relationship.targetTypeDisplay);
+    degree.set(relationship.sourceTypeKey, Math.max(
+      degree.get(relationship.sourceTypeKey) ?? 0,
       relationship.sourceDegree,
     ));
-    degree.set(relationship.targetTypeId, Math.max(
-      degree.get(relationship.targetTypeId) ?? 0,
+    degree.set(relationship.targetTypeKey, Math.max(
+      degree.get(relationship.targetTypeKey) ?? 0,
       relationship.targetDegree,
     ));
   }
   const types = [...degree.entries()]
     .sort((left, right) => right[1] - left[1] || left[0].localeCompare(right[0]))
     .slice(0, RELATIONSHIP_LIMIT)
-    .map(([typeId, typeDegree]) => ({ typeId, typeDegree }));
-  const selected = new Set(types.map(type => type.typeId));
+    .map(([typeKey, typeDegree]) => ({
+      typeKey,
+      typeDisplay: displays.get(typeKey) ?? typeKey,
+      typeDegree,
+    }));
+  const selected = new Set(types.map(type => type.typeKey));
   const edges = relationships.filter(relationship =>
-    selected.has(relationship.sourceTypeId)
-    && selected.has(relationship.targetTypeId));
+    selected.has(relationship.sourceTypeKey)
+    && selected.has(relationship.targetTypeKey));
   const positions = new Map(
     types.map((type, index) => [
-      type.typeId,
+      type.typeKey,
       32 + index * (RELATIONSHIP_WIDTH - 64) / Math.max(1, types.length - 1),
     ]),
   );
   const baseline = RELATIONSHIP_HEIGHT - 58;
   const arcs = edges.map((edge, index) => {
-    const source = positions.get(edge.sourceTypeId) ?? 0;
-    const target = positions.get(edge.targetTypeId) ?? 0;
+    const source = positions.get(edge.sourceTypeKey) ?? 0;
+    const target = positions.get(edge.targetTypeKey) ?? 0;
     const bend = 34 + Math.abs(target - source) * .36 + (index % 4) * 10;
     const color = RELATIONSHIP_COLORS[index % RELATIONSHIP_COLORS.length];
-    const tooltip = `${edge.sourceTypeId} calls ${edge.targetTypeId} at ${formatNumber(edge.callSiteCount)} retained sites`;
+    const tooltip = `${edge.sourceTypeDisplay} calls ${edge.targetTypeDisplay} at ${formatNumber(edge.callSiteCount)} retained sites`;
     return `<path class="metrics-relationship-edge" d="M ${source.toFixed(1)} ${baseline} C ${source.toFixed(1)} ${(baseline - bend).toFixed(1)}, ${target.toFixed(1)} ${(baseline - bend).toFixed(1)}, ${target.toFixed(1)} ${baseline}" stroke="${color}" stroke-width="${Math.min(8, 1.5 + Math.log2(edge.callSiteCount + 1))}"><title>${escapeHtml(tooltip)}</title></path>`;
   }).join("");
   const nodes = types.map(type => {
-    const x = positions.get(type.typeId) ?? 0;
-    return `<g class="metrics-relationship-node"><circle cx="${x.toFixed(1)}" cy="${baseline}" r="4"></circle><text x="${x.toFixed(1)}" y="${baseline + 17}" transform="rotate(52 ${x.toFixed(1)} ${baseline + 17})">${escapeHtml(shortTypeName(type.typeId))}</text><title>${escapeHtml(type.typeId)} · ${formatNumber(type.typeDegree)} connected types</title></g>`;
+    const x = positions.get(type.typeKey) ?? 0;
+    return `<g class="metrics-relationship-node"><circle cx="${x.toFixed(1)}" cy="${baseline}" r="4"></circle><text x="${x.toFixed(1)}" y="${baseline + 17}" transform="rotate(52 ${x.toFixed(1)} ${baseline + 17})">${escapeHtml(shortTypeName(type.typeDisplay))}</text><title>${escapeHtml(type.typeDisplay)} · ${formatNumber(type.typeDegree)} connected types</title></g>`;
   }).join("");
   return `<section class="document-section metrics-visual-section">
     <div class="metrics-visual-copy"><h2>Relationship Crossing</h2><p>The most entangled types are placed on one line; arcs reveal how often their implementations cross. Each color follows one retained relationship so dense crossings remain separable.</p></div>

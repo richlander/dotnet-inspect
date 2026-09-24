@@ -1851,6 +1851,26 @@ public sealed partial class BrowserEngineBoundaryTests
     }
 
     [Fact]
+    public void LibraryMetricsTypeKey_PreservesGenericArityHiddenByDisplay()
+    {
+        ILInspector.Analysis.TypeRef oneArgument =
+            ILInspector.Analysis.TypeRef.Definition(
+            "Target", "Target", "Box`1");
+        ILInspector.Analysis.TypeRef twoArguments =
+            ILInspector.Analysis.TypeRef.Definition(
+            "Target", "Target", "Box`2");
+
+        Assert.Equal(
+            oneArgument.ToQualifiedDisplayString(),
+            twoArguments.ToQualifiedDisplayString());
+        Assert.NotEqual(
+            DotnetInspect.Web.Interop.Analysis.AnalysisExports
+                .LibraryMetricsTypeKey(oneArgument),
+            DotnetInspect.Web.Interop.Analysis.AnalysisExports
+                .LibraryMetricsTypeKey(twoArguments));
+    }
+
+    [Fact]
     public async Task PackageDependencies_UsesProductQueriesForManifestAndReferences()
     {
         const string packageId = "Browser.Dependency.Root";

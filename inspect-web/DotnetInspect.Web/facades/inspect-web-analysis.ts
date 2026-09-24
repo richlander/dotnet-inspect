@@ -356,15 +356,18 @@ export interface BrowserLibraryMetricsPopulation {
 }
 
 export interface BrowserLibraryMetricsRelationship {
-  readonly sourceTypeId: string;
-  readonly targetTypeId: string;
+  readonly sourceTypeKey: string;
+  readonly sourceTypeDisplay: string;
+  readonly targetTypeKey: string;
+  readonly targetTypeDisplay: string;
   readonly callSiteCount: number;
   readonly sourceDegree: number;
   readonly targetDegree: number;
 }
 
 export interface BrowserLibraryMetricsType {
-  readonly typeId: string;
+  readonly typeKey: string;
+  readonly typeDisplay: string;
   readonly namespace: string;
   readonly name: string;
   readonly bodyCount: number;

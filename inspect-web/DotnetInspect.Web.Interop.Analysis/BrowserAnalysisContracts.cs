@@ -152,7 +152,8 @@ public sealed record BrowserLibraryMetricsBooleanDisposition(
     int AbsentCount);
 
 public sealed record BrowserLibraryMetricsType(
-    string TypeId,
+    string TypeKey,
+    string TypeDisplay,
     string Namespace,
     string Name,
     int BodyCount,
@@ -163,8 +164,10 @@ public sealed record BrowserLibraryMetricsType(
     int AllocationCount);
 
 public sealed record BrowserLibraryMetricsRelationship(
-    string SourceTypeId,
-    string TargetTypeId,
+    string SourceTypeKey,
+    string SourceTypeDisplay,
+    string TargetTypeKey,
+    string TargetTypeDisplay,
     int CallSiteCount,
     int SourceDegree,
     int TargetDegree);

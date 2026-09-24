@@ -234,7 +234,10 @@ coverage states stay typed until that boundary.
 
 Browser/Wasm deliberately bypasses Markout for its interactive Library-detail
 view. Its host-specific lowering serializes the same typed document through
-the existing managed boundary and renders a `Complexity Explorer` treemap
+the existing managed boundary. The Browser DTO carries a module-local exact
+metadata type key separately from human display text, so same-name types with
+different generic arities remain distinct through relationship layout. It
+renders a `Complexity Explorer` treemap
 from type summaries plus a `Relationship Crossing` view from the bounded
 relationship projection, without recomputing any report fact. Area represents
 instruction volume, treemap color represents average normal-flow complexity, and

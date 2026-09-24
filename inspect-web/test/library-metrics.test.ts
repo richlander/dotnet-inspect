@@ -25,7 +25,8 @@ const data: BrowserLibraryMetrics = {
   }],
   asyncStateMachinePresence: null,
   typeSummaries: [{
-    typeId: "Example.Core.Engine",
+    typeKey: "Example.Core.Engine",
+    typeDisplay: "Example.Core.Engine",
     namespace: "Example.Core",
     name: "Engine",
     bodyCount: 1,
@@ -36,8 +37,10 @@ const data: BrowserLibraryMetrics = {
     allocationCount: 1,
   }],
   entangledRelationships: [{
-    sourceTypeId: "Example.Core.Engine",
-    targetTypeId: "Example.Core.Store",
+    sourceTypeKey: "Example.Core.Engine",
+    sourceTypeDisplay: "Example.Core.Engine",
+    targetTypeKey: "Example.Core.Store",
+    targetTypeDisplay: "Example.Core.Store",
     callSiteCount: 4,
     sourceDegree: 2,
     targetDegree: 1,
@@ -107,13 +110,15 @@ test("treemap rectangle area remains proportional to instruction volume", () => 
       typeSummaries: [
         {
           ...data.typeSummaries[0]!,
-          typeId: "Example.Core.Large",
+          typeKey: "Example.Core.Large",
+          typeDisplay: "Example.Core.Large",
           name: "Large",
           instructionCount: 1_000,
         },
         {
           ...data.typeSummaries[0]!,
-          typeId: "Example.Core.Small",
+          typeKey: "Example.Core.Small",
+          typeDisplay: "Example.Core.Small",
           name: "Small",
           instructionCount: 1,
         },
@@ -128,4 +133,28 @@ test("treemap rectangle area remains proportional to instruction volume", () => 
   const totalArea = rectangles.reduce((sum, area) => sum + area, 0);
   assert.ok(Math.abs(rectangles[0]! / totalArea - 1_000 / 1_001) < .0001);
   assert.ok(Math.abs(rectangles[1]! / totalArea - 1 / 1_001) < .0001);
+});
+
+test("relationship topology keeps same-display generic arities distinct", () => {
+  const html = render({
+    data: {
+      ...data,
+      entangledRelationships: [{
+        sourceTypeKey: "Target.Box`1",
+        sourceTypeDisplay: "Target.Box",
+        targetTypeKey: "Target.Box`2",
+        targetTypeDisplay: "Target.Box",
+        callSiteCount: 3,
+        sourceDegree: 1,
+        targetDegree: 1,
+      }],
+    },
+  });
+  const edge = html.match(
+    /<path class="metrics-relationship-edge" d="M ([\d.]+) \d+ C [^"]+, ([\d.]+) \d+"/,
+  );
+
+  assert.ok(edge);
+  assert.notEqual(edge[1], edge[2]);
+  assert.match(html, /2 most connected types/);
 });
