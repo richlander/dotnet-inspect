@@ -73,7 +73,8 @@ public static class LibraryCallUseSections
     {
         if (selectedSections is null)
         {
-            declaration = SemanticRowsBySection[CallSites];
+            declaration =
+                SemanticRowsBySection[DirectUseClusters];
             return true;
         }
 

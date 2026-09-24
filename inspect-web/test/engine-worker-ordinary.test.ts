@@ -42,6 +42,7 @@ import type {
 import type {
   BrowserMemberSource,
   BrowserSource,
+  JsonText,
 } from "../src/facades/inspect-web-source.d.ts";
 import type {
   BrowserSourceComparisonResult,
@@ -61,6 +62,24 @@ function contractViolation<T>(value: unknown): T {
   // Tests use this one cast to exercise runtime rejection beyond declarations.
   // oxlint-disable-next-line typescript/no-unsafe-type-assertion
   return value as T;
+}
+
+function isSourceComparisonJsonText(
+  value: unknown,
+): value is JsonText<BrowserSourceComparisonResult> {
+  return typeof value === "string";
+}
+
+function sourceComparisonJsonTextFixture(
+  value: BrowserSourceComparisonResult,
+): JsonText<BrowserSourceComparisonResult> {
+  const encoded: unknown = JSON.stringify(value);
+  if (!isSourceComparisonJsonText(encoded)) {
+    throw new TypeError(
+      "The Source Comparison JSON fixture must remain a string.",
+    );
+  }
+  return encoded;
 }
 
 const defaultFacades: EngineWorkerOrdinaryFacades = {
@@ -129,6 +148,10 @@ const defaultFacades: EngineWorkerOrdinaryFacades = {
   analysis: {
     queryCloneCandidates: () => unexpected("queryCloneCandidates"),
     queryMemberFacts: () => unexpected("queryMemberFacts"),
+    queryPackageImplementationProfiles: () =>
+      unexpected("queryPackageImplementationProfiles"),
+    queryPlatformImplementationProfiles: () =>
+      unexpected("queryPlatformImplementationProfiles"),
     queryPackageIntegrations: () =>
       unexpected("queryPackageIntegrations"),
     queryPlatformIntegrations: () =>
@@ -761,6 +784,44 @@ test("ordinary transport preserves sync, async DTO, void, null, and arguments", 
   let libraryDiffCancelArguments: readonly unknown[] = [];
   let platformDocumentationArguments: readonly unknown[] = [];
   let libraryQueryArguments: readonly unknown[] = [];
+  let implementationProfileArguments: readonly unknown[] = [];
+  let platformImplementationProfileArguments: readonly unknown[] = [];
+  const implementationProfiles = {
+    schemaVersion: 2,
+    outcome: "available",
+    subject: null,
+    content: {
+      members: [{
+        typeDefinitionId: "type:Example.Widget",
+        member: "M",
+        stableSelector: "M(int)",
+        bodyTokens: [0x06000001],
+      }, {
+        typeDefinitionId: "type:Example.Widget",
+        member: "M",
+        stableSelector: "M(string)",
+        bodyTokens: [0x06000002],
+      }],
+      methods: [{
+        key: "m:06000001",
+        metadataToken: 0x06000001,
+      }],
+      profiles: [{
+        methodKey: "m:06000001",
+        evidenceMethodKey: "m:06000001",
+        instructionCount: 42,
+      }],
+    },
+    failure: null,
+    share: {
+      kind: "nonProjectable",
+      fullUrl: null,
+      packet: null,
+      path: "implementation-profile-family/share",
+      reason: "No canonical projection.",
+    },
+    diagnostics: [],
+  };
   const state = fixture({
     package: {
       classifyPackageGraphIdentities: (...args) => {
@@ -865,6 +926,14 @@ test("ordinary transport preserves sync, async DTO, void, null, and arguments", 
           kind: "Rejected",
         });
       },
+      queryPackageImplementationProfiles: (...args) => {
+        implementationProfileArguments = args;
+        return contractViolation(implementationProfiles);
+      },
+      queryPlatformImplementationProfiles: (...args) => {
+        platformImplementationProfileArguments = args;
+        return contractViolation(implementationProfiles);
+      },
     },
   });
 
@@ -941,6 +1010,24 @@ test("ordinary transport preserves sync, async DTO, void, null, and arguments", 
     discovery: "SimilarNames" as const,
   };
   const clone = state.client.analysis.queryCloneCandidates(cloneRequest);
+  const profiles =
+    state.client.analysis.queryPackageImplementationProfiles(
+      "Example.Package",
+      "1.0.0",
+      "net11.0",
+      "lib/net11.0/Example.dll",
+      "type:Example.Widget",
+      ["M(int)", "M(string)"],
+    );
+  const platformProfiles =
+    state.client.analysis.queryPlatformImplementationProfiles(
+      "net11.0",
+      "11.0.0",
+      "System.Private.CoreLib.dll",
+      "Microsoft.NETCore.App",
+      "type:System.Text.StringBuilder",
+      ["AppendFormat(string,object)", "AppendFormat(string,object[])"],
+    );
   const libraryDiff = state.client.metadata.queryLibraryApiDiff(
     "operation-1",
     {
@@ -1025,6 +1112,24 @@ test("ordinary transport preserves sync, async DTO, void, null, and arguments", 
     schemaVersion: 1,
     kind: "Rejected",
   });
+  assert.deepEqual(await profiles, implementationProfiles);
+  assert.deepEqual(await platformProfiles, implementationProfiles);
+  assert.deepEqual(implementationProfileArguments, [
+    "Example.Package",
+    "1.0.0",
+    "net11.0",
+    "lib/net11.0/Example.dll",
+    "type:Example.Widget",
+    ["M(int)", "M(string)"],
+  ]);
+  assert.deepEqual(platformImplementationProfileArguments, [
+    "net11.0",
+    "11.0.0",
+    "System.Private.CoreLib.dll",
+    "Microsoft.NETCore.App",
+    "type:System.Text.StringBuilder",
+    ["AppendFormat(string,object)", "AppendFormat(string,object[])"],
+  ]);
   assert.deepEqual(cloneArguments, [cloneRequest]);
   assert.deepEqual(await libraryDiff, {
     schemaVersion: 1,
@@ -1328,13 +1433,14 @@ test("ordinary source comparison transport decodes the bounded typed payload", a
   } satisfies BrowserSourceComparisonResult;
   const state = fixture({
     source: {
-      queryMemberSourceComparison: async () => JSON.stringify(result),
+      queryMemberSourceComparison: async () =>
+        sourceComparisonJsonTextFixture(result),
     },
   });
 
   const pending = state.client.source.queryMemberSourceComparison(
     "source-comparison-operation",
-    JSON.stringify(result.value.request),
+    result.value.request,
   );
   await state.environment.flushAsync();
 
@@ -1808,10 +1914,12 @@ test("the page client and Worker catalog expose only the closed allow-list", () 
     analysis: [
       "queryCloneCandidates",
       "queryMemberFacts",
+      "queryPackageImplementationProfiles",
       "queryPackageIntegrations",
       "queryPackageLibraryMetrics",
       "queryPackageOpportunities",
       "queryPackagePerformance",
+      "queryPlatformImplementationProfiles",
       "queryPlatformIntegrations",
       "queryPlatformLibraryMetrics",
       "queryPlatformOpportunities",
@@ -1871,7 +1979,7 @@ test("the page client and Worker catalog expose only the closed allow-list", () 
     [...engineWorkerOrdinaryOperationKinds].sort(),
     expectedKinds,
   );
-  assert.equal(engineWorkerOrdinaryOperationKinds.length, 80);
+  assert.equal(engineWorkerOrdinaryOperationKinds.length, 82);
 
   const state = fixture();
   const groups = [

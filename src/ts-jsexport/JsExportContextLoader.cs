@@ -659,6 +659,25 @@ internal static class JsExportContextGenerator
         string runtimeModule,
         string toolName,
         TextWriter error,
+        out ImmutableArray<GeneratedJsExportFacade> facades) =>
+        TryGenerate(
+            contextAssemblyPath,
+            contextTypeName,
+            searchLocations,
+            runtimeModule,
+            toolName,
+            error,
+            warningsAsErrors: false,
+            out facades);
+
+    public static bool TryGenerate(
+        string contextAssemblyPath,
+        string contextTypeName,
+        IReadOnlyList<string> searchLocations,
+        string runtimeModule,
+        string toolName,
+        TextWriter error,
+        bool warningsAsErrors,
         out ImmutableArray<GeneratedJsExportFacade> facades)
     {
         facades = [];
@@ -686,6 +705,14 @@ internal static class JsExportContextGenerator
                     error,
                     out global::ILInspector.JsExportSurface.JsExportSurface?
                         surface))
+            {
+                return false;
+            }
+            if (!JsExportCertificationReporter.Report(
+                    surface!,
+                    toolName,
+                    error,
+                    warningsAsErrors))
             {
                 return false;
             }

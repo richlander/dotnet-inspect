@@ -65,57 +65,23 @@ public class QueryDiscoveryTests
     }
 
     [Theory]
-    [InlineData("Consumer Use Sites")]
-    [InlineData("Provider API Types")]
-    [InlineData("Direct Use Clusters")]
-    [InlineData("Call Sites")]
-    [InlineData("Public Root Paths")]
-    public async Task GraphLibrariesQuery_ExposesInheritedClusterWithoutAcquiringPair(
-        string sectionName)
+    [InlineData("libraries")]
+    [InlineData("cluster")]
+    public void GraphLibraryRoutes_DoNotExposeQueryDiscovery(
+        string route)
     {
-        var result = await Run(
+        var result = CommandLineBuilder.CreateRootCommand().Parse(
+        [
             "graph",
-            "libraries",
+            route,
             "-Q",
-            sectionName,
-            "--json");
+        ]);
 
-        Assert.Equal(0, result.ExitCode);
-        Assert.Empty(result.Error);
-        using var json = JsonDocument.Parse(result.Output);
-        JsonElement section = Assert.Single(
-            json.RootElement.GetProperty("sections").EnumerateArray());
-        Assert.Equal(
-            sectionName,
-            section.GetProperty("section").GetString());
-        JsonElement cluster = Assert.Single(
-            section.GetProperty("facets").EnumerateArray());
-        Assert.Equal(
-            "Cluster",
-            cluster.GetProperty("name").GetString());
-        Assert.Equal(
-            ["--where"],
-            cluster.GetProperty("operators")
-                .EnumerateArray()
-                .Select(value => value.GetString()));
-        Assert.Equal(
-            ["="],
-            cluster.GetProperty("comparisons")
-                .EnumerateArray()
-                .Select(value => value.GetString()));
-        Assert.Equal(
-            "--where \"Cluster=3\"",
-            cluster.GetProperty("example").GetString());
-
-        var companion = await Run(
-            "graph",
-            "libraries",
-            "-S",
-            $"Query: {sectionName}",
-            "--json");
-        Assert.Equal(0, companion.ExitCode);
-        Assert.Empty(companion.Error);
-        Assert.Equal(result.Output, companion.Output);
+        Assert.Contains(
+            result.Errors,
+            error => error.Message.Contains(
+                "-Q",
+                StringComparison.Ordinal));
     }
 
     [Fact]

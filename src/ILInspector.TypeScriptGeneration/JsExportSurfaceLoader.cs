@@ -10,14 +10,14 @@ internal static class JsExportSurfaceLoader
 {
     public static bool TryLoad(
         string assemblyPath,
-        ApiAssemblyIdentity jsonInputContractIdentity,
+        ApiAssemblyIdentity jsonContractIdentity,
         string toolName,
         TextWriter error,
         out global::ILInspector.JsExportSurface.JsExportSurface? surface) =>
         TryLoad(
             assemblyPath,
             searchLocations: [],
-            jsonInputContractIdentity,
+            jsonContractIdentity,
             toolName,
             error,
             out surface);
@@ -25,7 +25,7 @@ internal static class JsExportSurfaceLoader
     public static bool TryLoad(
         string assemblyPath,
         IReadOnlyList<string> searchLocations,
-        ApiAssemblyIdentity jsonInputContractIdentity,
+        ApiAssemblyIdentity jsonContractIdentity,
         string toolName,
         TextWriter error,
         out global::ILInspector.JsExportSurface.JsExportSurface? surface)
@@ -116,7 +116,7 @@ internal static class JsExportSurfaceLoader
                 bodyIndex,
                 referencedTypeDefinitions,
                 referencedBodyIndexes,
-                jsonInputContractIdentity);
+                jsonContractIdentity);
             return true;
         }
         catch (UnsupportedJsExportSurfaceException ex)

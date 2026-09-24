@@ -223,11 +223,9 @@ public partial class CommandExecutionTests
         }
     }
 
-    [Theory]
-    [InlineData("m")]
-    [InlineData("d")]
-    public async Task TypeListing_RendersInspectionFailuresAtRaisedVerbosity(
-        string verbosity)
+    [Fact]
+    public async Task
+        TypeListing_DetailedRendersInspectionFailuresFromAssemblyAdjacency()
     {
         string path = Path.Combine(
             Path.GetTempPath(),
@@ -241,7 +239,7 @@ public partial class CommandExecutionTests
                 "type",
                 "--library",
                 path,
-                $"-v:{verbosity}",
+                "-v:d",
                 "--tips",
                 "q");
 
@@ -262,8 +260,12 @@ public partial class CommandExecutionTests
         }
     }
 
-    [Fact]
-    public async Task TypeListing_NormalOmitsInspectionFailuresButKeepsWarning()
+    [Theory]
+    [InlineData("m")]
+    [InlineData("n")]
+    public async Task
+        TypeListing_OrdinaryRowsDoNotResolveAssemblyAdjacency(
+            string verbosity)
     {
         string path = Path.Combine(
             Path.GetTempPath(),
@@ -277,19 +279,16 @@ public partial class CommandExecutionTests
                 "type",
                 "--library",
                 path,
-                "-v:n",
+                $"-v:{verbosity}",
                 "--tips",
                 "q");
 
-            Assert.Equal(1, result.Exit);
+            Assert.Equal(0, result.Exit);
             Assert.DoesNotContain(
                 "## Inspection Failures",
                 result.Output,
                 StringComparison.Ordinal);
-            Assert.Contains(
-                "rejected 1 metadata row",
-                result.Error,
-                StringComparison.OrdinalIgnoreCase);
+            Assert.Empty(result.Error);
         }
         finally
         {

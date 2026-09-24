@@ -812,15 +812,22 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task TypeListing_NestedDelegate_ShowsFullDeclaringTypeContext()
+    public async Task
+        TypeListing_NestedGenericDelegate_ShowsFullDeclaringTypeContext()
     {
         var (exit, output, error) = await RunAppAsync(
-            "type", "System.Text.Json", "--tips", "q");
+            "type",
+            "--platform",
+            "System.Private.CoreLib",
+            "--tips",
+            "q");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
-        Assert.Contains("`System.Text.Json.Serialization.Metadata.FSharpCoreReflectionProxy.StructGetter<TStruct, TResult>`", output);
-        Assert.DoesNotContain("| `StructGetter<TStruct, TResult>` |", output);
+        Assert.Contains(
+            "`System.IO.Enumeration.FileSystemEnumerable<TResult>.FindPredicate`",
+            output);
+        Assert.DoesNotContain("| `FindPredicate` |", output);
     }
 
     [Fact]
