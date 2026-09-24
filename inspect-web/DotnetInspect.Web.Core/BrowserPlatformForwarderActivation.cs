@@ -142,7 +142,9 @@ internal abstract record BrowserPlatformForwarderActivationBlock
     }
 
     internal sealed record Stale(
-        BrowserPlatformForwarderStaleReason Reason)
+        BrowserPlatformForwarderStaleReason Reason,
+        PlatformHouseReceipt? Receipt = null,
+        PlatformTypeDefinitionResolutionResult? Resolution = null)
         : BrowserPlatformForwarderActivationBlock;
 
     internal sealed record Refused(
@@ -397,13 +399,26 @@ internal sealed class BrowserPlatformForwarderActivation : IDisposable
             {
                 return Blocked(
                     action,
-                    new BrowserPlatformForwarderActivationBlock.Stale(
-                        BrowserPlatformForwarderStaleReason.Result));
+                    Stale(outcome));
             }
         }
 
         return Project(action, entry, outcome);
     }
+
+    private static BrowserPlatformForwarderActivationBlock.Stale Stale(
+        PlatformHouseOutcome<
+            PlatformTypeDefinitionValue.Implementation<
+                PlatformTypeDefinitionResolutionResult>> outcome) =>
+        new(
+            BrowserPlatformForwarderStaleReason.Result,
+            outcome.Receipt,
+            outcome is PlatformHouseOutcome<
+                PlatformTypeDefinitionValue.Implementation<
+                    PlatformTypeDefinitionResolutionResult>>.Completed
+                        completed
+                ? completed.Value.Outcome
+                : null);
 
     public void Dispose()
     {

@@ -238,9 +238,21 @@ public sealed class BrowserPlatformForwarderActivationTests
         var stale = Assert.IsType<
             BrowserPlatformForwarderActivationResult.Blocked>(
                 await pending);
-        Assert.IsType<
+        var staleBlock = Assert.IsType<
             BrowserPlatformForwarderActivationBlock.Stale>(
                 stale.Block);
+        Assert.NotNull(staleBlock.Receipt);
+        var staleRoute = Assert.IsType<
+            PlatformTypeDefinitionResolutionResult.Resolved>(
+                staleBlock.Resolution);
+        Assert.Collection(
+            staleRoute.Hops,
+            first => Assert.Equal(
+                "System.Xml.ReaderWriter",
+                first.TargetReference.Name),
+            second => Assert.Equal(
+                "System.Private.Xml",
+                second.TargetReference.Name));
 
         BrowserPlatformForwarderAction canceledAction = Publish(
             activation,
