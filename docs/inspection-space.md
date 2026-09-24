@@ -1439,10 +1439,14 @@ whose projection was omitted by a limit. Both sides are attempted independently.
 The same caller-declared budget applies separately to each endpoint, not to
 their combined population.
 
-The query compares only two fully projected surfaces. Rejection, failure,
-projection truncation, an API-row inspection failure, or a degraded member
-signature on either side prevents comparison, while retaining both endpoint
-outcomes and any available facts.
+The query compares only two fully projected surfaces. It uses metadata-only
+projection because compatibility compares exact type- and method-parameter
+constraint names alongside member signature identities; it does not need the
+class-or-interface classification of an external generic-constraint
+definition. Rejection, failure, projection truncation, an API-row inspection
+failure produced by that projection, or a degraded member signature on either
+side prevents comparison, while retaining both endpoint outcomes and any
+available facts.
 In particular, a participant can be available while some API rows failed:
 `AssemblyContextApiSurfaceResult.IsComplete` alone does not establish that its
 surface is eligible for this comparison. Guarded signature substitution is
@@ -1467,8 +1471,11 @@ query and its CLI consumer remain unchanged.
 `AssemblyContextApiComparisonQueryTests` gates ordered subject identity,
 selected-participant projection, complete and empty comparisons, independent
 budgets, unavailable neighbors, row-level failure admission, and degraded
-signature admission. `AssemblyContextApiSurfaceQueryTests` owns
-extraction-bound enforcement;
+signature admission. `LibraryApiDiffInspectionTests` gates that forwarded
+generic constraints do not trigger external dependency resolution or consume
+the inspection-failure budget, and that method-constraint replacements remain
+visible when their defining dependency is absent.
+`AssemblyContextApiSurfaceQueryTests` owns extraction-bound enforcement;
 `ApiComparisonQueryTests` owns the Metadata-comparison seam.
 
 [#6119](https://github.com/richlander/dotnet-inspect/issues/6119) is the

@@ -882,6 +882,9 @@ public static class LibraryInspectionOperation
                     is MetadataNamespaceMatch.Suffix
                 && (@namespace!.Length < 2
                     || @namespace[0] != '.'))
+            || (namespaceMatch
+                    is MetadataNamespaceMatch.ExactOrDescendant
+                && @namespace!.Length == 0)
             || nextOrdinal < 0)
         {
             return false;

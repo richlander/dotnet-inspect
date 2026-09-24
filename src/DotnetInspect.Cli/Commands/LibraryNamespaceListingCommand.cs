@@ -11,7 +11,17 @@ internal static class LibraryNamespaceListingCommand
     internal static bool ValidateOptions(LibraryOptions options)
     {
         if (options.TypeNamespace is null)
+        {
+            if (options.IncludeNamespaceChildren)
+            {
+                CommandError.Write(
+                    "library --children requires --namespace.");
+                return false;
+            }
             return true;
+        }
+        if (!TryGetNamespaceMatch(options, out _))
+            return false;
 
         if (options.JsonOutput
             || options.PlainText
@@ -70,10 +80,12 @@ internal static class LibraryNamespaceListingCommand
             options.TypeNamespace
             ?? throw new InvalidOperationException(
                 "Namespace Type listing requires a namespace.");
-        MetadataNamespaceMatch namespaceMatch =
-            @namespace.StartsWith(".", StringComparison.Ordinal)
-                ? MetadataNamespaceMatch.Suffix
-                : MetadataNamespaceMatch.Exact;
+        if (!TryGetNamespaceMatch(
+                options,
+                out MetadataNamespaceMatch namespaceMatch))
+        {
+            return 1;
+        }
         var selection =
             new LibraryTypeListingCommand
                 .LibraryTypePopulationSelection(
@@ -106,5 +118,40 @@ internal static class LibraryNamespaceListingCommand
             return 1;
 
         return ApiCommand.WriteLibraryNamespaceListingOutput(result);
+    }
+
+    internal static bool TryGetNamespaceMatch(
+        LibraryOptions options,
+        out MetadataNamespaceMatch namespaceMatch)
+    {
+        ArgumentNullException.ThrowIfNull(options);
+        namespaceMatch = MetadataNamespaceMatch.Exact;
+        string? @namespace = options.TypeNamespace;
+        if (@namespace is null)
+        {
+            if (!options.IncludeNamespaceChildren)
+                return true;
+
+            CommandError.Write(
+                "library --children requires --namespace.");
+            return false;
+        }
+
+        bool suffix =
+            @namespace.StartsWith(".", StringComparison.Ordinal);
+        if (suffix && options.IncludeNamespaceChildren)
+        {
+            CommandError.Write(
+                "library --children cannot be combined with a leading-dot "
+                    + "namespace suffix.");
+            return false;
+        }
+
+        namespaceMatch = suffix
+            ? MetadataNamespaceMatch.Suffix
+            : options.IncludeNamespaceChildren
+                ? MetadataNamespaceMatch.ExactOrDescendant
+                : MetadataNamespaceMatch.Exact;
+        return true;
     }
 }

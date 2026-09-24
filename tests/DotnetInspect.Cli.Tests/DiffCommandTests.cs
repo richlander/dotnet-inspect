@@ -2729,7 +2729,7 @@ public class DiffCommandTests
     [Theory]
     [InlineData(true)]
     [InlineData(false)]
-    public async Task CommandLine_ForwardedConstraint_ReportsDependencyCompleteness(
+    public async Task CommandLine_ForwardedConstraint_DoesNotResolveDependency(
         bool includeBase)
     {
         string directory = Directory.CreateTempSubdirectory(
@@ -2755,25 +2755,22 @@ public class DiffCommandTests
                 async () => await CommandLineBuilder.CreateRootCommand()
                     .Parse(args).InvokeAsync());
 
-            Assert.Equal(includeBase ? 0 : 1, exitCode);
+            Assert.Equal(0, exitCode);
             Assert.Empty(error);
             using var document = JsonDocument.Parse(output);
             Assert.Equal(JsonValueKind.Object, document.RootElement.ValueKind);
-            if (includeBase)
-            {
-                Assert.DoesNotContain("incomplete", output, StringComparison.OrdinalIgnoreCase);
-            }
-            else
-            {
-                Assert.Contains(
-                    ApiSurfaceInspectionFailure.GenericParameterConstraintResolutionOperation,
-                    output,
-                    StringComparison.Ordinal);
-                Assert.Contains(
-                    "DotnetInspector.Services.RouteLearning.Base",
-                    output,
-                    StringComparison.Ordinal);
-            }
+            Assert.Equal(
+                "available",
+                document.RootElement.GetProperty("outcome").GetString());
+            Assert.DoesNotContain(
+                "incomplete",
+                output,
+                StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotContain(
+                ApiSurfaceInspectionFailure
+                    .GenericParameterConstraintResolutionOperation,
+                output,
+                StringComparison.Ordinal);
         }
         finally
         {

@@ -135,7 +135,8 @@ public sealed class SourceScopedRoutingTests : IDisposable
     }
 
     [Fact]
-    public async Task Router_PlatformPrefixBrowse_IgnoresCachedPackageCandidate()
+    public async Task
+        Router_PlatformNamespace_IgnoresCachedPackageCandidate()
     {
         const string Target = "System.Text.Json.Serialization";
         SeedLatestCandidate(
@@ -150,7 +151,7 @@ public sealed class SourceScopedRoutingTests : IDisposable
             observations,
             observation => observation.Stage == "router-rewrite");
         Assert.Contains(
-            $" -> type {Target}",
+            $" -> library System.Text.Json --namespace {Target}",
             rewrite.Detail,
             StringComparison.Ordinal);
     }
