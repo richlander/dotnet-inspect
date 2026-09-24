@@ -67,6 +67,7 @@ export function isLibraryLens(
 
 export const memberSectionDefinitions = [
   ["overview", "Overview"],
+  ["implementation-profiles", "Implementation profiles"],
   ["call-graph", "Call graph"],
   ["facts", "Facts"],
   ["source", "Source"],
@@ -1614,6 +1615,7 @@ export function sourceRequestNeedsLoad(
 
 export interface SectionableMember {
   kind?: string;
+  overloads?: readonly unknown[];
 }
 
 // The full roster is derived from the catalog rather than restated, so a new section is
@@ -1640,10 +1642,14 @@ export function memberSectionIdsFor(
   const sections = isRuntimePack
     ? allMemberSections.filter(section => !packageOnlyMemberSections.has(section))
     : [...allMemberSections];
+  const eligibleSections = member?.kind === "method"
+    && (member.overloads?.length ?? 0) > 1
+    ? sections
+    : sections.filter(id => id !== "implementation-profiles");
   return hasSelectedBody
     && ["property", "event"].includes(member?.kind ?? "")
-    ? sections.filter(id => id !== "source")
-    : sections;
+    ? eligibleSections.filter(id => id !== "source")
+    : eligibleSections;
 }
 
 export function typeLensesFor(
