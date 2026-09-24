@@ -83,13 +83,13 @@ type names such as `string`, `int`, `DateTime`, and `Guid` resolve to
 `System.Private.CoreLib`. Use explicit commands and `--package`, `--platform`,
 or `--library` when you need a specific source.
 
-### Direct Library namespace populations
+### Library namespace Type listings
 
-The direct Library inspection envelope can qualify its public Type population
-by exact namespace:
+An exact Library can list its public Type declarations from one exact
+namespace:
 
 ```bash
-dotnet-inspect library ./MyLibrary.dll --envelope \
+dotnet-inspect library System.Text.Json \
   --namespace System.Text.Json.Nodes
 ```
 
@@ -97,15 +97,16 @@ A leading dot selects an exhaustive namespace suffix within that same exact
 Library:
 
 ```bash
-dotnet-inspect library ./MyLibrary.dll --envelope --namespace .Nodes
+dotnet-inspect library ./MyLibrary.dll --namespace .Nodes
 ```
 
 `.Nodes` matches Types declared in namespaces such as `World.Blue.Nodes` and
 `World.Green.Nodes`. It does not prepend the Library name, and it does not
-match `Nodes`, `World.Blue.MyNodes`, or `World.Blue.Nodes.More`. The envelope
-records whether the namespace match is `Exact` or `Suffix`; the mode is also
-part of continuation identity. Namesake source discovery belongs to Router,
-Spotlight, and `find`, not this direct-file operation.
+match `Nodes`, `World.Blue.MyNodes`, or `World.Blue.Nodes.More`. Markdown
+renders the matching declarations in Type tables without a separate count
+summary. `--envelope` exposes the same population's typed exact-or-suffix
+binding and continuation identity. Namesake source discovery belongs to
+Router, Spotlight, and `find`, not this exact-Library operation.
 
 Use `-D --schema` to inspect the syntax-selected structural view without
 acquiring or loading the target. Package `--library` and `--all-libraries`

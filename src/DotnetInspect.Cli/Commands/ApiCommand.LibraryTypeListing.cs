@@ -53,6 +53,52 @@ public static partial class ApiCommand
         }
 
         var output = new StringWriter { NewLine = "\n" };
+        WriteLibraryTypeListingMarkdown(view, writerOptions, output);
+        return 0;
+    }
+
+    internal static int WriteLibraryNamespaceListingOutput(
+        LibraryTypeListingResult result)
+    {
+        CliApiSurface view =
+            ApiOutputFormatter.BuildLibraryTypeView(
+                result.Document,
+                result.Rows);
+        if (result.Rows.IsEmpty)
+        {
+            string @namespace =
+                result.Document.Types.Binding.Namespace
+                ?? throw new InvalidOperationException(
+                    "Namespace Type listing output requires a namespace binding.");
+            view.DescriptionText =
+                ApiViewText.Field(
+                    $"No public Type declarations matched namespace '{@namespace}'.");
+        }
+
+        var writerOptions =
+            new MarkoutWriterOptions
+            {
+                IncludeSections =
+                [
+                    SectionNames.Classes,
+                    SectionNames.Structs,
+                    SectionNames.Interfaces,
+                    SectionNames.Enums,
+                    SectionNames.Delegates,
+                    SectionNames.TypeForwarders,
+                ],
+                IncludeDescription = true,
+            };
+        var output = new StringWriter { NewLine = "\n" };
+        WriteLibraryTypeListingMarkdown(view, writerOptions, output);
+        return 0;
+    }
+
+    private static void WriteLibraryTypeListingMarkdown(
+        CliApiSurface view,
+        MarkoutWriterOptions writerOptions,
+        StringWriter output)
+    {
         MarkoutSerializer.Serialize(
             view,
             output,
@@ -62,7 +108,6 @@ public static partial class ApiCommand
         OutputFormatter.WriteLfLine(
             Console.Out,
             output.ToString().TrimEnd());
-        return 0;
     }
 
     private static int WriteLibraryTypeCount(
