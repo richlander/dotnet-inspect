@@ -99,9 +99,13 @@ public sealed partial class PackageRangedRealizationTests
         JsonElement transfer = entry.GetProperty("transfer");
         Assert.Equal("Ranged", transfer.GetProperty("path").GetString());
         Assert.False(transfer.TryGetProperty("fallback_reason", out _));
-        Assert.Equal(2, transfer.GetProperty("request_count").GetInt32());
+        // Size first puts the abandoned probe before the ranged requests.
+        Assert.Equal(3, transfer.GetProperty("request_count").GetInt32());
         Assert.False(transfer.GetProperty("is_truncated").GetBoolean());
-        JsonElement[] requests = [.. transfer.GetProperty("requests").EnumerateArray()];
+        JsonElement[] all = [.. transfer.GetProperty("requests").EnumerateArray()];
+        Assert.Equal("SizeProbe", all[0].GetProperty("purpose").GetString());
+        Assert.Equal("Abandoned", all[0].GetProperty("outcome").GetString());
+        JsonElement[] requests = all[1..];
         Assert.Equal("DirectoryTail", requests[0].GetProperty("purpose").GetString());
         // A tail range names only its length; the absent start means "the final bytes".
         Assert.False(requests[0].GetProperty("range").TryGetProperty("start", out _));
