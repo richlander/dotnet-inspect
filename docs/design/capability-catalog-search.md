@@ -6,12 +6,13 @@ This document is the normative design for **Capability Catalog Search**,
 tracked by
 [#8424](https://github.com/richlander/dotnet-inspect/issues/8424).
 
-The operation is proposed. It depends on the explicit available-capability
-graph defined by
+The first adoption is implemented over the explicit available-capability graph
+defined by
 [Inspection Capability Composition](inspection-capability-composition.md).
-Its first production adoption will let CLI and Browser users search for
-`literal`, discover the Package Query `library-literal` facet, resolve its
-exact Resource Explanation path, and reach the existing production query.
+The host-neutral operation, CLI `explain` facade, Browser/Wasm managed export,
+and production `library-literal` witness are implemented. Portable Browser
+Share, reusable-reference facade dispatch, and shipped-skill simplification
+remain follow-up work.
 
 ## Owner and exact claim
 
@@ -117,9 +118,10 @@ distinct rows. Catalog search does not execute that query or acquire
 next gestures discoverable.
 
 The Browser uses the same host-neutral search operation and presents the same
-ranked resource identities, paths, routes, and production bindings. Browser
-interaction design may differ, but it may not privately rank another catalog
-or reconstruct capability from UI labels.
+ranked resource identities, paths, routes, and production bindings for the
+catalog generation supplied by that host. Browser interaction design may
+differ, but it may not privately rank another catalog or reconstruct
+capability from UI labels.
 
 ## Basis and authority map
 
@@ -369,6 +371,7 @@ The owner exposes one completed operation:
 ```text
 CapabilityCatalogSearch.Search(
   InspectionCapabilityCatalog catalog,
+  ResourceExplanationCatalog explanationCatalog,
   CapabilityCatalogSearchRequest request)
   -> InspectionEnvelope<CapabilityCatalogSearchDocument>
 ```
@@ -392,11 +395,12 @@ materialized. Cache identity follows the exact composed catalog instance or
 generation; one deployment's index is never reused for another catalog.
 
 The operation returns one
-`InspectionEnvelope<CapabilityCatalogSearchDocument>`. The target state uses
-an available Share URL that preserves the search text and result bound for the
-Browser capability-search route. Diagnostics remain ordered cross-host
-diagnostics; a host does not translate an operation failure into an empty
-result.
+`InspectionEnvelope<CapabilityCatalogSearchDocument>`. The first adoption
+returns `InspectionShare.NonProjectable` because the Browser does not yet own a
+portable capability-search route or Workspace projection. The target state
+uses an available Share URL that preserves the search text and result bound
+for that route. Diagnostics remain ordered cross-host diagnostics; a host does
+not translate an operation failure into an empty result.
 
 ## Exact explanation handoff
 
@@ -436,7 +440,7 @@ explainable resource prevents catalog construction or operation completion.
 
 ## Explain facade and Browser adoption
 
-The proposed CLI search gesture is:
+The CLI search gesture is:
 
 ```console
 dotnet-inspect explain <search-text>
@@ -452,7 +456,7 @@ dispatches by operand syntax before invoking an operation:
 | Reusable inspection reference | Subject-affordance explanation |
 | Any other non-empty bounded text | Capability Catalog Search |
 
-The facade classifies in this order:
+The target facade classifies in this order:
 
 1. exact registered resource path or alias;
 2. reusable-reference shape;
@@ -466,7 +470,9 @@ reference owner may use slash-bearing syntax. An unknown canonical
 multi-segment path remains an exact path failure, and an invalid
 reference-shaped operand remains a reference failure. Neither becomes search
 text. A noncanonical slash-bearing string such as `https://` remains search
-text.
+text. The first adoption implements registered exact paths, canonical
+multi-segment exact failures, and capability-search text; reusable-reference
+recognition remains pending until its owner provides the classifier.
 
 The search branch takes no package, Library, Type, Member, project, or
 Workspace subject. Default Markdown is a compact ranked table. Structured
@@ -527,22 +533,23 @@ publish a partially ranked prefix as complete.
 
 ## Evidence and gates
 
-All gates below are planned until implementation lands.
-
-| Claim | Gate |
+| Claim | Status and gate |
 | --- | --- |
-| `literal` discovers the `library-literal` query facet through its canonical key segment | Host-neutral search test over the composed Package Query capability graph |
-| A close misspelling uses the existing similarity model | Search test asserting `litteral` ranks `library-literal` with the `StringDistance` score |
-| Ranking is independent of registration order | Permutation test over equivalent composed catalogs |
-| Equal scores use provenance, complete-versus-segment, and path tie-breakers | Focused ordering tests with close neighboring resources |
-| Search evaluates the complete available population before applying the result bound | Result-count and truncation test |
-| No match is complete empty rather than failure | Host-neutral zero-match Document test |
-| Invalid input does not become successful empty Content | Request-validation tests |
-| Every result path resolves to the same resource identity | Search-to-Resource-Explanation handoff test |
-| Search invokes no producer or acquisition path | Throwing producer/acquisition seam test over a settled catalog |
-| The `explain` facade selects registered or canonical multi-segment paths, reusable references, and search text without failure fallback | Facade-level CLI matrix covering a registered single-segment path, unregistered single-segment search text, ordinary multiword and `https://` search text, a registered multi-segment path, an unknown canonical multi-segment path, noncanonical slash-bearing text, slash-bearing reusable-reference syntax, invalid shaped references, and close grammar-boundary negatives |
-| CLI and Browser consume equal Content for the same request and catalog | Cross-host contract test |
-| The real agent path reaches the production literal query | CLI end-to-end test using `literal`, exact explanation, and `Microsoft.Azure.SignalR@1.33.1` at `net8.0` |
+| `literal` discovers the `library-literal` query facet through its canonical key segment | Implemented: host-neutral search test over the composed Package Query capability graph |
+| A close misspelling uses the existing similarity model | Implemented: search test asserting `litteral` ranks `library-literal` with the `StringDistance` score |
+| Ranking is independent of registration order | Implemented: permutation test over equivalent composed catalogs |
+| Equal scores use provenance, complete-versus-segment, and path tie-breakers | Implemented: focused ordering tests over production and bounded synthetic capability graphs |
+| Search evaluates the complete available population before applying the result bound | Implemented: result-count and truncation test |
+| No match is complete empty rather than failure | Implemented: host-neutral zero-match Document test |
+| Invalid input does not become successful empty Content | Implemented: request-validation tests |
+| Every result path resolves to the same resource identity | Implemented: search-to-Resource-Explanation handoff test |
+| Search invokes no producer or acquisition path | Implemented: throwing route delegates in host-neutral ordering tests and a CLI acquisition seam test |
+| The `explain` facade selects registered or canonical multi-segment paths and search text without failure fallback | Implemented: facade-level CLI matrix covering registered and unknown paths, single-segment search, misspelling, and noncanonical slash-bearing text |
+| Reusable-reference shapes select their owner before Resource Path classification | Pending: no reusable-reference classifier is currently registered with the facade |
+| CLI and Browser invoke the same host-neutral operation | Implemented: CLI facade tests plus Browser managed-export tests over host-composed catalogs |
+| Equal requests over the same catalog generation produce equal Content, Share, and diagnostics | Guaranteed by the single host-neutral operation; a cross-host shared-generation harness remains pending |
+| The real agent path reaches the production literal query | Implemented: CLI end-to-end test using `literal`, exact explanation, and `Microsoft.Azure.SignalR@1.33.1` at `net8.0` |
+| Capability search has an available portable Browser Share | Pending: the first adoption reports `InspectionShare.NonProjectable` explicitly |
 
 No timing or allocation-performance claim is made. The existing
 MetadataPrimitives project boundary owns the reusable similarity
@@ -552,16 +559,21 @@ implementation; this adoption adds no new matching algorithm.
 
 1. Complete the #8417 Package Query capability registration, including the
    query facet's canonical Resource Explanation path and real CLI and Browser
-   bindings.
+   bindings. **Complete.**
 2. Add the host-neutral search-term projection, request, result Document,
    similarity ranking, and exact-path handoff over the settled composed graph.
+   **Complete.**
 3. Extend the top-level `explain` facade with syntax-selected capability search
    for every operand that is neither an exact registered path or alias,
    reusable-reference-shaped, nor a canonical multi-segment `ResourcePath`.
+   **Complete for exact paths and search text; reusable-reference dispatch is
+   pending its owner-provided classifier.**
 4. Add the Browser/Wasm capability-search entry point over the same envelope.
+   **Complete as a generated managed export; portable Share and interaction
+   adoption remain pending.**
 5. Replace detailed capability inventory in the shipped router skill with the
    search, explain, discover, and execute workflow after both production hosts
-   are available.
+   are available. **Pending.**
 
 Each slice lands with its own production consumer. A search implementation
 over a synthetic test-only registry does not complete this design.

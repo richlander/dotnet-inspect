@@ -1221,5 +1221,7 @@ public sealed record BrowserPackageVersions(
 [JsonSerializable(typeof(BrowserPackageGraphIdentityRole[]))]
 [JsonSerializable(typeof(BrowserTypeCandidate[]))]
 [JsonSerializable(typeof(BrowserTypeSearchHit[]))]
+[JsonSerializable(
+    typeof(InspectionEnvelope<CapabilityCatalogSearchDocument>))]
 [JsonSerializable(typeof(string[]))]
 internal sealed partial class BrowserPackageJsonContext : JsonSerializerContext;

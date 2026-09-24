@@ -1,5 +1,11 @@
 import { dotnet } from "./runtime-loader.js";
 
+declare const inertStringBrand: unique symbol;
+
+export type InertString = string & {
+  readonly [inertStringBrand]: "InertString";
+};
+
 declare const dateTimeOffsetStringBrand: unique symbol;
 
 export type DateTimeOffsetString = string & {
@@ -86,6 +92,8 @@ export type BrowserPackageQueryResultKind = "Succeeded" | "Failed" | "Canceled" 
 
 export type BrowserPackageVersionSettlementOutcomeKind = "Settled" | "NotSettled" | number;
 
+export type CapabilityCatalogSearchMatchSource = "CanonicalKey" | "OwnerIdentity" | "ResourcePath" | "ResourceName" | "Summary" | "RelatedRoute" | "ProductionBinding" | number;
+
 export type CompiledDocumentationIncompleteReason = "Deadline" | "ContributionLimit" | "CompanionSelectionPartial" | "CompiledXmlByteLimit" | number;
 
 export type CompiledDocumentationRequestRejectionKind = "LibraryReferenceMismatch" | "ApiContentMismatch" | "LeaseReferenceMismatch" | number;
@@ -103,6 +111,14 @@ export type DocumentationQueryFailureReason = "CompiledXmlMalformedOrUnreadableD
 export type DocumentationQueryFieldEvidenceKind = "Selected" | "Corroborated" | "Conflict" | "Absent" | number;
 
 export type DocumentationQueryRequestRejectionReason = "LibraryReferenceMismatch" | "ApiContentMismatch" | "LeaseReferenceMismatch" | "AuthoredSourceBindingMismatch" | number;
+
+export type InspectionCapabilityResourceKind = "Document" | "Route" | "QuerySpace" | "QueryFacet" | "ConsumerBinding" | number;
+
+export type InspectionConsumerKind = "Cli" | "Browser" | "OperationBackedSection" | number;
+
+export type InspectionDiagnosticSeverity = number;
+
+export type ResourceExplanationResourceKind = "Catalog" | "NavigationCollection" | "StructuralCategory" | "StructuralSection" | "StructuralItem" | "InspectionDocument" | "HostNeutralRoute" | "QuerySpace" | "QueryFacet" | "ConsumerBinding" | number;
 
 export interface AuthoredDocumentationObservation {
   readonly code?: string;
@@ -1101,6 +1117,45 @@ export interface BrowserWorkspacePackageOccurrenceView {
   readonly superseded: boolean;
 }
 
+export interface CapabilityCatalogSearchBinding {
+  readonly identity: string;
+  readonly name: string;
+  readonly consumerKind: InspectionConsumerKind;
+  readonly gesture: string;
+  readonly resourcePath: string;
+}
+
+export interface CapabilityCatalogSearchDocument {
+  readonly query: string;
+  readonly similarityThreshold: number;
+  readonly candidateResourceCount: number;
+  readonly matchCount: number;
+  readonly returnedCount: number;
+  readonly isTruncated: boolean;
+  readonly results: ReadonlyArray<CapabilityCatalogSearchResult>;
+}
+
+export interface CapabilityCatalogSearchResult {
+  readonly rank: number;
+  readonly similarity: number;
+  readonly matchedTerm: string;
+  readonly matchSource: CapabilityCatalogSearchMatchSource;
+  readonly isSegment: boolean;
+  readonly resourceIdentity: InspectionCapabilityResourceIdentity;
+  readonly resourceKind: ResourceExplanationResourceKind;
+  readonly resourceName: string;
+  readonly canonicalKeys: ReadonlyArray<string>;
+  readonly resourcePath: string;
+  readonly owningRoutes: ReadonlyArray<CapabilityCatalogSearchRoute>;
+  readonly productionBindings: ReadonlyArray<CapabilityCatalogSearchBinding>;
+}
+
+export interface CapabilityCatalogSearchRoute {
+  readonly identity: string;
+  readonly name: string;
+  readonly resourcePath: string;
+}
+
 export interface CompiledDocumentationAssemblyIdentity {
   readonly name?: string;
   readonly version?: string;
@@ -1199,6 +1254,25 @@ export interface DocumentationQueryTextFieldEvidence {
   readonly kind: DocumentationQueryFieldEvidenceKind;
   readonly requestedChannels: ReadonlyArray<DocumentationQueryChannel>;
   readonly contributions: ReadonlyArray<DocumentationQueryTextFieldContribution>;
+}
+
+export interface InspectionCapabilityResourceIdentity {
+  readonly kind: InspectionCapabilityResourceKind;
+  readonly identity: string;
+  readonly parentIdentity: string | null;
+}
+
+export interface InspectionDiagnostic {
+  readonly code: string;
+  readonly severity: InspectionDiagnosticSeverity;
+  readonly summary: InertString;
+  readonly correspondence: InertString | null;
+}
+
+export interface InspectionEnvelope<T0> {
+  readonly content: T0;
+  readonly share: InspectionShare;
+  readonly diagnostics: ReadonlyArray<InspectionDiagnostic>;
 }
 
 export interface Absent {
@@ -1334,6 +1408,22 @@ export interface type_4486029c {
 
 export type DocumentationQueryOutcome = Completed | type_4486029c | type_0808982e | type_29dfca00;
 
+export interface NonProjectable {
+  readonly kind: "nonProjectable";
+  readonly fullUrl: string | null;
+  readonly packet: string | null;
+  readonly path: string;
+  readonly reason: InertString;
+}
+
+export interface type_19b4bd5b {
+  readonly kind: "available";
+  readonly fullUrl: string;
+  readonly packet: string;
+}
+
+export type InspectionShare = type_19b4bd5b | NonProjectable;
+
 export type BrowserAssemblyReferenceResult = BrowserAssemblyReferenceList | string | null;
 
 type $ManagedExports = {
@@ -1371,6 +1461,7 @@ type $ManagedExports = {
             readonly "ResolvePackageDependencyVersion.451505237": (packageId: string, declaredRange: string | null) => Promise<string>;
             readonly "RunPackageActivity.1791926993": (operationId: string, requestJson: string, eventSink: unknown) => Promise<string>;
             readonly "RunPackageQuery.1685943924": (operationId: string, prefix: string, termsJson: string, targetFramework: string | null, maximumCandidates: number, maximumMatches: number, includePrerelease: boolean, initialMatchCredit: number, eventSink: unknown) => Promise<string>;
+            readonly "SearchCapabilities.146925470": (text: string, maximumResults: number) => string;
             readonly "SearchTypes.271973316": (query: string, candidatesJson: string) => string;
           };
         };
@@ -1776,6 +1867,18 @@ function $validateManagedExports(exports: unknown): asserts exports is $ManagedE
     value = $ownDataProperty(value, "Interop");
     value = $ownDataProperty(value, "Package");
     value = $ownDataProperty(value, "PackageExports");
+    value = $ownDataProperty(value, "SearchCapabilities.146925470");
+    if (typeof value !== "function") {
+      throw new Error("Managed export \u0027DotnetInspect.Web.Interop.Package.PackageExports.SearchCapabilities.146925470\u0027 is not callable.");
+    }
+  }
+  {
+    let value: unknown = exports;
+    value = $ownDataProperty(value, "DotnetInspect");
+    value = $ownDataProperty(value, "Web");
+    value = $ownDataProperty(value, "Interop");
+    value = $ownDataProperty(value, "Package");
+    value = $ownDataProperty(value, "PackageExports");
     value = $ownDataProperty(value, "SearchTypes.271973316");
     if (typeof value !== "function") {
       throw new Error("Managed export \u0027DotnetInspect.Web.Interop.Package.PackageExports.SearchTypes.271973316\u0027 is not callable.");
@@ -1994,6 +2097,12 @@ export async function runPackageQuery(operationId: string, prefix: string, terms
   const $result = await $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Package"]["PackageExports"]["RunPackageQuery.1685943924"](operationId, prefix, $serializeJsonInput(termsJson, "DotnetInspect.Web.Interop.Package.PackageExports.RunPackageQuery.1685943924", "termsJson"), targetFramework, maximumCandidates, maximumMatches, includePrerelease, initialMatchCredit, eventSink);
   const $parsed: unknown = JSON.parse($result);
   return $parsed as BrowserPackageQueryResult;
+}
+
+export function searchCapabilities(text: string, maximumResults: number): InspectionEnvelope<CapabilityCatalogSearchDocument | null> {
+  const $result = $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Package"]["PackageExports"]["SearchCapabilities.146925470"](text, maximumResults);
+  const $parsed: unknown = JSON.parse($result);
+  return $parsed as InspectionEnvelope<CapabilityCatalogSearchDocument | null>;
 }
 
 export function searchTypes(query: string, candidatesJson: ReadonlyArray<BrowserTypeCandidate>): ReadonlyArray<BrowserTypeSearchHit> {

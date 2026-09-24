@@ -358,6 +358,8 @@ public sealed record StructuralResourcePathRegistration
     public ResourcePath Path { get; }
 }
 
+[JsonConverter(
+    typeof(JsonStringEnumConverter<InspectionCapabilityResourceKind>))]
 public enum InspectionCapabilityResourceKind
 {
     Document,

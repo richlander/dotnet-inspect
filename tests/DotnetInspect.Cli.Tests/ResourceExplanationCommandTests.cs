@@ -237,6 +237,165 @@ public sealed class ResourceExplanationCommandTests : IDisposable
     }
 
     [Fact]
+    public async Task Literal_SearchesCapabilitiesAndReturnsAnExactPath()
+    {
+        var search = await RunAsync(
+            "explain",
+            "literal",
+            "--json");
+
+        Assert.Equal(0, search.ExitCode);
+        Assert.Empty(search.Error);
+        using JsonDocument searchDocument =
+            JsonDocument.Parse(search.Output);
+        JsonElement first =
+            searchDocument.RootElement
+                .GetProperty("results")[0];
+        Assert.Equal(
+            "library-literal",
+            first.GetProperty("canonical_keys")[0].GetString());
+        Assert.Equal(
+            "package-query/query/facets/library-literal",
+            first.GetProperty("resource_path").GetString());
+        Assert.Equal(
+            "package query",
+            first.GetProperty("production_bindings")[0]
+                .GetProperty("gesture")
+                .GetString());
+
+        string path = first.GetProperty("resource_path").GetString()!;
+        var explanation = await RunAsync(
+            "explain",
+            path,
+            "--json");
+
+        Assert.Equal(0, explanation.ExitCode);
+        Assert.Empty(explanation.Error);
+        using JsonDocument explanationDocument =
+            JsonDocument.Parse(explanation.Output);
+        Assert.Equal(
+            "library-literal",
+            explanationDocument.RootElement
+                .GetProperty("resources")[0]
+                .GetProperty("details")
+                .GetProperty("key")
+                .GetString());
+    }
+
+    [Fact]
+    public async Task MisspelledLiteral_UsesSimilaritySearch()
+    {
+        var result = await RunAsync(
+            "explain",
+            "litteral",
+            "--json");
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Empty(result.Error);
+        using JsonDocument document = JsonDocument.Parse(result.Output);
+        JsonElement first =
+            document.RootElement.GetProperty("results")[0];
+        Assert.Equal(
+            "package-query/query/facets/library-literal",
+            first.GetProperty("resource_path").GetString());
+        Assert.Equal(
+            0.875,
+            first.GetProperty("similarity").GetDouble());
+    }
+
+    [Fact]
+    public async Task NoncanonicalSlashBearingText_SearchesInsteadOfResolving()
+    {
+        var result = await RunAsync(
+            "explain",
+            "https://",
+            "--json");
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Empty(result.Error);
+        using JsonDocument document = JsonDocument.Parse(result.Output);
+        Assert.Equal(
+            "https://",
+            document.RootElement.GetProperty("query").GetString());
+        Assert.Equal(
+            0,
+            document.RootElement.GetProperty("match_count").GetInt32());
+    }
+
+    [Fact]
+    public async Task RegisteredSingleSegmentPath_RemainsExactExplanation()
+    {
+        var result = await RunAsync(
+            "explain",
+            "library",
+            "--json");
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Empty(result.Error);
+        using JsonDocument document = JsonDocument.Parse(result.Output);
+        Assert.Equal(
+            "library",
+            document.RootElement
+                .GetProperty("requested_path")
+                .GetString());
+    }
+
+    [Fact]
+    public async Task CanonicalUnknownMultiSegmentPath_RemainsExactFailure()
+    {
+        var result = await RunAsync(
+            "explain",
+            "package-query/query/facets/not-real");
+
+        Assert.Equal(1, result.ExitCode);
+        Assert.Empty(result.Output);
+        Assert.Contains("was not found", result.Error);
+        Assert.DoesNotContain("No installed capabilities", result.Error);
+    }
+
+    [Fact]
+    public async Task SearchRejectsExactExplanationDepth()
+    {
+        var result = await RunAsync(
+            "explain",
+            "literal",
+            "--depth",
+            "1");
+
+        Assert.Equal(1, result.ExitCode);
+        Assert.Empty(result.Output);
+        Assert.Contains(
+            "--depth applies only to exact Resource Explanation paths",
+            result.Error);
+    }
+
+    [Fact]
+    public async Task SearchLimitBoundsReturnedResults()
+    {
+        var result = await RunAsync(
+            "explain",
+            "package",
+            "-n",
+            "1",
+            "--json");
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Empty(result.Error);
+        using JsonDocument document = JsonDocument.Parse(result.Output);
+        Assert.True(
+            document.RootElement.GetProperty("match_count").GetInt32()
+            > 1);
+        Assert.Equal(
+            1,
+            document.RootElement.GetProperty("returned_count").GetInt32());
+        Assert.True(
+            document.RootElement.GetProperty("is_truncated").GetBoolean());
+        Assert.Equal(
+            1,
+            document.RootElement.GetProperty("results").GetArrayLength());
+    }
+
+    [Fact]
     public async Task Json_UsesTheHostNeutralContentShape()
     {
         var result = await RunAsync(
@@ -300,6 +459,22 @@ public sealed class ResourceExplanationCommandTests : IDisposable
         var result = await RunAsync(
             "explain",
             "library/sections/reference-hierarchy");
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Equal(0, requests);
+    }
+
+    [Fact]
+    public async Task CapabilitySearch_DoesNotAttemptPackageAcquisition()
+    {
+        int requests = 0;
+        CoreHttpClientFactory.SetPackageSourceHandlerForTesting(
+            _ => new RecordingFailureHandler(
+                () => requests++));
+
+        var result = await RunAsync(
+            "explain",
+            "literal");
 
         Assert.Equal(0, result.ExitCode);
         Assert.Equal(0, requests);

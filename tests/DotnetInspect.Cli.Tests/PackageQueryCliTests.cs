@@ -2076,6 +2076,35 @@ public class PackageQueryCliTests
     [Trait("Speed", "Slow")]
     public async Task CliLiteralStringQueryFindsCompanionLibrary()
     {
+        var search = await Run(
+            ["explain", "literal", "--json"]);
+        Assert.Equal(0, search.ExitCode);
+        Assert.Empty(search.Error);
+        using JsonDocument searchDocument =
+            JsonDocument.Parse(search.Output);
+        string explanationPath =
+            searchDocument.RootElement
+                .GetProperty("results")[0]
+                .GetProperty("resource_path")
+                .GetString()!;
+        Assert.Equal(
+            "package-query/query/facets/library-literal",
+            explanationPath);
+
+        var explanation = await Run(
+            ["explain", explanationPath, "--json"]);
+        Assert.Equal(0, explanation.ExitCode);
+        Assert.Empty(explanation.Error);
+        using JsonDocument explanationDocument =
+            JsonDocument.Parse(explanation.Output);
+        Assert.Equal(
+            PackageQuery.LibraryLiteralTermKey,
+            explanationDocument.RootElement
+                .GetProperty("resources")[0]
+                .GetProperty("details")
+                .GetProperty("key")
+                .GetString());
+
         string[] arguments =
         [
             "package",
