@@ -257,7 +257,8 @@ host uses color as the only cue for a move.
 
 ## Pathological demonstration
 
-Each row becomes an S1 Release test in `tests/Inspector.Text.Tests`, using
+Each row is a Release test in `TextDiffCharacterizationTests`
+(`tests/Inspector.Text.Tests`), checked by the independent validator and using
 `TextFindings.CreateAnalysisDiff` unless the row says otherwise.
 
 | Case | Before → After | Expected |
