@@ -191,6 +191,53 @@ adopts it, in that owner's document, with its own gates.
   from the Library proposal as the package-to-Library edge; each row carries
   the identity that selector consumes.
 
+#### Tool packages
+
+A tool package's header names its tool settings format as it appears in
+`DotnetToolSettings.xml`: the root element and its version, for example
+`DotNetCliTool v2`. The nuspec package type (`DotnetTool` or
+`DotnetToolRidPackage`) decides which of three shapes applies.
+
+- **Pointer package:** a `DotnetTool` package whose `DotNetCliTool v2`
+  settings list `RuntimeIdentifierPackages` and that ships no tool payload.
+  Its children are those RID packages, one row per RID with its package ID,
+  and each row leads to `package <id>`. It does not render the contents of a
+  RID package as its own.
+- **Payload package:** a `DotnetTool` or `DotnetToolRidPackage` with a
+  `tools/<tfm>/` slice. Its children are the tool Library population that
+  [Package Info tool measurements](package-info-tool-measurements.md#contract)
+  defines: DLLs in the selected slice, without satellite or
+  `runtimes/<rid>/native` entries. The entry-point Library named in the
+  settings comes first and is marked. At `-v:m`, the tree may collapse the
+  remaining Libraries into one counted dependencies row; `-v:n` and `-v:d`
+  list every Library.
+- **Native RID package:** a `DotnetToolRidPackage` whose settings name an
+  `executable` runner and that has no TFM-like `tools/<tfm>/` segment. It has
+  no selected target and no Libraries. It shows its RID and states that it
+  has no managed Libraries; it never renders an empty inventory.
+
+Rows use the same public-surface Type declaration Count as other packages, so
+a count means the same thing everywhere; `--all` widens it.
+
+```text
+dotnet-ef 10.0.12 (NuGet, DotNetCliTool v1, net8.0; tools; command: dotnet-ef)
+├─ dotnet-ef (entry point) (n)
+└─ ef (n)
+
+dotnet-inspect 0.26.0 (NuGet, DotNetCliTool v2; command: dotnet-inspect)
+└─ RID packages (6)
+   ├─ win-x64: dotnet-inspect.win-x64
+   ├─ …
+   └─ any: dotnet-inspect.any
+
+dotnet-inspect.any 0.26.0 (NuGet, DotNetCliTool v1, net10.0; tools; command: dotnet-inspect)
+├─ dotnet-inspect (entry point) (n)
+└─ Dependencies (72 Libraries)
+
+dotnet-inspect.osx-arm64 0.26.0 (NuGet, DotNetCliTool v2, osx-arm64; command: dotnet-inspect)
+└─ No managed Libraries (native executable)
+```
+
 ### Type and member (owners: the `type` and `member` command designs)
 
 - **Exact resolution:** ambiguous input fails with a candidate list, and each
@@ -217,6 +264,10 @@ Observed with production dotnet-inspect 0.26.0 on 2026-09-23, unless noted:
 | Microsoft.Data.SqlClient 7.1.0 | `ref`, `lib`, and `runtimes/{unix,win}/lib` copies; the `lib/net9.0` asset is a 93 KB stub next to 1.67 MB runtime copies | Package children count from the compile asset alone |
 | SkiaSharp.NativeAssets.Linux | 13 `runtimes/*/native` RIDs, no managed Libraries | Empty compile population must be stated |
 | `library System.Text.Json.Nodes` | Fails trying to acquire a NuGet package with that name | Namespace input needs Library-scoped resolution |
+| dotnet-ef 10.0.12 | `DotnetTool`; `DotNetCliTool Version="1"`; `tools/net8.0/any/` with 2 Libraries and `shims/win-*` launchers | Payload package rows come from the tool Library population |
+| dotnet-inspect 0.26.0 | `DotnetTool`; `DotNetCliTool Version="2"` listing 6 RID packages; the archive holds only `tools/any/any/DotnetToolSettings.xml`. Today `package dotnet-inspect` reports the 73 Libraries of `dotnet-inspect.any` | A pointer package's children are its RID packages, not another package's payload |
+| dotnet-inspect.any 0.26.0 | `DotnetToolRidPackage`; `DotNetCliTool Version="1"`; `tools/net10.0/any/` with 73 Libraries | Entry point first; dependencies collapse at `-v:m` |
+| dotnet-inspect.osx-arm64 0.26.0 | `DotnetToolRidPackage`; `DotNetCliTool Version="2"` with an `executable` runner; `tools/any/osx-arm64/` holds a 118 MB native executable and no DLLs | No selected target; the missing managed Libraries are stated |
 | platform `Timer` | `type Timer` silently renders `System.Threading.Timer` | Obligation 1 requires a visible ambiguity failure |
 | `member JsonSerializer` | Renders member-group tables duplicating `type` | Two commands render one subject's children |
 | `type JsonElement --platform System.Text.Json` | Tree shows `Inherits`, `Properties`, `Methods`, and `Extension Methods` declared on `JsonSerializer` | The compact view has several children sections plus labeled context |
@@ -254,7 +305,8 @@ presentation.
 This document's obligations are gated through each adoption, in Release,
 against that adoption's motivating assets:
 
-- obligation 1: the platform `Timer` collision,
+- obligation 1: `package dotnet-inspect` renders its RID packages rather
+  than the `dotnet-inspect.any` payload; the platform `Timer` collision,
   Microsoft.TestPlatform.ObjectModel's three Libraries, and the platform
   `System.Collections.Generic` namespace each fail with candidates, and
   `library System.Text.Json.Nodes` renders the same output as
@@ -265,8 +317,8 @@ against that adoption's motivating assets:
 - obligation 4: at `-v:m`, a tree's grouped or collapsed counts sum to the
   population Count, forwarders included; at `-v:n` and `-v:d`, every format
   lists every child, for System.Text.Json and System.Private.CoreLib;
-- obligation 5: an empty compile population for SkiaSharp.NativeAssets.Linux;
-  and
+- obligation 5: an empty compile population for SkiaSharp.NativeAssets.Linux
+  and no managed Libraries for dotnet-inspect.osx-arm64; and
 - each ladder edge: its row identity resolves through its exact gesture to the
   same child.
 
