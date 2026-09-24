@@ -103,18 +103,27 @@ public static class ZipArchiveReader
                 throw OverBound("The archive exceeds the caller's archive bound.");
 
             byte[] directoryBytes;
+            ReadOnlyMemory<byte> region;
             long tailStart = archiveLength - tail.Length;
             if (directoryOffset >= tailStart)
             {
                 directoryBytes = tailSpan.Slice(
                     checked((int)(directoryOffset - tailStart)),
                     checked((int)directoryLength)).ToArray();
+                region = tail;
             }
             else
             {
                 directoryBytes = new byte[directoryLength];
                 await source.ReadRangeAsync(directoryOffset, directoryBytes, cancellationToken)
                     .ConfigureAwait(false);
+                // The directory ends at the record, which lies in the tail, so
+                // the directory's head and the tail are one contiguous region.
+                var joined = new byte[checked((int)(archiveLength - directoryOffset))];
+                directoryBytes.AsSpan(0, checked((int)(tailStart - directoryOffset)))
+                    .CopyTo(joined);
+                tail.Span.CopyTo(joined.AsSpan(checked((int)(tailStart - directoryOffset))));
+                region = joined;
             }
 
             return new ZipDirectory(
@@ -122,7 +131,8 @@ public static class ZipArchiveReader
                 archiveLength,
                 directoryOffset,
                 directoryLength,
-                tail);
+                tail,
+                region);
         }
 
         throw Malformed("The archive has no valid end-of-central-directory record.");
@@ -210,6 +220,75 @@ public static class ZipArchiveReader
     }
 
     /// <summary>
+    /// Rebuilds a directory from the region a previous directory read covered
+    /// (<see cref="ZipDirectory.Region"/>) and the archive length, under the
+    /// same checks and caps as reading it from a source, with no transfer.
+    /// </summary>
+    public static ZipDirectory ReadDirectoryFromRegion(
+        ReadOnlyMemory<byte> region,
+        long archiveLength,
+        ZipReadLimits limits)
+    {
+        ArgumentNullException.ThrowIfNull(limits);
+        ArgumentOutOfRangeException.ThrowIfNegative(archiveLength);
+        if (region.Length > archiveLength)
+            throw Malformed("The directory region is longer than the archive.");
+        Task<ZipDirectory> read = ReadDirectoryAsync(
+            new RegionSource(region, archiveLength),
+            limits,
+            CancellationToken.None);
+        // The region source completes synchronously, so this never blocks.
+        return read.GetAwaiter().GetResult();
+    }
+
+    /// <summary>
+    /// Whether <paramref name="content"/> is the expanded content the
+    /// directory declares for <paramref name="entry"/>: its length and CRC.
+    /// </summary>
+    public static bool MatchesEntry(ZipEntry entry, ReadOnlySpan<byte> content)
+    {
+        ArgumentNullException.ThrowIfNull(entry);
+        return content.Length == entry.ExpandedLength
+            && Crc32.Compute(content) == entry.Crc;
+    }
+
+    /// <summary>Serves reads within one retained region of an archive's end.</summary>
+    private sealed class RegionSource : RandomAccessSource
+    {
+        private readonly ReadOnlyMemory<byte> _region;
+        private readonly long _regionStart;
+
+        internal RegionSource(ReadOnlyMemory<byte> region, long archiveLength)
+        {
+            _region = region;
+            _regionStart = archiveLength - region.Length;
+            Length = archiveLength;
+        }
+
+        public override ValueTask<ReadOnlyMemory<byte>> ReadTailAsync(
+            int maxLength,
+            CancellationToken cancellationToken)
+        {
+            int length = (int)Math.Min(maxLength, Length!.Value);
+            if (length > _region.Length)
+                throw Malformed("The directory region does not cover the archive's tail.");
+            return ValueTask.FromResult(_region[^length..]);
+        }
+
+        public override ValueTask ReadRangeAsync(
+            long offset,
+            Memory<byte> destination,
+            CancellationToken cancellationToken)
+        {
+            if (offset < _regionStart || offset + destination.Length > Length!.Value)
+                throw Malformed("The directory region does not cover the requested bytes.");
+            _region.Slice(checked((int)(offset - _regionStart)), destination.Length)
+                .CopyTo(destination);
+            return ValueTask.CompletedTask;
+        }
+    }
+
+    /// <summary>
     /// Reads and expands several entries with as few ranged requests as their
     /// placement allows. Every entry is checked against the directory and the
     /// bounds before any transfer; entries whose request extents lie within
@@ -225,6 +304,12 @@ public static class ZipArchiveReader
     /// total above it is <see cref="ZipReadFailure.OverBound"/> before any
     /// transfer.
     /// </param>
+    /// <param name="entryMergeGap">
+    /// The merge gap for this read in place of
+    /// <see cref="ZipReadLimits.EntryMergeGap"/>, at most
+    /// <see cref="ZipReadLimits.MaxEntryMergeGap"/>: a caller that has
+    /// planned its entries into one span states how far apart they may lie.
+    /// </param>
     /// <returns>The expanded entries, in the order requested.</returns>
     public static async Task<IReadOnlyList<byte[]>> ReadEntriesAsync(
         RandomAccessSource source,
@@ -232,6 +317,7 @@ public static class ZipArchiveReader
         IReadOnlyList<ZipEntry> entries,
         ZipReadLimits limits,
         long? maxTotalExpandedBytes = null,
+        int? entryMergeGap = null,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(source);
@@ -240,6 +326,12 @@ public static class ZipArchiveReader
         ArgumentNullException.ThrowIfNull(limits);
         long totalBound = maxTotalExpandedBytes ?? long.MaxValue;
         ArgumentOutOfRangeException.ThrowIfNegative(totalBound);
+        int mergeGap = entryMergeGap ?? limits.EntryMergeGap;
+        ArgumentOutOfRangeException.ThrowIfNegative(mergeGap, nameof(entryMergeGap));
+        ArgumentOutOfRangeException.ThrowIfGreaterThan(
+            mergeGap,
+            ZipReadLimits.MaxEntryMergeGap,
+            nameof(entryMergeGap));
         if (entries.Count == 0)
             return [];
 
@@ -256,7 +348,7 @@ public static class ZipArchiveReader
                 throw OverBound("The entries' declared expansion exceeds the caller's total bound.");
         }
 
-        List<(long Start, long End)> spans = PlanSpans(extents, limits.EntryMergeGap);
+        List<(long Start, long End)> spans = PlanSpans(extents, mergeGap);
         var buffers = new byte[spans.Count][];
         using (var gate = new SemaphoreSlim(limits.MaxConcurrentReads))
         {

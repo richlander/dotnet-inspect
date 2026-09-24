@@ -527,6 +527,9 @@ public sealed class BrowserEngineLayeringTests
             // Package-relative entry paths, like the in-memory content
             // (docs/design/package-source-model.md#ranged-payload-realization).
             "DotnetInspector.Packages.RangedPackageContent",
+            // Matches package-relative entry paths against named implementation
+            // assemblies (docs/design/package-read-demand.md), not a filesystem path.
+            "DotnetInspector.Packages.PackageImplementationNames",
             "DotnetInspector.Packages.PackageCoordinateResolver",
             "DotnetInspector.Packages.PackageExtractor",
             // Opens a package-relative product-resource path, not a filesystem path.
