@@ -31,6 +31,100 @@ public partial class CommandExecutionTests
             StringComparison.Ordinal);
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task SectionSelection_RepeatedAliasRequiresEveryTarget(
+        bool includeTrailingOption)
+    {
+        string[] trailing = includeTrailingOption ? ["--json"] : [];
+        var (exit, output, error) = await RunAppAsync(
+            [
+                "library",
+                "System.Text.Json",
+                "-S",
+                "Library Info",
+                "--section",
+                .. trailing,
+            ]);
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.DoesNotContain(
+            nameof(InvalidOperationException),
+            error,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "at DotnetInspect",
+            error,
+            StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("-S", "")]
+    [InlineData("-s", ",")]
+    [InlineData("--select", ";")]
+    [InlineData("--section", ",;")]
+    public async Task SectionSelection_RejectsValuesWithoutNames(
+        string option,
+        string value)
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "library",
+            "System.Text.Json",
+            option,
+            value);
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains(
+            "--select requires at least one name.",
+            error,
+            StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("-S=")]
+    [InlineData("-s=")]
+    [InlineData("--select=")]
+    [InlineData("--section=")]
+    public async Task SectionSelection_RejectsInlineEmptyValues(
+        string option)
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "library",
+            "System.Text.Json",
+            option);
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains(
+            "--select requires at least one name.",
+            error,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task SectionSelection_OptionLookingValueFailsWithoutStack()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "library",
+            "System.Text.Json",
+            "-S",
+            "--json");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.DoesNotContain(
+            nameof(InvalidOperationException),
+            error,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "at DotnetInspect",
+            error,
+            StringComparison.Ordinal);
+    }
+
     [Fact]
     public async Task Vocabulary_EnvironmentMermaidRejectsMultiSectionCount()
     {

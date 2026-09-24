@@ -190,10 +190,10 @@ public class SharedOptions
                 result.AddError($"--row must be a 1-based row number, 'first', or 'last' (got '{token}').");
         });
 
-        // An explicit projection must name something. A repeated name asks for the same column
-        // twice. Under the table formats the second copy is a redundant duplicate column; under
-        // --json/--jsonl it produces a repeated JSON property, which Utf8JsonWriter does not
-        // reject and which parsers resolve inconsistently. Reject either invalid request.
+        // An explicit list must name something. A repeated projection name asks for the same
+        // column twice. Under the table formats the second copy is a redundant duplicate column;
+        // under --json/--jsonl it produces a repeated JSON property, which Utf8JsonWriter does
+        // not reject and which parsers resolve inconsistently. Reject either invalid request.
         //
         // Validating on the option (not per command) is what makes the rejection
         // uniform: the same spelling fails the same way everywhere --columns/--fields
@@ -201,8 +201,9 @@ public class SharedOptions
         // pipeline, which System.CommandLine renders as an unhandled-exception stack
         // trace unless the individual command happens to catch it -- `find` does,
         // `package` does not (dotnet-inspect#3494 review).
-        AddProjectionNameValidator(Columns, "--columns");
-        AddProjectionNameValidator(Fields, "--fields");
+        AddListNameValidator(Select, "--select", rejectDuplicates: false);
+        AddListNameValidator(Columns, "--columns", rejectDuplicates: true);
+        AddListNameValidator(Fields, "--fields", rejectDuplicates: true);
 
         // A config the user names explicitly must be usable. Reporting it here gives every
         // command that takes --nugetconfig the same clean parse-time error, instead of an
@@ -252,7 +253,10 @@ public class SharedOptions
     /// Rejects an explicit comma/semicolon-separated projection list that contains no names or
     /// names the same entry more than once. Matching is case-insensitive because column matching is.
     /// </summary>
-    private static void AddProjectionNameValidator(Option<string?> option, string flag)
+    private static void AddListNameValidator(
+        Option<string?> option,
+        string flag,
+        bool rejectDuplicates)
     {
         option.Validators.Add(result =>
         {
@@ -274,6 +278,9 @@ public class SharedOptions
                 result.AddError($"{flag} requires at least one name.");
                 return;
             }
+
+            if (!rejectDuplicates)
+                return;
 
             var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             foreach (var name in names)
@@ -812,9 +819,17 @@ public class SharedOptions
     /// section/category names.
     /// </summary>
     public string[]? ParseSelect(ParseResult parseResult)
-        => parseResult.GetResult(Select) is { Tokens.Count: > 0 }
-            ? ParseCommaSeparatedList(parseResult.GetValue(Select))
-            : null;
+    {
+        OptionResult? result = parseResult.GetResult(Select);
+        if (result is not { Tokens.Count: > 0 }
+            || parseResult.Errors.Any(error =>
+                IsWithin(error.SymbolResult, result)))
+        {
+            return null;
+        }
+
+        return ParseCommaSeparatedList(parseResult.GetValue(Select));
+    }
 
     /// <summary>
     /// The CLI no longer exposes a valueless selection preset. Kept as the
@@ -956,6 +971,19 @@ public class SharedOptions
             .Split(ListSeparators, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
             .Select(UnescapeAtCategory)
             .ToArray();
+    }
+
+    private static bool IsWithin(
+        SymbolResult? result,
+        SymbolResult ancestor)
+    {
+        for (; result is not null; result = result.Parent)
+        {
+            if (ReferenceEquals(result, ancestor))
+                return true;
+        }
+
+        return false;
     }
 
     private static string UnescapeAtCategory(string value)

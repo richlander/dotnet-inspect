@@ -1299,6 +1299,26 @@ public class CommandLineTests
     }
 
     [Fact]
+    public void PreprocessArgs_NormalizesInvalidRepeatedSelectToEmptyValue()
+    {
+        (string[] Arguments, string[] Expected)[] cases =
+        [
+            (
+                ["package", "Foo", "-S", "Signals", "--section"],
+                ["package", "Foo", "-S", ""]),
+            (
+                ["package", "Foo", "-S", "Signals", "--section", "--json"],
+                ["package", "Foo", "-S", "", "--json"]),
+            (
+                ["package", "Foo", "-S", "Signals", "--section", ""],
+                ["package", "Foo", "-S", ""]),
+        ];
+
+        foreach (var (arguments, expected) in cases)
+            Assert.Equal(expected, CommandLineBuilder.PreprocessArgs(arguments));
+    }
+
+    [Fact]
     public void PreprocessArgs_MergesRepeatedColumns()
     {
         var result = CommandLineBuilder.PreprocessArgs(["member", "Foo", "--columns", "Select", "--columns", "Signature"]);
@@ -1307,6 +1327,7 @@ public class CommandLineTests
     }
 
     [Theory]
+    [InlineData("--select=")]
     [InlineData("--columns=")]
     [InlineData("--fields=")]
     public void PreprocessArgs_ExpandsInlineEmptyProjectionValue(string option)

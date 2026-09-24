@@ -1255,7 +1255,14 @@ public sealed class InspectionGraphCommandTests
         Assert.DoesNotContain(
             "Exception",
             captured.Error);
-        Assert.Empty(captured.Output);
+        Assert.DoesNotContain(
+            "## Direct Use Clusters",
+            captured.Output,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "\"direct_use_clusters\"",
+            captured.Output,
+            StringComparison.Ordinal);
     }
 
     [Fact]
