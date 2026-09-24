@@ -61,7 +61,7 @@ type Side = typeof sides[number];
 type Severity = typeof severities[number];
 type FailureKind = typeof failureKinds[number];
 
-interface BrowserSourceComparisonRequest {
+export interface BrowserSourceComparisonRequest {
   readonly packageId: string;
   readonly beforeVersion: string;
   readonly afterVersion: string;
@@ -71,7 +71,7 @@ interface BrowserSourceComparisonRequest {
   readonly after: BrowserSourceComparisonEndpointRequest | null;
 }
 
-interface BrowserSourceComparisonEndpointRequest {
+export interface BrowserSourceComparisonEndpointRequest {
   readonly typeIdentity: string;
   readonly stableSelector: string;
   readonly canonicalSignature: string;
@@ -98,19 +98,19 @@ export interface BrowserSourceComparisonEndpoint {
   readonly revision: string | null;
 }
 
-interface BrowserSourceDiffCapacity {
+export interface BrowserSourceDiffCapacity {
   readonly dimension: CapacityDimension;
   readonly limit: number;
   readonly actual: number;
 }
 
-interface BrowserSourceDiffSequence {
+export interface BrowserSourceDiffSequence {
   readonly label: string | null;
   readonly lines: ReadonlyArray<string>;
   readonly finalLineTerminator: Terminator;
 }
 
-interface BrowserSourceDiffRelation {
+export interface BrowserSourceDiffRelation {
   readonly kind: RelationKind;
   readonly beforeCoordinates: ReadonlyArray<number>;
   readonly afterCoordinates: ReadonlyArray<number>;
@@ -118,7 +118,7 @@ interface BrowserSourceDiffRelation {
   readonly placement: PlacementKind | null;
 }
 
-interface BrowserSourceDiffStatistics {
+export interface BrowserSourceDiffStatistics {
   readonly added: number;
   readonly removed: number;
   readonly changedBefore: number;
@@ -127,23 +127,23 @@ interface BrowserSourceDiffStatistics {
   readonly movedAfter: number;
 }
 
-interface BrowserSourceDiffRange {
+export interface BrowserSourceDiffRange {
   readonly start: number;
   readonly count: number;
 }
 
-interface BrowserSourceDiffSpan {
+export interface BrowserSourceDiffSpan {
   readonly line: number;
   readonly start: number;
   readonly count: number;
 }
 
-interface BrowserSourceDiffInnerMapping {
+export interface BrowserSourceDiffInnerMapping {
   readonly before: BrowserSourceDiffSpan;
   readonly after: BrowserSourceDiffSpan;
 }
 
-interface BrowserSourceDiffAnnotation {
+export interface BrowserSourceDiffAnnotation {
   readonly text: string;
   readonly severity: Severity;
   readonly targetKind: TargetKind;
@@ -152,14 +152,14 @@ interface BrowserSourceDiffAnnotation {
   readonly span: BrowserSourceDiffSpan | null;
 }
 
-interface BrowserSourceDiffChange {
+export interface BrowserSourceDiffChange {
   readonly before: BrowserSourceDiffRange;
   readonly after: BrowserSourceDiffRange;
   readonly innerMappings: ReadonlyArray<BrowserSourceDiffInnerMapping>;
   readonly annotations: ReadonlyArray<BrowserSourceDiffAnnotation>;
 }
 
-interface BrowserSourceDiff {
+export interface BrowserSourceDiff {
   readonly version: 1;
   readonly before: BrowserSourceDiffSequence;
   readonly after: BrowserSourceDiffSequence;
@@ -168,7 +168,7 @@ interface BrowserSourceDiff {
   readonly changes: ReadonlyArray<BrowserSourceDiffChange>;
 }
 
-interface BrowserSourceComparison {
+export interface BrowserSourceComparison {
   readonly request: BrowserSourceComparisonRequest;
   readonly status: ComparisonStatus;
   readonly isExact: boolean;
