@@ -54,6 +54,8 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
     readonly string _assemblyName;
     readonly Guid _mvid;
     readonly Action? _parallelBuildStarting;
+    readonly ImplementationMetricWorkBudget?
+        _implementationMetricWork;
 
     internal LibraryBodyAnalysisBuilder(
         string path,
@@ -70,7 +72,9 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
         Action? asyncStateMachineTypesBuilt = null,
         Action? parallelBuildStarting = null,
         Action<MetadataReader, MethodDefinitionHandle>?
-            asyncSiblingMethodScanned = null)
+            asyncSiblingMethodScanned = null,
+        ImplementationMetricWorkBudget?
+            implementationMetricWork = null)
     {
         _path = path;
         _reader = reader;
@@ -89,6 +93,8 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
                 null,
                 null);
         _parallelBuildStarting = parallelBuildStarting;
+        _implementationMetricWork =
+            implementationMetricWork;
         _methodReferenceResolver =
             new LibraryBodyMethodReferenceResolver(
                 reader,
@@ -136,13 +142,15 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
                 _primaryMetadataResolver,
                 _methodReferenceResolver,
                 _asyncSourceResolver,
-                methodBodyReferenceIndexed);
+                methodBodyReferenceIndexed,
+                implementationMetricWork);
         _declaredSourceResolver =
             new LibraryBodyDeclaredSourceResolver(
                 reader,
                 _primaryMetadataResolver,
                 liftedSourceOwnerResolver,
-                _asyncSourceResolver);
+                _asyncSourceResolver,
+                implementationMetricWork);
         if ((resolver is not null || bindingPolicy is not null)
             && reader.IsAssembly)
             _referenceMetadataResolver =
@@ -514,7 +522,8 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
                 plan.Includes(LibraryBodyAnalysisFeatures.LocalThrows)
                     ? new LibraryBodyExceptionTypeClassifier(
                         _reader, ResolveExternalTypeDefinition)
-                    : null);
+                    : null,
+                _implementationMetricWork);
         var accumulator =
             new LibraryBodyAnalysisAccumulator(
                 _reader,
@@ -601,7 +610,12 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
         }
         analysis = PublishResourceOccurrences(analysis, plan, results);
         analysis = PublishResourceOwnership(analysis, plan, results);
-        return PublishResourceLifecycle(analysis, plan, results);
+        analysis = PublishResourceLifecycle(analysis, plan, results);
+        return analysis with
+        {
+            ImplementationMetricWork =
+                _implementationMetricWork?.Snapshot(),
+        };
     }
 
     internal bool HasUnsafeEvidence()
