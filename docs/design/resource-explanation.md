@@ -3,9 +3,11 @@
 ## Status
 
 This document is the normative design for **Resource Explanation**, the
-host-neutral contract behind `dotnet-inspect explain`. The first production
-slice implements the complete Library structural domain; query, value,
-result-contract, Browser/Wasm, and subject-reference adoption remain staged.
+host-neutral contract behind `dotnet-inspect explain`. Production implements
+the complete Library structural domain plus the first bounded Query Space
+adoption: Package Query document, route, operation facets, required-context
+links, and current-host binding resources. Value, broader result-contract,
+Browser/Wasm explanation, and subject-reference adoption remain staged.
 It is the focused design for
 [#7964](https://github.com/richlander/dotnet-inspect/issues/7964) under the
 structural and query composition tracked by
@@ -223,11 +225,13 @@ hand-maintained expected-count snapshot.
 
 Partial product adoption is expressed only by a different whole domain. The
 first slice adopts the complete Library structural domain from its
-`DiscoveryDocument`; it does not adopt Query Space or Product Vocabulary.
-Within that structural domain, an adapter cannot silently omit a newly added
-category, section, item kind, item, membership, or structural ownership edge.
-Later owner adoptions add their complete declared domains rather than
-cherry-picking resources by name.
+`DiscoveryDocument`. The first query adoption adds the complete effective
+Package Query operation-facet domain from its `QuerySpaceBinding`, together
+with its document, route, required-context relation, and selected host
+bindings. Product Vocabulary remains staged. Within each adopted domain, an
+adapter cannot silently omit a newly added resource or owner-issued
+relationship. Later owner adoptions add their complete declared domains rather
+than cherry-picking resources by name.
 
 ### Canonical path grammar
 
@@ -406,10 +410,12 @@ later Schema Query item kinds use the same variant. Safe path segments are
 explicit registrations; they are not derived from item-kind or item display
 text.
 
-The first implementation slice contains navigation-collection and those
-structural variants. Query, value-vocabulary, envelope-contract, and
-subject-affordance variants enter through focused versioned owner adoptions
-rather than one cross-owner implementation sweep.
+The implementation contains navigation-collection and structural variants,
+plus bounded inspection-document, host-neutral-route, operation-query-space,
+query-facet, and consumer-binding variants for Package Query. Row-query,
+value-vocabulary, broader envelope-contract, and subject-affordance variants
+enter through focused versioned owner adoptions rather than one cross-owner
+implementation sweep.
 
 The variants preserve native types such as counts, booleans, operator IDs,
 output-capability IDs, terminal kinds, and effect kinds. They do not lower
@@ -751,7 +757,9 @@ implementation property is **unverified**.
    including structured Content JSON.
 4. Add one Browser/Wasm consumer of the same structural explanation envelope.
 5. Remove Library `-D --details` after equivalent Formats explanation ships.
-6. Let Query Space adopt query-resource variants and typed links.
+6. **In progress:** Package Query adopts operation query-resource variants,
+   canonical paths, required-context links, and its current-host production
+   binding. Remaining Query Space owners and row-query resources stay staged.
 7. Let Product Vocabulary adopt value-vocabulary variants and typed links.
 8. Register the stable explanation result contract; then let the focused
    envelope-contract catalog adopt explanation paths and machine-readable

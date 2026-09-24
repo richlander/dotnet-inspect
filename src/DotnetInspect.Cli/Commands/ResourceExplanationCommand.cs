@@ -57,10 +57,25 @@ public static class ResourceExplanationCommand
             return 1;
         }
 
-        ResourceExplanationCatalog catalog =
+        ResourceExplanationCatalog structuralCatalog =
             ResourceExplanationCatalog.CreateStructural(
                 structural.Document,
                 structural.ResourcePaths);
+        InspectionCapabilityCatalog capabilityCatalog =
+            InspectionCapabilityCatalog.Create(
+                [
+                    PackageQueryCapability.ProductModule,
+                    PackageQueryCommandCapability.Module,
+                ]);
+        ResourceExplanationCatalog capabilityExplanation =
+            ResourceExplanationCatalog.CreateCapabilities(
+                capabilityCatalog,
+                PackageQueryCapabilityResourcePaths.Create(
+                    capabilityCatalog));
+        ResourceExplanationCatalog catalog =
+            ResourceExplanationCatalog.Combine(
+                structuralCatalog,
+                capabilityExplanation);
         ResourcePathResolution resolution = catalog.Resolve(resourcePath);
         if (resolution is ResourcePathResolution.Invalid invalid)
         {

@@ -1,5 +1,6 @@
 using System.Collections.Immutable;
 using QuerySpace;
+using QuerySpace.Composition;
 using QuerySpace.Operations;
 using QuerySpace.Rows;
 
@@ -20,18 +21,68 @@ public static partial class PackageQuery
     public const string OperationResultGrain = "package";
     public const string OperationPackagesRowSet = "packages";
     public const string OperationProfileIdentity = "default";
+    public const string QuerySpaceIdentity =
+        "package-query/query-space/v1";
+    public const string PackageRowsScopeIdentity =
+        "package-query/package-rows/v1";
+    public const string ResultContractIdentity =
+        "package-query/document/v1";
     public const string PackageContentCapability =
         "package-content-provider";
+
+    private static readonly Lazy<QuerySpaceBinding> QuerySpaceValue =
+        new(CreateQuerySpace);
 
     /// <summary>The effective Package Query operation route.</summary>
     public static IQueryOperationRoute OperationRoute =>
         OperationRegistration.Route;
+
+    /// <summary>The complete executable Package Query space.</summary>
+    public static QuerySpaceBinding QuerySpace => QuerySpaceValue.Value;
+
+    public static QuerySpaceRowScopeBinding<PackageQueryMatch>
+        PackageRowsScope { get; } =
+            new(
+                new QuerySpaceRowScopeDescriptor(
+                    PackageRowsScopeIdentity,
+                    ResultContractIdentity,
+                    [OperationPackagesRowSet],
+                    [],
+                    [],
+                    []),
+                RowQueryVocabulary<PackageQueryMatch>.Create(
+                    RowQueryVocabularyIdentity.Create(),
+                    [],
+                    []));
 
     /// <summary>
     /// The Package Query terms admitted by the effective operation route.
     /// </summary>
     public static ImmutableArray<PackageQueryRegisteredTerm> RegisteredTerms =>
         OperationRegistration.RegisteredTerms;
+
+    /// <summary>
+    /// The owner-approved Package Query facet subset exposed by production
+    /// interactive hosts.
+    /// </summary>
+    public static ImmutableArray<string> InspectionTermBindingIdentities =>
+        OperationRegistration.InspectionTermBindingIdentities;
+
+    public static string TermBindingIdentity(string key)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(key);
+        QueryOperationTermCapability? capability =
+            OperationRegistration.Route.Capabilities.Terms
+                .SingleOrDefault(term =>
+                    string.Equals(
+                        term.Binding.Key,
+                        key,
+                        StringComparison.Ordinal));
+        return capability?.Binding.Identity
+            ?? throw new ArgumentException(
+                $"Package Query declares no term '{key}'.",
+                nameof(key));
+    }
 
     private static class OperationRegistration
     {
@@ -75,6 +126,17 @@ public static partial class PackageQuery
             PackageQueryTermDescriptor> TermDescriptors =
         [
             .. RegisteredTerms.Select(term => term.Descriptor),
+        ];
+
+        internal static readonly ImmutableArray<string>
+            InspectionTermBindingIdentities =
+        [
+            .. Route.Capabilities.Terms
+                .Where(capability =>
+                    TermsByKey[capability.Binding.Key].Role
+                    == PackageQueryTermRole.Inspection)
+                .Select(static capability =>
+                    capability.Binding.Identity),
         ];
 
         private static QueryOperationDefinition<
@@ -160,4 +222,17 @@ public static partial class PackageQuery
                     "Unknown Package Query acquisition tier."),
             };
     }
+
+    private static QuerySpaceBinding CreateQuerySpace() =>
+        QuerySpaceBinding.Create(
+            QuerySpaceIdentity,
+            OperationRoute,
+            [PackageRowsScope],
+            [QuerySpaceTerminalRequirement.Rows],
+            acceptsContinuation: false,
+            [
+                new(
+                    QuerySpaceTerminalRequirement.Rows,
+                    ResultContractIdentity),
+            ]);
 }
