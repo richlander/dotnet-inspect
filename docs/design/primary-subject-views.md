@@ -31,7 +31,9 @@ The pattern has five obligations. An adopting command meets all of them:
    labeled as context and is never counted as children.
 3. **Info is opt-in.** Facts about the subject are one explicitly named
    subject-facts section, selected with `-S <section>`. It answers "what is
-   this subject?" and does not re-render the children population.
+   this subject?" and does not re-render the children population. Whether
+   `-v:d` also includes the facts section is Progressive disclosure's
+   decision.
 4. **`-v:m` is compact; `-v:n` and `-v:d` are exhaustive.** At `-v:m`, the
    tree may group, decorate, or collapse the children. That summary is an
    additional projection: it never substitutes a group count for the
@@ -151,8 +153,14 @@ adopts it, in that owner's document, with its own gates.
   expansion gesture.
 - **Subject resolution:** a `library` source that selects more than one
   Library fails with a candidate list instead of silently picking one, and an
-  exact Library selector (candidate spelling `library P --library <name>`)
-  resolves one Library, bound to package source, version, and target. A
+  exact Library selector resolves one Library occurrence, bound to package
+  source, version, and target. The selector consumes the Library's asset path
+  within the selected slice, not only its file name, because one slice can
+  hold same-named Libraries: `dotnet-inspect.any` has
+  `System.Security.Cryptography.Pkcs.dll` both at the slice root and under
+  `runtimes/win/lib/net10.0/`. A candidate spelling is
+  `library P --library <path>`, where a bare file name is accepted only when it
+  is unique in the slice. A
   namesake or first-Library recommendation under
   [Package library scope](package-library-scope.md#exact-scope) may appear as
   a tip on that failure, never as the silent subject.
@@ -190,13 +198,16 @@ adopts it, in that owner's document, with its own gates.
   `Microsoft.Data.SqlClient 7.1.0 (NuGet, net9.0; ref, lib, runtimes; runtimes: unix, win)`
   reads as "three peer directories, and `runtimes` contains `unix` and
   `win`".
-- **Runtime assets** are disclosed only on the identity line. Whether a
+- **Package-root runtime assets** (`runtimes/` beside `ref` and `lib`) are
+  disclosed only on the identity line. A `runtimes/` directory nested inside
+  a tool payload is part of the tool Library population instead. Whether a
   `runtimes/*/lib` asset is an implementation overlay of a compile Library or
   a separate Library is decided by package asset selection's correspondence,
   not by this view.
 - **Addressing prerequisite:** this adoption reuses the exact Library selector
   from the Library proposal as the package-to-Library edge; each row carries
-  the identity that selector consumes.
+  the asset-path identity that selector consumes, and a row whose file name is
+  not unique displays enough of that path to tell it apart.
 
 #### Tool packages
 
@@ -273,7 +284,7 @@ Observed with production dotnet-inspect 0.26.0 on 2026-09-23, unless noted:
 | `library System.Text.Json.Nodes` | Fails trying to acquire a NuGet package with that name | Namespace input needs Library-scoped resolution |
 | dotnet-ef 10.0.12 | `DotnetTool`; `DotNetCliTool Version="1"`; `tools/net8.0/any/` with 2 Libraries and `shims/win-*` launchers | Payload package rows come from the tool Library population |
 | dotnet-inspect 0.26.0 | `DotnetTool`; `DotNetCliTool Version="2"` listing 6 RID packages; the archive holds only `tools/any/any/DotnetToolSettings.xml`. Today `package dotnet-inspect` reports the 73 Libraries of `dotnet-inspect.any` | A pointer package's children are its RID packages, not another package's payload |
-| dotnet-inspect.any 0.26.0 | `DotnetToolRidPackage`; `DotNetCliTool Version="1"`; `tools/net10.0/any/` with 73 Libraries | Entry point first; dependencies collapse at `-v:m` |
+| dotnet-inspect.any 0.26.0 | `DotnetToolRidPackage`; `DotNetCliTool Version="1"`; `tools/net10.0/any/` with 73 Libraries, including two `System.Security.Cryptography.Pkcs.dll` (slice root and `runtimes/win/lib/net10.0/`) | Entry point first; dependencies collapse at `-v:m` |
 | dotnet-inspect.osx-arm64 0.26.0 | `DotnetToolRidPackage`; `DotNetCliTool Version="2"` with an `executable` runner; `tools/any/osx-arm64/` holds a 118 MB native executable and no DLLs | No selected target; the missing managed Libraries are stated |
 | platform `Timer` | `type Timer` silently renders `System.Threading.Timer` | Obligation 1 requires a visible ambiguity failure |
 | `member JsonSerializer` | Renders member-group tables duplicating `type` | Two commands render one subject's children |
@@ -328,6 +339,7 @@ against that adoption's motivating assets:
 - obligation 5: an empty compile population for SkiaSharp.NativeAssets.Linux
   and no managed Libraries for dotnet-inspect.osx-arm64; and
 - each ladder edge: its row identity resolves through its exact gesture to the
-  same child.
+  same child, including both same-named `System.Security.Cryptography.Pkcs.dll`
+  rows in `dotnet-inspect.any`.
 
 Until an adoption lands, every obligation is `unverified` for that command.
