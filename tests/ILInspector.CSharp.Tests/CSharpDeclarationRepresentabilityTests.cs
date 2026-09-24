@@ -464,6 +464,17 @@ public sealed class CSharpDeclarationRepresentabilityTests
         MetadataMethodSignatureIdentity signature = Assert.IsType<
             MetadataMethodDeclarationResult.Posted>(post.Method)
             .Evidence.Signature;
+        MetadataTypeDeclarationEvidence containing = Assert.IsType<
+            MetadataTypeDeclarationResult.Posted>(post.ContainingType)
+            .Evidence;
+        MetadataTypeIdentity containingIdentity =
+            containing.PrimitiveAlias ?? containing.OpenSelfIdentity;
+        Assert.Equal(
+            MetadataTypeDeclarationCategory.Struct,
+            containing.Category);
+        Assert.Contains(
+            containingIdentity,
+            signature.ParameterTypes);
         Assert.IsType<MetadataTypeIdentity.SzArray>(
             signature.ReturnType);
         Assert.True(
@@ -482,6 +493,84 @@ public sealed class CSharpDeclarationRepresentabilityTests
         Assert.Equal(
             CSharpDeclarationUnavailableReason.OutsideInitialBoundary,
             unavailable.Reason);
+    }
+
+    [Fact]
+    public void CDR003_AuthoredValueTypeNeighborIsRepresentable()
+    {
+        using AuthoredFixture fixture = AuthoredFixture.Create(
+            methodImplementationCount: 1,
+            interfaceImplementationCount: 1);
+        CSharpMethodDeclarationPost post = fixture.Capture();
+        MetadataMethodSignatureIdentity signature = Assert.IsType<
+            MetadataMethodDeclarationResult.Posted>(post.Method)
+            .Evidence.Signature;
+        MetadataTypeDeclarationEvidence containing = Assert.IsType<
+            MetadataTypeDeclarationResult.Posted>(post.ContainingType)
+            .Evidence;
+        MetadataTypeIdentity containingIdentity =
+            containing.PrimitiveAlias ?? containing.OpenSelfIdentity;
+
+        Assert.Equal(
+            MetadataTypeDeclarationCategory.Struct,
+            containing.Category);
+        Assert.Contains(
+            containingIdentity,
+            signature.ParameterTypes);
+        Assert.IsType<
+            CSharpDeclarationRepresentabilityResult.Representable>(
+                CSharpDeclarationRepresentability.Decide(
+                    post,
+                    new(CSharpLanguageVersion.CSharp11)));
+    }
+
+    [Fact]
+    public void CDR003_RestrictedClrReturnTypesAreOutsideInitialBoundary()
+    {
+        foreach (string name in new[]
+        {
+            "TypedReference",
+            "ArgIterator",
+            "RuntimeArgumentHandle",
+        })
+        {
+            using AuthoredFixture fixture = AuthoredFixture.Create(
+                methodImplementationCount: 1,
+                interfaceImplementationCount: 1,
+                restrictedReturnType: name);
+            CSharpMethodDeclarationPost post = fixture.Capture();
+            MetadataMethodSignatureIdentity signature = Assert.IsType<
+                MetadataMethodDeclarationResult.Posted>(post.Method)
+                .Evidence.Signature;
+            MetadataTypeDeclarationEvidence containing = Assert.IsType<
+                MetadataTypeDeclarationResult.Posted>(post.ContainingType)
+                .Evidence;
+
+            Assert.Equal(
+                MetadataTypeDeclarationCategory.Struct,
+                containing.Category);
+            Assert.Contains(
+                containing.PrimitiveAlias
+                    ?? containing.OpenSelfIdentity,
+                signature.ParameterTypes);
+            Assert.True(
+                CSharpDeclarationRepresentability
+                    .IsAdditionSignatureShape(signature));
+            Assert.False(
+                CSharpDeclarationRepresentability.TrySpellType(
+                    signature.ReturnType,
+                    out _));
+
+            var unavailable = Assert.IsType<
+                CSharpDeclarationRepresentabilityResult.Unavailable>(
+                    CSharpDeclarationRepresentability.Decide(
+                        post,
+                        new(CSharpLanguageVersion.CSharp11)));
+            Assert.Equal(
+                CSharpDeclarationUnavailableReason
+                    .OutsideInitialBoundary,
+                unavailable.Reason);
+        }
     }
 
     [Fact]
@@ -685,7 +774,7 @@ public sealed class CSharpDeclarationRepresentabilityTests
     }
 
     [Fact]
-    public void CDR003_TypeSpellingRejectsNamedSystemVoid()
+    public void CDR003_TypeSpellingRejectsCSharpRestrictedTypes()
     {
         var scope = new MetadataTypeScopeIdentity(
             MetadataTypeScopeKind.AssemblyReference,
@@ -698,28 +787,37 @@ public sealed class CSharpDeclarationRepresentabilityTests
                 Version: null,
                 Culture: null,
                 PublicKeyToken: null));
-        var systemVoid = new MetadataTypeIdentity.Named(
-            new(
-                scope,
+        foreach (string name in new[]
+        {
+            "Void",
+            "TypedReference",
+            "ArgIterator",
+            "RuntimeArgumentHandle",
+        })
+        {
+            var restricted = new MetadataTypeIdentity.Named(
                 new(
-                    InertText.TextPolicy.Field,
-                    "System"),
-                [
+                    scope,
                     new(
                         InertText.TextPolicy.Field,
-                        "Void"),
-                ],
-                [0]),
-            IsValueType: true);
+                        "System"),
+                    [
+                        new(
+                            InertText.TextPolicy.Field,
+                            name),
+                    ],
+                    [0]),
+                IsValueType: true);
 
-        Assert.False(
-            CSharpDeclarationRepresentability.TrySpellType(
-                systemVoid,
-                out _));
-        Assert.False(
-            CSharpDeclarationRepresentability.TrySpellType(
-                new MetadataTypeIdentity.SzArray(systemVoid),
-                out _));
+            Assert.False(
+                CSharpDeclarationRepresentability.TrySpellType(
+                    restricted,
+                    out _));
+            Assert.False(
+                CSharpDeclarationRepresentability.TrySpellType(
+                    new MetadataTypeIdentity.SzArray(restricted),
+                    out _));
+        }
     }
 
     [Fact]
@@ -976,12 +1074,17 @@ public sealed class CSharpDeclarationRepresentabilityTests
             bool signatureUsesContainingType = true,
             TypeAttributes targetAttributes =
                 TypeAttributes.Public | TypeAttributes.Sealed,
-            bool targetIsValueType = true)
+            bool targetIsValueType = true,
+            string? restrictedReturnType = null)
         {
-            if (returnsVoid && returnsVoidArray)
+            int selectedReturnShapes =
+                (returnsVoid ? 1 : 0)
+                + (returnsVoidArray ? 1 : 0)
+                + (restrictedReturnType is null ? 0 : 1);
+            if (selectedReturnShapes > 1)
             {
                 throw new ArgumentException(
-                    "A signature cannot return both void and void[].");
+                    "A signature must select at most one special return shape.");
             }
 
             Guid mvid = Guid.NewGuid();
@@ -1004,7 +1107,16 @@ public sealed class CSharpDeclarationRepresentabilityTests
                     metadata.GetOrAddString("System.Private.CoreLib"),
                     new Version(11, 0, 0, 0),
                     default,
-                    default,
+                    AddBlob(
+                        metadata,
+                        0x7c,
+                        0xec,
+                        0x85,
+                        0xd7,
+                        0xbe,
+                        0xa7,
+                        0x79,
+                        0x8e),
                     (AssemblyFlags)0,
                     default);
             TypeReferenceHandle valueType =
@@ -1012,6 +1124,14 @@ public sealed class CSharpDeclarationRepresentabilityTests
                     coreLibrary,
                     metadata.GetOrAddString("System"),
                     metadata.GetOrAddString("ValueType"));
+            TypeReferenceHandle restrictedReturn =
+                restrictedReturnType is null
+                    ? default
+                    : metadata.AddTypeReference(
+                        coreLibrary,
+                        metadata.GetOrAddString("System"),
+                        metadata.GetOrAddString(
+                            restrictedReturnType));
 
             var signatureBlob = new BlobBuilder();
             signatureBlob.WriteByte(0x00);
@@ -1024,6 +1144,13 @@ public sealed class CSharpDeclarationRepresentabilityTests
             {
                 signatureBlob.WriteByte(0x1d);
                 signatureBlob.WriteByte(0x01);
+            }
+            else if (restrictedReturnType is not null)
+            {
+                signatureBlob.WriteByte(0x11);
+                signatureBlob.WriteCompressedInteger(
+                    (MetadataTokens.GetRowNumber(restrictedReturn) << 2)
+                    | 1);
             }
             else
             {

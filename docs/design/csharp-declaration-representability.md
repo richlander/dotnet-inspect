@@ -264,8 +264,8 @@ associated static explicit-interface `op_Addition` operator:
 - the declaration is an authenticated two-operand `op_Addition` with a
   non-void return, a containing-type operand, plain complete parameter
   evidence, and a C# 11-or-later profile; and
-- the containing declaration is not a static class, and no recursively spelled
-  type position contains `void`; and
+- the containing declaration is not a static class, and no spelled type
+  position contains `void` or a C# restricted runtime type; and
 - the accepted immutable request carries qualified type spellings, parameter
   spellings, exact body binding, and enough information to render a complete
   stub declaration without reopening metadata.

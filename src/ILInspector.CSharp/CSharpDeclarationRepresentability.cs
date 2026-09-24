@@ -1045,7 +1045,11 @@ public static class CSharpDeclarationRepresentability
         }
 
         string source = builder.ToString();
-        return source == "global::System.Void"
+        return source is
+            "global::System.Void"
+            or "global::System.TypedReference"
+            or "global::System.ArgIterator"
+            or "global::System.RuntimeArgumentHandle"
             ? null
             : source;
     }
