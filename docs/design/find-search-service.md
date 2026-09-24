@@ -24,6 +24,11 @@ grammar and similarity calculation. [Output shapes](output-shapes.md) and
 [progressive disclosure](progressive-disclosure.md) own projection, formatting,
 and presentation limits.
 
+[Library namespace discovery](library-namespace-discovery.md) owns exact
+namesake-Library candidates and source-neutral namespace observations. The
+existing Library Type population remains the package-space membership owner;
+Find lowers its detached declaration rows into the established result shape.
+
 ## Baseline and scope
 
 The repository convention is a typed operation result between fact production
@@ -117,6 +122,18 @@ intentional integration point here: both shared presets apply generated-name
 scope across every declaration segment, while Find's compatibility contract
 applies it only to the leaf Metadata name. Using either preset would therefore
 change established Find results.
+
+For one unscoped public namesake-eligible dotted pattern, Find first performs
+its established filtered direct lookup. Only a direct miss opens the new exact
+namespace rung. That rung obtains one PlatformHouse-derived complete Type
+catalog for Platform namespace evidence. Exact Platform prune entries then
+authorize corresponding package coordinates, which are realized through
+PackageHouse and inspected through the ordinary Library Type population.
+Package and Platform rows retain separate provenance even when their Type
+identity and version are equal. If no exact namespace is confirmed, Find
+continues through its established namespace-prefix and similarity behavior.
+Explicit source selection remains authoritative and never gains an implicit
+package observation.
 
 For a direct miss, namespace-prefix and similarity work remains CLI-owned.
 Prefix fallback is issued as a separate `<pattern>*` locator request. A
@@ -305,12 +322,19 @@ contributes results:
    produces `Glob`; another direct pattern produces `Direct`. Direct matches
    preserve every candidate's source provenance; the service does not apply
    terminal-selection precedence within this rung.
-2. **Namespace-prefix fallback.** A non-wildcard dotted pattern without
+2. **Exact namespace.** A non-wildcard dotted pattern with at least one proper
+   dotted namesake-Library candidate selects public definitions whose
+   Metadata-issued namespace equals the pattern ordinally. The result carries
+   the original pattern and `Namespace` match kind. It includes neither
+   descendants nor near-prefix namespaces. Direct Type matches still settle
+   the pattern first. Unscoped discovery retains every eligible Package and
+   Platform source observation instead of collapsing equal Type names.
+3. **Namespace-prefix fallback.** A non-wildcard dotted pattern without
    explicit generic notation may be retried as `<pattern>*`. The fallback is
    visible on stderr, the effective wildcard is carried in `Pattern`, and the
    results are classified as `Glob`. Duplicate full names collapse to the
    first source-ranked candidate.
-3. **Similarity fallback.** A pattern containing neither raw `*` nor raw `?`
+4. **Similarity fallback.** A pattern containing neither raw `*` nor raw `?`
    with no direct or prefix result may produce up to five `Partial`
    suggestions. This compatibility fallback gate is intentionally distinct
    from direct classification: `?` inside explicit generic arguments is
@@ -321,16 +345,17 @@ contributes results:
    caller source and declaration inventory order before distinct names enter
    the stable similarity ranking and five-name cutoff. Duplicate full names
    collapse to the first source-ranked candidate.
-4. **Miss.** A pattern with no result on the earlier rungs has the
+5. **Miss.** A pattern with no result on the earlier rungs has the
    `NotFound` outcome and no type or provenance payload. The optimized
    single-pattern path does not yet construct this row, as recorded under
    [Implementation and validation status](#implementation-and-validation-status).
 
-Direct and glob rows carry similarity `1.0`; partial rows carry their computed
-score; `NotFound` carries no score. Multiple patterns classify independently,
-so one candidate may legitimately appear under more than one pattern. Their
-direct or namespace-prefix groups remain in input-pattern order; similarity
-groups and misses follow those primary groups in their own input-pattern order.
+Direct, namespace, and glob rows carry similarity `1.0`; partial rows carry
+their computed score; `NotFound` carries no score. Multiple patterns classify
+independently, so one candidate may legitimately appear under more than one
+pattern. Their direct, exact-namespace, or namespace-prefix groups remain in
+input-pattern order; similarity groups and misses follow those primary groups
+in their own input-pattern order.
 When distinct inputs resolve to the same effective direct or prefix pattern,
 the later group's rows replace the earlier group's rows without changing that
 effective pattern's first insertion position, matching the established
@@ -343,7 +368,8 @@ or quality from list position.
 
 ## Limits and work
 
-For direct and namespace-prefix matches, `Limit` is a per-pattern result cap.
+For direct, exact-namespace, and namespace-prefix matches, `Limit` is a
+per-pattern result cap.
 On the locator path it is applied after complete locator evaluation and cannot
 bound inventory reads or retained inventories. On the optimized legacy
 non-tabular single-pattern path it is also an acquisition bound: once enough
@@ -356,11 +382,11 @@ Similarity fallback has its own fixed cap of five candidate names. The current
 implementation does not additionally apply `Limit` to partial suggestions;
 whether the command limit should cap that rung is an unresolved contract gap.
 
-The non-tabular single-pattern fast path first performs filtered collection. If
-it finds no direct result, it performs a full census to evaluate
-namespace-prefix and similarity fallback. This is intended as an execution
-optimization, but typed-result equivalence with the census path is not yet
-established.
+The non-tabular single-pattern compatibility path first performs filtered
+collection. If it finds no direct result, it performs a full census to evaluate
+exact-namespace, namespace-prefix, and similarity fallback. This is intended as
+an execution optimization, but typed-result equivalence with the census path is
+not yet established.
 
 ## Failure and lifetime
 
@@ -407,6 +433,14 @@ the command compatibility boundary:
   package-relative implementation asset;
 - selected-compatible-TFM replay when the request targets a newer framework;
 - staged namespace-prefix fallback without an unrelated wildcard census;
+- exact namespace selection before namespace-prefix fallback;
+- exact namespace exclusion of descendants and near-prefix names;
+- distinct unscoped PackageHouse and PlatformHouse observations for
+  `System.Text.Json.Nodes`;
+- default direct, wildcard, prefix, and similarity compatibility outside a
+  confirmed namespace hit;
+- explicit source scopes without implicit package expansion;
+- semantic row selection after complete namespace observation;
 - established metadata-arity spelling for generic locator rows;
 - parity with compatibility Find for row-local nested visibility and
   compiler-generated suppression under `--all`;
