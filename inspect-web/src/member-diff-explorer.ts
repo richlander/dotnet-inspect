@@ -617,8 +617,11 @@ export function createMemberDiffExplorer(
     dialog.querySelector<HTMLElement>("[data-member-diff-source-retry]")
       ?.addEventListener("click", startSource);
     if (focusSelector !== undefined) {
-      dialog.querySelector<HTMLElement>(focusSelector)
-        ?.focus({ preventScroll: true });
+      const focusTarget = dialog.querySelector<HTMLElement>(focusSelector)
+        ?? dialog.querySelector<HTMLElement>(
+          '[data-member-diff-pane="source"]',
+        );
+      focusTarget?.focus({ preventScroll: true });
     }
   };
 

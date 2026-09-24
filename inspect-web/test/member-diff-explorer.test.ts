@@ -497,36 +497,64 @@ interface FakeDialog {
   innerHTML: string;
   closeHandlers: EventListener[];
   keydownHandlers: EventListener[];
+  retryHandlers: EventListener[];
+  retryButton: HTMLElement;
+  sourcePane: HTMLElement;
 }
 
 function dialogHarness() {
   const dialogs: FakeDialog[] = [];
-  const document = fakeDom.document({
+  let activeElement: unknown = null;
+  let document: Document;
+  document = fakeDom.document({
+    get activeElement() {
+      return activeElement;
+    },
     body: {
       append: () => undefined,
     },
     createElement: () => {
       const closeHandlers: EventListener[] = [];
       const keydownHandlers: EventListener[] = [];
+      const retryHandlers: EventListener[] = [];
+      const focusable = (
+        handlers: EventListener[] | null = null,
+      ): HTMLElement => {
+        let element: HTMLElement;
+        element = fakeDom.htmlElement({
+          focus: () => {
+            activeElement = element;
+          },
+          addEventListener: (
+            type: string,
+            listener: EventListenerOrEventListenerObject,
+          ) => {
+            if (type === "click"
+              && handlers !== null
+              && typeof listener === "function") {
+              handlers.push(listener);
+            }
+          },
+        });
+        return element;
+      };
+      const closeButton = focusable(closeHandlers);
+      const retryButton = focusable(retryHandlers);
+      const sourcePane = focusable();
+      const heading = focusable();
       const dialog: FakeDialog = {
         open: false,
         removed: false,
         innerHTML: "",
         closeHandlers,
         keydownHandlers,
-      };
-      const closeButton = {
-        focus: () => undefined,
-        addEventListener: (
-          type: string,
-          listener: EventListenerOrEventListenerObject,
-        ) => {
-          if (type === "click" && typeof listener === "function")
-            closeHandlers.push(listener);
-        },
+        retryHandlers,
+        retryButton,
+        sourcePane,
       };
       Object.assign(dialog, {
         className: "",
+        ownerDocument: document,
         setAttribute: () => undefined,
         addEventListener: (
           type: string,
@@ -536,9 +564,23 @@ function dialogHarness() {
             keydownHandlers.push(listener);
           }
         },
-        querySelector: (selector: string) =>
-          selector === "[data-member-diff-close]" ? closeButton : null,
+        querySelector: (selector: string) => {
+          if (selector === "[data-member-diff-close]") return closeButton;
+          if (selector === "#member-diff-explorer-title") return heading;
+          if (selector === '[data-member-diff-pane="source"]')
+            return sourcePane;
+          if (selector === "[data-member-diff-source-retry]"
+            && dialog.innerHTML.includes("data-member-diff-source-retry")) {
+            return retryButton;
+          }
+          return null;
+        },
         querySelectorAll: () => [],
+        contains: (candidate: unknown) =>
+          candidate === closeButton
+          || candidate === retryButton
+          || candidate === sourcePane
+          || candidate === heading,
         focus: () => undefined,
         showModal: () => {
           dialog.open = true;
@@ -554,7 +596,11 @@ function dialogHarness() {
       return dialog;
     },
   });
-  return { document, dialogs };
+  return {
+    document,
+    dialogs,
+    activeElement: () => activeElement,
+  };
 }
 
 test("non-Tab keys preserve native dialog button activation", () => {
@@ -581,6 +627,53 @@ test("non-Tab keys preserve native dialog button activation", () => {
     stopPropagation: () => undefined,
   }));
   assert.equal(prevented, 0);
+  controller.dispose();
+});
+
+test("retry transition keeps focus inside the dialog", async () => {
+  const dom = dialogHarness();
+  const pending = deferred<BrowserSourceComparisonResult>();
+  let queryCount = 0;
+  const controller = createMemberDiffExplorer({
+    document: dom.document,
+    operationAuthority: createOperationAuthorityPage(),
+    query: () => {
+      queryCount++;
+      return queryCount === 1
+        ? Promise.resolve({
+            version: 1,
+            kind: "Failed",
+            value: null,
+            failureKind: "Expected",
+            error: "Source was unavailable.",
+            diagnostic: null,
+            reason: null,
+            capacity: null,
+          })
+        : pending.promise;
+    },
+    cancel: () => undefined,
+    describeError: error => error instanceof Error ? error.message : String(error),
+    escapeHtml: String,
+    reportOperationDiagnostic: () => undefined,
+  });
+  controller.open(context(), fakeDom.htmlElement({
+    isConnected: true,
+    focus: () => undefined,
+  }));
+  await Promise.resolve();
+  await Promise.resolve();
+
+  const dialog = dom.dialogs[0];
+  if (dialog === undefined) throw new Error("Expected a dialog.");
+  dialog.retryButton.focus();
+  assert.equal(dom.activeElement(), dialog.retryButton);
+  const retry = dialog.retryHandlers.at(-1);
+  if (retry === undefined) throw new Error("Expected a Retry binding.");
+  retry(fakeDom.event());
+
+  assert.equal(queryCount, 2);
+  assert.equal(dom.activeElement(), dialog.sourcePane);
   controller.dispose();
 });
 
