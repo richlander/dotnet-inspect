@@ -119,6 +119,35 @@ public static class Entry
         return buffer.Length;
     }
 
+    public static int RentAndReturnConstructedCompoundThroughGenericHelper()
+    {
+        byte[][] buffer = ArrayPool<byte[]>.Shared.Rent(16);
+        try
+        {
+            ForwardConstructedGenericArray<byte>(buffer);
+        }
+        finally
+        {
+            s_ownershipProbe++;
+        }
+        return buffer.Length;
+    }
+
+    public static int RentAndReturnNamedConstructedCompoundThroughGenericHelper()
+    {
+        OwnershipToken[][] buffer =
+            ArrayPool<OwnershipToken[]>.Shared.Rent(16);
+        try
+        {
+            ForwardConstructedGenericArray<OwnershipToken>(buffer);
+        }
+        finally
+        {
+            s_ownershipProbe++;
+        }
+        return buffer.Length;
+    }
+
     public static int RentAndForwardToReturn()
     {
         byte[] buffer = ArrayPool<byte>.Shared.Rent(16);
@@ -709,6 +738,9 @@ public static class Entry
 
     static void ForwardGenericArrays<T>(T[][] resource) =>
         ReturnGenericArrays<T>(resource);
+
+    static void ForwardConstructedGenericArray<T>(T[][] resource) =>
+        ReturnGeneric<T[]>(resource);
 
     static object AcquirePair<TFirst, TSecond>() =>
         new();

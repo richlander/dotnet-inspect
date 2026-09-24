@@ -60,9 +60,11 @@ A forwarded use retains the complete `DirectCall` and the zero-based callee
 parameter index. Repeated physical calls therefore remain distinct even when
 the call-graph projection collapses them onto one logical edge row. It also
 retains detached declaring-type and method generic arguments. An argument
-carries exact `ResourceOccurrenceType` evidence only when method-local metadata
-proves that identity without resolution; otherwise the exact evidence is
-absent rather than inferred from display or simple assembly names.
+carries a detached `ResourceOccurrenceType` template only when method-local
+metadata proves every non-generic identity without resolution. Generic leaves
+remain scope-owned placeholders that Research can bind from exact prior-call
+evidence; if any fixed leaf is unavailable, the template is absent rather than
+inferred from display or simple assembly names.
 
 Release uses carry the exact Resource Occurrence resource-kind domain to which
 the admitted effect applies. Resource-neutral forwarding remains the fallback
@@ -102,12 +104,13 @@ Research carries the physical call site's method generic arguments across each
 forwarding step. Before selecting a typed terminal use, it substitutes the
 complete detached occurrence type into the definition-local resource domain.
 The substitution recurses through compound element and argument domains and
-composes across multiple generic forwarding steps. A compound wrapper's
-resolved assembly, definition, and forwarding identity is inherited evidence,
-not a second identity claim: Research compares it at the recursively
-substituted element that owns that identity. Missing exact argument evidence is
-incomplete, and a non-matching domain remains resource-neutral; neither becomes
-a typed terminal.
+composes across multiple generic forwarding steps, including an intermediate
+call that constructs a compound argument such as `T[]` from exact incoming
+`T` evidence. A compound wrapper's resolved assembly, definition, and
+forwarding identity is inherited evidence, not a second identity claim:
+Research compares it at the recursively substituted element that owns that
+identity. Missing exact argument evidence is incomplete, and a non-matching
+domain remains resource-neutral; neither becomes a typed terminal.
 
 A terminal `ResourceOwnershipPathWitness` contains the obligation, selected
 resource kind, ordered physical forwarding coordinates, typed sink outcome,
@@ -151,7 +154,8 @@ The focused gates establish:
   coordinates;
 - call-site method-generic substitution selects a matching typed release both
   directly and across multiple forwarding steps, including compound domains
-  whose element is defined in the inspected assembly;
+  whose element is defined in the inspected assembly and compound arguments
+  constructed at an intermediate call;
 - same-simple-name assembly versions do not become one bound generic domain,
   and unavailable exact generic evidence remains incomplete;
 - one resource-kind identity bound to different resource arguments at one

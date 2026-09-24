@@ -633,14 +633,8 @@ public static class ResourceOwnershipPathFindings
         ResourceOccurrenceType left,
         ResourceOccurrenceType right)
     {
-        if (left.Type.Kind is
-                TypeRefKind.SzArray
-                or TypeRefKind.Array
-                or TypeRefKind.ByRef
-                or TypeRefKind.Pointer)
-        {
+        if (InheritsElementIdentity(left.Type.Kind))
             return true;
-        }
 
         return left.DefiningAssembly == right.DefiningAssembly
             && left.DefinitionKind == right.DefinitionKind
@@ -649,6 +643,13 @@ public static class ResourceOwnershipPathFindings
             && left.Forwarding.Zip(right.Forwarding).All(pair =>
                 ForwardingHopsMatch(pair.First, pair.Second));
     }
+
+    static bool InheritsElementIdentity(TypeRefKind kind) =>
+        kind is
+            TypeRefKind.SzArray
+            or TypeRefKind.Array
+            or TypeRefKind.ByRef
+            or TypeRefKind.Pointer;
 
     static bool CurrentTypeShapeMatches(TypeRef left, TypeRef right)
     {
@@ -952,7 +953,67 @@ public static class ResourceOwnershipPathFindings
                 Types(MethodArguments));
             return ResourceOwnershipGenericContextArgument.Create(
                 instantiated,
-                argument.ExactType);
+                argument.TypeEvidence is null
+                    ? null
+                    : InstantiateTypeEvidence(argument.TypeEvidence));
+        }
+
+        ResourceOccurrenceType? InstantiateTypeEvidence(
+            ResourceOccurrenceType evidence)
+        {
+            if (evidence.Type.Kind is
+                TypeRefKind.GenericParameter
+                    or TypeRefKind.MethodGenericParameter)
+            {
+                ResourceEffectGenericVariableKind kind =
+                    evidence.Type.Kind == TypeRefKind.GenericParameter
+                        ? ResourceEffectGenericVariableKind.Type
+                        : ResourceEffectGenericVariableKind.Method;
+                return TryGetArgument(
+                        kind,
+                        evidence.Type.GenericParameterIndex,
+                        out ResourceOwnershipGenericContextArgument argument)
+                    ? argument.ExactType
+                    : null;
+            }
+
+            ResourceOccurrenceType? element = evidence.Element is null
+                ? null
+                : InstantiateTypeEvidence(evidence.Element);
+            if (evidence.Element is not null && element is null)
+                return null;
+
+            var arguments =
+                ImmutableArray.CreateBuilder<ResourceOccurrenceType>(
+                    evidence.Arguments.Length);
+            foreach (ResourceOccurrenceType argument in evidence.Arguments)
+            {
+                ResourceOccurrenceType? instantiated =
+                    InstantiateTypeEvidence(argument);
+                if (instantiated is null)
+                    return null;
+                arguments.Add(instantiated);
+            }
+
+            TypeRef type = evidence.Type.Instantiate(
+                Types(TypeArguments),
+                Types(MethodArguments));
+            bool inheritsElementIdentity =
+                InheritsElementIdentity(type.Kind);
+            return new(
+                type,
+                inheritsElementIdentity
+                    ? element?.DefiningAssembly
+                    : evidence.DefiningAssembly,
+                inheritsElementIdentity
+                    ? element?.DefinitionKind
+                    : evidence.DefinitionKind,
+                evidence.GenericScopeKind,
+                element,
+                arguments.ToImmutable(),
+                inheritsElementIdentity
+                    ? element?.Forwarding ?? []
+                    : evidence.Forwarding);
         }
 
         static ImmutableArray<TypeRef> Types(

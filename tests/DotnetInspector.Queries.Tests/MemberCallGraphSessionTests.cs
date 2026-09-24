@@ -710,6 +710,16 @@ public sealed class MemberCallGraphSessionTests
         2,
         0)]
     [InlineData(
+        "RentAndReturnConstructedCompoundThroughGenericHelper",
+        ResourceOwnershipPathOutcome.Released,
+        2,
+        0)]
+    [InlineData(
+        "RentAndReturnNamedConstructedCompoundThroughGenericHelper",
+        ResourceOwnershipPathOutcome.Released,
+        2,
+        0)]
+    [InlineData(
         "RentAndStoreThroughHelper",
         ResourceOwnershipPathOutcome.Stored,
         1,
@@ -1376,7 +1386,7 @@ public sealed class MemberCallGraphSessionTests
                 Assert.Single(focus.Acquisitions).Uses,
                 static use => use.IsForwarded);
         Assert.NotNull(
-            Assert.Single(forwarding.MethodArguments).ExactType);
+            Assert.Single(forwarding.MethodArguments).TypeEvidence);
         Analysis.TypeRef token =
             Analysis.TypeRef.Definition(
                 "DomainX",

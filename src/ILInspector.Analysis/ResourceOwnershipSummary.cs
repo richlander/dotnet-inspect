@@ -24,25 +24,36 @@ public sealed record ResourceOwnershipGenericArgument
 {
     public ResourceOwnershipGenericArgument(
         TypeRef type,
-        ResourceOccurrenceType? exactType)
+        ResourceOccurrenceType? typeEvidence)
     {
         Type = type ?? throw new ArgumentNullException(nameof(type));
-        ExactType = exactType;
+        TypeEvidence = typeEvidence;
     }
 
     public TypeRef Type { get; }
-    public ResourceOccurrenceType? ExactType { get; }
+    public ResourceOccurrenceType? TypeEvidence { get; }
 
     internal static ResourceOwnershipGenericArgument From(TypeRef type) =>
-        new(type, TryCreateExactType(type));
+        new(type, TryCreateTypeEvidence(type));
 
-    static ResourceOccurrenceType? TryCreateExactType(TypeRef type)
+    static ResourceOccurrenceType? TryCreateTypeEvidence(TypeRef type)
     {
-        if (type.Kind
-            is TypeRefKind.GenericParameter
-                or TypeRefKind.MethodGenericParameter
-                or TypeRefKind.Unsupported
-                or TypeRefKind.Pinned)
+        if (type.Kind is
+            TypeRefKind.GenericParameter
+                or TypeRefKind.MethodGenericParameter)
+        {
+            return new(
+                type,
+                null,
+                null,
+                type.Kind == TypeRefKind.GenericParameter
+                    ? ResourceEffectGenericVariableKind.Type
+                    : ResourceEffectGenericVariableKind.Method,
+                null,
+                [],
+                []);
+        }
+        if (type.Kind is TypeRefKind.Unsupported or TypeRefKind.Pinned)
         {
             return null;
         }
@@ -73,7 +84,7 @@ public sealed record ResourceOwnershipGenericArgument
 
         ResourceOccurrenceType? element = type.ElementType is null
             ? null
-            : TryCreateExactType(type.ElementType);
+            : TryCreateTypeEvidence(type.ElementType);
         if (type.ElementType is not null && element is null)
             return null;
 
@@ -83,7 +94,7 @@ public sealed record ResourceOwnershipGenericArgument
         foreach (TypeRef argument in type.TypeArguments)
         {
             ResourceOccurrenceType? exact =
-                TryCreateExactType(argument);
+                TryCreateTypeEvidence(argument);
             if (exact is null)
                 return null;
             arguments.Add(exact);
