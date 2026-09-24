@@ -654,6 +654,7 @@ S0–S2 and M1 have landed. S3, S6, and S7 are independent of each other,
 except that S3's exclusion mode and S6 both follow M2. S6
 changes only the lowering and summary of the existing CLI member Source Diff,
 and follows M2 under the [Markout co-development loop](../markout-co-development.md).
+M2 starts only after the operator approves it, as M1 was.
 Inspect Web is reached at S5, which follows S4. S3 is independent of S4 and
 S5.
 
@@ -690,20 +691,29 @@ defaults and their hosts:
 - The member Source Diff compares PDB (authored) with decompiled text, so S6
   makes it insensitive by default. The S2 labels remain its sensitive
   presentation.
-- RTS consumes the facts, not a rendering. Today its source probe reports only
-  a match or a difference. S7 replaces every `NormalizeBody` comparison in the
-  probe with the pair outcome, and reports a difference with the line-diff
-  facts: `Changed` lines, moved blocks, and `WhitespaceOnly` lines counted
-  separately. `NormalizeBody` removes every .NET `\s`
-  character, which includes U+00A0, U+000B, U+000C, U+0085, other `Zs`
-  characters, U+2028, and U+2029. This design's whitespace set deliberately
-  excludes them, so bodies that differ only by those characters become
-  `Changed`. That change is intended: a lookalike space must not pass as
-  whitespace. RTS owns its outcomes, and S7 names the one for a
-  `WhitespaceOnly` pair, which must stay distinguishable from a
-  `Identical` match. A whitespace-only outcome remains a difference report,
-  not an equivalence verdict: whitespace inside a string literal stays a
-  difference until a language certifier says otherwise.
+- RTS consumes the facts, not a rendering. Its source probe already judges
+  decompiled ↔ authored text with the nested source judgments
+  `Printer exact ⊆ Correct ⊆ Valid` that
+  [the correctness pipeline](../decompiler-correctness-pipeline.md) owns.
+  Correct compares after `NormalizeBody`, which is the insensitive judgment.
+  Printer exact is an opt-in ordinal comparison that normalizes only line
+  terminators and one trailing newline; it is the existing explicit sensitive
+  selection for this endpoint pair, and S7 leaves it unchanged.
+- S7 replaces every `NormalizeBody` comparison in the probe with the pair
+  outcome: Correct holds when the outcome is `Identical` or `WhitespaceOnly`.
+  Terminator spelling and a final terminator are whitespace edits, so every
+  Printer exact body stays Correct and the nesting holds. S7 reports a body
+  that is not Correct with the line-diff facts: `Changed` lines, moved blocks,
+  and `WhitespaceOnly` lines counted separately. `NormalizeBody` removes every
+  .NET `\s` character, which includes U+00A0, U+000B, U+000C, U+0085, other
+  `Zs` characters, U+2028, and U+2029. This design's whitespace set
+  deliberately excludes them, so a body that differs only by those characters
+  stops being Correct. That change is intended, because a lookalike space must
+  not pass as whitespace; S7 reports any registered source-oracle member it
+  moves out of Correct as a manifest change in its own slice. Correct remains
+  RTS's judgment, not an equivalence verdict from this design: whitespace
+  inside a string literal stays a difference until a language certifier says
+  otherwise.
 - Decompiled → decompiled comparisons, such as RTS A/B runs across decompiler
   builds, keep the sensitive default. RTS A/B compares trimmed text
   ordinally today, which is sensitive to everything except leading and
