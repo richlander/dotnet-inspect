@@ -608,7 +608,10 @@ Adoption is staged through focused slices:
    continue to additional Library observations. None filters already-rendered
    Type rows. The first production adopter is the direct Library inspection
    envelope, whose namespace option lowers exact values and leading-dot suffix
-   values into the typed facet without source discovery.
+   values into the typed facet without source discovery. The ordinary Library
+   CLI subsequently drains Rows from that same population and lowers them
+   through Markout Type tables; it does not reconstruct namespace membership
+   from rendered text.
 6. Expose one typed `BrowserLibraryInspectionRequest` through the #8347
    generated JSON-input facade and consume the same envelope in Inspect Web.
 7. Adopt additional Library facts and populations owner by owner, then retire

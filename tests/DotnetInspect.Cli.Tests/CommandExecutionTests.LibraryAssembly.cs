@@ -379,11 +379,126 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Library_NamespaceRequiresHostNeutralEnvelope()
+    public async Task
+        Library_NamespaceSuffixRendersMarkdownTypeTables()
     {
         var (exit, output, error) = await RunAppAsync(
             "library",
-            TestAssemblyPath,
+            typeof(World.Blue.Nodes.Foo).Assembly.Location,
+            "--namespace",
+            ".Nodes",
+            "--tips",
+            "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains("## Classes", output, StringComparison.Ordinal);
+        Assert.Contains(
+            "`World.Blue.Nodes.Foo`",
+            output,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "`World.Green.Nodes.Bar`",
+            output,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "Nodes.Root",
+            output,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "World.Blue.MyNodes.NearName",
+            output,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "World.Blue.Nodes.More.Descendant",
+            output,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "2 types",
+            output,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task
+        Library_ExactNamespaceRendersPlatformTypeTables()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "library",
+            "System.Text.Json",
+            "--namespace",
+            "System.Text.Json.Nodes",
+            "--tips",
+            "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains(
+            "`System.Text.Json.Nodes.JsonArray`",
+            output,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "`System.Text.Json.Nodes.JsonNodeOptions`",
+            output,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "System.Text.Json.JsonSerializer",
+            output,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "5 types",
+            output,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task
+        Library_ExactPackageNamespaceRendersMarkdownTypeTables()
+    {
+        var (packagePath, tempDir) = CreateLocalLibPackage();
+        try
+        {
+            var (exit, output, error) = await RunAppAsync(
+                "library",
+                "Latest.One.dll",
+                "--package",
+                packagePath,
+                "--tfm",
+                "net10.0",
+                "--namespace",
+                "DotnetInspect.Cli.Tests",
+                "--tips",
+                "q");
+
+            Assert.Equal(0, exit);
+            Assert.Empty(error);
+            Assert.Contains(
+                "`DotnetInspect.Cli.Tests.CommandExecutionTests`",
+                output,
+                StringComparison.Ordinal);
+            Assert.DoesNotContain(
+                "## Library Info",
+                output,
+                StringComparison.Ordinal);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task
+        Library_PackageNamespaceRequiresExactLibraryBeforeAcquisition()
+    {
+        string missingPackagePath = Path.Combine(
+            Path.GetTempPath(),
+            $"dotnet-inspect-missing-{Guid.NewGuid():N}.nupkg");
+
+        var (exit, output, error) = await RunAppAsync(
+            "library",
+            "--package",
+            missingPackagePath,
             "--namespace",
             "DotnetInspect.Cli.Tests",
             "--tips",
@@ -392,9 +507,65 @@ public partial class CommandExecutionTests
         Assert.Equal(1, exit);
         Assert.Empty(output);
         Assert.Contains(
-            "--namespace currently requires --envelope",
+            "requires one exact Library",
             error,
             StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "not found",
+            error,
+            StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task
+        Library_NamespaceMarkdownRejectsProjectionControls()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "library",
+            typeof(World.Blue.Nodes.Foo).Assembly.Location,
+            "--namespace",
+            ".Nodes",
+            "--json",
+            "--tips",
+            "q");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains(
+            "complete Markdown Type listing",
+            error,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task
+        Library_PackageNamespaceRejectsProjectionBeforeAcquisition()
+    {
+        string missingPackagePath = Path.Combine(
+            Path.GetTempPath(),
+            $"dotnet-inspect-missing-{Guid.NewGuid():N}.nupkg");
+
+        var (exit, output, error) = await RunAppAsync(
+            "library",
+            "Missing.dll",
+            "--package",
+            missingPackagePath,
+            "--namespace",
+            "DotnetInspect.Cli.Tests",
+            "--json",
+            "--tips",
+            "q");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains(
+            "complete Markdown Type listing",
+            error,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "not found",
+            error,
+            StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]

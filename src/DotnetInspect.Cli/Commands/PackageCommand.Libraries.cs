@@ -872,6 +872,7 @@ public partial class PackageCommand
             ReferenceHierarchyDepth = options.ReferenceHierarchyDepth,
             IncludePrerelease = options.IncludePrerelease,
             Tfm = selectedTargetFramework ?? options.Tfm,
+            TypeNamespace = options.TypeNamespace,
             TypeFilter = options.TypeFilter,
             PreferRenderedUrls = options.PreferRenderedUrls,
             JsonOutput = options.JsonOutput,

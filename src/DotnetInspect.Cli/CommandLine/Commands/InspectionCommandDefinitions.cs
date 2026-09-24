@@ -410,7 +410,7 @@ public static class InspectionCommandDefinitions
         var namespaceOption = new Option<string?>("--namespace")
         {
             Description =
-                "Select an exact namespace, or a leading-dot namespace suffix, in a host-neutral Library inspection envelope",
+                "List public Types in an exact namespace, or in namespaces ending with a leading-dot suffix",
         };
         var metadataRootOption = new Option<string?>("--metadata-root")
         {
@@ -507,12 +507,6 @@ public static class InspectionCommandDefinitions
             }
             if (!result.GetValue(opts.Envelope))
             {
-                if (result.GetResult(namespaceOption)
-                    is { Implicit: false })
-                {
-                    result.AddError(
-                        "library --namespace currently requires --envelope.");
-                }
                 return;
             }
 
