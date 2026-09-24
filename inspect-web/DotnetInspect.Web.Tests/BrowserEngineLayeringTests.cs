@@ -539,6 +539,8 @@ public sealed class BrowserEngineLayeringTests
             // Operate on semantic product-resource paths, not filesystem paths.
             "DotnetInspector.Sections.ResourceExplanationCatalog",
             "DotnetInspector.Sections.ResourcePath",
+            // Classifies package-relative archive entry names, not filesystem paths.
+            "DotnetInspector.Queries.PackageFileInventoryQuery",
             // Operate on packet-local Workspace component paths.
             "DotnetInspector.Queries.Definitions.WorkspaceContextComponentPath",
             "DotnetInspector.Queries.Definitions.WorkspacePackageComponentEditor",
