@@ -297,7 +297,10 @@ import {
   type IntegrationMode,
 } from "./integration-inspector.ts";
 import { renderLibraryAnalysisSurface } from "./library-analysis.ts";
-import { renderLibraryMetricsSurface } from "./library-metrics.ts";
+import {
+  bindLibraryMetricsInteractions,
+  renderLibraryMetricsSurface,
+} from "./library-metrics.ts";
 import {
   captureMemberFocus,
   createMemberFocusRestorer,
@@ -8614,6 +8617,24 @@ function renderPackageLibraryMetrics() {
   });
 }
 
+function activateLibraryMetricsType(typeKey: string) {
+  const pkg = state.package;
+  const library = selectedLibrary();
+  if (!pkg || !library) return;
+  const matches = pkg.types.filter(type =>
+    !type.graphOnly
+    && libraryKey(type) === library.id
+    && typeIdentifierOf(type) === typeKey);
+  const target = matches.length === 1 ? matches[0] : undefined;
+  if (!target) {
+    showToast(matches.length === 0
+      ? "That Type is not loaded in the selected Library."
+      : "That Type identity is ambiguous in the selected Library.");
+    return;
+  }
+  navigateToType(target);
+}
+
 async function loadPackagePerformance() {
   const pkg = currentPackage();
   const scopedLib = selectedLibraryRequest() || null;
@@ -11124,6 +11145,9 @@ function bindEvents() {
   bindPackageComparisonControls();
   bindCompareEvents();
   bindLibraryControlsEvents();
+  bindLibraryMetricsInteractions(document, {
+    activateType: activateLibraryMetricsType,
+  });
   workbenchShellBinding =
     bindWorkbenchShell(document, workbenchShellActions);
   bindGraphBack(document, graphBackActions);

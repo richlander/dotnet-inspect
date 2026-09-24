@@ -444,10 +444,12 @@ presentation this design needs:
   literal glyph characters escaped. Glyphs make an invisible edit readable;
   the label, not the glyph, classifies the change.
 
-Hunks split this way remain valid unified diff. GNU `patch` applies adjacent
-hunks that share no line (reporting fuzz for the missing context), and `git
-apply` applies them with `--unidiff-zero`,
-because git reads uneven context as anchored to the start or end of the file.
+Hunks split this way remain valid unified diff. GNU `patch` and `git apply`
+read uneven context as anchored to the start or end of the file, so Markout
+gives each split hunk equal leading and trailing context except where it
+touches either end. It also keeps a "no newline at end of file" marker in the
+last hunk, merging the changes from that point on into one unlabeled hunk
+when needed. `git apply` needs `--unidiff-zero` for zero-context hunks.
 Member diffs use member-relative line numbers, so they were never applicable
 to the source file in any case.
 

@@ -164,7 +164,7 @@ public static class MethodCorrespondenceResolver
         return row > 0 && row <= reader.GetTableRowCount(TableIndex.MethodDef);
     }
 
-    static bool IsExtensionMethod(
+    internal static bool IsExtensionMethod(
         MetadataReader reader,
         TypeDefinition type,
         MethodDefinition method)

@@ -246,10 +246,12 @@ relationship projection, without recomputing any report fact. Area represents
 instruction volume, treemap color represents average normal-flow complexity, and
 relationship stroke width represents retained call-site count. These visuals
 render every endpoint and edge in Research's bounded relationship projection;
-the Browser performs no second topology selection. They are structural
-evidence and preserve the settled Library-to-Type-to-Member
-journey; they do not add a quality score, Compare surface, complete graph, or a
-second report model.
+the Browser performs no second topology selection. A treemap cell discloses its
+type summary on pointer hover or keyboard focus and activates the exact
+metadata type key to continue the settled Library-to-Type-to-Member journey.
+The synthetic `Other types` aggregate discloses its combined summary but is not
+a Type navigation target. These visuals are structural evidence; they do not
+add a quality score, Compare surface, complete graph, or a second report model.
 
 ## Real-library probe
 
