@@ -2281,9 +2281,12 @@ test.describe("artifact-backed package scope adoption over real Wasm", () => {
       .toContainText(`${libraryDiffV1.version} → ${libraryDiffV2.version}`);
     await expect(panel.locator(".compare-status"))
       .toContainText("Comparison complete", { timeout: 60_000 });
-    await expect(panel.locator(".library-api-diff-type")).toHaveCount(7);
+    await expect(panel.locator(".library-api-diff-type")).toHaveCount(8);
     await expect(panel).toContainText("LibraryApiDiffFixture.RemovedType");
     await expect(panel).toContainText("LibraryApiDiffFixture.AddedType");
+    await expect(panel).toContainText(
+      "LibraryApiDiffFixture.MethodConstraintChange",
+    );
     await expect(panel).toContainText(
       "LibraryApiDiffFixture.TypeDefinitionOnly",
     );
@@ -2295,12 +2298,12 @@ test.describe("artifact-backed package scope adoption over real Wasm", () => {
     )).toHaveAttribute("data-before-type-id", "");
     // Every current-side Type row is a navigation item; the removed Type
     // remains visible with Before-side evidence and is not activatable.
-    await expect(panel.locator(".library-api-diff-type button")).toHaveCount(6);
+    await expect(panel.locator(".library-api-diff-type button")).toHaveCount(7);
     await expect(panel.locator(
       '[data-before-type-id="LibraryApiDiffFixture.RemovedType"] [aria-disabled="true"]',
     )).toHaveCount(1);
     await expect(panel.locator(".library-api-diff-type button[data-compare-type-id]"))
-      .toHaveCount(6);
+      .toHaveCount(7);
     expect(registry.downloadCount(libraryDiffV1)).toBe(1);
     expect(registry.downloadCount(libraryDiffV2)).toBe(1);
 
@@ -2438,7 +2441,7 @@ test.describe("artifact-backed package scope adoption over real Wasm", () => {
     await expect(panel.locator('[data-compare-mode="clone"]'))
       .toHaveAttribute("aria-selected", "true");
     await panel.locator('[data-compare-mode="diff"]').click();
-    await expect(panel.locator(".library-api-diff-type")).toHaveCount(7, {
+    await expect(panel.locator(".library-api-diff-type")).toHaveCount(8, {
       timeout: 60_000,
     });
 
