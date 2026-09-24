@@ -476,13 +476,14 @@ The terminal reports `Share.NonProjectable` at `comparison/endpoints`:
 Workspace Share does not yet represent the comparison's ordered endpoints and
 API scope. A host must not manufacture a replayable Share from one endpoint.
 
-The selected-Library comparison uses Metadata's existing resolution-aware
-generic-constraint extraction with the bounded projection. It records
-unavailable forwarded dependencies before deciding endpoint completeness;
-constraint failure retention spends the same failure/text budget as other
-extraction failures. Declaration-only API-surface queries retain their existing
-metadata-only behavior. The supplied binding policy, not the CLI or this
-presentation adapter, decides the dependency universe.
+The selected-Library comparison uses Metadata's bounded metadata-only
+projection. Compatibility compares exact generic-constraint names and member
+signature identities, so it does not resolve external constraint definitions
+only to classify them as classes or interfaces. Declaration inspection retains
+its resolution-aware behavior because faithful C# override rendering consumes
+that classification. The supplied binding policy, not the CLI or this
+presentation adapter, continues to decide the dependency universe for
+operations that require resolution.
 
 The CLI adopts this terminal for ordinary API diffs with exactly one acquired
 Library per endpoint, optionally narrowed by Type or compatibility
@@ -573,7 +574,8 @@ The Release `LibraryApiDiffPresentationTests` gate covers the presentation's
 pathological cases. `LibraryApiDiffInspectionTests` gates equivalent detached
 envelopes from path and pathless-memory images, successful empty results,
 independent endpoint truncation, logical-Library rejection, forwarded
-constraint failures, and their retention limit. `LibraryApiDiffCommandTests`
+constraints without dependency resolution, and the zero inspection-failure
+budget boundary. `LibraryApiDiffCommandTests`
 and the existing `DiffCommandTests` gate the production CLI consumer, output
 formats, filters, and neighboring legacy routes. The real-package command
 case is marked Slow; deterministic fixture cases remain PR-fast.

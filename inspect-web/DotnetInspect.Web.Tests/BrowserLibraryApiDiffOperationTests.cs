@@ -30,6 +30,79 @@ public sealed class BrowserLibraryApiDiffOperationTests
     const string AssemblyName = "LibraryApiDiffFixture.dll";
 
     [Fact]
+    public async Task MicrosoftAzureSignalR_DoesNotRequireFrameworkConstraintResolution()
+    {
+        const string packageId = "Microsoft.Azure.SignalR";
+        const string version = "1.33.1";
+        const string framework = "net8.0";
+        byte[] package = await File.ReadAllBytesAsync(
+            Path.Combine(
+                AppContext.BaseDirectory,
+                "RealAssets",
+                "LibraryApiDiff",
+                "microsoft.azure.signalr.1.33.1.nupkg"),
+            TestContext.Current.CancellationToken);
+        await BrowserPackageWorkspace.RegisterAcquiredPackageAsync(
+            new BrowserPackage(
+                packageId,
+                version,
+                package,
+                fromCache: false));
+
+        BrowserInspectionScope scope;
+        await using (BrowserScopeLease<BrowserInspectionScope> lease =
+            await BrowserPackageWorkspace.OpenScopeAsync(
+                packageId,
+                version,
+                framework,
+                TestContext.Current.CancellationToken))
+        {
+            scope = lease.Scope;
+        }
+
+        try
+        {
+            BrowserPackageCoordinate coordinate =
+                Assert.Single(scope.Coordinates);
+            string compileAssetId =
+                coordinate.CompileAsset("Microsoft.Azure.SignalR.dll").Id;
+            var request = new BrowserLibraryApiDiffRequest(
+                1,
+                packageId,
+                version,
+                version,
+                framework,
+                compileAssetId);
+            string requestJson = JsonSerializer.Serialize(
+                request,
+                BrowserMetadataJsonContext.Default
+                    .BrowserLibraryApiDiffRequest);
+
+            string resultJson = await MetadataExports.QueryLibraryApiDiff(
+                Guid.NewGuid().ToString(),
+                requestJson);
+            BrowserLibraryApiDiffResult result =
+                JsonSerializer.Deserialize(
+                    resultJson,
+                    BrowserMetadataJsonContext.Default
+                        .BrowserLibraryApiDiffResult)!;
+
+            Assert.Equal(
+                BrowserLibraryApiDiffResultKind.Succeeded,
+                result.Kind);
+            BrowserLibraryApiDiffSucceeded value =
+                Assert.IsType<BrowserLibraryApiDiffSucceeded>(result.Value);
+            Assert.Empty(value.Target.Issues);
+            Assert.Empty(value.Current.Issues);
+            Assert.Empty(value.Types);
+        }
+        finally
+        {
+            await BrowserPackageWorkspace.RemoveScopeAsync(scope);
+        }
+    }
+
+    [Fact]
     public async Task ExportProjectsCompleteProducerOrderedChangedTypeInventory()
     {
         await using Fixture fixture = await Fixture.Open();

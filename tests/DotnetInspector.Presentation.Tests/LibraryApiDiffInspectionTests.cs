@@ -137,61 +137,32 @@ public sealed class LibraryApiDiffInspectionTests
         Assert.True(rejected.After.IsComplete);
     }
 
-    [Theory]
-    [InlineData(false)]
-    [InlineData(true)]
-    public async Task Execute_ForwardedConstraint_PreservesDependencyEvidenceAcrossHosts(bool includeBase)
-    {
-        var pathBacked = await ExecuteForwardedConstraint(
-            memoryBacked: false, includeBase, GenerousLimits);
-        var memoryBacked = await ExecuteForwardedConstraint(
-            memoryBacked: true, includeBase, GenerousLimits);
-
-        Assert.Equal(pathBacked, memoryBacked);
-        if (includeBase)
-        {
-            var available = Assert.IsType<LibraryApiDiffOutcome.Available>(pathBacked.Content);
-            Assert.Empty(available.Document.Comparison.Subjects);
-        }
-        else
-        {
-            var unavailable = Assert.IsType<LibraryApiDiffOutcome.Unavailable>(pathBacked.Content);
-            Assert.False(unavailable.Before.IsComplete);
-            Assert.False(unavailable.After.IsComplete);
-            var issue = Assert.Single(
-                unavailable.Before.Issues.OfType<LibraryApiDiffEndpointIssue.InspectionFailures>());
-            Assert.Contains(issue.Details, failure =>
-                failure.Operation.ToString() == ApiSurfaceInspectionFailure.GenericParameterConstraintResolutionOperation
-                && failure.DependencyAssembly?.Name == "DotnetInspector.Services.RouteLearning.Base");
-        }
-    }
-
     [Fact]
-    public async Task Execute_ConstraintFailureExceedsBudget_ReturnsTruncationInsteadOfEmptySuccess()
+    public async Task Execute_ForwardedConstraint_DoesNotResolveDependencyAcrossHosts()
     {
         var limits = new ApiSurfaceProjectionLimits(
             1, 1_000_000, 1_000_000, 0, 1_000_000, 10_000_000);
-        var envelope = await ExecuteForwardedConstraint(
-            memoryBacked: true, includeBase: false, limits);
+        var pathBacked = await ExecuteForwardedConstraint(
+            memoryBacked: false, limits);
+        var memoryBacked = await ExecuteForwardedConstraint(
+            memoryBacked: true, limits);
 
-        var unavailable = Assert.IsType<LibraryApiDiffOutcome.Unavailable>(envelope.Content);
-        var truncated = Assert.Single(
-            unavailable.Before.Issues.OfType<LibraryApiDiffEndpointIssue.Truncated>());
-        Assert.Equal(ApiSurfaceProjectionLimit.InspectionFailures, truncated.Truncation.Limit);
+        Assert.Equal(pathBacked, memoryBacked);
+        var available =
+            Assert.IsType<LibraryApiDiffOutcome.Available>(pathBacked.Content);
+        Assert.Empty(available.Document.Before.Issues);
+        Assert.Empty(available.Document.After.Issues);
+        Assert.Empty(available.Document.Comparison.Subjects);
     }
 
     static async Task<InspectionEnvelope<LibraryApiDiffOutcome>> ExecuteForwardedConstraint(
         bool memoryBacked,
-        bool includeBase,
         ApiSurfaceProjectionLimits limits)
     {
         string[] paths =
         [
             FixtureCatalog.ServicesRouteLearningConsumer.AssemblyPath(),
             FixtureCatalog.ServicesRouteLearningConsumer.AssetPath("middle"),
-            .. includeBase
-                ? new[] { FixtureCatalog.ServicesRouteLearningConsumer.AssetPath("base") }
-                : [],
         ];
         ResolvedAssemblyReference[] assemblies =
         [
