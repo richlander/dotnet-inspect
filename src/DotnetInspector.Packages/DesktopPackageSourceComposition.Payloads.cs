@@ -24,7 +24,8 @@ public sealed partial class DesktopPackageSourceComposition
         PackageHouseTargetContext? compileTargetContext = null,
         PackagePayloadAccess access = PackagePayloadAccess.Complete,
         PackageAssetDemand assetDemand =
-            PackageAssetDemand.SurfaceAndImplementation)
+            PackageAssetDemand.SurfaceAndImplementation,
+        IEnumerable<string>? implementationNames = null)
     {
         ArgumentNullException.ThrowIfNull(createStore);
         if (compileTargetContext is not null
@@ -35,6 +36,12 @@ public sealed partial class DesktopPackageSourceComposition
                 nameof(operationContext));
         }
         RequireRealizationForRangedAccess(access, compileTargetContext);
+        if (implementationNames is not null && compileTargetContext is null)
+        {
+            throw new ArgumentException(
+                "Named implementation assemblies require a compile realization.",
+                nameof(implementationNames));
+        }
         if (operationContext is not null)
         {
             return PackageSourceSettlementCompatibility.RunAsync(
@@ -84,7 +91,8 @@ public sealed partial class DesktopPackageSourceComposition
                     requiredProducerKey,
                     compileTargetContext,
                     access,
-                    assetDemand);
+                    assetDemand,
+                    implementationNames);
             sourceOperation = null;
             return execution;
         }

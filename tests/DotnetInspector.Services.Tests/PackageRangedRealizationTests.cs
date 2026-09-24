@@ -692,7 +692,25 @@ public sealed partial class PackageRangedRealizationTests
             IPackageStore store,
             PackagePayloadAccess access,
             string framework,
-            long sizeCut = 0)
+            long sizeCut = 0) =>
+            RealizeAsync(
+                store,
+                access,
+                framework,
+                sizeCut,
+                PclStorage,
+                PclStorageVersion);
+
+        public Task<PackageHouseSettlement> RealizeAsync(
+            IPackageStore store,
+            PackagePayloadAccess access,
+            string framework,
+            long sizeCut,
+            string packageId,
+            string version,
+            IEnumerable<string>? implementationNames = null,
+            PackageHouseAssetSelectionKind selection =
+                PackageHouseAssetSelectionKind.Compile)
         {
             // The real assets here are small, so the ranged gates set a zero
             // size cut; size first itself is gated separately.
@@ -705,10 +723,11 @@ public sealed partial class PackageRangedRealizationTests
                     rangedSizeCut: sizeCut));
             var request = new PackageHouseRequest(
                 new PackageHouseDemand.Exact(
-                    PackageSourceCoordinate.Create(PclStorage, PclStorageVersion)),
+                    PackageSourceCoordinate.Create(packageId, version)),
                 PackageHouseOperation.Create(PackageHouseOperationProfile.Realize),
                 PackageHouseTargetContext.Exact(framework),
-                PackageHouseAssetSelectionKind.Compile);
+                selection,
+                implementationNames: implementationNames);
             return house.ExecuteAsync(
                 request,
                 Root.IssueOperationLease(

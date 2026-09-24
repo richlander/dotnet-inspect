@@ -304,6 +304,12 @@ public static class ZipArchiveReader
     /// total above it is <see cref="ZipReadFailure.OverBound"/> before any
     /// transfer.
     /// </param>
+    /// <param name="entryMergeGap">
+    /// The merge gap for this read in place of
+    /// <see cref="ZipReadLimits.EntryMergeGap"/>, at most
+    /// <see cref="ZipReadLimits.MaxEntryMergeGap"/>: a caller that has
+    /// planned its entries into one span states how far apart they may lie.
+    /// </param>
     /// <returns>The expanded entries, in the order requested.</returns>
     public static async Task<IReadOnlyList<byte[]>> ReadEntriesAsync(
         RandomAccessSource source,
@@ -311,6 +317,7 @@ public static class ZipArchiveReader
         IReadOnlyList<ZipEntry> entries,
         ZipReadLimits limits,
         long? maxTotalExpandedBytes = null,
+        int? entryMergeGap = null,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(source);
@@ -319,6 +326,12 @@ public static class ZipArchiveReader
         ArgumentNullException.ThrowIfNull(limits);
         long totalBound = maxTotalExpandedBytes ?? long.MaxValue;
         ArgumentOutOfRangeException.ThrowIfNegative(totalBound);
+        int mergeGap = entryMergeGap ?? limits.EntryMergeGap;
+        ArgumentOutOfRangeException.ThrowIfNegative(mergeGap, nameof(entryMergeGap));
+        ArgumentOutOfRangeException.ThrowIfGreaterThan(
+            mergeGap,
+            ZipReadLimits.MaxEntryMergeGap,
+            nameof(entryMergeGap));
         if (entries.Count == 0)
             return [];
 
@@ -335,7 +348,7 @@ public static class ZipArchiveReader
                 throw OverBound("The entries' declared expansion exceeds the caller's total bound.");
         }
 
-        List<(long Start, long End)> spans = PlanSpans(extents, limits.EntryMergeGap);
+        List<(long Start, long End)> spans = PlanSpans(extents, mergeGap);
         var buffers = new byte[spans.Count][];
         using (var gate = new SemaphoreSlim(limits.MaxConcurrentReads))
         {

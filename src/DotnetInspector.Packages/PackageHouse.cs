@@ -1345,15 +1345,19 @@ public sealed class PackageHouse
     /// <summary>
     /// The entries a ranged acquisition materializes: exactly what this
     /// request's realization selects over the archive directory, so the
-    /// retained content can answer the realization it was read for. A
-    /// runtime request without an exact framework selects nothing here and is
-    /// visibly rejected after acquisition, as it is for complete access.
+    /// retained content can answer the realization it was read for. Surface
+    /// assets, and unnamed implementation assets, are read as whole folders;
+    /// named implementation assets are block anchors, read with their aligned
+    /// block (docs/design/package-read-demand.md). A runtime request without
+    /// an exact framework selects nothing here and is visibly rejected after
+    /// acquisition, as it is for complete access.
     /// </summary>
-    private static IReadOnlyList<string> SelectRangedEntries(
+    private static PackageRangedSelection SelectRangedEntries(
         PackageHouseRequest request,
         string packageId,
         IPackageContent directory)
     {
+        PackageImplementationNames? names = request.ImplementationNames;
         switch (request.AssetSelection)
         {
             case PackageHouseAssetSelectionKind.Compile:
@@ -1364,34 +1368,55 @@ public sealed class PackageHouse
                         CompilePolicy(request),
                         request.TargetContext?.RequestedFramework,
                         request.TargetContext?.RuntimeIdentifier).Selection;
-                IEnumerable<string> demanded =
+                IEnumerable<string> surface =
                     compile.Assets.Select(static asset => asset.Path);
-                if (request.AssetDemand
-                    == PackageAssetDemand.SurfaceAndImplementation)
-                {
-                    demanded = demanded.Concat(
-                        compile.ImplementationAssets
-                            .Select(static asset => asset.Path));
-                }
-                return WholeFolders(demanded, directory);
+                if (request.AssetDemand == PackageAssetDemand.Surface)
+                    return new(WholeFolders(surface, directory));
+                IEnumerable<string> implementation =
+                    compile.ImplementationAssets.Select(static asset => asset.Path);
+                if (names is null)
+                    return new(WholeFolders(surface.Concat(implementation), directory));
+                // A named implementation asset whose folder is already read
+                // whole as the surface, as in a package with no ref/ folder,
+                // needs no block: its block would add only other folders'
+                // interleaved entries (docs/design/package-read-demand.md).
+                IReadOnlyList<string> surfaceEntries = WholeFolders(surface, directory);
+                var readWhole = new HashSet<string>(surfaceEntries, StringComparer.Ordinal);
+                return new(
+                    surfaceEntries,
+                    [.. Anchors(implementation.Where(names.MatchesPath), directory)
+                        .Where(anchor => !readWhole.Contains(anchor))]);
             case PackageHouseAssetSelectionKind.Runtime:
                 if (request.TargetContext?.RequestedFramework is not { } framework)
-                    return [];
-                return PackageAssetSelector.Evaluate(
+                    return new([]);
+                if (PackageAssetSelector.Evaluate(
                         directory,
                         framework,
                         request.TargetContext.RuntimeIdentifier).Selection
-                    is PackageAssetSelection.Selected selected
-                        ? WholeFolders(
-                            selected.Universe.Assets.Select(static asset => asset.EntryPath),
-                            directory)
-                        : [];
+                    is not PackageAssetSelection.Selected selected)
+                {
+                    return new([]);
+                }
+                IEnumerable<string> universe =
+                    selected.Universe.Assets.Select(static asset => asset.EntryPath);
+                return names is null
+                    ? new(WholeFolders(universe, directory))
+                    : new([], Anchors(universe.Where(names.MatchesPath), directory));
             default:
                 throw new ArgumentOutOfRangeException(
                     nameof(request),
                     request.AssetSelection,
                     "A ranged Realize operation requires a known asset-selection kind.");
         }
+    }
+
+    /// <summary>The directory entries the selected asset paths name.</summary>
+    private static IReadOnlyList<string> Anchors(
+        IEnumerable<string> selected,
+        IPackageContent directory)
+    {
+        var paths = new HashSet<string>(selected, StringComparer.OrdinalIgnoreCase);
+        return [.. directory.EnumerateEntries().Where(paths.Contains)];
     }
 
     /// <summary>
@@ -1423,6 +1448,13 @@ public sealed class PackageHouse
         return entries;
     }
 
+    /// <summary>
+    /// The realization, evaluated over the materialized content. With named
+    /// implementation demand the selection keeps only the named
+    /// implementation assets, so the receipt names only entries the read
+    /// fetched; a name that selects no implementation asset leaves the
+    /// realization unmatched.
+    /// </summary>
     private static PackageHouseRealizationReceipt CreateRealization(
         PackageHouseRequest request,
         PackageHouseAcquisitionReceipt acquisition,
@@ -1432,24 +1464,69 @@ public sealed class PackageHouse
             PackageHouseAssetSelectionKind.Compile =>
                 new PackageHouseRealizationReceipt.Compile(
                     acquisition,
-                    PackageCompileAssetSelector.Evaluate(
-                        content,
-                        acquisition.Candidate.Coordinate.PackageId,
-                        CompilePolicy(request),
-                        request.TargetContext?.RequestedFramework,
-                        request.TargetContext?.RuntimeIdentifier)),
+                    NameImplementation(
+                        PackageCompileAssetSelector.Evaluate(
+                            content,
+                            acquisition.Candidate.Coordinate.PackageId,
+                            CompilePolicy(request),
+                            request.TargetContext?.RequestedFramework,
+                            request.TargetContext?.RuntimeIdentifier),
+                        request.ImplementationNames)),
             PackageHouseAssetSelectionKind.Runtime =>
                 new PackageHouseRealizationReceipt.Runtime(
                     acquisition,
-                    PackageAssetSelector.Evaluate(
-                        content,
-                        request.TargetContext!.RequestedFramework!,
-                        request.TargetContext.RuntimeIdentifier)),
+                    NameImplementation(
+                        PackageAssetSelector.Evaluate(
+                            content,
+                            request.TargetContext!.RequestedFramework!,
+                            request.TargetContext.RuntimeIdentifier),
+                        request.ImplementationNames)),
             _ => throw new ArgumentOutOfRangeException(
                 nameof(request),
                 request.AssetSelection,
                 "A Realize operation requires a known asset-selection kind."),
         };
+
+    private static PackageCompileAssetSelectionReceipt NameImplementation(
+        PackageCompileAssetSelectionReceipt receipt,
+        PackageImplementationNames? names) =>
+        names is null
+            ? receipt
+            : new PackageCompileAssetSelectionReceipt(
+                receipt.Generation,
+                receipt.PackageId,
+                receipt.Policy,
+                receipt.RequestedTargetFramework,
+                receipt.RequestedRuntimeIdentifier,
+                receipt.Selection with
+                {
+                    ImplementationAssets = Array.AsReadOnly(
+                    [
+                        .. receipt.Selection.ImplementationAssets.Where(
+                            asset => names.MatchesPath(asset.Path)),
+                    ]),
+                });
+
+    private static PackageAssetSelectionReceipt NameImplementation(
+        PackageAssetSelectionReceipt receipt,
+        PackageImplementationNames? names) =>
+        names is null
+            || receipt.Selection is not PackageAssetSelection.Selected selected
+            ? receipt
+            : new PackageAssetSelectionReceipt(
+                receipt.Generation,
+                receipt.RequestedTargetFramework,
+                receipt.RequestedRuntimeIdentifier,
+                new PackageAssetSelection.Selected(
+                    new PackageAssetUniverse(
+                        selected.Universe.TargetFramework,
+                        selected.Universe.RuntimeIdentifier,
+                        selected.Universe.Assets.Where(
+                            asset => names.MatchesPath(asset.EntryPath))))
+                {
+                    UsesCompatibleTargetSelection =
+                        selected.UsesCompatibleTargetSelection,
+                });
 
     private static PackageHouseResult CreateRealizationTerminalResult(
         PackageHouseRealizationReceipt realization,
@@ -1478,7 +1555,12 @@ public sealed class PackageHouse
 
     private static InertString RealizationReason(
         PackageHouseRealizationReceipt realization) =>
-        realization switch
+        realization.UnmatchedImplementationNames is [_, ..] unmatched
+            ? Reason(
+                "No selected implementation asset is named "
+                + string.Join(", ", unmatched.Select(static name => $"'{name}'"))
+                + ".")
+            : realization switch
         {
             PackageHouseRealizationReceipt.Compile compile =>
                 Reason(

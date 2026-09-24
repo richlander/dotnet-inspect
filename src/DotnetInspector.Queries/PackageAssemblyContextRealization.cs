@@ -959,18 +959,52 @@ public sealed class PackageRootBinding
     /// no implementation role, so realization never opens its implementation
     /// assets; broad surface consumers such as <c>find</c> use it.
     /// </summary>
-    public PackageRootBinding WithAssetDemand(PackageAssetDemand demand)
+    public PackageRootBinding WithAssetDemand(PackageAssetDemand demand) =>
+        WithAssetDemand(demand, implementationNames: null);
+
+    /// <summary>
+    /// The same Root with another asset demand and, for
+    /// <see cref="PackageAssetDemand.SurfaceAndImplementation"/>, the
+    /// implementation assemblies it names: realization prepares an
+    /// implementation role, and a role correspondence, only for the named
+    /// assets (docs/design/package-read-demand.md#named-implementation-and-aligned-blocks).
+    /// A name that selects no implementation asset is a
+    /// <see cref="PackageImplementationNameException"/>.
+    /// </summary>
+    public PackageRootBinding WithAssetDemand(
+        PackageAssetDemand demand,
+        PackageImplementationNames? implementationNames)
     {
         if (!Enum.IsDefined(demand))
             throw new ArgumentOutOfRangeException(nameof(demand));
-        if (Root.AssetDemand == demand)
+        if (implementationNames is not null
+            && demand != PackageAssetDemand.SurfaceAndImplementation)
+        {
+            throw new ArgumentException(
+                "Named implementation assemblies require the SurfaceAndImplementation demand.",
+                nameof(implementationNames));
+        }
+        if (Root.AssetDemand == demand
+            && SameNames(Root.ImplementationNames, implementationNames))
+        {
             return this;
-        // A surface-only Root's content was read for the surface alone, so it
-        // is never upgraded in place (docs/design/package-read-demand.md).
-        if (Root.AssetDemand == PackageAssetDemand.Surface)
+        }
+        // A surface-only Root's content was read for the surface alone, and a
+        // named Root's for its named implementation alone, so neither is
+        // upgraded in place (docs/design/package-read-demand.md).
+        if (Root.AssetDemand == PackageAssetDemand.Surface
+            && demand != PackageAssetDemand.Surface)
         {
             throw new InvalidOperationException(
                 "A surface-only package Root cannot be upgraded in place; realize it with the demand it needs.");
+        }
+        if (demand == PackageAssetDemand.SurfaceAndImplementation
+            && Root.ImplementationNames is { } realized
+            && (implementationNames is null
+                || implementationNames.Unmatched(realized.Names).Count > 0))
+        {
+            throw new InvalidOperationException(
+                "A package Root realized with named implementation assemblies cannot name others; realize it with the names it needs.");
         }
         var root = new PackageRootRealization(
             Root.Content,
@@ -979,7 +1013,8 @@ public sealed class PackageRootBinding
             Root.RequestedTargetFramework,
             Root.RequestedRuntimeIdentifier,
             Root.AssetSelection,
-            demand);
+            demand,
+            implementationNames);
         return new PackageRootBinding(
             root,
             Coordinate,
@@ -990,6 +1025,13 @@ public sealed class PackageRootBinding
             UsesCompatibleImplementationSelection,
             AllowsCompatibleTargetSelection);
     }
+
+    static bool SameNames(
+        PackageImplementationNames? left,
+        PackageImplementationNames? right) =>
+        left is null
+            ? right is null
+            : right is not null && left.SetEquals(right);
 
     internal bool ReferencesRetainedContent() =>
         ReferenceEquals(
@@ -1081,14 +1123,23 @@ public sealed class PackageRootRealization
         string? runtimeIdentifier,
         PackageCompileAssetSelection? assetSelection,
         PackageAssetDemand assetDemand =
-            PackageAssetDemand.SurfaceAndImplementation)
+            PackageAssetDemand.SurfaceAndImplementation,
+        PackageImplementationNames? implementationNames = null)
     {
         ArgumentNullException.ThrowIfNull(content);
         ArgumentException.ThrowIfNullOrWhiteSpace(packageId);
         ArgumentException.ThrowIfNullOrWhiteSpace(packageVersion);
+        if (implementationNames is not null
+            && assetDemand != PackageAssetDemand.SurfaceAndImplementation)
+        {
+            throw new ArgumentException(
+                "Named implementation assemblies require the SurfaceAndImplementation demand.",
+                nameof(implementationNames));
+        }
 
         _content = content;
         AssetDemand = assetDemand;
+        ImplementationNames = implementationNames;
         PackageId = packageId;
         PackageVersion = packageVersion;
         RequestedTargetFramework = targetFramework;
@@ -1109,6 +1160,18 @@ public sealed class PackageRootRealization
             HasUnselectedTargetFrameworkAssemblyCandidatesCore(
                 content,
                 AssetSelection);
+        if (implementationNames is not null)
+        {
+            // A name that selects no implementation asset is a visible
+            // realization failure, never an empty implementation role.
+            IReadOnlyList<string> unmatched = implementationNames.Unmatched(
+                AssetSelection.IsSelected
+                    ? AssetSelection.ImplementationAssets.Select(
+                        static asset => asset.Path)
+                    : []);
+            if (unmatched.Count > 0)
+                throw new PackageImplementationNameException(unmatched);
+        }
     }
 
     public string PackageId { get; }
@@ -1132,6 +1195,28 @@ public sealed class PackageRootRealization
     /// its implementation universe.
     /// </summary>
     public PackageAssetDemand AssetDemand { get; }
+
+    /// <summary>
+    /// The implementation assemblies this Root names, or
+    /// <see langword="null"/> for every selected implementation asset. Only
+    /// named assets join the implementation role.
+    /// </summary>
+    public PackageImplementationNames? ImplementationNames { get; }
+
+    /// <summary>
+    /// The selected implementation assets this Root realizes: none for a
+    /// surface-only Root, the named ones for a named Root, else all.
+    /// </summary>
+    public IReadOnlyList<PackageCompileAsset> RealizedImplementationAssets =>
+        !AssetSelection.IsSelected
+        || AssetDemand == PackageAssetDemand.Surface
+            ? []
+            : ImplementationNames is { } names
+                ? [
+                    .. AssetSelection.ImplementationAssets.Where(
+                        asset => names.MatchesPath(asset.Path)),
+                ]
+                : AssetSelection.ImplementationAssets;
 
     /// <summary>
     /// Whether the package contains a DLL candidate for the selected target
@@ -1437,15 +1522,11 @@ public sealed partial class InspectionWorkspace
         [
             .. packageRoots.SelectMany(
                 (package, packageIndex) =>
-                    package.AssetSelection.IsSelected
-                        && package.AssetDemand
-                            == PackageAssetDemand.SurfaceAndImplementation
-                        ? package.AssetSelection.ImplementationAssets.Select(
-                            asset => new RoleAsset(
-                                packageIndex,
-                                package,
-                                asset))
-                        : []),
+                    package.RealizedImplementationAssets.Select(
+                        asset => new RoleAsset(
+                            packageIndex,
+                            package,
+                            asset))),
         ];
         ValidateAssetCount(surfaceAssets.Length, options);
         ValidateAssetCount(implementationAssets.Length, options);
@@ -1720,6 +1801,12 @@ public sealed partial class InspectionWorkspace
                 surface.Package.AssetSelection.FindImplementationAsset(
                     surface.Asset);
             if (selectedImplementation is null)
+            {
+                continue;
+            }
+            // A named Root pairs only its named implementation assets.
+            if (surface.Package.ImplementationNames is { } names
+                && !names.MatchesPath(selectedImplementation.Path))
             {
                 continue;
             }
@@ -2036,4 +2123,24 @@ public sealed partial class InspectionWorkspace
                 "A selected assembly entry exceeds the configured "
                 + "assembly-entry byte limit.");
     }
+}
+
+/// <summary>
+/// A package Root named implementation assemblies that select no
+/// implementation asset: a visible realization failure
+/// (docs/design/package-read-demand.md#named-implementation-and-aligned-blocks).
+/// </summary>
+public sealed class PackageImplementationNameException : InvalidOperationException
+{
+    public PackageImplementationNameException(IReadOnlyList<string> unmatchedNames)
+        : base(
+            "No selected implementation asset is named "
+            + string.Join(", ", unmatchedNames.Select(static name => $"'{name}'"))
+            + ".")
+    {
+        UnmatchedNames = unmatchedNames;
+    }
+
+    /// <summary>The names that select no implementation asset.</summary>
+    public IReadOnlyList<string> UnmatchedNames { get; }
 }
