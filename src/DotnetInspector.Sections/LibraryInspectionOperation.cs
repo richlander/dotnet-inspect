@@ -583,7 +583,9 @@ public static class LibraryInspectionOperation
                     {
                         if (selection
                             != LibraryTypeDeclarationSelection
-                                .DefinitionsAndForwarders)
+                                .DefinitionsAndForwarders
+                            || definitionKinds
+                                != ApiTypeInventoryKinds.All)
                         {
                             break;
                         }

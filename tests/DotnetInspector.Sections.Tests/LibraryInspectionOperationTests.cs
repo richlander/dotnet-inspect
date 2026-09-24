@@ -1079,7 +1079,7 @@ public sealed class LibraryInspectionOperationTests
 
     [Fact]
     public async Task
-        DeclarationKindSelectionExcludesUnsupportedModuleExports()
+        FacetSelectionExcludesUnsupportedModuleExports()
     {
         byte[] content =
             LibraryInspectionTestLibrary.BuildMetadataImage(
@@ -1090,11 +1090,21 @@ public sealed class LibraryInspectionOperationTests
                 LibraryInspectionTestLibrary.ProbeIdentity());
 
         foreach (
-            LibraryTypeDeclarationSelection selection
+            (
+                LibraryTypeDeclarationSelection Declarations,
+                ApiTypeInventoryKinds DefinitionKinds) selection
             in new[]
             {
-                LibraryTypeDeclarationSelection.Definitions,
-                LibraryTypeDeclarationSelection.Forwarders,
+                (
+                    LibraryTypeDeclarationSelection.Definitions,
+                    ApiTypeInventoryKinds.All),
+                (
+                    LibraryTypeDeclarationSelection.Forwarders,
+                    ApiTypeInventoryKinds.None),
+                (
+                    LibraryTypeDeclarationSelection
+                        .DefinitionsAndForwarders,
+                    ApiTypeInventoryKinds.Classes),
             })
         {
             InspectionEnvelope<LibraryInspectionOutcome> envelope =
@@ -1102,7 +1112,10 @@ public sealed class LibraryInspectionOperationTests
                     library,
                     count: true,
                     new(maximumRows: 1),
-                    declarationSelection: selection);
+                    declarationSelection:
+                        selection.Declarations,
+                    definitionKinds:
+                        selection.DefinitionKinds);
             LibraryDocument document = Document(envelope);
             LibraryTypePopulationCountOutcome.Counted count =
                 Assert.IsType<

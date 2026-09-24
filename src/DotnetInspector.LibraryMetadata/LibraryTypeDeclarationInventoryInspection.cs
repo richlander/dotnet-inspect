@@ -596,6 +596,8 @@ public static class LibraryTypeDeclarationInventoryInspection
             [.. inventory.GetDeclarations()];
         if (request.IncludeDefinitions
             && request.IncludeForwarders
+            && request.DefinitionKinds
+                == ApiTypeInventoryKinds.All
             && allDeclarations.Any(
                 static declaration =>
                     declaration.Kind
