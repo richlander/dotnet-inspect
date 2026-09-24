@@ -466,6 +466,7 @@ public sealed class BrowserEngineLayeringTests
             "DotnetInspector.Queries.MemberCallGraphAcquisitionFailure+InvalidImage",
             "DotnetInspector.Queries.MemberCallGraphAcquisitionFailure+Rejected",
             "DotnetInspector.Queries.MemberCallGraphSession",
+            "DotnetInspector.Queries.MetadataRelationGraphAdapter",
             "DotnetInspector.Queries.PackageAssemblyRoleCorrespondence",
             "DotnetInspector.Queries.PackageInspectionAssemblyReference",
             "DotnetInspector.Sections.AssemblyPairCallUseInspection",

@@ -81,7 +81,7 @@ It does not own:
 | Browser Diff targets | The effective Package-owned baseline: the target and current package coordinates that produced the document |
 | Selected member source pair query, Inspect Web authored Source comparison | One ordered Before/After authored-Source comparison for one exact member anchor and two package versions, with per-endpoint provenance, exactness, the native `FindingComparison<string>`, and typed non-success, through the existing generated Source facade operation and its cancellation |
 | Member declaration pair (prerequisite, see below) | Each endpoint's complete C# declaration for the same anchor resolved independently in both retained images, their `AnalysisDiff<string>`, and per-endpoint outcome |
-| [Analysis diff](analysis-diff.md), [Member source diff presentation](member-source-diff-presentation.md) | The complete relation partition and its shared lowering to one Markout `MappedTextDiff` plus two-sided statistics through `TextAnalysisDiffPresentation.CreateMappedTextDiff` |
+| [Analysis diff](analysis-diff.md), [Member source diff presentation](member-source-diff-presentation.md) | The complete relation partition and its lowering to one Markout `MappedTextDiff` plus two-sided statistics through `TextAnalysisDiffPresentation` |
 | [Inspect Web source-diff transport](inspect-web-source-diff-transport.md) | The bounded typed payload that carries a `MappedTextDiff`, its statistics, endpoints, and provenance to the Browser, with admission limits and complete decoding |
 | Diff viewer interaction (#5686) | Row rendering, unified or side-by-side mode, Previous/Next change navigation, and accessibility for that payload |
 | Inspect Web Shell Interaction | Modal dialog semantics for full-bleed transient surfaces |
@@ -102,9 +102,8 @@ returns both declarations, that analysis, and each endpoint's typed outcome.
 It follows the same independent-resolution, non-success, and cancellation
 rules as the selected member source pair query. Its owner is
 `DotnetInspector.Queries`; this document records the requirement and consumes
-the result. Its presentation lowers that analysis exactly as the member source
-diff does, through `TextAnalysisDiffPresentation.CreateMappedTextDiff`, so the
-pane receives the same Markout `MappedTextDiff` shape as every other diff in
+the result. Its presentation lowers that analysis through
+`TextAnalysisDiffPresentation.CreateMappedTextDiff`, so the pane receives the same Markout `MappedTextDiff` shape as every other diff in
 the product. Until the query lands, the declaration pane reports itself
 unavailable with that reason.
 

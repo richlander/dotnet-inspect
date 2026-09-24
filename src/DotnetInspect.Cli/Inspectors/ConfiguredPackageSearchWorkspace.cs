@@ -5,6 +5,7 @@ using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Output;
 using DotnetInspector.Packages;
 using DotnetInspector.Queries;
+using DotnetInspector.Sections;
 using DotnetInspector.Services;
 using DotnetInspector.SourceSelection;
 using ILInspector.Metadata;
@@ -18,6 +19,21 @@ namespace DotnetInspect.Cli.Inspectors;
 /// </summary>
 internal sealed class ConfiguredPackageSearchWorkspace : IAsyncDisposable
 {
+    private const long MaxAssemblyImageBytes =
+        512L * 1024 * 1024;
+    private static readonly ApiSurfaceExtractionBounds
+        NamespaceInspectionBounds = new(
+            maxTypes: 500_000,
+            maxMembers: 0,
+            maxInspectionFailures: 10_000,
+            maxTypeForwarders: 100_000,
+            maxMetadataRows: int.MaxValue,
+            maxRetainedTextCharacters: int.MaxValue);
+    private static readonly AssemblyContextLibraryMaterializationLimits
+        NamespaceMaterializationLimits = new(
+            MaxAssemblyImageBytes,
+            MaxAssemblyImageBytes);
+
     readonly InspectionWorkspace _workspace;
     readonly PackageArtifactRootCorrespondence _correspondence;
     readonly ArtifactRootGenerationReference _generation;
@@ -245,6 +261,45 @@ internal sealed class ConfiguredPackageSearchWorkspace : IAsyncDisposable
         var rejected =
             (ArtifactRootResult<
                 ConfiguredPackageSearchQueryResult<TResult>>.Rejected)execution;
+        CommandError.WriteWarning(
+            $"Could not query package Root '{_packageDisplay}': "
+            + rejected.Failure);
+        return null;
+    }
+
+    internal async ValueTask<
+        InspectionEnvelope<PackageNamespaceDiscoveryOutcome>?>
+        InspectNamespaceAsync(
+            string @namespace,
+            CancellationToken cancellationToken = default)
+    {
+        ArtifactRootResult<
+            InspectionEnvelope<PackageNamespaceDiscoveryOutcome>> execution =
+                await _workspace.ExecutePackageRootQueryAsync(
+                    _correspondence,
+                    _generation,
+                    (realization, token) =>
+                        PackageNamespaceDiscoveryInspection.ExecuteAsync(
+                            realization,
+                            new(
+                                @namespace,
+                                NamespaceInspectionBounds,
+                                NamespaceMaterializationLimits),
+                            token),
+                    cancellationToken: cancellationToken)
+                .ConfigureAwait(false);
+        if (execution
+            is ArtifactRootResult<
+                InspectionEnvelope<
+                    PackageNamespaceDiscoveryOutcome>>.Available available)
+        {
+            return available.Value;
+        }
+
+        var rejected =
+            (ArtifactRootResult<
+                InspectionEnvelope<
+                    PackageNamespaceDiscoveryOutcome>>.Rejected)execution;
         CommandError.WriteWarning(
             $"Could not query package Root '{_packageDisplay}': "
             + rejected.Failure);
