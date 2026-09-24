@@ -237,8 +237,17 @@ complete analysis remains available.
 
 ## Markout lowering
 
-The adapter lowers the same `AnalysisDiff<string>` through
-`TextAnalysisDiffPresentation.CreateMappedTextDiff`.
+The adapter characterizes the same `AnalysisDiff<string>` with
+`TextDiffCharacterization.Create`, whose whitespace and move facts are owned
+by [text whitespace characterization](text-whitespace-characterization.md) and
+[text move characterization](text-move-characterization.md), and lowers both
+through `TextAnalysisDiffPresentation.CreateLabeledMappedTextDiff`. Each
+characterized change becomes one Markout change: whitespace-only changes carry
+a subdued `whitespace-only: <kinds>` label with visible-whitespace inner
+mappings, move ends carry linked `moved (<id>) to +<line>` and
+`moved (<id>) from -<line>` labels, and other changes stay unlabeled. The
+result retains the characterization so hosts can report whitespace-only lines
+and moved blocks without reparsing labels.
 
 The mapped Before and After line sequences are value- and order-identical to
 the analysis endpoint sequences. Analysis coordinates therefore address the
@@ -247,8 +256,8 @@ them.
 
 Only stable unchanged one-to-one correspondences become Markout anchors.
 Every other relation becomes conventional removal and addition ranges.
-Movement identity remains in the analysis and statistics even when the mapped
-text presentation is intentionally lossy.
+Movement identity remains in the analysis, statistics, and characterization;
+move labels present it but are never parsed back into facts.
 
 The mapped sequences record the absent final-line-terminator state of both
 canonical producer texts. Generic line-ending equivalence and asymmetric
@@ -264,8 +273,9 @@ One successful presentation result retains:
 - original endpoint provenance and access to the unchanged producer evidence;
 - the complete `AnalysisDiff<string>`;
 - added, removed, changed-Before, changed-After, moved-Before, and moved-After
-  counts; and
-- the complete `MappedTextDiff`.
+  counts;
+- the complete `MappedTextDiff`; and
+- the `TextDiffCharacterization` whose facts the labels present.
 
 The shape is host-neutral and fully materialized. It retains no borrowed
 metadata, decompiler IR, stream, reader, workspace lease, or browser state.
