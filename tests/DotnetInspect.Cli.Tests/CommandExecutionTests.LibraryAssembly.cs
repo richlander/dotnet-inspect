@@ -328,11 +328,54 @@ public partial class CommandExecutionTests
             types.GetProperty("binding")
                 .GetProperty("namespace")
                 .GetString());
+        Assert.Equal(
+            "Exact",
+            types.GetProperty("binding")
+                .GetProperty("namespaceMatch")
+                .GetString());
         Assert.True(
             types.GetProperty("count")
                 .GetProperty("total")
                 .GetInt32()
             > 0);
+    }
+
+    [Fact]
+    public async Task
+        Library_DirectEnvelope_NamespaceSuffixBindsExhaustiveTypeCount()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "library",
+            typeof(World.Blue.Nodes.Foo).Assembly.Location,
+            "--envelope",
+            "--compact",
+            "--namespace",
+            ".Nodes",
+            "--tips",
+            "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        using JsonDocument json = JsonDocument.Parse(output);
+        JsonElement types =
+            json.RootElement.GetProperty("content")
+                .GetProperty("document")
+                .GetProperty("types");
+        Assert.Equal(
+            ".Nodes",
+            types.GetProperty("binding")
+                .GetProperty("namespace")
+                .GetString());
+        Assert.Equal(
+            "Suffix",
+            types.GetProperty("binding")
+                .GetProperty("namespaceMatch")
+                .GetString());
+        Assert.Equal(
+            2,
+            types.GetProperty("count")
+                .GetProperty("total")
+                .GetInt32());
     }
 
     [Fact]
@@ -372,6 +415,27 @@ public partial class CommandExecutionTests
         Assert.Empty(output);
         Assert.Contains(
             "namespace cannot exceed",
+            error,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task
+        Library_DirectEnvelope_RejectsEmptyNamespaceSuffix()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "library",
+            typeof(World.Blue.Nodes.Foo).Assembly.Location,
+            "--envelope",
+            "--namespace",
+            ".",
+            "--tips",
+            "q");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains(
+            "namespace suffix",
             error,
             StringComparison.Ordinal);
     }

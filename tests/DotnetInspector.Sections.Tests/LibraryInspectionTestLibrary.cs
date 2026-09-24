@@ -141,6 +141,11 @@ internal sealed class LibraryInspectionTestLibrary : IAsyncDisposable
                 "System.Xml.dll"),
             TestContext.Current.CancellationToken);
 
+    public static async Task<byte[]> NamespaceSuffixFixtureAsync() =>
+        await File.ReadAllBytesAsync(
+            typeof(World.Blue.Nodes.Foo).Assembly.Location,
+            TestContext.Current.CancellationToken);
+
     public static ManagedMetadataIdentity.Assembly Identity(
         byte[] content)
     {

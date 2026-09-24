@@ -325,6 +325,148 @@ public sealed class LibraryInspectionOperationTests
 
     [Fact]
     public async Task
+        NamespaceSuffixCountAndRowsShareExhaustiveMembership()
+    {
+        byte[] content =
+            await LibraryInspectionTestLibrary
+                .NamespaceSuffixFixtureAsync();
+        await using LibraryInspectionTestLibrary library =
+            await LibraryInspectionTestLibrary.CreateAsync(
+                content,
+                LibraryInspectionTestLibrary.Identity(content));
+
+        LibraryDocument document = Document(
+            Execute(
+                library,
+                count: true,
+                new(maximumRows: 1),
+                @namespace: ".Nodes",
+                namespaceMatch:
+                    MetadataNamespaceMatch.Suffix));
+        LibraryTypePopulationCountOutcome.Counted count =
+            Assert.IsType<LibraryTypePopulationCountOutcome.Counted>(
+                document.Types.Count);
+        LibraryTypePopulationRowsOutcome.Read first =
+            Assert.IsType<LibraryTypePopulationRowsOutcome.Read>(
+                document.Types.Rows);
+        LibraryTypePopulationContinuation continuation =
+            Assert.IsType<LibraryTypePopulationContinuation>(
+                first.Continuation);
+        LibraryTypePopulationRowsOutcome.Read second =
+            Assert.IsType<LibraryTypePopulationRowsOutcome.Read>(
+                Document(
+                    Execute(
+                        library,
+                        count: false,
+                        new(
+                            maximumRows: 1,
+                            continuation: continuation),
+                        @namespace: ".Nodes",
+                        namespaceMatch:
+                            MetadataNamespaceMatch.Suffix))
+                    .Types.Rows);
+
+        Assert.Equal(".Nodes", document.Types.Binding.Namespace);
+        Assert.Equal(
+            MetadataNamespaceMatch.Suffix,
+            document.Types.Binding.NamespaceMatch);
+        Assert.Equal(2, count.Total);
+        Assert.Null(second.Continuation);
+        LibraryTypeShape[] rows =
+            [.. first.Items, .. second.Items];
+        Assert.Equal(count.Total, rows.Length);
+        Assert.Contains(
+            rows,
+            row =>
+                row.Identity
+                    == Name("World.Blue.Nodes", "Foo"));
+        Assert.Contains(
+            rows,
+            row =>
+                row.Identity
+                    == Name("World.Green.Nodes", "Bar"));
+        Assert.DoesNotContain(
+            rows,
+            row =>
+                row.Identity
+                    == Name("World.Blue.Node", "NearSingular"));
+        Assert.DoesNotContain(
+            rows,
+            row =>
+                row.Identity
+                    == Name("World.Blue.MyNodes", "NearName"));
+        Assert.DoesNotContain(
+            rows,
+            row =>
+                row.Identity
+                    == Name("World.Blue.Nodes.More", "Descendant"));
+        Assert.DoesNotContain(
+            rows,
+            row =>
+                row.Identity
+                    == Name("Nodes", "Root"));
+
+        AssertRowsRejection(
+            Execute(
+                library,
+                count: false,
+                new(
+                    maximumRows: 1,
+                    continuation: continuation),
+                @namespace: ".Nodes"),
+            LibraryTypePopulationRowsRejection
+                .IncompatibleContinuation);
+
+        await library.RetireAsync();
+    }
+
+    [Fact]
+    public async Task
+        RealFacade_NamespaceSuffixIncludesFirstClassForwarders()
+    {
+        byte[] content =
+            await LibraryInspectionTestLibrary.RealNetstandardAsync();
+        await using LibraryInspectionTestLibrary library =
+            await LibraryInspectionTestLibrary.CreateAsync(
+                content,
+                LibraryInspectionTestLibrary.Identity(content));
+
+        LibraryDocument document = Document(
+            Execute(
+                library,
+                count: true,
+                new(maximumRows: 5_000),
+                @namespace: ".Generic",
+                namespaceMatch:
+                    MetadataNamespaceMatch.Suffix));
+        LibraryTypePopulationCountOutcome.Counted count =
+            Assert.IsType<LibraryTypePopulationCountOutcome.Counted>(
+                document.Types.Count);
+        LibraryTypePopulationRowsOutcome.Read rows =
+            Assert.IsType<LibraryTypePopulationRowsOutcome.Read>(
+                document.Types.Rows);
+
+        Assert.True(rows.IsComplete);
+        Assert.True(count.Forwarders > 0);
+        Assert.Equal(count.Total, rows.Items.Length);
+        Assert.All(
+            rows.Items,
+            row =>
+                Assert.EndsWith(
+                    ".Generic",
+                    row.Namespace.ToString(),
+                    StringComparison.Ordinal));
+        Assert.Contains(
+            rows.Items,
+            static row =>
+                row.DeclarationKind
+                    == LibraryTypeDeclarationKind.Forwarder);
+
+        await library.RetireAsync();
+    }
+
+    [Fact]
+    public async Task
         RealSystemTextJson_DefinitionKindFacetBindsCountAndRows()
     {
         byte[] content =
@@ -782,10 +924,10 @@ public sealed class LibraryInspectionOperationTests
         byte[] payload =
             Convert.FromBase64String(
                 continuation.Value.ToString());
-        payload[23] = 0xFF;
         payload[24] = 0xFF;
         payload[25] = 0xFF;
-        payload[26] = 0x7F;
+        payload[26] = 0xFF;
+        payload[27] = 0x7F;
         AssertRowsRejection(
             Execute(
                 json,
@@ -1511,6 +1653,27 @@ public sealed class LibraryInspectionOperationTests
                 LibraryTypeAccessibility.Public,
                 new(),
                 @namespace: "\uD800"));
+        Assert.Throws<ArgumentException>(
+            () => new LibraryTypePopulationRequest(
+                LibraryTypeAccessibility.Public,
+                new(),
+                @namespace: ".",
+                namespaceMatch:
+                    MetadataNamespaceMatch.Suffix));
+        Assert.Throws<ArgumentException>(
+            () => new LibraryTypePopulationRequest(
+                LibraryTypeAccessibility.Public,
+                new(),
+                @namespace: "Nodes",
+                namespaceMatch:
+                    MetadataNamespaceMatch.Suffix));
+        Assert.Throws<ArgumentException>(
+            () => new LibraryTypePopulationRequest(
+                LibraryTypeAccessibility.Public,
+                new(),
+                @namespace: null,
+                namespaceMatch:
+                    MetadataNamespaceMatch.Suffix));
     }
 
     [Fact]
@@ -1665,6 +1828,9 @@ public sealed class LibraryInspectionOperationTests
         Assert.Equal(
             "Example",
             roundTrippedPlan.Types.Namespace);
+        Assert.Equal(
+            MetadataNamespaceMatch.Exact,
+            roundTrippedPlan.Types.NamespaceMatch);
         Assert.NotNull(
             roundTrippedPlan.Types.Rows.MemberCount);
         Assert.Equal(
@@ -1727,7 +1893,9 @@ public sealed class LibraryInspectionOperationTests
             LibraryTypeDeclarationSelection.DefinitionsAndForwarders,
         ApiTypeInventoryKinds definitionKinds =
             ApiTypeInventoryKinds.All,
-        string? @namespace = null) =>
+        string? @namespace = null,
+        MetadataNamespaceMatch namespaceMatch =
+            MetadataNamespaceMatch.Exact) =>
         LibraryInspectionOperation.Execute(
             new(
                 library.Reference,
@@ -1740,7 +1908,8 @@ public sealed class LibraryInspectionOperationTests
                         rows,
                         declarationSelection,
                         definitionKinds,
-                        @namespace),
+                        @namespace,
+                        namespaceMatch),
                     bounds ?? s_bounds)),
             library.IssueOperation(),
             TestContext.Current.CancellationToken);
