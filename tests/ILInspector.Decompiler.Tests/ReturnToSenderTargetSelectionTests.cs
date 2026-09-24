@@ -205,10 +205,12 @@ public class ReturnToSenderTargetSelectionTests
         }
     }
 
-    [Fact]
-    public void DefersCompilerGeneratedEventRaiser()
+    [Theory]
+    [InlineData("raise_Changed")]
+    [InlineData("<raise_Changed>")]
+    public void DefersCompilerGeneratedEventRaiser(string raiserName)
     {
-        string assemblyPath = CreateGeneratedEventRaiserFixture();
+        string assemblyPath = CreateGeneratedEventRaiserFixture(raiserName);
         try
         {
             FidelityCheck.ReturnToSenderTargetSelection selection =
@@ -219,7 +221,7 @@ public class ReturnToSenderTargetSelectionTests
             FidelityCheck.ReturnToSenderTargetExclusion raiser =
                 Assert.Single(
                     selection.Exclusions,
-                    exclusion => exclusion.Method == "raise_Changed");
+                    exclusion => exclusion.Method == raiserName);
             Assert.Equal(
                 FidelityCheck.ReturnToSenderTargetExclusionReason
                     .AccessorDeferred,
@@ -244,7 +246,7 @@ public class ReturnToSenderTargetSelectionTests
                 + $"{exclusion.ExactOutcome?.GetType().Name}")
             .ToArray();
 
-    static string CreateGeneratedEventRaiserFixture()
+    static string CreateGeneratedEventRaiserFixture(string raiserName)
     {
         string directory = Path.Combine(
             Path.GetTempPath(),
@@ -284,7 +286,7 @@ public class ReturnToSenderTargetSelectionTests
             [typeof(Action)]);
         MethodBuilder raise = DefineEventMethod(
             type,
-            "raise_Changed",
+            raiserName,
             Type.EmptyTypes);
         raise.SetCustomAttribute(
             new CustomAttributeBuilder(

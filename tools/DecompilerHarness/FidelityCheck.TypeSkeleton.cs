@@ -1231,7 +1231,12 @@ static partial class FidelityCheck
         // index the whole surface — otherwise internal/private targets
         // silently miss the migration and retain the legacy signature
         // emitter this change replaces (#3062 review).
-        foreach (var type in ApiSurfaceExtractor.Extract(pe, includeAll: true).Types)
+        // Generated accessors must retain their MethodSemantics evidence until
+        // the selector applies its own generated-method policy.
+        foreach (var type in ApiSurfaceExtractor.Extract(
+                     pe,
+                     includeAll: true,
+                     includeCompilerGenerated: true).Types)
         {
             foreach (var member in type.Members)
             {
