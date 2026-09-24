@@ -17,6 +17,12 @@ public enum PackageTransferPath
 
     /// <summary>A ranged read that fell back to a complete transfer.</summary>
     RangedThenDownload,
+
+    /// <summary>
+    /// A ranged read the entry cache answered in full: the cached directory and
+    /// every selected entry, with no request.
+    /// </summary>
+    EntryCache,
 }
 
 /// <summary>Why a ranged read fell back to a complete transfer.</summary>
@@ -49,6 +55,12 @@ public enum PackageTransferRequestPurpose
 
     /// <summary>One span of selected entries.</summary>
     EntrySpan,
+
+    /// <summary>
+    /// A complete request made to learn the archive's size, abandoned before
+    /// its body because the advertised length was above the size cut.
+    /// </summary>
+    SizeProbe,
 }
 
 /// <summary>How one package request ended.</summary>
@@ -101,6 +113,10 @@ public sealed class PackageTransferReceipt
     public static PackageTransferReceipt Cache { get; } =
         new(PackageTransferPath.Cache, null, [], 0, 0, false);
 
+    /// <summary>The receipt of a ranged read the entry cache answered in full.</summary>
+    public static PackageTransferReceipt EntryCache { get; } =
+        new(PackageTransferPath.EntryCache, null, [], 0, 0, false);
+
     private PackageTransferReceipt(
         PackageTransferPath path,
         PackageTransferFallbackReason? fallbackReason,
@@ -138,7 +154,8 @@ public sealed class PackageTransferReceipt
     public bool AgreesWith(PackagePayloadOrigin origin) =>
         origin switch
         {
-            PackagePayloadOrigin.Cache => Path == PackageTransferPath.Cache,
+            PackagePayloadOrigin.Cache =>
+                Path is PackageTransferPath.Cache or PackageTransferPath.EntryCache,
             PackagePayloadOrigin.Download =>
                 Path is PackageTransferPath.Download
                     or PackageTransferPath.RangedThenDownload,
@@ -172,7 +189,8 @@ public sealed class PackageTransferReceipt
             if (kept.Count < MaxRequests)
                 kept.Add(request);
         }
-        if (path == PackageTransferPath.Cache && count != 0)
+        if (path is PackageTransferPath.Cache or PackageTransferPath.EntryCache
+            && count != 0)
         {
             throw new ArgumentException(
                 "A cached payload carries no request.",
@@ -180,6 +198,8 @@ public sealed class PackageTransferReceipt
         }
         if (path == PackageTransferPath.Cache)
             return Cache;
+        if (path == PackageTransferPath.EntryCache)
+            return EntryCache;
 
         return new(
             path,

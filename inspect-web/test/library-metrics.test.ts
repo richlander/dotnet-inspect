@@ -164,6 +164,40 @@ test("relationship topology keeps same-display generic arities distinct", () => 
   assert.match(html, /2 most connected types/);
 });
 
+test("reciprocal relationships use distinct geometry independent of insertion lanes", () => {
+  const relationships = [
+    ["A", "B"],
+    ["A", "C"],
+    ["A", "D"],
+    ["A", "E"],
+    ["B", "A"],
+  ].map(([source, target]) => ({
+    sourceTypeKey: `Example.${source}`,
+    sourceTypeDisplay: `Example.${source}`,
+    targetTypeKey: `Example.${target}`,
+    targetTypeDisplay: `Example.${target}`,
+    callSiteCount: 1,
+    sourceDegree: 4,
+    targetDegree: 4,
+  }));
+  const html = render({
+    data: {
+      ...data,
+      entangledRelationships: relationships,
+    },
+  });
+  const paths = new Map(
+    [...html.matchAll(
+      /<path class="metrics-relationship-edge" d="([^"]+)"[^>]*><title>([^<]+)<\/title><\/path>/g,
+    )].map(match => [match[2]!, match[1]!]),
+  );
+
+  assert.notEqual(
+    paths.get("Example.A calls Example.B at 1 retained sites"),
+    paths.get("Example.B calls Example.A at 1 retained sites"),
+  );
+});
+
 test("relationship topology renders the complete Research projection", () => {
   const relationships = Array.from({ length: 16 }, (_, index) => ({
     sourceTypeKey: "Example.Hub",
