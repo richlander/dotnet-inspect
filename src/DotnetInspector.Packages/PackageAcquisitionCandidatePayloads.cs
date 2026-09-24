@@ -378,7 +378,7 @@ internal sealed class PackageAcquisitionCandidatePayloadAcquirer
                                     client,
                                     authority,
                                     candidate.Coordinate,
-                                    rangedRead!.SelectEntries,
+                                    rangedRead!,
                                     PackagePayloadAcquisition.ValidateLimits(limits),
                                     operation,
                                     log,
@@ -580,7 +580,7 @@ internal sealed class PackageAcquisitionCandidatePayloadAcquirer
         IPackageSourceClient client,
         ConfiguredPackageAuthority authority,
         PackageSourceCoordinate coordinate,
-        PackageEntrySelector selectEntries,
+        PackageRangedRead rangedRead,
         PackagePayloadLimits limits,
         NuGetOperationContext operation,
         Action<string>? log,
@@ -635,27 +635,45 @@ internal sealed class PackageAcquisitionCandidatePayloadAcquirer
             string producerKey = client.Source.Producer.Key;
             RangedPackageContent directory =
                 RangedPackageContent.CreateDirectory(entries, producerKey);
-            IReadOnlyList<string> selected =
-                selectEntries(directory)
-                ?? throw new InvalidOperationException(
-                    "The ranged entry selector returned null.");
-
-            var targets = new List<ZipEntry>();
-            var seen = new HashSet<string>(StringComparer.Ordinal);
-            long declared = 0;
-            foreach (string path in selected)
-            {
-                if (!seen.Add(path))
-                    continue;
-                if (cachedState?.Cached.ContainsKey(path) == true)
-                    continue;
-                ZipEntry entry =
-                    reader.Directory.Find(path)
+            PackageRangedPlan plan = PackageEntryBlocks.PlanSelection(
+                reader.Directory,
+                rangedRead.SelectEntries(directory)
                     ?? throw new InvalidOperationException(
-                        $"The ranged entry selection named '{path}', which is not in the archive directory.");
-                declared += entry.ExpandedLength;
-                targets.Add(entry);
+                        "The ranged entry selector returned null."),
+                rangedRead.SizeCut);
+
+            // Exact entries share requests under the reader's merge gap. Each
+            // aligned block is its own read whose merge gap spans the block,
+            // so a block is one request (docs/design/package-read-demand.md).
+            var seen = new HashSet<string>(StringComparer.Ordinal);
+            var reads = new List<(List<ZipEntry> Entries, int? MergeGap)>();
+            long declared = 0;
+            AddRead(plan.Entries, mergeGap: null);
+            int blockGap = (int)Math.Min(rangedRead.SizeCut, ZipReadLimits.MaxEntryMergeGap);
+            foreach (IReadOnlyList<string> block in plan.Blocks)
+                AddRead(block, blockGap);
+
+            void AddRead(IReadOnlyList<string> paths, int? mergeGap)
+            {
+                var targets = new List<ZipEntry>();
+                foreach (string path in paths)
+                {
+                    if (!seen.Add(path))
+                        continue;
+                    if (cachedState?.Cached.ContainsKey(path) == true)
+                        continue;
+                    ZipEntry entry =
+                        reader.Directory.Find(path)
+                        ?? throw new InvalidOperationException(
+                            $"The ranged entry selection named '{path}', which is not in the archive directory.");
+                    declared += entry.ExpandedLength;
+                    targets.Add(entry);
+                }
+                if (targets.Count > 0)
+                    reads.Add((targets, mergeGap));
             }
+
+            int targetCount = reads.Sum(static read => read.Entries.Count);
             if (declared > limits.MaxExpandedBytes)
             {
                 return new(
@@ -677,20 +695,42 @@ internal sealed class PackageAcquisitionCandidatePayloadAcquirer
                     materialized[item.Key] = item.Value;
             }
             operation.ThrowIfExpired();
-            PackageArchiveReadResult<IReadOnlyList<PackageArchiveEntryContent>> read =
-                await reader.ReadEntriesAsync(
-                    targets,
-                    maxTotalExpandedBytes: limits.MaxExpandedBytes,
-                    operation.CancellationToken).ConfigureAwait(false);
-            if (read.Value is not { } contents)
+            // Each read is in flight at once up to the ranged concurrency; the
+            // exact read bounds its own requests the same way.
+            PackageArchiveReadResult<IReadOnlyList<PackageArchiveEntryContent>>[] results;
+            using (var gate = new SemaphoreSlim(RangedConcurrentReads))
             {
-                return ClassifyRanged(
-                    read.Refusal,
-                    read.Failure,
-                    authority,
-                    client,
-                    $"reading {targets.Count} selected entries",
-                    log);
+                results = await Task.WhenAll(reads.Select(async read =>
+                {
+                    await gate.WaitAsync(operation.CancellationToken).ConfigureAwait(false);
+                    try
+                    {
+                        return await reader.ReadEntriesAsync(
+                            read.Entries,
+                            maxTotalExpandedBytes: limits.MaxExpandedBytes,
+                            entryMergeGap: read.MergeGap,
+                            cancellationToken: operation.CancellationToken).ConfigureAwait(false);
+                    }
+                    finally
+                    {
+                        gate.Release();
+                    }
+                })).ConfigureAwait(false);
+            }
+            var contents = new List<PackageArchiveEntryContent>(targetCount);
+            foreach (PackageArchiveReadResult<IReadOnlyList<PackageArchiveEntryContent>> read in results)
+            {
+                if (read.Value is not { } readContents)
+                {
+                    return ClassifyRanged(
+                        read.Refusal,
+                        read.Failure,
+                        authority,
+                        client,
+                        $"reading {targetCount} selected entries",
+                        log);
+                }
+                contents.AddRange(readContents);
             }
             foreach (PackageArchiveEntryContent content in contents)
                 materialized[content.Entry.Name] = content.Content;
@@ -783,12 +823,17 @@ internal sealed class PackageAcquisitionCandidatePayloadAcquirer
 
         RangedPackageContent directoryView =
             RangedPackageContent.CreateDirectory(DirectoryEntries(directory), producerKey);
-        IReadOnlyList<string> selected =
+        // An anchor requires its whole aligned block: a block is present when
+        // all of its entries are, so a warm read naming a neighbour in a
+        // cached block makes no request.
+        IReadOnlyList<string> required = PackageEntryBlocks.PlanSelection(
+            directory,
             rangedRead.SelectEntries(directoryView)
-            ?? throw new InvalidOperationException(
-                "The ranged entry selector returned null.");
+                ?? throw new InvalidOperationException(
+                    "The ranged entry selector returned null."),
+            rangedRead.SizeCut).Required;
         bool complete = true;
-        foreach (string path in selected.Distinct(StringComparer.Ordinal))
+        foreach (string path in required)
         {
             if (directory.Find(path) is not { } entry
                 || !entryStore.TryReadEntry(

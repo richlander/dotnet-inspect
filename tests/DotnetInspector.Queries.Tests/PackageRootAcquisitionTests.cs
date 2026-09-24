@@ -57,6 +57,58 @@ public sealed class PackageRootAcquisitionTests
             surface.WithAssetDemand(PackageAssetDemand.SurfaceAndImplementation));
     }
 
+    /// <summary>
+    /// A Root realized with named implementation assemblies realizes only
+    /// those, is never widened in place, and a name that selects no
+    /// implementation asset fails visibly (docs/design/package-read-demand.md,
+    /// gate 9).
+    /// </summary>
+    [Fact]
+    public async Task AssetDemand_NamedRootRealizesOnlyItsNames()
+    {
+        using var http = new HttpClient(new FailingHandler());
+        IPackageStore store = await CachedStoreAsync(LibraryPackage());
+        var acquired = Assert.IsType<PackageRootAcquisitionOutcome.Acquired>(
+            await PackageRootAcquisition.AcquireAsync(
+                PackageRootAcquisitionRequest.Create(
+                    PackageId,
+                    Version,
+                    Framework),
+                Options(http, store),
+                TestContext.Current.CancellationToken));
+        PackageRootBinding full = acquired.Binding;
+        PackageImplementationNames names =
+            PackageImplementationNames.Create([$"{AssemblyName.ToLowerInvariant()}.DLL"]);
+
+        PackageRootBinding named = full.WithAssetDemand(
+            PackageAssetDemand.SurfaceAndImplementation,
+            names);
+
+        Assert.Same(names, named.Root.ImplementationNames);
+        Assert.Equal(
+            [$"lib/{Framework}/{AssemblyName}.dll"],
+            named.Root.RealizedImplementationAssets.Select(asset => asset.Path));
+        Assert.Same(
+            named,
+            named.WithAssetDemand(
+                PackageAssetDemand.SurfaceAndImplementation,
+                PackageImplementationNames.Create([$"{AssemblyName}.dll"])));
+        Assert.Throws<InvalidOperationException>(() =>
+            named.WithAssetDemand(PackageAssetDemand.SurfaceAndImplementation));
+        Assert.Empty(
+            named.WithAssetDemand(PackageAssetDemand.Surface)
+                .Root.RealizedImplementationAssets);
+        Assert.Throws<ArgumentException>(() =>
+            full.WithAssetDemand(PackageAssetDemand.Surface, names));
+
+        PackageImplementationNameException failure =
+            Assert.Throws<PackageImplementationNameException>(() =>
+                full.WithAssetDemand(
+                    PackageAssetDemand.SurfaceAndImplementation,
+                    PackageImplementationNames.Create(["Missing.dll"])));
+        Assert.Equal(["Missing.dll"], failure.UnmatchedNames);
+    }
+
     [Fact]
     public async Task ExplicitCoordinate_AcquiresRootAndIssuesExactRequest()
     {

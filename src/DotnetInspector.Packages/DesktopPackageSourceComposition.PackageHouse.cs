@@ -175,7 +175,8 @@ public sealed partial class DesktopPackageSourceComposition
             PackageHouseTargetContext? compileTargetContext = null,
             PackagePayloadAccess access = PackagePayloadAccess.Complete,
             PackageAssetDemand assetDemand =
-                PackageAssetDemand.SurfaceAndImplementation)
+                PackageAssetDemand.SurfaceAndImplementation,
+            IEnumerable<string>? implementationNames = null)
     {
         PackageHouseRequest request = CreateHouseRequest(
             new PackageHouseDemand.Exact(coordinate),
@@ -183,7 +184,8 @@ public sealed partial class DesktopPackageSourceComposition
                 ? PackageHouseOperationProfile.Acquire
                 : PackageHouseOperationProfile.Realize,
             compileTargetContext,
-            assetDemand);
+            assetDemand,
+            implementationNames);
         return ExecuteAndProjectPayloadAsync(
             request,
             coordinate.PackageId,
@@ -385,7 +387,8 @@ public sealed partial class DesktopPackageSourceComposition
         PackageHouseOperationProfile profile,
         PackageHouseTargetContext? targetContext = null,
         PackageAssetDemand assetDemand =
-            PackageAssetDemand.SurfaceAndImplementation) =>
+            PackageAssetDemand.SurfaceAndImplementation,
+        IEnumerable<string>? implementationNames = null) =>
         new(
             demand,
             PackageHouseOperation.Create(
@@ -396,7 +399,8 @@ public sealed partial class DesktopPackageSourceComposition
             profile == PackageHouseOperationProfile.Realize
                 ? PackageHouseAssetSelectionKind.Compile
                 : null,
-            assetDemand: assetDemand);
+            assetDemand: assetDemand,
+            implementationNames: implementationNames);
 
     private static bool TryCreateSelectionRequest(
         string packageId,

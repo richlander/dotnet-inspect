@@ -262,7 +262,8 @@ public sealed class PackageHouseRequest
             PackageHouseLibraryHandoffMode.PackageOnly,
         PackageHouseRequestAssociation? association = null,
         PackageAssetDemand assetDemand =
-            PackageAssetDemand.SurfaceAndImplementation)
+            PackageAssetDemand.SurfaceAndImplementation,
+        IEnumerable<string>? implementationNames = null)
     {
         ArgumentNullException.ThrowIfNull(demand);
         ArgumentNullException.ThrowIfNull(operation);
@@ -290,6 +291,22 @@ public sealed class PackageHouseRequest
                 nameof(libraryHandoff));
         }
 
+        if (implementationNames is not null)
+        {
+            if (!realizes)
+            {
+                throw new ArgumentException(
+                    "Only a Realize operation can name implementation assemblies.",
+                    nameof(implementationNames));
+            }
+            if (assetDemand != PackageAssetDemand.SurfaceAndImplementation)
+            {
+                throw new ArgumentException(
+                    "Named implementation assemblies require the SurfaceAndImplementation demand.",
+                    nameof(implementationNames));
+            }
+        }
+
         Demand = demand;
         Operation = operation;
         TargetContext = targetContext;
@@ -297,6 +314,11 @@ public sealed class PackageHouseRequest
         LibraryHandoff = libraryHandoff;
         Association = association;
         AssetDemand = assetDemand;
+        ImplementationNames = implementationNames is null
+            ? null
+            : PackageImplementationNames.Create(
+                implementationNames,
+                nameof(implementationNames));
     }
 
     public PackageHouseDemand Demand { get; }
@@ -316,4 +338,13 @@ public sealed class PackageHouseRequest
     /// complete access acquires the whole archive regardless.
     /// </summary>
     public PackageAssetDemand AssetDemand { get; }
+
+    /// <summary>
+    /// The implementation assemblies the consumer names, by file name, or
+    /// <see langword="null"/> for every selected implementation asset. With
+    /// names, the realization selects only the named implementation assets,
+    /// and a ranged read fetches the aligned blocks that hold them
+    /// (docs/design/package-read-demand.md).
+    /// </summary>
+    public PackageImplementationNames? ImplementationNames { get; }
 }
