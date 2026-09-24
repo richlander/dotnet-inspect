@@ -79,6 +79,10 @@ Analysis builds the summary in the same execution that produced Resource
 Occurrence. It reuses the retained `MethodBodyAnalysisContext`, resolved
 effects, and existing direct-call evidence. Research never decodes a body,
 runs reaching definitions, resolves effects, or runs Resource Lifecycle.
+Resource-effect resolution routes in-group selections through lazy
+snapshot-backed participant descriptors while preserving each participant's
+source-relative policy for external dependencies. Summary production therefore
+does not reacquire a participant source.
 
 ## Research composition contract
 

@@ -205,6 +205,7 @@ public sealed class MemberCallGraphSession : IDisposable
     readonly AssemblyContextParticipant _root;
     readonly int _memberToken;
     readonly MemberCallGraphOptions _options;
+    readonly IAssemblyBindingPolicy? _resourceBindingPolicy;
     readonly Dictionary<AssemblyAcquisitionRegistration, AnalysisBuildResult>
         _crossAnalyses = new(ReferenceEqualityComparer.Instance);
     readonly Dictionary<AssemblyImageIdentity, AnalysisBuildResult.Available>
@@ -241,6 +242,15 @@ public sealed class MemberCallGraphSession : IDisposable
         _group = group;
         _memberToken = memberToken;
         _options = options;
+        _resourceBindingPolicy =
+            options.ResourceEffects is null
+                ? null
+                : new SourceRelativeAssemblyGroupBindingPolicy(
+                    group.Participants.Select(participant =>
+                        (
+                            group.CreateSnapshotBackedReference(
+                                participant.Assembly),
+                            participant.BindingPolicy)));
         _group.RegisterOwnedResource(this);
     }
 
@@ -731,7 +741,7 @@ public sealed class MemberCallGraphSession : IDisposable
                                             resourceEffects,
                                             _options.Features,
                                             bodyScope),
-                                    participant.BindingPolicy,
+                                    _resourceBindingPolicy!,
                                     analysisAssembly)
                                 : Analysis.LibraryBodyAnalysisService.ExecuteImage(
                                     ParticipantName(participant),

@@ -695,6 +695,56 @@ public sealed class MemberCallGraphSessionTests
             participant => Assert.Equal(1, participant.OpenCount));
     }
 
+    [Fact]
+    public async Task ResourceEffectsReuseParticipantSnapshotsAcrossProgression()
+    {
+        await using GraphContext context =
+            GraphContext.Create(CallerPath, TargetPath);
+        int root = MemberToken(
+            CallerPath,
+            "Entry",
+            "UseEcho");
+        using var graph = new MemberCallGraphSession(
+            context.Group,
+            context.Sources[0].Assembly,
+            root,
+            new MemberCallGraphOptions
+            {
+                Features =
+                    Analysis.LibraryBodyAnalysisFeatures.MethodEvidence
+                    | Analysis.LibraryBodyAnalysisFeatures.OwnershipFlow,
+                ResourceEffects = CrossParticipantAcquisition(),
+            });
+
+        Assert.All(
+            context.Sources,
+            participant => Assert.Equal(0, participant.OpenCount));
+
+        MemberCallGraphView callees = graph.Callees();
+
+        Assert.Contains(
+            callees.ResourceOwnershipSummaries,
+            summary => summary.Method.MetadataToken == root);
+        Assert.All(
+            context.Sources,
+            participant => Assert.Equal(1, participant.OpenCount));
+
+        _ = graph.Callers();
+
+        Assert.All(
+            context.Sources,
+            participant => Assert.Equal(1, participant.OpenCount));
+
+        _ = graph.CrossLibrary();
+
+        Assert.All(
+            context.Sources,
+            participant => Assert.Equal(1, participant.OpenCount));
+        Assert.Equal(
+            new MemberCallGraphBuildCounts(1, 1, 1),
+            graph.BuildCounts);
+    }
+
     [Theory]
     [InlineData(
         "RentAndForwardToReturn",
@@ -2572,6 +2622,64 @@ public sealed class MemberCallGraphSessionTests
                             Correspondence: null,
                             Lender: null),
                         8,
+                        genericArity: 1),
+                ]);
+        Analysis.ResourceEffectAdmissionOutcome outcome =
+            Analysis.ResourceEffectAdmissionBuilder.Admit([definition]);
+        return Assert.IsType<
+            Analysis.ResourceEffectAdmissionOutcome.Admitted>(
+                outcome).Admission;
+    }
+
+    static Analysis.ResourceEffectAdmission CrossParticipantAcquisition()
+    {
+        var model =
+            new Analysis.ResourceEffectModelIdentity(
+                "test.cross-participant-acquisition");
+        var kind =
+            new Analysis.ResourceKindIdentity(
+                "test.cross-participant-kind");
+        var methodVariable =
+            new Analysis.ResourceEffectGenericVariable(
+                Analysis.ResourceEffectGenericVariableKind.Method,
+                0);
+        var methodType =
+            new Analysis.ResourceTypeExpression.Variable(
+                methodVariable);
+        Analysis.ResourceTypeExpression.Named declaringType =
+            new(
+                new Analysis.ResourceAssemblySelector(
+                    "ILInspector.Analysis.CallerGraphTarget",
+                    publicKeyToken: null,
+                    Analysis.ResourceAssemblyVersionPolicy.Any),
+                "Target",
+                [new Analysis.ResourceTypeNameSegment("GenericApi", 0)]);
+        var definition =
+            new Analysis.ResourceEffectModelDefinition(
+                Analysis.ResourceEffectLanguageIdentity.Version1,
+                model,
+                [
+                    new Analysis.ResourceKindDefinition(
+                        kind,
+                        arity: 0,
+                        [Provenance(model, 0)]),
+                ],
+                [],
+                [
+                    Declaration(
+                        model,
+                        declaringType,
+                        "Echo",
+                        [methodType],
+                        methodType,
+                        new Analysis.ResourceEffect.Acquire(
+                            new Analysis.ResourceKindReference(kind, []),
+                            new Analysis.ResourceEffectLocation.Return(),
+                            new Analysis.ResourceEffectCompletion
+                                .NormalReturn(),
+                            Correspondence: null,
+                            Lender: null),
+                        ordinal: 1,
                         genericArity: 1),
                 ]);
         Analysis.ResourceEffectAdmissionOutcome outcome =
