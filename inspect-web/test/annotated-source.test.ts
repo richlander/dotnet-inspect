@@ -2096,16 +2096,61 @@ test("Annotated Source destination actions use typed graph routes and exact sect
 
   assert.match(
     appSource,
-    /case "destination-open":[\s\S]*model\.invocationDestinations\[action\.destinationIndex\][\s\S]*callGraphTargetBinding\([\s\S]*destination\.target,[\s\S]*action\.destination,[\s\S]*"annotated"\)[\s\S]*dismissAnnotatedSourceModal\(false\)[\s\S]*binding\.onSelect\(\)/,
+    /case "destination-open":[\s\S]*model\.invocationDestinations\[action\.destinationIndex\][\s\S]*origin\?\.kind === "type-explorer" \? "retained" : "annotated"[\s\S]*callGraphTargetBinding\([\s\S]*destination\.target,[\s\S]*action\.destination,[\s\S]*failureSurface\)[\s\S]*if \(binding\.blocked\) \{[\s\S]*binding\.onSelect\(\);[\s\S]*return;[\s\S]*dismissAnnotatedSourceModal\(false\);[\s\S]*resetTypeExplorerRouteState\(\);[\s\S]*binding\.onSelect\(\)/,
   );
   assert.match(
     appSource,
-    /case "relationship-destination-open":[\s\S]*model\.callRelationships\[action\.relationshipIndex\][\s\S]*callGraphTargetBinding\([\s\S]*relationship\.target,[\s\S]*action\.destination,[\s\S]*"annotated"\)[\s\S]*dismissAnnotatedSourceModal\(false\)[\s\S]*binding\.onSelect\(\)/,
+    /case "relationship-destination-open":[\s\S]*model\.callRelationships\[action\.relationshipIndex\][\s\S]*origin\?\.kind === "type-explorer" \? "retained" : "annotated"[\s\S]*callGraphTargetBinding\([\s\S]*relationship\.target,[\s\S]*action\.destination,[\s\S]*failureSurface\)[\s\S]*if \(binding\.blocked\) \{[\s\S]*binding\.onSelect\(\);[\s\S]*return;[\s\S]*dismissAnnotatedSourceModal\(false\);[\s\S]*resetTypeExplorerRouteState\(\);[\s\S]*binding\.onSelect\(\)/,
   );
   assert.match(
     appSource,
-    /case "finding-evidence-open":[\s\S]*model\.findingEvidenceByFactId\.get\(action\.factId\)[\s\S]*callGraphTargetBinding\([\s\S]*evidence\.target,[\s\S]*action\.destination,[\s\S]*"annotated"\)[\s\S]*dismissAnnotatedSourceModal\(false\)[\s\S]*binding\.onSelect\(\)/,
+    /case "finding-evidence-open":[\s\S]*model\.findingEvidenceByFactId\.get\(action\.factId\)[\s\S]*origin\?\.kind === "type-explorer" \? "retained" : "annotated"[\s\S]*callGraphTargetBinding\([\s\S]*evidence\.target,[\s\S]*action\.destination,[\s\S]*failureSurface\)[\s\S]*if \(binding\.blocked\) \{[\s\S]*binding\.onSelect\(\);[\s\S]*return;[\s\S]*dismissAnnotatedSourceModal\(false\);[\s\S]*resetTypeExplorerRouteState\(\);[\s\S]*binding\.onSelect\(\)/,
   );
+  assert.match(
+    appSource,
+    /function showGraphNavigationFailureOutsideCallGraph\([\s\S]*switch \(failureSurface\) \{[\s\S]*case "call-graph":[\s\S]*return false;[\s\S]*case "annotated":[\s\S]*renderAndFocusAnnotated\(\{ kind: "explore" \}, "embedded"\);[\s\S]*case "retained":[\s\S]*showRetainedGraphNavigationError\(message\);[\s\S]*assertNever\([\s\S]*"graph navigation failure surface"\)/,
+  );
+  assert.match(
+    appSource,
+    /function showRetainedGraphNavigationError\(message: string\) \{\s*appendQueryNotice\(message\);\s*render\(\);\s*afterCurrentNavigationFrame\(\(\) => focusLevelOneHeading\(\)\);\s*\}/,
+  );
+  const blockedGraphBinding =
+    /function blockedCallGraphNodeBinding\([\s\S]*?\n\}/
+      .exec(appSource)?.[0] ?? "";
+  assert.match(
+    blockedGraphBinding,
+    /showGraphNavigationFailureOutsideCallGraph\(\s*message,\s*failureSurface\)/,
+  );
+  assert.match(blockedGraphBinding, /invalidateGraphMemberNavigation\(\)/);
+  const graphMemberFailure =
+    /function showGraphMemberNavigationError\([\s\S]*?\n\}/
+      .exec(appSource)?.[0] ?? "";
+  assert.match(
+    graphMemberFailure,
+    /showGraphNavigationFailureOutsideCallGraph\(message, failureSurface\)/,
+  );
+  assert.match(
+    graphMemberFailure,
+    /state\.graphMemberNavigationError = message/,
+  );
+  const platformNavigation =
+    /async function navigateOrDrillPlatform\([\s\S]*?\n\}/
+      .exec(appSource)?.[0] ?? "";
+  assert.equal(
+    platformNavigation.match(
+      /showGraphNavigationFailureOutsideCallGraph\(/g)?.length,
+    2,
+  );
+  assert.match(platformNavigation, /state\.platformDrillError = message/);
+  assert.match(platformNavigation, /await renderMermaidCallGraph\(\)/);
+  const platformFailure =
+    /async function showPlatformTargetError\([\s\S]*?\n\}/
+      .exec(appSource)?.[0] ?? "";
+  assert.match(
+    platformFailure,
+    /showGraphNavigationFailureOutsideCallGraph\(\s*message,\s*failureSurface\)/,
+  );
+  assert.match(platformFailure, /state\.platformDrillError = message/);
   assert.match(
     appSource,
     /const loadedSection = destination === "source" \? "source" : "overview"/,
@@ -2128,7 +2173,7 @@ test("Annotated Source destination actions use typed graph routes and exact sect
   );
   assert.match(
     appSource,
-    /failureSurface === "annotated"[\s\S]*state\.annotatedDestinationError[\s\S]*renderAndFocusAnnotated\(\{ kind: "explore" \}, "embedded"\)/,
+    /state\.memberAnnotatedModal !== null[\s\S]*state\.annotatedDestinationError[\s\S]*renderAndFocusAnnotated\(\s*"#annotated-destination-error",\s*"modal"/,
   );
   assert.match(
     appSource,

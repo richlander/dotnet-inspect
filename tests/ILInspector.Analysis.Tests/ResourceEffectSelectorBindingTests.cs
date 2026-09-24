@@ -48,23 +48,23 @@ public sealed partial class DirectCallDefinitionResolutionTests
                 .OfType<ResourceEffectSelectorBinding.Resolved>(),
         ];
 
-        Assert.NotEmpty(bindings);
-        Assert.All(
-            bindings,
-            binding =>
-            {
-                Assert.Equal("Rent", binding.DirectCall.Call.Callee.Name);
-                ResolvedResourceEffectGenericBinding generic =
-                    Assert.Single(binding.GenericBindings);
-                Assert.Equal(typeVariable, generic.Variable);
-                Assert.Equal("Byte", generic.Value.Type.Name);
-                ResolvedResourceKindReference resource =
-                    Assert.Single(binding.ResourceKinds);
-                Assert.Equal(kind.Identity, resource.Identity);
-                Assert.Same(
-                    generic.Value,
-                    Assert.Single(resource.Arguments));
-            });
+        ResourceEffectSelectorBinding.Resolved binding =
+            Assert.Single(
+                bindings,
+                candidate =>
+                    candidate.DirectCall.Call.Caller.Name
+                        == "RentAndReturnDirectly");
+        Assert.Equal("Rent", binding.DirectCall.Call.Callee.Name);
+        ResolvedResourceEffectGenericBinding generic =
+            Assert.Single(binding.GenericBindings);
+        Assert.Equal(typeVariable, generic.Variable);
+        Assert.Equal("Byte", generic.Value.Type.Name);
+        ResolvedResourceKindReference resource =
+            Assert.Single(binding.ResourceKinds);
+        Assert.Equal(kind.Identity, resource.Identity);
+        Assert.Same(
+            generic.Value,
+            Assert.Single(resource.Arguments));
     }
 
     [Fact]

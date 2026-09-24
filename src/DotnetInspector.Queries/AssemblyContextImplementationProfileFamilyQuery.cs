@@ -136,8 +136,8 @@ public static class AssemblyContextImplementationProfileFamilyQuery
             LibraryBodyAnalysisService.ExecuteImage(
                 AssemblyContextAnalysisSource.Name(subject),
                 snapshot.Content,
-                LibraryBodyAnalysisRequest.Create(
-                    LibraryBodyAnalysisFeatures.ImplementationProfiles,
+                LibraryBodyAnalysisRequest
+                    .CreateCompleteImplementationProfile(
                     family.DeclaredBodyTokens),
                 resolver);
 

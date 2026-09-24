@@ -47,6 +47,7 @@ export type { AnnotatedSourceResult } from "./annotated-source-session.ts";
 export interface AnnotatedSourceRenderOptions {
   result: AnnotatedSourceResult;
   session: AnnotatedSourceSession;
+  message?: string;
   escapeHtml: (value: unknown) => string;
   highlightCSharp?: (
     source: string,
@@ -170,6 +171,12 @@ export function renderAnnotatedSourceModal(
               data-annotated-action="close-modal">Close</button>
           </div>
         </header>
+        ${options.message
+          ? `<div id="annotated-destination-error"
+              class="graph-drill-error" role="alert" tabindex="-1">${
+                escapeHtml(options.message)
+              }</div>`
+          : ""}
         <div class="annotated-modal-controls" data-annotated-scroll="modal-controls">
           <fieldset class="annotated-control-group">
             <legend>Annotations <span>${reported}</span></legend>

@@ -10,6 +10,231 @@ namespace ILInspector.Analysis.Tests;
 public sealed class LibraryBodyAnalysisExecutionTests
 {
     [Fact]
+    public void CompleteProfileRequest_CreatesVersionedMetricPlan()
+    {
+        LibraryBodyAnalysisRequest request =
+            LibraryBodyAnalysisRequest
+                .CreateCompleteImplementationProfile();
+
+        Assert.Equal(
+            LibraryBodyAnalysisFeatures.None,
+            request.Features);
+        ImplementationMetricAnalysisPlan plan =
+            Assert.IsType<ImplementationMetricAnalysisPlan>(
+                request.Plan.ImplementationMetrics);
+        Assert.Equal(
+            ImplementationMetricAnalysisRequest.CompleteProfileV1,
+            plan.RequestedEvidence);
+        Assert.Equal(
+            plan.RequestedEvidence,
+            plan.EffectiveEvidence);
+        Assert.False(
+            plan.EffectiveEvidence.HasFlag(
+                ImplementationMetricEvidenceKind
+                    .AllocationOccurrences));
+        Assert.Equal(
+            ImplementationMetricRequestOrigin
+                .CompleteProfileCompatibility,
+            plan.Origin);
+        Assert.True(plan.Limits.IsLegacyUnbounded);
+        Assert.True(
+            request.Plan.Includes(
+                LibraryBodyAnalysisFeatures
+                    .ImplementationProfiles));
+        Assert.True(
+            request.Plan.Includes(
+                LibraryBodyAnalysisFeatures.MethodEvidence));
+    }
+
+    [Fact]
+    public void CompleteProfileRequest_PreservesLegacyProfileResult()
+    {
+        string path =
+            FixtureCatalog.AnalysisCallerLoop.AssemblyPath();
+        LibraryImplementationProfileAnalysisResult legacy =
+            LibraryBodyAnalysisService.ExecutePath(
+                path,
+                LibraryBodyAnalysisRequest.Create(
+                    LibraryBodyAnalysisFeatures
+                        .ImplementationProfiles))
+            .ImplementationProfiles;
+        LibraryImplementationProfileAnalysisResult migrated =
+            LibraryBodyAnalysisService.ExecutePath(
+                path,
+                LibraryBodyAnalysisRequest
+                    .CreateCompleteImplementationProfile())
+            .ImplementationProfiles;
+
+        Assert.Equal(legacy.Profiles, migrated.Profiles);
+        Assert.Equal(
+            legacy.OverloadRelationships,
+            migrated.OverloadRelationships);
+        Assert.Equal(
+            legacy.Coverage.WasRequested,
+            migrated.Coverage.WasRequested);
+        Assert.Equal(
+            legacy.Coverage.HasFullMethodEvidenceScope,
+            migrated.Coverage.HasFullMethodEvidenceScope);
+        Assert.Equal(
+            legacy.Coverage.DeclaredMethods,
+            migrated.Coverage.DeclaredMethods);
+        Assert.Equal(
+            legacy.Coverage.ManagedMethodBodies,
+            migrated.Coverage.ManagedMethodBodies);
+        Assert.Equal(
+            legacy.Coverage.ProfiledEvidenceBodies,
+            migrated.Coverage.ProfiledEvidenceBodies);
+        Assert.Equal(
+            legacy.Coverage.UnavailableBodies,
+            migrated.Coverage.UnavailableBodies);
+        Assert.Equal(
+            legacy.Coverage.Diagnostics,
+            migrated.Coverage.Diagnostics);
+        Assert.True(
+            legacy.GeneratedFrameworkTypes.SetEquals(
+                migrated.GeneratedFrameworkTypes));
+    }
+
+    [Fact]
+    public void LegacyProfileFeature_NormalizesToMetricPlan()
+    {
+        LibraryBodyAnalysisRequest request =
+            LibraryBodyAnalysisRequest.Create(
+                LibraryBodyAnalysisFeatures
+                    .ImplementationProfiles);
+
+        ImplementationMetricAnalysisPlan plan =
+            Assert.IsType<ImplementationMetricAnalysisPlan>(
+                request.Plan.ImplementationMetrics);
+        Assert.Equal(
+            ImplementationMetricAnalysisRequest.CompleteProfileV1,
+            plan.EffectiveEvidence);
+        Assert.Equal(
+            ImplementationMetricRequestOrigin
+                .LegacyFeatureCompatibility,
+            plan.Origin);
+        Assert.True(plan.Limits.IsLegacyUnbounded);
+    }
+
+    [Fact]
+    public void MetricPlan_ClosesSiblingRelationshipsOverCalls()
+    {
+        var limits = new ImplementationMetricWorkLimits(
+            maximumPhysicalBodies: 10,
+            maximumEncodedIlBytes: 10_000,
+            maximumAttributionProbeBodies: 20,
+            maximumAttributionProbeIlBytes: 20_000);
+        var request = new ImplementationMetricAnalysisRequest(
+            ImplementationMetricEvidenceKind.BodySize
+                | ImplementationMetricEvidenceKind
+                    .SiblingOverloadRelationships,
+            limits,
+            ImplementationMetricRequestOrigin.Explicit);
+
+        ImplementationMetricAnalysisPlan plan =
+            ImplementationMetricAnalysisPlan.Create(request);
+
+        Assert.Equal(
+            request.RequestedEvidence,
+            plan.RequestedEvidence);
+        Assert.True(
+            plan.EffectiveEvidence.HasFlag(
+                ImplementationMetricEvidenceKind.DirectCalls));
+        Assert.True(
+            plan.WorkStages.HasFlag(
+                ImplementationMetricWorkStage
+                    .CanonicalMethodContext));
+        Assert.True(
+            plan.WorkStages.HasFlag(
+                ImplementationMetricWorkStage
+                    .DirectCallCollection));
+        Assert.True(
+            plan.WorkStages.HasFlag(
+                ImplementationMetricWorkStage
+                    .SiblingRelationshipProjection));
+        Assert.False(
+            plan.WorkStages.HasFlag(
+                ImplementationMetricWorkStage
+                    .AllocationSignalCollection));
+        Assert.False(
+            plan.WorkStages.HasFlag(
+                ImplementationMetricWorkStage
+                    .AllocationOccurrenceCollection));
+        Assert.False(
+            plan.WorkStages.HasFlag(
+                ImplementationMetricWorkStage
+                    .BodySignalCollection));
+        Assert.False(
+            plan.WorkStages.HasFlag(
+                ImplementationMetricWorkStage.SafetyCollection));
+    }
+
+    [Fact]
+    public void MetricPlan_BodySizeAvoidsCanonicalContextWork()
+    {
+        var limits = new ImplementationMetricWorkLimits(
+            maximumPhysicalBodies: 10,
+            maximumEncodedIlBytes: 10_000,
+            maximumAttributionProbeBodies: 20,
+            maximumAttributionProbeIlBytes: 20_000);
+        var request = new ImplementationMetricAnalysisRequest(
+            ImplementationMetricEvidenceKind.BodySize,
+            limits,
+            ImplementationMetricRequestOrigin.Explicit);
+
+        ImplementationMetricAnalysisPlan plan =
+            ImplementationMetricAnalysisPlan.Create(request);
+
+        Assert.Equal(
+            ImplementationMetricEvidenceKind.BodySize,
+            plan.EffectiveEvidence);
+        Assert.True(
+            plan.WorkStages.HasFlag(
+                ImplementationMetricWorkStage
+                    .ManagedBodyAcquisition));
+        Assert.False(
+            plan.WorkStages.HasFlag(
+                ImplementationMetricWorkStage
+                    .LocalSignatureDecode));
+        Assert.False(
+            plan.WorkStages.HasFlag(
+                ImplementationMetricWorkStage
+                    .CanonicalMethodContext));
+        Assert.False(
+            plan.WorkStages.HasFlag(
+                ImplementationMetricWorkStage
+                    .DirectCallCollection));
+    }
+
+    [Fact]
+    public void MetricRequest_RejectsEmptyUnknownAndInvalidLimits()
+    {
+        var limits = new ImplementationMetricWorkLimits(
+            maximumPhysicalBodies: 1,
+            maximumEncodedIlBytes: 1,
+            maximumAttributionProbeBodies: 1,
+            maximumAttributionProbeIlBytes: 1);
+        Assert.Throws<ArgumentException>(
+            () => ImplementationMetricAnalysisPlan.Create(
+                new(
+                    ImplementationMetricEvidenceKind.None,
+                    limits,
+                    ImplementationMetricRequestOrigin.Explicit)));
+        Assert.Throws<ArgumentOutOfRangeException>(
+            () => ImplementationMetricAnalysisPlan.Create(
+                new(
+                    (ImplementationMetricEvidenceKind)(1 << 20),
+                    limits,
+                    ImplementationMetricRequestOrigin.Explicit)));
+        Assert.Throws<ArgumentOutOfRangeException>(
+            () => new ImplementationMetricWorkLimits(
+                maximumPhysicalBodies: 0,
+                maximumEncodedIlBytes: 1,
+                maximumAttributionProbeBodies: 1,
+                maximumAttributionProbeIlBytes: 1));
+    }
+
+    [Fact]
     public void ExecutePath_PublishesFocusedResultsWithOneReceipt()
     {
         LibraryBodyAnalysisExecution execution =
