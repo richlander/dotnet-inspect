@@ -1,3 +1,4 @@
+using System.Buffers;
 using System.Collections.Concurrent;
 using System.Collections.Immutable;
 using System.Diagnostics;
@@ -362,6 +363,99 @@ internal static class BrowserPackageWorkspace
                 deadline,
                 cancellationToken),
             PackageOperationTimeout,
+            cancellationToken);
+
+    internal static Task<BrowserPackageDocumentPayload> ReadDocumentAsync(
+        string packageId,
+        string version,
+        string path,
+        CancellationToken cancellationToken = default) =>
+        ReadDocumentAsync(
+            packageId,
+            version,
+            path,
+            Gallery,
+            PackageOperationTimeout,
+            cancellationToken);
+
+    internal static Task<BrowserPackageDocumentPayload> ReadDocumentAsync(
+        string packageId,
+        string version,
+        string path,
+        IPackageSourceClient source,
+        TimeSpan operationTimeout,
+        CancellationToken cancellationToken) =>
+        RunPackageOperationAsync(
+            async deadline =>
+            {
+                ArgumentException.ThrowIfNullOrWhiteSpace(packageId);
+                ArgumentException.ThrowIfNullOrWhiteSpace(version);
+                ArgumentException.ThrowIfNullOrWhiteSpace(path);
+                ArgumentNullException.ThrowIfNull(source);
+
+                IPackageSourceAuthorization authorization =
+                    SourceAuthorizationFor(source);
+                BrowserSessionPackageStore store = StoreFor(source);
+                TimeSpan remaining =
+                    SourceSettlementOperationTimeout(deadline.Remaining);
+                var operation = PackageHouseOperation.Create(
+                    PackageHouseOperationProfile.Acquire,
+                    requestTimeout: remaining,
+                    operationTimeout: remaining);
+                var request = new PackageHouseRequest(
+                    new PackageHouseDemand.Exact(
+                        PackageSourceCoordinate.Create(
+                            packageId,
+                            version)),
+                    operation);
+                await using PackageSourceSettlementLease sourceLease =
+                    PackageSourceSettlementService.IssueLease(
+                        authority =>
+                            ReferenceEquals(
+                                authority.Association,
+                                source.Source.Association)
+                                ? source
+                                : throw new InvalidOperationException(
+                                    "The package settlement requested another configured source."));
+                PackageSourceOperationLease sourceOperation =
+                    sourceLease.IssueOperationLease(
+                        deadline.Token,
+                        operation.RequestTimeout,
+                        operation.OperationTimeout);
+                var house = new PackageHouse(
+                    authorization,
+                    new PackagePayloadAcquisitionPlan(
+                        (authority, _) =>
+                            ReferenceEquals(
+                                authority.Association,
+                                source.Source.Association)
+                                ? store
+                                : throw new InvalidOperationException(
+                                    "The package payload requested another configured source."),
+                        PackageLimits,
+                        new BrowserPackageOperationTransferPolicy(
+                            store,
+                            deadline)));
+                PackageHouseSettlement settlement =
+                    await house.ExecuteAsync(
+                            request,
+                            sourceOperation)
+                        .ConfigureAwait(false);
+                if (settlement is not PackageHouseSettlement.Acquired acquired
+                    || settlement.Result is not PackageHouseResult.Settled)
+                {
+                    throw new InvalidOperationException(
+                        $"PackageHouse could not acquire {packageId} {version}: "
+                            + DescribePackageHouseResult(settlement.Result));
+                }
+
+                return await BrowserPackage.ReadDocumentAsync(
+                        acquired,
+                        path,
+                        deadline.Token)
+                    .ConfigureAwait(false);
+            },
+            operationTimeout,
             cancellationToken);
 
     internal static Task<BrowserPackageRealizationResult> RealizeWithSettlementAsync(
@@ -4301,7 +4395,7 @@ internal sealed class BrowserPackage
     /// <summary>
     /// The package's browsable Markdown: a root <c>README.md</c>/<c>PACKAGE.md</c> and any
     /// <c>*.md</c> under a <c>skills</c> directory. Presence and size only; bodies are served by
-    /// <see cref="ReadDocument"/>, which accepts only a path from this list, so no caller can
+    /// <see cref="ReadDocumentAsync"/>, which accepts only a path from this list, so no caller can
     /// coax an arbitrary entry — an assembly, a signature — out of the package.
     /// </summary>
     public IReadOnlyList<BrowserPackageDocumentEntry> Documents() =>
@@ -4351,18 +4445,91 @@ internal sealed class BrowserPackage
         ];
     }
 
-    public BrowserPackageDocumentPayload ReadDocument(string path)
+    internal static async Task<BrowserPackageDocumentPayload> ReadDocumentAsync(
+        PackageHouseSettlement.Acquired settlement,
+        string path,
+        CancellationToken cancellationToken)
     {
+        ArgumentNullException.ThrowIfNull(settlement);
         ArgumentException.ThrowIfNullOrWhiteSpace(path);
-        BrowserPackageDocumentEntry document = Documents()
+        IPackageContent content = settlement.Payload.Content;
+        PackageSourceCoordinate coordinate = settlement.Payload.Coordinate;
+        if (content is not IPackageContentEntryManifest manifest)
+        {
+            throw new InvalidOperationException(
+                $"Package content for {coordinate.PackageId} {coordinate.Version} "
+                    + "does not expose a document manifest.");
+        }
+
+        BrowserPackageDocumentEntry document = ProjectDocuments(
+                manifest.EnumerateEntriesWithLengths(),
+                coordinate.PackageId,
+                coordinate.Version)
             .FirstOrDefault(candidate => candidate.Path.Equals(path, StringComparison.Ordinal))
             ?? throw new InvalidOperationException(
-                $"'{path}' is not a browsable document in {PackageId} {Version}.");
+                $"'{path}' is not a browsable document in "
+                    + $"{coordinate.PackageId} {coordinate.Version}.");
+
+        await using Stream input = document.Kind is "readme" or "skill"
+            ? settlement.OpenPayloadRead(document.Path, document.Size)
+            : content.TryOpenEntry(
+                document.Path,
+                MaxTextEntryBytes,
+                out Stream? eager)
+                ? eager
+                : throw new InvalidOperationException(
+                    $"The requested package entry was not found in "
+                        + $"{coordinate.PackageId} {coordinate.Version}.");
         return new BrowserPackageDocumentPayload(
             document.Kind,
             document.Name,
             document.Path,
-            Encoding.UTF8.GetString(Read(document.Path, MaxTextEntryBytes)));
+            await DecodeUtf8Async(input, cancellationToken)
+                .ConfigureAwait(false));
+    }
+
+    private static async Task<string> DecodeUtf8Async(
+        Stream input,
+        CancellationToken cancellationToken)
+    {
+        const int BufferSize = 64 * 1024;
+        byte[] bytes = ArrayPool<byte>.Shared.Rent(BufferSize);
+        char[] chars = ArrayPool<char>.Shared.Rent(
+            Encoding.UTF8.GetMaxCharCount(BufferSize));
+        try
+        {
+            Decoder decoder = Encoding.UTF8.GetDecoder();
+            var text = new StringBuilder();
+            while (true)
+            {
+                int read = await input.ReadAsync(
+                        bytes.AsMemory(0, BufferSize),
+                        cancellationToken)
+                    .ConfigureAwait(false);
+                bool completed = read == 0;
+                decoder.Convert(
+                    bytes.AsSpan(0, read),
+                    chars,
+                    completed,
+                    out int bytesUsed,
+                    out int charsUsed,
+                    out bool conversionCompleted);
+                if (bytesUsed != read || !conversionCompleted)
+                {
+                    throw new InvalidOperationException(
+                        "The bounded UTF-8 decoder did not consume its input.");
+                }
+
+                text.Append(chars.AsSpan(0, charsUsed));
+                if (completed)
+                    return text.ToString();
+            }
+        }
+        finally
+        {
+            ArrayPool<byte>.Shared.Return(bytes);
+            ArrayPool<char>.Shared.Return(chars);
+        }
     }
 
     internal Stream OpenEntry(string path, long maxExpandedBytes)
