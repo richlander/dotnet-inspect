@@ -312,10 +312,11 @@ is approved for this command.
 
 Omitting `-S` on `graph libraries` selects pair-wide `Direct Use Clusters`;
 omitting it on `graph cluster N` selects exact `Call Sites` for that focused
-component. Bare `-S` selects the two summary sections; an exact section name
-selects one projection, and normal section discovery describes their schemas
-without acquiring the libraries. Tabular streams require one selected section,
-while Markdown and JSON may carry several.
+component. Select `Consumer Use Sites;Provider API Types` explicitly for the
+two summary sections; an exact section name selects one projection, and normal
+section discovery describes their schemas without acquiring the libraries.
+Tabular streams require one selected section, while Markdown and JSON may carry
+several.
 
 The default and exact `Direct Use Clusters` views, the focused default and
 exact `Call Sites` views, and exact `Consumer Use Sites` or `Provider API
@@ -326,9 +327,9 @@ row retains counts for its complete group; limiting summary rows does not
 change the group's underlying occurrence set. Summary `Call Site Rows` values
 are one-based references to the effective call-site output, matching `--rows`;
 the typed projection continues to retain zero-based indexes into the result
-array. `--count` counts selected rows after that window. Bare `-S`, `Public
-Root Paths`, wildcard, category, and multi-section selections retain
-rendered-line selection because they do not declare one row schema.
+array. `--count` counts selected rows after that window. `Public Root Paths`,
+wildcard, category, and multi-section selections retain rendered-line selection
+because they do not declare one row schema.
 
 `GraphLibrariesQuery` owns one QuerySpace descriptor covering all five stable
 row-set identities. The four semantic row sets expose executable Head, Tail,

@@ -802,10 +802,10 @@ association reaches the Rows terminal for rendered output or the Count terminal
 for cardinality, so adding a section cannot silently fall through to Call
 Sites.
 
-Bare `-S`, Public Root Paths, wildcard or category selection, and every
-multi-section view remain outside these declarations because they expose
-independent row sets with different schemas. They retain the legacy `--rows`
-contract and use rendered-line fallback for bare `-n`.
+Public Root Paths, wildcard or category selection, and every multi-section view
+remain outside these declarations because they expose independent row sets
+with different schemas. They retain the legacy `--rows` contract and use
+rendered-line fallback for bare `-n`.
 
 ## Type catalog adoption
 
@@ -1275,10 +1275,9 @@ retain their existing behavior.
 
 The `project` command declares one semantic row per `ProjectDocumentRow` when
 the effective selection is exactly one of `Skills` or `Package README file`.
-This includes bare `-S`, whose focused default resolves to `Skills`. Project
-assets discovery, direct-package enumeration, document inventory construction,
-and row validation complete before Head/Tail or strict Window stages select
-from the ordered typed vector.
+Project assets discovery, direct-package enumeration, document inventory
+construction, and row validation complete before Head/Tail or strict Window
+stages select from the ordered typed vector.
 
 ```console
 $ dotnet-inspect project ./src/DotnetInspect.Cli \
@@ -1567,7 +1566,7 @@ The Project document row adoption is enforced by:
 
 | Gate | Property |
 | --- | --- |
-| `CommandExecutionTests.Project_SkillsSection_SemanticTailSelectsSameRowAcrossOutputs`, `Project_SkillsCount_ObservesSemanticHead`, `Project_ReadmeSection_SemanticWindowReindexesPrintRows`, and `Project_ReadmePaths_SemanticWindowReindexesBeforeRowSelection` | One selected Skills or Package README section applies semantic Head/Tail and strict Window to complete document rows before Markdown, table, TSV, JSONL, complete JSON, Count, value/path projection, or print/bare lowering; bare `-S` reaches the Skills declaration, and projection or print row numbers address the selected sequence. |
+| `CommandExecutionTests.Project_SkillsSection_SemanticTailSelectsSameRowAcrossOutputs`, `Project_SkillsCount_ObservesSemanticHead`, `Project_ReadmeSection_SemanticWindowReindexesPrintRows`, and `Project_ReadmePaths_SemanticWindowReindexesBeforeRowSelection` | One selected Skills or Package README section applies semantic Head/Tail and strict Window to complete document rows before Markdown, table, TSV, JSONL, complete JSON, Count, value/path projection, or print/bare lowering; projection or print row numbers address the selected sequence. |
 | `CommandExecutionTests.Project_SingleSection_UnavailableSemanticWindowWithholdsOutput`, `Project_SingleSection_ExplicitLinesClipsRenderedText`, `Project_SingleSection_RejectsInvalidRowRequestBeforeProjectResolution`, and `Project_SingleSection_SemanticHeadCannotHideInvalidLaterRow` | One unavailable strict Window emits no partial payload, explicit Lines clips rendered table text, numeric legacy `--rows` and complete-JSON line clipping fail before project resolution, and semantic Head cannot hide invalid later Skill metadata from complete inventory validation. |
 | `CommandExecutionTests.Project_MultiSection_RetainsLegacyWindowValidation` and `Project_MultiSection_InferredLinesRejectJsonBeforeProjectResolution` | Multi-section Project output remains outside the semantic declaration, retains its command-owned legacy row-window behavior, and infers rendered-line selection for bare `-n`. |
 

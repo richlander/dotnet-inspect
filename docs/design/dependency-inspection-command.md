@@ -838,13 +838,13 @@ membership. Automatic verbosity selects only the asset route's base category.
 `Dependency Hierarchy` declares conditional acquisition cost. It is network-free
 for restored assets and already-admitted local facts, and package-acquiring
 when an expandable package root requires another manifest. A plain `-D`
-remains structural and network-free. Bare `-S` includes the graph only when
-the effective root plan can produce it without network acquisition; the
-explicit remote `--package` gesture and ordinary default `-v:m` continue to
-authorize the package traversal they request.
+remains structural and network-free. Exact `-S "Dependency Hierarchy"` includes
+the graph when the effective root plan can produce it; the explicit remote
+`--package` gesture and ordinary default `-v:m` continue to authorize the
+package traversal they request.
 
 Type and library roots may not have package-declaration sections. Release
-static discovery lists the four retail sections. Bare effective discovery
+static discovery lists the four retail sections. Effective discovery
 excludes `Pruning` because it is explicit-only and unbounded; exact or wildcard
 selection may request it and therefore requires `--tfm`. Effective discovery
 otherwise reports which sections are applicable to the admitted root kinds
