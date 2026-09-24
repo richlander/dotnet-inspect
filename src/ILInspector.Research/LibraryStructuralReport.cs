@@ -237,7 +237,7 @@ public static class LibraryStructuralReport
                 profile.EvidenceMethod.MetadataToken),
         ];
         IReadOnlyDictionary<int, MethodIdentity> methods =
-            callGraph.Methods
+            callGraph.DeclaredMethods
                 .GroupBy(static method => method.MetadataToken)
                 .ToDictionary(
                     static group => group.Key,
@@ -264,20 +264,19 @@ public static class LibraryStructuralReport
             return [];
 
         Dictionary<TypeRef, HashSet<TypeRef>> neighbors = [];
+        Dictionary<TypeRef, int> callSiteVolumes = [];
         foreach (var edge in edges)
         {
             AddNeighbor(edge.Source, edge.Target);
             AddNeighbor(edge.Target, edge.Source);
+            AddCallSiteVolume(edge.Source, edge.CallSiteCount);
+            AddCallSiteVolume(edge.Target, edge.CallSiteCount);
         }
 
         var selectedTypes = neighbors
             .OrderByDescending(static pair => pair.Value.Count)
             .ThenByDescending(
-                pair => edges
-                    .Where(edge =>
-                        edge.Source.Equals(pair.Key)
-                        || edge.Target.Equals(pair.Key))
-                    .Sum(static edge => edge.CallSiteCount))
+                pair => callSiteVolumes[pair.Key])
             .ThenBy(
                 static pair => pair.Key.ToQualifiedDisplayString(),
                 StringComparer.Ordinal)
@@ -314,6 +313,12 @@ public static class LibraryStructuralReport
                 neighbors.Add(source, values);
             }
             values.Add(target);
+        }
+
+        void AddCallSiteVolume(TypeRef type, int callSiteCount)
+        {
+            callSiteVolumes.TryGetValue(type, out int volume);
+            callSiteVolumes[type] = volume + callSiteCount;
         }
     }
 

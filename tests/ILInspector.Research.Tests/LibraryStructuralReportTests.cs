@@ -195,6 +195,26 @@ public sealed class LibraryStructuralReportTests
             static relationship =>
                 relationship.Source.Name == "LocalThrowPathApi"
                 && relationship.Target.Name == "CrossTypeCallbackApi");
+        DirectCall bodilessCall = Assert.Single(
+            execution.CallGraph.DirectCalls,
+            static call =>
+                call.Kind == CallKind.CallVirtual
+                && call.Caller.DeclaringType.Name == "BodilessCallerApi"
+                && call.Callee.DeclaringType.Name == "IBodilessApi");
+        Assert.Contains(
+            execution.CallGraph.DeclaredMethods,
+            method =>
+                method.MetadataToken == bodilessCall.CalleeDefinitionToken);
+        Assert.DoesNotContain(
+            execution.CallGraph.Methods,
+            method =>
+                method.MetadataToken == bodilessCall.CalleeDefinitionToken);
+        Assert.Contains(
+            available.Document.EntangledRelationships,
+            static relationship =>
+                relationship.Source.Name == "BodilessCallerApi"
+                && relationship.Target.Name == "IBodilessApi"
+                && relationship.CallSiteCount == 1);
         Assert.True(
             available.Document.EntangledRelationships.Length
                 <= LibraryStructuralReport.MaximumEntangledTypeCount

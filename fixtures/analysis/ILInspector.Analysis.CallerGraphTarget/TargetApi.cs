@@ -242,6 +242,12 @@ namespace Target
         void Invoke();
     }
 
+    public static class BodilessCallerApi
+    {
+        public static void Invoke(IBodilessApi target) =>
+            target.Invoke();
+    }
+
     public sealed class VarargArg
     {
     }
