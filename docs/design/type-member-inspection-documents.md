@@ -23,7 +23,7 @@ host semantics into this owner.
 
 > Given one owner-resolved exact Type or one Type-scoped Member address, produce
 > one resource-free subject document that composes only requested owner-issued
-> Metadata, DocumentationHouse, and SourceHouse outcomes; exposes natural child
+> Metadata, DocumentationHouse, and SourceHouse outcomes; exposes natural row
 > populations only through QuerySpace Rows and Count; and crosses the completed
 > host-neutral boundary in one `InspectionEnvelope<TContent>` shared by CLI and
 > Inspect Web.
@@ -35,6 +35,7 @@ This owner defines:
 - producer-owned exposure of Metadata, documentation, and source views;
 - the Type document's `Members` row space;
 - the Member document's `Overloads` row space;
+- the shared `receiver = static | this | extension` row facet;
 - view-local and aggregate completion;
 - the rule that every exposed Rows or Count terminal flows through QuerySpace;
 - the same-population requirement for paired Rows and Count; and
@@ -137,6 +138,7 @@ The design composes established repository contracts:
 | Precedent | Adopted rule |
 | --- | --- |
 | [Library inspection documents and populations](library-inspection-document.md) | Documents follow resolved subjects; child rows are lightweight shapes; drill-down creates the child document. |
+| [Primary subject views](primary-subject-views.md) | An exact Type's children are its Members, including attached extensions distinguished by owner-issued row kind. One Member subject is one exact member name whose children are overloads. |
 | [Section cardinality](section-cardinality.md) | An inventory exposes Rows and Count as peer terminals over one owner-declared population. |
 | [Query Operation Infrastructure](query-operation-infrastructure.md) | Subject binding, operation planning, result rows, and QuerySpace row planning remain distinct stages. |
 | [Inspection operation composition](inspection-operation-composition.md) | Hosts lower gestures to typed requests, Houses settle authorized content, and one resource-free envelope crosses the completed boundary. |
@@ -158,6 +160,7 @@ and overload populations.
 | Exact Library and content authority | [Library ownership and borrowing](library-ownership-and-borrowing.md) | Exact resource-free Library/content correspondence and operation authority |
 | Type and Member facts and identities | Metadata and [Type, member, and API representation](type-member-api-representation.md) | Exact Type or Member identity and requested Metadata results |
 | Type and Member resolution | [Member inspection planning](member-inspection-planning-and-metadata-projection.md) and exact-Type query owners | Resolved subject, ambiguity, forwarding, and typed failure |
+| Primary subject and child roles | [Primary subject views](primary-subject-views.md) | One exact Type or member-name subject and its child population, including distinguished special child row kinds |
 | Documentation settlement | [DocumentationHouse](documentation-house.md) | Exact-subject channel attempts, field settlement, provenance, conflicts, and completion |
 | Source settlement | [SourceHouse](source-house.md) | Exact-subject authored/decompiled attempts, selected source, provenance, and completion |
 | Row planning and terminals | [QuerySpace composition](query-space-composition.md) and [Section-row shaping](section-row-shaping.md) | Resolved row intent, Rows or Count terminal, completion, and continuation |
@@ -188,8 +191,8 @@ shapes, not embedded `MemberDocument` values.
 A `MemberDocument` describes one Member inspection address within one exact
 Type. The address may resolve to:
 
-- one or more logical Member groups containing exact overload rows;
-- one exact Member selected from the resolved set; or
+- one logical Member group containing one or more exact overload rows;
+- one exact Member selected from that group; or
 - one typed non-success.
 
 The document retains which state was resolved. It does not pretend that a
@@ -197,17 +200,13 @@ logical Member name is one exact method, property, event, field, or accessor.
 An exact-Member-only view is unavailable until resolution proves one exact
 definition.
 
-An explicit Member-surface filter that retains several logical groups remains
-one `MemberDocument` inventory. Each overload row retains its logical-group
-identity, so the document does not flatten independent families into one
-apparent Member. A Type-surface Member filter remains a `TypeDocument`
-`Members` request under the existing planning contract.
-
 A no-match result is a typed Member-address non-success, not a successful empty
-`Overloads` population. A singleton resolved set remains an inventory unless
+`Overloads` population. A singleton logical group remains an inventory unless
 the request contains owner-issued exact-target intent. Exact targeting
-combined with several logical groups is rejected by the Member-resolution
-owner before exact-only views run.
+combined with several logical selectors is rejected by the Member-resolution
+owner before exact-only views run. Pattern, prefix, glob, or multi-name Member
+search belongs to `find` or a Type `Members` query rather than creating a
+multi-subject `MemberDocument`.
 
 ## Exact subject correspondence
 
@@ -242,20 +241,19 @@ another participant cannot perform the join.
 One Member inspection begins with:
 
 - one exact Type subject;
-- the original typed Member selector or logical-group request; and
-- the owner-issued resolved Member set in which inventory or exact resolution
+- one exact logical Member-name request; and
+- the owner-issued logical Member group in which overload or exact resolution
   occurs.
 
-The resolved set retains one or more logical Member groups. Each group retains
-its exact containing Type, admitted Member kind or kinds, canonical name or
-selector meaning, and population binding. Each overload row retains both its
+The resolved group retains its exact containing Type, admitted Member kind or
+kinds, canonical name, and population binding. Each overload row retains the
 group identity and one exact Member identity.
 
 An attached extension Member additionally retains two distinct owner-issued
 relationships:
 
 - the inspected receiver Type and the evidence by which the Member participates
-  in that Type's Member population; and
+  in that Type's Member population or resolved Member group; and
 - the exact declaring Library, declaring Type, and Member definition.
 
 Member drill-down preserves both. Metadata declaration facts,
@@ -385,7 +383,20 @@ and admission rules. Presentation grouping by method, property, event, field,
 constructor, operator, or nested category does not change row identity or
 Count. Compiler-generated exclusion, extension attachment, inherited-member
 policy, and visibility remain owner-issued population decisions rather than
-renderer conventions.
+renderer conventions. Attached extension Members are children under
+[Primary subject views](primary-subject-views.md), contribute to Count, and
+retain a distinct owner-issued row kind.
+
+Every Member row carries one exhaustive receiver classification:
+
+- **static** — an ordinary static Member;
+- **this** — an instance Member; or
+- **extension** — an extension Member declaration.
+
+Classification checks extension evidence first because extension Members are
+static in Metadata. `static` therefore excludes extension Members. The row
+facet is stable and QuerySpace-bindable as
+`receiver = static | this | extension`.
 
 An attached extension row carries its receiver attachment separately from its
 exact declaring Library, declaring Type, and Member identity. Selecting that
@@ -417,24 +428,29 @@ request can complete without invoking DocumentationHouse or SourceHouse.
 ## Member `Overloads` row space
 
 The Member document declares one natural `Overloads` row space for its resolved
-Member set. Its logical row unit is one exact Member declaration admitted by
-one retained logical group.
+logical Member group. Its logical row unit is one exact Member declaration
+admitted by that group.
 
 The name `Overloads` describes the inspection role rather than only C# method
 overloading. Constructors, operators, indexers, or another owner-admitted
 Member kind may have several exact declarations in one logical group.
 A non-overloadable Member group contains one row after successful resolution.
-When an explicit Member inventory selects several groups, Rows retain the group
-identity of every exact declaration and Count reports the total selected exact
-declarations. For the ordinary one-name request, that total is the overload
-count for that one logical Member.
+
+Every overload row carries the same exhaustive `receiver` facet:
+
+- `extension` when owner-issued extension evidence applies;
+- `static` for an ordinary static Member; and
+- `this` otherwise.
+
+One logical group may contain more than one receiver form. QuerySpace can focus
+on or exclude any form without changing overload identity.
 
 Conceptually:
 
 ```text
 MemberOverloadsPopulation
   exact containing Type
-  one or more logical Member-group identities
+  one logical Member-group identity
   canonical membership
   stable baseline order
   population binding
@@ -489,6 +505,31 @@ A scalar Metadata, documentation, or source view does not become a synthetic
 one-row space. If a future producer exposes a real inventory such as
 documentation contributions, source documents, or source locations, that
 inventory receives its own declared row identity and QuerySpace row space.
+
+The `Members` and `Overloads` row spaces bind the same stable `receiver` facet.
+Selecting `extension` focuses extension rows; selecting `static` or `this`
+excludes them. The facet is row classification, not subject identity, and never
+replaces exact receiver, declaring-Type, or Member correspondence.
+
+For example:
+
+```text
+receiver = extension
+receiver != extension
+```
+
+The first focuses extensions. The second selects ordinary static and instance
+rows while excluding extensions. Rows and Count use the same receiver-filtered
+row intent.
+
+`receiver` is the initial required cross-population facet, not a closed query
+vocabulary. A later focused owner may add one additive method `decoration`
+facet with the values `async` and `unsafe`; one method may carry both.
+`async` requires owner-issued async state-machine evidence. `unsafe` requires
+recoverable compiled evidence that the signature or implementation needs an
+unsafe C# representation; it does not claim that source contained an
+otherwise-unobservable `unsafe` keyword. This design does not establish a
+broader decoration taxonomy.
 
 ## Completion and failure
 
@@ -546,10 +587,11 @@ or reconstruct the document.
 
 The Type section owner maps the existing canonical Member inventory, including
 `Member Index`, to the document's `Members` row space and declares its
-inventory cardinality. The Member section owner maps each overload-inventory
-section to the document's `Overloads` row space and declares the same
-cardinality contract. Structural discovery advertises Rows and Count together
-only after those mappings exist.
+inventory cardinality. `Extension Methods` is a distinguished projection of
+attached extension child rows from that same population, not a second Count.
+The Member section owner maps each overload-inventory section to the document's
+`Overloads` row space and declares the same cardinality contract. Structural
+discovery advertises Rows and Count together only after those mappings exist.
 
 Markout is the default shared lowering for CLI structured output. Inspect Web
 may use host-native interaction and rendering over the same typed content.
@@ -616,6 +658,11 @@ The implementation must preserve these cases:
   fails;
 - a Type Member Count succeeds, then a Rows request presents an incompatible
   population binding;
+- ordinary static, instance, and extension rows are classified respectively as
+  `static`, `this`, and `extension`, with extension taking precedence over its
+  Metadata-static fact;
+- attached extension Members count as Type children and retain their distinct
+  row kind and exact declaring identity;
 - a logical Member group has eight overloads, while one exact selector chooses
   only one overload for detail;
 - a Member selector is ambiguous and neither DocumentationHouse nor
@@ -641,16 +688,16 @@ The last two are product defects, not permitted host divergence.
 owns the counted path:
 
 1. Lock this paired Type/Member inspection-document specification.
-2. Implement the host-neutral Type request, document, exact Member population,
-   and QuerySpace route.
+2. Implement the host-neutral Type request, document, Member population,
+   shared `receiver` facet, and QuerySpace route.
 3. Compose Type documentation and source views through DocumentationHouse and
    SourceHouse.
 4. Bind the Type document's `Members` row space and inventory cardinality to
    the existing Type sections.
 5. Adopt the Type document in CLI and Inspect Web; retire covered direct host
    composition and command-local Rows or Count execution.
-6. Implement the host-neutral Member request, document, overload population,
-   and QuerySpace route.
+6. Implement the host-neutral one-name Member request, document, overload
+   population, shared `receiver` facet, and QuerySpace route.
 7. Compose exact-Member documentation and source views through
    DocumentationHouse and SourceHouse.
 8. Bind the Member document's `Overloads` row space and inventory cardinality
@@ -671,6 +718,17 @@ The implementation sequence must add Release gates proving:
   exact Count and completely drained Rows for one binding;
 - `JsonConvert.SerializeObject` exposes the same eight-overload population
   through exact Count and completely drained Rows for one binding;
+- `receiver = static | this | extension` is exhaustive and mutually exclusive
+  across Type Member and Member overload rows, with extension classification
+  taking precedence over Metadata staticness;
+- QuerySpace can focus each receiver form or exclude extensions without
+  changing row identity, Count/Rows correspondence, or exact drill-down;
+- `JsonElement`'s Type `Members` Count is 62, including its five attached
+  `JsonSerializer.Deserialize` extension rows; `receiver = extension` yields
+  five and `receiver != extension` yields 57 through agreeing Count and
+  completely drained Rows;
+- attached extension rows retain receiver and declaring correspondence and a
+  distinct owner-issued row kind;
 - Count and completely drained Rows agree when subject, immutable producer
   binding, and row intent are identical, while a changed predicate, order, or
   semantic selection produces a distinct selected request;
@@ -678,6 +736,8 @@ The implementation sequence must add Release gates proving:
 - Type `Member Index` and Member overload structural discovery advertise Rows
   and Count together only through their registered section-to-QuerySpace
   bindings;
+- the `Extension Methods` section selects extension rows from the Type
+  `Members` population instead of declaring a second cardinality;
 - CLI and Browser exposed Rows and Count execute those shared QuerySpace routes
   rather than command-local enumeration or rendered-output counting;
 - requested compiled and authored documentation preserve contributions,
@@ -716,6 +776,7 @@ This design does not:
 - expose House attempts directly as host commands;
 - make documentation or source affect Member or overload cardinality;
 - require source acquisition for default Type or Member inspection;
+- implement or fully define the later method `decoration` QuerySpace facet;
 - add exact authored-Type, property, event, field, accessor, or bodyless-source
   correspondence;
 - define a universal Count optimization or continuation protocol;
