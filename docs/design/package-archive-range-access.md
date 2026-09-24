@@ -428,7 +428,9 @@ All gates run in Release.
 3. Inspect Web adopts the same content over the browser reader for package
    opens that today buffer the whole nupkg, under the browser-host rule above.
 4. The warm queue and the size-differentiated cache policy (#8386) decide
-   when a ranged read is followed by a complete download.
+   when a ranged read is followed by a complete download; owned by the
+   [package cache download queue](package-cache-download-queue.md), and
+   adopted before the second part of step 2.
 
 Total: four slices, the second in two parts; both hosts named; the retired
 path named.

@@ -691,7 +691,10 @@ Query-distinct or credential-path-distinct configured authorities therefore do
 not share entries merely because NuGetFetch gives them one producer identity.
 Aliases already proven to be one authority may share. An authority without a
 credential-safe durable key can use only authority-scoped process-local cache
-state; it cannot fall back to a producer-keyed persistent entry.
+state; it cannot fall back to a producer-keyed persistent entry. Local
+authorities and HTTP authorities without a configured credential or endpoint
+user information have such a key; the HTTP rule is owned by the
+[package cache download queue](package-cache-download-queue.md#durable-identity-for-credential-free-http-authorities).
 
 The NuGet global packages folder is a payload cache, not a candidate source.
 Its `.nupkg.metadata.source` must resolve unambiguously to an authority
@@ -862,16 +865,20 @@ separately. The old `package-content-v5` family remains for unmigrated consumers
 and is never reinterpreted as this new namespace. Local global-packages reuse
 requires the metadata source to resolve to the same canonical local authority.
 
-HTTP authorities currently have no durable cache identity. Their admitted
-payloads use authority-scoped temporary filesystem materialization, retained
-until the extraction consumer calls the existing cleanup API. They do not
-read or write persistent payload or derived package-index entries, including
-HTTP global-packages entries. Temporary ownership is independent of the final
-payload's cache origin: a cached redirect target does not release the consumer
-from cleaning up earlier HTTP wrapper materialization. This deliberately trades
-cross-invocation cache reuse for correct authority; it does not invent a durable
-HTTP key from a credential-bearing endpoint or producer digest. Local derived
-package indexes use the persistent authority key.
+HTTP authorities without a configured credential or endpoint user information
+have a durable cache identity, derived from the canonical endpoint as the
+[package cache download queue](package-cache-download-queue.md#durable-identity-for-credential-free-http-authorities)
+owns it, and publish into `package-authority-content-v1` like local
+authorities. HTTP authorities with a configured credential have none. Their
+admitted payloads use authority-scoped temporary filesystem materialization,
+retained until the extraction consumer calls the existing cleanup API. They do
+not read or write persistent payload or derived package-index entries. No HTTP
+authority reads NuGet global-packages entries. Temporary ownership is
+independent of the final payload's cache origin: a cached redirect target does
+not release the consumer from cleaning up earlier HTTP wrapper
+materialization. No durable HTTP key is formed from a credential-bearing
+endpoint or producer digest. Derived package indexes use the persistent
+authority key wherever one exists.
 
 One operation context spans exact acquisition, stream consumption, publication,
 and exact tool-wrapper redirects. Each redirect recomputes package-ID
